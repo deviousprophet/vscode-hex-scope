@@ -1,4 +1,4 @@
-﻿# HexScope
+# HexScope
 
 A VS Code custom editor for Intel HEX (`.hex`) files. Open any embedded firmware image and inspect its memory layout, analyze byte values, search the address space, patch bytes in-place, and annotate address ranges — all without leaving the editor.
 
@@ -65,12 +65,12 @@ Navigate matches with the `‹` / `›` buttons or `Enter` / `Shift+Enter`. The 
 
 ## Edit mode
 
-Click **✏ Edit** in the toolbar to enter edit mode.
+Click **Edit** in the toolbar to enter edit mode.
 
 - **Right-click → Patch** on a single byte to zero it, fill with `0xFF` (erased flash), or enter a custom hex value
 - **Right-click → Fill/Patch** on a multi-byte selection applies the same operation to all selected bytes
 - Edited bytes are highlighted in amber with an underline in the memory grid
-- The toolbar shows the pending change count and a **💾 Save** button
+- The toolbar shows the pending change count and a **Save** button
 - **Save** rebuilds the Intel HEX data records with updated bytes, recomputes per-record checksums, and writes the file to disk
 - **✕ Cancel** discards all pending edits and restores the original values
 - **Ctrl+Z** undoes the last edit operation
@@ -129,68 +129,3 @@ Both Extended Linear Address (type 04) and Extended Segment Address (type 02) ar
 
 - Only Intel HEX format is supported; SREC / Motorola S-Record is not
 - Edit mode modifies data record bytes only; address extension records and start-address records are preserved unchanged
-
-
-## Features
-
-### Memory View
-- Full hex grid with address column and decoded-text column
-- Drag-to-select across byte and text cells
-- Column hover highlight
-- 4-byte group spacing for easy reading
-- Gap rows for non-contiguous address ranges
-- Search: Hex bytes, ASCII string, or address (`Ctrl+F`)
-
-### Inspector (sidebar)
-**Single byte selected:**
-- Prominent `0xHH` hex chip, decimal value, and ASCII character (if printable) — each clickable to copy
-- Nibble-grouped binary string — click to copy
-
-**Multiple bytes selected:**
-- Raw hex byte dump — click to copy
-- Multi-byte interpreter (see below)
-- Bit grid for all selected bytes (up to 8)
-
-### Multi-Byte Interpreter
-Automatically interprets the selection as the smallest fitting type:
-- 2 bytes: `uint16`, `int16`
-- 4 bytes: `uint32`, `int32`, `float32`
-- 8 bytes: `float64`
-
-Unsigned types show decimal and hex stacked — click either to copy.
-Signed and float types show a single value — click to copy.
-Little-endian / Big-endian toggle.
-
-### Bit View
-Always-visible grid showing each byte as 8 color squares (lit = 1, dark = 0).
-Bit index header (7 → 0). Column hover highlights the same bit position across all rows.
-Shows up to 8 bytes for multi-byte selections.
-
-### Right-Click Context Menu
-**Single byte:**
-- Copy submenu: Hex, Decimal, Binary, ASCII (if printable)
-- Patch submenu *(edit mode only)*: Zero, Erased flash (0xFF), Custom hex value
-
-**Multiple bytes:**
-- Copy submenu: Hex (spaces), Hex (raw), Binary, ASCII, Decimal Array, Hex Array, C Array, Base64 — each with a live value preview
-- Analyze submenu: Sum, XOR, CRC-8, CRC-16, CRC-32 — values pre-computed, click to copy
-- Fill / Patch submenu *(edit mode only)*: Zero, Erased flash (0xFF), Custom hex value
-
-### Edit Mode
-Toggle `✏ Edit` in the toolbar to enter edit mode.
-- Fill / Patch submenu becomes available in the right-click menu
-- Edited bytes are highlighted in amber with underline in the memory grid
-- Unsaved byte count and `💾 Save` button appear in the toolbar
-- Clicking Save writes the patched Intel HEX back to disk with correct checksums per record
-
-### Views
-- **Memory** — hex grid (default)
-- **Records** — table of all Intel HEX records with type badges, addresses, checksums
-- **Raw** — syntax-highlighted source with per-field token coloring
-
-### Segment Labels
-- Add named, colored address-range labels from the sidebar
-- Labels appear as banners in the memory grid
-- Toggle visibility, reorder, edit, or delete labels
-- Labels are persisted per workspace per file
-
