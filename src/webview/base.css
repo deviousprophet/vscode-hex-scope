@@ -1,0 +1,58 @@
+/* ── Reset ───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Design tokens ───────────────────────────────────────────── */
+:root {
+    --cell-size:       calc(var(--vscode-editor-font-size, 13px) * 1.6);
+    --cell-pad:        calc(var(--cell-size) / 4);
+    --text-cell-width: calc(var(--cell-size) * 0.7);
+
+    --font-editor: var(--vscode-editor-font-family, 'Consolas', 'Courier New', monospace);
+    --font-ui:     var(--vscode-font-family, -apple-system, 'Segoe UI', sans-serif);
+    --font-size:   var(--vscode-editor-font-size, 13px);
+    --font-ui-sz:  var(--vscode-font-size, 12px);
+
+    --bg:              var(--vscode-editor-background,                  #1e1e1e);
+    --fg:              var(--vscode-editor-foreground,                  #d4d4d4);
+    --border:          var(--vscode-panel-border,                       #454545);
+    --toolbar-bg:      var(--vscode-editorGroupHeader-tabsBackground,   #2d2d2d);
+    --panel-bg:        var(--vscode-sideBar-background,                 #252526);
+    --input-bg:        var(--vscode-input-background,                   #3c3c3c);
+    --input-fg:        var(--vscode-input-foreground,                   #cccccc);
+    --input-bdr:       var(--vscode-input-border,                       #555555);
+    --focus-bdr:       var(--vscode-focusBorder,                        #007fd4);
+    --btn-bg:          var(--vscode-button-background,                  #0e639c);
+    --btn-fg:          var(--vscode-button-foreground,                  #ffffff);
+    --btn-hover:       var(--vscode-button-hoverBackground,             #1177bb);
+    --hover-bg:        var(--vscode-editor-hoverHighlightBackground,    rgba(173,214,255,.07));
+    --sel-bg:          var(--vscode-editor-selectionBackground,         rgba(38,79,120,.9));
+    --sel-fg:          var(--vscode-editor-selectionForeground);
+    --addr-fg:         var(--vscode-editorLineNumber-foreground,         #858585);
+    --addr-active-fg:  var(--vscode-editorLineNumber-activeForeground,   #c6c6c6);
+    --non-graphic:     var(--vscode-tab-unfocusedInactiveForeground,     #6a6a6a);
+
+    --ok:          #4ec9a0;
+    --err:         #f48771;
+    --match-bg:    rgba(234,179,8,.32);
+    --match-hi:    rgba(234,179,8,.7);
+    --gap-color:   rgba(255,183,77,.08);
+    --gap-bdr:     rgba(255,183,77,.3);
+    --print-color: #ce9178;
+    --high-color:  #9cdcfe;
+    --zero-color:  rgba(212,212,212,.20);
+    --sidebar-w:   272px;
+}
+
+html, body {
+    height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-ui); font-size: var(--font-ui-sz);
+}
+#app { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(121,121,121,.4); border-radius: 5px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: rgba(121,121,121,.7); }
+::-webkit-scrollbar-corner { background: transparent; }

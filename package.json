@@ -1,0 +1,171 @@
+{
+  "name": "hex-scope-vscode",
+  "displayName": "HexScope",
+  "publisher": "deviousprophet",
+  "description": "Custom editor for Intel HEX (.hex) files — memory grid, byte inspector with bit view and multi-byte interpreter, hex/ASCII/address search, record table, syntax-highlighted raw view, CRC and checksum analysis, segment labels, and in-place byte patching with checksum recomputation",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deviousprophet/hex-scope-vscode"
+  },
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "intel-hex",
+        "aliases": ["Intel HEX", "ihex"],
+        "extensions": [".hex"]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "intel-hex",
+        "scopeName": "source.intel-hex",
+        "path": "./syntaxes/intel-hex.tmLanguage.json"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "hexScope.hexEditor",
+        "displayName": "HexScope Viewer",
+        "selector": [
+          { "filenamePattern": "*.hex" }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "hexScope.addSegmentLabel",
+        "title": "HexScope: Add Segment Label"
+      },
+      {
+        "command": "hexScope.copyAsHexString",
+        "title": "HexScope: Copy Selection as Hex String"
+      },
+      {
+        "command": "hexScope.copyAsCArray",
+        "title": "HexScope: Copy Selection as C Array"
+      },
+      {
+        "command": "hexScope.copyAsAscii",
+        "title": "HexScope: Copy Selection as ASCII"
+      },
+      {
+        "command": "hexScope.copyRawRecord",
+        "title": "HexScope: Copy Raw HEX Record"
+      },
+      {
+        "command": "hexScope.openInHexScope",
+        "title": "Open with HexScope Viewer",
+        "icon": "$(symbol-misc)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "hexScope.openInHexScope",
+          "when": "resourceExtname == .hex && activeCustomEditorId != 'hexScope.hexEditor'",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "hexScope.openInHexScope",
+          "when": "resourceExtname == .hex && activeEditorIsNotPreview && activeCustomEditorId != 'hexScope.hexEditor'",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "hexScope.openInHexScope",
+          "when": "resourceExtname == .hex && activeCustomEditorId != 'hexScope.hexEditor'",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "editor.tokenColorCustomizations": {
+        "textMateRules": [
+          {
+            "scope": "punctuation.ihex.start-code",
+            "settings": { "foreground": "#6a6a6a" }
+          },
+          {
+            "scope": "meta.ihex.byte-count",
+            "settings": { "foreground": "#858585" }
+          },
+          {
+            "scope": "meta.ihex.address",
+            "settings": { "foreground": "#c6c6c6", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.ihex.record-type.data",
+            "settings": { "foreground": "#4ec9a0", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.ihex.record-type.eof",
+            "settings": { "foreground": "#ce9178", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.ihex.record-type.extended-address",
+            "settings": { "foreground": "#9cdcfe", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.ihex.record-type.start-address",
+            "settings": { "foreground": "#9cdcfe", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.ihex.data",
+            "settings": { "foreground": "#ce9178" }
+          },
+          {
+            "scope": "meta.ihex.extended-address-value",
+            "settings": { "foreground": "#9cdcfe" }
+          },
+          {
+            "scope": "meta.ihex.checksum",
+            "settings": { "foreground": "#858585" }
+          },
+          {
+            "scope": "invalid.illegal.ihex",
+            "settings": { "foreground": "#f48771" }
+          }
+        ]
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.110.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.56.1",
+    "eslint": "^9.39.3",
+    "esbuild": "^0.27.3",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}

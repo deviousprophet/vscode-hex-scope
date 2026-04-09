@@ -1,0 +1,41 @@
+/* ── Raw view ─────────────────────────────────────────────────── */
+#raw-view { flex: 1; overflow: hidden; display: none; }
+#raw-view.visible { display: flex; }
+
+.raw-scroll { flex: 1; overflow: auto; width: 100%; }
+.raw-code   { display: block; padding: 6px 0; }
+
+.raw-line {
+    display: flex; align-items: baseline;
+    font-family: var(--font-editor); font-size: var(--font-size);
+    line-height: var(--cell-size); white-space: nowrap;
+    padding: 0 8px;
+}
+.raw-line:hover { background: var(--hover-bg); }
+.raw-malformed  { background: rgba(244,135,113,.07); }
+.raw-malformed:hover { background: rgba(244,135,113,.13); }
+
+/* Line number */
+.raw-ln {
+    min-width: 3.2em; text-align: right; padding-right: 1.2em;
+    color: var(--non-graphic); font-size: 10px; -webkit-user-select: none; user-select: none;
+    flex-shrink: 0;
+}
+
+/* Record tokens */
+.raw-colon { color: var(--non-graphic); }
+.raw-ll    { color: var(--addr-fg); }
+.raw-addr  { color: var(--addr-active-fg); }
+
+/* Type byte — colour by type */
+.raw-tt        { font-weight: 700; }
+.raw-t-data    { color: #4ec9a0; }   /* green  — data   */
+.raw-t-eof     { color: #ce9178; }   /* orange — EOF    */
+.raw-t-ela     { color: var(--high-color); } /* blue — ELA/ESA */
+.raw-t-other   { color: #ffb74d; }   /* amber  — other  */
+
+.raw-data { color: var(--print-color); letter-spacing: .04em; }
+.raw-chk  { color: var(--addr-fg); }
+
+/* Malformed line text */
+.raw-text { color: var(--err); }

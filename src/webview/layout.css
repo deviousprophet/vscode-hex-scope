@@ -1,0 +1,24 @@
+/* ── Main two-pane layout ─────────────────────────────────────── */
+#main-area    { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+#content-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Sidebar skeleton ────────────────────────────────────────── */
+#sidebar {
+    width: var(--sidebar-w); min-width: var(--sidebar-w);
+    background: var(--panel-bg); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.sb-scroll  { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+
+.sb-hdr {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--addr-fg); margin-bottom: 8px;
+}
+.sb-badge {
+    background: rgba(134,180,212,.14); color: var(--high-color);
+    border-radius: 8px; padding: 0 5px; font-size: 9px; font-weight: 600;
+    letter-spacing: 0; text-transform: none;
+}
+.sb-empty { color: var(--non-graphic); font-size: 11px; font-style: italic; }

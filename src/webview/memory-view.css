@@ -1,0 +1,105 @@
+/* ── Memory view container ───────────────────────────────────── */
+#memory-view { flex: 1; overflow: hidden; display: none; flex-direction: column; }
+#memory-view.visible { display: flex; }
+
+/* ── Column header (mirrors vscode-hexeditor DataHeader) ─────── */
+#mem-header {
+    flex-shrink: 0; display: flex; align-items: center;
+    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
+    font-family: var(--font-editor); font-weight: 700;
+    color: var(--addr-active-fg);
+    -webkit-user-select: none; user-select: none;
+    overflow: hidden; white-space: nowrap;
+}
+#mem-header .addr-cell { visibility: hidden; }
+
+/* ── Scroll viewport ─────────────────────────────────────────── */
+#mem-scroll { flex: 1; overflow: auto; }
+#mem-rows   { padding: 2px 0; width: fit-content; min-width: 100%; }
+
+/* ── Data row (mirrors vscode-hexeditor DataRow) ─────────────── */
+.data-row { display: flex; align-items: center; height: var(--cell-size); white-space: nowrap; width: fit-content; }
+.data-row:hover { background: var(--hover-bg); }
+
+/* ── Cell group (mirrors DataCellGroup component) ─────────────── */
+.cell-group { display: inline-flex; padding: 0 var(--cell-pad); cursor: default; }
+.cell-group:last-child {
+    border-left: 2px solid rgba(255,255,255,.18);
+    margin-left: calc(var(--cell-pad) * 1.5);
+    padding-left: calc(var(--cell-pad) * 1.5);
+}
+
+/* ── Address cell (mirrors Address component) ─────────────────── */
+.addr-cell {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    line-height: var(--cell-size); text-transform: uppercase;
+    color: var(--addr-fg); white-space: nowrap;
+}
+.data-row:hover .addr-cell { color: var(--addr-active-fg); }
+
+/* ── Hex byte cell (mirrors DataCell — square, font-size driven) ─ */
+.data-cell {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    width: var(--cell-size); height: var(--cell-size); line-height: var(--cell-size);
+    text-align: center; display: inline-block; border-radius: 2px;
+    -webkit-user-select: none; user-select: none; cursor: pointer;
+}
+/* 4-byte group gap: add left margin to the 5th, 9th, 13th cell (1-indexed) */
+.cell-group .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
+.cell-group .char-cell:nth-child(4n+1):not(:first-child)  { margin-left: calc(var(--text-cell-width) * 0.3); }
+.data-cell.bz { color: var(--zero-color); }
+.data-cell.bp { color: var(--print-color); }
+.data-cell.bh { color: var(--high-color); }
+.data-cell.bn { color: var(--fg); }
+.data-cell.be { color: var(--non-graphic); cursor: default; }
+
+/* Edited / dirty byte — amber underline */
+.data-cell.dirty, .char-cell.dirty { text-decoration: underline; text-decoration-color: #e5a800; text-underline-offset: 2px; color: #e5a800; }
+
+/* ── ASCII char cell (0.7× width, mirrors text cell) ─────────── */
+.char-cell {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    width: var(--text-cell-width); height: var(--cell-size); line-height: var(--cell-size);
+    text-align: center; display: inline-block; border-radius: 2px;
+    -webkit-user-select: none; user-select: none; cursor: pointer;
+}
+.char-cell.cp { color: var(--fg); }
+.char-cell.cd { color: var(--non-graphic); cursor: default; }
+
+/* ── Column hover highlight ───────────────────────────────────── */
+.data-cell.col-hi:not(.sel):not(.match) { background: rgba(255,255,255,.06); }
+.char-cell.col-hi:not(.sel):not(.match) { background: rgba(255,255,255,.06); }
+#mem-header .data-cell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
+
+/* ── Hover / selection / search highlight ────────────────────── */
+.data-cell:not(.be):hover, .char-cell:not(.cd):hover { background: var(--hover-bg); }
+
+.data-cell.sel, .char-cell.sel {
+    background: var(--sel-bg) !important;
+    color: var(--sel-fg, var(--fg)); outline: none;
+}
+.data-cell.match, .char-cell.match             { background: var(--match-bg) !important; }
+.data-cell.match.amatch, .char-cell.match.amatch{ background: var(--match-hi) !important; }
+
+/* ── Gap row ─────────────────────────────────────────────────── */
+.gap-row {
+    display: flex; align-items: center; padding: 0 10px;
+    height: calc(var(--cell-size) * 1.5); margin: 2px 0;
+    background: var(--gap-color);
+    border-top: 1px dashed var(--gap-bdr); border-bottom: 1px dashed var(--gap-bdr);
+    border-radius: 3px;
+    -webkit-user-select: none; user-select: none; white-space: nowrap;
+}
+.gap-dots  { font-family: var(--font-editor); color: var(--gap-bdr); margin-right: 10px; letter-spacing: 4px; }
+.gap-range { font-family: var(--font-editor); font-size: var(--font-size); color: var(--addr-fg); }
+.gap-size  { font-size: 11px; color: var(--non-graphic); margin-left: 10px; }
+
+/* ── Segment label banner ────────────────────────────────────── */
+.seg-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 10px 2px calc(var(--cell-pad) + 6px);
+    border-left: 3px solid;
+    -webkit-user-select: none; user-select: none;
+}
+.seg-banner .sb-name { font-size: 11px; font-weight: 700; }
+.seg-banner .sb-meta { font-family: var(--font-editor); font-size: 10px; opacity: .65; }

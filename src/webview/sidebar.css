@@ -1,0 +1,203 @@
+/* ── Inspector ───────────────────────────────────────────────── */
+#insp-addr {
+    font-family: var(--font-editor); font-size: 12px; font-weight: 700;
+    color: var(--addr-active-fg); letter-spacing: .04em;
+    padding: 4px 8px; margin-bottom: 8px;
+    background: rgba(255,255,255,.04);
+    border-left: 2px solid var(--addr-active-fg); border-radius: 2px;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px;
+}
+.insp-addr-single { font-size: 13px; }
+.insp-addr-range  { font-size: 12px; }
+.insp-addr-sep    { color: var(--addr-fg); font-size: 11px; margin: 0 1px; }
+.insp-addr-len    {
+    margin-left: auto; font-size: 10px; font-weight: 400;
+    color: var(--addr-fg); font-family: var(--font-ui);
+    background: rgba(255,255,255,.06); border-radius: 8px;
+    padding: 1px 6px; white-space: nowrap;
+}
+
+/* Single-byte view */
+.insp-byte-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.insp-hex-chip {
+    font-family: var(--font-editor); font-size: 18px; font-weight: 700;
+    color: var(--high-color); cursor: pointer; line-height: 1.2;
+}
+.insp-hex-chip:hover { opacity: .75; }
+.insp-dec-chip {
+    font-family: var(--font-editor); font-size: 15px; font-weight: 600;
+    color: var(--fg); cursor: pointer; line-height: 1.2;
+}
+.insp-dec-chip:hover { opacity: .75; }
+.insp-ascii-chip {
+    font-family: var(--font-editor); font-size: 14px;
+    color: var(--print-color); opacity: .85; line-height: 1.2;
+}
+.insp-bin-row {
+    font-family: var(--font-editor); font-size: 11px; letter-spacing: .1em;
+    color: var(--addr-fg); cursor: pointer; display: inline-block;
+}
+.insp-bin-row:hover { color: var(--fg); }
+
+/* Multi-byte raw dump */
+.insp-raw-dump {
+    font-family: var(--font-editor); font-size: 11px; letter-spacing: .06em;
+    color: var(--print-color); cursor: pointer;
+    padding: 4px 6px; background: rgba(0,0,0,.2); border-radius: 3px;
+    word-break: break-all;
+}
+.insp-raw-dump:hover { background: rgba(255,255,255,.05); }
+.insp-dump-ellipsis { color: var(--addr-fg); opacity: .5; }
+
+/* ── Bit viewer ──────────────────────────────────────────────── */
+.sb-body { /* body always visible */ }
+
+/* Inspector inline multi-byte */
+#insp-multi { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+#insp-multi:empty { display: none; }
+
+.bitgrid-wrap { display: flex; flex-direction: column; gap: 2px; }
+
+/* One row: optional byte label + 8 bit cells */
+.bit-row  { display: grid; grid-template-columns: 3.8em repeat(8, 1fr); gap: 2px; align-items: center; min-height: 22px; }
+
+/* Bit index header row */
+.bit-idx  { text-align: center; font-size: 9px; color: var(--non-graphic); font-family: var(--font-editor); }
+
+/* Byte label (B0, B1 …) — stacked: index on top, hex below */
+.bit-lbl  { display: flex; flex-direction: column; align-items: flex-end;
+            padding-right: 4px; gap: 0; justify-content: center; }
+.bit-lbl-idx { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); line-height: 1.3; }
+/* header variant — dimmer */
+.bit-lbl-hdr { opacity: .4; }
+
+.bit-v {
+    aspect-ratio: 1;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-radius: 2px;
+    background: rgba(0,0,0,.18);
+}
+.bit-v.on { background: rgba(79,195,247,.25); border-color: rgba(79,195,247,.55); }
+.bit-v.bit-col-hi            { border-color: rgba(79,195,247,.25); background: rgba(79,195,247,.05); }
+.bit-v.on.bit-col-hi         { background: rgba(79,195,247,.3);  border-color: rgba(79,195,247,.7); }
+
+/* hex value in byte-row label */
+.bit-hex { color: var(--high-color); opacity: .7; font-size: 9px;
+            font-family: var(--font-editor); line-height: 1.3; }
+
+/* popcount footer */
+.bit-pc  { display: block; text-align: right; font-size: 9px; color: var(--addr-fg);
+           opacity: .5; margin-top: 2px; font-family: var(--font-editor); }
+
+/* ── Multi-byte interpreter ──────────────────────────────────── */
+.mi-endian     { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+.mi-endian-lbl { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; margin-right: auto; }.endian-tabs {
+    display: flex; gap: 2px;
+    background: rgba(0,0,0,.2); border-radius: 3px; padding: 2px;
+}
+.endian-tabs button {
+    flex: 1; background: transparent; color: var(--addr-fg);
+    border: none; border-radius: 2px; padding: 1px 8px; cursor: pointer;
+    font-size: 11px; font-family: var(--font-ui); transition: background .1s, color .1s;
+}
+.endian-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
+.endian-tabs button:hover:not(.active) { color: var(--fg); }
+
+/* two-row control area */
+.mi-ctrl-row   { display: flex; align-items: center; justify-content: space-between;
+                 margin-bottom: 6px; }
+.mi-ctrl-lbl   { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
+
+/* zero-pad note */
+.mi-pad-row  { margin-bottom: 5px; }
+.mi-pad-note { font-size: 9px; color: var(--non-graphic); font-style: italic; }
+
+/* group — shared 2-col grid so type names and values align across all rows */
+.mi-group     { display: grid; grid-template-columns: auto 1fr; gap: 1px 0; }
+.mi-group-sep { height: 1px; background: rgba(255,255,255,.06); margin: 8px 0; grid-column: 1 / -1; }
+.mi-group-dim { opacity: .3; pointer-events: none; }
+
+/* individual card — spans both grid columns internally */
+.mi-card      { display: contents; }
+.mi-card > .mi-type  { padding: 3px 10px 3px 5px; align-self: center; }
+.mi-card > .mi-vals  { padding: 3px 5px 3px 0; }
+
+/* unsigned card — vals stack vertically */
+.mi-ucard > .mi-vals { flex-direction: column; align-items: flex-end; gap: 2px; padding: 4px 5px 4px 0; }
+
+/* type name — left column */
+.mi-type { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
+           flex-shrink: 0; white-space: nowrap; align-self: center; }
+
+/* values — right column */
+.mi-vals { display: flex; flex-direction: row; align-items: center;
+           font-family: var(--font-editor); gap: 4px; justify-content: flex-end; }
+.mi-dec           { font-size: 12px; font-weight: 600; color: var(--fg); line-height: 1.3; }
+.mi-dec[data-copy]{ cursor: pointer; }
+.mi-dec[data-copy]:hover { opacity: .75; }
+.mi-hex           { font-size: 10px; color: var(--addr-fg); opacity: .65; line-height: 1.2; }
+.mi-hex[data-copy]{ cursor: pointer; }
+.mi-hex[data-copy]:hover { opacity: 1; color: var(--fg); }
+.mi-na   { font-size: 11px; color: var(--addr-fg); opacity: .35; }
+
+/* keep for any remaining references */
+.mt-special { color: var(--non-graphic); font-style: italic; }
+
+/* ── Segment labels ──────────────────────────────────────────── */
+.label-item {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.label-item:last-of-type { border-bottom: none; }
+.label-item.label-hidden { opacity: .45; }
+.label-sw  { width: 3px; height: 28px; border-radius: 2px; flex-shrink: 0; }
+.label-inf { flex: 1; min-width: 0; }
+.label-nm  { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.label-rng { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); margin-top: 1px; }
+
+.label-act {
+    cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
+    padding: 2px 3px; border-radius: 2px; flex-shrink: 0;
+    transition: color .1s, background .1s; -webkit-user-select: none; user-select: none;
+}
+.label-act:hover         { color: var(--fg); background: rgba(255,255,255,.08); }
+.label-del:hover         { color: var(--err); background: rgba(244,135,113,.1); }
+.label-edt:hover         { color: var(--high-color); background: rgba(134,180,212,.1); }
+
+.add-lbl-btn {
+    width: 100%; margin-top: 8px; padding: 5px;
+    background: transparent; color: var(--high-color);
+    border: 1px dashed rgba(134,180,212,.28); border-radius: 3px;
+    cursor: pointer; font-size: 11px; font-family: var(--font-ui);
+    transition: background .1s, border-style .1s;
+}
+.add-lbl-btn:hover { background: rgba(134,180,212,.07); border-style: solid; }
+
+/* ── Label inline form ───────────────────────────────────────── */
+.lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.lf-field    { display: flex; flex-direction: column; gap: 3px; }
+.lf-lbl      { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
+.lf-input    { background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--input-bdr);
+               border-radius: 3px; padding: 4px 6px; font-family: var(--font-editor); font-size: 11px;
+               outline: none; width: 100%; box-sizing: border-box; }
+.lf-input:focus { border-color: var(--focus-bdr); }
+.lf-range-row  { display: flex; gap: 5px; align-items: center; }
+.lf-mode-grp   { display: flex; gap: 2px; flex-shrink: 0; }
+.lf-mode       { background: transparent; color: var(--addr-fg); border: 1px solid var(--border);
+                 border-radius: 2px; padding: 3px 7px; cursor: pointer;
+                 font-size: 10px; font-family: var(--font-ui); transition: background .1s, color .1s; }
+.lf-mode.active { background: var(--btn-bg); color: var(--btn-fg); border-color: var(--btn-bg); }
+.lf-swatches   { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
+.lf-swatch     { width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+                 border: 2px solid transparent; transition: transform .1s, border-color .1s; flex-shrink: 0; }
+.lf-swatch:hover   { transform: scale(1.2); }
+.lf-swatch.selected { border-color: var(--fg); }
+.lf-warn       { font-size: 10px; color: var(--match-hi); min-height: 14px; }
+.lf-actions    { display: flex; gap: 5px; }
+.lf-btn        { flex: 1; border-radius: 3px; padding: 5px; cursor: pointer;
+                 font-size: 11px; font-family: var(--font-ui); border: none; }
+.lf-save       { background: var(--btn-bg); color: var(--btn-fg); transition: background .1s; }
+.lf-save:hover { background: var(--btn-hover); }
+.lf-cancel     { background: transparent; color: var(--addr-fg); border: 1px solid var(--border) !important;
+                 transition: color .1s, border-color .1s; }
+.lf-cancel:hover { color: var(--fg); border-color: var(--fg); }

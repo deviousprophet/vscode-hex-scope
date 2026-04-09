@@ -1,0 +1,40 @@
+/* ── Record view ─────────────────────────────────────────────── */
+#record-view { flex: 1; overflow-y: auto; display: none; }
+#record-view.visible { display: block; }
+
+.rtbl { width: 100%; border-collapse: collapse; }
+
+.rtbl thead tr {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
+}
+.rtbl th {
+    padding: 5px 10px; text-align: left; white-space: nowrap;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--addr-active-fg); font-family: var(--font-ui);
+}
+.rtbl td {
+    padding: 3px 10px; border-bottom: 1px solid rgba(255,255,255,.04);
+    white-space: nowrap; vertical-align: middle;
+}
+.rtbl tbody tr:hover td            { background: var(--hover-bg); cursor: pointer; }
+.rtbl tbody tr.rerr td             { background: rgba(244,135,113,.06); }
+.rtbl tbody tr.rerr:hover td       { background: rgba(244,135,113,.1); }
+
+.rbadge {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; font-family: var(--font-ui);
+}
+.rb-data  { background: rgba(78,201,160,.13);  color: #4ec9a0; }
+.rb-eof   { background: rgba(206,145,120,.13); color: #ce9178; }
+.rb-ext   { background: rgba(134,180,212,.13); color: var(--high-color); }
+.rb-start { background: rgba(255,183,77,.13);  color: #ffb74d; }
+.rb-bad   { background: rgba(244,135,113,.18); color: var(--err); }
+
+.raddr       { color: var(--addr-active-fg); font-family: var(--font-editor); font-weight: 600; }
+.raddr-empty { color: var(--non-graphic); text-align: center; }
+.rdata { font-family: var(--font-editor); letter-spacing: .02em; }
+.rcnt  { color: var(--addr-fg); font-family: var(--font-editor); text-align: right; }
+.cok   { color: var(--ok);  font-family: var(--font-editor); }
+.cerr  { color: var(--err); font-family: var(--font-editor); font-weight: 700; }

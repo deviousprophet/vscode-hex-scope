@@ -1,0 +1,128 @@
+{
+    "name": "Intel HEX",
+    "scopeName": "source.intel-hex",
+    "patterns": [
+        {
+            "include": "#data-record"
+        },
+        {
+            "include": "#eof-record"
+        },
+        {
+            "include": "#extended-record"
+        },
+        {
+            "include": "#start-record"
+        },
+        {
+            "include": "#unknown-record"
+        }
+    ],
+    "repository": {
+        "data-record": {
+            "comment": "Data record (type 00)",
+            "match": "^(:)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})(00)([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": {
+                    "name": "punctuation.ihex.start-code"
+                },
+                "2": {
+                    "name": "meta.ihex.byte-count"
+                },
+                "3": {
+                    "name": "meta.ihex.address"
+                },
+                "4": {
+                    "name": "meta.ihex.record-type.data"
+                },
+                "5": {
+                    "name": "meta.ihex.data"
+                },
+                "6": {
+                    "name": "meta.ihex.checksum"
+                }
+            }
+        },
+        "eof-record": {
+            "comment": "End of file record (type 01)",
+            "match": "^(:)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})(01)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": {
+                    "name": "punctuation.ihex.start-code"
+                },
+                "2": {
+                    "name": "meta.ihex.byte-count"
+                },
+                "3": {
+                    "name": "meta.ihex.address"
+                },
+                "4": {
+                    "name": "meta.ihex.record-type.eof"
+                },
+                "5": {
+                    "name": "meta.ihex.checksum"
+                }
+            }
+        },
+        "extended-record": {
+            "comment": "Extended segment/linear address records (types 02, 04)",
+            "match": "^(:)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})(0[24])([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": {
+                    "name": "punctuation.ihex.start-code"
+                },
+                "2": {
+                    "name": "meta.ihex.byte-count"
+                },
+                "3": {
+                    "name": "meta.ihex.address"
+                },
+                "4": {
+                    "name": "meta.ihex.record-type.extended-address"
+                },
+                "5": {
+                    "name": "meta.ihex.extended-address-value"
+                },
+                "6": {
+                    "name": "meta.ihex.checksum"
+                }
+            }
+        },
+        "start-record": {
+            "comment": "Start segment/linear address records (types 03, 05)",
+            "match": "^(:)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})(0[35])([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": {
+                    "name": "punctuation.ihex.start-code"
+                },
+                "2": {
+                    "name": "meta.ihex.byte-count"
+                },
+                "3": {
+                    "name": "meta.ihex.address"
+                },
+                "4": {
+                    "name": "meta.ihex.record-type.start-address"
+                },
+                "5": {
+                    "name": "meta.ihex.extended-address-value"
+                },
+                "6": {
+                    "name": "meta.ihex.checksum"
+                }
+            }
+        },
+        "unknown-record": {
+            "comment": "Unknown or malformed record",
+            "match": "^(:)(.+)$",
+            "captures": {
+                "1": {
+                    "name": "punctuation.ihex.start-code"
+                },
+                "2": {
+                    "name": "invalid.illegal.ihex"
+                }
+            }
+        }
+    }
+}
