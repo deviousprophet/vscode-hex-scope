@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { parseIntelHex, ParseResult } from './parser/IntelHexParser';
 
@@ -219,6 +220,7 @@ export interface SerializedParseResult {
 function serializeIntelHex(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
     if (edits.size === 0) { return originalRaw; }
 
+    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
     const lines: string[] = [];
     for (const rec of parseResult.records) {
         if (rec.error || rec.recordType !== 0 /* Data */) {
@@ -239,7 +241,7 @@ function serializeIntelHex(originalRaw: string, parseResult: ParseResult, edits:
         // Rebuild the record line with updated data + recomputed checksum
         lines.push(buildDataRecord(rec.address, data));
     }
-    return lines.join('\n');
+    return lines.join(eol);
 }
 
 function buildDataRecord(addr16: number, data: number[]): string {
@@ -259,10 +261,5 @@ function buildDataRecord(addr16: number, data: number[]): string {
 }
 
 function getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return crypto.randomBytes(16).toString('hex');
 }
