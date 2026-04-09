@@ -44,18 +44,22 @@ jobs:
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
       - name: Package VSIX
-        run: vsce package --out hex-scope.vsix
+        run: vsce package --out vscode-hex-scope-${{ steps.version.outputs.version }}.vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hex-scope-vsix
-          path: hex-scope.vsix
+          name: vscode-hex-scope-${{ steps.version.outputs.version }}
+          path: vscode-hex-scope-${{ steps.version.outputs.version }}.vsix
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: hex-scope.vsix
+          files: vscode-hex-scope-${{ steps.version.outputs.version }}.vsix
           generate_release_notes: true
