@@ -1,6 +1,6 @@
 {
   "name": "vscode-hex-scope",
-  "displayName": "HexScope",
+  "displayName": "Hex Scope",
   "publisher": "deviousprophet",
   "description": "Custom editor for Intel HEX (.hex) files — memory grid, byte inspector with bit view and multi-byte interpreter, hex/ASCII/address search, record table, syntax-highlighted raw view, CRC and checksum analysis, segment labels, and in-place byte patching with checksum recomputation",
   "version": "1.0.0",
