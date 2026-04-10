@@ -2,7 +2,7 @@
   "name": "vscode-hex-scope",
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
-  "description": "Custom editor for Intel HEX (.hex) files — memory grid, byte inspector with bit view and multi-byte interpreter, hex/ASCII/address search, record table, syntax-highlighted raw view, CRC and checksum analysis, segment labels, and in-place byte patching with checksum recomputation",
+  "description": "Custom editor for Intel HEX (.hex) and Motorola SREC (.srec/.mot/.s19) files — memory grid, byte inspector with bit view and multi-byte interpreter, hex/ASCII/address search, record table, syntax-highlighted raw view, CRC and checksum analysis, segment labels, and in-place byte patching with checksum recomputation",
   "version": "1.0.0",
   "license": "MIT",
   "repository": {
@@ -24,6 +24,11 @@
         "id": "intel-hex",
         "aliases": ["Intel HEX", "ihex"],
         "extensions": [".hex"]
+      },
+      {
+        "id": "srec",
+        "aliases": ["Motorola SREC", "srec"],
+        "extensions": [".srec", ".mot", ".s19", ".s28", ".s37"]
       }
     ],
     "grammars": [
@@ -31,6 +36,11 @@
         "language": "intel-hex",
         "scopeName": "source.intel-hex",
         "path": "./syntaxes/intel-hex.tmLanguage.json"
+      },
+      {
+        "language": "srec",
+        "scopeName": "source.srec",
+        "path": "./syntaxes/srec.tmLanguage.json"
       }
     ],
     "customEditors": [
@@ -38,7 +48,12 @@
         "viewType": "hexScope.hexEditor",
         "displayName": "HexScope Viewer",
         "selector": [
-          { "filenamePattern": "*.hex" }
+          { "filenamePattern": "*.hex" },
+          { "filenamePattern": "*.srec" },
+          { "filenamePattern": "*.mot" },
+          { "filenamePattern": "*.s19" },
+          { "filenamePattern": "*.s28" },
+          { "filenamePattern": "*.s37" }
         ],
         "priority": "option"
       }
@@ -74,21 +89,21 @@
       "explorer/context": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceExtname == .hex && activeCustomEditorId != 'hexScope.hexEditor'",
+          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37) && activeCustomEditorId != 'hexScope.hexEditor'",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceExtname == .hex && activeEditorIsNotPreview && activeCustomEditorId != 'hexScope.hexEditor'",
+          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37) && activeEditorIsNotPreview && activeCustomEditorId != 'hexScope.hexEditor'",
           "group": "navigation"
         }
       ],
       "editor/title/context": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceExtname == .hex && activeCustomEditorId != 'hexScope.hexEditor'",
+          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37) && activeCustomEditorId != 'hexScope.hexEditor'",
           "group": "navigation"
         }
       ]
@@ -138,6 +153,42 @@
           },
           {
             "scope": "invalid.illegal.ihex",
+            "settings": { "foreground": "#f48771" }
+          },
+          {
+            "scope": "punctuation.srec.start-code",
+            "settings": { "foreground": "#6a6a6a" }
+          },
+          {
+            "scope": "meta.srec.byte-count",
+            "settings": { "foreground": "#858585" }
+          },
+          {
+            "scope": "meta.srec.address",
+            "settings": { "foreground": "#c6c6c6", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.srec.record-type.data",
+            "settings": { "foreground": "#4ec9a0", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.srec.record-type.eof",
+            "settings": { "foreground": "#ce9178", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.srec.record-type.extended-address",
+            "settings": { "foreground": "#9cdcfe", "fontStyle": "bold" }
+          },
+          {
+            "scope": "meta.srec.data",
+            "settings": { "foreground": "#ce9178" }
+          },
+          {
+            "scope": "meta.srec.checksum",
+            "settings": { "foreground": "#858585" }
+          },
+          {
+            "scope": "invalid.illegal.srec",
             "settings": { "foreground": "#f48771" }
           }
         ]

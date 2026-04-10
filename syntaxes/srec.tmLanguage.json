@@ -1,0 +1,126 @@
+{
+    "name": "Motorola SREC",
+    "scopeName": "source.srec",
+    "patterns": [
+        { "include": "#s0-header" },
+        { "include": "#s1-data" },
+        { "include": "#s2-data" },
+        { "include": "#s3-data" },
+        { "include": "#s5-count" },
+        { "include": "#s6-count" },
+        { "include": "#s7-end" },
+        { "include": "#s8-end" },
+        { "include": "#s9-end" },
+        { "include": "#unknown-record" }
+    ],
+    "repository": {
+        "s0-header": {
+            "comment": "S0 header record",
+            "match": "^(S)(0)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.extended-address" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.data" },
+                "6": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s1-data": {
+            "comment": "S1 data record (2-byte address)",
+            "match": "^(S)(1)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.data" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.data" },
+                "6": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s2-data": {
+            "comment": "S2 data record (3-byte address)",
+            "match": "^(S)(2)([0-9A-Fa-f]{2})([0-9A-Fa-f]{6})([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.data" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.data" },
+                "6": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s3-data": {
+            "comment": "S3 data record (4-byte address)",
+            "match": "^(S)(3)([0-9A-Fa-f]{2})([0-9A-Fa-f]{8})([0-9A-Fa-f]*)([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.data" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.data" },
+                "6": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s5-count": {
+            "comment": "S5 record count (2-byte)",
+            "match": "^(S)(5)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.extended-address" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s6-count": {
+            "comment": "S6 record count (3-byte)",
+            "match": "^(S)(6)([0-9A-Fa-f]{2})([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.extended-address" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s7-end": {
+            "comment": "S7 end record (4-byte start address)",
+            "match": "^(S)(7)([0-9A-Fa-f]{2})([0-9A-Fa-f]{8})([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.eof" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s8-end": {
+            "comment": "S8 end record (3-byte start address)",
+            "match": "^(S)(8)([0-9A-Fa-f]{2})([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.eof" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.checksum" }
+            }
+        },
+        "s9-end": {
+            "comment": "S9 end record (2-byte start address)",
+            "match": "^(S)(9)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})([0-9A-Fa-f]{2})$",
+            "captures": {
+                "1": { "name": "punctuation.srec.start-code" },
+                "2": { "name": "meta.srec.record-type.eof" },
+                "3": { "name": "meta.srec.byte-count" },
+                "4": { "name": "meta.srec.address" },
+                "5": { "name": "meta.srec.checksum" }
+            }
+        },
+        "unknown-record": {
+            "comment": "Unrecognised or malformed line",
+            "match": "^.*$",
+            "name": "invalid.illegal.srec"
+        }
+    }
+}
