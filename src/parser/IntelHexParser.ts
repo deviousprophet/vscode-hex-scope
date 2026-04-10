@@ -1,12 +1,24 @@
+// ── Intel HEX Parser ─────────────────────────────────────────────
+// Parses Intel HEX files (.hex) and returns a ParseResult.
+// Shared interfaces live in ./types so neither parser depends on
+// the other.
+
+import type { HexRecord, MemorySegment, ParseResult } from './types';
+export type { HexRecord, MemorySegment, ParseResult } from './types';
+
+// ── Record-type metadata ──────────────────────────────────────────
+
+/** Numeric constants for Intel HEX record types. */
 export const enum RecordType {
-    Data = 0x00,
-    EndOfFile = 0x01,
+    Data                 = 0x00,
+    EndOfFile            = 0x01,
     ExtendedSegmentAddress = 0x02,
-    StartSegmentAddress = 0x03,
-    ExtendedLinearAddress = 0x04,
-    StartLinearAddress = 0x05,
+    StartSegmentAddress  = 0x03,
+    ExtendedLinearAddress  = 0x04,
+    StartLinearAddress   = 0x05,
 }
 
+/** Display names for Intel HEX record types. */
 export const RECORD_TYPE_NAMES: Record<number, string> = {
     0x00: 'Data',
     0x01: 'End of File',
@@ -16,33 +28,13 @@ export const RECORD_TYPE_NAMES: Record<number, string> = {
     0x05: 'Start Linear Addr',
 };
 
-export interface HexRecord {
-    lineNumber: number;
-    raw: string;
-    byteCount: number;
-    address: number;          // 16-bit field from record
-    recordType: number;
-    data: Uint8Array;
-    checksum: number;
-    checksumValid: boolean;
-    resolvedAddress: number;  // full 32-bit resolved address (for data records)
-    error?: string;           // parse error if malformed
-}
+// ── Public API ───────────────────────────────────────────────────
 
-export interface MemorySegment {
-    startAddress: number;
-    data: Uint8Array;
-}
-
-export interface ParseResult {
-    records: HexRecord[];
-    segments: MemorySegment[];
-    totalDataBytes: number;
-    checksumErrors: number;
-    malformedLines: number;
-    startAddress?: number;    // from type 03/05 record
-}
-
+/**
+ * Parse an Intel HEX source string.
+ * Returns a {@link ParseResult} with all records, contiguous memory
+ * segments, checksum error count, and optional execution start address.
+ */
 export function parseIntelHex(source: string): ParseResult {
     const lines = source.split(/\r?\n/);
     const records: HexRecord[] = [];
@@ -102,6 +94,8 @@ export function parseIntelHex(source: string): ParseResult {
     return { records, segments, totalDataBytes, checksumErrors, malformedLines, startAddress };
 }
 
+// ── Line parser ───────────────────────────────────────────────────
+
 function parseLine(raw: string, lineNumber: number): HexRecord {
     const base: HexRecord = {
         lineNumber,
@@ -155,8 +149,9 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
     return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0 };
 }
 
+// ── Segment builder ───────────────────────────────────────────────
+
 function buildSegments(records: HexRecord[]): MemorySegment[] {
-    // Collect contiguous address ranges
     const blocks: { address: number; data: number[] }[] = [];
     let current: { address: number; data: number[] } | null = null;
 

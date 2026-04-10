@@ -1,10 +1,10 @@
 // ── Motorola SREC / S-Record Parser ──────────────────────────────
-// Parses SREC files and returns a ParseResult compatible with the
-// same SerializedParseResult shape used by IntelHexParser, so the
-// rest of the extension (webview, editor provider) can treat both
-// formats uniformly.
+// Parses Motorola SREC files (.srec / .mot / .s19 / .s28 / .s37)
+// and returns a ParseResult.
+// Shared interfaces live in ./types so neither parser depends on
+// the other.
 
-import type { HexRecord, MemorySegment, ParseResult } from './IntelHexParser';
+import type { HexRecord, MemorySegment, ParseResult } from './types';
 
 // ── SREC record-type metadata ─────────────────────────────────────
 

@@ -1,7 +1,8 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { parseIntelHex, ParseResult } from './parser/IntelHexParser';
+import { parseIntelHex } from './parser/IntelHexParser';
 import { parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
+import type { ParseResult } from './parser/types';
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
