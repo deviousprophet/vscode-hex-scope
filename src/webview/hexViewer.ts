@@ -21,6 +21,10 @@ window.addEventListener('message', (e: MessageEvent) => {
             S.rawSource   = (msg.rawSource as string) ?? '';
             initFlatBytes();
             buildMemRows();
+            // Choose default view: raw if there are errors, memory if valid
+            const pr = S.parseResult;
+            const fileOk = pr && pr.checksumErrors === 0 && pr.malformedLines === 0;
+            S.currentView = fileOk ? 'memory' : 'raw';
             render();
             break;
         case 'addLabel':
@@ -50,6 +54,21 @@ window.addEventListener('message', (e: MessageEvent) => {
             updateDirtyBar();
             if (S.currentView === 'memory') { memRerender(); }
             break;
+        case 'externalChange': {
+            // File changed externally while the webview is open.
+            // If the user has unsaved edits, ask them what to do instead of silently reloading.
+            const incoming = {
+                parseResult: msg.parseResult as typeof S.parseResult,
+                labels:      (msg.labels as typeof S.labels) ?? [],
+                rawSource:   (msg.rawSource as string) ?? '',
+            };
+            if (S.editMode && S.edits.size > 0) {
+                showExternalChangeConflict(incoming);
+            } else {
+                applyExternalChange(incoming);
+            }
+            break;
+        }
     }
 });
 
@@ -59,9 +78,9 @@ function render(): void {
     document.getElementById('app')!.innerHTML = `
         <div id="toolbar">
             <div class="view-tabs">
-                <button id="btn-mem" class="${S.currentView === 'memory' ? 'active' : ''}">Memory</button>
-                <button id="btn-rec" class="${S.currentView === 'record' ? 'active' : ''}">Records</button>
                 <button id="btn-raw" class="${S.currentView === 'raw'    ? 'active' : ''}">Raw</button>
+                <button id="btn-rec" class="${S.currentView === 'record' ? 'active' : ''}">Records</button>
+                <button id="btn-mem" class="${S.currentView === 'memory' ? 'active' : ''}">Memory</button>
             </div>
             <div class="tb-sep"></div>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode">&#11041; Edit</button>
@@ -231,7 +250,7 @@ function renderStats(): void {
         `<span class="si"><span class="slb">Segments</span><span class="svl">${p.segments.length}</span></span>` +
         (p.checksumErrors > 0 ? `<span class="si s-err"><span class="slb">Checksum Errors</span><span class="svl">${p.checksumErrors}</span></span>` : '') +
         (p.malformedLines > 0 ? `<span class="si s-err"><span class="slb">Malformed</span><span class="svl">${p.malformedLines}</span></span>` : '') +
-        (ok ? `<span class="si s-ok">✓ Valid</span>` : '');
+        (ok ? `<span class="si s-ok">✓ Valid</span>` : `<span class="si s-invalid">✗ Invalid</span>`);
 }
 
 // ── Memory view ───────────────────────────────────────────────────
@@ -306,8 +325,8 @@ function renderRecordView(): void {
     const header = `<tr><th>Addr</th><th>Type</th><th>Cnt</th><th>Data</th><th>CHK</th></tr>`;
 
     const rows = S.parseResult.records.map(r => {
-        const isData = isSrec ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
-                               : r.recordType === 0;
+        const isData = !r.error && (isSrec ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
+                                           : r.recordType === 0);
         const badge =
             (!isSrec && (r.recordType === 4 || r.recordType === 2)) ? 'rb-ext'   :
             (!isSrec && (r.recordType === 5 || r.recordType === 3)) ? 'rb-start' :
@@ -318,19 +337,25 @@ function renderRecordView(): void {
         const lbl = TYPE_LABELS[r.recordType] ?? (isSrec ? `S${r.recordType}` : `TYPE ${r.recordType}`);
         const ra   = r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0');
         const data = r.data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-        const chk  = r.checksumValid
-            ? `<span class="cok">${r.checksum.toString(16).toUpperCase().padStart(2, '0')}</span>`
-            : `<span class="cerr">${r.checksum.toString(16).toUpperCase().padStart(2, '0')}</span>`;
+        const dataCell = r.error
+            ? `<td class="rdata rerr-msg">${esc(r.error)}</td>`
+            : `<td class="rdata">${data || '—'}</td>`;
+        const chk  = r.error
+            ? `<span class="rerr-dash">—</span>`
+            : r.checksumValid
+                ? `<span class="cok">${r.checksum.toString(16).toUpperCase().padStart(2, '0')}</span>`
+                : `<span class="cerr">${r.checksum.toString(16).toUpperCase().padStart(2, '0')}</span><span class="cerr-tag">checksum error</span>`;
+        const rowClass = (r.error || !r.checksumValid) ? ' class="rerr"' : '';
         const gotoAttr = isData ? ` data-goto="${ra}"` : '';
         const addrCell = isData
             ? `<td class="raddr"${gotoAttr}>${ra}</td>`
             : `<td class="raddr raddr-empty">—</td>`;
 
-        return `<tr${gotoAttr}>
+        return `<tr${gotoAttr}${rowClass}>
             ${addrCell}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
             <td class="rcnt">${r.byteCount}</td>
-            <td class="rdata">${data || '—'}</td>
+            ${dataCell}
             <td>${chk}</td>
         </tr>`;
     }).join('');
@@ -355,51 +380,126 @@ function renderRawView(): void {
 
     const isSrec = S.parseResult?.format === 'srec';
     const lines = S.rawSource.split(/\r?\n/);
+
+    // Build a map: 1-based line number → parsed record (for error annotations)
+    const recordByLine = new Map<number, { error?: string; checksumValid: boolean }>();
+    if (S.parseResult) {
+        for (const r of S.parseResult.records) { recordByLine.set(r.lineNumber, r); }
+    }
+
     const rows = lines.map((line, i) => {
-        const ln = String(i + 1).padStart(4, '\u00A0');
+        const lineNum = i + 1;
+        const ln = String(lineNum).padStart(4, '\u00A0');
         if (!line.trim()) {
             return `<div class="raw-line"><span class="raw-ln">${ln}</span></div>`;
         }
-        if (isSrec) { return tokenizeSRecLine(ln, line); }
-        // Intel HEX tokenizer
-        if (!line.startsWith(':') || line.length < 11) {
-            return `<div class="raw-line raw-malformed"><span class="raw-ln">${ln}</span><span class="raw-text">${esc(line)}</span></div>`;
-        }
-        const ll   = esc(line.slice(1, 3));
-        const addr = esc(line.slice(3, 7));
-        const tt   = esc(line.slice(7, 9));
-        const type = parseInt(line.slice(7, 9), 16);
-        const dataEnd = 9 + parseInt(line.slice(1, 3), 16) * 2;
-        const data = esc(line.slice(9, dataEnd));
-        const chk  = esc(line.slice(dataEnd));
-        const typeClass =
-            type === 0 ? 'raw-t-data' :
-            type === 1 ? 'raw-t-eof'  :
-            type === 4 ? 'raw-t-ela'  :
-            type === 2 ? 'raw-t-ela'  : 'raw-t-other';
-        return `<div class="raw-line">` +
-            `<span class="raw-ln">${ln}</span>` +
-            `<span class="raw-colon">:</span>` +
-            `<span class="raw-ll">${ll}</span>` +
-            `<span class="raw-addr">${addr}</span>` +
-            `<span class="raw-tt ${typeClass}">${tt}</span>` +
-            `<span class="raw-data">${data}</span>` +
-            `<span class="raw-chk">${chk}</span>` +
-            `</div>`;
+        const rec = recordByLine.get(lineNum);
+        if (isSrec) { return tokenizeSRecLine(ln, line, rec); }
+        return tokenizeIHexLine(ln, line, rec);
     }).join('');
 
-    el.innerHTML = `<div class="raw-scroll"><code class="raw-code">${rows}</code></div>`;
+    // Build the errors panel
+    const errorItems = S.parseResult ? S.parseResult.records
+        .filter(r => r.error || !r.checksumValid)
+        .map(r => {
+            const icon  = r.error ? 'err-icon-fmt' : 'err-icon-chk';
+            const label = r.error ? r.error : `Checksum error: expected 0x${computeExpectedChecksum(r, S.parseResult!.format).toString(16).toUpperCase().padStart(2,'0')}, got 0x${r.checksum.toString(16).toUpperCase().padStart(2,'0')}`;
+            return `<div class="raw-err-item" data-line="${r.lineNumber}">` +
+                `<span class="raw-err-icon ${icon}"></span>` +
+                `<span class="raw-err-line">Line ${r.lineNumber}</span>` +
+                `<span class="raw-err-msg">${esc(label)}</span>` +
+                `</div>`;
+        }) : [];
+
+    const panel = errorItems.length > 0
+        ? `<div class="raw-problems"><div class="raw-problems-hdr">` +
+          `<span class="raw-problems-title">Problems</span>` +
+          `<span class="raw-problems-count">${errorItems.length}</span>` +
+          (S.parseResult!.checksumErrors > 0
+              ? `<button class="raw-repair-btn" id="btn-repair" title="Recompute and write correct checksums for all ${S.parseResult!.checksumErrors} checksum error${S.parseResult!.checksumErrors === 1 ? '' : 's'}">&#10003; Quick Repair</button>`
+              : '') +
+          `</div>${errorItems.join('')}</div>`
+        : '';
+
+    el.innerHTML = `<div class="raw-scroll"><code class="raw-code">${rows}</code></div>${panel}`;
+
+    el.querySelector('#btn-repair')?.addEventListener('click', () => {
+        (el.querySelector('#btn-repair') as HTMLButtonElement).disabled = true;
+        vscode.postMessage({ type: 'repairChecksums' });
+    });
+
+    el.querySelectorAll<HTMLElement>('.raw-err-item[data-line]').forEach(item => {
+        item.addEventListener('click', () => {
+            const lineNum = parseInt(item.dataset.line!, 10);
+            const target = el.querySelector<HTMLElement>(`.raw-line[data-ln="${lineNum}"]`);
+            target?.scrollIntoView({ block: 'center' });
+            target?.classList.add('raw-line-flash');
+            setTimeout(() => target?.classList.remove('raw-line-flash'), 1200);
+        });
+    });
 }
 
-/** Tokenize a single SREC raw line into colored spans. */
-function tokenizeSRecLine(ln: string, line: string): string {
-    if (!/^S[0-9]/i.test(line) || line.length < 4) {
-        return `<div class="raw-line raw-malformed"><span class="raw-ln">${ln}</span><span class="raw-text">${esc(line)}</span></div>`;
+/** Compute what the checksum byte should be for a record (for display in error messages). */
+function computeExpectedChecksum(r: { byteCount: number; address: number; recordType: number; data: number[] }, format: 'ihex' | 'srec'): number {
+    if (format === 'ihex') {
+        let sum = r.byteCount + ((r.address >> 8) & 0xFF) + (r.address & 0xFF) + r.recordType;
+        for (const b of r.data) { sum += b; }
+        return (~sum + 1) & 0xFF;
+    }
+    // SREC: one's-complement; address byte count inferred from record type
+    const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
+    const asz = aszMap[r.recordType] ?? 2;
+    let sum = r.byteCount;
+    for (let i = asz - 1; i >= 0; i--) { sum += (r.address >>> (i * 8)) & 0xFF; }
+    for (const b of r.data) { sum += b; }
+    return (~sum) & 0xFF;
+}
+
+/** Tokenize a single Intel HEX line. rec is the parsed record for this line (if any). */
+function tokenizeIHexLine(ln: string, line: string, rec: { error?: string; checksumValid: boolean } | undefined): string {
+    const lineNum = ln.trim();
+    if (!line.startsWith(':') || line.length < 11 || rec?.error) {
+        const errTitle = rec?.error ? ` title="${esc(rec.error)}"` : '';
+        return `<div class="raw-line raw-malformed" data-ln="${lineNum}"${errTitle}>` +
+            `<span class="raw-ln">${ln}</span><span class="raw-text">${esc(line)}</span></div>`;
+    }
+    const ll   = esc(line.slice(1, 3));
+    const addr = esc(line.slice(3, 7));
+    const tt   = esc(line.slice(7, 9));
+    const type = parseInt(line.slice(7, 9), 16);
+    const dataEnd = 9 + parseInt(line.slice(1, 3), 16) * 2;
+    const data = esc(line.slice(9, dataEnd));
+    const chk  = esc(line.slice(dataEnd));
+    const typeClass =
+        type === 0 ? 'raw-t-data' :
+        type === 1 ? 'raw-t-eof'  :
+        type === 4 ? 'raw-t-ela'  :
+        type === 2 ? 'raw-t-ela'  : 'raw-t-other';
+    const chkClass = (rec && !rec.checksumValid) ? 'raw-chk raw-chk-err' : 'raw-chk';
+    const chkTitle = (rec && !rec.checksumValid) ? ' title="Checksum error"' : '';
+    return `<div class="raw-line" data-ln="${lineNum}">` +
+        `<span class="raw-ln">${ln}</span>` +
+        `<span class="raw-colon">:</span>` +
+        `<span class="raw-ll">${ll}</span>` +
+        `<span class="raw-addr">${addr}</span>` +
+        `<span class="raw-tt ${typeClass}">${tt}</span>` +
+        `<span class="raw-data">${data}</span>` +
+        `<span class="${chkClass}"${chkTitle}>${chk}</span>` +
+        `</div>`;
+}
+
+/** Tokenize a single SREC line. rec is the parsed record for this line (if any). */
+function tokenizeSRecLine(ln: string, line: string, rec: { error?: string; checksumValid: boolean } | undefined): string {
+    const lineNum = ln.trim();
+    if (!/^S[0-9]/i.test(line) || line.length < 4 || rec?.error) {
+        const errTitle = rec?.error ? ` title="${esc(rec.error)}"` : '';
+        return `<div class="raw-line raw-malformed" data-ln="${lineNum}"${errTitle}>` +
+            `<span class="raw-ln">${ln}</span><span class="raw-text">${esc(line)}</span></div>`;
     }
     const typeChar = line[1];
     const type = parseInt(typeChar, 10);
     const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
-    const aszChars = (aszMap[type] ?? 2) * 2; // hex chars for address
+    const aszChars = (aszMap[type] ?? 2) * 2;
     const bcHex   = esc(line.slice(2, 4));
     const addrHex = esc(line.slice(4, 4 + aszChars));
     const byteCount = parseInt(line.slice(2, 4), 16);
@@ -410,14 +510,16 @@ function tokenizeSRecLine(ln: string, line: string): string {
         (type === 1 || type === 2 || type === 3) ? 'raw-t-data'  :
         (type === 7 || type === 8 || type === 9) ? 'raw-t-eof'   :
         type === 0                               ? 'raw-t-ela'   : 'raw-t-other';
-    return `<div class="raw-line">` +
+    const chkClass = (rec && !rec.checksumValid) ? 'raw-chk raw-chk-err' : 'raw-chk';
+    const chkTitle = (rec && !rec.checksumValid) ? ' title="Checksum error"' : '';
+    return `<div class="raw-line" data-ln="${lineNum}">` +
         `<span class="raw-ln">${ln}</span>` +
         `<span class="raw-colon">S</span>` +
         `<span class="raw-tt ${typeClass}">${esc(typeChar)}</span>` +
         `<span class="raw-ll">${bcHex}</span>` +
         `<span class="raw-addr">${addrHex}</span>` +
         `<span class="raw-data">${dataHex}</span>` +
-        `<span class="raw-chk">${chkHex}</span>` +
+        `<span class="${chkClass}"${chkTitle}>${chkHex}</span>` +
         `</div>`;
 }
 
@@ -434,6 +536,56 @@ function switchView(v: 'memory' | 'record' | 'raw'): void {
     if (v === 'memory')      { memRerender(); }
     else if (v === 'record') { renderRecordView(); }
     else                     { renderRawView(); }
+}
+
+// ── External file-change helpers ──────────────────────────────────
+
+type IncomingFile = { parseResult: typeof S.parseResult; labels: typeof S.labels; rawSource: string };
+
+/** Apply an external file change directly (no unsaved edits to worry about). */
+function applyExternalChange(incoming: IncomingFile): void {
+    S.parseResult = incoming.parseResult;
+    S.labels      = incoming.labels;
+    S.rawSource   = incoming.rawSource;
+    initFlatBytes();
+    buildMemRows();
+    const ok = S.parseResult && S.parseResult.checksumErrors === 0 && S.parseResult.malformedLines === 0;
+    S.currentView = ok ? 'memory' : 'raw';
+    render();
+    // Tell the provider it can update its own in-memory raw/parseResult
+    vscode.postMessage({ type: 'reloadAccepted', rawSource: incoming.rawSource });
+}
+
+/** Show a non-destructive conflict banner when external change arrives during edit mode. */
+function showExternalChangeConflict(incoming: IncomingFile): void {
+    // Remove any previous banner
+    document.getElementById('ext-conflict-banner')?.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'ext-conflict-banner';
+    banner.className = 'ext-conflict-banner';
+    banner.innerHTML =
+        `<span class="ecb-icon">⚠</span>` +
+        `<span class="ecb-msg">File changed externally. You have <strong>${S.edits.size}</strong> unsaved edit${S.edits.size === 1 ? '' : 's'}.</span>` +
+        `<button class="ecb-btn ecb-reload"  id="ecb-reload">Reload &amp; discard my edits</button>` +
+        `<button class="ecb-btn ecb-keep"    id="ecb-keep">Keep my edits</button>`;
+
+    document.getElementById('app')!.prepend(banner);
+
+    document.getElementById('ecb-reload')!.addEventListener('click', () => {
+        banner.remove();
+        // Exit edit mode cleanly before reloading
+        S.edits.clear();
+        S.undoStack.length = 0;
+        S.editMode = false;
+        applyExternalChange(incoming);
+    });
+
+    document.getElementById('ecb-keep')!.addEventListener('click', () => {
+        banner.remove();
+        // Dismiss — keep current state, tell provider to sync its own copy
+        vscode.postMessage({ type: 'reloadAccepted', rawSource: incoming.rawSource });
+    });
 }
 
 function getOriginalByte(addr: number): number | undefined {

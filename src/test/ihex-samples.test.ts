@@ -168,7 +168,8 @@ suite('sample: stm32_32bpr.hex', () => {
 });
 
 // ── errors.hex ───────────────────────────────────────────────────────────────
-// A file that deliberately contains two bad checksums and one malformed line.
+// A file that deliberately contains two bad checksums and three malformed lines:
+// (1) no-':' comment line, (2) unknown record type 0x06, (3) EOF with byte count 2.
 
 suite('sample: errors.hex', () => {
     let r: ReturnType<typeof parseIntelHex>;
@@ -178,8 +179,8 @@ suite('sample: errors.hex', () => {
         assert.strictEqual(r.checksumErrors, 2);
     });
 
-    test('detects exactly 1 malformed line', () => {
-        assert.strictEqual(r.malformedLines, 1);
+    test('detects exactly 3 malformed lines', () => {
+        assert.strictEqual(r.malformedLines, 3);
     });
 
     test('the malformed record carries a "Missing start code" message', () => {

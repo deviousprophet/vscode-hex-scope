@@ -10,7 +10,7 @@ export const S = {
     labels:       []     as SegmentLabel[],
     flatBytes:    new Map<number, number>(),
     sortedAddrs:  []     as number[],
-    currentView: 'memory' as 'record' | 'memory' | 'raw',  // Memory is the default view
+    currentView: 'raw'    as 'record' | 'memory' | 'raw',  // raw until file validity is known
     rawSource:    ''     as string,
     selStart:     null   as number | null,
     selEnd:       null   as number | null,

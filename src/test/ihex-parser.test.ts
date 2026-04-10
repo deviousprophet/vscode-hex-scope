@@ -111,6 +111,27 @@ suite('IntelHexParser', () => {
         assert.ok(result.records[0].error?.includes('Expected'));
     });
 
+    test('unknown record type is flagged as malformed', () => {
+        // type 0x06: byteCount=0, addr=0x0000 → sum=6 → chk=0xFA
+        const result = parseIntelHex(':00000006FA');
+        assert.strictEqual(result.malformedLines, 1);
+        assert.ok(result.records[0].error?.includes('Unknown record type'));
+    });
+
+    test('EOF record with non-zero byte count is flagged as malformed', () => {
+        // type 0x01, byteCount=2, addr=0x0000, data=[0xAA,0xBB] → sum=360 → chk=0x98
+        const result = parseIntelHex(':02000001AABB98');
+        assert.strictEqual(result.malformedLines, 1);
+        assert.ok(result.records[0].error?.includes('byte count'));
+    });
+
+    test('Extended Linear Address with wrong byte count is flagged as malformed', () => {
+        // type 0x04, byteCount=4 (should be 2), data=[0x00,0x08,0x00,0x00] → sum=16 → chk=0xF0
+        const result = parseIntelHex(':0400000400080000F0');
+        assert.strictEqual(result.malformedLines, 1);
+        assert.ok(result.records[0].error?.includes('byte count'));
+    });
+
     // ── Address resolution ────────────────────────────────────────────────
 
     test('without any address extension record the address is 16-bit', () => {

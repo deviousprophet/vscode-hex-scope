@@ -36,5 +36,9 @@
 .raddr-empty { color: var(--non-graphic); text-align: center; }
 .rdata { font-family: var(--font-editor); letter-spacing: .02em; }
 .rcnt  { color: var(--addr-fg); font-family: var(--font-editor); text-align: right; }
-.cok   { color: var(--ok);  font-family: var(--font-editor); }
-.cerr  { color: var(--err); font-family: var(--font-editor); font-weight: 700; }
+.cok        { color: var(--ok);  font-family: var(--font-editor); }
+.cerr       { color: var(--err); font-family: var(--font-editor); font-weight: 700; }
+.cerr-tag   { margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase;
+              letter-spacing: .04em; color: var(--err); font-family: var(--font-ui); opacity: .85; }
+.rerr-msg   { color: var(--err); font-style: italic; font-family: var(--font-ui); font-size: 11px; }
+.rerr-dash  { color: var(--non-graphic); font-family: var(--font-editor); }

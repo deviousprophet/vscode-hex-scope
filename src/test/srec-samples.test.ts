@@ -311,8 +311,8 @@ suite('sample/srec: errors.srec', () => {
         assert.strictEqual(r.checksumErrors, 2);
     });
 
-    test('detects exactly 1 malformed line', () => {
-        assert.strictEqual(r.malformedLines, 1);
+    test('detects exactly 4 malformed lines', () => {
+        assert.strictEqual(r.malformedLines, 4);
     });
 
     test('malformed record carries a "Missing S start code" error', () => {

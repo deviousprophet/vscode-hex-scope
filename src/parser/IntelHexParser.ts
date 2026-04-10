@@ -146,6 +146,20 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
     const expectedChecksum = ((~sum + 1) & 0xFF);
     const checksumValid = checksum === expectedChecksum;
 
+    // Structural validation: unknown record type
+    if (!(recordType in RECORD_TYPE_NAMES)) {
+        return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0,
+                 error: `Unknown record type: 0x${recordType.toString(16).toUpperCase().padStart(2, '0')}` };
+    }
+
+    // Structural validation: byte count must match the fixed size for non-data record types
+    const REQUIRED_BYTE_COUNT: Partial<Record<number, number>> = { 0x01: 0, 0x02: 2, 0x03: 4, 0x04: 2, 0x05: 4 };
+    const requiredBC = REQUIRED_BYTE_COUNT[recordType];
+    if (requiredBC !== undefined && byteCount !== requiredBC) {
+        return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0,
+                 error: `${RECORD_TYPE_NAMES[recordType]} must have byte count ${requiredBC}, got ${byteCount}` };
+    }
+
     return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0 };
 }
 

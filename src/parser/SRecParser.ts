@@ -48,6 +48,11 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
     }
     const recordType = parseInt(typeChar, 10);
 
+    // S4 is reserved and undefined in the SREC standard
+    if (recordType === 4) {
+        return { ...base, recordType, error: 'Reserved record type: S4' };
+    }
+
     const hex = raw.slice(2); // everything after "Sn"
 
     if (!/^[0-9A-Fa-f]+$/.test(hex)) {
@@ -59,6 +64,18 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
 
     const byteCount = parseInt(hex.slice(0, 2), 16);
     const asz = SREC_ADDR_SIZES[recordType] ?? 2;
+
+    // byteCount covers: address bytes + data bytes + 1 checksum byte (minimum = asz + 1)
+    if (byteCount < asz + 1) {
+        return { ...base, recordType, byteCount,
+                 error: `Byte count ${byteCount} too small for S${recordType} (minimum ${asz + 1})` };
+    }
+
+    // S5-S9 carry no data payload; byte count must be exactly asz+1
+    if (recordType >= 5 && byteCount !== asz + 1) {
+        return { ...base, recordType, byteCount,
+                 error: `S${recordType} must have byte count ${asz + 1}, got ${byteCount}` };
+    }
 
     // Total hex chars: 2 (byteCount field) + byteCount * 2 (all remaining bytes)
     const expectedHexLen = 2 + byteCount * 2;

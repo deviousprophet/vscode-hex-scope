@@ -1,6 +1,7 @@
 import * as assert from 'assert';
-import { detectFormatFromParts, buildSRecDataRecord, serializeSRec } from '../HexEditorProvider';
+import { detectFormatFromParts, buildSRecDataRecord, serializeSRec, repairChecksums } from '../HexEditorProvider';
 import { parseSRec } from '../parser/SRecParser';
+import { parseIntelHex } from '../parser/IntelHexParser';
 
 // ── detectFormatFromParts ─────────────────────────────────────────────────────
 
@@ -225,5 +226,103 @@ suite('serializeSRec()', () => {
         const edits = new Map<number, number>([[0x0001, 0x99]]);
         const out = serializeSRec(crlf, result, edits);
         assert.ok(out.includes('\r\n'), 'should preserve CRLF when input uses CRLF');
+    });
+});
+
+// ── repairChecksums ───────────────────────────────────────────────────────────
+
+suite('repairChecksums()', () => {
+
+    // ── Intel HEX ────────────────────────────────────────────────────────────
+
+    test('fixes a single bad checksum in an IHEX file', () => {
+        // Valid ELA + data record with corrupted checksum + EOF
+        const raw = ':020000040800F2\n:10000000DEADBEEFCAFEBABE0102030405060708FF\n:00000001FF';
+        const result = parseIntelHex(raw);
+        assert.strictEqual(result.checksumErrors, 1);
+        const repaired = repairChecksums(raw, result);
+        assert.strictEqual(parseIntelHex(repaired).checksumErrors, 0);
+    });
+
+    test('fixes all bad checksums, leaves valid records unchanged', () => {
+        // Two bad, two good
+        const good1 = ':020000040800F2';
+        const bad1  = ':10000000DEADBEEFCAFEBABE0102030405060708FF'; // wrong chk
+        const good2 = ':1000200048656C6C6F20576F726C640000000000B4';
+        const bad2  = ':10003000AABBCCDDEEFF001122334455667788' + '9900'; // wrong chk
+        const eof   = ':00000001FF';
+        const raw = [good1, bad1, good2, bad2, eof].join('\n');
+        const result = parseIntelHex(raw);
+        assert.strictEqual(result.checksumErrors, 2);
+        const repaired = repairChecksums(raw, result);
+        const rr = parseIntelHex(repaired);
+        assert.strictEqual(rr.checksumErrors, 0);
+        assert.strictEqual(rr.malformedLines, 0);
+    });
+
+    test('leaves malformed IHEX lines untouched', () => {
+        const raw = ':020000040800F2\n;; malformed line\n:00000001FF';
+        const result = parseIntelHex(raw);
+        assert.strictEqual(result.malformedLines, 1);
+        const repaired = repairChecksums(raw, result);
+        assert.ok(repaired.includes(';; malformed line'), 'malformed line must be preserved');
+        assert.strictEqual(parseIntelHex(repaired).malformedLines, 1);
+    });
+
+    test('returns the original string unchanged when there are no checksum errors', () => {
+        const raw = ':020000040800F2\n:00000001FF';
+        const result = parseIntelHex(raw);
+        assert.strictEqual(result.checksumErrors, 0);
+        assert.strictEqual(repairChecksums(raw, result), raw);
+    });
+
+    test('preserves LF line endings for IHEX', () => {
+        const raw = ':10000000DEADBEEFCAFEBABE0102030405060708FF\n:00000001FF';
+        const result = parseIntelHex(raw);
+        const repaired = repairChecksums(raw, result);
+        assert.ok(!repaired.includes('\r\n'), 'should not introduce CRLF');
+    });
+
+    test('preserves CRLF line endings for IHEX', () => {
+        const raw = ':10000000DEADBEEFCAFEBABE0102030405060708FF\r\n:00000001FF';
+        const result = parseIntelHex(raw);
+        const repaired = repairChecksums(raw, result);
+        assert.ok(repaired.includes('\r\n'), 'should preserve CRLF');
+    });
+
+    // ── Motorola SREC ─────────────────────────────────────────────────────────
+
+    test('fixes a single bad checksum in an SREC file', () => {
+        // S1 record with corrupted checksum (last two chars set to 00)
+        const good = 'S1060000AABBCC';
+        const chkBad = good + '00';
+        const raw = [chkBad, 'S9030000FC'].join('\n');
+        const result = parseSRec(raw);
+        assert.strictEqual(result.checksumErrors, 1);
+        const repaired = repairChecksums(raw, result);
+        assert.strictEqual(parseSRec(repaired).checksumErrors, 0);
+    });
+
+    test('repaired SREC file produces the same segments as the uncorrupted version', () => {
+        // Correct checksum for S1060000AABBCC: sum=0x06+0x00+0x00+0xAA+0xBB+0xCC=0x237 → ~0x37=0xC8
+        const rawGood = 'S1060000AABBCCC8\nS9030000FC';
+        const rawBad  = 'S1060000AABBCC00\nS9030000FC'; // wrong checksum
+        const rGood   = parseSRec(rawGood);
+        const rBad    = parseSRec(rawBad);
+        const repaired = repairChecksums(rawBad, rBad);
+        const rRepaired = parseSRec(repaired);
+        assert.strictEqual(rRepaired.checksumErrors, 0);
+        assert.deepStrictEqual(
+            Array.from(rRepaired.segments[0].data),
+            Array.from(rGood.segments[0].data)
+        );
+    });
+
+    test('leaves malformed SREC lines untouched', () => {
+        const raw = 'S9030000FC\n;; bad line';
+        const result = parseSRec(raw);
+        assert.strictEqual(result.malformedLines, 1);
+        const repaired = repairChecksums(raw, result);
+        assert.ok(repaired.includes(';; bad line'), 'malformed line must be preserved');
     });
 });

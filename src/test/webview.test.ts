@@ -14,7 +14,10 @@ function resetState(): void {
     S.selEnd       = null;
     S.matchAddrs   = [];
     S.matchIdx     = -1;
-    S.currentView  = 'memory';
+    S.currentView  = 'raw';
+    S.editMode     = false;
+    S.edits.clear();
+    S.undoStack.length = 0;
 }
 
 // ── HTML escaping \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -87,8 +90,8 @@ suite('state constants and defaults', () => {
     test('BPR is 16', () => {
         assert.strictEqual(BPR, 16);
     });
-    test('default view is "memory"', () => {
-        assert.strictEqual(S.currentView, 'memory');
+    test('default view is "raw"', () => {
+        assert.strictEqual(S.currentView, 'raw');
     });
     test('default byte order is little-endian', () => {
         assert.strictEqual(S.endian, 'le');

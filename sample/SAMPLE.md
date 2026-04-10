@@ -67,12 +67,13 @@ sample/
 | Address | Content | Size |
 |---------|---------|------|
 | `0x08000000` | Cortex-M3 vector table (SP + 19 exception/IRQ vectors) | 128 B |
-| `0x080000C0` | ARM Thumb-2 Reset_Handler, SystemInit, main, app_run stubs | 70 B |
-| `0x08010000` | Flash config block + string constants | 64 B |
+| `0x080000C0` | ARM Thumb-2 Reset_Handler + app function stubs | 70 B |
+| `0x08000100` | String constants: extension ID, MCU name, version, status tokens | 48 B |
+| `0x08010000` | Flash options word (A5 5A pattern) + reset handler address | 16 B |
 
-**Stats:** 2 segments · 262 bytes · 0 errors
+**Stats:** 4 segments · 262 bytes · 20 records · 0 errors
 
-**Use for:** Standard 16-byte record parsing, ELA-based segment gap, realistic STM32 layout.
+**Use for:** Standard 16-byte record parsing, ELA-based segment gaps, realistic STM32-style layout with 4 non-contiguous segments.
 
 ---
 
@@ -82,7 +83,7 @@ sample/
 
 **Target:** Same as `stm32_16bpr.hex` — byte-for-byte identical data, different record size.
 
-**Stats:** 2 segments · 262 bytes · 0 errors
+**Stats:** 4 segments · 262 bytes · 0 errors
 
 **Use for:** Verifying that the parser produces identical results regardless of record byte count.
 
@@ -99,15 +100,17 @@ sample/
 | 1 | ELA `0x0800` | Valid |
 | 2 | Data `0x08000000` | Valid |
 | 3 | Data `0x08000010` | **Bad checksum** |
-| 4 | `;; this is a comment` | **Malformed** (no `:`) |
-| 5 | Data `0x08000020` | Valid |
-| 6 | Data `0x08000030` | **Bad checksum** |
-| 7 | Data `0x08000040` | Valid |
-| 8 | EOF | Valid |
+| 4 | `;; this is a comment` | **Malformed** (no `:` start code) |
+| 5 | `:00000006FA` | **Malformed** (unknown record type `0x06`) |
+| 6 | `:02000001DEAD72` | **Malformed** (EOF with byte count 2, must be 0) |
+| 7 | Data `0x08000020` | Valid |
+| 8 | Data `0x08000030` | **Bad checksum** |
+| 9 | Data `0x08000040` | Valid |
+| 10 | EOF | Valid |
 
-**Stats:** 2 checksum errors · 1 malformed line
+**Stats:** 2 checksum errors · 3 malformed lines
 
-**Use for:** Error detection; verifying corrupt records are excluded from segments.
+**Use for:** Error detection; exercises bad checksum, missing start code, unknown record type, and wrong byte count for a fixed-size record type.
 
 ---
 
@@ -208,10 +211,13 @@ sample/
 | 1 | S0 header | Valid |
 | 2 | S1 data `0x0000` | **Bad checksum** |
 | 3 | S1 data `0x0010` | **Bad checksum** |
-| 4 | `;; not a valid srec record` | **Malformed** (no `S` start) |
-| 5 | S1 data `0x0020` | Valid |
-| 6 | S9 end-of-file | Valid |
+| 4 | `;; not a valid srec record` | **Malformed** (no `S` start code) |
+| 5 | `S4030000FC` | **Malformed** (reserved record type S4) |
+| 6 | `S1020000` | **Malformed** (byte count 2 too small for S1, minimum 3) |
+| 7 | `S5050003AABB92` | **Malformed** (S5 count record must have byte count 3, got 5) |
+| 8 | S1 data `0x0020` | Valid |
+| 9 | S9 end-of-file | Valid |
 
-**Stats:** 1 segment · 3 bytes · 2 checksum errors · 1 malformed line
+**Stats:** 1 segment · 3 bytes · 2 checksum errors · 4 malformed lines
 
-**Use for:** Error detection in SREC; corrupt and malformed records are excluded from segments while valid records contribute normally.
+**Use for:** Error detection in SREC; exercises bad checksum, missing start code, reserved type S4, byte count too small, and wrong byte count for a non-data record type.

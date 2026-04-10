@@ -45,9 +45,9 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
     ): Promise<void> {
         webviewPanel.webview.options = { enableScripts: true };
 
-        const raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
+        let raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
         const format = detectFormat(document.uri, raw);
-        const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
+        let parseResult: ParseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
 
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri, parseResult);
 
@@ -55,13 +55,50 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
         const storedLabels: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
 
-        // Post initial data to webview
-        webviewPanel.webview.postMessage({
+        const postInit = () => webviewPanel.webview.postMessage({
             type: 'init',
             parseResult: serializeParseResult(parseResult, format),
-            labels: storedLabels,
+            labels: this._context.workspaceState.get(labelKey, []),
             rawSource: raw,
         });
+
+        // Post initial data to webview
+        postInit();
+
+        // ── Live reload on external file changes ──────────────────────────
+        // suppress the single watcher event caused by our own writes
+        let suppressReload = false;
+        let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+
+        const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
+                document.uri.path.split('/').pop()!)
+        );
+
+        const onExternalChange = () => {
+            if (suppressReload) { suppressReload = false; return; }
+            clearTimeout(reloadTimer);
+            reloadTimer = setTimeout(async () => {
+                try {
+                    const newRaw = new TextDecoder('utf-8').decode(
+                        await vscode.workspace.fs.readFile(document.uri));
+                    const newResult = format === 'srec' ? parseSRec(newRaw) : parseIntelHex(newRaw);
+                    // Send as 'externalChange' so the webview can guard against
+                    // overwriting unsaved edits
+                    webviewPanel.webview.postMessage({
+                        type: 'externalChange',
+                        parseResult: serializeParseResult(newResult, format),
+                        labels: this._context.workspaceState.get(labelKey, []),
+                        rawSource: newRaw,
+                    });
+                    // Update provider-side state only after webview accepts it
+                    // (done on 'reloadAccepted' response below)
+                } catch { /* file transiently unavailable */ }
+            }, 200);
+        };
+
+        watcher.onDidChange(onExternalChange);
+        watcher.onDidCreate(onExternalChange);
 
         // Handle messages from the webview
         webviewPanel.webview.onDidReceiveMessage(async msg => {
@@ -98,14 +135,35 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 case 'saveEdits': {
                     // msg.edits: Array<[addr: number, value: number]>
                     const edits = msg.edits as Array<[number, number]>;
-                    // Rebuild flatBytes from original parse + edits
                     const editMap = new Map<number, number>(edits);
                     const newHex = format === 'srec'
                         ? serializeSRec(raw, parseResult, editMap)
                         : serializeIntelHex(raw, parseResult, editMap);
+                    suppressReload = true;
                     await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(newHex));
+                    // Update in-memory state to the saved content
+                    raw = newHex;
+                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
                     webviewPanel.webview.postMessage({ type: 'savedEdits' });
-                    vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${document.uri.fsPath.split(/[\/]/).pop()}`);
+                    vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${document.uri.fsPath.split(/[\/\\]/).pop()}`);
+                    break;
+                }
+                case 'repairChecksums': {
+                    const repairedRaw = repairChecksums(raw, parseResult);
+                    suppressReload = true;
+                    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(repairedRaw));
+                    const fixedCount = parseResult.checksumErrors;
+                    // Update in-memory state to the repaired content
+                    raw = repairedRaw;
+                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
+                    postInit();
+                    vscode.window.showInformationMessage(`HexScope: repaired ${fixedCount} checksum${fixedCount === 1 ? '' : 's'} in ${document.uri.fsPath.split(/[\/\\]/).pop()}`);
+                    break;
+                }
+                case 'reloadAccepted': {
+                    // Webview confirmed it is safe to apply the pending external change
+                    raw = msg.rawSource as string;
+                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
                     break;
                 }
             }
@@ -118,6 +176,8 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         });
 
         webviewPanel.onDidDispose(() => {
+            watcher.dispose();
+            clearTimeout(reloadTimer);
             if (HexEditorProvider._activePanel === webviewPanel) {
                 HexEditorProvider._activePanel = undefined;
             }
@@ -326,6 +386,45 @@ export function buildSRecDataRecord(type: number, address: number, data: number[
     const dataHex = data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
     const chkHex  = chk.toString(16).toUpperCase().padStart(2, '0');
     return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
+}
+
+/**
+ * Rewrite every checksum-invalid (but structurally parseable) record in-place
+ * by replacing its last two hex characters with the correctly computed checksum.
+ * Lines with a parse error are left untouched because their structure is unknown.
+ */
+export function repairChecksums(raw: string, parseResult: ParseResult): string {
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+    const lines = raw.split(/\r?\n/);
+    for (const rec of parseResult.records) {
+        if (rec.error || rec.checksumValid) { continue; }
+        const line = lines[rec.lineNumber - 1];
+        if (!line) { continue; }
+        // Replace the last two characters (the checksum hex byte)
+        const correctChk = computeCorrectChecksum(rec);
+        lines[rec.lineNumber - 1] = line.slice(0, -2) +
+            correctChk.toString(16).toUpperCase().padStart(2, '0');
+    }
+    return lines.join(eol);
+}
+
+/** Compute the correct checksum for a parsed record (works for both IHEX and SREC). */
+function computeCorrectChecksum(rec: import('./parser/types').HexRecord): number {
+    // IHEX: two's-complement of (byteCount + addrHi + addrLo + recordType + data)
+    // SREC: one's-complement of (byteCount + addrBytes + data)
+    // We detect by address byte count: SREC types have fixed addr sizes, IHEX always 2.
+    // Both share the same shape — differentiate by checking if raw starts with ':' or 'S'.
+    if (rec.raw.startsWith('S')) {
+        const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
+        const asz = aszMap[rec.recordType] ?? 2;
+        let sum = rec.byteCount;
+        for (let i = asz - 1; i >= 0; i--) { sum += (rec.address >>> (i * 8)) & 0xFF; }
+        for (const b of rec.data) { sum += b; }
+        return (~sum) & 0xFF;
+    }
+    let sum = rec.byteCount + ((rec.address >> 8) & 0xFF) + (rec.address & 0xFF) + rec.recordType;
+    for (const b of rec.data) { sum += b; }
+    return (~sum + 1) & 0xFF;
 }
 
 function getNonce(): string {

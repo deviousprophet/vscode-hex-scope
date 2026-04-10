@@ -36,6 +36,70 @@
 
 .raw-data { color: var(--print-color); letter-spacing: .04em; }
 .raw-chk  { color: var(--addr-fg); }
+.raw-chk-err {
+    color: var(--err); font-weight: 700;
+    background: rgba(244,135,113,.18); border-radius: 2px; padding: 0 1px;
+    cursor: help;
+}
 
 /* Malformed line text */
 .raw-text { color: var(--err); }
+
+/* Flash highlight when navigating from the problems panel */
+@keyframes raw-flash {
+    0%   { background: rgba(244,135,113,.35); }
+    100% { background: transparent; }
+}
+.raw-line-flash { animation: raw-flash 1.2s ease-out; }
+
+/* ── Problems panel ──────────────────────────────────────────── */
+.raw-problems {
+    width: 260px; min-width: 200px; max-width: 340px;
+    flex-shrink: 0; overflow-y: auto;
+    border-left: 1px solid var(--border);
+    background: var(--panel-bg);
+    display: flex; flex-direction: column;
+}
+.raw-problems-hdr {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--toolbar-bg);
+}
+.raw-problems-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.raw-problems-count {
+    min-width: 16px; height: 16px; border-radius: 8px;
+    background: var(--err); color: #fff;
+    font-size: 9px; font-weight: 700; font-family: var(--font-ui);
+    display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+.raw-repair-btn {
+    margin-left: auto;
+    background: rgba(78,201,160,.12); border: 1px solid rgba(78,201,160,.4); border-radius: 3px;
+    color: #4ec9a0; font-size: 10px; font-family: var(--font-ui); font-weight: 700;
+    padding: 1px 8px; cursor: pointer; white-space: nowrap;
+    transition: background .1s, border-color .1s, opacity .1s;
+}
+.raw-repair-btn:hover:not(:disabled) { background: rgba(78,201,160,.25); border-color: #4ec9a0; }
+.raw-repair-btn:disabled { opacity: .4; cursor: default; }
+.raw-err-item {
+    display: flex; align-items: baseline; gap: 6px;
+    padding: 4px 10px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    cursor: pointer; font-family: var(--font-ui); font-size: 11px;
+    transition: background .08s;
+}
+.raw-err-item:hover { background: var(--hover-bg); }
+.raw-err-icon {
+    flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; margin-top: 2px;
+}
+.err-icon-fmt { background: var(--err); }
+.err-icon-chk { background: #ffb74d; }
+.raw-err-line {
+    flex-shrink: 0; color: var(--addr-fg); font-size: 10px;
+    min-width: 46px; font-family: var(--font-editor);
+}
+.raw-err-msg  { color: var(--fg); flex: 1; word-break: break-word; }

@@ -205,6 +205,28 @@ suite('SRecParser', () => {
         assert.strictEqual(result.malformedLines, 1);
     });
 
+    test('reserved S4 record type is flagged as malformed', () => {
+        // S4 with byteCount=3, addr=0x0000, chk=0xFC
+        const result = parseSRec(['S4030000FC', s9Rec()].join('\n'));
+        assert.strictEqual(result.malformedLines, 1);
+        assert.ok(result.records[0].error?.includes('Reserved record type'));
+    });
+
+    test('byte count too small for record type is flagged as malformed', () => {
+        // S1 (asz=2) with byteCount=2—below minimum of 3; hex length=6 passes length check
+        const result = parseSRec(['S10200FF', s9Rec()].join('\n'));
+        assert.strictEqual(result.malformedLines, 1);
+        assert.ok(result.records[0].error?.includes('too small'));
+    });
+
+    test('S9 end record with a data payload is flagged as malformed', () => {
+        // S9 (asz=2) requires byteCount=3 exactly; byteCount=5 carries extra bytes
+        // sum = 5+0x00+0x00+0xAA+0xBB = 362 → chk = (~362)&0xFF = 0x95
+        const result = parseSRec(['S9050000AABB95', s9Rec()].join('\n'));
+        assert.strictEqual(result.malformedLines, 1);
+        assert.ok(result.records[0].error?.includes('byte count'));
+    });
+
     // ── Segment building ──────────────────────────────────────────────────
 
     test('builds a single contiguous segment from adjacent records', () => {
