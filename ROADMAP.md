@@ -1,21 +1,12 @@
 # HexScope — Roadmap
 
-This file tracks planned and in-progress features. Work through this list one branch at a time.
-
----
-
-## In Progress
-
-| Branch | Feature |
-|--------|---------|
-| `feature/srec-support` | SREC / Motorola S-Record support |
+This file tracks planned features. Work through this list one branch at a time.
 
 ---
 
 ## Planned Features
 
 ### 1. Entropy Heatmap
-**Branch:** `feature/entropy-heatmap`
 
 Visualize byte entropy (Shannon entropy, sliding window) as a color overlay on the memory grid.
 Highlights compressed/encrypted regions, padding (`0x00` / `0xFF` floods), and code vs. data boundaries.
@@ -27,7 +18,6 @@ Highlights compressed/encrypted regions, padding (`0x00` / `0xFF` floods), and c
 ---
 
 ### 2. Diff View / Hex Compare
-**Branch:** `feature/diff-view`
 
 Side-by-side comparison of two firmware images (Intel HEX or SREC).
 - Open via command palette: `HexScope: Compare Two Files`
@@ -38,7 +28,6 @@ Side-by-side comparison of two firmware images (Intel HEX or SREC).
 ---
 
 ### 3. Struct / Type Overlay
-**Branch:** `feature/struct-overlay`
 
 Define C-like struct layouts and project them onto a selected address.
 - Struct definition panel (inline editor): field name, type (`uint8`, `uint16`, `uint32`, `float`, array), endianness
@@ -49,7 +38,6 @@ Define C-like struct layouts and project them onto a selected address.
 ---
 
 ### 4. Address-Space Minimap
-**Branch:** `feature/minimap`
 
 A narrow, vertically-scrollable panel showing the full 32-bit address space.
 - Colored blocks for occupied segments
@@ -60,7 +48,6 @@ A narrow, vertically-scrollable panel showing the full 32-bit address space.
 ---
 
 ### 5. Jump-to-Address Input
-**Branch:** `feature/jump-to-address`
 
 Quick navigation bar (or dedicated button near the toolbar search area) to scroll to an arbitrary address.
 - Accepts hex (`0x08000000`, `08000000`) or decimal
@@ -70,7 +57,6 @@ Quick navigation bar (or dedicated button near the toolbar search area) to scrol
 ---
 
 ### 6. Map File / Symbol Overlay
-**Branch:** `feature/map-file-overlay`
 
 Import GCC / IAR / Keil `.map` files to annotate addresses with function and variable names.
 - Auto-detects a `.map` file alongside the opened `.hex` / `.srec`
@@ -80,7 +66,6 @@ Import GCC / IAR / Keil `.map` files to annotate addresses with function and var
 ---
 
 ### 7. Multi-File Merge
-**Branch:** `feature/multi-file-merge`
 
 Merge two or more `.hex` / `.srec` files into one combined image.
 - Overlap detection with configurable conflict resolution (keep first, keep last, error)
@@ -90,18 +75,8 @@ Merge two or more `.hex` / `.srec` files into one combined image.
 ---
 
 ### 8. Raw Binary (`.bin`) Import
-**Branch:** `feature/bin-import`
 
 Load flat binary files with a configurable load address.
 - Input dialog for base address
 - Full support in memory grid, sidebar, search, and segment labels
 - Export back as Intel HEX or SREC
-
----
-
-## Completed
-
-| Version | Feature |
-|---------|---------|
-| 1.0.0 | Initial release — Intel HEX viewer, memory grid, byte inspector, search, records table, raw view, segment labels, in-place byte patching |
-| 1.1.0 | SREC / Motorola S-Record support (`feature/srec-support`) |
