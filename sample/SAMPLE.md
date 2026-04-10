@@ -99,15 +99,17 @@ sample/
 | 1 | ELA `0x0800` | Valid |
 | 2 | Data `0x08000000` | Valid |
 | 3 | Data `0x08000010` | **Bad checksum** |
-| 4 | `;; this is a comment` | **Malformed** (no `:`) |
-| 5 | Data `0x08000020` | Valid |
-| 6 | Data `0x08000030` | **Bad checksum** |
-| 7 | Data `0x08000040` | Valid |
-| 8 | EOF | Valid |
+| 4 | `;; this is a comment` | **Malformed** (no `:` start code) |
+| 5 | `:00000006FA` | **Malformed** (unknown record type `0x06`) |
+| 6 | `:02000001DEAD72` | **Malformed** (EOF with byte count 2, must be 0) |
+| 7 | Data `0x08000020` | Valid |
+| 8 | Data `0x08000030` | **Bad checksum** |
+| 9 | Data `0x08000040` | Valid |
+| 10 | EOF | Valid |
 
-**Stats:** 2 checksum errors · 1 malformed line
+**Stats:** 2 checksum errors · 3 malformed lines
 
-**Use for:** Error detection; verifying corrupt records are excluded from segments.
+**Use for:** Error detection; exercises bad checksum, missing start code, unknown record type, and wrong byte count for a fixed-size record type.
 
 ---
 
@@ -208,10 +210,13 @@ sample/
 | 1 | S0 header | Valid |
 | 2 | S1 data `0x0000` | **Bad checksum** |
 | 3 | S1 data `0x0010` | **Bad checksum** |
-| 4 | `;; not a valid srec record` | **Malformed** (no `S` start) |
-| 5 | S1 data `0x0020` | Valid |
-| 6 | S9 end-of-file | Valid |
+| 4 | `;; not a valid srec record` | **Malformed** (no `S` start code) |
+| 5 | `S4030000FC` | **Malformed** (reserved record type S4) |
+| 6 | `S1020000` | **Malformed** (byte count 2 too small for S1, minimum 3) |
+| 7 | `S5050003AABB92` | **Malformed** (S5 count record must have byte count 3, got 5) |
+| 8 | S1 data `0x0020` | Valid |
+| 9 | S9 end-of-file | Valid |
 
-**Stats:** 1 segment · 3 bytes · 2 checksum errors · 1 malformed line
+**Stats:** 1 segment · 3 bytes · 2 checksum errors · 4 malformed lines
 
-**Use for:** Error detection in SREC; corrupt and malformed records are excluded from segments while valid records contribute normally.
+**Use for:** Error detection in SREC; exercises bad checksum, missing start code, reserved type S4, byte count too small, and wrong byte count for a non-data record type.
