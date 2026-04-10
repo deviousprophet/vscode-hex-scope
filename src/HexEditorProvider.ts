@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { parseIntelHex, ParseResult } from './parser/IntelHexParser';
+import { parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
@@ -44,7 +45,8 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         webviewPanel.webview.options = { enableScripts: true };
 
         const raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
-        const parseResult = parseIntelHex(raw);
+        const format = detectFormat(document.uri, raw);
+        const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
 
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri, parseResult);
 
@@ -55,7 +57,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         // Post initial data to webview
         webviewPanel.webview.postMessage({
             type: 'init',
-            parseResult: serializeParseResult(parseResult),
+            parseResult: serializeParseResult(parseResult, format),
             labels: storedLabels,
             rawSource: raw,
         });
@@ -97,7 +99,9 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     const edits = msg.edits as Array<[number, number]>;
                     // Rebuild flatBytes from original parse + edits
                     const editMap = new Map<number, number>(edits);
-                    const newHex = serializeIntelHex(raw, parseResult, editMap);
+                    const newHex = format === 'srec'
+                        ? serializeSRec(raw, parseResult, editMap)
+                        : serializeIntelHex(raw, parseResult, editMap);
                     await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(newHex));
                     webviewPanel.webview.postMessage({ type: 'savedEdits' });
                     vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${document.uri.fsPath.split(/[\/]/).pop()}`);
@@ -163,7 +167,7 @@ export interface SegmentLabel {
     hidden?: boolean;
 }
 
-function serializeParseResult(result: ParseResult): SerializedParseResult {
+function serializeParseResult(result: ParseResult, format: 'ihex' | 'srec'): SerializedParseResult {
     return {
         records: result.records.map(r => ({
             lineNumber: r.lineNumber,
@@ -185,6 +189,7 @@ function serializeParseResult(result: ParseResult): SerializedParseResult {
         checksumErrors: result.checksumErrors,
         malformedLines: result.malformedLines,
         startAddress: result.startAddress,
+        format,
     };
 }
 
@@ -214,6 +219,7 @@ export interface SerializedParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
+    format: 'ihex' | 'srec';
 }
 
 /** Rebuild an Intel HEX file from original parse + a map of addr→newValue overrides. */
@@ -258,6 +264,60 @@ function buildDataRecord(addr16: number, data: number[]): string {
         data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('') +
         chk.toString(16).toUpperCase().padStart(2, '0');
     return ':' + body;
+}
+
+/** Detect whether raw content is Intel HEX or Motorola SREC. */
+function detectFormat(uri: vscode.Uri, raw: string): 'ihex' | 'srec' {
+    const ext = uri.path.split('.').pop()?.toLowerCase() ?? '';
+    if (['srec', 'mot', 's19', 's28', 's37'].includes(ext)) { return 'srec'; }
+    // Content sniff: first non-empty line starts with 'S' followed by a digit
+    const firstLine = raw.trimStart().slice(0, 4);
+    if (/^S[0-9]/i.test(firstLine)) { return 'srec'; }
+    return 'ihex';
+}
+
+/** Rebuild a Motorola SREC file from original parse + a map of addr→newValue overrides. */
+function serializeSRec(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
+    if (edits.size === 0) { return originalRaw; }
+
+    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
+    const lines: string[] = [];
+
+    for (const rec of parseResult.records) {
+        if (rec.error || !srecIsData(rec.recordType)) {
+            lines.push(rec.raw);
+            continue;
+        }
+        // Apply any edits that fall inside this record
+        const data = Array.from(rec.data);
+        let changed = false;
+        for (let i = 0; i < data.length; i++) {
+            const addr = rec.resolvedAddress + i;
+            if (edits.has(addr)) {
+                data[i] = edits.get(addr)!;
+                changed = true;
+            }
+        }
+        if (!changed) { lines.push(rec.raw); continue; }
+        lines.push(buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data));
+    }
+    return lines.join(eol);
+}
+
+function buildSRecDataRecord(type: number, address: number, data: number[]): string {
+    const asz = SREC_ADDR_SIZES[type] ?? 2;
+    const byteCount = asz + data.length + 1; // addrBytes + dataBytes + checksumByte
+    let sum = byteCount;
+    for (let i = 0; i < asz; i++) {
+        sum += (address >>> ((asz - 1 - i) * 8)) & 0xFF;
+    }
+    for (const b of data) { sum += b; }
+    const chk = (~sum) & 0xFF;
+    const bcHex   = byteCount.toString(16).toUpperCase().padStart(2, '0');
+    const addrHex = address.toString(16).toUpperCase().padStart(asz * 2, '0');
+    const dataHex = data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+    const chkHex  = chk.toString(16).toUpperCase().padStart(2, '0');
+    return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
 }
 
 function getNonce(): string {

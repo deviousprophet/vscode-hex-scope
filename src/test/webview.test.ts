@@ -114,7 +114,7 @@ suite('initFlatBytes()', () => {
         S.parseResult = {
             records: [],
             segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD, 0xBE, 0xEF] }],
-            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         assert.strictEqual(S.flatBytes.get(0x1000), 0xDE);
@@ -131,7 +131,7 @@ suite('initFlatBytes()', () => {
                 { startAddress: 0x0000, data: [0x01, 0x02] },
                 { startAddress: 0x0200, data: [0x03, 0x04] },
             ],
-            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         assert.strictEqual(S.flatBytes.size, 4);
@@ -147,7 +147,7 @@ suite('initFlatBytes()', () => {
                 { startAddress: 0x0300, data: [0xAA] },
                 { startAddress: 0x0100, data: [0xBB] },
             ],
-            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         assert.deepStrictEqual(S.sortedAddrs, [0x0100, 0x0300]);
@@ -168,7 +168,7 @@ suite('buildMemRows()', () => {
         S.parseResult = {
             records: [],
             segments: [{ startAddress: 0x0000, data: new Array(16).fill(0xAA) }],
-            totalDataBytes: 16, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 16, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         buildMemRows();
@@ -180,7 +180,7 @@ suite('buildMemRows()', () => {
         S.parseResult = {
             records: [],
             segments: [{ startAddress: 0x0007, data: [0x01, 0x02, 0x03] }],
-            totalDataBytes: 3, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 3, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         buildMemRows();
@@ -193,7 +193,7 @@ suite('buildMemRows()', () => {
         S.parseResult = {
             records: [],
             segments: [{ startAddress: 0x0000, data: new Array(32).fill(0xFF) }],
-            totalDataBytes: 32, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 32, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         buildMemRows();
@@ -209,7 +209,7 @@ suite('buildMemRows()', () => {
                 { startAddress: 0x0000, data: [0x01] },
                 { startAddress: 0x0020, data: [0x02] },
             ],
-            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         buildMemRows();
@@ -229,7 +229,7 @@ suite('buildMemRows()', () => {
                 { startAddress: 0x0040, data: [0x01] },
                 { startAddress: 0x0000, data: [0x02] },
             ],
-            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0,
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
         buildMemRows();

@@ -25,6 +25,7 @@ export interface SerializedParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
+    format: 'ihex' | 'srec';
 }
 
 export interface SegmentLabel {
