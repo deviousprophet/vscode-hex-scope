@@ -22,3 +22,26 @@
     letter-spacing: 0; text-transform: none;
 }
 .sb-empty { color: var(--non-graphic); font-size: 11px; font-style: italic; }
+
+/* ── Side-tab strip (always-visible right-edge verticals) ──────── */
+#side-tabs {
+    display: flex; flex-direction: column; align-items: center;
+    width: 28px; flex-shrink: 0;
+    background: var(--panel-bg); border-left: 1px solid var(--border);
+    padding: 6px 0; gap: 2px;
+}
+.stab {
+    writing-mode: vertical-rl; transform: none;
+    padding: 8px 5px;
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    font-family: var(--font-ui); white-space: nowrap;
+    background: transparent; border: none; border-right: 2px solid transparent;
+    color: var(--addr-fg); cursor: pointer;
+    transition: color .12s, border-color .12s;
+}
+.stab:hover { color: var(--fg); }
+.stab.active { color: var(--high-color); border-right-color: var(--high-color); }
+
+/* ── Sidebar tab panels ─────────────────────────────────────────── */
+.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; }
+.sb-tab-panel.active { display: block; }

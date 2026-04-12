@@ -1,0 +1,347 @@
+﻿/* ── Struct Overlay sidebar panel ────────────────────────────── */
+
+/* Shared layout tokens */
+.struct-addr-pfx {
+    flex-shrink: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg); line-height: 1;
+    padding: 2px 0 2px 2px;
+    -webkit-user-select: none; user-select: none;
+}
+.struct-addr-inp {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--fg); font-family: var(--font-editor);
+    font-size: 11px; padding: 2px 6px; outline: none;
+}
+.struct-addr-inp:focus { border-color: var(--high-color); }
+
+.struct-sel {
+    flex: 1; min-width: 0;
+    background: var(--input-bg); border: 1px solid var(--input-bdr);
+    border-radius: 3px; color: var(--input-fg); font-family: var(--font-ui);
+    font-size: 11px; padding: 2px 4px; outline: none;
+}
+.struct-sel:focus { border-color: var(--focus-bdr); }
+
+.struct-btn {
+    border-radius: 3px; font-size: 10px; font-family: var(--font-ui); font-weight: 600;
+    padding: 2px 9px; cursor: pointer; white-space: nowrap;
+    transition: background .1s, border-color .1s;
+}
+.struct-btn-apply {
+    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.4);
+    color: var(--high-color);
+}
+.struct-btn-apply:hover { background: rgba(79,195,247,.25); border-color: var(--high-color); }
+.struct-btn-secondary {
+    background: rgba(255,255,255,.06); border: 1px solid var(--border);
+    color: var(--addr-fg);
+}
+.struct-btn-secondary:hover { background: rgba(255,255,255,.12); border-color: var(--fg); }
+
+/* sb-hdr with inline button */
+.sb-hdr-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+}
+.sb-hdr-row .sb-hdr { margin-bottom: 0; }
+
+/* ══ Struct Types list (#s-struct) ══════════════════════════════ */
+
+.sd-empty { margin-bottom: 4px; }
+
+.sd-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 2px; border-radius: 3px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.sd-row:last-child { border-bottom: none; }
+
+.sd-name {
+    flex: 1; min-width: 0;
+    font-size: 11px; font-weight: 600; color: var(--fg);
+    font-family: var(--font-ui);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sd-meta {
+    flex-shrink: 0; font-size: 9px; color: var(--addr-fg);
+    font-family: var(--font-editor); white-space: nowrap;
+}
+.sd-btn {
+    flex-shrink: 0; width: 18px; height: 18px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none;
+    color: var(--addr-fg); font-size: 10px; cursor: pointer;
+    border-radius: 2px; opacity: 0; transition: opacity .1s, color .1s;
+}
+.sd-row:hover .sd-btn { opacity: 1; }
+.sd-edit:hover { color: var(--high-color); }
+.sd-del:hover  { color: var(--err); }
+
+/* ══ Struct form editor (#s-struct when editing) ═════════════════ */
+
+.se-form { display: flex; flex-direction: column; gap: 5px; }
+
+.se-name-inp {
+    width: 100%; box-sizing: border-box;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--fg); font-family: var(--font-ui);
+    font-size: 11px; font-weight: 600; padding: 3px 6px; outline: none;
+}
+.se-name-inp:focus { border-color: var(--high-color); }
+
+/* Field header + rows */
+.se-field-hdr {
+    display: grid;
+    grid-template-columns: 64px 1fr 72px 18px;
+    gap: 3px; align-items: center;
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+    padding-bottom: 3px; border-bottom: 1px solid var(--border);
+}
+.se-field-hdr > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.struct-field-row {
+    display: grid;
+    grid-template-columns: 64px 1fr 72px 18px;
+    gap: 3px; align-items: center; padding: 1px 0;
+}
+
+.sfe-name-inp {
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
+    font-size: 10px; padding: 1px 4px; outline: none; width: 100%;
+    box-sizing: border-box;
+}
+.sfe-name-inp:focus { border-color: var(--focus-bdr); }
+
+.sfe-type-sel {
+    background: var(--input-bg); border: 1px solid var(--input-bdr);
+    border-radius: 2px; color: var(--input-fg); font-family: var(--font-ui);
+    font-size: 10px; padding: 1px 2px; outline: none; width: 100%;
+    box-sizing: border-box;
+}
+.sfe-type-sel:focus { border-color: var(--focus-bdr); }
+
+/* Array cell */
+.sfe-arr-cell {
+    display: flex; align-items: center; gap: 2px; width: 100%;
+}
+.sfe-arr-toggle {
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 9px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
+    white-space: nowrap; flex-shrink: 0; text-align: center;
+    transition: border-color .1s, color .1s, background .1s;
+}
+.sfe-arr-toggle:hover        { border-color: var(--high-color); color: var(--high-color); }
+.sfe-arr-toggle.active       { border-style: solid; border-color: var(--high-color);
+                                color: var(--high-color); background: rgba(79,195,247,.1); }
+.sfe-arr-toggle.active:hover { border-color: var(--err); color: var(--err);
+                                background: rgba(255,80,80,.08); }
+.sfe-count-inp {
+    display: none; width: 32px; text-align: center;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
+    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
+    appearance: textfield;
+}
+.sfe-count-inp::-webkit-outer-spin-button,
+.sfe-count-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sfe-count-inp:focus { border-color: var(--focus-bdr); }
+.sfe-arr-cell.is-array .sfe-count-inp { display: block; }
+
+.sfe-del-btn {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.sfe-del-btn:hover { color: var(--err); }
+.sfe-del-placeholder { display: block; width: 18px; }
+
+.struct-add-field-btn {
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 3px; color: var(--addr-fg); font-size: 10px;
+    font-family: var(--font-ui); padding: 3px 0; cursor: pointer;
+    transition: border-color .1s, color .1s; text-align: center;
+}
+.struct-add-field-btn:hover { border-color: var(--high-color); color: var(--high-color); }
+
+.se-btns { display: flex; gap: 6px; margin-top: 2px; }
+
+/* ══ Instances panel (#s-struct-pins) ════════════════════════════ */
+
+/* Header row: title + badge + LE/BE tabs + ＋ Add */
+.si-hdr-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 6px;
+}
+.si-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
+
+.si-add-btn {
+    flex-shrink: 0;
+    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.35);
+    border-radius: 3px; color: var(--high-color);
+    font-size: 10px; font-family: var(--font-ui); font-weight: 600;
+    padding: 2px 7px; cursor: pointer;
+    transition: background .1s, border-color .1s;
+}
+.si-add-btn:hover:not([disabled]) { background: rgba(79,195,247,.22); border-color: rgba(79,195,247,.6); }
+.si-add-btn[disabled] { opacity: .35; cursor: not-allowed; }
+
+/* Inline add form */
+.si-add-form {
+    display: flex; flex-direction: column; gap: 5px;
+    background: rgba(0,0,0,.18); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px; margin-bottom: 8px;
+}
+
+.sa-row { display: flex; align-items: center; gap: 4px; }
+.sa-btn-row { gap: 6px; }
+.sa-endian-tabs { flex-shrink: 0; }
+
+.struct-btn-cancel {
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 3px; color: var(--addr-fg);
+    font-size: 10px; font-family: var(--font-ui); font-weight: 600;
+    transition: border-color .1s, color .1s;
+}
+.struct-btn-cancel:hover { border-color: var(--fg); color: var(--fg); }
+
+/* Field preview */
+.sa-preview {
+    background: rgba(0,0,0,.18); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 6px;
+    display: flex; flex-direction: column; gap: 1px;
+    max-height: 96px; overflow-y: auto;
+}
+.sa-preview-empty {
+    font-size: 10px; color: var(--non-graphic); font-style: italic;
+    font-family: var(--font-ui);
+}
+.sa-pf {
+    font-size: 10px; line-height: 1.4; font-family: var(--font-editor);
+}
+.sa-pf-type { color: var(--print-color); margin-right: 4px; }
+.sa-pf-name { color: var(--fg); }
+
+.sa-addr-inp { flex: 0 0 90px; }
+
+.sa-name-inp {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--fg); font-family: var(--font-ui);
+    font-size: 11px; padding: 2px 6px; outline: none;
+}
+.sa-name-inp:focus { border-color: var(--high-color); }
+
+/* ══ Saved instances (expandable cards) ══════════════════════════ */
+
+.si-card {
+    border: 1px solid var(--border); border-radius: 4px;
+    margin-bottom: 4px; overflow: hidden;
+    transition: border-color .1s;
+}
+.si-card:hover { border-color: rgba(255,255,255,.2); }
+.si-card.si-expanded { border-color: rgba(79,195,247,.35); }
+
+.si-card-hdr {
+    display: flex; align-items: center; gap: 4px;
+    padding: 5px 6px; cursor: pointer;
+    -webkit-user-select: none; user-select: none;
+}
+.si-card-hdr:hover { background: var(--hover-bg); }
+
+.si-expand-btn {
+    flex-shrink: 0; width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; padding: 0;
+    color: var(--addr-fg); font-size: 12px; cursor: pointer;
+    line-height: 1;
+}
+
+.si-cname {
+    flex: 0 1 auto; min-width: 0;
+    font-size: 11px; font-weight: 600; color: var(--fg);
+    font-family: var(--font-ui);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.si-cmeta {
+    flex: 1 1 0; min-width: 0;
+    font-size: 9px; color: var(--addr-fg);
+    font-family: var(--font-editor); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
+.si-del-btn {
+    flex-shrink: 0; width: 16px; height: 16px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none;
+    color: var(--addr-fg); font-size: 10px; cursor: pointer;
+    border-radius: 2px; opacity: 0; transition: opacity .1s, color .1s;
+}
+.si-card:hover .si-del-btn { opacity: 1; }
+.si-del-btn:hover { color: var(--err); }
+
+/* Expanded field rows */
+.si-fields {
+    border-top: 1px solid var(--border);
+    padding: 3px 0;
+}
+/* 5-col grid: [offset 40px] [exp-btn 16px] [name 1fr] [col1 auto] [col2 auto] */
+.si-field {
+    display: grid;
+    grid-template-columns: 40px 16px 1fr auto auto;
+    gap: 3px; align-items: baseline;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .1s;
+}
+.si-field:hover { background: var(--hover-bg); }
+
+.si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); }
+.si-f-name {
+    font-size: 10px; color: var(--fg); font-family: var(--font-editor);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.si-f-pri { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; text-align: right; }
+.si-f-sec { font-size: 9px;  color: var(--addr-fg);   font-family: var(--font-editor); white-space: nowrap; text-align: right; opacity: .75; }
+.si-f-ptr { color: #e8a020 !important; font-style: italic; }
+.si-no-data { opacity: .4; }
+
+/* Array field group — same 5-col grid for alignment */
+.si-arr-grp-hdr {
+    display: grid;
+    grid-template-columns: 40px 16px 1fr auto auto;
+    gap: 3px; align-items: center;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .1s;
+    border-top: 1px solid rgba(255,255,255,.05);
+}
+.si-arr-grp-hdr:hover { background: var(--hover-bg); }
+.si-arr-exp-btn {
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; padding: 0;
+    color: var(--addr-fg); font-size: 12px; cursor: pointer; line-height: 1;
+}
+.si-arr-count {
+    font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    white-space: nowrap; text-align: right;
+}
+.si-arr-grp-body .si-field { padding-left: 16px; }
+
+/* Column type config row */
+.si-colcfg {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 8px 4px;
+    border-bottom: 1px solid var(--border);
+}
+.si-colcfg-lbl {
+    font-size: 9px; color: var(--addr-fg); white-space: nowrap;
+}
+.si-colcfg-sel {
+    font-size: 9px; background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 2px;
+    padding: 1px 2px; cursor: pointer; flex: 1; min-width: 0;
+}

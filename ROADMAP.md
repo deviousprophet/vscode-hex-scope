@@ -27,17 +27,7 @@ Side-by-side comparison of two firmware images (Intel HEX or SREC).
 
 ---
 
-### 3. Struct / Type Overlay
-
-Define C-like struct layouts and project them onto a selected address.
-- Struct definition panel (inline editor): field name, type (`uint8`, `uint16`, `uint32`, `float`, array), endianness
-- Apply to address: renders a decoded table in the sidebar
-- Save/load struct definitions per workspace
-- Built-in presets: ARM Cortex-M vector table, common MCU peripheral register blocks
-
----
-
-### 4. Address-Space Minimap
+### 3. Address-Space Minimap
 
 A narrow, vertically-scrollable panel showing the full 32-bit address space.
 - Colored blocks for occupied segments
@@ -47,7 +37,7 @@ A narrow, vertically-scrollable panel showing the full 32-bit address space.
 
 ---
 
-### 5. Jump-to-Address Input
+### 4. Jump-to-Address Input
 
 Quick navigation bar (or dedicated button near the toolbar search area) to scroll to an arbitrary address.
 - Accepts hex (`0x08000000`, `08000000`) or decimal
@@ -56,7 +46,7 @@ Quick navigation bar (or dedicated button near the toolbar search area) to scrol
 
 ---
 
-### 6. Map File / Symbol Overlay
+### 5. Map File / Symbol Overlay
 
 Import GCC / IAR / Keil `.map` files to annotate addresses with function and variable names.
 - Auto-detects a `.map` file alongside the opened `.hex` / `.srec`
@@ -65,7 +55,7 @@ Import GCC / IAR / Keil `.map` files to annotate addresses with function and var
 
 ---
 
-### 7. Multi-File Merge
+### 6. Multi-File Merge
 
 Merge two or more `.hex` / `.srec` files into one combined image.
 - Overlap detection with configurable conflict resolution (keep first, keep last, error)
@@ -74,7 +64,7 @@ Merge two or more `.hex` / `.srec` files into one combined image.
 
 ---
 
-### 8. Raw Binary (`.bin`) Import
+### 7. Raw Binary (`.bin`) Import
 
 Load flat binary files with a configurable load address.
 - Input dialog for base address
