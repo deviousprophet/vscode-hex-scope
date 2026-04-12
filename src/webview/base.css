@@ -40,7 +40,7 @@
     --print-color: #ce9178;
     --high-color:  #9cdcfe;
     --zero-color:  rgba(212,212,212,.20);
-    --sidebar-w:   272px;
+    --sidebar-w:   400px;
 }
 
 html, body {

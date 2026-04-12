@@ -7,6 +7,7 @@ import { esc, fmtB }                                  from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
 import { renderInspector, renderBits, renderLabels, updateInspector } from './sidebar';
+import { renderStructPanel, renderStructPins, onSelectionChangeForStruct }              from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './search';
 import { initFlatBytes, buildMemRows }                from './data';
 
@@ -19,6 +20,8 @@ window.addEventListener('message', (e: MessageEvent) => {
             S.parseResult = msg.parseResult as typeof S.parseResult;
             S.labels      = (msg.labels as typeof S.labels) ?? [];
             S.rawSource   = (msg.rawSource as string) ?? '';
+            S.structs     = (msg.structs as typeof S.structs) ?? [];
+            S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
             initFlatBytes();
             buildMemRows();
             // Choose default view: raw if there are errors, memory if valid
@@ -114,11 +117,19 @@ function render(): void {
                 <div id="raw-view" class="${S.currentView === 'raw' ? 'visible' : ''}"></div>
             </div>
             <div id="sidebar">
-                <div class="sb-scroll">
+                <div class="sb-tab-panel ${S.sidebarTab === 'inspector' ? 'active' : ''}" id="sbp-insp">
                     <div class="sb-section" id="s-insp"></div>
                     <div class="sb-section" id="s-bits"></div>
                     <div class="sb-section" id="s-labels"></div>
                 </div>
+                <div class="sb-tab-panel ${S.sidebarTab === 'struct' ? 'active' : ''}" id="sbp-struct">
+                    <div class="sb-section" id="s-struct"></div>
+                    <div class="sb-section" id="s-struct-pins"></div>
+                </div>
+            </div>
+            <div id="side-tabs">
+                <button class="stab${S.sidebarTab === 'inspector' ? ' active' : ''}" id="stab-insp">Inspector</button>
+                <button class="stab${S.sidebarTab === 'struct'    ? ' active' : ''}" id="stab-struct">Struct</button>
             </div>
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
@@ -222,11 +233,29 @@ function render(): void {
     // Wire search module
     initSearch(() => switchView('memory'));
 
+    // Side tabs
+    function applySidebarState(): void {
+        document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
+        document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+        document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
+        document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+    }
+    document.getElementById('stab-insp')!.addEventListener('click', () => {
+        S.sidebarTab = 'inspector';
+        applySidebarState();
+    });
+    document.getElementById('stab-struct')!.addEventListener('click', () => {
+        S.sidebarTab = 'struct';
+        applySidebarState();
+    });
+
     // Initial renders
     renderStats();
     renderMemHeader();
     renderInspector();
     renderBits();
+    renderStructPanel();
+    renderStructPins();
     renderLabels();
     setupCtxMenu();
 
@@ -278,6 +307,7 @@ function onByteDown(e: MouseEvent, el: HTMLElement): void {
 
     applySel();
     updateInspector();
+    onSelectionChangeForStruct();
 
 }
 
@@ -293,6 +323,7 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
             S.selEnd   = addr;
             applySel();
             updateInspector();
+            onSelectionChangeForStruct();
         }
     }
     showCtxMenu(e.clientX, e.clientY);
