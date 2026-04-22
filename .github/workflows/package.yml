@@ -1,0 +1,68 @@
+name: Build VSIX Package
+
+env:
+  NODE_VERSION: '24'
+
+on:
+  workflow_call:
+    inputs:
+      use_package_version:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      vsix_name:
+        description: 'Produced VSIX name'
+        value: ${{ jobs.build.outputs.vsix_name }}
+
+jobs:
+  Build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      vsix_name: ${{ steps.package-output.outputs.vsix_name }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Compile Extension
+        run: npm run compile
+
+      - name: Determine Suffix
+        id: suffix
+        run: |
+          if [ "${{ inputs.use_package_version }}" = "true" ]; then
+            SUFFIX=$(node -p "require('./package.json').version")
+          else
+            SUFFIX="$GITHUB_SHA"
+          fi
+          echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
+
+      - name: Extract Extension Name
+        id: extension-name
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          echo "extension_name=$NAME" >> $GITHUB_OUTPUT
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --out ${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}.vsix
+
+      - name: Upload VSIX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}
+          path: ${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}.vsix
+
+      - name: Set outputs
+        id: package-output
+        run: |
+          echo "vsix_name=${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}" >> $GITHUB_OUTPUT
