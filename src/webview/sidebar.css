@@ -106,7 +106,7 @@
 /* Collapsible section support: hide body when collapsed */
 .sb-section.collapsed .sb-body { display: none; }
 .sb-section .sb-hdr {
-    cursor: pointer; user-select: none;
+    cursor: pointer; -webkit-user-select: none; user-select: none;
     position: relative;
 }
 .sb-section .sb-hdr::before {
