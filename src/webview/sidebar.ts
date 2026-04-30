@@ -10,11 +10,28 @@ import { buildMemRows } from './data';
 // ── Inspector ────────────────────────────────────────────────────
 
 export function renderInspector(): void {
-    document.getElementById('s-insp')!.innerHTML =
+    const sec = document.getElementById('s-insp')!;
+    sec.innerHTML =
         `<div class="sb-hdr">Inspector</div>
-         <div id="insp-addr" style="display:none"></div>
-         <div id="insp-vals"><div class="sb-empty">Click a byte to inspect</div></div>
-         <div id="insp-multi"></div>`;
+         <div class="sb-body">
+           <div id="insp-addr" style="display:none"></div>
+           <div id="insp-vals"><div class="sb-empty">Click a byte to inspect</div></div>
+           <div id="insp-multi"></div>
+         </div>`;
+
+    // Collapsible: expanded by default
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
+    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
+
+    // Header toggles collapse state
+    const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
+    if (hdr) {
+        hdr.addEventListener('click', () => {
+            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+            sec.dataset.collapsed = now;
+            sec.classList.toggle('collapsed', now === 'true');
+        });
+    }
 }
 
 export function updateInspector(): void {
@@ -35,14 +52,14 @@ export function updateInspector(): void {
     const ah = S.selStart.toString(16).toUpperCase().padStart(8, '0');
     addrEl.style.display = '';
     if (len === 1) {
-        addrEl.innerHTML = `<span class="insp-addr-single">0x${ah}</span>`;
+        addrEl.innerHTML = `<span class=\"insp-addr-value\">0x${ah}</span>`;
     } else {
         const endH = S.selEnd!.toString(16).toUpperCase().padStart(8, '0');
         addrEl.innerHTML =
-            `<span class="insp-addr-range">0x${ah}</span>` +
-            `<span class="insp-addr-sep">–</span>` +
-            `<span class="insp-addr-range">0x${endH}</span>` +
-            `<span class="insp-addr-len">${len} bytes</span>`;
+            `<span class=\"insp-addr-value\">0x${ah}</span>` +
+            `<span class=\"insp-addr-sep\">–</span>` +
+            `<span class=\"insp-addr-value\">0x${endH}</span>` +
+            `<span class=\"insp-addr-len\">${len} bytes</span>`;
     }
 
     if (val === undefined) {
@@ -114,6 +131,21 @@ export function renderBits(val?: number): void {
             `<div class="bitgrid-wrap">${bitIndexRow()}${byteRow(val, null)}</div>` +
             `<span class="bit-pc">${pc}/8 bits set</span></div>`;
     }
+
+    // Persist collapsed state on the section element; default collapsed
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
+    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
+
+    // Header toggles collapse state
+    const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
+    if (hdr) {
+        hdr.addEventListener('click', () => {
+            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+            sec.dataset.collapsed = now;
+            sec.classList.toggle('collapsed', now === 'true');
+        });
+    }
+
     wireBitColHover();
 }
 
@@ -128,6 +160,21 @@ function renderBitsMulti(bytes: number[]): void {
         `<div class="sb-body">` +
         `<div class="bitgrid-wrap">${bitIndexRow()}${rows}</div>` +
         `<span class="bit-pc">${total}/${bytes.length * 8} bits set</span></div>`;
+
+    // Persist collapsed state on the section element; default collapsed
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
+    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
+
+    // Header toggles collapse state
+    const hdrm = sec.querySelector<HTMLElement>('.sb-hdr');
+    if (hdrm) {
+        hdrm.addEventListener('click', () => {
+            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+            sec.dataset.collapsed = now;
+            sec.classList.toggle('collapsed', now === 'true');
+        });
+    }
+
     wireBitColHover();
 }
 
@@ -317,8 +364,23 @@ export function renderLabels(): void {
 
     sec.innerHTML = `
         <div class="sb-hdr">Labels ${badge}</div>
-        ${items}
-        <button class="add-lbl-btn" id="btn-add-lbl">+ Add Segment Label</button>`;
+        <div class="sb-body">${items}
+        <button class="add-lbl-btn" id="btn-add-lbl">+ Add Segment Label</button>
+        </div>`;
+
+    // Persist collapsed state on the section element; default collapsed
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
+    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
+
+    // Header toggles collapse state
+    const lh = sec.querySelector<HTMLElement>('.sb-hdr');
+    if (lh) {
+        lh.addEventListener('click', () => {
+            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+            sec.dataset.collapsed = now;
+            sec.classList.toggle('collapsed', now === 'true');
+        });
+    }
 
     // Delete
     sec.querySelectorAll<HTMLElement>('.label-del').forEach(el => {
@@ -388,6 +450,10 @@ export function renderLabels(): void {
 function renderLabelForm(editId?: string): void {
     const sec     = document.getElementById('s-labels')!;
     const editing = editId ? S.labels.find(l => l.id === editId) : undefined;
+
+    // Ensure the labels section is expanded while editing
+    sec.dataset.collapsed = 'false';
+    sec.classList.remove('collapsed');
 
     const COLORS = [
         { name: 'Sky Blue', v: '#4fc3f7' }, { name: 'Green',  v: '#81c784' },
