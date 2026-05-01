@@ -300,7 +300,7 @@ export function structToC(def: StructDef): string {
     let offset = 0;
     let maxAlign = 1;
 
-    for (const f of def.fields) {
+    def.fields.forEach((f, fi) => {
         const sz    = fieldByteSize(f.type);
         const align = def.packed ? 1 : fieldAlignment(f.type);
         if (align > maxAlign) { maxAlign = align; }
@@ -315,13 +315,14 @@ export function structToC(def: StructDef): string {
 
         offset = aligned;
         const cType = TYPE_TO_C[f.type].padEnd(maxTypeLen);
+        const displayFieldName = f.name || `field${fi}`;
         const arr   = f.count > 1 ? `[${f.count}]` : '';
         const fieldBytes = sz * f.count;
         const endianHint = f.endian !== 'inherit' ? `  /* ${f.endian} */` : '';
-        lines.push(`    ${cType} ${f.name}${arr};`.padEnd(44) +
+        lines.push(`    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
             `/* +${offset.toString().padStart(3)}  ${fieldBytes}B${endianHint} */`);
         offset += fieldBytes;
-    }
+    });
 
     // Trailing padding
     const totalUnpadded = offset;
@@ -334,6 +335,7 @@ export function structToC(def: StructDef): string {
 
     const totalBytes = def.packed ? totalUnpadded : totalPadded;
     const alignNote  = def.packed ? 'packed' : `align=${maxAlign}`;
-    lines.push(`} ${def.name};`.padEnd(44) + `/* ${totalBytes}B, ${alignNote} */`);
+    const displayName = def.name || 'MyStruct';
+    lines.push(`} ${displayName};`.padEnd(44) + `/* ${totalBytes}B, ${alignNote} */`);
     return lines.join('\n');
 }

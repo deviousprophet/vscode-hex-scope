@@ -2,7 +2,7 @@
 // Inspector · Bit View · Multi-Byte interpreter · Segment Labels
 
 import { S } from './state';
-import { esc, fmtB } from './utils';
+import { esc, fmtB, inlineConfirm, actionBtnsHtml, wireActionBtns } from './utils';
 import { vscode } from './api';
 import { rerender } from './render';
 import { buildMemRows } from './data';
@@ -358,8 +358,7 @@ export function renderLabels(): void {
                 <span class="label-act label-vis" data-id="${l.id}" data-hidden="${l.hidden ? '1' : '0'}" title="${l.hidden ? 'Show' : 'Hide'}">${l.hidden ? '&#128065;&#xFE0E;' : '&#128065;'}</span>
                 <span class="label-act label-up"  data-id="${l.id}" title="Move up"   ${i === 0 ? 'style="opacity:.3;pointer-events:none"' : ''}>&#8593;</span>
                 <span class="label-act label-dn"  data-id="${l.id}" title="Move down" ${i === S.labels.length - 1 ? 'style="opacity:.3;pointer-events:none"' : ''}>&#8595;</span>
-                <span class="label-act label-edt" data-id="${l.id}" title="Edit">&#9998;</span>
-                <span class="label-act label-del" data-id="${l.id}" title="Remove">&#10005;</span>
+                ${actionBtnsHtml(`data-id="${l.id}"`, `data-id="${l.id}"`)}
             </div>`).join('');
 
     sec.innerHTML = `
@@ -382,21 +381,19 @@ export function renderLabels(): void {
         });
     }
 
-    // Delete
-    sec.querySelectorAll<HTMLElement>('.label-del').forEach(el => {
-        el.addEventListener('click', () => {
+    wireActionBtns(
+        sec,
+        '.act-btn-edit',
+        '.act-btn-del',
+        el => renderLabelForm(el.dataset.id),
+        el => {
             S.labels = S.labels.filter(l => l.id !== el.dataset.id);
             vscode.postMessage({ type: 'saveLabels', labels: S.labels });
             buildMemRows();
             rerender.labels();
             if (S.currentView === 'memory') { rerender.memory(); }
-        });
-    });
-
-    // Edit — open inline form
-    sec.querySelectorAll<HTMLElement>('.label-edt').forEach(el => {
-        el.addEventListener('click', () => renderLabelForm(el.dataset.id));
-    });
+        },
+    );
 
     // Toggle visibility
     sec.querySelectorAll<HTMLElement>('.label-vis').forEach(el => {
@@ -572,7 +569,13 @@ function renderLabelForm(editId?: string): void {
     document.getElementById('lf-save')?.addEventListener('click', () => {
         warnEl().textContent = '';
 
-        const name = nameEl().value.trim();
+        const name = nameEl().value.trim() || (() => {
+            const taken = new Set(S.labels.map(l => l.name));
+            let candidate = 'Label_0';
+            let n = 1;
+            while (taken.has(candidate)) { candidate = `Label_${n++}`; }
+            return candidate;
+        })();
         if (!name) { warnEl().textContent = 'Name is required.'; return; }
 
         const startAddress = parseInt(startEl().value.replace(/^0x/i, ''), 16);
@@ -620,4 +623,21 @@ function renderLabelForm(editId?: string): void {
         rerender.labels();
         if (S.currentView === 'memory') { rerender.memory(); }
     });
+}
+
+/**
+ * Called whenever the hex-view selection changes.
+ * If the label form (#lf-start) is currently open, updates its address
+ * (and range) fields to reflect the newly selected byte(s).
+ */
+export function updateLabelFormSel(): void {
+    if (S.selStart === null) { return; }
+    const startEl = document.getElementById('lf-start') as HTMLInputElement | null;
+    if (!startEl) { return; }
+    const fh = (n: number) => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
+    startEl.value = fh(S.selStart);
+    const rangeEl = document.getElementById('lf-range') as HTMLInputElement | null;
+    if (rangeEl && S.selEnd !== null && S.selEnd >= S.selStart) {
+        rangeEl.value = String(S.selEnd - S.selStart + 1);
+    }
 }

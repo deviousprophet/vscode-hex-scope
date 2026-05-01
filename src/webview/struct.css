@@ -82,16 +82,6 @@
     flex-shrink: 0; font-size: 9px; color: var(--addr-fg);
     font-family: var(--font-editor); white-space: nowrap;
 }
-.sd-btn {
-    flex-shrink: 0; width: 18px; height: 18px; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: transparent; border: none;
-    color: var(--addr-fg); font-size: 10px; cursor: pointer;
-    border-radius: 2px; opacity: 0; transition: opacity .1s, color .1s;
-}
-.sd-row:hover .sd-btn { opacity: 1; }
-.sd-edit:hover { color: var(--high-color); }
-.sd-del:hover  { color: var(--err); }
 
 /* ══ Struct form editor (#s-struct when editing) ═════════════════ */
 
@@ -217,6 +207,17 @@
 .si-add-btn:hover:not([disabled]) { background: rgba(79,195,247,.22); border-color: rgba(79,195,247,.6); }
 .si-add-btn[disabled] { opacity: .35; cursor: not-allowed; }
 
+/* Muted icon button (e.g. manage-types, edit-pin) */
+.si-icon-btn {
+    flex-shrink: 0;
+    background: transparent; border: 1px solid transparent;
+    border-radius: 3px; color: var(--addr-fg);
+    font-size: 11px; font-family: var(--font-ui);
+    padding: 2px 5px; cursor: pointer;
+    transition: background .1s, border-color .1s, color .1s;
+}
+.si-icon-btn:hover { background: rgba(255,255,255,.08); border-color: var(--border); color: var(--fg); }
+
 /* Inline add form */
 .si-add-form {
     display: flex; flex-direction: column; gap: 5px;
@@ -224,9 +225,27 @@
     border-radius: 4px; padding: 8px; margin-bottom: 8px;
 }
 
+/* Form mode header (＋ New Instance / ✎ Edit Instance) */
+.sa-form-hdr {
+    font-size: 10px; font-weight: 600; font-family: var(--font-ui);
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1px;
+    -webkit-user-select: none; user-select: none;
+}
+.sa-form-hdr-new  { color: var(--high-color); }
+.sa-form-hdr-edit { color: var(--addr-fg); }
+
 .sa-row { display: flex; align-items: center; gap: 4px; }
 .sa-btn-row { gap: 6px; }
 .sa-endian-tabs { flex-shrink: 0; }
+
+/* Inline instance-edit form inside a card */
+.si-pin-edit-form {
+    display: flex; flex-direction: column; gap: 5px;
+    background: rgba(0,0,0,.18); border-top: 1px solid var(--border);
+    padding: 8px;
+}
 
 .struct-btn-cancel {
     background: transparent; border: 1px solid var(--border);
@@ -313,15 +332,12 @@
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
-.si-del-btn {
-    flex-shrink: 0; width: 16px; height: 16px; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: transparent; border: none;
-    color: var(--addr-fg); font-size: 10px; cursor: pointer;
-    border-radius: 2px; opacity: 0; transition: opacity .1s, color .1s;
+.si-del-btn { display: none; } /* superseded by .act-btn — kept to avoid selector errors */
+
+/* Action buttons group (edit + delete) at top-right of card */
+.si-card-actions {
+    flex-shrink: 0; display: flex; align-items: center; gap: 0;
 }
-.si-card:hover .si-del-btn { opacity: 1; }
-.si-del-btn:hover { color: var(--err); }
 
 /* Type-definition preview toggle button (in si-cmeta-row) */
 .si-type-btn {

@@ -6,7 +6,7 @@ import { vscode }                                     from './api';
 import { esc, fmtB }                                  from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
-import { renderInspector, renderBits, renderLabels, updateInspector } from './sidebar';
+import { renderInspector, renderBits, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
 import { renderStructPanel, renderStructPins, onSelectionChangeForStruct }              from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './search';
 import { initFlatBytes, buildMemRows }                from './data';
@@ -227,6 +227,7 @@ function render(): void {
         S.selEnd   = newEnd;
         applySel();
         updateInspector();
+        updateLabelFormSel();
     });
     document.addEventListener('mouseup', () => { dragAnchor = null; });
 
@@ -304,6 +305,7 @@ function onByteDown(e: MouseEvent, el: HTMLElement): void {
 
     applySel();
     updateInspector();
+    updateLabelFormSel();
     onSelectionChangeForStruct();
 
 }
@@ -320,6 +322,7 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
             S.selEnd   = addr;
             applySel();
             updateInspector();
+            updateLabelFormSel();
             onSelectionChangeForStruct();
         }
     }

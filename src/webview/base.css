@@ -56,3 +56,76 @@ html, body {
 ::-webkit-scrollbar-thumb { background: rgba(121,121,121,.4); border-radius: 5px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: rgba(121,121,121,.7); }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── Shared action buttons (edit ✎ / delete 🗑) ────────────────── */
+/* Used in labels, struct instance cards, and manage-types rows.    */
+.act-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; padding: 0; flex-shrink: 0;
+    background: transparent; border: none; border-radius: 2px;
+    cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
+    transition: color .1s, background .1s; -webkit-user-select: none; user-select: none;
+    opacity: 0; transition: opacity .1s, color .1s, background .1s;
+}
+/* Parent hover reveals the buttons */
+[data-act-host]:hover .act-btn,
+.label-item:hover    .act-btn,
+.sd-row:hover        .act-btn,
+.si-card:hover       .act-btn { opacity: 1; }
+
+.act-btn:hover       { background: rgba(255,255,255,.08); color: var(--fg); }
+.act-btn-edit:hover  { color: var(--high-color); background: rgba(134,180,212,.1); }
+.act-btn-del:hover   { color: var(--err);         background: rgba(244,135,113,.1); }
+
+/* ── Delete-confirm popover ─────────────────────────────────────── */
+.del-confirm-pop {
+    z-index: 9999;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 7px;
+    background: var(--panel-bg, #252526);
+    border: 1px solid var(--border, #454545);
+    border-radius: 5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.45);
+    white-space: nowrap;
+    font-family: var(--font-ui); font-size: 11px;
+    /* small drop-shadow arrow pointing down */
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.35));
+}
+/* Caret arrow pointing downward */
+.del-confirm-pop::after {
+    content: '';
+    position: absolute; bottom: -5px; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--border, #454545);
+    border-bottom: none;
+}
+.del-confirm-pop::before {
+    content: '';
+    position: absolute; bottom: -4px; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--panel-bg, #252526);
+    border-bottom: none;
+    z-index: 1;
+}
+.dcp-msg {
+    color: var(--fg); font-weight: 600;
+    -webkit-user-select: none; user-select: none;
+    margin-right: 2px;
+}
+.dcp-yes, .dcp-no {
+    border-radius: 3px; padding: 2px 8px; cursor: pointer;
+    font-size: 11px; font-family: var(--font-ui); font-weight: 600;
+    border: 1px solid transparent; transition: background .1s, border-color .1s;
+}
+.dcp-yes {
+    background: rgba(255,80,80,.14); border-color: rgba(255,80,80,.45);
+    color: rgba(255,120,120,1);
+}
+.dcp-yes:hover { background: rgba(255,80,80,.28); border-color: rgba(255,80,80,.8); }
+.dcp-no {
+    background: rgba(255,255,255,.06); border-color: var(--border);
+    color: var(--addr-fg);
+}
+.dcp-no:hover { background: rgba(255,255,255,.14); color: var(--fg); border-color: var(--fg); }

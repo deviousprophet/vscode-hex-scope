@@ -4,7 +4,7 @@
 // Pure codec logic lives in struct-codec.ts.
 
 import { S }        from './state';
-import { esc }      from './utils';
+import { esc, actionBtnsHtml, wireActionBtns } from './utils';
 import { vscode }   from './api';
 import { rerender } from './render';
 import {
@@ -49,13 +49,20 @@ const _arrSepAddrs: number[] = [];
 let _selectedPinId: string | null = null;
 /** Pins whose type-definition preview is open inside the card. */
 const _previewedPins = new Set<string>();
+/** Whether the manage-types list view is open. */
+let _managingTypes = false;
+/** Pin id currently being edited inline (name/addr/type). */
+let _editingPinId: string | null = null;
+/** Struct type id selected in the inline instance-edit form (may differ from the saved pin). */
+let _editingPinDraftStructId: string | null = null;
 /**
  * When non-null the section is in "type editor" mode.
  * `existing` is null for new types, or the original def being edited.
  * `draft`    holds the working copy being modified.
  * `fromAdd`  is true when the editor was opened from the add-instance form.
+ * `fromManage` is true when opened from the manage-types list.
  */
-let _editingType: { draft: StructDef; existing: StructDef | null; fromAdd: boolean } | null = null;
+let _editingType: { draft: StructDef; existing: StructDef | null; fromAdd: boolean; fromManage: boolean } | null = null;
 
 // ── Inline type editor helpers ────────────────────────────────────
 
@@ -98,7 +105,7 @@ const SC_KW   = /\b(typedef|struct)\b/g;
 const SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
 function structToCHtml(def: StructDef): string {
-    const nameEscRe = def.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const nameEscRe = (def.name || 'MyStruct').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const scTyp = new RegExp(
         `\\b(uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|float|double|${nameEscRe})\\b`,
         'g'
@@ -140,7 +147,6 @@ function editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<div class="se-btns">` +
         `<button id="se-save" class="struct-btn struct-btn-apply">Save</button>` +
         `<button id="se-cancel" class="struct-btn struct-btn-secondary">Cancel</button>` +
-        (existing ? `<button id="se-delete" class="struct-btn struct-btn-danger">Delete type</button>` : '') +
         `</div>` +
         `<div id="se-preview" class="se-preview"><pre class="si-c-preview">${structToCHtml(draft)}</pre></div>` +
         `</div>` +
@@ -149,11 +155,11 @@ function editorHtml(draft: StructDef, existing: StructDef | null): string {
 }
 
 function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
-    draft.name   = (sec.querySelector<HTMLInputElement>('#se-name'))?.value.trim() || draft.name;
+    draft.name   = (sec.querySelector<HTMLInputElement>('#se-name'))?.value.trim() ?? '';
     draft.packed = sec.querySelector('#se-packed')?.classList.contains('active') ?? false;
     const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
     draft.fields = Array.from(rows).map(row => ({
-        name:   sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value) || 'field',
+        name:   sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value), 
         type:   (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value as StructFieldType,
         count: (() => {
             const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
@@ -262,38 +268,49 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelector('#se-save')!.addEventListener('click', () => {
         syncEditorDraft(sec, draft);
-        const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
-        const name = nameInp.value.trim();
-        if (!name) { nameInp.style.borderColor = 'var(--err)'; return; }
         if (draft.fields.length === 0) { return; }
-        const def: StructDef = { id: draft.id, name, packed: draft.packed ?? false, fields: draft.fields };
+
+        // Auto-fill struct name if empty, ensuring uniqueness across existing structs
+        const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
+        let name = nameInp.value.trim();
+        if (!name) {
+            const otherNames = new Set(S.structs.filter(d => d.id !== draft.id).map(d => d.name));
+            let candidate = 'MyStruct';
+            let n = 1;
+            while (otherNames.has(candidate)) { candidate = `MyStruct${n++}`; }
+            name = candidate;
+        }
+
+        // Auto-fill empty field names, ensuring uniqueness within the field list
+        const takenNames = new Set(draft.fields.map(f => f.name).filter(Boolean));
+        const savedFields = draft.fields.map((f, fi) => {
+            if (f.name) { return { ...f }; }
+            let candidate = `field${fi}`;
+            let n = 0;
+            while (takenNames.has(candidate)) { candidate = `field${fi}_${n++}`; }
+            takenNames.add(candidate);
+            return { ...f, name: candidate };
+        });
+
+        const def: StructDef = { id: draft.id, name, packed: draft.packed ?? false, fields: savedFields };
         const idx = S.structs.findIndex(d => d.id === def.id);
         if (idx >= 0) { S.structs[idx] = def; } else { S.structs.push(def); }
         vscode.postMessage({ type: 'saveStructs', structs: S.structs });
-        const wasFromAdd = _editingType!.fromAdd;
+        const { fromAdd, fromManage } = _editingType!;
         _editingType = null;
-        if (wasFromAdd) {
+        if (fromAdd) {
             _applyStructId = def.id;
             _addingPin = true;
         }
+        if (fromManage) { _managingTypes = true; }
         renderStructPins();
     });
 
     sec.querySelector('#se-cancel')!.addEventListener('click', () => {
-        const wasFromAdd = _editingType!.fromAdd;
+        const { fromAdd, fromManage } = _editingType!;
         _editingType = null;
-        if (wasFromAdd) { _addingPin = true; }
-        renderStructPins();
-    });
-
-    sec.querySelector<HTMLElement>('#se-delete')?.addEventListener('click', () => {
-        const id = _editingType!.draft.id;
-        S.structs    = S.structs.filter(d => d.id !== id);
-        S.structPins = S.structPins.filter(p => p.structId !== id);
-        if (_applyStructId === id) { _applyStructId = null; }
-        vscode.postMessage({ type: 'saveStructs',    structs: S.structs });
-        vscode.postMessage({ type: 'saveStructPins', pins:    S.structPins });
-        _editingType = null;
+        if (fromAdd)    { _addingPin = true; }
+        if (fromManage) { _managingTypes = true; }
         renderStructPins();
     });
 }
@@ -329,6 +346,74 @@ export function renderStructPins(): void {
         return;
     }
 
+    // ── Manage-types mode ──
+    if (_managingTypes) {
+        const typeRows = all.length === 0
+            ? `<div class="sb-empty">No types defined yet.</div>`
+            : all.map(d => {
+                const fieldCount = d.fields.length;
+                const meta = `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
+                return (
+                    `<div class="sd-row">` +
+                    `<span class="sd-name">${esc(d.name)}</span>` +
+                    `<span class="sd-meta">${meta}</span>` +
+                    actionBtnsHtml(`data-struct-id="${esc(d.id)}"`, `data-struct-id="${esc(d.id)}"`) +
+                    `</div>`
+                );
+            }).join('');
+
+        sec.innerHTML =
+            `<div class="si-hdr-row">` +
+            `<span class="sb-hdr" style="margin:0">Struct Types</span>` +
+            `<button id="sm-new-btn" class="struct-btn struct-btn-secondary">New type</button>` +
+            `<button id="sm-close-btn" class="si-add-btn" title="Back">✕</button>` +
+            `</div>` +
+            `<div id="sm-list">${typeRows}</div>`;
+
+        document.getElementById('sm-close-btn')?.addEventListener('click', () => {
+            _managingTypes = false;
+            renderStructPins();
+        });
+        document.getElementById('sm-new-btn')?.addEventListener('click', () => {
+            _managingTypes = false;
+            const draftId = `user_${Date.now()}`;
+            _editingType = {
+                draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1, endian: 'inherit' }] },
+                existing: null,
+                fromAdd: false,
+                fromManage: true,
+            };
+            renderStructPins();
+        });
+        wireActionBtns(
+            sec,
+            '.act-btn-edit',
+            '.act-btn-del',
+            btn => {
+                const existing = S.structs.find(d => d.id === btn.dataset.structId) ?? null;
+                if (!existing) { return; }
+                _managingTypes = false;
+                _editingType = {
+                    draft: { id: existing.id, name: existing.name, packed: existing.packed ?? false, fields: existing.fields.map(f => ({ ...f })) },
+                    existing,
+                    fromAdd: false,
+                    fromManage: true,
+                };
+                renderStructPins();
+            },
+            btn => {
+                const id = btn.dataset.structId!;
+                S.structs    = S.structs.filter(d => d.id !== id);
+                S.structPins = S.structPins.filter(p => p.structId !== id);
+                if (_applyStructId === id) { _applyStructId = null; }
+                vscode.postMessage({ type: 'saveStructs',    structs: S.structs });
+                vscode.postMessage({ type: 'saveStructPins', pins:    S.structPins });
+                renderStructPins();
+            },
+        );
+        return;
+    }
+
     const instBadge = S.structPins.length > 0 ? `<span class="sb-badge">${S.structPins.length}</span>` : '';
 
     // ── Inline add form ──
@@ -342,7 +427,7 @@ export function renderStructPins(): void {
         if (all.length === 0) {
             typeRowHtml =
                 `<div class="sa-row sa-no-types-row">` +
-                `<span class="sa-no-types-msg">No types yet.</span>` +
+                `<span class="sa-no-types-msg">No struct types yet — create one first.</span>` +
                 `<button id="sa-new-type-btn" class="struct-btn struct-btn-secondary">New type</button>` +
                 `</div>`;
         } else {
@@ -362,23 +447,26 @@ export function renderStructPins(): void {
 
         addFormHtml =
             `<div id="si-add-form" class="si-add-form">` +
-            typeRowHtml +
+            `<div class="sa-form-hdr sa-form-hdr-new">\uff0b New Instance</div>` +
+            `<div class="sa-row">` +
+            `<input id="sa-name" class="sa-name-inp" type="text" maxlength="40" ` +
+                   `placeholder="instance name" spellcheck="false" autocomplete="off">` +
+            `</div>` +
             `<div class="sa-row">` +
             `<span class="struct-addr-pfx">0x</span>` +
             `<input id="sa-addr" class="struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
                    `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(addrVal)}">` +
-            `<input id="sa-name" class="sa-name-inp" type="text" maxlength="40" ` +
-                   `placeholder="instance name" spellcheck="false" autocomplete="off">` +
             `</div>` +
+            typeRowHtml +
             `<div class="sa-row sa-btn-row">` +
-            `<button id="sa-confirm" class="struct-btn struct-btn-apply"${!_applyStructId ? ' disabled' : ''}>Confirm</button>` +
+            `<button id="sa-confirm" class="struct-btn struct-btn-apply"${(!_applyStructId || !addrVal) ? ' disabled' : ''}>Confirm</button>` +
             `<button id="sa-cancel" class="struct-btn struct-btn-cancel">Cancel</button>` +
             `</div>` +
             `</div>`;
     }
 
     const instHtml = S.structPins.length === 0
-        ? `<div class="sb-empty">No instances yet. Click \uff0b Add to create one.</div>`
+        ? `<div class="sb-empty">No instances yet. Click [\uff0b Add] to create one.</div>`
         : S.structPins.map((pin, i) => buildInstanceCard(pin, i)).join('');
 
     sec.innerHTML =
@@ -389,15 +477,23 @@ export function renderStructPins(): void {
         `<button id="sa-btn-be" class="${S.endian === 'be' ? 'active' : ''}">BE</button>` +
         `</div>` +
         `<button id="si-add-btn" class="si-add-btn"${_addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
+        `<button id="si-types-btn" class="si-icon-btn" title="Manage types">&#9776;</button>` +
         `</div>` +
         addFormHtml +
         `<div id="si-list">${instHtml}</div>`;
 
     // ── ＋ Add button ──
-    document.getElementById('si-add-btn')!.addEventListener('click', () => {
+    document.getElementById('si-add-btn')?.addEventListener('click', () => {
         _addingPin = true;
         renderStructPins();
         document.getElementById('sa-name')?.focus();
+    });
+
+    // ── Types button ──
+    document.getElementById('si-types-btn')?.addEventListener('click', () => {
+        _managingTypes = true;
+        _addingPin = false;
+        renderStructPins();
     });
 
     // ── Add-form wiring ──
@@ -413,21 +509,35 @@ export function renderStructPins(): void {
                 draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1, endian: 'inherit' }] },
                 existing: null,
                 fromAdd: true,
+                fromManage: false,
             };
             renderStructPins();
         });
-        document.getElementById('sa-confirm')!.addEventListener('click', () => {
+        document.getElementById('sa-addr')?.addEventListener('input', () => {
+            const addrInp = document.getElementById('sa-addr') as HTMLInputElement | null;
+            const confirmBtn = document.getElementById('sa-confirm') as HTMLButtonElement | null;
+            if (!addrInp || !confirmBtn) { return; }
+            const hasAddr = addrInp.value.trim().length > 0;
+            confirmBtn.disabled = !_applyStructId || !hasAddr;
+        });
+        document.getElementById('sa-confirm')?.addEventListener('click', () => {
             if (!_applyStructId) { return; }
             const addrInp = document.getElementById('sa-addr') as HTMLInputElement;
             const nameInp = document.getElementById('sa-name') as HTMLInputElement;
             const addr    = parseInt(addrInp.value.replace(/^0x/i, ''), 16);
-            const name    = nameInp.value.trim();
-            let ok = true;
-            if (isNaN(addr)) { addrInp.style.borderColor = 'var(--err)'; ok = false; }
-            else              { addrInp.style.borderColor = ''; }
-            if (!name)        { nameInp.style.borderColor = 'var(--err)'; ok = false; }
-            else              { nameInp.style.borderColor = ''; }
-            if (!ok) { return; }
+            if (isNaN(addr)) { addrInp.style.borderColor = 'var(--err)'; return; }
+            addrInp.style.borderColor = '';
+            // Auto-fill instance name if empty, unique among existing pin names
+            let name = nameInp.value.trim();
+            if (!name) {
+                const applyDef = S.structs.find(d => d.id === _applyStructId);
+                const base = applyDef ? applyDef.name : 'inst';
+                const takenPinNames = new Set(S.structPins.map(p => p.name));
+                let candidate = `${base}_0`;
+                let n = 1;
+                while (takenPinNames.has(candidate)) { candidate = `${base}_${n++}`; }
+                name = candidate;
+            }
             const pin: StructPin = { id: `pin_${Date.now()}`, structId: _applyStructId, addr, name };
             S.structPins       = [...S.structPins, pin];
             S.activeStructAddr = addr;
@@ -435,23 +545,23 @@ export function renderStructPins(): void {
             vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
             renderStructPins();
         });
-        document.getElementById('sa-cancel')!.addEventListener('click', () => {
+        document.getElementById('sa-cancel')?.addEventListener('click', () => {
             _addingPin = false;
             renderStructPins();
         });
     }
 
     // ── Endian tabs ──
-    document.getElementById('sa-btn-le')!.addEventListener('click', () => {
+    document.getElementById('sa-btn-le')?.addEventListener('click', () => {
         S.endian = 'le';
-        document.getElementById('sa-btn-le')!.classList.add('active');
-        document.getElementById('sa-btn-be')!.classList.remove('active');
+        document.getElementById('sa-btn-le')?.classList.add('active');
+        document.getElementById('sa-btn-be')?.classList.remove('active');
         if (_expanded.size > 0) { renderStructPins(); }
     });
-    document.getElementById('sa-btn-be')!.addEventListener('click', () => {
+    document.getElementById('sa-btn-be')?.addEventListener('click', () => {
         S.endian = 'be';
-        document.getElementById('sa-btn-be')!.classList.add('active');
-        document.getElementById('sa-btn-le')!.classList.remove('active');
+        document.getElementById('sa-btn-be')?.classList.add('active');
+        document.getElementById('sa-btn-le')?.classList.remove('active');
         if (_expanded.size > 0) { renderStructPins(); }
     });
 
@@ -655,6 +765,42 @@ function buildInstanceCard(pin: StructPin, i: number): string {
           `</div>`
         : '';
 
+    const isEditingThis = _editingPinId === pin.id;
+
+    // Inline edit form replaces the card header area
+    let editFormHtml = '';
+    if (isEditingThis) {
+        const draftStructId = _editingPinDraftStructId ?? pin.structId;
+        const structOpts = allStructs().map(d =>
+            `<option value="${esc(d.id)}"${d.id === draftStructId ? ' selected' : ''}>${esc(d.name)}</option>`
+        ).join('');
+        const editDef = allStructs().find(d => d.id === draftStructId);
+        const editPreviewHtml = editDef
+            ? `<pre class="si-c-preview">${structToCHtml(editDef)}</pre>`
+            : '';
+        editFormHtml =
+            `<div class="si-pin-edit-form">` +
+            `<div class="sa-form-hdr sa-form-hdr-edit">&#9998; Edit Instance</div>` +
+            `<div class="sa-row">` +
+            `<input class="si-pe-name sa-name-inp" type="text" maxlength="40" ` +
+                   `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin.name)}">` +
+            `</div>` +
+            `<div class="sa-row">` +
+            `<span class="struct-addr-pfx">0x</span>` +
+            `<input class="si-pe-addr struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
+                   `autocomplete="off" spellcheck="false" placeholder="08000000" value="${esc(addrHex)}">` +
+            `</div>` +
+            `<div class="sa-row">` +
+            `<select class="si-pe-type struct-sel">${structOpts}</select>` +
+            `</div>` +
+            editPreviewHtml +
+            `<div class="sa-row sa-btn-row">` +
+            `<button class="si-pe-save struct-btn struct-btn-apply">Save</button>` +
+            `<button class="si-pe-cancel struct-btn struct-btn-cancel">Cancel</button>` +
+            `</div>` +
+            `</div>`;
+    }
+
     return (
         `<div class="si-card${expanded ? ' si-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
         `<div class="si-card-hdr">` +
@@ -664,15 +810,16 @@ function buildInstanceCard(pin: StructPin, i: number): string {
         `<div class="si-cmeta-row">` +
         `<span class="si-ctype">${esc(defName)}</span>` +
         `<button class="si-type-btn${_previewedPins.has(pin.id) ? ' active' : ''}" ` +
-        `data-pin-id="${esc(pin.id)}" title="View type definition">&#x29C9;</button>` +
-        (def ? `<button class="si-edit-type-btn" data-struct-id="${esc(def.id)}" title="Edit type">✎</button>` : '') +
+        `data-pin-id="${esc(pin.id)}" title="View type definition">{&nbsp;}</button>` +
         `<span class="si-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>` +
         `</div>` +
         `</div>` +
-        `<button class="si-del-btn" data-idx="${i}" title="Remove">\u2715</button>` +
+        `<div class="si-card-actions">` +
+        (def ? actionBtnsHtml(`data-pin-id="${esc(pin.id)}"`, `data-idx="${i}"`) : `<span class="act-btn act-btn-del" data-idx="${i}" title="Delete">&#128465;&#xFE0E;</span>`) +
         `</div>` +
-        typePreviewHtml +
-        bodyHtml +
+        `</div>` +
+        editFormHtml +
+        (isEditingThis ? '' : typePreviewHtml + bodyHtml) +
         `</div>`
     );
 }
@@ -765,7 +912,7 @@ function wireInstanceCards(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLElement>('.si-card-hdr').forEach(hdr => {
         hdr.addEventListener('click', e => {
-            if ((e.target as HTMLElement).closest('.si-expand-btn, .si-del-btn')) { return; }
+            if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions, .si-type-btn')) { return; }
             clearArrSep();
             clearSelRow();
             _selectedFieldAddr = null;
@@ -789,15 +936,30 @@ function wireInstanceCards(sec: HTMLElement): void {
         });
     });
 
-    sec.querySelectorAll<HTMLElement>('.si-del-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx!);
-            const pin = S.structPins[idx];
-            if (pin) { _expanded.delete(pin.id); }
-            S.structPins = S.structPins.filter((_, i) => i !== idx);
-            vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
-            renderStructPins();
-        });
+    // Wire edit + delete action buttons on each instance card
+    sec.querySelectorAll<HTMLElement>('.si-card').forEach(card => {
+        const actions = card.querySelector<HTMLElement>('.si-card-actions');
+        if (!actions) { return; }
+        wireActionBtns(
+            actions,
+            '.act-btn-edit',
+            '.act-btn-del',
+            btn => {
+                _editingPinId = btn.dataset.pinId!;
+                const editedPin = S.structPins.find(p => p.id === _editingPinId);
+                _editingPinDraftStructId = editedPin?.structId ?? null;
+                _expanded.delete(_editingPinId);
+                renderStructPins();
+            },
+            btn => {
+                const idx = parseInt(btn.dataset.idx!);
+                const pin = S.structPins[idx];
+                if (pin) { _expanded.delete(pin.id); }
+                S.structPins = S.structPins.filter((_, i) => i !== idx);
+                vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+                renderStructPins();
+            },
+        );
     });
 
     sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
@@ -881,21 +1043,49 @@ function wireInstanceCards(sec: HTMLElement): void {
         });
     });
 
-    // Edit-type button on card
-    sec.querySelectorAll<HTMLElement>('.si-edit-type-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            const structId = btn.dataset.structId!;
-            const existing = S.structs.find(d => d.id === structId) ?? null;
-            if (!existing) { return; }
-            _editingType = {
-                draft: { id: existing.id, name: existing.name, packed: existing.packed ?? false, fields: existing.fields.map(f => ({ ...f })) },
-                existing,
-                fromAdd: false,
-            };
-            renderStructPins();
-        });
-    });
+    // Inline pin-edit form wiring
+    if (_editingPinId) {
+        const editForm = sec.querySelector<HTMLElement>('.si-pin-edit-form');
+        if (editForm) {
+            const pinId = _editingPinId;
+            editForm.querySelector<HTMLSelectElement>('.si-pe-type')?.addEventListener('change', e => {
+                _editingPinDraftStructId = (e.target as HTMLSelectElement).value || null;
+                renderStructPins();
+            });
+            editForm.querySelector<HTMLElement>('.si-pe-save')!.addEventListener('click', e => {
+                e.stopPropagation();
+                const nameVal = (editForm.querySelector('.si-pe-name') as HTMLInputElement).value.trim();
+                const addrVal = (editForm.querySelector('.si-pe-addr') as HTMLInputElement).value.trim();
+                const typeVal = (editForm.querySelector('.si-pe-type') as HTMLSelectElement).value;
+                const addr = parseInt(addrVal.replace(/^0x/i, ''), 16);
+                if (isNaN(addr)) {
+                    (editForm.querySelector('.si-pe-addr') as HTMLInputElement).style.borderColor = 'var(--err)';
+                    return;
+                }
+                const idx = S.structPins.findIndex(p => p.id === pinId);
+                if (idx >= 0) {
+                    const pin = S.structPins[idx];
+                    S.structPins[idx] = {
+                        ...pin,
+                        name: nameVal || pin.name,
+                        addr,
+                        structId: typeVal,
+                    };
+                    S.activeStructAddr = addr;
+                    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+                }
+                _editingPinId = null;
+                _editingPinDraftStructId = null;
+                renderStructPins();
+            });
+            editForm.querySelector<HTMLElement>('.si-pe-cancel')!.addEventListener('click', e => {
+                e.stopPropagation();
+                _editingPinId = null;
+                _editingPinDraftStructId = null;
+                renderStructPins();
+            });
+        }
+    }
 
     // Re-apply selection highlight after DOM rebuild
     if (_selectedPinId !== null) {
@@ -1200,8 +1390,14 @@ export function onSelectionChangeForStruct(): void {
     _selectedPinId     = null;
     if (S.selStart === null) { return; }
     S.activeStructAddr = S.selStart;
-    if (S.sidebarTab === 'struct' && _addingPin) {
-        const inp = document.getElementById('sa-addr') as HTMLInputElement | null;
-        if (inp) { inp.value = S.selStart.toString(16).toUpperCase().padStart(8, '0'); }
+    if (S.sidebarTab === 'struct') {
+        const addrHex = S.selStart.toString(16).toUpperCase().padStart(8, '0');
+        if (_addingPin) {
+            const inp = document.getElementById('sa-addr') as HTMLInputElement | null;
+            if (inp) { inp.value = addrHex; }
+        } else if (_editingPinId) {
+            const inp = document.querySelector<HTMLInputElement>('.si-pe-addr');
+            if (inp) { inp.value = addrHex; }
+        }
     }
 }
