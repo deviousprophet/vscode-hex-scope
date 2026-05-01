@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.1] — 2026-05-01
+
+### Changed
+
+- Shortened extension description
+
 ## [2.1.0] — 2026-05-01
 
 ### Added

@@ -2,8 +2,8 @@
   "name": "vscode-hex-scope",
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
-  "description": "Custom editor for Intel HEX (.hex) and Motorola SREC (.srec/.mot/.s19) files — memory grid, byte inspector with bit view and multi-byte interpreter, hex/ASCII/address search, record table, syntax-highlighted raw view, CRC and checksum analysis, segment labels, and in-place byte patching with checksum recomputation",
-  "version": "2.1.0",
+  "description": "Custom editor for Intel HEX (.hex) and Motorola SREC (.srec/.mot/.s19) files with memory grid, byte inspector, hex search, record table, and checksum tools.",
+  "version": "2.1.1",
   "license": "MIT",
   "repository": {
     "type": "git",
