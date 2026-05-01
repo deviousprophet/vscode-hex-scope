@@ -384,6 +384,7 @@
     color: var(--addr-fg); background: transparent;
     border: 1px solid var(--border);
     cursor: pointer; opacity: .55; transition: opacity .1s, border-color .1s, color .1s;
+    -webkit-user-select: none;
     user-select: none;
 }
 .se-packed-btn:hover { opacity: .8; border-color: var(--addr-active-fg); }
