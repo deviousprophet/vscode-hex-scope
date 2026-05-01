@@ -9,7 +9,6 @@ import type { StructDef, StructField } from '../webview/types';
 
 function resetStructState(): void {
     S.structs           = [];
-    S.activeStructId    = null;
     S.activeStructAddr  = null;
     S.flatBytes.clear();
     S.sortedAddrs       = [];
@@ -44,13 +43,31 @@ suite('structByteSize()', () => {
         assert.strictEqual(structByteSize(def), 4);
     });
 
-    test('mixed field types sum correctly', () => {
-        const def: StructDef = { id: 'x', name: 'S', fields: [
+    test('mixed field types packed: no padding (7 bytes)', () => {
+        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
             { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // 1
             { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },  // 2
             { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },  // 4
         ]};
         assert.strictEqual(structByteSize(def), 7);
+    });
+
+    test('mixed field types aligned: uint8+uint16+uint32 = 8 bytes', () => {
+        const def: StructDef = { id: 'x', name: 'S', fields: [
+            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // +0
+            { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },  // +2 (1B pad)
+            { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },  // +4
+        ]};
+        assert.strictEqual(structByteSize(def), 8);
+    });
+
+    test('aligned struct has trailing padding to max alignment', () => {
+        // uint32 then uint8: size = 4+1 padded to 8 (align=4)
+        const def: StructDef = { id: 'x', name: 'S', fields: [
+            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },  // +0
+            { name: 'b', type: 'uint8',  count: 1, endian: 'inherit' },  // +4
+        ]};
+        assert.strictEqual(structByteSize(def), 8);
     });
 
     test('array field multiplies by count', () => {
@@ -130,7 +147,7 @@ suite('decodeStruct()', () => {
     setup(() => resetStructState());
 
     test('produces one row per scalar field', () => {
-        const def: StructDef = { id: 'x', name: 'S', fields: [
+        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
             { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },
             { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
         ]};
@@ -145,6 +162,16 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].fieldName, 'b');
         assert.strictEqual(rows[1].byteOffset, 1);
+    });
+
+    test('aligned struct: uint8 then uint16 at offset 2', () => {
+        const def: StructDef = { id: 'x', name: 'S', fields: [
+            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },
+            { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
+        ]};
+        const rows = decodeStruct(def, 0, new Map(), 'le');
+        assert.strictEqual(rows[0].byteOffset, 0);
+        assert.strictEqual(rows[1].byteOffset, 2);
     });
 
     test('array field expands to count rows named field[0], field[1]...', () => {
@@ -190,8 +217,8 @@ suite('decodeStruct()', () => {
         assert.ok(rows[0].decoded.startsWith('1'), rows[0].decoded);
     });
 
-    test('byte offsets accumulate correctly across mixed-width fields', () => {
-        const def: StructDef = { id: 'x', name: 'S', fields: [
+    test('byte offsets accumulate correctly (packed)', () => {
+        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
             { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // +0, 1 B
             { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },  // +1, 4 B
             { name: 'c', type: 'uint16', count: 1, endian: 'inherit' },  // +5, 2 B
@@ -200,6 +227,18 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].byteOffset, 1);
         assert.strictEqual(rows[2].byteOffset, 5);
+    });
+
+    test('byte offsets with alignment (not packed)', () => {
+        const def: StructDef = { id: 'x', name: 'S', fields: [
+            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // +0
+            { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },  // +4 (3B pad)
+            { name: 'c', type: 'uint16', count: 1, endian: 'inherit' },  // +8
+        ]};
+        const rows = decodeStruct(def, 0, new Map(), 'le');
+        assert.strictEqual(rows[0].byteOffset, 0);
+        assert.strictEqual(rows[1].byteOffset, 4);
+        assert.strictEqual(rows[2].byteOffset, 8);
     });
 
     test('bytesHex shows ?? for missing bytes', () => {
