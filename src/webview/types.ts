@@ -65,6 +65,9 @@ export interface StructDef {
     id: string;
     name: string;
     fields: StructField[];
+    /** When true: no padding between fields (GCC __attribute__((packed))).
+     *  When false/absent: fields are naturally aligned (default). */
+    packed?: boolean;
 }
 
 /** A saved struct overlay instance: one struct definition applied to one address with a user label. */

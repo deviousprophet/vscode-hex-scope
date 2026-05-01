@@ -26,8 +26,34 @@ export function fieldByteSize(type: StructFieldType): number {
     }
 }
 
+/** Natural alignment for a field type (C ABI, 32-bit target). */
+export function fieldAlignment(type: StructFieldType): number {
+    return fieldByteSize(type); // for all supported types, align == size (max 8)
+}
+
+function alignUp(offset: number, align: number): number {
+    return align <= 1 ? offset : (offset + align - 1) & ~(align - 1);
+}
+
+/**
+ * Compute byte size of a struct, respecting alignment padding unless packed.
+ * Includes trailing padding so that arrays of the struct are correctly aligned.
+ */
 export function structByteSize(def: StructDef): number {
-    return def.fields.reduce((s, f) => s + fieldByteSize(f.type) * f.count, 0);
+    if (def.packed) {
+        return def.fields.reduce((s, f) => s + fieldByteSize(f.type) * f.count, 0);
+    }
+    let offset = 0;
+    let maxAlign = 1;
+    for (const f of def.fields) {
+        const sz    = fieldByteSize(f.type);
+        const align = fieldAlignment(f.type);
+        if (align > maxAlign) { maxAlign = align; }
+        offset = alignUp(offset, align);
+        offset += sz * f.count;
+    }
+    // Trailing padding: round up to struct's own alignment
+    return alignUp(offset, maxAlign);
 }
 
 // ── Decode logic ──────────────────────────────────────────────────
@@ -87,8 +113,10 @@ export function decodeStruct(
     const rows: DecodedField[] = [];
     let offset = 0;
     for (const field of def.fields) {
-        const sz = fieldByteSize(field.type);
+        const sz     = fieldByteSize(field.type);
+        const align  = def.packed ? 1 : fieldAlignment(field.type);
         const endian = field.endian === 'inherit' ? globalEndian : field.endian;
+        offset = alignUp(offset, align);
         for (let idx = 0; idx < field.count; idx++) {
             const raw: number[] = [];
             for (let b = 0; b < sz; b++) {
@@ -96,7 +124,7 @@ export function decodeStruct(
                 raw.push(v !== undefined ? v : -1);
             }
             const hasData = raw.every(v => v >= 0);
-            const bytesHex = raw.map(v => v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??').join(' ');
+            const bytesHex = raw.map(v => v >= 0 ? v.toString(16).toUpperCase().padStart(2, '00') : '??').join(' ');
             const decoded = hasData ? decodeField(raw, field.type, endian) : '??';
             const name = field.count > 1 ? `${field.name}[${idx}]` : field.name;
             rows.push({ fieldName: name, type: field.type, arrayIdx: idx, byteOffset: offset, bytesHex, decoded, hasData });
@@ -253,4 +281,59 @@ export function fieldsToText(fields: StructField[]): string {
         const hint  = f.endian !== 'inherit' ? `  // ${f.endian}` : '';
         return `${cType} ${f.name}${arr};${hint}`;
     }).join('\n');
+}
+
+/**
+ * Render a StructDef as a C typedef, with per-field offset comments.
+ * Includes padding pseudo-fields when the struct is not packed.
+ * Output is plain text (no HTML escaping).
+ */
+export function structToC(def: StructDef): string {
+    const attr = def.packed ? ' __attribute__((packed))' : '';
+    const lines: string[] = [];
+    lines.push(`typedef struct${attr} {`);
+
+    const maxTypeLen = def.fields.length
+        ? Math.max(...def.fields.map(f => TYPE_TO_C[f.type].length))
+        : 8;
+
+    let offset = 0;
+    let maxAlign = 1;
+
+    for (const f of def.fields) {
+        const sz    = fieldByteSize(f.type);
+        const align = def.packed ? 1 : fieldAlignment(f.type);
+        if (align > maxAlign) { maxAlign = align; }
+        const aligned = alignUp(offset, align);
+
+        if (!def.packed && aligned > offset) {
+            // Emit padding pseudo-field
+            const padBytes = aligned - offset;
+            lines.push(`    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
+                `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`);
+        }
+
+        offset = aligned;
+        const cType = TYPE_TO_C[f.type].padEnd(maxTypeLen);
+        const arr   = f.count > 1 ? `[${f.count}]` : '';
+        const fieldBytes = sz * f.count;
+        const endianHint = f.endian !== 'inherit' ? `  /* ${f.endian} */` : '';
+        lines.push(`    ${cType} ${f.name}${arr};`.padEnd(44) +
+            `/* +${offset.toString().padStart(3)}  ${fieldBytes}B${endianHint} */`);
+        offset += fieldBytes;
+    }
+
+    // Trailing padding
+    const totalUnpadded = offset;
+    const totalPadded   = alignUp(offset, maxAlign);
+    if (!def.packed && totalPadded > totalUnpadded) {
+        const padBytes = totalPadded - totalUnpadded;
+        lines.push(`    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
+            `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`);
+    }
+
+    const totalBytes = def.packed ? totalUnpadded : totalPadded;
+    const alignNote  = def.packed ? 'packed' : `align=${maxAlign}`;
+    lines.push(`} ${def.name};`.padEnd(44) + `/* ${totalBytes}B, ${alignNote} */`);
+    return lines.join('\n');
 }
