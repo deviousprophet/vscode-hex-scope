@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.1.0] — 2026-05-01
+
+### Added
+
+- **Slide-in Struct Types panel** — a dedicated types panel now slides in from the right of the Struct Overlay section, opened via a hamburger button (☰) in the Struct Instances header; lists all defined types with edit and delete action buttons
+- **Inline confirm popover** for destructive actions — deleting a struct type or a segment label now shows a small "Delete?" popover anchored above the button instead of deleting immediately
+- **`updateLabelFormSel`** — the Add/Edit Label form auto-fills its address and range fields when the byte selection changes while the form is open
+- **Auto-fill for empty names** — saving a struct type with a blank name generates a unique `MyStruct` / `MyStruct1` … name automatically; saving a label with a blank name generates `Label_0` / `Label_1` …; empty struct field names fall back to `field0`, `field1` …
+- **`actionBtnsHtml` / `wireActionBtns` / `inlineConfirm`** helper functions extracted to `utils.ts` and shared across the Labels and Struct Types panels
+
+### Changed
+
+- Struct type editor no longer replaces the full section — it now renders inside the types slide-in panel; the separate "Edit Type" / "New Type" header row inside the editor form has been removed
+- "Delete type" button removed from inside the type editor; deletion is now done from the types list with an inline confirm
+- Add-Instance form reordered: instance name field now appears before the address field
+- Switching away from the Struct Overlay sidebar tab resets the panel view state (slide-in panel closes, editing cancelled)
+- Segment label delete action now uses the shared inline confirm popover instead of deleting on first click
+- `struct-btn-danger` "Delete type" button removed from the editor toolbar
+
 ## [2.0.0] — 2026-05-01
 
 ### Added

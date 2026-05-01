@@ -185,9 +185,7 @@
     padding: 2px 3px; border-radius: 2px; flex-shrink: 0;
     transition: color .1s, background .1s; -webkit-user-select: none; user-select: none;
 }
-.label-act:hover         { color: var(--fg); background: rgba(255,255,255,.08); }
-.label-del:hover         { color: var(--err); background: rgba(244,135,113,.1); }
-.label-edt:hover         { color: var(--high-color); background: rgba(134,180,212,.1); }
+.label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
 .add-lbl-btn {
     width: 100%; margin-top: 8px; padding: 5px;
