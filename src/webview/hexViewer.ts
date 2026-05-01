@@ -123,13 +123,12 @@ function render(): void {
                     <div class="sb-section" id="s-labels"></div>
                 </div>
                 <div class="sb-tab-panel ${S.sidebarTab === 'struct' ? 'active' : ''}" id="sbp-struct">
-                    <div class="sb-section" id="s-struct"></div>
                     <div class="sb-section" id="s-struct-pins"></div>
                 </div>
             </div>
             <div id="side-tabs">
                 <button class="stab${S.sidebarTab === 'inspector' ? ' active' : ''}" id="stab-insp">Inspector</button>
-                <button class="stab${S.sidebarTab === 'struct'    ? ' active' : ''}" id="stab-struct">Struct</button>
+                <button class="stab${S.sidebarTab === 'struct'    ? ' active' : ''}" id="stab-struct">Struct Overlay</button>
             </div>
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
@@ -199,6 +198,7 @@ function render(): void {
     rerender.memory   = () => memRerender();
     rerender.labels   = () => renderLabels();
     rerender.toMemory = () => switchView('memory');
+    rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
 
     // Wire search module
     initSearch(() => switchView('memory'));
@@ -229,9 +229,6 @@ function render(): void {
         updateInspector();
     });
     document.addEventListener('mouseup', () => { dragAnchor = null; });
-
-    // Wire search module
-    initSearch(() => switchView('memory'));
 
     // Side tabs
     function applySidebarState(): void {

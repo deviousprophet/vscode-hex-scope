@@ -11,4 +11,7 @@ export const rerender = {
 
     /** Switch to memory view (and re-render). */
     toMemory: () => { /* wired by hexViewer.ts */ },
+
+    /** Switch to memory view and scroll to address. */
+    jumpTo: (_addr: number) => { /* wired by hexViewer.ts */ },
 };

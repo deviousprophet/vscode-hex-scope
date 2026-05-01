@@ -441,6 +441,17 @@ export function renderLabels(): void {
         });
     });
 
+    // Jump to label address on row click (but not when clicking action buttons)
+    sec.querySelectorAll<HTMLElement>('.label-item').forEach(item => {
+        item.style.cursor = 'pointer';
+        item.addEventListener('click', e => {
+            if ((e.target as HTMLElement).closest('.label-act')) { return; }
+            const id  = item.dataset.id!;
+            const lbl = S.labels.find(l => l.id === id);
+            if (lbl) { rerender.jumpTo(lbl.startAddress); }
+        });
+    });
+
     // Add — open inline form
     document.getElementById('btn-add-lbl')?.addEventListener('click', () => renderLabelForm());
 }
