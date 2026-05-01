@@ -1,6 +1,6 @@
 # HexScope — Roadmap
 
-This file tracks planned features. Work through this list one branch at a time.
+This file tracks planned features.
 
 ---
 

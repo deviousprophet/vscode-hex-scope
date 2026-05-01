@@ -8,7 +8,6 @@
     background: var(--panel-bg); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden;
 }
-.sb-scroll  { flex: 1; overflow-y: auto; overflow-x: hidden; }
 .sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 
 .sb-hdr {

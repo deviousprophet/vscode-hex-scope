@@ -35,7 +35,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         _openContext: vscode.CustomDocumentOpenContext,
         _token: vscode.CancellationToken
     ): Promise<vscode.CustomDocument> {
-        return { uri, dispose: () => { /* nothing to dispose */ } };
+        return { uri, dispose: () => {} };
     }
 
     async resolveCustomEditor(
@@ -51,11 +51,8 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri, parseResult);
 
-        // Load segment labels from workspace state
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
-        const storedLabels: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
 
-        // Load struct definitions from workspace state
         const structKey = `hexScope.structs.${document.uri.toString()}`;
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
 
@@ -147,7 +144,6 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     break;
                 }
                 case 'saveEdits': {
-                    // msg.edits: Array<[addr: number, value: number]>
                     const edits = msg.edits as Array<[number, number]>;
                     const editMap = new Map<number, number>(edits);
                     const newHex = format === 'srec'
@@ -155,7 +151,6 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                         : serializeIntelHex(raw, parseResult, editMap);
                     suppressReload = true;
                     await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(newHex));
-                    // Update in-memory state to the saved content
                     raw = newHex;
                     parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
                     webviewPanel.webview.postMessage({ type: 'savedEdits' });
@@ -167,7 +162,6 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     suppressReload = true;
                     await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(repairedRaw));
                     const fixedCount = parseResult.checksumErrors;
-                    // Update in-memory state to the repaired content
                     raw = repairedRaw;
                     parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
                     postInit();

@@ -3,19 +3,16 @@ import * as vscode from 'vscode';
 import { HexEditorProvider } from './HexEditorProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    // Register the custom editor provider for .hex files
     context.subscriptions.push(
         HexEditorProvider.register(context)
     );
 
-    // Command: Add Segment Label
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.addSegmentLabel', () => {
             vscode.commands.executeCommand('hexScope.addSegmentLabelInternal');
         })
     );
 
-    // Command: Open current .hex file in the HexScope custom editor
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.openInHexScope', (uri?: vscode.Uri) => {
             const target = uri ?? vscode.window.activeTextEditor?.document.uri;
@@ -41,5 +38,5 @@ export function activate(context: vscode.ExtensionContext) {
     }
 }
 
-export function deactivate() { /* nothing */ }
+export function deactivate() {}
 

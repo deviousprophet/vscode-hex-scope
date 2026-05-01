@@ -19,7 +19,7 @@ function resetState(): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.structs          = [];
-    S.activeStructId   = null;
+
     S.activeStructAddr = null;
     S.structPins       = [];
     S.sidebarTab       = 'inspector';

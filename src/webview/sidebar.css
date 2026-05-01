@@ -7,8 +7,12 @@
     border-left: 2px solid var(--addr-active-fg); border-radius: 2px;
     display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px;
 }
-.insp-addr-single { font-size: 13px; }
-.insp-addr-range  { font-size: 12px; }
+.insp-addr-value  {
+    font-size: 12px;
+    min-height: 22px;
+    display: inline-flex;
+    align-items: center;
+}
 .insp-addr-sep    { color: var(--addr-fg); font-size: 11px; margin: 0 1px; }
 .insp-addr-len    {
     margin-left: auto; font-size: 10px; font-weight: 400;
@@ -56,42 +60,69 @@
 #insp-multi { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
 #insp-multi:empty { display: none; }
 
-.bitgrid-wrap { display: flex; flex-direction: column; gap: 2px; }
+.bitgrid-wrap {
+    --bit-size: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+    align-items: center;
+}
 
 /* One row: optional byte label + 8 bit cells */
-.bit-row  { display: grid; grid-template-columns: 3.8em repeat(8, 1fr); gap: 2px; align-items: center; min-height: 22px; }
+.bit-row  {
+    display: grid;
+    grid-template-columns: 3.2em repeat(8, var(--bit-size));
+    gap: 6px; align-items: center; min-height: 18px;
+    width: max-content; align-self: center;
+}
 
 /* Bit index header row */
-.bit-idx  { text-align: center; font-size: 9px; color: var(--non-graphic); font-family: var(--font-editor); }
+.bit-idx  { text-align: center; font-size: 11px; color: var(--addr-fg); font-family: var(--font-editor); font-weight: 600; }
 
 /* Byte label (B0, B1 …) — stacked: index on top, hex below */
 .bit-lbl  { display: flex; flex-direction: column; align-items: flex-end;
-            padding-right: 4px; gap: 0; justify-content: center; }
-.bit-lbl-idx { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); line-height: 1.3; }
+            padding-right: 6px; gap: 0; justify-content: center; }
+.bit-lbl-idx { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); line-height: 1.2; }
 /* header variant — dimmer */
-.bit-lbl-hdr { opacity: .4; }
+.bit-lbl-hdr { opacity: .6; }
 
 .bit-v {
-    aspect-ratio: 1;
+    width: var(--bit-size);
+    height: var(--bit-size);
     display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border); border-radius: 2px;
-    background: rgba(0,0,0,.18);
+    background: rgba(0,0,0,.12);
+    transition: background .08s, border-color .08s;
+    font-size: 10px; box-sizing: border-box;
 }
-.bit-v.on { background: rgba(79,195,247,.25); border-color: rgba(79,195,247,.55); }
-.bit-v.bit-col-hi            { border-color: rgba(79,195,247,.25); background: rgba(79,195,247,.05); }
-.bit-v.on.bit-col-hi         { background: rgba(79,195,247,.3);  border-color: rgba(79,195,247,.7); }
+.bit-v.on { background: rgba(79,195,247,.28); border-color: rgba(79,195,247,.65); }
+.bit-v.bit-col-hi            { border-color: rgba(79,195,247,.35); background: rgba(79,195,247,.06); }
+.bit-v.on.bit-col-hi         { background: rgba(79,195,247,.34);  border-color: rgba(79,195,247,.8); }
 
 /* hex value in byte-row label */
-.bit-hex { color: var(--high-color); opacity: .7; font-size: 9px;
-            font-family: var(--font-editor); line-height: 1.3; }
+.bit-hex { color: var(--high-color); opacity: .9; font-size: 11px; font-family: var(--font-editor); line-height: 1.2; }
 
 /* popcount footer */
-.bit-pc  { display: block; text-align: right; font-size: 9px; color: var(--addr-fg);
-           opacity: .5; margin-top: 2px; font-family: var(--font-editor); }
+.bit-pc  { display: block; text-align: right; font-size: 11px; color: var(--fg); opacity: .9; margin-top: 4px; font-family: var(--font-editor); font-weight: 600; }
+
+/* Collapsible section support: hide body when collapsed */
+.sb-section.collapsed .sb-body { display: none; }
+.sb-section .sb-hdr {
+    cursor: pointer; -webkit-user-select: none; user-select: none;
+    position: relative;
+}
+.sb-section .sb-hdr::before {
+    content: '\25B6'; /* right-pointing triangle */
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 12px;
+    transition: transform .15s;
+    color: var(--addr-fg);
+}
+.sb-section:not(.collapsed) .sb-hdr::before {
+    transform: rotate(90deg);
+}
 
 /* ── Multi-byte interpreter ──────────────────────────────────── */
-.mi-endian     { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-.mi-endian-lbl { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; margin-right: auto; }.endian-tabs {
+.endian-tabs {
     display: flex; gap: 2px;
     background: rgba(0,0,0,.2); border-radius: 3px; padding: 2px;
 }
@@ -114,8 +145,6 @@
 
 /* group — shared 2-col grid so type names and values align across all rows */
 .mi-group     { display: grid; grid-template-columns: auto 1fr; gap: 1px 0; }
-.mi-group-sep { height: 1px; background: rgba(255,255,255,.06); margin: 8px 0; grid-column: 1 / -1; }
-.mi-group-dim { opacity: .3; pointer-events: none; }
 
 /* individual card — spans both grid columns internally */
 .mi-card      { display: contents; }
@@ -138,10 +167,6 @@
 .mi-hex           { font-size: 10px; color: var(--addr-fg); opacity: .65; line-height: 1.2; }
 .mi-hex[data-copy]{ cursor: pointer; }
 .mi-hex[data-copy]:hover { opacity: 1; color: var(--fg); }
-.mi-na   { font-size: 11px; color: var(--addr-fg); opacity: .35; }
-
-/* keep for any remaining references */
-.mt-special { color: var(--non-graphic); font-style: italic; }
 
 /* ── Segment labels ──────────────────────────────────────────── */
 .label-item {

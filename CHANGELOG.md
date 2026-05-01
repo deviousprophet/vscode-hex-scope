@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.0.0] — 2026-05-01
+
+### Added
+
+- **Struct Overlay** — define named C-style struct types and pin them at any address in the memory view to decode live binary data field-by-field
+  - Field types: `uint8`, `uint16`, `uint32`, `uint64`, `int8`, `int16`, `int32`, `int64`, `float32`, `float64`; optional array count per field
+  - Inline type editor directly inside the Struct Overlay panel — create, edit, and delete struct types without leaving the sidebar
+  - **C natural alignment** by default: fields are padded to their natural alignment boundary, trailing padding rounds the struct to its maximum field alignment
+  - **`__attribute__((packed))` toggle button**: disable alignment/padding for packed structs
+  - **Live C code preview** while editing: updates in real time as you change the struct name, fields, types, array counts, and packed toggle
+  - Syntax highlighting in the C preview: `typedef`/`struct` in blue, field types and struct name in teal, `__attribute__((packed))` in purple, offset comments in green, padding lines rendered as `/* N bytes padding */` comments
+  - **Move up / move down** arrow buttons on each field row to reorder fields during editing
+  - Per-instance type preview button (⧉) that shows the C typedef of the assigned struct type
+  - Per-field value display with selectable format: Hex, Decimal, ASCII, Binary — switchable globally or per-field via right-click context menu
+  - Array fields collapse into a group header; expand to see individual element values
+  - Field rows in expanded instances highlight the corresponding bytes in the memory grid on hover/click
+  - **Repair checksums** action available per struct instance
+
+- **Sidebar collapsible sections** — all sidebar panels (Labels, Inspector, Bit View, Multi-byte, Struct Overlay) are now individually collapsible and persist their collapsed state
+
+- **Binary display type** in multi-byte interpreter and struct field values
+
+- **Click label to jump**: clicking a label row in the Labels panel switches to the Memory view and scrolls smoothly to that label's start address
+
+- **Error display and live reload**: parse errors and checksum warnings are surfaced in the UI; files are automatically reloaded when changed externally with a confirm prompt
+
+- **Quick repair**: one-click recompute and rewrite of all record checksums for corrupted files
+
+### Changed
+
+- Struct Overlay tab renamed from "Struct" to "Struct Overlay"; section header renamed to "Struct Instances"
+- All struct type management is now inline within the Struct Instances panel — the separate struct types panel has been removed
+- Padding in aligned structs is shown as `/* N bytes padding */` comment lines instead of explicit `uint8_t _padX[N]` pseudo-fields
+- Raw view and Records view styling improvements (per-field token colors, type badges)
+- Intel HEX TextMate grammar cleaned up for more precise per-field token scopes
+
+### Fixed
+
+- Null-dereference crash when opening the struct type preview before any type was created
+
+---
+
 ## [1.1.0] — 2026-04-10
 
 ### Added

@@ -23,7 +23,6 @@ export const S = {
     edits:        new Map<number, number>(),   // addr → new value (pending saves)
     undoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, prevVal] transactions
     structs:      [] as StructDef[],           // user-defined struct definitions
-    activeStructId:   null as string | null,   // id of currently selected struct
     activeStructAddr: null as number | null,   // base address for struct decode
     structPins:   [] as StructPin[],           // saved (structId, addr) overlay instances
     sidebarTab:     'inspector' as 'inspector' | 'struct',  // active sidebar tab

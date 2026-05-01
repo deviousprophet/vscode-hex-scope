@@ -3,7 +3,7 @@
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
   "description": "Custom editor for Intel HEX (.hex) and Motorola SREC (.srec/.mot/.s19) files — memory grid, byte inspector with bit view and multi-byte interpreter, hex/ASCII/address search, record table, syntax-highlighted raw view, CRC and checksum analysis, segment labels, and in-place byte patching with checksum recomputation",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -22,13 +22,27 @@
     "languages": [
       {
         "id": "intel-hex",
-        "aliases": ["Intel HEX", "ihex"],
-        "extensions": [".hex"]
+        "aliases": [
+          "Intel HEX",
+          "ihex"
+        ],
+        "extensions": [
+          ".hex"
+        ]
       },
       {
         "id": "srec",
-        "aliases": ["Motorola SREC", "srec"],
-        "extensions": [".srec", ".mot", ".s19", ".s28", ".s37"]
+        "aliases": [
+          "Motorola SREC",
+          "srec"
+        ],
+        "extensions": [
+          ".srec",
+          ".mot",
+          ".s19",
+          ".s28",
+          ".s37"
+        ]
       }
     ],
     "grammars": [
@@ -48,12 +62,24 @@
         "viewType": "hexScope.hexEditor",
         "displayName": "HexScope Viewer",
         "selector": [
-          { "filenamePattern": "*.hex" },
-          { "filenamePattern": "*.srec" },
-          { "filenamePattern": "*.mot" },
-          { "filenamePattern": "*.s19" },
-          { "filenamePattern": "*.s28" },
-          { "filenamePattern": "*.s37" }
+          {
+            "filenamePattern": "*.hex"
+          },
+          {
+            "filenamePattern": "*.srec"
+          },
+          {
+            "filenamePattern": "*.mot"
+          },
+          {
+            "filenamePattern": "*.s19"
+          },
+          {
+            "filenamePattern": "*.s28"
+          },
+          {
+            "filenamePattern": "*.s37"
+          }
         ],
         "priority": "option"
       }
@@ -113,83 +139,132 @@
         "textMateRules": [
           {
             "scope": "punctuation.ihex.start-code",
-            "settings": { "foreground": "#6a6a6a" }
+            "settings": {
+              "foreground": "#6a6a6a"
+            }
           },
           {
             "scope": "meta.ihex.byte-count",
-            "settings": { "foreground": "#858585" }
+            "settings": {
+              "foreground": "#858585"
+            }
           },
           {
             "scope": "meta.ihex.address",
-            "settings": { "foreground": "#c6c6c6", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#c6c6c6",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.ihex.record-type.data",
-            "settings": { "foreground": "#4ec9a0", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#4ec9a0",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.ihex.record-type.eof",
-            "settings": { "foreground": "#ce9178", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#ce9178",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.ihex.record-type.extended-address",
-            "settings": { "foreground": "#9cdcfe", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#9cdcfe",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.ihex.record-type.start-address",
-            "settings": { "foreground": "#9cdcfe", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#9cdcfe",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.ihex.data",
-            "settings": { "foreground": "#ce9178" }
+            "settings": {
+              "foreground": "#ce9178"
+            }
           },
           {
             "scope": "meta.ihex.extended-address-value",
-            "settings": { "foreground": "#9cdcfe" }
+            "settings": {
+              "foreground": "#9cdcfe"
+            }
           },
           {
             "scope": "meta.ihex.checksum",
-            "settings": { "foreground": "#858585" }
+            "settings": {
+              "foreground": "#858585"
+            }
           },
           {
             "scope": "invalid.illegal.ihex",
-            "settings": { "foreground": "#f48771" }
+            "settings": {
+              "foreground": "#f48771"
+            }
           },
           {
             "scope": "punctuation.srec.start-code",
-            "settings": { "foreground": "#6a6a6a" }
+            "settings": {
+              "foreground": "#6a6a6a"
+            }
           },
           {
             "scope": "meta.srec.byte-count",
-            "settings": { "foreground": "#858585" }
+            "settings": {
+              "foreground": "#858585"
+            }
           },
           {
             "scope": "meta.srec.address",
-            "settings": { "foreground": "#c6c6c6", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#c6c6c6",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.srec.record-type.data",
-            "settings": { "foreground": "#4ec9a0", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#4ec9a0",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.srec.record-type.eof",
-            "settings": { "foreground": "#ce9178", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#ce9178",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.srec.record-type.extended-address",
-            "settings": { "foreground": "#9cdcfe", "fontStyle": "bold" }
+            "settings": {
+              "foreground": "#9cdcfe",
+              "fontStyle": "bold"
+            }
           },
           {
             "scope": "meta.srec.data",
-            "settings": { "foreground": "#ce9178" }
+            "settings": {
+              "foreground": "#ce9178"
+            }
           },
           {
             "scope": "meta.srec.checksum",
-            "settings": { "foreground": "#858585" }
+            "settings": {
+              "foreground": "#858585"
+            }
           },
           {
             "scope": "invalid.illegal.srec",
-            "settings": { "foreground": "#f48771" }
+            "settings": {
+              "foreground": "#f48771"
+            }
           }
         ]
       }
