@@ -107,7 +107,7 @@ export function decodeField(
 export function decodeStruct(
     def: StructDef,
     baseAddr: number,
-    flatBytes: Map<number, number>,
+    getByte: (addr: number) => number | undefined,
     globalEndian: 'le' | 'be',
 ): DecodedField[] {
     const rows: DecodedField[] = [];
@@ -120,7 +120,7 @@ export function decodeStruct(
         for (let idx = 0; idx < field.count; idx++) {
             const raw: number[] = [];
             for (let b = 0; b < sz; b++) {
-                const v = flatBytes.get(baseAddr + offset + b);
+                const v = getByte(baseAddr + offset + b);
                 raw.push(v !== undefined ? v : -1);
             }
             const hasData = raw.every(v => v >= 0);

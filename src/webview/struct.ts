@@ -7,6 +7,7 @@ import { S }        from './state';
 import { esc, actionBtnsHtml, wireActionBtns } from './utils';
 import { vscode }   from './api';
 import { rerender } from './render';
+import { getByte }  from './data';
 import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeStruct, allStructs,
@@ -752,7 +753,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
 
     let bodyHtml = '';
     if (expanded && def) {
-        const rows = decodeStruct(def, pin.addr, S.flatBytes, S.endian);
+        const rows = decodeStruct(def, pin.addr, getByte, S.endian);
 
         // Group consecutive rows by base field name (strip [N] suffix)
         const groups: Array<{ baseName: string; rows: typeof rows }> = [];
@@ -1265,7 +1266,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 if (!pin) { hideFieldValMenu(); return; }
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
-                const rows = decodeStruct(def, pin.addr, S.flatBytes, S.endian);
+                const rows = decodeStruct(def, pin.addr, getByte, S.endian);
                 const r = rows.find(rr => pin!.addr + rr.byteOffset === bs);
                 const toCopy = r ? getCopyText(r, 'hex') : '??';
                 if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1337,7 +1338,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 if (!pin) { hideFieldValMenu(); return; }
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
-                const rows = decodeStruct(def, pin.addr, S.flatBytes, S.endian);
+                const rows = decodeStruct(def, pin.addr, getByte, S.endian);
                 const toCopy = (bsList && bsList.length > 0)
                     ? bsList.map(b => {
                         const r = rows.find(rr => pin!.addr + rr.byteOffset === b);
