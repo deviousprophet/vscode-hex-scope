@@ -4,6 +4,7 @@
 // large files by rendering only visible rows + a buffer.
 
 import { S, BPR } from './state';
+import { getByte } from './data';
 import { esc, fmtB, byteClass } from './utils';
 import { calcVisibleRange, calcTotalHeight, calcRowOffset, type VirtualScrollState } from './virtualScroll';
 
@@ -124,12 +125,16 @@ export function renderMemBody(
     onHexDown: (e: MouseEvent, el: HTMLElement) => void,
     onHexCtx:  (e: MouseEvent, el: HTMLElement) => void,
 ): void {
+    console.time('[MEMORY] renderMemBody');
     const container = document.getElementById('mem-rows')!;
 
     if (S.memRows.length === 0) {
         container.innerHTML = `<div style="padding:30px 20px;color:var(--non-graphic);font-size:12px">No data records found.</div>`;
+        console.timeEnd('[MEMORY] renderMemBody');
         return;
     }
+
+    console.log(`[MEMORY] Rendering ${S.memRows.length} rows`);
 
     // Initialize virtual scroll state
     const scrollContainer = document.getElementById('mem-scroll')!;
@@ -149,7 +154,10 @@ export function renderMemBody(
     (scrollContainer as any)._hexCtxCallback = onHexCtx;
 
     // Initial render of visible rows
+    console.time('[MEMORY] renderVisibleRows');
     renderVisibleRows();
+    console.timeEnd('[MEMORY] renderVisibleRows');
+    console.timeEnd('[MEMORY] renderMemBody');
 
     // Column hover  set up once per container lifetime
     if (!container.dataset.colHoverInit) {
@@ -194,7 +202,7 @@ function renderRow(base: number): string {
 
     for (let col = 0; col < BPR; col++) {
         const addr = base + col;
-        const val  = S.flatBytes.get(addr);
+        const val  = getByte(addr);
         const ah   = addr.toString(16).toUpperCase().padStart(8, '0');
 
         if (val === undefined) {

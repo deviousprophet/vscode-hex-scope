@@ -2,13 +2,12 @@ import * as assert from 'assert';
 
 import { esc, fmtB, byteClass } from '../webview/utils';
 import { S, BPR } from '../webview/state';
-import { initFlatBytes, buildMemRows } from '../webview/data';
+import { initFlatBytes, buildMemRows, getByte } from '../webview/data';
 
 function resetState(): void {
     S.parseResult  = null;
     S.labels       = [];
-    S.flatBytes.clear();
-    S.sortedAddrs  = [];
+    S.segmentIndex = [];
     S.memRows      = [];
     S.selStart     = null;
     S.selEnd       = null;
@@ -106,33 +105,43 @@ suite('state constants and defaults', () => {
     });
 });
 
-// ── initFlatBytes() ─────────────────────────────────────────────
+// ── initFlatBytes() / segment index ─────────────────────────────
 
-suite('initFlatBytes()', () => {
+suite('initFlatBytes() - segment index', () => {
     setup(resetState);
 
-    test('clears map when parseResult is null', () => {
-        S.flatBytes.set(0, 0xFF);
+    test('clears index when parseResult is null', () => {
         initFlatBytes();
-        assert.strictEqual(S.flatBytes.size, 0);
-        assert.strictEqual(S.sortedAddrs.length, 0);
+        assert.strictEqual(S.segmentIndex.length, 0);
     });
 
-    test('populates flatBytes from a single segment', () => {
+    test('builds index from a single segment', () => {
         S.parseResult = {
             records: [],
             segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD, 0xBE, 0xEF] }],
             totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
-        assert.strictEqual(S.flatBytes.get(0x1000), 0xDE);
-        assert.strictEqual(S.flatBytes.get(0x1001), 0xAD);
-        assert.strictEqual(S.flatBytes.get(0x1002), 0xBE);
-        assert.strictEqual(S.flatBytes.get(0x1003), 0xEF);
-        assert.strictEqual(S.flatBytes.size, 4);
+        assert.strictEqual(S.segmentIndex.length, 1);
+        assert.strictEqual(S.segmentIndex[0].startAddr, 0x1000);
+        assert.strictEqual(S.segmentIndex[0].endAddr, 0x1003);
     });
 
-    test('populates flatBytes from two non-contiguous segments', () => {
+    test('getByte returns correct values from single segment', () => {
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD, 0xBE, 0xEF] }],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        assert.strictEqual(getByte(0x1000), 0xDE);
+        assert.strictEqual(getByte(0x1001), 0xAD);
+        assert.strictEqual(getByte(0x1002), 0xBE);
+        assert.strictEqual(getByte(0x1003), 0xEF);
+        assert.strictEqual(getByte(0x1004), undefined);
+    });
+
+    test('getByte works with two non-contiguous segments', () => {
         S.parseResult = {
             records: [],
             segments: [
@@ -142,13 +151,14 @@ suite('initFlatBytes()', () => {
             totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
-        assert.strictEqual(S.flatBytes.size, 4);
-        assert.strictEqual(S.flatBytes.get(0x0000), 0x01);
-        assert.strictEqual(S.flatBytes.get(0x0200), 0x03);
-        assert.strictEqual(S.flatBytes.get(0x0100), undefined);
+        assert.strictEqual(getByte(0x0000), 0x01);
+        assert.strictEqual(getByte(0x0001), 0x02);
+        assert.strictEqual(getByte(0x0100), undefined);
+        assert.strictEqual(getByte(0x0200), 0x03);
+        assert.strictEqual(getByte(0x0201), 0x04);
     });
 
-    test('sortedAddrs is in ascending address order', () => {
+    test('segmentIndex is in ascending address order', () => {
         S.parseResult = {
             records: [],
             segments: [
@@ -158,7 +168,8 @@ suite('initFlatBytes()', () => {
             totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
         };
         initFlatBytes();
-        assert.deepStrictEqual(S.sortedAddrs, [0x0100, 0x0300]);
+        assert.strictEqual(S.segmentIndex[0].startAddr, 0x0100);
+        assert.strictEqual(S.segmentIndex[1].startAddr, 0x0300);
     });
 });
 
@@ -167,7 +178,7 @@ suite('initFlatBytes()', () => {
 suite('buildMemRows()', () => {
     setup(resetState);
 
-    test('produces no rows when flatBytes is empty', () => {
+    test('produces no rows when parseResult is empty', () => {
         buildMemRows();
         assert.strictEqual(S.memRows.length, 0);
     });

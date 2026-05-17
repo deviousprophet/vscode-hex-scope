@@ -10,7 +10,7 @@ import { renderInspector, renderBits, renderLabels, updateInspector, updateLabel
 import { renderStructPanel, renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch, updMC } from './searchEngine';
 import type { SearchEndianness } from './types';
-import { initFlatBytes, buildMemRows }                from './data';
+import { initFlatBytes, buildMemRows, getByte }      from './data';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -19,16 +19,39 @@ vscode.postMessage({ type: 'ready' });
 window.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as { type: string; [key: string]: unknown };
     switch (msg.type) {
-        case 'init':
+        case 'init': {
+            console.time('[WEBVIEW] init');
+            console.log(`[WEBVIEW] init message received`);
+            
+            console.time('[WEBVIEW] parseResult assignment');
             S.parseResult = msg.parseResult as typeof S.parseResult;
             S.labels      = (msg.labels as typeof S.labels) ?? [];
             S.structs     = (msg.structs as typeof S.structs) ?? [];
             S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
+            console.timeEnd('[WEBVIEW] parseResult assignment');
+            
+            if (S.parseResult) {
+                console.log(`[WEBVIEW] Records: ${S.parseResult.records.length}, Segments: ${S.parseResult.segments.length}, Data: ${(S.parseResult.totalDataBytes / 1024 / 1024).toFixed(2)}MB`);
+            }
+            
+            console.time('[WEBVIEW] initFlatBytes');
             initFlatBytes();
+            console.timeEnd('[WEBVIEW] initFlatBytes');
+            
+            console.time('[WEBVIEW] buildMemRows');
             buildMemRows();
+            console.timeEnd('[WEBVIEW] buildMemRows');
+            console.log(`[WEBVIEW] Memory rows: ${S.memRows.length}`);
+            
             S.currentView = 'memory';
+            
+            console.time('[WEBVIEW] render');
             render();
+            console.timeEnd('[WEBVIEW] render');
+            
+            console.timeEnd('[WEBVIEW] init');
             break;
+        }
         case 'loadError':
             renderLoadError(String(msg.message ?? 'Failed to open file.'));
             break;
@@ -260,14 +283,8 @@ function render(): void {
         if (S.currentView === 'memory') { memRerender(); }
     });
 
-    // Cancel: discard edits, restore flatBytes
+    // Cancel: discard edits
     document.getElementById('btn-cancel')!.addEventListener('click', () => {
-        // Restore all edited bytes to their original values
-        S.edits.forEach((newVal, addr) => {
-            // Re-derive original value from parse result segments
-            const orig = getOriginalByte(addr);
-            if (orig !== undefined) { S.flatBytes.set(addr, orig); }
-        });
         S.edits.clear();
         S.undoStack.length = 0;
         S.editMode = false;
@@ -523,12 +540,47 @@ function renderRecordView(): void {
         return;
     }
 
+    // Set up scroll listener (only once per container lifetime)
+    if (!el.dataset.recordVscrollInit) {
+        el.dataset.recordVscrollInit = '1';
+        el.addEventListener('scroll', () => {
+            renderRecordViewImpl(el);
+        });
+    }
+
+    // Initial render
+    renderRecordViewImpl(el);
+}
+
+function renderRecordViewImpl(el: HTMLElement): void {
+    if (!S.parseResult) { return; }
+
+    const recordCount = S.parseResult.records.length;
+    const RECORD_ROW_HEIGHT = 28;  // pixels
+    const BUFFER_ROWS = 5;         // render N rows above/below viewport
+    const containerHeight = el.clientHeight;
+    const scrollTop = el.scrollTop;
+
+    // Calculate which records should be rendered
+    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / RECORD_ROW_HEIGHT) - BUFFER_ROWS);
+    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / RECORD_ROW_HEIGHT) + BUFFER_ROWS);
+
     const isSrec = S.parseResult.format === 'srec';
     const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
 
     const header = `<tr><th>Addr</th><th>Type</th><th>Cnt</th><th>Data</th><th>CHK</th></tr>`;
 
-    const rows = S.parseResult.records.map(r => {
+    const rows: string[] = [];
+
+    // Top spacer
+    if (firstVisibleIdx > 0) {
+        const topOffset = firstVisibleIdx * RECORD_ROW_HEIGHT;
+        rows.push(`<tr style="height:${topOffset}px"><td colspan="5"></td></tr>`);
+    }
+
+    // Render visible records
+    for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
+        const r = S.parseResult.records[i];
         const isData = !r.error && (isSrec ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
                                            : r.recordType === 0);
         const badge =
@@ -554,16 +606,22 @@ function renderRecordView(): void {
             ? `<td class="raddr">${ra}</td>`
             : `<td class="raddr raddr-empty">—</td>`;
 
-        return `<tr${rowClass}>
+        rows.push(`<tr${rowClass}>
             ${addrCell}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
             <td class="rcnt">${r.byteCount}</td>
             ${dataCell}
             <td>${chk}</td>
-        </tr>`;
-    }).join('');
+        </tr>`);
+    }
 
-    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+    // Bottom spacer
+    if (lastVisibleIdx < recordCount - 1) {
+        const bottomOffset = (recordCount - 1 - lastVisibleIdx) * RECORD_ROW_HEIGHT;
+        rows.push(`<tr style="height:${bottomOffset}px"><td colspan="5"></td></tr>`);
+    }
+
+    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.join('')}</tbody></table>`;
 }
 
 // ── View switching ────────────────────────────────────────────────
@@ -578,6 +636,7 @@ function switchView(v: 'memory' | 'record'): void {
     document.getElementById('edit-mode-group')!.style.display = v === 'memory' && S.editMode ? '' : 'none';
     document.getElementById('sidebar')!.style.display = v === 'memory' ? '' : 'none';
     document.getElementById('side-tabs')!.style.display = v === 'memory' ? '' : 'none';
+    document.getElementById('search-box')!.style.display = v === 'memory' ? '' : 'none';
     if (v === 'memory')      { memRerender(); }
     else if (v === 'record') { renderRecordView(); }
 }
@@ -797,9 +856,9 @@ function applyFill(fillVal: number): void {
     if (S.selStart === null || S.selEnd === null) { return; }
     const prev: Array<[number, number]> = [];
     for (let a = S.selStart; a <= S.selEnd; a++) {
-        if (S.flatBytes.has(a)) {
-            prev.push([a, S.flatBytes.get(a)!]);
-            S.flatBytes.set(a, fillVal);
+        const orig = getByte(a);
+        if (orig !== undefined) {
+            prev.push([a, orig]);
             S.edits.set(a, fillVal);
         }
     }
@@ -813,7 +872,6 @@ function undoLastEdit(): void {
     if (!S.editMode || S.undoStack.length === 0) { return; }
     const txn = S.undoStack.pop()!;
     for (const [addr, prevVal] of txn) {
-        S.flatBytes.set(addr, prevVal);
         const orig = getOriginalByte(addr);
         if (orig !== undefined && prevVal === orig) {
             S.edits.delete(addr);
@@ -840,7 +898,7 @@ function getSelBytes(): number[] {
     if (S.selStart === null || S.selEnd === null) { return []; }
     const out: number[] = [];
     for (let a = S.selStart; a <= S.selEnd; a++) {
-        out.push(S.flatBytes.get(a) ?? 0);
+        out.push(getByte(a) ?? 0);
     }
     return out;
 }
