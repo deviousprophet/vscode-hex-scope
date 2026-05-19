@@ -17,15 +17,17 @@ function resetStructState(): void {
 // ── fieldByteSize ─────────────────────────────────────────────────
 
 suite('fieldByteSize()', () => {
-    test('uint8  → 1', () => assert.strictEqual(fieldByteSize('uint8'),   1));
-    test('int8   → 1', () => assert.strictEqual(fieldByteSize('int8'),    1));
-    test('uint16 → 2', () => assert.strictEqual(fieldByteSize('uint16'),  2));
-    test('int16  → 2', () => assert.strictEqual(fieldByteSize('int16'),   2));
-    test('uint32 → 4', () => assert.strictEqual(fieldByteSize('uint32'),  4));
-    test('int32  → 4', () => assert.strictEqual(fieldByteSize('int32'),   4));
-    test('float32→ 4', () => assert.strictEqual(fieldByteSize('float32'), 4));
-    test('float64→ 8', () => assert.strictEqual(fieldByteSize('float64'), 8));
-    test('pointer→ 4', () => assert.strictEqual(fieldByteSize('pointer'), 4));
+    test('uint8   → 1', () => assert.strictEqual(fieldByteSize('uint8'),   1));
+    test('uint16  → 2', () => assert.strictEqual(fieldByteSize('uint16'),  2));
+    test('uint32  → 4', () => assert.strictEqual(fieldByteSize('uint32'),  4));
+    test('uint64  → 8', () => assert.strictEqual(fieldByteSize('uint64'),  8));
+    test('int8    → 1', () => assert.strictEqual(fieldByteSize('int8'),    1));
+    test('int16   → 2', () => assert.strictEqual(fieldByteSize('int16'),   2));
+    test('int32   → 4', () => assert.strictEqual(fieldByteSize('int32'),   4));
+    test('int64   → 8', () => assert.strictEqual(fieldByteSize('int64'),   8));
+    test('float32 → 4', () => assert.strictEqual(fieldByteSize('float32'), 4));
+    test('float64 → 8', () => assert.strictEqual(fieldByteSize('float64'), 8));
+    test('pointer → 4', () => assert.strictEqual(fieldByteSize('pointer'), 4));
 });
 
 // ── structByteSize ────────────────────────────────────────────────
@@ -76,6 +78,22 @@ suite('structByteSize()', () => {
         ]};
         assert.strictEqual(structByteSize(def), 16);
     });
+
+    test('uint64 alignment (not packed): uint32 then uint64 → 16', () => {
+        const def: StructDef = { id: 'x', name: 'S', fields: [
+            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
+        ]};
+        assert.strictEqual(structByteSize(def), 16);
+    });
+
+    test('uint64 alignment (packed): uint32 then uint64 → 12', () => {
+        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
+            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
+        ]};
+        assert.strictEqual(structByteSize(def), 12);
+    });
 });
 
 // ── decodeField ───────────────────────────────────────────────────
@@ -108,6 +126,11 @@ suite('decodeField()', () => {
         assert.ok(r.includes('08000000'), `got: ${r}`);
     });
 
+    test('uint64 LE 0x0000000000000001 → 1', () => {
+        const r = decodeField([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 'uint64', 'le');
+        assert.ok(r.startsWith('1'), `got: ${r}`);
+    });
+
     test('int8 0xFF → -1', () => {
         assert.strictEqual(decodeField([0xFF], 'int8', 'le'), '-1');
     });
@@ -120,16 +143,21 @@ suite('decodeField()', () => {
         assert.strictEqual(decodeField([0xFF, 0xFF, 0xFF, 0xFF], 'int32', 'le'), '-1');
     });
 
+    test('int64 LE 0xFFFFFFFFFFFFFFFF → -1', () => {
+        const r = decodeField([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], 'int64', 'le');
+        assert.strictEqual(r, '-1');
+    });
+
     test('float32 LE 1.0 (0x3F800000)', () => {
         // 1.0f LE bytes: 00 00 80 3F
         const r = decodeField([0x00, 0x00, 0x80, 0x3F], 'float32', 'le');
-        assert.strictEqual(r, '1');
+        assert.strictEqual(parseFloat(r), 1);
     });
 
     test('float64 LE 1.0', () => {
         // 1.0 double LE bytes: 00 00 00 00 00 00 F0 3F
         const r = decodeField([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F], 'float64', 'le');
-        assert.strictEqual(r, '1');
+        assert.strictEqual(parseFloat(r), 1);
     });
 
     test('returns "??" when a byte is missing (value -1)', () => {
@@ -302,6 +330,11 @@ suite('parseStructText()', () => {
     test('double maps to float64', () => {
         const { fields } = parseStructText('double val;');
         assert.strictEqual(fields[0].type, 'float64');
+    });
+
+    test('uint64_t maps to uint64', () => {
+        const { fields } = parseStructText('uint64_t big;');
+        assert.strictEqual(fields[0].type, 'uint64');
     });
 
     test('unsigned char maps to uint8', () => {

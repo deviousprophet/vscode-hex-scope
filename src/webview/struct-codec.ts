@@ -10,19 +10,20 @@ export type { StructDef, StructField, StructFieldType, StructFieldEndian };
 // ── Constants ─────────────────────────────────────────────────────
 
 export const FIELD_TYPES: StructFieldType[] = [
-    'uint8', 'uint16', 'uint32',
-    'int8',  'int16',  'int32',
+    'uint8', 'uint16', 'uint32', 'uint64',
+    'int8',  'int16',  'int32', 'int64',
     'float32', 'float64',
     'pointer',
 ];
 
 export function fieldByteSize(type: StructFieldType): number {
     switch (type) {
-        case 'uint8':  case 'int8':    return 1;
-        case 'uint16': case 'int16':   return 2;
-        case 'uint32': case 'int32':
+        case 'uint8':   case 'int8':    return 1;
+        case 'uint16':  case 'int16':   return 2;
+        case 'uint32':  case 'int32':
         case 'float32': case 'pointer': return 4;
-        case 'float64':                return 8;
+        case 'uint64':  case 'int64':
+        case 'float64':                 return 8;
     }
 }
 
@@ -83,20 +84,39 @@ export function decodeField(
     bytes.slice(0, size).forEach((b, i) => dv.setUint8(i, b));
 
     switch (type) {
-        case 'uint8':   return `${dv.getUint8(0)}  (0x${dv.getUint8(0).toString(16).toUpperCase().padStart(2,'0')})`;
+        // Signed integers
         case 'int8':    return `${dv.getInt8(0)}`;
-        case 'uint16':  { const v = dv.getUint16(0, le); return `${v}  (0x${v.toString(16).toUpperCase().padStart(4,'0')})`; }
         case 'int16':   return `${dv.getInt16(0, le)}`;
-        case 'uint32':  { const v = dv.getUint32(0, le); return `${v >>> 0}  (0x${(v >>> 0).toString(16).toUpperCase().padStart(8,'0')})`; }
         case 'int32':   return `${dv.getInt32(0, le)}`;
+        case 'int64': {
+            const v = dv.getBigInt64(0, le);
+            return `${v.toString(10)}`;
+        }
+
+        // Unsigned integers
+        case 'uint8':   return `${dv.getUint8(0)}  (0x${dv.getUint8(0).toString(16).toUpperCase().padStart(2,'0')})`;
+        case 'uint16':  { const v = dv.getUint16(0, le); return `${v}  (0x${v.toString(16).toUpperCase().padStart(4,'0')})`; }
+        case 'uint32':  { const v = dv.getUint32(0, le); return `${v >>> 0}  (0x${(v >>> 0).toString(16).toUpperCase().padStart(8,'0')})`; }
+        case 'uint64': {
+            const v = dv.getBigUint64(0, le);
+            return `${v.toString(10)}  (0x${v.toString(16).toUpperCase().padStart(16,'0')})`;
+        }
+
+        // Floating point
         case 'float32': {
             const v = dv.getFloat32(0, le);
-            return isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : parseFloat(v.toPrecision(7)).toString();
+            if (isNaN(v)) { return 'NaN'; }
+            if (!isFinite(v)) { return String(v); }
+            return v.toExponential(6);
         }
         case 'float64': {
             const v = dv.getFloat64(0, le);
-            return isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : parseFloat(v.toPrecision(10)).toString();
+            if (isNaN(v)) { return 'NaN'; }
+            if (!isFinite(v)) { return String(v); }
+            return v.toExponential(9);
         }
+
+        // Pointers
         case 'pointer': {
             const v = dv.getUint32(0, le);
             return `0x${(v >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
@@ -157,6 +177,9 @@ const C_TYPE_MAP: Record<string, StructFieldType> = {
     'uint32_t': 'uint32', 'uint32': 'uint32', 'u32': 'uint32',
     'unsigned int': 'uint32', 'unsigned long': 'uint32',
     'DWORD': 'uint32', 'dword': 'uint32',
+    // uint64
+    'uint64_t': 'uint64', 'uint64': 'uint64', 'u64': 'uint64',
+    'unsigned long long': 'uint64',
     // int8
     'int8_t': 'int8', 'int8': 'int8', 'i8': 'int8',
     'signed char': 'int8', 'char': 'int8',
@@ -166,6 +189,9 @@ const C_TYPE_MAP: Record<string, StructFieldType> = {
     // int32
     'int32_t': 'int32', 'int32': 'int32', 'i32': 'int32',
     'int': 'int32', 'long': 'int32', 'signed int': 'int32',
+    // int64
+    'int64_t': 'int64', 'int64': 'int64', 'i64': 'int64',
+    'long long': 'int64', 'signed long long': 'int64',
     // float32
     'float': 'float32', 'float32': 'float32',
     // float64
@@ -174,8 +200,8 @@ const C_TYPE_MAP: Record<string, StructFieldType> = {
 
 /** Maps our internal types back to canonical C type names for serialization. */
 export const TYPE_TO_C: Record<StructFieldType, string> = {
-    uint8: 'uint8_t', uint16: 'uint16_t', uint32: 'uint32_t',
-    int8: 'int8_t', int16: 'int16_t', int32: 'int32_t',
+    uint8: 'uint8_t', uint16: 'uint16_t', uint32: 'uint32_t', uint64: 'uint64_t',
+    int8: 'int8_t', int16: 'int16_t', int32: 'int32_t', int64: 'int64_t',
     float32: 'float', float64: 'double',
     pointer: 'void*',
 };

@@ -616,6 +616,7 @@ function getValForType(r: DecodedField, valType: ColType): string {
     bytes.forEach((b, i) => dv.setUint8(i, b));
     const le    = S.endian === 'le';
     const hexFn = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
+    const hexFnBig = (x: bigint, pad: number) => `0x${x.toString(16).toUpperCase().padStart(pad, '0')}`;
     const binFn = () => {
         // Continuous bit string (MSB-first per byte), grouped into 4-bit nibbles.
         const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
@@ -656,14 +657,27 @@ function getValForType(r: DecodedField, valType: ColType): string {
         case 'float32': {
             const v = dv.getFloat32(0, le);
             return valType === 'hex'
-                ? bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('')
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : parseFloat(v.toPrecision(7)).toString();
+                ? hexFn(dv.getUint32(0, le) >>> 0, 8)
+                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(6);
+        }
+        case 'uint64': {
+            const v = dv.getBigUint64(0, le);
+            return valType === 'hex' ? hexFnBig(v, 16) : v.toString(10);
+        }
+        case 'int64': {
+            const v = dv.getBigInt64(0, le);
+            if (valType === 'hex') {
+                // show two's-complement hex of the underlying bytes
+                const u = BigInt.asUintN(64, v as bigint);
+                return hexFnBig(u, 16);
+            }
+            return v.toString(10);
         }
         case 'float64': {
             const v = dv.getFloat64(0, le);
             return valType === 'hex'
-                ? bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('')
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : parseFloat(v.toPrecision(10)).toString();
+                ? hexFnBig(dv.getBigUint64(0, le), 16)
+                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(9);
         }
         default: return r.decoded;
     }
@@ -675,6 +689,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
     const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
     const le    = S.endian === 'le';
     const hexPad = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
+    const hexPadBig = (v: bigint, pad: number) => `0x${v.toString(16).toUpperCase().padStart(pad, '0')}`;
     if (r.type === 'pointer') {
         const buf = new ArrayBuffer(bytes.length);
         const dv = new DataView(buf);
@@ -703,29 +718,42 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         case 'float32': {
             const v = dv.getFloat32(0, le);
             return valType === 'hex'
-                ? bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('')
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : parseFloat(v.toPrecision(7)).toString();
+                ? hexPad(dv.getUint32(0, le) >>> 0, 8)
+                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(6);
+        }
+        case 'uint64': {
+            const v = dv.getBigUint64(0, le);
+            return valType === 'hex' ? hexPadBig(v, 16) : v.toString(10);
+        }
+        case 'int64': {
+            const v = dv.getBigInt64(0, le);
+            return valType === 'hex' ? hexPadBig(BigInt.asUintN(64, v as bigint), 16) : v.toString(10);
         }
         case 'float64': {
             const v = dv.getFloat64(0, le);
             return valType === 'hex'
-                ? bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('')
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : parseFloat(v.toPrecision(10)).toString();
+                ? hexPadBig(dv.getBigUint64(0, le), 16)
+                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(9);
         }
         default: return r.decoded;
     }
 }
 
 const TYPE_ABBREV: Record<string, string> = {
-    uint8: 'u8',  uint16: 'u16', uint32: 'u32',
-    int8:  'i8',  int16:  'i16', int32:  'i32',
+    uint8: 'u8',  uint16: 'u16', uint32: 'u32', uint64: 'u64',
+    int8:  'i8',  int16:  'i16', int32:  'i32', int64:  'i64',
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
 
 function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
     const nd  = !r.hasData ? ' si-no-data' : '';
     const ptr = r.type === 'pointer';
-    const t   = _fieldValTypes.get(bs) ?? _defaultValType;
+    let t = _fieldValTypes.get(bs);
+    if (!t) {
+        // Prefer decimal view for floating-point fields by default
+        if (r.type === 'float32' || r.type === 'float64') { t = 'dec'; }
+        else { t = _defaultValType; }
+    }
     const v   = getValForType(r, t);
     const valHtml = (t === 'bin' || ptr) ? v : esc(v);
     const abbrev  = TYPE_ABBREV[r.type] ?? r.type;
