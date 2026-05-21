@@ -113,7 +113,7 @@ export function decodeField(
             const v = dv.getFloat64(0, le);
             if (isNaN(v)) { return 'NaN'; }
             if (!isFinite(v)) { return String(v); }
-            return v.toExponential(9);
+            return v.toExponential(16);
         }
 
         // Pointers

@@ -32,7 +32,7 @@ const _expanded = new Set<string>();
 /** Array field groups that are expanded. Key: `${pinId}::${baseName}`. Collapsed by default. */
 const _expandedArrayFields = new Set<string>();
 
-type ColType = 'hex' | 'dec' | 'ascii' | 'bin';
+type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'ieee';
 /** Default display type for value cells (per-field default). */
 let _defaultValType: ColType = 'hex';
 /** Per-field display override keyed by absolute byte-start address. */
@@ -643,6 +643,12 @@ function getValForType(r: DecodedField, valType: ColType): string {
                `0x${v.toString(16).toUpperCase().padStart(8, '0')}`;
     }
     if (valType === 'bin') { return binFn(); }
+    if (valType === 'ieee') {
+        if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
+        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', S.endian);
+        if (!parts) { return '??'; }
+        return `<pre class="si-ieee">sign: ${parts.sign}<br>exponent: ${parts.exponentHex}<br>mantissa: ${parts.mantissaHex}<br>class: ${parts.className}</pre>`;
+    }
     if (valType === 'ascii') {
         const s = bytes.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.').join('');
         return `'${s}'`;
@@ -677,9 +683,50 @@ function getValForType(r: DecodedField, valType: ColType): string {
             const v = dv.getFloat64(0, le);
             return valType === 'hex'
                 ? hexFnBig(dv.getBigUint64(0, le), 16)
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(9);
+                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(16);
         }
         default: return r.decoded;
+    }
+}
+
+/** Parse IEEE754 parts from raw bytes for float32/float64. Returns null on missing/invalid bytes. */
+function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le' | 'be') {
+    const size = type === 'float32' ? 4 : 8;
+    if (bytes.length < size || bytes.some(b => b < 0)) { return null; }
+    const buf = new ArrayBuffer(size);
+    const dv = new DataView(buf);
+    bytes.forEach((b, i) => dv.setUint8(i, b));
+    const le = endian === 'le';
+    if (type === 'float32') {
+        const raw = dv.getUint32(0, le) >>> 0;
+        const sign = (raw >>> 31) & 1;
+        const exp = (raw >>> 23) & 0xFF;
+        const mant = raw & 0x7FFFFF;
+        const exponentBits = exp.toString(2).padStart(8, '0');
+        const mantissaBits = mant.toString(2).padStart(23, '0');
+        const exponentHex = `0x${exp.toString(16).toUpperCase().padStart(2, '0')}`;
+        const mantissaHex = `0x${mant.toString(16).toUpperCase().padStart(6, '0')}`;
+        const rawHex = `0x${raw.toString(16).toUpperCase().padStart(8, '0')}`;
+        let className = 'normal';
+        if (exp === 0) { className = mant === 0 ? 'zero' : 'subnormal'; }
+        else if (exp === 0xFF) { className = mant === 0 ? 'infinity' : 'NaN'; }
+        const binStr = `${sign} | ${exponentBits} | ${mantissaBits}`;
+        return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
+    } else {
+        const raw = dv.getBigUint64(0, le);
+        const sign = Number((raw >> 63n) & 1n);
+        const exp = Number((raw >> 52n) & 0x7FFn);
+        const mant = raw & ((1n << 52n) - 1n);
+        const exponentBits = exp.toString(2).padStart(11, '0');
+        const mantissaBits = mant.toString(2).padStart(52, '0');
+        const exponentHex = `0x${exp.toString(16).toUpperCase().padStart(3, '0')}`;
+        const mantissaHex = `0x${mant.toString(16).toUpperCase().padStart(13, '0')}`;
+        const rawHex = `0x${raw.toString(16).toUpperCase().padStart(16, '0')}`;
+        let className = 'normal';
+        if (exp === 0) { className = mant === 0n ? 'zero' : 'subnormal'; }
+        else if (exp === 0x7FF) { className = mant === 0n ? 'infinity' : 'NaN'; }
+        const binStr = `${sign} | ${exponentBits} | ${mantissaBits}`;
+        return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
     }
 }
 
@@ -701,6 +748,13 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
         const groups = bitSeq.match(/.{1,4}/g) || [];
         return groups.join(' ');
+    }
+    if (valType === 'ieee') {
+        if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
+        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', S.endian);
+        if (!parts) { return '??'; }
+        // Copy as a single-line summary (UI remains multiline)
+        return `sign: ${parts.sign}; exponent: ${parts.exponentHex}; mantissa: ${parts.mantissaHex}; class: ${parts.className}`;
     }
     if (valType === 'ascii') {
         return bytes.map(b => (b >= 0x20 && b < 0x7f) ? String.fromCharCode(b) : '.').join('');
@@ -733,7 +787,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
             const v = dv.getFloat64(0, le);
             return valType === 'hex'
                 ? hexPadBig(dv.getBigUint64(0, le), 16)
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(9);
+                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(16);
         }
         default: return r.decoded;
     }
@@ -755,7 +809,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
         else { t = _defaultValType; }
     }
     const v   = getValForType(r, t);
-    const valHtml = (t === 'bin' || ptr) ? v : esc(v);
+    const valHtml = (t === 'bin' || t === 'ieee' || ptr) ? v : esc(v);
     const abbrev  = TYPE_ABBREV[r.type] ?? r.type;
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
@@ -1187,7 +1241,30 @@ function hideFieldValMenu(): void {
 }
 function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], pinIdx?: number, opts?: { isPointer?: boolean, isArrayHeader?: boolean }): void {
     hideFieldValMenu();
-    const types: ColType[] = ['hex', 'dec', 'bin', 'ascii'];
+    // Determine candidate display types based on the field's native type.
+    const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
+    const allDefs = allStructs();
+    const findFieldTypeAt = (addr: number) => {
+        let pin: StructPin | undefined;
+        if (typeof pinIdx === 'number' && pinIdx >= 0) { pin = S.structPins[pinIdx]; }
+        else {
+            pin = S.structPins.find(p => {
+                const def = allDefs.find(d => d.id === p.structId);
+                if (!def) { return false; }
+                const size = structByteSize(def);
+                return addr >= p.addr && addr < p.addr + size;
+            });
+        }
+        if (!pin) { return null; }
+        const def = allDefs.find(d => d.id === pin.structId);
+        if (!def) { return null; }
+        const rows = decodeStruct(def, pin.addr, S.flatBytes, S.endian);
+        const r = rows.find(rr => pin!.addr + rr.byteOffset === addr);
+        return r ? r.type : null;
+    };
+    const sampleType = findFieldTypeAt(sampleAddr);
+    const isFloatSample = sampleType === 'float32' || sampleType === 'float64';
+    const types: ColType[] = isFloatSample ? ['hex', 'dec', 'ieee', 'bin'] : ['hex', 'dec', 'bin', 'ascii'];
     let cur: ColType | null = null;
     if (bsList && bsList.length > 0) {
         const vals = bsList.map(b => _fieldValTypes.get(b) ?? _defaultValType);
@@ -1212,10 +1289,10 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
 
     // Array header: copy start address + view-as for all elements
     if (opts?.isArrayHeader) {
-        const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', ascii: 'ASCII' };
+        const TYPE_LABELS_FULL: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', ascii: 'ASCII', ieee: 'IEEE754' };
         const dispMenu = types.map(t =>
             `<div class="ctx-row${t === cur ? ' active' : ''}" data-cmd="disp-${t}">` +
-            `<span class="ctx-label">${TYPE_LABELS[t]}</span>` +
+            `<span class="ctx-label">${TYPE_LABELS_FULL[t]}</span>` +
             `</div>`
         ).join('');
         const el = document.createElement('div');
@@ -1251,7 +1328,9 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 if (cmd.startsWith('disp-') && bsList && bsList.length > 0) {
                     const t = cmd.replace('disp-', '') as ColType;
                     bsList.forEach(b => {
-                        if (t === _defaultValType) { _fieldValTypes.delete(b); }
+                        const ft = findFieldTypeAt(b);
+                        const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : _defaultValType;
+                        if (t === implicit) { _fieldValTypes.delete(b); }
                         else { _fieldValTypes.set(b, t); }
                     });
                     hideFieldValMenu();
@@ -1316,7 +1395,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
         return;
     }
 
-    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', ascii: 'ASCII' };
+    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', ascii: 'ASCII', ieee: 'IEEE754' };
 
     // Copy submenu
     const copyMenu = types.map(t =>
@@ -1392,7 +1471,9 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
             // Display type actions
             if (cmd.startsWith('disp-')) {
                 const t = cmd.replace('disp-', '') as ColType;
-                if (t === _defaultValType) { _fieldValTypes.delete(bs); }
+                const ft = findFieldTypeAt(bs);
+                const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : _defaultValType;
+                if (t === implicit) { _fieldValTypes.delete(bs); }
                 else { _fieldValTypes.set(bs, t); }
                 hideFieldValMenu();
                 renderStructPins();
