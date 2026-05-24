@@ -148,6 +148,16 @@ suite('decodeField()', () => {
         assert.strictEqual(r, '-1');
     });
 
+    test('uint64 BE 0x0000000000000001 → 1', () => {
+        const r = decodeField([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01], 'uint64', 'be');
+        assert.ok(r.startsWith('1'), `got: ${r}`);
+    });
+
+    test('int64 BE 0xFFFFFFFFFFFFFFFF → -1', () => {
+        const r = decodeField([0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF], 'int64', 'be');
+        assert.strictEqual(r, '-1');
+    });
+
     test('float32 LE 1.0 (0x3F800000)', () => {
         // 1.0f LE bytes: 00 00 80 3F
         const r = decodeField([0x00, 0x00, 0x80, 0x3F], 'float32', 'le');
