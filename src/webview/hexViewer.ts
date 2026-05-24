@@ -7,9 +7,8 @@ import { esc, fmtB }                                  from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
 import { renderInspector, renderBits, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
-import { renderStructPanel, renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
-import { initSearch, runSearch, clearSearch, nextMatch, prevMatch, updMC } from './searchEngine';
-import type { SearchEndianness } from './types';
+import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
+import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows }                from './data';
 
 vscode.postMessage({ type: 'ready' });
@@ -414,7 +413,6 @@ function render(): void {
     renderMemHeader();
     renderInspector();
     renderBits();
-    renderStructPanel();
     renderStructPins();
     renderLabels();
     setupCtxMenu();
