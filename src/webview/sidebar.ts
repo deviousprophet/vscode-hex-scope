@@ -2,7 +2,7 @@
 // Inspector · Bit View · Multi-Byte interpreter · Segment Labels
 
 import { S } from './state';
-import { esc, fmtB, inlineConfirm, actionBtnsHtml, wireActionBtns } from './utils';
+import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from './utils';
 import { vscode } from './api';
 import { rerender } from './render';
 import { buildMemRows } from './data';
@@ -268,12 +268,9 @@ function renderMultiInline(): void {
         if (!isFinite(v)) { return `${v > 0 ? '+' : ''}${v}`; }
         return v.toExponential(sig - 1);
     }
-    const fmtI = (v: number | bigint) => typeof v === 'bigint'
-        ? (v as bigint).toString(10)
-        : (v as number).toLocaleString('en');
-    const fmtH = (v: number | bigint, w: number) => typeof v === 'bigint'
-        ? `0x${(v as bigint).toString(16).toUpperCase().padStart(w, '0')}`
-        : `0x${(((v as number) >>> 0).toString(16).toUpperCase().padStart(w, '0'))}`;
+    // Use shared formatting helpers for decimal/hex output
+    const fmtI = (v: number | bigint) => formatDecimal(v);
+    const fmtH = (v: number | bigint, w: number) => formatHex(v, w);
 
     const padNote = selLen < width
         ? `<span class="mi-pad-note">zero-padded to ${width * 8}-bit</span>` : '';

@@ -4,7 +4,7 @@
 // Pure codec logic lives in struct-codec.ts.
 
 import { S }        from './state';
-import { esc, actionBtnsHtml, wireActionBtns } from './utils';
+import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64 } from './utils';
 import { vscode }   from './api';
 import { rerender } from './render';
 import {
@@ -315,16 +315,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     });
 }
 
-// ── No longer exported — type management is fully internal ─────────
-/** @deprecated Use inline editing via renderStructPins */
-export function renderStructPanel(): void { /* no-op: removed */ }
-/** @deprecated Use inline editing via renderStructPins */
-export function renderStructEditor(_existing: StructDef | null, _inEl?: HTMLElement): void { /* no-op: removed */ }
-
-// ══════════════════════════════════════════════════════════════════
-// SECTION 2 — Apply Panel + Saved Instances  (#s-struct-pins)
-// ══════════════════════════════════════════════════════════════════
-
+// ── Main render function ───────────────────────────────────────────
 export function renderStructPins(): void {
     const sec = document.getElementById('s-struct-pins');
     if (!sec) { return; }
@@ -615,14 +606,6 @@ function getValForType(r: DecodedField, valType: ColType): string {
     const dv    = new DataView(buf);
     bytes.forEach((b, i) => dv.setUint8(i, b));
     const le    = S.endian === 'le';
-    const hexFn = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
-        const hexFnBig = (x: bigint, pad: number) => `0x${x.toString(16).toUpperCase().padStart(pad, '0')}`; 
-    const formatHexHtml = (hexStr: string) => {
-        if (!hexStr) { return ''; }
-        const prefix = esc(hexStr.slice(0, 2));
-        const body = esc(hexStr.slice(2));
-        return `<span class="si-hex-prefix">${prefix}</span><span class="si-hex-body">${body}</span>`;
-    };
     const binFn = () => {
         // Continuous bit string (MSB-first per byte), grouped into 4-bit nibbles.
         const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
@@ -645,7 +628,7 @@ function getValForType(r: DecodedField, valType: ColType): string {
     // Pointer always renders as arrow → hex address regardless of valType
     if (r.type === 'pointer') {
         const v = dv.getUint32(0, le) >>> 0;
-        return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(hexFn(v, 8));
+        return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8));
     }
     if (valType === 'bin') { return binFn(); }
     if (valType === 'ieee') {
@@ -666,35 +649,35 @@ function getValForType(r: DecodedField, valType: ColType): string {
         return `'${s}'`;
     }
     switch (r.type) {
-        case 'uint8':  { const v = dv.getUint8(0);              return valType === 'hex' ? formatHexHtml(hexFn(v, 2)) : String(v); }
-        case 'int8':   { const v = dv.getInt8(0);               return valType === 'hex' ? formatHexHtml(hexFn(dv.getUint8(0), 2)) : String(v); }
-        case 'uint16': { const v = dv.getUint16(0, le);         return valType === 'hex' ? formatHexHtml(hexFn(v, 4)) : String(v); }
-        case 'int16':  { const v = dv.getInt16(0, le);          return valType === 'hex' ? formatHexHtml(hexFn(dv.getUint16(0, le), 4)) : String(v); }
-        case 'uint32': { const v = dv.getUint32(0, le) >>> 0;   return valType === 'hex' ? formatHexHtml(hexFn(v, 8)) : String(v); }
-        case 'int32':  { const v = dv.getInt32(0, le);          return valType === 'hex' ? formatHexHtml(hexFn(dv.getUint32(0, le), 8)) : String(v); }
+        case 'uint8':  { const v = dv.getUint8(0);              return valType === 'hex' ? formatHexHtml(formatHex(v, 2)) : String(v); }
+        case 'int8':   { const v = dv.getInt8(0);               return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint8(0), 2)) : String(v); }
+        case 'uint16': { const v = dv.getUint16(0, le);         return valType === 'hex' ? formatHexHtml(formatHex(v, 4)) : String(v); }
+        case 'int16':  { const v = dv.getInt16(0, le);          return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint16(0, le), 4)) : String(v); }
+        case 'uint32': { const v = dv.getUint32(0, le) >>> 0;   return valType === 'hex' ? formatHexHtml(formatHex(v, 8)) : String(v); }
+        case 'int32':  { const v = dv.getInt32(0, le);          return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint32(0, le), 8)) : String(v); }
         case 'float32': {
             const v = dv.getFloat32(0, le);
             return valType === 'hex'
-                ? formatHexHtml(hexFn(dv.getUint32(0, le) >>> 0, 8))
+                ? formatHexHtml(formatHex(dv.getUint32(0, le) >>> 0, 8))
                 : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(6);
         }
         case 'uint64': {
-            const v = dv.getBigUint64(0, le);
-            return valType === 'hex' ? formatHexHtml(hexFnBig(v, 16)) : v.toString(10);
+            const v = getBigUint64(dv, 0, le);
+            return valType === 'hex' ? formatHexHtml(formatHex(v, 16)) : formatDecimal(v as bigint);
         }
         case 'int64': {
-            const v = dv.getBigInt64(0, le);
+            const v = getBigInt64(dv, 0, le);
             if (valType === 'hex') {
                 // show two's-complement hex of the underlying bytes
-                const u = BigInt.asUintN(64, v as bigint);
-                return formatHexHtml(hexFnBig(u, 16));
+                const u = asUint64(v as bigint);
+                return formatHexHtml(formatHex(u, 16));
             }
-            return v.toString(10);
+            return formatDecimal(v as bigint);
         }
         case 'float64': {
             const v = dv.getFloat64(0, le);
             return valType === 'hex'
-                ? formatHexHtml(hexFnBig(dv.getBigUint64(0, le), 16))
+                ? formatHexHtml(formatHex(getBigUint64(dv, 0, le), 16))
                 : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(16);
         }
         default: return r.decoded;

@@ -136,3 +136,51 @@ export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void): void 
 function dismissConfirmPopover(): void {
     document.getElementById('del-confirm-pop')?.remove();
 }
+
+// ── BigInt / hex formatting helpers (shared) ─────────────────────
+/**
+ * Format a numeric value as a decimal string. Preserves full precision for BigInt.
+ */
+export function formatDecimal(v: number | bigint): string {
+    if (typeof v === 'bigint') { return v.toString(10); }
+    if (Number.isFinite(v)) { return (v as number).toLocaleString('en'); }
+    return String(v);
+}
+
+/**
+ * Format a numeric value as a hex string prefixed with `0x`.
+ * `pad` is the minimum number of hex digits (excluding `0x`).
+ */
+export function formatHex(v: number | bigint, pad: number): string {
+    if (typeof v === 'bigint') {
+        return `0x${(v as bigint).toString(16).toUpperCase().padStart(pad, '0')}`;
+    }
+    // Force unsigned 32-bit representation for numbers
+    const u = (v as number) >>> 0;
+    return `0x${u.toString(16).toUpperCase().padStart(pad, '0')}`;
+}
+
+/**
+ * Convert a hex string like `0xDEADBEEF` into HTML with separate prefix/body
+ * spans used by the UI to style the `0x` differently from the digits.
+ */
+export function formatHexHtml(hexStr: string): string {
+    if (!hexStr) { return ''; }
+    const prefix = esc(hexStr.slice(0, 2));
+    const body = esc(hexStr.slice(2));
+    return `<span class="si-hex-prefix">${prefix}</span><span class="si-hex-body">${body}</span>`;
+}
+
+/** Direct wrappers around DataView BigInt reads (centralized for future fallbacks). */
+export function getBigUint64(dv: DataView, offset: number, littleEndian: boolean): bigint {
+    return dv.getBigUint64(offset, littleEndian);
+}
+
+export function getBigInt64(dv: DataView, offset: number, littleEndian: boolean): bigint {
+    return dv.getBigInt64(offset, littleEndian);
+}
+
+/** Cast a signed BigInt to its unsigned 64-bit representation. */
+export function asUint64(v: bigint): bigint {
+    return BigInt.asUintN(64, v);
+}
