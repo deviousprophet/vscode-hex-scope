@@ -1407,7 +1407,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
     const el = document.createElement('div');
     el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
     el.innerHTML =
-        sub('Copy', 'copy', copyMenu) +
+        sub('Copy as', 'copy', copyMenu) +
         sep +
         sub('View as', 'disp', dispMenu);
 
