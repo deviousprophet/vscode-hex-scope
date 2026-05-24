@@ -477,6 +477,27 @@
 }
 .si-f-pri { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; flex-shrink: 0; }
 .si-f-val { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; flex-shrink: 0; }
+.si-f-val[data-val-type="hex"]   { color: var(--val-hex-color); }
+.si-f-val[data-val-type="dec"]   { color: var(--val-dec-color); }
+.si-f-val[data-val-type="ieee"]  { color: var(--val-ieee-color); white-space: normal; }
+.si-ieee {
+    color: var(--val-ieee-color);
+    white-space: pre; /* preserve spacing in the <pre> block so labels align */
+    font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+}
+.si-hex-prefix { color: var(--val-hex-prefix-color); font-weight: 700; margin-right: 0; }
+.si-hex-body { display: inline-block; color: var(--val-hex-color); }
+.si-ieee-label {
+    color: var(--val-ieee-label-color);
+    font-weight: 700;
+    display: inline-block;
+    width: 10ch; /* fixed label width (monospace-ch units) to align values */
+    text-align: right;
+    padding-right: .5ch;
+}
+.si-ieee-val { color: var(--val-ieee-value-color); font-weight: 600; }
 .si-f-val[data-val-type="ascii"] { color: var(--print-color); }
 .si-f-val[data-val-type="bin"]   { color: var(--fg); white-space: normal; }
 .si-bit { font-family: var(--font-editor); display: inline-block; letter-spacing: 0; padding: 0 .25ch; }

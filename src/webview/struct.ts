@@ -616,7 +616,13 @@ function getValForType(r: DecodedField, valType: ColType): string {
     bytes.forEach((b, i) => dv.setUint8(i, b));
     const le    = S.endian === 'le';
     const hexFn = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
-    const hexFnBig = (x: bigint, pad: number) => `0x${x.toString(16).toUpperCase().padStart(pad, '0')}`;
+        const hexFnBig = (x: bigint, pad: number) => `0x${x.toString(16).toUpperCase().padStart(pad, '0')}`; 
+    const formatHexHtml = (hexStr: string) => {
+        if (!hexStr) { return ''; }
+        const prefix = esc(hexStr.slice(0, 2));
+        const body = esc(hexStr.slice(2));
+        return `<span class="si-hex-prefix">${prefix}</span><span class="si-hex-body">${body}</span>`;
+    };
     const binFn = () => {
         // Continuous bit string (MSB-first per byte), grouped into 4-bit nibbles.
         const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
@@ -639,50 +645,56 @@ function getValForType(r: DecodedField, valType: ColType): string {
     // Pointer always renders as arrow → hex address regardless of valType
     if (r.type === 'pointer') {
         const v = dv.getUint32(0, le) >>> 0;
-        return `<span class="si-f-ptr-sym">\u2192</span>\u2009` +
-               `0x${v.toString(16).toUpperCase().padStart(8, '0')}`;
+        return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(hexFn(v, 8));
     }
     if (valType === 'bin') { return binFn(); }
     if (valType === 'ieee') {
         if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
         const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', S.endian);
         if (!parts) { return '??'; }
-        return `<pre class="si-ieee">sign: ${parts.sign}<br>exponent: ${parts.exponentHex}<br>mantissa: ${parts.mantissaHex}<br>class: ${parts.className}</pre>`;
+        return (
+            `<pre class="si-ieee">` +
+            `<span class="si-ieee-label">sign:</span> <span class="si-ieee-val">${esc(String(parts.sign))}</span><br>` +
+            `<span class="si-ieee-label">exponent:</span> ${formatHexHtml(parts.exponentHex)}<br>` +
+            `<span class="si-ieee-label">mantissa:</span> ${formatHexHtml(parts.mantissaHex)}<br>` +
+            `<span class="si-ieee-label">class:</span> <span class="si-ieee-val">${esc(parts.className)}</span>` +
+            `</pre>`
+        );
     }
     if (valType === 'ascii') {
         const s = bytes.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.').join('');
         return `'${s}'`;
     }
     switch (r.type) {
-        case 'uint8':  { const v = dv.getUint8(0);              return valType === 'hex' ? hexFn(v, 2) : String(v); }
-        case 'int8':   { const v = dv.getInt8(0);               return valType === 'hex' ? hexFn(dv.getUint8(0), 2) : String(v); }
-        case 'uint16': { const v = dv.getUint16(0, le);         return valType === 'hex' ? hexFn(v, 4) : String(v); }
-        case 'int16':  { const v = dv.getInt16(0, le);          return valType === 'hex' ? hexFn(dv.getUint16(0, le), 4) : String(v); }
-        case 'uint32': { const v = dv.getUint32(0, le) >>> 0;   return valType === 'hex' ? hexFn(v, 8) : String(v); }
-        case 'int32':  { const v = dv.getInt32(0, le);          return valType === 'hex' ? hexFn(dv.getUint32(0, le), 8) : String(v); }
+        case 'uint8':  { const v = dv.getUint8(0);              return valType === 'hex' ? formatHexHtml(hexFn(v, 2)) : String(v); }
+        case 'int8':   { const v = dv.getInt8(0);               return valType === 'hex' ? formatHexHtml(hexFn(dv.getUint8(0), 2)) : String(v); }
+        case 'uint16': { const v = dv.getUint16(0, le);         return valType === 'hex' ? formatHexHtml(hexFn(v, 4)) : String(v); }
+        case 'int16':  { const v = dv.getInt16(0, le);          return valType === 'hex' ? formatHexHtml(hexFn(dv.getUint16(0, le), 4)) : String(v); }
+        case 'uint32': { const v = dv.getUint32(0, le) >>> 0;   return valType === 'hex' ? formatHexHtml(hexFn(v, 8)) : String(v); }
+        case 'int32':  { const v = dv.getInt32(0, le);          return valType === 'hex' ? formatHexHtml(hexFn(dv.getUint32(0, le), 8)) : String(v); }
         case 'float32': {
             const v = dv.getFloat32(0, le);
             return valType === 'hex'
-                ? hexFn(dv.getUint32(0, le) >>> 0, 8)
+                ? formatHexHtml(hexFn(dv.getUint32(0, le) >>> 0, 8))
                 : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(6);
         }
         case 'uint64': {
             const v = dv.getBigUint64(0, le);
-            return valType === 'hex' ? hexFnBig(v, 16) : v.toString(10);
+            return valType === 'hex' ? formatHexHtml(hexFnBig(v, 16)) : v.toString(10);
         }
         case 'int64': {
             const v = dv.getBigInt64(0, le);
             if (valType === 'hex') {
                 // show two's-complement hex of the underlying bytes
                 const u = BigInt.asUintN(64, v as bigint);
-                return hexFnBig(u, 16);
+                return formatHexHtml(hexFnBig(u, 16));
             }
             return v.toString(10);
         }
         case 'float64': {
             const v = dv.getFloat64(0, le);
             return valType === 'hex'
-                ? hexFnBig(dv.getBigUint64(0, le), 16)
+                ? formatHexHtml(hexFnBig(dv.getBigUint64(0, le), 16))
                 : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(16);
         }
         default: return r.decoded;
@@ -697,7 +709,7 @@ function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le
     const dv = new DataView(buf);
     bytes.forEach((b, i) => dv.setUint8(i, b));
     const le = endian === 'le';
-    if (type === 'float32') {
+        if (type === 'float32') { 
         const raw = dv.getUint32(0, le) >>> 0;
         const sign = (raw >>> 31) & 1;
         const exp = (raw >>> 23) & 0xFF;
@@ -809,7 +821,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
         else { t = _defaultValType; }
     }
     const v   = getValForType(r, t);
-    const valHtml = (t === 'bin' || t === 'ieee' || ptr) ? v : esc(v);
+    const valHtml = (t === 'bin' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
     const abbrev  = TYPE_ABBREV[r.type] ?? r.type;
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
