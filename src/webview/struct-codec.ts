@@ -17,6 +17,7 @@ export const MAX_NESTED_DEPTH = 3;
 // -- Constants -----------------------------------------------------
 
 export const FIELD_TYPES: StructScalarFieldType[] = [
+    'ascii',
     'uint8', 'uint16', 'uint32', 'uint64',
     'int8', 'int16', 'int32', 'int64',
     'float32', 'float64',
@@ -25,6 +26,7 @@ export const FIELD_TYPES: StructScalarFieldType[] = [
 
 export function fieldByteSize(type: StructScalarFieldType): number {
     switch (type) {
+        case 'ascii':
         case 'uint8':
         case 'int8':
             return 1;
@@ -192,6 +194,11 @@ export function decodeField(
     bytes.slice(0, size).forEach((b, i) => dv.setUint8(i, b));
 
     switch (type) {
+        case 'ascii': {
+            const b = dv.getUint8(0);
+            if (b === 0) { return ''; }
+            return b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.';
+        }
         case 'int8':
             return `${dv.getInt8(0)}`;
         case 'int16':
@@ -253,6 +260,43 @@ function decodeStructRecursive(
         const elemSize = fieldSizeWithDefs(field, map, depth);
         const endian = field.endian === 'inherit' ? globalEndian : field.endian;
         offset = alignUp(offset, align);
+
+        if (field.type === 'ascii') {
+            const fieldPath = pathPrefix ? `${pathPrefix}.${field.name}` : field.name;
+            const absOffset = baseOffset + offset;
+            const totalBytes = elemSize * field.count;
+            const raw: number[] = [];
+            for (let b = 0; b < totalBytes; b++) {
+                const v = getByte(baseAddr + absOffset + b);
+                raw.push(v !== undefined ? v : -1);
+            }
+            const hasData = raw.every(v => v >= 0);
+            const bytesHex = raw
+                .map(v => (v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??'))
+                .join(' ');
+            const decoded = hasData
+                ? (() => {
+                    const chars: string[] = [];
+                    for (const b of raw) {
+                        if (b === 0) { break; }
+                        chars.push(b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.');
+                    }
+                    return chars.join('');
+                })()
+                : '??';
+
+            rows.push({
+                fieldName: fieldPath,
+                type: 'ascii',
+                arrayIdx: 0,
+                byteOffset: absOffset,
+                bytesHex,
+                decoded,
+                hasData,
+            });
+            offset += totalBytes;
+            continue;
+        }
 
         for (let idx = 0; idx < field.count; idx++) {
             const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
@@ -336,6 +380,7 @@ export function allStructs(): StructDef[] {
  * Lookup is case-sensitive first, then case-folded as fallback.
  */
 const C_TYPE_MAP: Record<string, StructScalarFieldType> = {
+    'char': 'ascii',
     'uint8_t': 'uint8', 'uint8': 'uint8', 'u8': 'uint8',
     'unsigned char': 'uint8', 'byte': 'uint8', 'BYTE': 'uint8',
 
@@ -350,7 +395,7 @@ const C_TYPE_MAP: Record<string, StructScalarFieldType> = {
     'unsigned long long': 'uint64',
 
     'int8_t': 'int8', 'int8': 'int8', 'i8': 'int8',
-    'signed char': 'int8', 'char': 'int8',
+    'signed char': 'int8',
 
     'int16_t': 'int16', 'int16': 'int16', 'i16': 'int16',
     'short': 'int16', 'signed short': 'int16',
@@ -367,6 +412,7 @@ const C_TYPE_MAP: Record<string, StructScalarFieldType> = {
 
 /** Maps scalar field types back to canonical C type names for serialization. */
 export const TYPE_TO_C: Record<StructScalarFieldType, string> = {
+    ascii: 'char',
     uint8: 'uint8_t', uint16: 'uint16_t', uint32: 'uint32_t', uint64: 'uint64_t',
     int8: 'int8_t', int16: 'int16_t', int32: 'int32_t', int64: 'int64_t',
     float32: 'float', float64: 'double',
