@@ -67,16 +67,22 @@ jobs:
           FAIL: ${{ steps.parse-tests.outputs.failed }}
           TOTAL: ${{ steps.parse-tests.outputs.total }}
           PASS_RATE: ${{ steps.parse-tests.outputs.pass_rate }}
+          RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
           PASS=${PASS:-0}
           FAIL=${FAIL:-0}
           TOTAL=${TOTAL:-0}
           PASS_RATE=${PASS_RATE:-0}
+          RUN_TESTS_OUTCOME=${RUN_TESTS_OUTCOME:-unknown}
 
           echo "<!-- auto-tests -->" > pr-comment.md
           echo "## Automated test results" >> pr-comment.md
-          if [ -z "$FAIL" ] || [ "$FAIL" -eq 0 ]; then
+          if [ "$RUN_TESTS_OUTCOME" != "success" ] || [ "$TOTAL" -eq 0 ]; then
+            echo "" >> pr-comment.md
+            echo "**Status:** ❌ Tests were not executed successfully" >> pr-comment.md
+            COMMENT_STATUS=failure
+          elif [ -z "$FAIL" ] || [ "$FAIL" -eq 0 ]; then
             echo "" >> pr-comment.md
             echo "**Status:** ✅ All tests passed" >> pr-comment.md
             COMMENT_STATUS=success
