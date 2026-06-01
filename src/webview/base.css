@@ -39,6 +39,17 @@
     --gap-bdr:     rgba(255,183,77,.3);
     --print-color: #ce9178;
     --high-color:  #9cdcfe;
+    /* Shared, low-contrast value colors (primary = foreground, secondary = muted) */
+    --val-primary-color: var(--fg);
+    --val-secondary-color: var(--addr-fg);
+    /* Map existing named value variables to the shared palette for backwards compatibility */
+    --val-hex-color: var(--val-primary-color);
+    --val-hex-alt-color: var(--val-secondary-color);
+    --val-hex-prefix-color: var(--val-secondary-color);
+    --val-dec-color: var(--val-primary-color);
+    --val-ieee-color: var(--val-primary-color);
+    --val-ieee-label-color: var(--val-secondary-color);
+    --val-ieee-value-color: var(--val-primary-color);
     --zero-color:  rgba(212,212,212,.20);
     --sidebar-w:   360px;
 }

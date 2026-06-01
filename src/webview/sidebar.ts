@@ -2,7 +2,7 @@
 // Inspector · Bit View · Multi-Byte interpreter · Segment Labels
 
 import { S } from './state';
-import { esc, fmtB, inlineConfirm, actionBtnsHtml, wireActionBtns } from './utils';
+import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from './utils';
 import { vscode } from './api';
 import { rerender } from './render';
 import { buildMemRows, getByte } from './data';
@@ -245,31 +245,32 @@ function renderMultiInline(): void {
     const le  = S.endian === 'le';
 
     // ── Calculations ──
-    const b0 = raw[0], b1 = raw[1];
-    const u16 = (le ? ((b1 << 8) | b0) : ((b0 << 8) | b1)) >>> 0;
-    const i16 = (u16 << 16) >> 16;
+    // Build a zero-padded 8-byte little-endian buffer and reuse it for all reads.
+    const bytesLE = le ? [...raw] : [...raw].reverse();
+    const buf8 = new ArrayBuffer(8);
+    const dv8 = new DataView(buf8);
+    for (let i = 0; i < 8; i++) { dv8.setUint8(i, bytesLE[i] ?? 0); }
 
-    const [a, b, c, d] = raw;
-    const u32 = (le ? ((d << 24) | (c << 16) | (b << 8) | a)
-                    : ((a << 24) | (b << 16) | (c << 8) | d)) >>> 0;
-    const i32 = le ? (d << 24) | (c << 16) | (b << 8) | a
-                   : (a << 24) | (b << 16) | (c << 8) | d;
+    const u16 = dv8.getUint16(0, true);
+    const i16 = dv8.getInt16(0, true);
 
-    const buf32 = new ArrayBuffer(4); const dv32 = new DataView(buf32);
-    (le ? [a, b, c, d] : [d, c, b, a]).forEach((v, i) => dv32.setUint8(i, v));
-    const f32val = dv32.getFloat32(0, true);
+    const u32 = dv8.getUint32(0, true);
+    const i32 = dv8.getInt32(0, true);
 
-    const buf64 = new ArrayBuffer(8); const dv64 = new DataView(buf64);
-    (le ? raw : [...raw].reverse()).forEach((v, i) => dv64.setUint8(i, v));
-    const f64val = dv64.getFloat64(0, true);
+    const f32val = dv8.getFloat32(0, true);
 
-    function fmtF(v: number): string {
+    const u64 = dv8.getBigUint64(0, true);
+    const i64 = dv8.getBigInt64(0, true);
+    const f64val = dv8.getFloat64(0, true);
+
+    function fmtF(v: number, sig: number): string {
         if (isNaN(v))     { return 'NaN'; }
         if (!isFinite(v)) { return `${v > 0 ? '+' : ''}${v}`; }
-        return parseFloat(v.toPrecision(7)).toString();
+        return v.toExponential(sig - 1);
     }
-    const fmtI = (v: number) => v.toLocaleString('en');
-    const fmtH = (v: number, w: number) => `0x${v.toString(16).toUpperCase().padStart(w, '0')}`;
+    // Use shared formatting helpers for decimal/hex output
+    const fmtI = (v: number | bigint) => formatDecimal(v);
+    const fmtH = (v: number | bigint, w: number) => formatHex(v, w);
 
     const padNote = selLen < width
         ? `<span class="mi-pad-note">zero-padded to ${width * 8}-bit</span>` : '';
@@ -282,7 +283,7 @@ function renderMultiInline(): void {
     };
 
     // Unsigned card — shows dec and hex stacked, each clickable to copy their value
-    const ucard = (type: string, uVal: number, hexW: number) => {
+    const ucard = (type: string, uVal: number | bigint, hexW: number) => {
         const dec = fmtI(uVal);
         const hex = fmtH(uVal, hexW);
         return `<div class="mi-card mi-ucard">` +
@@ -298,15 +299,17 @@ function renderMultiInline(): void {
     if (width === 2) {
         group =
             ucard('uint16', u16, 4) +
-            card('int16',  fmtI(i16), String(i16));
+            card('int16', fmtI(i16), String(i16));
     } else if (width === 4) {
         group =
             ucard('uint32', u32, 8) +
-            card('int32',  fmtI(i32),    String(i32)) +
-            card('float32', fmtF(f32val), fmtF(f32val));
+            card('int32', fmtI(i32), String(i32)) +
+            card('float32', fmtF(f32val, 7), fmtF(f32val, 7));
     } else {
         group =
-            card('float64', fmtF(f64val), fmtF(f64val));
+            ucard('uint64', u64, 16) +
+            card('int64', fmtI(i64), String(i64)) +
+            card('float64', fmtF(f64val, 10), fmtF(f64val, 10));
     }
 
     el.innerHTML =

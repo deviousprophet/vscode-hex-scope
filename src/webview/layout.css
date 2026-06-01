@@ -2,6 +2,23 @@
 #main-area    { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 #content-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
+/* ── Sidebar resize handle ───────────────────────────────────── */
+#sidebar-resizer {
+    width: 6px;
+    flex-shrink: 0;
+    cursor: col-resize;
+    background: transparent;
+    border-left: 1px solid transparent;
+    border-right: 1px solid transparent;
+    transition: background .12s ease, border-color .12s ease;
+}
+#sidebar-resizer:hover,
+#sidebar-resizer.dragging {
+    background: rgba(156,220,254,.08);
+    border-left-color: rgba(156,220,254,.45);
+    border-right-color: rgba(156,220,254,.45);
+}
+
 /* ── Sidebar skeleton ────────────────────────────────────────── */
 #sidebar {
     width: var(--sidebar-w); min-width: var(--sidebar-w);

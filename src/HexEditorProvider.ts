@@ -65,17 +65,75 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
 
         const structKey = `hexScope.structs.${document.uri.toString()}`;
+        const globalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
 
-        const postInit = () => {
+        const normalizeStructDefs = (value: unknown): unknown[] => {
+            if (!Array.isArray(value)) { return []; }
+            const out: unknown[] = [];
+            const seenIds = new Set<string>();
+            const seenNames = new Set<string>();
+
+            for (const item of value) {
+                const id = (item as { id?: unknown })?.id;
+                const name = (item as { name?: unknown })?.name;
+                if (typeof id !== 'string' || typeof name !== 'string') { continue; }
+                if (seenIds.has(id) || seenNames.has(name)) { continue; }
+                seenIds.add(id);
+                seenNames.add(name);
+                out.push(item);
+            }
+            return out;
+        };
+
+        const loadStructs = async () => {
+            const globalStructs = this._context.globalState.get<unknown>(globalStructKey, []);
+            const legacyStructs = this._context.workspaceState.get<unknown>(structKey, []);
+            let globalArr = normalizeStructDefs(globalStructs);
+            const legacyArr = normalizeStructDefs(legacyStructs);
+
+            if (!Array.isArray(globalStructs) || globalArr.length !== globalStructs.length) {
+                await this._context.globalState.update(globalStructKey, globalArr);
+            }
+
+            if (legacyArr.length > 0) {
+                const usedIds = new Set(globalArr
+                    .map(s => (s as { id?: unknown })?.id)
+                    .filter((id): id is string => typeof id === 'string'));
+                const usedNames = new Set(globalArr
+                    .map(s => (s as { name?: unknown })?.name)
+                    .filter((name): name is string => typeof name === 'string'));
+
+                const migrated = legacyArr.filter(s => {
+                    const id = (s as { id?: unknown })?.id;
+                    const name = (s as { name?: unknown })?.name;
+                    if (typeof id !== 'string' || typeof name !== 'string') { return false; }
+                    if (usedIds.has(id) || usedNames.has(name)) { return false; }
+                    usedIds.add(id);
+                    usedNames.add(name);
+                    return true;
+                });
+
+                if (migrated.length > 0) {
+                    globalArr = [...globalArr, ...migrated];
+                    await this._context.globalState.update(globalStructKey, globalArr);
+                }
+            }
+
+            await this._context.workspaceState.update(structKey, undefined);
+            return globalArr;
+        };
+
+        const postInit = async () => {
             if (!webviewReady || !parseResult) { return; }
             const serialized = serializeParseResult(parseResult, format);
+            const structs = await loadStructs();
             
             const msg = {
                 type: 'init',
                 parseResult: serialized,
                 labels:      this._context.workspaceState.get(labelKey, []),
-                structs:     this._context.workspaceState.get(structKey, []),
+                structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
             };
             
@@ -142,7 +200,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             switch (msg.type) {
                 case 'ready':
                     webviewReady = true;
-                    postInit();
+                    await postInit();
                     break;
                 case 'copyText':
                     await vscode.env.clipboard.writeText(msg.text);
@@ -153,7 +211,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     break;
                 }
                 case 'saveStructs': {
-                    await this._context.workspaceState.update(structKey, msg.structs);
+                    await this._context.globalState.update(globalStructKey, normalizeStructDefs(msg.structs));
                     break;
                 }
                 case 'saveStructPins': {

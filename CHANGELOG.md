@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.5.0] — 2026-06-01
+
+### Added
+
+- Nested struct fields in Struct Overlay, including validation for invalid references/cycles/depth
+- New ASCII struct field type for readable C-style strings (null-terminated display)
+- Resizable Struct Overlay sidebar with persistent width
+
+### Changed
+
+- Struct definitions are now global-only; migration from per-file data runs once and keeps global entries on conflicts
+- Struct UX polish: border-only selection, auto-expand on create, clearer tooltips, and improved header/scroll alignment
+- Memory view readability improvements, including a trailing divider after the ASCII column
+- CI test result comments on PRs are clearer
+
+### Fixed
+
+- Nested array groups in sub-struct paths are now collapsible
+- ASCII field selection now highlights the full byte range and shows length clearly
+- Struct-to-C padding/packed output reliability improved
+
 ## [2.4.0] — 2026-06-01
 
 ### Added

@@ -2,7 +2,7 @@ import * as assert from 'assert';
 
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
-    allStructs, parseStructText, fieldsToText,
+    allStructs, parseStructText, fieldsToText, validateStructs, structToC,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
 import { initFlatBytes, getByte } from '../webview/data';
@@ -31,15 +31,17 @@ function setBytesInSegment(baseAddr: number, bytes: number[]): void {
 // ── fieldByteSize ─────────────────────────────────────────────────
 
 suite('fieldByteSize()', () => {
-    test('uint8  → 1', () => assert.strictEqual(fieldByteSize('uint8'),   1));
-    test('int8   → 1', () => assert.strictEqual(fieldByteSize('int8'),    1));
-    test('uint16 → 2', () => assert.strictEqual(fieldByteSize('uint16'),  2));
-    test('int16  → 2', () => assert.strictEqual(fieldByteSize('int16'),   2));
-    test('uint32 → 4', () => assert.strictEqual(fieldByteSize('uint32'),  4));
-    test('int32  → 4', () => assert.strictEqual(fieldByteSize('int32'),   4));
-    test('float32→ 4', () => assert.strictEqual(fieldByteSize('float32'), 4));
-    test('float64→ 8', () => assert.strictEqual(fieldByteSize('float64'), 8));
-    test('pointer→ 4', () => assert.strictEqual(fieldByteSize('pointer'), 4));
+    test('uint8   → 1', () => assert.strictEqual(fieldByteSize('uint8'),   1));
+    test('uint16  → 2', () => assert.strictEqual(fieldByteSize('uint16'),  2));
+    test('uint32  → 4', () => assert.strictEqual(fieldByteSize('uint32'),  4));
+    test('uint64  → 8', () => assert.strictEqual(fieldByteSize('uint64'),  8));
+    test('int8    → 1', () => assert.strictEqual(fieldByteSize('int8'),    1));
+    test('int16   → 2', () => assert.strictEqual(fieldByteSize('int16'),   2));
+    test('int32   → 4', () => assert.strictEqual(fieldByteSize('int32'),   4));
+    test('int64   → 8', () => assert.strictEqual(fieldByteSize('int64'),   8));
+    test('float32 → 4', () => assert.strictEqual(fieldByteSize('float32'), 4));
+    test('float64 → 8', () => assert.strictEqual(fieldByteSize('float64'), 8));
+    test('pointer → 4', () => assert.strictEqual(fieldByteSize('pointer'), 4));
 });
 
 // ── structByteSize ────────────────────────────────────────────────
@@ -90,6 +92,44 @@ suite('structByteSize()', () => {
         ]};
         assert.strictEqual(structByteSize(def), 16);
     });
+
+    test('uint64 alignment (not packed): uint32 then uint64 → 16', () => {
+        const def: StructDef = { id: 'x', name: 'S', fields: [
+            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
+        ]};
+        assert.strictEqual(structByteSize(def), 16);
+    });
+
+    test('uint64 alignment (packed): uint32 then uint64 → 12', () => {
+        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
+            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
+        ]};
+        assert.strictEqual(structByteSize(def), 12);
+    });
+
+    test('nested struct contributes child size and alignment', () => {
+        const child: StructDef = {
+            id: 'child',
+            name: 'Child',
+            fields: [
+                { name: 'x', type: 'uint16', count: 1, endian: 'inherit' },
+                { name: 'y', type: 'uint16', count: 1, endian: 'inherit' },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'parent',
+            name: 'Parent',
+            fields: [
+                { name: 'head', type: 'uint32', count: 1, endian: 'inherit' },
+                { name: 'c', type: 'struct', refStructId: 'child', count: 1, endian: 'inherit' },
+            ],
+        };
+        S.structs = [child, parent];
+        assert.strictEqual(structByteSize(parent), 8);
+        S.structs = [];
+    });
 });
 
 // ── decodeField ───────────────────────────────────────────────────
@@ -122,6 +162,11 @@ suite('decodeField()', () => {
         assert.ok(r.includes('08000000'), `got: ${r}`);
     });
 
+    test('uint64 LE 0x0000000000000001 → 1', () => {
+        const r = decodeField([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 'uint64', 'le');
+        assert.ok(r.startsWith('1'), `got: ${r}`);
+    });
+
     test('int8 0xFF → -1', () => {
         assert.strictEqual(decodeField([0xFF], 'int8', 'le'), '-1');
     });
@@ -134,16 +179,31 @@ suite('decodeField()', () => {
         assert.strictEqual(decodeField([0xFF, 0xFF, 0xFF, 0xFF], 'int32', 'le'), '-1');
     });
 
+    test('int64 LE 0xFFFFFFFFFFFFFFFF → -1', () => {
+        const r = decodeField([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], 'int64', 'le');
+        assert.strictEqual(r, '-1');
+    });
+
+    test('uint64 BE 0x0000000000000001 → 1', () => {
+        const r = decodeField([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01], 'uint64', 'be');
+        assert.ok(r.startsWith('1'), `got: ${r}`);
+    });
+
+    test('int64 BE 0xFFFFFFFFFFFFFFFF → -1', () => {
+        const r = decodeField([0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF], 'int64', 'be');
+        assert.strictEqual(r, '-1');
+    });
+
     test('float32 LE 1.0 (0x3F800000)', () => {
         // 1.0f LE bytes: 00 00 80 3F
         const r = decodeField([0x00, 0x00, 0x80, 0x3F], 'float32', 'le');
-        assert.strictEqual(r, '1');
+        assert.strictEqual(parseFloat(r), 1);
     });
 
     test('float64 LE 1.0', () => {
         // 1.0 double LE bytes: 00 00 00 00 00 00 F0 3F
         const r = decodeField([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F], 'float64', 'le');
-        assert.strictEqual(r, '1');
+        assert.strictEqual(parseFloat(r), 1);
     });
 
     test('returns "??" when a byte is missing (value -1)', () => {
@@ -263,6 +323,55 @@ suite('decodeStruct()', () => {
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.ok(rows[0].bytesHex.includes('??'), rows[0].bytesHex);
     });
+
+    test('nested rows use parent[2].child path format', () => {
+        const child: StructDef = {
+            id: 'child',
+            name: 'Child',
+            fields: [{ name: 'v', type: 'uint8', count: 1, endian: 'inherit' }],
+        };
+        const parent: StructDef = {
+            id: 'parent',
+            name: 'Parent',
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3, endian: 'inherit' }],
+        };
+        S.structs = [child, parent];
+        setBytesInSegment(0, [0x11, 0x22, 0x33]);
+
+        const rows = decodeStruct(parent, 0, getByte, 'le');
+        assert.strictEqual(rows.length, 3);
+        assert.strictEqual(rows[0].fieldName, 'nodes[0].v');
+        assert.strictEqual(rows[1].fieldName, 'nodes[1].v');
+        assert.strictEqual(rows[2].fieldName, 'nodes[2].v');
+    });
+});
+
+// ── validateStructs ───────────────────────────────────────────────
+
+suite('validateStructs()', () => {
+    test('reports cycle in nested references', () => {
+        const a: StructDef = {
+            id: 'a',
+            name: 'A',
+            fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1, endian: 'inherit' }],
+        };
+        const b: StructDef = {
+            id: 'b',
+            name: 'B',
+            fields: [{ name: 'a', type: 'struct', refStructId: 'a', count: 1, endian: 'inherit' }],
+        };
+        const errs = validateStructs([a, b], 3);
+        assert.ok(errs.some(e => e.includes('cycle')), `errors: ${errs.join(' | ')}`);
+    });
+
+    test('reports nesting depth overflow when depth > 3', () => {
+        const d: StructDef = { id: 'd', name: 'D', fields: [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }] };
+        const c: StructDef = { id: 'c', name: 'C', fields: [{ name: 'd', type: 'struct', refStructId: 'd', count: 1, endian: 'inherit' }] };
+        const b: StructDef = { id: 'b', name: 'B', fields: [{ name: 'c', type: 'struct', refStructId: 'c', count: 1, endian: 'inherit' }] };
+        const a: StructDef = { id: 'a', name: 'A', fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1, endian: 'inherit' }] };
+        const errs = validateStructs([a, b, c, d], 3);
+        assert.ok(errs.some(e => e.includes('depth')), `errors: ${errs.join(' | ')}`);
+    });
 });
 
 // ── allStructs ────────────────────────────────────────────────────
@@ -316,6 +425,11 @@ suite('parseStructText()', () => {
     test('double maps to float64', () => {
         const { fields } = parseStructText('double val;');
         assert.strictEqual(fields[0].type, 'float64');
+    });
+
+    test('uint64_t maps to uint64', () => {
+        const { fields } = parseStructText('uint64_t big;');
+        assert.strictEqual(fields[0].type, 'uint64');
     });
 
     test('unsigned char maps to uint8', () => {
@@ -474,5 +588,53 @@ suite('parseStructText() round-trip', () => {
             assert.strictEqual(fields[i].count,  original[i].count,  `count mismatch at ${i}`);
             assert.strictEqual(fields[i].endian, original[i].endian, `endian mismatch at ${i}`);
         }
+    });
+});
+
+// ── structToC() padding/packed output ───────────────────────────
+
+suite('structToC()', () => {
+    test('aligned struct emits interior padding and aligned total bytes', () => {
+        const def: StructDef = {
+            id: 'x',
+            name: 'S',
+            fields: [
+                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },
+            ],
+        };
+        const text = structToC(def, [def]);
+        assert.ok(text.includes('_pad1[3]'), text);
+        assert.ok(text.includes('/* 8B, align=4 */'), text);
+    });
+
+    test('packed struct emits no padding lines and reports unpadded total', () => {
+        const def: StructDef = {
+            id: 'x',
+            name: 'S',
+            packed: true,
+            fields: [
+                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },
+            ],
+        };
+        const text = structToC(def, [def]);
+        assert.ok(text.includes('typedef struct __attribute__((packed))'), text);
+        assert.ok(!text.includes('_pad'), text);
+        assert.ok(text.includes('/* 5B, packed */'), text);
+    });
+
+    test('aligned struct emits trailing padding when needed', () => {
+        const def: StructDef = {
+            id: 'x',
+            name: 'S',
+            fields: [
+                { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint8', count: 1, endian: 'inherit' },
+            ],
+        };
+        const text = structToC(def, [def]);
+        assert.ok(text.includes('_pad5[3]'), text);
+        assert.ok(text.includes('/* 8B, align=4 */'), text);
     });
 });
