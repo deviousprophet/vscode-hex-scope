@@ -884,11 +884,12 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
     const byteCount = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : bc;
     const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
     const abbrev  = r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
+    const fullTypeLabel = r.type === 'ascii' ? `ascii[${byteCount}]` : r.type;
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
         `data-byte-start="${bs}" data-byte-cnt="${bc}">` +
         `<span class="si-f-off">+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}</span>` +
-        `<span class="si-f-type">${abbrev}</span>` +
+        `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(r.fieldName)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -896,6 +897,16 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
         `</span>` +
         `</div>`
     );
+}
+
+function arrayGroupBaseName(fieldPath: string): string {
+    // Group by the nearest array ancestor (last [N] in the path), so names like
+    // "parent.arr[0].child" and "parent.arr[1].child" collapse under "parent.arr".
+    const matches = [...fieldPath.matchAll(/\[\d+\]/g)];
+    if (matches.length === 0) { return fieldPath; }
+    const last = matches[matches.length - 1];
+    if (last.index === undefined) { return fieldPath; }
+    return fieldPath.slice(0, last.index);
 }
 
 function buildInstanceCard(pin: StructPin, i: number): string {
@@ -912,7 +923,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
         // Group consecutive rows by base field name (strip [N] suffix)
         const groups: Array<{ baseName: string; rows: typeof rows }> = [];
         for (const r of rows) {
-            const base = r.fieldName.replace(/\[\d+\]$/, '');
+            const base = arrayGroupBaseName(r.fieldName);
             const last = groups[groups.length - 1];
             if (last && last.baseName === base) { last.rows.push(r); }
             else { groups.push({ baseName: base, rows: [r] }); }
@@ -935,6 +946,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                 const elHtml     = g.rows.map(r => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r))).join('');
                 const arrAbbrev  = TYPE_ABBREV[r0.type] ?? r0.type;
                 const arrSummary = `[${g.rows.length}]\u202f\u00b7\u202f${arrAbbrev}`;
+                const arrSummaryFull = `[${g.rows.length}] · ${r0.type}`;
                 return (
                     `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
                     `<div class="si-arr-grp-hdr" ` +
@@ -944,7 +956,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                     `<span class="si-f-body">` +
                     `<span class="si-f-name">${esc(g.baseName)}</span>` +
                     `<span class="si-f-lead"></span>` +
-                    `<span class="si-arr-addr">${esc(arrSummary)}</span>` +
+                    `<span class="si-arr-addr" title="${esc(arrSummaryFull)}">${esc(arrSummary)}</span>` +
                     `</span>` +
                     `</div>` +
                     `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
