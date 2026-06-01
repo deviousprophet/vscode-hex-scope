@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.4.0] — 2026-06-01
+
+### Added
+
+- **Search Value mode** with explicit numeric value lookup and endianness options: `Auto` (default), `LE`, and `BE`
+- **Search in-progress indicator** in the toolbar using a spinner while long-running searches are active
+
+### Changed
+
+- Search mode labels and behavior were clarified:
+  - `Hex` mode renamed to **Bytes** (exact byte order as typed)
+  - Endianness controls are shown only in **Value** mode to reduce confusion
+- Search result UX improvements:
+  - Jumping to next/previous match now selects matched bytes so the Inspector updates immediately
+  - First streamed match is auto-selected when it appears
+  - Active match selection is preserved when search streaming completes
+- Search execution now uses **single-flight behavior**:
+  - pressing Enter while a search is running navigates current results instead of restarting scans
+  - if query changes mid-search, only one rerun is queued with the latest input
+- Memory selection visuals were refined for readability:
+  - clearer distinction for selected+match cells
+  - selected rows highlight address cells
+  - selected columns highlight `00..0F` header cells
+- Record View virtualization was hardened for large files with safer spacer rendering and reduced rerender churn
+
+### Fixed
+
+- Improved large-file responsiveness by reducing expensive DOM and search-loop work in Memory/Records views
+- Search result counter width is fixed to avoid toolbar layout shifts
+- Search loading spinner styling now avoids `color-mix(...)` for compatibility with Chrome versions below 111
+
 ## [2.3.0] — 2026-05-11
 
 ### Added
