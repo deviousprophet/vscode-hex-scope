@@ -3,7 +3,7 @@
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
   "description": "VS Code extension for viewing and analyzing firmware files (HEX, SREC) with hex grid, search, patching.",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "license": "MIT",
   "repository": {
     "type": "git",
