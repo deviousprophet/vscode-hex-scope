@@ -11,7 +11,7 @@ import { getByte }  from './data';
 import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeStruct, allStructs,
-    parseStructText, fieldsToText, structToC,
+    parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
 } from './struct-codec.js';
 import type { DecodedField } from './struct-codec.js';
 import type { StructDef, StructFieldType, StructPin } from './types';
@@ -64,6 +64,7 @@ let _editingPinDraftStructId: string | null = null;
  * `fromManage` is true when opened from the manage-types list.
  */
 let _editingType: { draft: StructDef; existing: StructDef | null; fromAdd: boolean; fromManage: boolean } | null = null;
+let _editorError: string | null = null;
 
 // ── Inline type editor helpers ────────────────────────────────────
 
@@ -71,10 +72,26 @@ function sanitizeCIdent(raw: string): string {
     return raw.replace(/[^A-Za-z0-9_]/g, '').replace(/^(\d)/, '_$1');
 }
 
-function fieldRowHtml(f: import('./types').StructField, i: number, isOnly: boolean, total: number): string {
-    const typeOpts = FIELD_TYPES.map(t =>
+function fieldRowHtml(
+    f: import('./types').StructField,
+    i: number,
+    isOnly: boolean,
+    total: number,
+    draftId: string,
+): string {
+    const scalarOptions = FIELD_TYPES.map(t =>
         `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`
     ).join('');
+    const structOptions = allStructs()
+        .filter(d => d.id !== draftId)
+        .map(d => {
+            const val = `struct:${d.id}`;
+            const selected = f.type === 'struct' && f.refStructId === d.id;
+            return `<option value="${esc(val)}"${selected ? ' selected' : ''}>struct ${esc(d.name)}</option>`;
+        }).join('');
+    const typeOpts =
+        `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
+        (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '');
     const isArr = f.count > 1;
     const delCell = isOnly
         ? `<span class="sfe-del-placeholder"></span>`
@@ -107,8 +124,20 @@ const SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
 function structToCHtml(def: StructDef): string {
     const nameEscRe = (def.name || 'MyStruct').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const nestedTypeNames = def.fields
+        .filter(f => f.type === 'struct' && f.refStructId)
+        .map(f => allStructs().find(d => d.id === f.refStructId)?.name)
+        .filter((n): n is string => typeof n === 'string')
+        .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const typeUnion = [
+        'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
+        'int8_t', 'int16_t', 'int32_t', 'int64_t',
+        'float', 'double',
+        nameEscRe,
+        ...nestedTypeNames,
+    ].join('|');
     const scTyp = new RegExp(
-        `\\b(uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|float|double|${nameEscRe})\\b`,
+        `\\b(${typeUnion})\\b`,
         'g'
     );
     return structToC(def).split('\n').map(line => {
@@ -131,7 +160,8 @@ function structToCHtml(def: StructDef): string {
 
 function editorHtml(draft: StructDef, existing: StructDef | null): string {
     const n = draft.fields.length;
-    const fieldRows = draft.fields.map((f, i) => fieldRowHtml(f, i, n === 1, n)).join('');
+    const fieldRows = draft.fields.map((f, i) => fieldRowHtml(f, i, n === 1, n, draft.id)).join('');
+    const errorHtml = _editorError ? `<div class="se-error">${esc(_editorError)}</div>` : '';
     return (
         `<div class="si-editor-wrap">` +
         `<div class="se-form">` +
@@ -142,6 +172,7 @@ function editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<div class="se-field-hdr"><span>Type</span><span>Name</span><span>[ ]</span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="struct-add-field-btn">+ Add Field</button>` +
+        errorHtml +
         `<div class="se-btns">` +
         `<button id="se-save" class="struct-btn struct-btn-apply">Save</button>` +
         `<button id="se-cancel" class="struct-btn struct-btn-secondary">Cancel</button>` +
@@ -156,17 +187,24 @@ function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
     draft.name   = (sec.querySelector<HTMLInputElement>('#se-name'))?.value.trim() ?? '';
     draft.packed = sec.querySelector('#se-packed')?.classList.contains('active') ?? false;
     const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
-    draft.fields = Array.from(rows).map(row => ({
-        name:   sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value), 
-        type:   (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value as StructFieldType,
-        count: (() => {
-            const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
-            if (!cell.classList.contains('is-array')) { return 1; }
-            const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
-            return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
-        })(),
-        endian: 'inherit',
-    }));
+    draft.fields = Array.from(rows).map(row => {
+        const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
+        const isStruct = rawType.startsWith('struct:');
+        const refStructId = isStruct ? rawType.slice('struct:'.length) : undefined;
+        const type = (isStruct ? 'struct' : rawType) as StructFieldType;
+        return {
+            name: sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value),
+            type,
+            refStructId,
+            count: (() => {
+                const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
+                if (!cell.classList.contains('is-array')) { return 1; }
+                const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
+                return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
+            })(),
+            endian: 'inherit',
+        };
+    });
 }
 
 function wireEditorInSec(sec: HTMLElement): void {
@@ -189,6 +227,7 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelector('#se-add')!.addEventListener('click', () => {
         syncEditorDraft(sec, draft);
+        _editorError = null;
         draft.fields.push({ name: `field${draft.fields.length}`, type: 'uint8', count: 1, endian: 'inherit' });
         renderStructPins();
     });
@@ -196,6 +235,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     sec.querySelectorAll<HTMLElement>('.sfe-del-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             syncEditorDraft(sec, draft);
+            _editorError = null;
             const row = btn.closest<HTMLElement>('.struct-field-row')!;
             draft.fields.splice(parseInt(row.dataset.idx!), 1);
             renderStructPins();
@@ -205,6 +245,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     sec.querySelectorAll<HTMLElement>('.sfe-move-up').forEach(btn => {
         btn.addEventListener('click', () => {
             syncEditorDraft(sec, draft);
+            _editorError = null;
             const idx = parseInt(btn.closest<HTMLElement>('.struct-field-row')!.dataset.idx!);
             if (idx > 0) {
                 [draft.fields[idx - 1], draft.fields[idx]] = [draft.fields[idx], draft.fields[idx - 1]];
@@ -216,6 +257,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     sec.querySelectorAll<HTMLElement>('.sfe-move-dn').forEach(btn => {
         btn.addEventListener('click', () => {
             syncEditorDraft(sec, draft);
+            _editorError = null;
             const idx = parseInt(btn.closest<HTMLElement>('.struct-field-row')!.dataset.idx!);
             if (idx < draft.fields.length - 1) {
                 [draft.fields[idx], draft.fields[idx + 1]] = [draft.fields[idx + 1], draft.fields[idx]];
@@ -291,6 +333,22 @@ function wireEditorInSec(sec: HTMLElement): void {
         });
 
         const def: StructDef = { id: draft.id, name, packed: draft.packed ?? false, fields: savedFields };
+        const nextStructs = (() => {
+            const idx = S.structs.findIndex(d => d.id === def.id);
+            if (idx >= 0) {
+                const clone = [...S.structs];
+                clone[idx] = def;
+                return clone;
+            }
+            return [...S.structs, def];
+        })();
+        const validationErrors = validateStructs(nextStructs, MAX_NESTED_DEPTH);
+        if (validationErrors.length > 0) {
+            _editorError = validationErrors[0];
+            renderStructPins();
+            return;
+        }
+        _editorError = null;
         const idx = S.structs.findIndex(d => d.id === def.id);
         if (idx >= 0) { S.structs[idx] = def; } else { S.structs.push(def); }
         vscode.postMessage({ type: 'saveStructs', structs: S.structs });
@@ -306,6 +364,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     });
 
     sec.querySelector('#se-cancel')!.addEventListener('click', () => {
+        _editorError = null;
         const { fromAdd } = _editingType!;
         _editingType = null;
         if (fromAdd) {
@@ -461,6 +520,7 @@ export function renderStructPins(): void {
 
     // ── New type (from types panel) ──
     document.getElementById('sm-new-btn')?.addEventListener('click', () => {
+        _editorError = null;
         const draftId = `user_${Date.now()}`;
         _editingType = {
             draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1, endian: 'inherit' }] },
@@ -478,6 +538,7 @@ export function renderStructPins(): void {
         '.act-btn-edit',
         '.act-btn-del',
         btn => {
+            _editorError = null;
             const existing = S.structs.find(d => d.id === btn.dataset.structId) ?? null;
             if (!existing) { return; }
             _editingType = {
@@ -519,6 +580,7 @@ export function renderStructPins(): void {
             renderStructPins();
         });
         document.getElementById('sa-new-type-btn')?.addEventListener('click', () => {
+            _editorError = null;
             _addingPin = false;
             const draftId = `user_${Date.now()}`;
             _editingType = {
@@ -1254,7 +1316,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
         if (!pin) { return null; }
         const def = allDefs.find(d => d.id === pin.structId);
         if (!def) { return null; }
-        const rows = decodeStruct(def, pin.addr, S.flatBytes, S.endian);
+        const rows = decodeStruct(def, pin.addr, getByte, S.endian);
         const r = rows.find(rr => pin!.addr + rr.byteOffset === addr);
         return r ? r.type : null;
     };

@@ -186,6 +186,12 @@
 .struct-add-field-btn:hover { border-color: var(--high-color); color: var(--high-color); }
 
 .se-btns { display: flex; gap: 6px; margin-top: 2px; }
+.se-error {
+    margin-top: 6px;
+    color: var(--err);
+    font-size: 11px;
+    line-height: 1.3;
+}
 
 /* ══ Instances panel (#s-struct-pins) ════════════════════════════ */
 #s-struct-pins { padding: 10px 12px; }

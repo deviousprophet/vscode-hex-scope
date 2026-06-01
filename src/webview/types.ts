@@ -47,17 +47,21 @@ export type MemRow =
 
 // ── Struct Overlay ────────────────────────────────────────────────
 
-export type StructFieldType =
+export type StructScalarFieldType =
     | 'uint8' | 'uint16' | 'uint32' | 'uint64'
     | 'int8'  | 'int16'  | 'int32'  | 'int64'
     | 'float32' | 'float64'
     | 'pointer';
+
+export type StructFieldType = StructScalarFieldType | 'struct';
 
 export type StructFieldEndian = 'le' | 'be' | 'inherit';
 
 export interface StructField {
     name: string;
     type: StructFieldType;
+    /** Required when type === 'struct'; references StructDef.id. */
+    refStructId?: string;
     /** Array element count; 1 for a scalar field. */
     count: number;
     endian: StructFieldEndian;

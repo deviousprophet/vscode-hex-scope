@@ -2,7 +2,7 @@ import * as assert from 'assert';
 
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
-    allStructs, parseStructText, fieldsToText,
+    allStructs, parseStructText, fieldsToText, validateStructs,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
 import { initFlatBytes, getByte } from '../webview/data';
@@ -107,6 +107,28 @@ suite('structByteSize()', () => {
             { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
         ]};
         assert.strictEqual(structByteSize(def), 12);
+    });
+
+    test('nested struct contributes child size and alignment', () => {
+        const child: StructDef = {
+            id: 'child',
+            name: 'Child',
+            fields: [
+                { name: 'x', type: 'uint16', count: 1, endian: 'inherit' },
+                { name: 'y', type: 'uint16', count: 1, endian: 'inherit' },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'parent',
+            name: 'Parent',
+            fields: [
+                { name: 'head', type: 'uint32', count: 1, endian: 'inherit' },
+                { name: 'c', type: 'struct', refStructId: 'child', count: 1, endian: 'inherit' },
+            ],
+        };
+        S.structs = [child, parent];
+        assert.strictEqual(structByteSize(parent), 8);
+        S.structs = [];
     });
 });
 
@@ -300,6 +322,55 @@ suite('decodeStruct()', () => {
         setBytesInSegment(0, [0xAB]); // only first byte present
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.ok(rows[0].bytesHex.includes('??'), rows[0].bytesHex);
+    });
+
+    test('nested rows use parent[2].child path format', () => {
+        const child: StructDef = {
+            id: 'child',
+            name: 'Child',
+            fields: [{ name: 'v', type: 'uint8', count: 1, endian: 'inherit' }],
+        };
+        const parent: StructDef = {
+            id: 'parent',
+            name: 'Parent',
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3, endian: 'inherit' }],
+        };
+        S.structs = [child, parent];
+        setBytesInSegment(0, [0x11, 0x22, 0x33]);
+
+        const rows = decodeStruct(parent, 0, getByte, 'le');
+        assert.strictEqual(rows.length, 3);
+        assert.strictEqual(rows[0].fieldName, 'nodes[0].v');
+        assert.strictEqual(rows[1].fieldName, 'nodes[1].v');
+        assert.strictEqual(rows[2].fieldName, 'nodes[2].v');
+    });
+});
+
+// ── validateStructs ───────────────────────────────────────────────
+
+suite('validateStructs()', () => {
+    test('reports cycle in nested references', () => {
+        const a: StructDef = {
+            id: 'a',
+            name: 'A',
+            fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1, endian: 'inherit' }],
+        };
+        const b: StructDef = {
+            id: 'b',
+            name: 'B',
+            fields: [{ name: 'a', type: 'struct', refStructId: 'a', count: 1, endian: 'inherit' }],
+        };
+        const errs = validateStructs([a, b], 3);
+        assert.ok(errs.some(e => e.includes('cycle')), `errors: ${errs.join(' | ')}`);
+    });
+
+    test('reports nesting depth overflow when depth > 3', () => {
+        const d: StructDef = { id: 'd', name: 'D', fields: [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }] };
+        const c: StructDef = { id: 'c', name: 'C', fields: [{ name: 'd', type: 'struct', refStructId: 'd', count: 1, endian: 'inherit' }] };
+        const b: StructDef = { id: 'b', name: 'B', fields: [{ name: 'c', type: 'struct', refStructId: 'c', count: 1, endian: 'inherit' }] };
+        const a: StructDef = { id: 'a', name: 'A', fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1, endian: 'inherit' }] };
+        const errs = validateStructs([a, b, c, d], 3);
+        assert.ok(errs.some(e => e.includes('depth')), `errors: ${errs.join(' | ')}`);
     });
 });
 
