@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -61,7 +61,7 @@ jobs:
 
       - name: Prepare Test Results Comment
         id: prepare-test-comment
-        if: always()
+        if: always() && github.event_name == 'pull_request'
         env:
           PASS: ${{ steps.parse-tests.outputs.passed }}
           FAIL: ${{ steps.parse-tests.outputs.failed }}
@@ -101,8 +101,8 @@ jobs:
           echo "comment-status=$COMMENT_STATUS" >> $GITHUB_OUTPUT
 
       - name: Update Test Results on PR
-        if: always()
-        uses: mshick/add-pr-comment@v3
+        if: always() && github.event_name == 'pull_request'
+        uses: mshick/add-pr-comment@a1efecd81fb086a26f3d5135544a6d36f7c90139 # v3
         with:
           message-id: auto-tests
           message-path: pr-comment.md
