@@ -345,6 +345,18 @@ let _switchToMemory: (() => void) | null = null;
 const engine = new SearchEngine();
 let _lastCompletedSearchKey = '';
 let _streamFirstJumpDone = false;
+let _searchRunning = false;
+let _activeSearchKey = '';
+let _activeMatchSpan = 1;
+
+interface PendingSearchRequest {
+    searchKey: string;
+    mode: SearchMode;
+    raw: string;
+    endianness: SearchEndianness;
+}
+
+let _pendingSearch: PendingSearchRequest | null = null;
 
 type SearchTrigger = 'enter-next' | 'enter-prev' | 'button';
 
@@ -360,6 +372,30 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
     const endianKey = S.searchMode === 'value' ? S.searchEndianness : 'n/a';
     const searchKey = `${S.searchMode}|${endianKey}|${q}`;
     const isUnchangedCompleted = searchKey === _lastCompletedSearchKey;
+
+    if (_searchRunning) {
+        if (q.length === 0) {
+            clearSearch();
+            return;
+        }
+
+        if (searchKey === _activeSearchKey) {
+            if (trigger === 'enter-prev') {
+                prevMatch();
+            } else if (trigger === 'enter-next') {
+                nextMatch();
+            }
+            return;
+        }
+
+        _pendingSearch = {
+            searchKey,
+            mode: S.searchMode,
+            raw: q,
+            endianness: S.searchEndianness,
+        };
+        return;
+    }
 
     if (q.length > 0 && isUnchangedCompleted && trigger !== 'button') {
         if (trigger === 'enter-prev') {
@@ -382,19 +418,35 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
         return;
     }
 
+    startSearch({
+        searchKey,
+        mode: S.searchMode,
+        raw: q,
+        endianness: S.searchEndianness,
+    });
+}
+
+function startSearch(req: PendingSearchRequest): void {
     setSearchBusy(true);
     _streamFirstJumpDone = false;
+    _searchRunning = true;
+    _activeSearchKey = req.searchKey;
+    _activeMatchSpan = getMatchSpan(req.mode, req.raw, req.endianness);
     applyMatchHighlights();
+
     if (!S.parseResult) {
+        _searchRunning = false;
+        _activeSearchKey = '';
         setSearchBusy(false);
         return;
     }
+
     engine.search(
         {
-            mode: S.searchMode,
-            raw: q,
+            mode: req.mode,
+            raw: req.raw,
             segments: S.parseResult.segments,
-            endianness: S.searchEndianness,
+            endianness: req.endianness,
         },
         {
             onProgressUpdate: (matches: number[]) => {
@@ -411,7 +463,7 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
                 updMC();
             },
             onComplete: (matches: number[]) => {
-                _lastCompletedSearchKey = searchKey;
+                _lastCompletedSearchKey = req.searchKey;
                 const activeAddr =
                     S.matchIdx >= 0 && S.matchIdx < S.matchAddrs.length
                         ? S.matchAddrs[S.matchIdx]
@@ -425,11 +477,20 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
                 } else {
                     S.matchIdx = 0;
                 }
+
+                _searchRunning = false;
+                _activeSearchKey = '';
                 setSearchBusy(false);
                 selectCurrentMatch();
                 applyMatchHighlights();
                 scrollToMatch();
                 updMC();
+
+                if (_pendingSearch) {
+                    const next = _pendingSearch;
+                    _pendingSearch = null;
+                    startSearch(next);
+                }
             },
         }
     );
@@ -438,6 +499,10 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
 export function clearSearch(): void {
     engine.clear();
     setSearchBusy(false);
+    _searchRunning = false;
+    _activeSearchKey = '';
+    _activeMatchSpan = 1;
+    _pendingSearch = null;
     S.matchAddrs = [];
     S.matchIdx   = -1;
     const inp = document.getElementById('search-input') as HTMLInputElement | null;
@@ -501,7 +566,7 @@ function selectCurrentMatch(): void {
     if (S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return; }
 
     const start = S.matchAddrs[S.matchIdx];
-    const span = getCurrentMatchSpan();
+    const span = _activeMatchSpan;
     const end = start + span - 1;
 
     if (S.selStart === start && S.selEnd === end) { return; }
@@ -512,10 +577,9 @@ function selectCurrentMatch(): void {
     import('./sidebar.js').then(m => m.updateInspector());
 }
 
-function getCurrentMatchSpan(): number {
-    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
-    if (S.searchMode === 'addr') { return 1; }
-    const needles = buildNeedles(S.searchMode, raw, S.searchEndianness);
+function getMatchSpan(mode: SearchMode, raw: string, endianness: SearchEndianness): number {
+    if (mode === 'addr') { return 1; }
+    const needles = buildNeedles(mode, raw, endianness);
     const span = needles[0]?.length ?? 1;
     return Math.max(1, span);
 }
