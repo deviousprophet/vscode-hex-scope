@@ -48,16 +48,10 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         let parseResult: ParseResult | null = null;
         let webviewReady = false;
 
-        console.time('[HEX] readFile');
         raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
-        console.timeEnd('[HEX] readFile');
-        console.log(`[HEX] File size: ${(raw.length / 1024 / 1024).toFixed(2)}MB`);
 
         format = detectFormat(document.uri, raw);
-        console.time('[HEX] parse');
         parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-        console.timeEnd('[HEX] parse');
-        console.log(`[HEX] Records: ${parseResult.records.length}, Segments: ${parseResult.segments.length}, Data: ${(parseResult.totalDataBytes / 1024 / 1024).toFixed(2)}MB`);
 
         if (parseResult.checksumErrors > 0 || parseResult.malformedLines > 0) {
             await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(document.uri), { preview: false });
@@ -75,9 +69,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
         const postInit = () => {
             if (!webviewReady || !parseResult) { return; }
-            console.time('[HEX] serialize');
             const serialized = serializeParseResult(parseResult, format);
-            console.timeEnd('[HEX] serialize');
             
             const msg = {
                 type: 'init',
@@ -87,10 +79,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 structPins:  this._context.workspaceState.get(structPinKey, []),
             };
             
-            console.time('[HEX] postMessage');
-            console.log(`[HEX] Message size: ${JSON.stringify(msg).length / 1024 / 1024 | 0}MB`);
             webviewPanel.webview.postMessage(msg);
-            console.timeEnd('[HEX] postMessage');
         };
 
         // ── Live reload on external file changes ──────────────────────────

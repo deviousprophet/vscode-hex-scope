@@ -9,22 +9,19 @@ import { S, BPR } from './state';
  * Index maps each segment's memory range for binary-search lookup.
  */
 export function initSegmentIndex(): void {
-    console.time('[DATA] initSegmentIndex');
     S.segmentIndex = [];
     if (!S.parseResult || S.parseResult.segments.length === 0) { 
-        console.timeEnd('[DATA] initSegmentIndex');
         return; 
     }
 
-    for (const seg of S.parseResult.segments) {
-        S.segmentIndex.push({
+    S.segmentIndex = S.parseResult.segments
+        .map((seg, segOffset) => ({
             startAddr: seg.startAddress,
             endAddr: seg.startAddress + seg.data.length - 1,
-            offset: S.segmentIndex.length,
-        });
-    }
-    console.log(`[DATA] Built segment index: ${S.segmentIndex.length} entries`);
-    console.timeEnd('[DATA] initSegmentIndex');
+            offset: segOffset,
+        }))
+        .sort((a, b) => (a.startAddr - b.startAddr) || (a.endAddr - b.endAddr));
+
 }
 
 /**
@@ -55,24 +52,22 @@ export function getByte(addr: number): number | undefined {
  * Insert gap entries between non-adjacent segment regions.
  */
 export function buildMemRows(): void {
-    console.time('[DATA] buildMemRows');
     S.memRows = [];
     if (!S.parseResult || S.parseResult.segments.length === 0) { 
-        console.timeEnd('[DATA] buildMemRows');
         return; 
     }
 
-    const rows: number[] = [];
+    const rowSet = new Set<number>();
     for (const seg of S.parseResult.segments) {
         const startRow = seg.startAddress - (seg.startAddress % BPR);
         const endAddr = seg.startAddress + seg.data.length - 1;
         const endRow = endAddr - (endAddr % BPR);
         for (let row = startRow; row <= endRow; row += BPR) {
-            if (rows.length === 0 || rows[rows.length - 1] !== row) {
-                rows.push(row);
-            }
+            rowSet.add(row);
         }
     }
+
+    const rows = [...rowSet].sort((a, b) => a - b);
 
     for (let i = 0; i < rows.length; i++) {
         if (i > 0) {
@@ -84,8 +79,6 @@ export function buildMemRows(): void {
         }
         S.memRows.push({ type: 'data', address: rows[i] });
     }
-    console.log(`[DATA] Built memory rows: ${S.memRows.length} rows (data: ${S.memRows.filter(r => r.type === 'data').length}, gaps: ${S.memRows.filter(r => r.type === 'gap').length})`);
-    console.timeEnd('[DATA] buildMemRows');
 }
 
 /** Legacy alias; calls initSegmentIndex. */

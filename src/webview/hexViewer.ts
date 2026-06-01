@@ -7,9 +7,8 @@ import { esc, fmtB }                                  from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
 import { renderInspector, renderBits, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
-import { renderStructPanel, renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
-import { initSearch, runSearch, clearSearch, nextMatch, prevMatch, updMC } from './searchEngine';
-import type { SearchEndianness } from './types';
+import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
+import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
 
 vscode.postMessage({ type: 'ready' });
@@ -20,36 +19,15 @@ window.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as { type: string; [key: string]: unknown };
     switch (msg.type) {
         case 'init': {
-            console.time('[WEBVIEW] init');
-            console.log(`[WEBVIEW] init message received`);
-            
-            console.time('[WEBVIEW] parseResult assignment');
             S.parseResult = msg.parseResult as typeof S.parseResult;
             S.labels      = (msg.labels as typeof S.labels) ?? [];
             S.structs     = (msg.structs as typeof S.structs) ?? [];
             S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
-            console.timeEnd('[WEBVIEW] parseResult assignment');
-            
-            if (S.parseResult) {
-                console.log(`[WEBVIEW] Records: ${S.parseResult.records.length}, Segments: ${S.parseResult.segments.length}, Data: ${(S.parseResult.totalDataBytes / 1024 / 1024).toFixed(2)}MB`);
-            }
-            
-            console.time('[WEBVIEW] initFlatBytes');
             initFlatBytes();
-            console.timeEnd('[WEBVIEW] initFlatBytes');
-            
-            console.time('[WEBVIEW] buildMemRows');
             buildMemRows();
-            console.timeEnd('[WEBVIEW] buildMemRows');
-            console.log(`[WEBVIEW] Memory rows: ${S.memRows.length}`);
             
             S.currentView = 'memory';
-            
-            console.time('[WEBVIEW] render');
             render();
-            console.timeEnd('[WEBVIEW] render');
-            
-            console.timeEnd('[WEBVIEW] init');
             break;
         }
         case 'loadError':
@@ -210,6 +188,10 @@ function render(): void {
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
             <div id="search-box">
+                <div id="search-endian-toggle" class="endian-tabs search-endian-toggle" style="display:none">
+                    <button id="search-btn-le" class="${S.searchEndianness === 'le' ? 'active' : ''}" type="button">LE</button>
+                    <button id="search-btn-be" class="${S.searchEndianness === 'be' ? 'active' : ''}" type="button">BE</button>
+                </div>
                 <select id="search-mode">
                     <option value="hex"   ${S.searchMode === 'hex'   ? 'selected' : ''}>Hex</option>
                     <option value="ascii" ${S.searchMode === 'ascii' ? 'selected' : ''}>ASCII</option>
@@ -217,21 +199,11 @@ function render(): void {
                 </select>
                 <input id="search-input" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
-                <button class="nav-btn" id="btn-search-config" title="Search settings" aria-haspopup="true" aria-expanded="false">⚙</button>
                 <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
                 <button class="nav-btn" id="btn-next"         title="Next match">▼</button>
                 <button class="nav-btn" id="btn-clear-search" title="Clear">✕</button>
+                <span id="search-progress" class="search-progress" aria-hidden="true"></span>
                 <span id="match-count"></span>
-                <div id="search-config-panel" class="search-config-panel" role="dialog" aria-label="Search settings" aria-hidden="true">
-                    <div class="scp-title">Search settings</div>
-                    <div class="scp-row">
-                        <div class="scp-label">Hex endianness</div>
-                        <div class="endian-tabs sa-endian-tabs">
-                            <button id="search-btn-le" class="${S.searchEndianness === 'le' ? 'active' : ''}" type="button">LE</button>
-                            <button id="search-btn-be" class="${S.searchEndianness === 'be' ? 'active' : ''}" type="button">BE</button>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
         <div id="stats-bar"></div>
@@ -303,38 +275,35 @@ function render(): void {
     // Search
     const modeEl  = document.getElementById('search-mode')  as HTMLSelectElement;
     const inputEl = document.getElementById('search-input') as HTMLInputElement;
-    const searchBoxEl = document.getElementById('search-box') as HTMLDivElement;
-    const searchCfgBtn = document.getElementById('btn-search-config') as HTMLButtonElement;
-    const searchCfgPanel = document.getElementById('search-config-panel') as HTMLDivElement;
+    const endianToggleEl = document.getElementById('search-endian-toggle') as HTMLDivElement;
     const searchBtnLE = document.getElementById('search-btn-le') as HTMLButtonElement;
     const searchBtnBE = document.getElementById('search-btn-be') as HTMLButtonElement;
-    modeEl .addEventListener('change',  () => { S.searchMode = modeEl.value as typeof S.searchMode; });
+
+    const applySearchModeUi = (): void => {
+        endianToggleEl.style.display = S.searchMode === 'hex' ? 'inline-flex' : 'none';
+    };
+
+    modeEl.addEventListener('change', () => {
+        S.searchMode = modeEl.value as typeof S.searchMode;
+        applySearchModeUi();
+    });
+
     inputEl.addEventListener('keydown', e => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            runSearch();
+            runSearch(e.shiftKey ? 'enter-prev' : 'enter-next');
         }
     });
-    document.getElementById('btn-search')!.addEventListener('click', runSearch);
+    document.getElementById('btn-search')!.addEventListener('click', () => runSearch('button'));
     document.getElementById('btn-prev')!.addEventListener('click', prevMatch);
     document.getElementById('btn-next')!.addEventListener('click', nextMatch);
     document.getElementById('btn-clear-search')!.addEventListener('click', clearSearch);
-
-    const setSearchCfgOpen = (open: boolean): void => {
-        searchCfgPanel.classList.toggle('open', open);
-        searchCfgPanel.setAttribute('aria-hidden', String(!open));
-        searchCfgBtn.setAttribute('aria-expanded', String(open));
-    };
-
-    searchCfgBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        setSearchCfgOpen(!searchCfgPanel.classList.contains('open'));
-    });
 
     const applyEndianUi = (): void => {
         searchBtnLE.classList.toggle('active', S.searchEndianness === 'le');
         searchBtnBE.classList.toggle('active', S.searchEndianness === 'be');
     };
+    applySearchModeUi();
     applyEndianUi();
 
     searchBtnLE.addEventListener('click', () => {
@@ -347,23 +316,12 @@ function render(): void {
         applyEndianUi();
     });
 
-    document.addEventListener('click', e => {
-        if (!searchCfgPanel.classList.contains('open')) { return; }
-        const target = e.target as Node;
-        if (!searchBoxEl.contains(target)) {
-            setSearchCfgOpen(false);
-        }
-    });
-
     // Ctrl+F / Cmd+F focuses the search bar; Ctrl+Z undoes last edit
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
             e.preventDefault();
             inputEl.focus();
             inputEl.select();
-        }
-        if (e.key === 'Escape' && searchCfgPanel.classList.contains('open')) {
-            setSearchCfgOpen(false);
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
             e.preventDefault();
@@ -431,7 +389,6 @@ function render(): void {
     renderMemHeader();
     renderInspector();
     renderBits();
-    renderStructPanel();
     renderStructPins();
     renderLabels();
     setupCtxMenu();
@@ -531,6 +488,11 @@ const SREC_TYPE_LABELS: Record<number, string> = {
     5: 'COUNT', 6: 'COUNT S6', 7: 'END S7', 8: 'END S8', 9: 'END S9',
 };
 
+const RECORD_ROW_HEIGHT = 28;
+const RECORD_BUFFER_ROWS = 5;
+const RECORD_MAX_SPACER_PX = 1_000_000;
+let recordRenderSignature = '';
+
 function renderRecordView(): void {
     const el = document.getElementById('record-view');
     if (!el || !S.parseResult) { return; }
@@ -540,7 +502,6 @@ function renderRecordView(): void {
         return;
     }
 
-    // Set up scroll listener (only once per container lifetime)
     if (!el.dataset.recordVscrollInit) {
         el.dataset.recordVscrollInit = '1';
         el.addEventListener('scroll', () => {
@@ -548,7 +509,7 @@ function renderRecordView(): void {
         });
     }
 
-    // Initial render
+    recordRenderSignature = '';
     renderRecordViewImpl(el);
 }
 
@@ -556,14 +517,14 @@ function renderRecordViewImpl(el: HTMLElement): void {
     if (!S.parseResult) { return; }
 
     const recordCount = S.parseResult.records.length;
-    const RECORD_ROW_HEIGHT = 28;  // pixels
-    const BUFFER_ROWS = 5;         // render N rows above/below viewport
     const containerHeight = el.clientHeight;
     const scrollTop = el.scrollTop;
 
-    // Calculate which records should be rendered
-    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / RECORD_ROW_HEIGHT) - BUFFER_ROWS);
-    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / RECORD_ROW_HEIGHT) + BUFFER_ROWS);
+    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / RECORD_ROW_HEIGHT) - RECORD_BUFFER_ROWS);
+    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / RECORD_ROW_HEIGHT) + RECORD_BUFFER_ROWS);
+    const signature = `${recordCount}:${firstVisibleIdx}:${lastVisibleIdx}`;
+    if (signature === recordRenderSignature) { return; }
+    recordRenderSignature = signature;
 
     const isSrec = S.parseResult.format === 'srec';
     const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
@@ -572,13 +533,11 @@ function renderRecordViewImpl(el: HTMLElement): void {
 
     const rows: string[] = [];
 
-    // Top spacer
     if (firstVisibleIdx > 0) {
         const topOffset = firstVisibleIdx * RECORD_ROW_HEIGHT;
-        rows.push(`<tr style="height:${topOffset}px"><td colspan="5"></td></tr>`);
+        appendRecordSpacerRows(rows, topOffset);
     }
 
-    // Render visible records
     for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
         const r = S.parseResult.records[i];
         const isData = !r.error && (isSrec ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
@@ -615,13 +574,21 @@ function renderRecordViewImpl(el: HTMLElement): void {
         </tr>`);
     }
 
-    // Bottom spacer
     if (lastVisibleIdx < recordCount - 1) {
         const bottomOffset = (recordCount - 1 - lastVisibleIdx) * RECORD_ROW_HEIGHT;
-        rows.push(`<tr style="height:${bottomOffset}px"><td colspan="5"></td></tr>`);
+        appendRecordSpacerRows(rows, bottomOffset);
     }
 
     el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
+function appendRecordSpacerRows(rows: string[], totalHeight: number): void {
+    let remaining = totalHeight;
+    while (remaining > 0) {
+        const chunk = Math.min(remaining, RECORD_MAX_SPACER_PX);
+        rows.push(`<tr style="height:${chunk}px"><td colspan="5"></td></tr>`);
+        remaining -= chunk;
+    }
 }
 
 // ── View switching ────────────────────────────────────────────────
@@ -653,18 +620,6 @@ function removeAllExternalChangeBanners(): void {
     document.getElementById('ext-conflict-banner')?.remove();
     document.getElementById('ext-reload-banner')?.remove();
     document.getElementById('ext-error-banner')?.remove();
-}
-
-/** Apply an external file change directly (no unsaved edits to worry about). */
-function applyExternalChange(incoming: IncomingFile): void {
-    S.parseResult = incoming.parseResult;
-    S.labels      = incoming.labels;
-    initFlatBytes();
-    buildMemRows();
-    S.currentView = 'memory';
-    render();
-    // Tell the provider it can update its own in-memory raw/parseResult
-    vscode.postMessage({ type: 'reloadAccepted' });
 }
 
 /** Show a non-destructive conflict banner when external change arrives during edit mode. */
@@ -823,13 +778,6 @@ function showExternalChangeError(checksumErrors: number, malformedLines: number,
     if (repairBtn) {
         repairBtn.addEventListener('click', () => {
             vscode.postMessage({ type: 'repairAndReload' });
-        });
-    }
-
-    const closeBtn = document.getElementById('eeb-close');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'closePanel' });
         });
     }
 

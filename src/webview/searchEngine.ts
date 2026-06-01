@@ -1,7 +1,6 @@
 // Combined SearchEngine + UI glue
 import { S } from './state';
-import { getByte } from './data';
-import { applyMatchHighlights, scrollTo } from './memoryView';
+import { applyMatchHighlights, applySel, scrollTo } from './memoryView';
 import type { SearchEndianness, SearchMode, SerializedSegment } from './types';
 
 export interface SearchRequest {
@@ -12,70 +11,42 @@ export interface SearchRequest {
 }
 
 export interface SearchHandlers {
-    onStatus?: (text: string) => void;
     onProgressUpdate?: (matches: number[], percentComplete: number) => void;
     onComplete: (matches: number[]) => void;
 }
 
 const SEARCH_DEBOUNCE_MS = 120;
-const SEARCH_CHUNK_BUDGET_MS = 100;
-const SEARCH_PROGRESS_THROTTLE_MS = 500;  // Update UI at most every 500ms to avoid DOM thrashing
+const SEARCH_CHUNK_BUDGET_MS = 24;
+const SEARCH_PROGRESS_THROTTLE_MS = 150;
 
 export class SearchEngine {
     private token = 0;
     private debounceHandle: number | null = null;
     private chunkHandle: number | null = null;
 
-    private lastMode: SearchMode | null = null;
-    private lastByteNeedleLength = 0;
-    private lastByteNeedles: number[][] = [];
-    private lastByteMatches: number[] = [];
-    private lastAddrQuery = '';
-    private lastAddrMatches: number[] = [];
-
     public search(req: SearchRequest, handlers: SearchHandlers): void {
         this.cancelPending();
 
         const raw = req.raw ?? '';
         if (raw.trim() === '') {
-            this.resetCache();
             handlers.onComplete([]);
             return;
         }
 
         const token = ++this.token;
-        const searchLabel = `[SEARCH] ${req.mode} search "${raw}"`;
-        console.time(searchLabel);
-        handlers.onStatus?.('Searching...');
-
-        // Wrap handlers to log completion and emit progress
-        const wrappedHandlers: SearchHandlers = {
-            onStatus: handlers.onStatus,
-            onProgressUpdate: (matches: number[], percent: number) => {
-                if (percent === 100) {
-                    console.timeEnd(searchLabel);
-                }
-                handlers.onProgressUpdate?.(matches, percent);
-            },
-            onComplete: (matches: number[]) => {
-                console.log(`[SEARCH] Found ${matches.length} matches`);
-                handlers.onComplete(matches);
-            },
-        };
 
         this.debounceHandle = window.setTimeout(() => {
             this.debounceHandle = null;
             if (req.mode === 'addr') {
-                this.runAddressSearch(token, req, wrappedHandlers);
+                this.runAddressSearch(token, req, handlers);
                 return;
             }
-            this.runByteSearch(token, req, wrappedHandlers);
+            this.runByteSearch(token, req, handlers);
         }, SEARCH_DEBOUNCE_MS);
     }
 
     public clear(): void {
         this.cancelPending();
-        this.resetCache();
     }
 
     /**
@@ -86,20 +57,17 @@ export class SearchEngine {
     private runByteSearch(token: number, req: SearchRequest, handlers: SearchHandlers): void {
         const needles = buildNeedles(req.mode, req.raw, req.endianness ?? 'le');
         if (needles.length === 0) {
-            this.lastMode = req.mode;
-            this.lastByteNeedleLength = 0;
-            this.lastByteNeedles = [];
-            this.lastByteMatches = [];
             handlers.onComplete([]);
             return;
         }
 
         const needleLen = needles[0].length;
         const matches: number[] = [];
+        const segments = sortSegmentsByStart(req.segments);
 
         let segIdx = 0;
         let addrInSeg = 0;
-        const totalSegmentBytes = req.segments.reduce((sum, seg) => sum + seg.data.length, 0);
+        const totalSegmentBytes = segments.reduce((sum, seg) => sum + seg.data.length, 0);
         let scannedBytes = 0;
         let lastProgressUpdateTime = performance.now();
 
@@ -107,14 +75,12 @@ export class SearchEngine {
             if (token !== this.token) { return; }
 
             const deadline = performance.now() + SEARCH_CHUNK_BUDGET_MS;
-            while (segIdx < req.segments.length && performance.now() < deadline) {
-                const seg = req.segments[segIdx];
+            while (segIdx < segments.length && performance.now() < deadline) {
+                const seg = segments[segIdx];
                 const segData = seg.data;
                 const segStart = seg.startAddress;
 
-                // Scan this segment for patterns, checking deadline frequently for responsiveness
                 while (addrInSeg <= segData.length - needleLen) {
-                    // Check deadline during inner loop to prevent freezing on large matches
                     if (performance.now() >= deadline) {
                         break;
                     }
@@ -129,16 +95,14 @@ export class SearchEngine {
                     scannedBytes++;
                 }
 
-                // Move to next segment if we finished this one
                 if (addrInSeg > segData.length - needleLen) {
                     segIdx++;
                     addrInSeg = 0;
                 }
             }
 
-            // Report progress only if enough time has passed (throttle UI updates)
             const now = performance.now();
-            if (now - lastProgressUpdateTime >= SEARCH_PROGRESS_THROTTLE_MS || segIdx >= req.segments.length) {
+            if (now - lastProgressUpdateTime >= SEARCH_PROGRESS_THROTTLE_MS || segIdx >= segments.length) {
                 if (totalSegmentBytes > 0) {
                     const percent = Math.min(100, Math.floor((scannedBytes / totalSegmentBytes) * 100));
                     handlers.onProgressUpdate?.(matches, percent);
@@ -146,7 +110,7 @@ export class SearchEngine {
                 }
             }
 
-            if (segIdx < req.segments.length) {
+            if (segIdx < segments.length) {
                 this.chunkHandle = window.setTimeout(step, 0);
                 return;
             }
@@ -154,10 +118,6 @@ export class SearchEngine {
             this.chunkHandle = null;
             if (token !== this.token) { return; }
 
-            this.lastMode = req.mode;
-            this.lastByteNeedleLength = needleLen;
-            this.lastByteNeedles = needles;
-            this.lastByteMatches = matches;
             handlers.onComplete(matches);
         };
 
@@ -172,58 +132,65 @@ export class SearchEngine {
     private runAddressSearch(token: number, req: SearchRequest, handlers: SearchHandlers): void {
         const query = normalizeAddrQuery(req.raw);
         if (!query) {
-            this.lastMode = 'addr';
-            this.lastAddrQuery = '';
-            this.lastAddrMatches = [];
             handlers.onComplete([]);
             return;
         }
 
         const matches: number[] = [];
-        const totalSegments = req.segments.length;
+        const segments = sortSegmentsByStart(req.segments);
+        const totalAddresses = segments.reduce((sum, seg) => sum + seg.data.length, 0);
         let segmentIndex = 0;
+        let addrInSegment = 0;
+        let scannedAddresses = 0;
         let lastProgressUpdateTime = performance.now();
 
-        // Pre-calculate address range that matches query prefix
-        // E.g., query "8" matches 0x80000000-0x8FFFFFFF
-        // E.g., query "80" matches 0x80000000-0x80FFFFFF
         const queryMin = parseInt(query.padEnd(8, '0'), 16);
         const queryMax = parseInt(query.padEnd(8, 'F'), 16);
+        const prefixShift = (8 - query.length) * 4;
+        const prefixValue = parseInt(query, 16) >>> 0;
 
         const step = (): void => {
             if (token !== this.token) { return; }
 
             const deadline = performance.now() + SEARCH_CHUNK_BUDGET_MS;
-            while (segmentIndex < req.segments.length && performance.now() < deadline) {
-                const seg = req.segments[segmentIndex];
+            while (segmentIndex < segments.length && performance.now() < deadline) {
+                const seg = segments[segmentIndex];
                 const segStart = seg.startAddress;
                 const segEnd = seg.startAddress + seg.data.length - 1;
 
-                // SEGMENT-SMART SKIPPING: Only scan if segment range overlaps query range
                 if (segEnd >= queryMin && segStart <= queryMax) {
-                    // Scan addresses in this segment that match query prefix
-                    for (let addr = segStart; addr <= segEnd; addr++) {
-                        if (addr.toString(16).toUpperCase().startsWith(query)) {
+                    while (addrInSegment < seg.data.length) {
+                        if (performance.now() >= deadline) {
+                            break;
+                        }
+                        const addr = (segStart + addrInSegment) >>> 0;
+                        if ((addr >>> prefixShift) === prefixValue) {
                             matches.push(addr);
                         }
+                        addrInSegment++;
+                        scannedAddresses++;
                     }
+                } else {
+                    addrInSegment = seg.data.length;
+                    scannedAddresses += seg.data.length;
                 }
-                // If segment is entirely before queryMin or after queryMax, skip it entirely
 
-                segmentIndex++;
+                if (addrInSegment >= seg.data.length) {
+                    segmentIndex++;
+                    addrInSegment = 0;
+                }
             }
 
-            // Report progress only if enough time has passed (throttle UI updates)
             const now = performance.now();
-            if (now - lastProgressUpdateTime >= SEARCH_PROGRESS_THROTTLE_MS || segmentIndex >= req.segments.length) {
-                if (totalSegments > 0) {
-                    const percent = Math.min(100, Math.floor((segmentIndex / totalSegments) * 100));
+            if (now - lastProgressUpdateTime >= SEARCH_PROGRESS_THROTTLE_MS || segmentIndex >= segments.length) {
+                if (totalAddresses > 0) {
+                    const percent = Math.min(100, Math.floor((scannedAddresses / totalAddresses) * 100));
                     handlers.onProgressUpdate?.(matches, percent);
                     lastProgressUpdateTime = now;
                 }
             }
 
-            if (segmentIndex < req.segments.length) {
+            if (segmentIndex < segments.length) {
                 this.chunkHandle = window.setTimeout(step, 0);
                 return;
             }
@@ -231,9 +198,6 @@ export class SearchEngine {
             this.chunkHandle = null;
             if (token !== this.token) { return; }
 
-            this.lastMode = 'addr';
-            this.lastAddrQuery = query;
-            this.lastAddrMatches = matches;
             handlers.onComplete(matches);
         };
 
@@ -252,14 +216,6 @@ export class SearchEngine {
         }
     }
 
-    private resetCache(): void {
-        this.lastMode = null;
-        this.lastByteNeedleLength = 0;
-        this.lastByteNeedles = [];
-        this.lastByteMatches = [];
-        this.lastAddrQuery = '';
-        this.lastAddrMatches = [];
-    }
 }
 
 function matchSequenceInSegment(segmentData: number[], offset: number, needle: number[]): boolean {
@@ -288,8 +244,9 @@ function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndiannes
             bytes.push(v);
         }
         if (bytes.length === 0) { return []; }
-        // For flat hex searches, always return bytes as-is without endianness reversal
-        // Endianness is a display concept, not a search concept
+        if (endianness === 'le' && bytes.length > 1) {
+            return [[...bytes].reverse()];
+        }
         return [bytes];
     }
 
@@ -300,52 +257,102 @@ function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndiannes
     return [];
 }
 
+function sortSegmentsByStart(segments: SerializedSegment[]): SerializedSegment[] {
+    for (let i = 1; i < segments.length; i++) {
+        if (segments[i].startAddress < segments[i - 1].startAddress) {
+            return [...segments].sort((a, b) => a.startAddress - b.startAddress);
+        }
+    }
+    return segments;
+}
+
 // -------------------- UI glue (previously in search.ts) --------------------
 
 let _switchToMemory: (() => void) | null = null;
 const engine = new SearchEngine();
+let _lastCompletedSearchKey = '';
+let _streamFirstJumpDone = false;
+
+type SearchTrigger = 'enter-next' | 'enter-prev' | 'button';
 
 export function initSearch(switchToMemory: () => void): void {
     _switchToMemory = switchToMemory;
 }
 
-export function runSearch(): void {
-    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
-    S.matchAddrs = [];
-    S.matchIdx   = -1;
+export function runSearch(trigger: SearchTrigger = 'button'): void {
+    if (S.currentView !== 'memory') { return; }
 
-    if (raw.trim() === '') {
+    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
+    const q = raw.trim();
+    const searchKey = `${S.searchMode}|${S.searchEndianness}|${q}`;
+    const isUnchangedCompleted = searchKey === _lastCompletedSearchKey;
+
+    if (q.length > 0 && isUnchangedCompleted && trigger !== 'button') {
+        if (trigger === 'enter-prev') {
+            prevMatch();
+        } else {
+            nextMatch();
+        }
+        return;
+    }
+
+    S.matchAddrs = [];
+    S.matchIdx = -1;
+
+    if (q.length === 0) {
+        _lastCompletedSearchKey = '';
         engine.clear();
+        setSearchBusy(false);
         applyMatchHighlights();
         updMC();
         return;
     }
 
+    setSearchBusy(true);
+    _streamFirstJumpDone = false;
     applyMatchHighlights();
-    if (!S.parseResult) { return; }
+    if (!S.parseResult) {
+        setSearchBusy(false);
+        return;
+    }
     engine.search(
         {
             mode: S.searchMode,
-            raw,
+            raw: q,
             segments: S.parseResult.segments,
+            endianness: S.searchEndianness,
         },
         {
-            onStatus: updMC,
-            onProgressUpdate: (matches: number[], percent: number) => {
-                // Show progressive results as search continues (streaming results)
+            onProgressUpdate: (matches: number[]) => {
                 S.matchAddrs = matches;
                 if (S.matchIdx < 0 && matches.length > 0) {
-                    S.matchIdx = 0;  // Auto-select first match when found
+                    S.matchIdx = 0;
+                }
+                if (!_streamFirstJumpDone && matches.length > 0) {
+                    _streamFirstJumpDone = true;
+                    selectCurrentMatch();
+                    scrollToMatch();
                 }
                 applyMatchHighlights();
                 updMC();
-                if (percent > 0 && percent < 100) {
-                    console.log(`[SEARCH] Progress: ${percent}% (${matches.length} matches found)`);
-                }
             },
             onComplete: (matches: number[]) => {
+                _lastCompletedSearchKey = searchKey;
+                const activeAddr =
+                    S.matchIdx >= 0 && S.matchIdx < S.matchAddrs.length
+                        ? S.matchAddrs[S.matchIdx]
+                        : null;
                 S.matchAddrs = matches;
-                S.matchIdx = matches.length > 0 ? 0 : -1;
+                if (matches.length === 0) {
+                    S.matchIdx = -1;
+                } else if (activeAddr !== null) {
+                    const idx = matches.indexOf(activeAddr);
+                    S.matchIdx = idx >= 0 ? idx : Math.min(Math.max(S.matchIdx, 0), matches.length - 1);
+                } else {
+                    S.matchIdx = 0;
+                }
+                setSearchBusy(false);
+                selectCurrentMatch();
                 applyMatchHighlights();
                 scrollToMatch();
                 updMC();
@@ -356,6 +363,7 @@ export function runSearch(): void {
 
 export function clearSearch(): void {
     engine.clear();
+    setSearchBusy(false);
     S.matchAddrs = [];
     S.matchIdx   = -1;
     const inp = document.getElementById('search-input') as HTMLInputElement | null;
@@ -376,15 +384,12 @@ export function prevMatch(): void {
     goToMatch();
 }
 
-export function updMC(statusText?: string): void {
-    updMCInternal(statusText);
-}
-
-function updMCInternal(statusText?: string): void {
+export function updMC(): void {
     const el = document.getElementById('match-count');
     if (!el) { return; }
-    if (statusText) {
-        el.textContent = statusText;
+    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
+    if (raw.trim().length > 0 && S.matchAddrs.length === 0) {
+        el.textContent = '0 / 0';
         return;
     }
     if (S.matchAddrs.length === 0) {
@@ -394,12 +399,20 @@ function updMCInternal(statusText?: string): void {
     }
 }
 
+function setSearchBusy(isBusy: boolean): void {
+    const el = document.getElementById('search-progress');
+    if (!el) { return; }
+    el.classList.toggle('active', isBusy);
+    el.setAttribute('aria-hidden', String(!isBusy));
+}
+
 function goToMatch(): void {
     if (S.currentView !== 'memory') {
         if (_switchToMemory) { _switchToMemory(); }
     } else {
         applyMatchHighlights();
     }
+    selectCurrentMatch();
     scrollToMatch();
     updMC();
 }
@@ -408,5 +421,28 @@ function scrollToMatch(): void {
     if (S.matchIdx >= 0 && S.matchAddrs.length > 0) {
         scrollTo(S.matchAddrs[S.matchIdx]);
     }
+}
+
+function selectCurrentMatch(): void {
+    if (S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return; }
+
+    const start = S.matchAddrs[S.matchIdx];
+    const span = getCurrentMatchSpan();
+    const end = start + span - 1;
+
+    if (S.selStart === start && S.selEnd === end) { return; }
+
+    S.selStart = start;
+    S.selEnd = end;
+    applySel();
+    import('./sidebar.js').then(m => m.updateInspector());
+}
+
+function getCurrentMatchSpan(): number {
+    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
+    if (S.searchMode === 'addr') { return 1; }
+    const needles = buildNeedles(S.searchMode, raw, S.searchEndianness);
+    const span = needles[0]?.length ?? 1;
+    return Math.max(1, span);
 }
 

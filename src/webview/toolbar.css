@@ -100,6 +100,15 @@
 /* ── Search box ──────────────────────────────────────────────── */
 #search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; }
 
+.search-endian-toggle {
+    flex-shrink: 0;
+}
+
+.search-endian-toggle button {
+    min-width: 32px;
+    height: 22px;
+    font-size: 10px;
+}
 
 #search-mode {
     background: var(--input-bg); color: var(--fg);
@@ -147,42 +156,46 @@
     cursor: pointer;
 }
 
-#match-count { color: var(--fg); font-size: 11px; min-width: 44px; text-align: right; white-space: nowrap; }
-
-#match-count { color: #ffffff; font-size: 11px; min-width: 44px; text-align: right; white-space: nowrap; }
-
-#search-box { position: relative; }
-
-.search-config-panel {
-    position: absolute;
-    top: calc(100% + 7px);
-    right: 80px;
-    min-width: 220px;
-    padding: 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel-bg);
-    box-shadow: 0 12px 24px rgba(0,0,0,.34);
-    z-index: 20;
-    display: none;
-}
-
-.search-config-panel.open { display: block; }
-
-.scp-title {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .03em;
-    margin-bottom: 8px;
+#match-count {
     color: var(--fg);
-    text-transform: uppercase;
+    font-size: 11px;
+    width: 14ch;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
 }
 
-.scp-row { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.search-progress {
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
 
-.scp-label {
-    font-size: 11px;
-    color: var(--addr-fg);
+.search-progress::before {
+    content: '';
+    width: 11px;
+    height: 11px;
+    border: 2px solid color-mix(in srgb, var(--non-graphic) 70%, transparent);
+    border-top-color: var(--high-color);
+    border-radius: 50%;
+    animation: hs-search-spin .8s linear infinite;
+}
+
+.search-progress.active {
+    visibility: visible;
+    opacity: 1;
+}
+
+@keyframes hs-search-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 /* ── Stats bar ───────────────────────────────────────────────── */

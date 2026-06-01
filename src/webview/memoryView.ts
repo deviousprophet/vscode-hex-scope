@@ -125,16 +125,12 @@ export function renderMemBody(
     onHexDown: (e: MouseEvent, el: HTMLElement) => void,
     onHexCtx:  (e: MouseEvent, el: HTMLElement) => void,
 ): void {
-    console.time('[MEMORY] renderMemBody');
     const container = document.getElementById('mem-rows')!;
 
     if (S.memRows.length === 0) {
         container.innerHTML = `<div style="padding:30px 20px;color:var(--non-graphic);font-size:12px">No data records found.</div>`;
-        console.timeEnd('[MEMORY] renderMemBody');
         return;
     }
-
-    console.log(`[MEMORY] Rendering ${S.memRows.length} rows`);
 
     // Initialize virtual scroll state
     const scrollContainer = document.getElementById('mem-scroll')!;
@@ -154,10 +150,7 @@ export function renderMemBody(
     (scrollContainer as any)._hexCtxCallback = onHexCtx;
 
     // Initial render of visible rows
-    console.time('[MEMORY] renderVisibleRows');
     renderVisibleRows();
-    console.timeEnd('[MEMORY] renderVisibleRows');
-    console.timeEnd('[MEMORY] renderMemBody');
 
     // Column hover  set up once per container lifetime
     if (!container.dataset.colHoverInit) {
@@ -227,35 +220,130 @@ function renderRow(base: number): string {
 //  Selection highlight 
 
 export function applySel(): void {
-    document.querySelectorAll<HTMLElement>('[data-addr]').forEach(el => {
+    const allAddrCells = document.querySelectorAll<HTMLElement>('[data-addr]');
+    const rowEls = document.querySelectorAll<HTMLElement>('.data-row.row-sel');
+    const headerSelCols = document.querySelectorAll<HTMLElement>('#mem-header .data-cell.sel-col');
+
+    rowEls.forEach(el => el.classList.remove('row-sel'));
+    headerSelCols.forEach(el => el.classList.remove('sel-col'));
+
+    if (S.selStart === null || S.selEnd === null) {
+        allAddrCells.forEach(el => el.classList.remove('sel'));
+        return;
+    }
+
+    allAddrCells.forEach(el => {
         const a = parseInt(el.dataset.addr!, 16);
-        el.classList.toggle('sel',
-            S.selStart !== null && S.selEnd !== null && a >= S.selStart && a <= S.selEnd
-        );
+        const isSelected = a >= S.selStart! && a <= S.selEnd!;
+        el.classList.toggle('sel', isSelected);
+        if (!isSelected) { return; }
+        const rowEl = el.closest<HTMLElement>('.data-row');
+        if (rowEl) {
+            rowEl.classList.add('row-sel');
+        }
     });
+
+    const selectedCols = getSelectedColumns(S.selStart, S.selEnd);
+    for (const col of selectedCols) {
+        document
+            .querySelectorAll<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`)
+            .forEach(el => el.classList.add('sel-col'));
+    }
+}
+
+function getSelectedColumns(selStart: number, selEnd: number): Set<number> {
+    const cols = new Set<number>();
+    const startRow = Math.floor(selStart / BPR);
+    const endRow = Math.floor(selEnd / BPR);
+    const startCol = selStart % BPR;
+    const endCol = selEnd % BPR;
+
+    if (startRow === endRow) {
+        for (let c = startCol; c <= endCol; c++) {
+            cols.add(c);
+        }
+        return cols;
+    }
+
+    if (endRow - startRow > 1) {
+        for (let c = 0; c < BPR; c++) {
+            cols.add(c);
+        }
+        return cols;
+    }
+
+    for (let c = startCol; c < BPR; c++) {
+        cols.add(c);
+    }
+    for (let c = 0; c <= endCol; c++) {
+        cols.add(c);
+    }
+
+    return cols;
 }
 
 //  Match highlight 
 
 export function applyMatchHighlights(): void {
-    document.querySelectorAll('.data-cell, .char-cell').forEach(el => el.classList.remove('match', 'amatch'));
+    const renderedCells = document.querySelectorAll<HTMLElement>('.data-cell[data-addr], .char-cell[data-addr]');
+    renderedCells.forEach(el => el.classList.remove('match', 'amatch'));
     if (!S.matchAddrs.length) { return; }
 
     const nLen = getNeedleLen();
     if (!nLen) { return; }
 
-    for (let mi = 0; mi < S.matchAddrs.length; mi++) {
+    const cellsByAddr = new Map<number, HTMLElement[]>();
+    let visibleMin = Number.MAX_SAFE_INTEGER;
+    let visibleMax = Number.MIN_SAFE_INTEGER;
+
+    renderedCells.forEach(el => {
+        const addrHex = el.dataset.addr;
+        if (!addrHex) { return; }
+        const addr = parseInt(addrHex, 16);
+        if (isNaN(addr)) { return; }
+
+        const existing = cellsByAddr.get(addr);
+        if (existing) {
+            existing.push(el);
+        } else {
+            cellsByAddr.set(addr, [el]);
+        }
+        if (addr < visibleMin) { visibleMin = addr; }
+        if (addr > visibleMax) { visibleMax = addr; }
+    });
+
+    if (cellsByAddr.size === 0) { return; }
+
+    const firstRelevant = lowerBound(S.matchAddrs, visibleMin - (nLen - 1));
+    for (let mi = firstRelevant; mi < S.matchAddrs.length; mi++) {
+        const matchBase = S.matchAddrs[mi];
+        if (matchBase > visibleMax) { break; }
+        if (matchBase + nLen - 1 < visibleMin) { continue; }
+
         for (let i = 0; i < nLen; i++) {
-            const ah = (S.matchAddrs[mi] + i).toString(16).toUpperCase().padStart(8, '0');
             const active = mi === S.matchIdx;
-            for (const sel of [`.data-cell[data-addr="${ah}"]`, `.char-cell[data-addr="${ah}"]`]) {
-                const el = document.querySelector<HTMLElement>(sel);
-                if (!el) { continue; }
+            const cells = cellsByAddr.get(matchBase + i);
+            if (!cells) { continue; }
+            for (const el of cells) {
                 el.classList.add('match');
                 if (active) { el.classList.add('amatch'); }
             }
         }
     }
+}
+
+function lowerBound(sorted: number[], value: number): number {
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (sorted[mid] < value) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
 }
 
 function getNeedleLen(): number | null {
