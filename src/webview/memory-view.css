@@ -12,6 +12,17 @@
     overflow: hidden; white-space: nowrap;
 }
 #mem-header .addr-cell { visibility: hidden; }
+.mem-hdr-decoded {
+    /* 16 chars plus 3 inter-group gaps (after 4, 8, 12) to match .char-cell layout */
+    width: calc((var(--text-cell-width) * 16) + (var(--text-cell-width) * 0.3 * 3));
+    display: inline-block;
+    font-family: var(--font-editor);
+    font-size: var(--font-size);
+    line-height: var(--cell-size);
+    color: var(--addr-active-fg);
+    text-align: left;
+    text-transform: none;
+}
 
 /* ── Scroll viewport ─────────────────────────────────────────── */
 #mem-scroll { flex: 1; overflow: auto; }
@@ -25,8 +36,10 @@
 .cell-group { display: inline-flex; padding: 0 var(--cell-pad); cursor: default; }
 .cell-group:last-child {
     border-left: 2px solid rgba(255,255,255,.18);
+    border-right: 2px solid rgba(255,255,255,.18);
     margin-left: calc(var(--cell-pad) * 1.5);
     padding-left: calc(var(--cell-pad) * 1.5);
+    padding-right: calc(var(--cell-pad) * 1.5);
 }
 
 /* ── Address cell (mirrors Address component) ─────────────────── */

@@ -18,6 +18,12 @@ const VIRTUAL_SCROLL_CONFIG = {
     bufferSize: 10,  // render 10 rows above/below viewport
 };
 
+function syncHeaderScroll(scrollLeft: number): void {
+    const header = document.getElementById('mem-header');
+    if (!header) { return; }
+    header.scrollLeft = scrollLeft;
+}
+
 //  Column header 
 
 export function renderMemHeader(): void {
@@ -27,12 +33,10 @@ export function renderMemHeader(): void {
         `<span class="data-cell" data-col="${i}" style="cursor:default;color:var(--addr-active-fg)">${i.toString(16).toUpperCase().padStart(2, '0')}</span>`
     ).join('');
 
-    const ascHdrStyle = `width:calc(var(--text-cell-width)*${BPR});display:inline-block;color:var(--addr-active-fg);font-size:11px;text-align:left`;
-
     document.getElementById('mem-header')!.innerHTML =
         `${hidden}` +
         `<div class="cell-group">${hexHdr}</div>` +
-        `<div class="cell-group"><span style="${ascHdrStyle}">Decoded text</span></div>`;
+        `<div class="cell-group"><span class="mem-hdr-decoded">Decoded text</span></div>`;
 }
 
 //  Virtual scroll rendering 
@@ -149,6 +153,9 @@ export function renderMemBody(
     (scrollContainer as any)._hexDownCallback = onHexDown;
     (scrollContainer as any)._hexCtxCallback = onHexCtx;
 
+    // Keep header columns aligned with horizontal body scrolling.
+    syncHeaderScroll(scrollContainer.scrollLeft);
+
     // Initial render of visible rows
     renderVisibleRows();
 
@@ -182,6 +189,7 @@ export function renderMemBody(
         scrollContainer.addEventListener('scroll', () => {
             if (!vscrollState) { return; }
             vscrollState.scrollTop = scrollContainer.scrollTop;
+            syncHeaderScroll(scrollContainer.scrollLeft);
             renderVisibleRows();
         });
     }
