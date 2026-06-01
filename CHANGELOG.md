@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.4.0] — 2026-06-01
+
+### Added
+
+- **Value search mode** with numeric lookup and endianness options: `Auto` (default), `LE`, `BE`
+- **Search in-progress spinner** for long-running searches
+
+### Changed
+
+- Search modes are now clearer:
+  - `Hex` was renamed to **Bytes** (matches exact typed byte order)
+  - Endianness controls are shown only in **Value** mode
+- Search navigation UX was improved:
+  - jumping next/previous match selects matched bytes so Inspector updates immediately
+  - first streamed result is auto-selected when it appears
+  - active selection is preserved when streaming completes
+- In-flight search behavior was updated:
+  - Enter during active search navigates current matches (does not restart same search)
+  - when query or mode changes during active search, current search is canceled and restarted with latest input
+  - equivalent byte input formats (for example `DEADBEEF` and `DEAD BEEF`) are treated as the same search
+- Large-file rendering improvements:
+  - Record View virtualization uses safer spacer chunking for very large offsets
+  - memory data access and row generation are optimized for large segment sets
+
+### Fixed
+
+- Reduced expensive DOM/search-loop work that could degrade responsiveness on large files
+- Fixed search counter layout shifting by using fixed-width match count rendering
+- Replaced unsupported `color-mix(...)` usage in search spinner border for older Chrome compatibility
+
 ## [2.3.0] — 2026-05-11
 
 ### Added

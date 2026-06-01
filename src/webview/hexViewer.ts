@@ -7,10 +7,9 @@ import { esc, fmtB }                                  from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
 import { renderInspector, renderBits, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
-import { renderStructPanel, renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
-import { initSearch, runSearch, clearSearch, nextMatch, prevMatch, updMC } from './searchEngine';
-import type { SearchEndianness } from './types';
-import { initFlatBytes, buildMemRows }                from './data';
+import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
+import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
+import { initFlatBytes, buildMemRows, getByte }      from './data';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -19,16 +18,18 @@ vscode.postMessage({ type: 'ready' });
 window.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as { type: string; [key: string]: unknown };
     switch (msg.type) {
-        case 'init':
+        case 'init': {
             S.parseResult = msg.parseResult as typeof S.parseResult;
             S.labels      = (msg.labels as typeof S.labels) ?? [];
             S.structs     = (msg.structs as typeof S.structs) ?? [];
             S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
             initFlatBytes();
             buildMemRows();
+            
             S.currentView = 'memory';
             render();
             break;
+        }
         case 'loadError':
             renderLoadError(String(msg.message ?? 'Failed to open file.'));
             break;
@@ -187,28 +188,24 @@ function render(): void {
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
             <div id="search-box">
+                <div id="search-endian-toggle" class="endian-tabs search-endian-toggle" style="display:none">
+                    <button id="search-btn-auto" class="${S.searchEndianness === 'auto' ? 'active' : ''}" type="button">Auto</button>
+                    <button id="search-btn-le" class="${S.searchEndianness === 'le' ? 'active' : ''}" type="button">LE</button>
+                    <button id="search-btn-be" class="${S.searchEndianness === 'be' ? 'active' : ''}" type="button">BE</button>
+                </div>
                 <select id="search-mode">
-                    <option value="hex"   ${S.searchMode === 'hex'   ? 'selected' : ''}>Hex</option>
+                    <option value="bytes" ${S.searchMode === 'bytes' ? 'selected' : ''}>Bytes</option>
+                    <option value="value" ${S.searchMode === 'value' ? 'selected' : ''}>Value</option>
                     <option value="ascii" ${S.searchMode === 'ascii' ? 'selected' : ''}>ASCII</option>
                     <option value="addr"  ${S.searchMode === 'addr'  ? 'selected' : ''}>Addr</option>
                 </select>
                 <input id="search-input" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
-                <button class="nav-btn" id="btn-search-config" title="Search settings" aria-haspopup="true" aria-expanded="false">⚙</button>
                 <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
                 <button class="nav-btn" id="btn-next"         title="Next match">▼</button>
                 <button class="nav-btn" id="btn-clear-search" title="Clear">✕</button>
+                <span id="search-progress" class="search-progress" aria-hidden="true"></span>
                 <span id="match-count"></span>
-                <div id="search-config-panel" class="search-config-panel" role="dialog" aria-label="Search settings" aria-hidden="true">
-                    <div class="scp-title">Search settings</div>
-                    <div class="scp-row">
-                        <div class="scp-label">Hex endianness</div>
-                        <div class="endian-tabs sa-endian-tabs">
-                            <button id="search-btn-le" class="${S.searchEndianness === 'le' ? 'active' : ''}" type="button">LE</button>
-                            <button id="search-btn-be" class="${S.searchEndianness === 'be' ? 'active' : ''}" type="button">BE</button>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
         <div id="stats-bar"></div>
@@ -260,14 +257,8 @@ function render(): void {
         if (S.currentView === 'memory') { memRerender(); }
     });
 
-    // Cancel: discard edits, restore flatBytes
+    // Cancel: discard edits
     document.getElementById('btn-cancel')!.addEventListener('click', () => {
-        // Restore all edited bytes to their original values
-        S.edits.forEach((newVal, addr) => {
-            // Re-derive original value from parse result segments
-            const orig = getOriginalByte(addr);
-            if (orig !== undefined) { S.flatBytes.set(addr, orig); }
-        });
         S.edits.clear();
         S.undoStack.length = 0;
         S.editMode = false;
@@ -286,39 +277,52 @@ function render(): void {
     // Search
     const modeEl  = document.getElementById('search-mode')  as HTMLSelectElement;
     const inputEl = document.getElementById('search-input') as HTMLInputElement;
-    const searchBoxEl = document.getElementById('search-box') as HTMLDivElement;
-    const searchCfgBtn = document.getElementById('btn-search-config') as HTMLButtonElement;
-    const searchCfgPanel = document.getElementById('search-config-panel') as HTMLDivElement;
+    const endianToggleEl = document.getElementById('search-endian-toggle') as HTMLDivElement;
+    const searchBtnAuto = document.getElementById('search-btn-auto') as HTMLButtonElement;
     const searchBtnLE = document.getElementById('search-btn-le') as HTMLButtonElement;
     const searchBtnBE = document.getElementById('search-btn-be') as HTMLButtonElement;
-    modeEl .addEventListener('change',  () => { S.searchMode = modeEl.value as typeof S.searchMode; });
+
+    const applySearchModeUi = (): void => {
+        endianToggleEl.style.display = S.searchMode === 'value' ? 'inline-flex' : 'none';
+        if (S.searchMode === 'bytes') {
+            inputEl.placeholder = 'Bytes (e.g. DE AD BE EF)';
+        } else if (S.searchMode === 'value') {
+            inputEl.placeholder = 'Value (e.g. 0x12345678 or 305419896)';
+        } else if (S.searchMode === 'ascii') {
+            inputEl.placeholder = 'ASCII text';
+        } else {
+            inputEl.placeholder = 'Address (e.g. 0800 or 0x08001234)';
+        }
+    };
+
+    modeEl.addEventListener('change', () => {
+        S.searchMode = modeEl.value as typeof S.searchMode;
+        applySearchModeUi();
+    });
+
     inputEl.addEventListener('keydown', e => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            runSearch();
+            runSearch(e.shiftKey ? 'enter-prev' : 'enter-next');
         }
     });
-    document.getElementById('btn-search')!.addEventListener('click', runSearch);
+    document.getElementById('btn-search')!.addEventListener('click', () => runSearch('button'));
     document.getElementById('btn-prev')!.addEventListener('click', prevMatch);
     document.getElementById('btn-next')!.addEventListener('click', nextMatch);
     document.getElementById('btn-clear-search')!.addEventListener('click', clearSearch);
 
-    const setSearchCfgOpen = (open: boolean): void => {
-        searchCfgPanel.classList.toggle('open', open);
-        searchCfgPanel.setAttribute('aria-hidden', String(!open));
-        searchCfgBtn.setAttribute('aria-expanded', String(open));
-    };
-
-    searchCfgBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        setSearchCfgOpen(!searchCfgPanel.classList.contains('open'));
-    });
-
     const applyEndianUi = (): void => {
+        searchBtnAuto.classList.toggle('active', S.searchEndianness === 'auto');
         searchBtnLE.classList.toggle('active', S.searchEndianness === 'le');
         searchBtnBE.classList.toggle('active', S.searchEndianness === 'be');
     };
+    applySearchModeUi();
     applyEndianUi();
+
+    searchBtnAuto.addEventListener('click', () => {
+        S.searchEndianness = 'auto';
+        applyEndianUi();
+    });
 
     searchBtnLE.addEventListener('click', () => {
         S.searchEndianness = 'le';
@@ -330,23 +334,12 @@ function render(): void {
         applyEndianUi();
     });
 
-    document.addEventListener('click', e => {
-        if (!searchCfgPanel.classList.contains('open')) { return; }
-        const target = e.target as Node;
-        if (!searchBoxEl.contains(target)) {
-            setSearchCfgOpen(false);
-        }
-    });
-
     // Ctrl+F / Cmd+F focuses the search bar; Ctrl+Z undoes last edit
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
             e.preventDefault();
             inputEl.focus();
             inputEl.select();
-        }
-        if (e.key === 'Escape' && searchCfgPanel.classList.contains('open')) {
-            setSearchCfgOpen(false);
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
             e.preventDefault();
@@ -414,7 +407,6 @@ function render(): void {
     renderMemHeader();
     renderInspector();
     renderBits();
-    renderStructPanel();
     renderStructPins();
     renderLabels();
     setupCtxMenu();
@@ -514,6 +506,11 @@ const SREC_TYPE_LABELS: Record<number, string> = {
     5: 'COUNT', 6: 'COUNT S6', 7: 'END S7', 8: 'END S8', 9: 'END S9',
 };
 
+const RECORD_ROW_HEIGHT = 28;
+const RECORD_BUFFER_ROWS = 5;
+const RECORD_MAX_SPACER_PX = 1_000_000;
+let recordRenderSignature = '';
+
 function renderRecordView(): void {
     const el = document.getElementById('record-view');
     if (!el || !S.parseResult) { return; }
@@ -523,12 +520,44 @@ function renderRecordView(): void {
         return;
     }
 
+    if (!el.dataset.recordVscrollInit) {
+        el.dataset.recordVscrollInit = '1';
+        el.addEventListener('scroll', () => {
+            renderRecordViewImpl(el);
+        });
+    }
+
+    recordRenderSignature = '';
+    renderRecordViewImpl(el);
+}
+
+function renderRecordViewImpl(el: HTMLElement): void {
+    if (!S.parseResult) { return; }
+
+    const recordCount = S.parseResult.records.length;
+    const containerHeight = el.clientHeight;
+    const scrollTop = el.scrollTop;
+
+    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / RECORD_ROW_HEIGHT) - RECORD_BUFFER_ROWS);
+    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / RECORD_ROW_HEIGHT) + RECORD_BUFFER_ROWS);
+    const signature = `${recordCount}:${firstVisibleIdx}:${lastVisibleIdx}`;
+    if (signature === recordRenderSignature) { return; }
+    recordRenderSignature = signature;
+
     const isSrec = S.parseResult.format === 'srec';
     const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
 
     const header = `<tr><th>Addr</th><th>Type</th><th>Cnt</th><th>Data</th><th>CHK</th></tr>`;
 
-    const rows = S.parseResult.records.map(r => {
+    const rows: string[] = [];
+
+    if (firstVisibleIdx > 0) {
+        const topOffset = firstVisibleIdx * RECORD_ROW_HEIGHT;
+        appendRecordSpacerRows(rows, topOffset);
+    }
+
+    for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
+        const r = S.parseResult.records[i];
         const isData = !r.error && (isSrec ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
                                            : r.recordType === 0);
         const badge =
@@ -554,16 +583,30 @@ function renderRecordView(): void {
             ? `<td class="raddr">${ra}</td>`
             : `<td class="raddr raddr-empty">—</td>`;
 
-        return `<tr${rowClass}>
+        rows.push(`<tr${rowClass}>
             ${addrCell}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
             <td class="rcnt">${r.byteCount}</td>
             ${dataCell}
             <td>${chk}</td>
-        </tr>`;
-    }).join('');
+        </tr>`);
+    }
 
-    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+    if (lastVisibleIdx < recordCount - 1) {
+        const bottomOffset = (recordCount - 1 - lastVisibleIdx) * RECORD_ROW_HEIGHT;
+        appendRecordSpacerRows(rows, bottomOffset);
+    }
+
+    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
+function appendRecordSpacerRows(rows: string[], totalHeight: number): void {
+    let remaining = totalHeight;
+    while (remaining > 0) {
+        const chunk = Math.min(remaining, RECORD_MAX_SPACER_PX);
+        rows.push(`<tr style="height:${chunk}px"><td colspan="5"></td></tr>`);
+        remaining -= chunk;
+    }
 }
 
 // ── View switching ────────────────────────────────────────────────
@@ -578,6 +621,7 @@ function switchView(v: 'memory' | 'record'): void {
     document.getElementById('edit-mode-group')!.style.display = v === 'memory' && S.editMode ? '' : 'none';
     document.getElementById('sidebar')!.style.display = v === 'memory' ? '' : 'none';
     document.getElementById('side-tabs')!.style.display = v === 'memory' ? '' : 'none';
+    document.getElementById('search-box')!.style.display = v === 'memory' ? '' : 'none';
     if (v === 'memory')      { memRerender(); }
     else if (v === 'record') { renderRecordView(); }
 }
@@ -594,18 +638,6 @@ function removeAllExternalChangeBanners(): void {
     document.getElementById('ext-conflict-banner')?.remove();
     document.getElementById('ext-reload-banner')?.remove();
     document.getElementById('ext-error-banner')?.remove();
-}
-
-/** Apply an external file change directly (no unsaved edits to worry about). */
-function applyExternalChange(incoming: IncomingFile): void {
-    S.parseResult = incoming.parseResult;
-    S.labels      = incoming.labels;
-    initFlatBytes();
-    buildMemRows();
-    S.currentView = 'memory';
-    render();
-    // Tell the provider it can update its own in-memory raw/parseResult
-    vscode.postMessage({ type: 'reloadAccepted' });
 }
 
 /** Show a non-destructive conflict banner when external change arrives during edit mode. */
@@ -767,13 +799,6 @@ function showExternalChangeError(checksumErrors: number, malformedLines: number,
         });
     }
 
-    const closeBtn = document.getElementById('eeb-close');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'closePanel' });
-        });
-    }
-
     const viewTextBtn = document.getElementById('eeb-view-text');
     if (viewTextBtn) {
         viewTextBtn.addEventListener('click', () => {
@@ -797,9 +822,9 @@ function applyFill(fillVal: number): void {
     if (S.selStart === null || S.selEnd === null) { return; }
     const prev: Array<[number, number]> = [];
     for (let a = S.selStart; a <= S.selEnd; a++) {
-        if (S.flatBytes.has(a)) {
-            prev.push([a, S.flatBytes.get(a)!]);
-            S.flatBytes.set(a, fillVal);
+        const orig = getByte(a);
+        if (orig !== undefined) {
+            prev.push([a, orig]);
             S.edits.set(a, fillVal);
         }
     }
@@ -813,7 +838,6 @@ function undoLastEdit(): void {
     if (!S.editMode || S.undoStack.length === 0) { return; }
     const txn = S.undoStack.pop()!;
     for (const [addr, prevVal] of txn) {
-        S.flatBytes.set(addr, prevVal);
         const orig = getOriginalByte(addr);
         if (orig !== undefined && prevVal === orig) {
             S.edits.delete(addr);
@@ -840,7 +864,7 @@ function getSelBytes(): number[] {
     if (S.selStart === null || S.selEnd === null) { return []; }
     const out: number[] = [];
     for (let a = S.selStart; a <= S.selEnd; a++) {
-        out.push(S.flatBytes.get(a) ?? 0);
+        out.push(getByte(a) ?? 0);
     }
     return out;
 }

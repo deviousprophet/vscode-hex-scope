@@ -8,14 +8,14 @@ export const BPR = 16; // bytes per memory row
 export const S = {
     parseResult:  null   as SerializedParseResult | null,
     labels:       []     as SegmentLabel[],
-    flatBytes:    new Map<number, number>(),
-    sortedAddrs:  []     as number[],
+    /** Segment index for O(log n) byte access (built on parseResult change) */
+    segmentIndex: [] as Array<{ startAddr: number; endAddr: number; offset: number }>,
     currentView: 'memory' as 'record' | 'memory',
     selStart:     null   as number | null,
     selEnd:       null   as number | null,
     endian:       'le'   as 'le' | 'be',
-    searchMode:   'hex'  as SearchMode,
-    searchEndianness: 'le' as SearchEndianness,
+    searchMode:   'bytes'  as SearchMode,
+    searchEndianness: 'auto' as SearchEndianness,
     matchAddrs:   []     as number[],
     matchIdx:     -1,
     memRows:      []     as MemRow[],
