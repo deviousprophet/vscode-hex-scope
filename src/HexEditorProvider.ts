@@ -68,42 +68,60 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const globalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
 
+        const normalizeStructDefs = (value: unknown): unknown[] => {
+            if (!Array.isArray(value)) { return []; }
+            const out: unknown[] = [];
+            const seenIds = new Set<string>();
+            const seenNames = new Set<string>();
+
+            for (const item of value) {
+                const id = (item as { id?: unknown })?.id;
+                const name = (item as { name?: unknown })?.name;
+                if (typeof id !== 'string' || typeof name !== 'string') { continue; }
+                if (seenIds.has(id) || seenNames.has(name)) { continue; }
+                seenIds.add(id);
+                seenNames.add(name);
+                out.push(item);
+            }
+            return out;
+        };
+
         const loadStructs = async () => {
-            const globalStructs = this._context.globalState.get<unknown[]>(globalStructKey, []);
-            const legacyStructs = this._context.workspaceState.get<unknown[]>(structKey, []);
-            const globalArr = Array.isArray(globalStructs) ? globalStructs : [];
-            const legacyArr = Array.isArray(legacyStructs) ? legacyStructs : [];
+            const globalStructs = this._context.globalState.get<unknown>(globalStructKey, []);
+            const legacyStructs = this._context.workspaceState.get<unknown>(structKey, []);
+            let globalArr = normalizeStructDefs(globalStructs);
+            const legacyArr = normalizeStructDefs(legacyStructs);
 
-            if (legacyArr.length === 0) {
-                return globalArr;
+            if (!Array.isArray(globalStructs) || globalArr.length !== globalStructs.length) {
+                await this._context.globalState.update(globalStructKey, globalArr);
             }
 
-            const usedIds = new Set(globalArr
-                .map(s => (s as { id?: unknown })?.id)
-                .filter((id): id is string => typeof id === 'string'));
-            const usedNames = new Set(globalArr
-                .map(s => (s as { name?: unknown })?.name)
-                .filter((name): name is string => typeof name === 'string'));
+            if (legacyArr.length > 0) {
+                const usedIds = new Set(globalArr
+                    .map(s => (s as { id?: unknown })?.id)
+                    .filter((id): id is string => typeof id === 'string'));
+                const usedNames = new Set(globalArr
+                    .map(s => (s as { name?: unknown })?.name)
+                    .filter((name): name is string => typeof name === 'string'));
 
-            // Migration policy: prefer global definitions and only append non-conflicting legacy structs.
-            const migrated = legacyArr.filter(s => {
-                const id = (s as { id?: unknown })?.id;
-                const name = (s as { name?: unknown })?.name;
-                if (typeof id !== 'string' || typeof name !== 'string') { return false; }
-                if (usedIds.has(id) || usedNames.has(name)) { return false; }
-                usedIds.add(id);
-                usedNames.add(name);
-                return true;
-            });
+                const migrated = legacyArr.filter(s => {
+                    const id = (s as { id?: unknown })?.id;
+                    const name = (s as { name?: unknown })?.name;
+                    if (typeof id !== 'string' || typeof name !== 'string') { return false; }
+                    if (usedIds.has(id) || usedNames.has(name)) { return false; }
+                    usedIds.add(id);
+                    usedNames.add(name);
+                    return true;
+                });
 
-            if (migrated.length > 0) {
-                await this._context.globalState.update(globalStructKey, [...globalArr, ...migrated]);
+                if (migrated.length > 0) {
+                    globalArr = [...globalArr, ...migrated];
+                    await this._context.globalState.update(globalStructKey, globalArr);
+                }
             }
 
-            // Clear legacy per-document structs to avoid repeated migration and stale state.
             await this._context.workspaceState.update(structKey, undefined);
-
-            return migrated.length > 0 ? [...globalArr, ...migrated] : globalArr;
+            return globalArr;
         };
 
         const postInit = async () => {
@@ -193,7 +211,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     break;
                 }
                 case 'saveStructs': {
-                    await this._context.globalState.update(globalStructKey, msg.structs);
+                    await this._context.globalState.update(globalStructKey, normalizeStructDefs(msg.structs));
                     break;
                 }
                 case 'saveStructPins': {
