@@ -189,11 +189,13 @@ function render(): void {
             </div>
             <div id="search-box">
                 <div id="search-endian-toggle" class="endian-tabs search-endian-toggle" style="display:none">
+                    <button id="search-btn-auto" class="${S.searchEndianness === 'auto' ? 'active' : ''}" type="button">Auto</button>
                     <button id="search-btn-le" class="${S.searchEndianness === 'le' ? 'active' : ''}" type="button">LE</button>
                     <button id="search-btn-be" class="${S.searchEndianness === 'be' ? 'active' : ''}" type="button">BE</button>
                 </div>
                 <select id="search-mode">
-                    <option value="hex"   ${S.searchMode === 'hex'   ? 'selected' : ''}>Hex</option>
+                    <option value="bytes" ${S.searchMode === 'bytes' ? 'selected' : ''}>Bytes</option>
+                    <option value="value" ${S.searchMode === 'value' ? 'selected' : ''}>Value</option>
                     <option value="ascii" ${S.searchMode === 'ascii' ? 'selected' : ''}>ASCII</option>
                     <option value="addr"  ${S.searchMode === 'addr'  ? 'selected' : ''}>Addr</option>
                 </select>
@@ -276,11 +278,21 @@ function render(): void {
     const modeEl  = document.getElementById('search-mode')  as HTMLSelectElement;
     const inputEl = document.getElementById('search-input') as HTMLInputElement;
     const endianToggleEl = document.getElementById('search-endian-toggle') as HTMLDivElement;
+    const searchBtnAuto = document.getElementById('search-btn-auto') as HTMLButtonElement;
     const searchBtnLE = document.getElementById('search-btn-le') as HTMLButtonElement;
     const searchBtnBE = document.getElementById('search-btn-be') as HTMLButtonElement;
 
     const applySearchModeUi = (): void => {
-        endianToggleEl.style.display = S.searchMode === 'hex' ? 'inline-flex' : 'none';
+        endianToggleEl.style.display = S.searchMode === 'value' ? 'inline-flex' : 'none';
+        if (S.searchMode === 'bytes') {
+            inputEl.placeholder = 'Bytes (e.g. DE AD BE EF)';
+        } else if (S.searchMode === 'value') {
+            inputEl.placeholder = 'Value (e.g. 0x12345678 or 305419896)';
+        } else if (S.searchMode === 'ascii') {
+            inputEl.placeholder = 'ASCII text';
+        } else {
+            inputEl.placeholder = 'Address (e.g. 0800 or 0x08001234)';
+        }
     };
 
     modeEl.addEventListener('change', () => {
@@ -300,11 +312,17 @@ function render(): void {
     document.getElementById('btn-clear-search')!.addEventListener('click', clearSearch);
 
     const applyEndianUi = (): void => {
+        searchBtnAuto.classList.toggle('active', S.searchEndianness === 'auto');
         searchBtnLE.classList.toggle('active', S.searchEndianness === 'le');
         searchBtnBE.classList.toggle('active', S.searchEndianness === 'be');
     };
     applySearchModeUi();
     applyEndianUi();
+
+    searchBtnAuto.addEventListener('click', () => {
+        S.searchEndianness = 'auto';
+        applyEndianUi();
+    });
 
     searchBtnLE.addEventListener('click', () => {
         S.searchEndianness = 'le';

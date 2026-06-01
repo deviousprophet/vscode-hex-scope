@@ -350,10 +350,33 @@ function getNeedleLen(): number | null {
     const q = (document.getElementById('search-input') as HTMLInputElement)?.value ?? '';
     if (!q.trim()) { return null; }
     if (S.searchMode === 'addr') { return 1; }
-    if (S.searchMode === 'hex') {
+    if (S.searchMode === 'bytes') {
         const tokens = q.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
         const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
         return n || null;
+    }
+    if (S.searchMode === 'value') {
+        const raw = q.trim().replace(/_/g, '');
+        if (/^0x[0-9a-fA-F]+$/.test(raw)) {
+            const hexDigits = raw.slice(2);
+            return Math.max(1, Math.ceil(hexDigits.length / 2));
+        }
+        if (/^\d+$/.test(raw)) {
+            try {
+                const value = BigInt(raw);
+                if (value === 0n) { return 1; }
+                let tmp = value;
+                let bytes = 0;
+                while (tmp > 0n && bytes < 8) {
+                    bytes++;
+                    tmp >>= 8n;
+                }
+                return bytes || null;
+            } catch {
+                return null;
+            }
+        }
+        return null;
     }
     return new TextEncoder().encode(q).length || null;
 }

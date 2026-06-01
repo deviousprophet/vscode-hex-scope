@@ -235,19 +235,15 @@ function normalizeAddrQuery(raw: string): string | null {
 }
 
 function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndianness): number[][] {
-    if (mode === 'hex') {
-        const tokens = raw.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
-        const bytes: number[] = [];
-        for (const tok of tokens) {
-            const v = parseInt(tok, 16);
-            if (isNaN(v) || v < 0 || v > 255) { return []; }
-            bytes.push(v);
-        }
-        if (bytes.length === 0) { return []; }
-        if (endianness === 'le' && bytes.length > 1) {
-            return [[...bytes].reverse()];
-        }
-        return [bytes];
+    if (mode === 'bytes') {
+        const bytes = parseBytePattern(raw);
+        return bytes.length ? [bytes] : [];
+    }
+
+    if (mode === 'value') {
+        const beBytes = parseValuePattern(raw);
+        if (beBytes.length === 0) { return []; }
+        return buildEndianNeedles(beBytes, endianness);
     }
 
     if (mode === 'ascii') {
@@ -255,6 +251,83 @@ function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndiannes
     }
 
     return [];
+}
+
+function parseBytePattern(raw: string): number[] {
+    const tokens = raw.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
+    const bytes: number[] = [];
+    for (const tok of tokens) {
+        const v = parseInt(tok, 16);
+        if (isNaN(v) || v < 0 || v > 255) { return []; }
+        bytes.push(v);
+    }
+    return bytes;
+}
+
+function parseValuePattern(raw: string): number[] {
+    const s = raw.trim().replace(/_/g, '');
+    if (!s) { return []; }
+
+    if (/^0x[0-9a-fA-F]+$/.test(s)) {
+        let hex = s.slice(2);
+        if (hex.length % 2 === 1) {
+            hex = `0${hex}`;
+        }
+        const out: number[] = [];
+        for (let i = 0; i < hex.length; i += 2) {
+            const v = parseInt(hex.slice(i, i + 2), 16);
+            if (isNaN(v)) { return []; }
+            out.push(v);
+        }
+        return out;
+    }
+
+    if (!/^\d+$/.test(s)) { return []; }
+
+    let value: bigint;
+    try {
+        value = BigInt(s);
+    } catch {
+        return [];
+    }
+
+    if (value === 0n) { return [0]; }
+
+    const out: number[] = [];
+    while (value > 0n) {
+        out.push(Number(value & 0xFFn));
+        value >>= 8n;
+        if (out.length > 8) { return []; }
+    }
+    return out.reverse();
+}
+
+function buildEndianNeedles(beBytes: number[], endianness: SearchEndianness): number[][] {
+    if (beBytes.length <= 1) {
+        return [beBytes];
+    }
+
+    if (endianness === 'be') {
+        return [beBytes];
+    }
+
+    const leBytes = [...beBytes].reverse();
+    if (endianness === 'le') {
+        return [leBytes];
+    }
+
+    if (arraysEqual(beBytes, leBytes)) {
+        return [beBytes];
+    }
+    return [beBytes, leBytes];
+}
+
+function arraysEqual(a: number[], b: number[]): boolean {
+    if (a.length !== b.length) { return false; }
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) { return false; }
+    }
+    return true;
 }
 
 function sortSegmentsByStart(segments: SerializedSegment[]): SerializedSegment[] {
@@ -284,7 +357,8 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
 
     const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
     const q = raw.trim();
-    const searchKey = `${S.searchMode}|${S.searchEndianness}|${q}`;
+    const endianKey = S.searchMode === 'value' ? S.searchEndianness : 'n/a';
+    const searchKey = `${S.searchMode}|${endianKey}|${q}`;
     const isUnchangedCompleted = searchKey === _lastCompletedSearchKey;
 
     if (q.length > 0 && isUnchangedCompleted && trigger !== 'button') {

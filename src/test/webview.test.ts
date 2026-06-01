@@ -100,8 +100,8 @@ suite('state constants and defaults', () => {
     test('default byte order is little-endian', () => {
         assert.strictEqual(S.endian, 'le');
     });
-    test('default search mode is "hex"', () => {
-        assert.strictEqual(S.searchMode, 'hex');
+    test('default search mode is "bytes"', () => {
+        assert.strictEqual(S.searchMode, 'bytes');
     });
 });
 
