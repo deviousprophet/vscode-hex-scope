@@ -322,7 +322,7 @@
 }
 .si-card:hover { border-color: rgba(255,255,255,.2); }
 .si-card.si-expanded { border-color: rgba(79,195,247,.35); }
-.si-card.si-card-selected { border-color: rgba(79,195,247,.6); background: rgba(79,195,247,.05); }
+.si-card.si-card-selected { border-color: rgba(79,195,247,.6); }
 
 .si-card-hdr {
     display: flex; align-items: center; gap: 4px;

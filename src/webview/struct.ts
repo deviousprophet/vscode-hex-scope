@@ -618,6 +618,7 @@ export function renderStructPins(): void {
             const pin: StructPin = { id: `pin_${Date.now()}`, structId: _applyStructId, addr, name };
             S.structPins       = [...S.structPins, pin];
             S.activeStructAddr = addr;
+            _expanded.add(pin.id);
             _addingPin = false;
             vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
             renderStructPins();
