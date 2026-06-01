@@ -65,17 +65,57 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
 
         const structKey = `hexScope.structs.${document.uri.toString()}`;
+        const globalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
 
-        const postInit = () => {
+        const loadStructs = async () => {
+            const globalStructs = this._context.globalState.get<unknown[]>(globalStructKey, []);
+            const legacyStructs = this._context.workspaceState.get<unknown[]>(structKey, []);
+            const globalArr = Array.isArray(globalStructs) ? globalStructs : [];
+            const legacyArr = Array.isArray(legacyStructs) ? legacyStructs : [];
+
+            if (legacyArr.length === 0) {
+                return globalArr;
+            }
+
+            const usedIds = new Set(globalArr
+                .map(s => (s as { id?: unknown })?.id)
+                .filter((id): id is string => typeof id === 'string'));
+            const usedNames = new Set(globalArr
+                .map(s => (s as { name?: unknown })?.name)
+                .filter((name): name is string => typeof name === 'string'));
+
+            // Migration policy: prefer global definitions and only append non-conflicting legacy structs.
+            const migrated = legacyArr.filter(s => {
+                const id = (s as { id?: unknown })?.id;
+                const name = (s as { name?: unknown })?.name;
+                if (typeof id !== 'string' || typeof name !== 'string') { return false; }
+                if (usedIds.has(id) || usedNames.has(name)) { return false; }
+                usedIds.add(id);
+                usedNames.add(name);
+                return true;
+            });
+
+            if (migrated.length > 0) {
+                await this._context.globalState.update(globalStructKey, [...globalArr, ...migrated]);
+            }
+
+            // Clear legacy per-document structs to avoid repeated migration and stale state.
+            await this._context.workspaceState.update(structKey, undefined);
+
+            return migrated.length > 0 ? [...globalArr, ...migrated] : globalArr;
+        };
+
+        const postInit = async () => {
             if (!webviewReady || !parseResult) { return; }
             const serialized = serializeParseResult(parseResult, format);
+            const structs = await loadStructs();
             
             const msg = {
                 type: 'init',
                 parseResult: serialized,
                 labels:      this._context.workspaceState.get(labelKey, []),
-                structs:     this._context.workspaceState.get(structKey, []),
+                structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
             };
             
@@ -142,7 +182,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             switch (msg.type) {
                 case 'ready':
                     webviewReady = true;
-                    postInit();
+                    await postInit();
                     break;
                 case 'copyText':
                     await vscode.env.clipboard.writeText(msg.text);
@@ -153,7 +193,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     break;
                 }
                 case 'saveStructs': {
-                    await this._context.workspaceState.update(structKey, msg.structs);
+                    await this._context.globalState.update(globalStructKey, msg.structs);
                     break;
                 }
                 case 'saveStructPins': {
