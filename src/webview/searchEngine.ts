@@ -349,15 +349,6 @@ let _searchRunning = false;
 let _activeSearchKey = '';
 let _activeMatchSpan = 1;
 
-interface PendingSearchRequest {
-    searchKey: string;
-    mode: SearchMode;
-    raw: string;
-    endianness: SearchEndianness;
-}
-
-let _pendingSearch: PendingSearchRequest | null = null;
-
 type SearchTrigger = 'enter-next' | 'enter-prev' | 'button';
 
 export function initSearch(switchToMemory: () => void): void {
@@ -369,8 +360,7 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
 
     const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
     const q = raw.trim();
-    const endianKey = S.searchMode === 'value' ? S.searchEndianness : 'n/a';
-    const searchKey = `${S.searchMode}|${endianKey}|${q}`;
+    const searchKey = makeSearchKey(S.searchMode, q, S.searchEndianness);
     const isUnchangedCompleted = searchKey === _lastCompletedSearchKey;
 
     if (_searchRunning) {
@@ -388,13 +378,9 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
             return;
         }
 
-        _pendingSearch = {
-            searchKey,
-            mode: S.searchMode,
-            raw: q,
-            endianness: S.searchEndianness,
-        };
-        return;
+        // New query/mode while running: cancel current search and start latest immediately.
+        engine.clear();
+        _searchRunning = false;
     }
 
     if (q.length > 0 && isUnchangedCompleted && trigger !== 'button') {
@@ -426,7 +412,7 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
     });
 }
 
-function startSearch(req: PendingSearchRequest): void {
+function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; endianness: SearchEndianness }): void {
     setSearchBusy(true);
     _streamFirstJumpDone = false;
     _searchRunning = true;
@@ -485,12 +471,6 @@ function startSearch(req: PendingSearchRequest): void {
                 applyMatchHighlights();
                 scrollToMatch();
                 updMC();
-
-                if (_pendingSearch) {
-                    const next = _pendingSearch;
-                    _pendingSearch = null;
-                    startSearch(next);
-                }
             },
         }
     );
@@ -502,7 +482,6 @@ export function clearSearch(): void {
     _searchRunning = false;
     _activeSearchKey = '';
     _activeMatchSpan = 1;
-    _pendingSearch = null;
     S.matchAddrs = [];
     S.matchIdx   = -1;
     const inp = document.getElementById('search-input') as HTMLInputElement | null;
@@ -582,5 +561,35 @@ function getMatchSpan(mode: SearchMode, raw: string, endianness: SearchEndiannes
     const needles = buildNeedles(mode, raw, endianness);
     const span = needles[0]?.length ?? 1;
     return Math.max(1, span);
+}
+
+function makeSearchKey(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
+    const canonical = canonicalizeQuery(mode, raw);
+    const endianKey = mode === 'value' ? endianness : 'n/a';
+    return `${mode}|${endianKey}|${canonical}`;
+}
+
+function canonicalizeQuery(mode: SearchMode, raw: string): string {
+    if (mode === 'bytes') {
+        const bytes = parseBytePattern(raw);
+        if (bytes.length > 0) {
+            return bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+        }
+        return raw.replace(/\s/g, '').toUpperCase();
+    }
+
+    if (mode === 'value') {
+        const bytes = parseValuePattern(raw);
+        if (bytes.length > 0) {
+            return bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+        }
+        return raw.replace(/_/g, '').toUpperCase();
+    }
+
+    if (mode === 'addr') {
+        return normalizeAddrQuery(raw) ?? raw.replace(/^0x/i, '').toUpperCase();
+    }
+
+    return raw;
 }
 
