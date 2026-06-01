@@ -920,7 +920,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
     if (expanded && def) {
         const rows = decodeStruct(def, pin.addr, getByte, S.endian);
 
-        // Group consecutive rows by base field name (strip [N] suffix)
+        // Group consecutive rows by nearest array ancestor for collapsible array sections.
         const groups: Array<{ baseName: string; rows: typeof rows }> = [];
         for (const r of rows) {
             const base = arrayGroupBaseName(r.fieldName);
