@@ -2,7 +2,7 @@ import * as assert from 'assert';
 
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
-    allStructs, parseStructText, fieldsToText, validateStructs,
+    allStructs, parseStructText, fieldsToText, validateStructs, structToC,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
 import { initFlatBytes, getByte } from '../webview/data';
@@ -588,5 +588,53 @@ suite('parseStructText() round-trip', () => {
             assert.strictEqual(fields[i].count,  original[i].count,  `count mismatch at ${i}`);
             assert.strictEqual(fields[i].endian, original[i].endian, `endian mismatch at ${i}`);
         }
+    });
+});
+
+// ── structToC() padding/packed output ───────────────────────────
+
+suite('structToC()', () => {
+    test('aligned struct emits interior padding and aligned total bytes', () => {
+        const def: StructDef = {
+            id: 'x',
+            name: 'S',
+            fields: [
+                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },
+            ],
+        };
+        const text = structToC(def, [def]);
+        assert.ok(text.includes('_pad1[3]'), text);
+        assert.ok(text.includes('/* 8B, align=4 */'), text);
+    });
+
+    test('packed struct emits no padding lines and reports unpadded total', () => {
+        const def: StructDef = {
+            id: 'x',
+            name: 'S',
+            packed: true,
+            fields: [
+                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },
+            ],
+        };
+        const text = structToC(def, [def]);
+        assert.ok(text.includes('typedef struct __attribute__((packed))'), text);
+        assert.ok(!text.includes('_pad'), text);
+        assert.ok(text.includes('/* 5B, packed */'), text);
+    });
+
+    test('aligned struct emits trailing padding when needed', () => {
+        const def: StructDef = {
+            id: 'x',
+            name: 'S',
+            fields: [
+                { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint8', count: 1, endian: 'inherit' },
+            ],
+        };
+        const text = structToC(def, [def]);
+        assert.ok(text.includes('_pad5[3]'), text);
+        assert.ok(text.includes('/* 8B, align=4 */'), text);
     });
 });
