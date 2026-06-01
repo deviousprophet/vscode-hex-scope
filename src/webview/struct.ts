@@ -694,6 +694,15 @@ function getValForType(r: DecodedField, valType: ColType): string {
         const v = dv.getUint32(0, le) >>> 0;
         return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8));
     }
+    if (r.type === 'ascii') {
+        if (valType === 'hex') {
+            const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+            return formatHexHtml(`0x${hex}`);
+        }
+        if (valType === 'bin') { return binFn(); }
+        const s = r.decoded === '??' ? '' : r.decoded;
+        return `'${s}'`;
+    }
     if (valType === 'bin') { return binFn(); }
     if (valType === 'ieee') {
         if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
@@ -792,6 +801,7 @@ function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le
 /** Get a plain-text representation suitable for copying. */
 function getCopyText(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
+    if (r.type === 'ascii') { return r.decoded; }
     const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
     const le    = S.endian === 'le';
     const hexPad = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
@@ -853,6 +863,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
 }
 
 const TYPE_ABBREV: Record<string, string> = {
+    ascii: 'str',
     uint8: 'u8',  uint16: 'u16', uint32: 'u32', uint64: 'u64',
     int8:  'i8',  int16:  'i16', int32:  'i32', int64:  'i64',
     float32: 'f32', float64: 'f64', pointer: 'ptr',
@@ -865,11 +876,14 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
     if (!t) {
         // Prefer decimal view for floating-point fields by default
         if (r.type === 'float32' || r.type === 'float64') { t = 'dec'; }
+        else if (r.type === 'ascii') { t = 'ascii'; }
         else { t = _defaultValType; }
     }
     const v   = getValForType(r, t);
     const valHtml = (t === 'bin' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
-    const abbrev  = TYPE_ABBREV[r.type] ?? r.type;
+    const byteCount = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : bc;
+    const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
+    const abbrev  = r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
         `data-byte-start="${bs}" data-byte-cnt="${bc}">` +
@@ -908,15 +922,17 @@ function buildInstanceCard(pin: StructPin, i: number): string {
             if (g.rows.length === 1) {
                 // Scalar field — render flat
                 const r = g.rows[0];
-                return mkFieldRow(r, pin.addr + r.byteOffset, fieldByteSize(r.type));
+                const rowByteCnt = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
+                return mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt);
             } else {
                 // Array field group — collapsible, collapsed by default
                 const key     = `${pin.id}::${g.baseName}`;
                 const isOpen  = _expandedArrayFields.has(key);
                 const r0      = g.rows[0];
                 const byteStart = pin.addr + r0.byteOffset;
-                const totalCnt  = g.rows.reduce((s, r) => s + fieldByteSize(r.type), 0);
-                const elHtml     = g.rows.map(r => mkFieldRow(r, pin.addr + r.byteOffset, fieldByteSize(r.type))).join('');
+                const rowByteCnt = (r: DecodedField) => r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
+                const totalCnt  = g.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+                const elHtml     = g.rows.map(r => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r))).join('');
                 const arrAbbrev  = TYPE_ABBREV[r0.type] ?? r0.type;
                 const arrSummary = `[${g.rows.length}]\u202f\u00b7\u202f${arrAbbrev}`;
                 return (
@@ -1323,7 +1339,12 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
     };
     const sampleType = findFieldTypeAt(sampleAddr);
     const isFloatSample = sampleType === 'float32' || sampleType === 'float64';
-    const types: ColType[] = isFloatSample ? ['hex', 'dec', 'ieee', 'bin'] : ['hex', 'dec', 'bin', 'ascii'];
+    const isAsciiSample = sampleType === 'ascii';
+    const types: ColType[] = isFloatSample
+        ? ['hex', 'dec', 'ieee', 'bin']
+        : isAsciiSample
+            ? ['ascii', 'hex', 'bin']
+            : ['hex', 'dec', 'bin', 'ascii'];
     let cur: ColType | null = null;
     if (bsList && bsList.length > 0) {
         const vals = bsList.map(b => _fieldValTypes.get(b) ?? _defaultValType);
@@ -1388,7 +1409,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                     const t = cmd.replace('disp-', '') as ColType;
                     bsList.forEach(b => {
                         const ft = findFieldTypeAt(b);
-                        const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : _defaultValType;
+                        const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
                         if (t === implicit) { _fieldValTypes.delete(b); }
                         else { _fieldValTypes.set(b, t); }
                     });
@@ -1531,7 +1552,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
             if (cmd.startsWith('disp-')) {
                 const t = cmd.replace('disp-', '') as ColType;
                 const ft = findFieldTypeAt(bs);
-                const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : _defaultValType;
+                const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
                 if (t === implicit) { _fieldValTypes.delete(bs); }
                 else { _fieldValTypes.set(bs, t); }
                 hideFieldValMenu();
