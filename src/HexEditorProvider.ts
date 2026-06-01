@@ -49,8 +49,10 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         let webviewReady = false;
 
         raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
+
         format = detectFormat(document.uri, raw);
         parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
+
         if (parseResult.checksumErrors > 0 || parseResult.malformedLines > 0) {
             await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(document.uri), { preview: false });
             webviewPanel.dispose();
@@ -67,13 +69,17 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
         const postInit = () => {
             if (!webviewReady || !parseResult) { return; }
-            webviewPanel.webview.postMessage({
+            const serialized = serializeParseResult(parseResult, format);
+            
+            const msg = {
                 type: 'init',
-                parseResult: serializeParseResult(parseResult, format),
+                parseResult: serialized,
                 labels:      this._context.workspaceState.get(labelKey, []),
                 structs:     this._context.workspaceState.get(structKey, []),
                 structPins:  this._context.workspaceState.get(structPinKey, []),
-            });
+            };
+            
+            webviewPanel.webview.postMessage(msg);
         };
 
         // ── Live reload on external file changes ──────────────────────────

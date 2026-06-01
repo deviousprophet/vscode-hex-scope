@@ -5,7 +5,7 @@ import { S } from './state';
 import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from './utils';
 import { vscode } from './api';
 import { rerender } from './render';
-import { buildMemRows } from './data';
+import { buildMemRows, getByte } from './data';
 
 // ── Inspector ────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ export function updateInspector(): void {
     }
 
     const len = (S.selEnd !== null && S.selEnd >= S.selStart) ? S.selEnd - S.selStart + 1 : 1;
-    const val = S.flatBytes.get(S.selStart);
+    const val = getByte(S.selStart);
 
     // ── Address bar ──
     const ah = S.selStart.toString(16).toUpperCase().padStart(8, '0');
@@ -90,7 +90,7 @@ export function updateInspector(): void {
         // ── Multi-byte: show raw byte dump only — typed values are in the interpreter below ──
         const selBytes: number[] = [];
         for (let a = S.selStart; a <= S.selEnd!; a++) {
-            selBytes.push(S.flatBytes.get(a) ?? 0);
+            selBytes.push(getByte(a) ?? 0);
         }
         const dumpBytes = selBytes.slice(0, 8);
         const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
@@ -226,7 +226,7 @@ function byteRow(val: number, label: string | null): string {
 function renderMultiInline(): void {
     const el = document.getElementById('insp-multi');
     if (!el) { return; }
-    if (S.selStart === null || S.flatBytes.get(S.selStart) === undefined) {
+    if (S.selStart === null || getByte(S.selStart) === undefined) {
         el.innerHTML = ''; return;
     }
 
@@ -238,7 +238,7 @@ function renderMultiInline(): void {
 
     // Read selection bytes, zero-pad to width
     const raw = Array.from({ length: width }, (_, i) => {
-        const v = S.flatBytes.get(S.selStart! + i);
+        const v = getByte(S.selStart! + i);
         return (i < selLen && v !== undefined) ? v : 0;
     });
 

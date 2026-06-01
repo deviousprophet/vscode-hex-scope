@@ -38,8 +38,8 @@ export interface SegmentLabel {
     hidden?: boolean;
 }
 
-export type SearchMode = 'hex' | 'ascii' | 'addr';
-export type SearchEndianness = 'be' | 'le';
+export type SearchMode = 'bytes' | 'value' | 'ascii' | 'addr';
+export type SearchEndianness = 'auto' | 'be' | 'le';
 
 export type MemRow =
     | { type: 'data'; address: number }

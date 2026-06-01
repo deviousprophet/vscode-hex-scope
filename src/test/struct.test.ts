@@ -5,13 +5,27 @@ import {
     allStructs, parseStructText, fieldsToText,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
+import { initFlatBytes, getByte } from '../webview/data';
 import type { StructDef, StructField } from '../webview/types';
 
 function resetStructState(): void {
     S.structs           = [];
     S.activeStructAddr  = null;
-    S.flatBytes.clear();
-    S.sortedAddrs       = [];
+    S.parseResult       = null;
+    S.segmentIndex      = [];
+}
+
+/** Helper: set up parseResult with bytes at the given addresses. */
+function setBytesInSegment(baseAddr: number, bytes: number[]): void {
+    S.parseResult = {
+        records: [],
+        segments: [{ startAddress: baseAddr, data: bytes }],
+        totalDataBytes: bytes.length,
+        checksumErrors: 0,
+        malformedLines: 0,
+        format: 'ihex',
+    };
+    initFlatBytes();
 }
 
 // ── fieldByteSize ─────────────────────────────────────────────────
@@ -189,12 +203,10 @@ suite('decodeStruct()', () => {
             { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },
             { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
         ]};
-        // populate flatBytes at base 0x100
-        S.flatBytes.set(0x100, 0x01);
-        S.flatBytes.set(0x101, 0x02);
-        S.flatBytes.set(0x102, 0x03);
+        // populate parseResult at base 0x100
+        setBytesInSegment(0x100, [0x01, 0x02, 0x03]);
 
-        const rows = decodeStruct(def, 0x100, S.flatBytes, 'le');
+        const rows = decodeStruct(def, 0x100, getByte, 'le');
         assert.strictEqual(rows.length, 2);
         assert.strictEqual(rows[0].fieldName, 'a');
         assert.strictEqual(rows[0].byteOffset, 0);
@@ -207,7 +219,7 @@ suite('decodeStruct()', () => {
             { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },
             { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
         ]};
-        const rows = decodeStruct(def, 0, new Map(), 'le');
+        const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].byteOffset, 2);
     });
@@ -216,21 +228,23 @@ suite('decodeStruct()', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'v', type: 'uint8', count: 3, endian: 'inherit' },
         ]};
-        [0x0A, 0x0B, 0x0C].forEach((v, i) => S.flatBytes.set(i, v));
+        setBytesInSegment(0, [0x0A, 0x0B, 0x0C]);
 
-        const rows = decodeStruct(def, 0, S.flatBytes, 'le');
+        const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows.length, 3);
         assert.strictEqual(rows[0].fieldName, 'v[0]');
         assert.strictEqual(rows[1].fieldName, 'v[1]');
         assert.strictEqual(rows[2].fieldName, 'v[2]');
     });
 
-    test('hasData is false when byte is absent from flatBytes', () => {
+    test('hasData is false when byte is absent from segments', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
         ]};
-        // Do NOT populate S.flatBytes
-        const rows = decodeStruct(def, 0x200, S.flatBytes, 'le');
+        // Do NOT populate parseResult; getBy te will return undefined
+        S.parseResult = null;
+        S.segmentIndex = [];
+        const rows = decodeStruct(def, 0x200, getByte, 'le');
         assert.strictEqual(rows[0].hasData, false);
         assert.strictEqual(rows[0].decoded, '??');
     });
@@ -239,9 +253,9 @@ suite('decodeStruct()', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'a', type: 'uint16', count: 1, endian: 'le' },
         ]};
-        S.flatBytes.set(0, 0x01); S.flatBytes.set(1, 0x00);
+        setBytesInSegment(0, [0x01, 0x00]);
         // LE: 0x0001 = 1, even though global endian is BE
-        const rows = decodeStruct(def, 0, S.flatBytes, 'be');
+        const rows = decodeStruct(def, 0, getByte, 'be');
         assert.ok(rows[0].decoded.startsWith('1'), rows[0].decoded);
     });
 
@@ -249,9 +263,9 @@ suite('decodeStruct()', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'a', type: 'uint16', count: 1, endian: 'be' },
         ]};
-        S.flatBytes.set(0, 0x00); S.flatBytes.set(1, 0x01);
+        setBytesInSegment(0, [0x00, 0x01]);
         // BE read of 00 01 = 1
-        const rows = decodeStruct(def, 0, S.flatBytes, 'le');
+        const rows = decodeStruct(def, 0, getByte, 'le');
         assert.ok(rows[0].decoded.startsWith('1'), rows[0].decoded);
     });
 
@@ -261,7 +275,7 @@ suite('decodeStruct()', () => {
             { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },  // +1, 4 B
             { name: 'c', type: 'uint16', count: 1, endian: 'inherit' },  // +5, 2 B
         ]};
-        const rows = decodeStruct(def, 0, new Map(), 'le');
+        const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].byteOffset, 1);
         assert.strictEqual(rows[2].byteOffset, 5);
@@ -273,7 +287,7 @@ suite('decodeStruct()', () => {
             { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },  // +4 (3B pad)
             { name: 'c', type: 'uint16', count: 1, endian: 'inherit' },  // +8
         ]};
-        const rows = decodeStruct(def, 0, new Map(), 'le');
+        const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].byteOffset, 4);
         assert.strictEqual(rows[2].byteOffset, 8);
@@ -283,8 +297,8 @@ suite('decodeStruct()', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'a', type: 'uint16', count: 1, endian: 'inherit' },
         ]};
-        S.flatBytes.set(0, 0xAB); // only first byte present
-        const rows = decodeStruct(def, 0, S.flatBytes, 'le');
+        setBytesInSegment(0, [0xAB]); // only first byte present
+        const rows = decodeStruct(def, 0, getByte, 'le');
         assert.ok(rows[0].bytesHex.includes('??'), rows[0].bytesHex);
     });
 });
