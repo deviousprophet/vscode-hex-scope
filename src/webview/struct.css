@@ -448,14 +448,22 @@
 
 /* Expanded field rows */
 .si-fields {
+    --si-col-off: 30px;
+    --si-col-type: 20px;
+    --si-col-toggle: 18px;
+    --si-col-gap: 2px;
+    --si-col-pad-left: 6px;
+    --si-indent-step: 8px;
+    --si-toggle-x: calc(var(--si-col-pad-left) + var(--si-col-off) + var(--si-col-gap) + var(--si-col-type) + var(--si-col-gap) + (var(--si-col-toggle) / 2));
     border-top: 1px solid var(--border);
     padding: 3px 0;
 }
-/* Grid: [offset 40px] [type 28px] [body flex 1fr] */
+/* Grid: [offset] [type] [toggle] [body] */
 .si-field {
     display: grid;
-    grid-template-columns: 40px 28px 1fr;
-    gap: 3px; align-items: baseline;
+    grid-template-columns: var(--si-col-off) var(--si-col-type) var(--si-col-toggle) 1fr;
+    gap: var(--si-col-gap);
+    align-items: baseline;
     padding: 2px 8px;
     cursor: pointer;
     transition: background .1s;
@@ -463,8 +471,9 @@
 .si-field:hover    { background: var(--hover-bg); }
 .si-field.si-selected { background: rgba(79,195,247,.12) !important; }
 
-.si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); }
-.si-f-type { font-size: 8px; color: var(--addr-fg); opacity: .55; font-family: var(--font-editor); white-space: nowrap; }
+.si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
+.si-f-type { font-size: 8px; color: var(--addr-fg); opacity: .55; font-family: var(--font-editor); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.si-toggle-pad { display: block; width: var(--si-col-toggle); height: 1px; }
 
 /* name + dotted leader + value */
 .si-f-body {
@@ -515,15 +524,18 @@
 .si-f-ptr-sym { color: var(--addr-fg); font-style: normal; opacity: .8; }
 .si-no-data { opacity: .4; }
 
-/* Array field group — same grid for alignment */
+/* Composite node header rows */
 .si-arr-grp-hdr {
     display: grid;
-    grid-template-columns: 40px 28px 1fr;
-    gap: 3px; align-items: center;
+    grid-template-columns: var(--si-col-off) var(--si-col-type) var(--si-col-toggle) 1fr;
+    gap: var(--si-col-gap);
+    align-items: center;
     padding: 2px 8px;
     cursor: pointer;
     transition: background .1s;
     border-top: 1px solid rgba(255,255,255,.05);
+    position: relative;
+    border-radius: 3px;
 }
 
 /* per-field value-type menu */
@@ -550,13 +562,107 @@
 .si-arr-grp-hdr:hover      { background: var(--hover-bg); }
 .si-arr-grp-hdr.si-selected { background: rgba(79,195,247,.12) !important; }
 .si-arr-exp-btn {
-    width: 16px; height: 16px;
+    width: 100%;
+    height: 18px;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: none; padding: 0;
     color: var(--addr-fg); font-size: 12px; cursor: pointer; line-height: 1;
+    border-radius: 3px;
+    transition: background .12s ease, color .12s ease;
+    position: relative;
+    z-index: 2;
+}
+.si-arr-exp-btn:hover,
+.si-arr-el-exp-btn:hover {
+    background: rgba(255,255,255,.08);
+    color: var(--fg);
 }
 .si-arr-addr {
     font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
     white-space: nowrap; flex-shrink: 0;
 }
-.si-arr-grp-body .si-field { padding-left: 16px; }
+.si-node-pad {
+    width: var(--si-col-off);
+    height: 1px;
+}
+.si-node-type-pad {
+    width: var(--si-col-type);
+    height: 1px;
+}
+
+.si-arr-grp-body,
+.si-arr-el-body {
+    position: relative;
+    margin-left: 0;
+    border-left: none;
+}
+
+.si-arr-grp-body::before,
+.si-arr-el-body::before {
+    content: '';
+    position: absolute;
+    left: var(--si-toggle-x);
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid rgba(255,255,255,.14);
+    pointer-events: none;
+}
+
+.si-arr-el-hdr {
+    display: grid;
+    grid-template-columns: var(--si-col-off) var(--si-col-type) var(--si-col-toggle) 1fr;
+    gap: var(--si-col-gap);
+    align-items: center;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .1s;
+    position: relative;
+    border-radius: 3px;
+}
+.si-arr-el-hdr:hover { background: var(--hover-bg); }
+.si-arr-el-hdr.si-selected { background: rgba(79,195,247,.12) !important; }
+.si-arr-el-exp-btn {
+    width: 100%;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--addr-fg);
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1;
+    position: relative;
+    z-index: 2;
+}
+
+.si-field .si-f-body,
+.si-arr-grp-hdr .si-f-body,
+.si-arr-el-hdr .si-f-body {
+    padding-left: calc(var(--si-level, 0) * var(--si-indent-step));
+}
+
+.si-arr-grp-hdr .si-arr-exp-btn,
+.si-arr-el-hdr .si-arr-el-exp-btn {
+    margin-left: calc(var(--si-level, 0) * var(--si-indent-step));
+}
+
+.si-arr-grp-hdr::before,
+.si-arr-el-hdr::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--si-toggle-x) + (var(--si-level, 0) * var(--si-indent-step)));
+    top: 50%;
+    width: 10px;
+    border-top: 1px solid rgba(255,255,255,.18);
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.si-arr-grp-body::before,
+.si-arr-el-body::before {
+    left: calc(var(--si-toggle-x) + ((var(--si-level, 1) - 1) * var(--si-indent-step)));
+}

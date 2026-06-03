@@ -12,7 +12,7 @@ import type {
 
 export type { StructDef, StructField, StructFieldType, StructFieldEndian };
 
-export const MAX_NESTED_DEPTH = 3;
+export const MAX_NESTED_DEPTH = 32;
 
 // -- Constants -----------------------------------------------------
 
@@ -178,6 +178,48 @@ export interface DecodedField {
     bytesHex: string;
     decoded: string;
     hasData: boolean;
+}
+
+export interface ResolvedStructFieldPath {
+    field: StructField;
+    structName?: string;
+}
+
+/**
+ * Resolve a dotted field path (optionally containing array indices) to the declared field.
+ * Example accepted paths: "nodes", "nodes[0]", "outer[1].nodes".
+ */
+export function resolveStructFieldByPath(
+    def: StructDef,
+    fieldPath: string,
+    defs: StructDef[] = allStructs(),
+): ResolvedStructFieldPath | null {
+    const normalized = fieldPath.replace(/\[\d+\]/g, '');
+    const parts = normalized.split('.').map(p => p.trim()).filter(Boolean);
+    if (parts.length === 0) { return null; }
+
+    const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
+    byId.set(def.id, def);
+
+    let curDef: StructDef | null = def;
+    for (let i = 0; i < parts.length; i++) {
+        if (!curDef) { return null; }
+        const part = parts[i];
+        const field: StructField | undefined = curDef.fields.find((candidate: StructField) => candidate.name === part);
+        if (!field) { return null; }
+        const isLast = i === parts.length - 1;
+        if (isLast) {
+            if (field.type !== 'struct') {
+                return { field };
+            }
+            const child = field.refStructId ? byId.get(field.refStructId) : null;
+            return { field, structName: child?.name };
+        }
+        if (field.type !== 'struct' || !field.refStructId) { return null; }
+        curDef = byId.get(field.refStructId) ?? null;
+    }
+
+    return null;
 }
 
 export function decodeField(
