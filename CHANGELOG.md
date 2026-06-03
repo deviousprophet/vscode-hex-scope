@@ -1,12 +1,25 @@
 # Changelog
 
+## [2.5.1] — 2026-06-03
+
+### Changed
+
+- Struct Overlay nested field tree UI was refined with clearer indentation/alignment and guide lines for nested nodes
+- Nested group/element expand controls now have clearer visual affordances and more consistent row highlighting
+
+### Fixed
+
+- Struct Overlay now shows declared struct type names for nested struct fields and arrays (instead of generic type labels)
+- Nested struct/array rendering now uses the declared array size so element counts and summaries are accurate
+- Nested struct array elements now render as distinct expandable nodes, with selection highlighting/jump behavior aligned to each element range
+
 ## [2.5.0] — 2026-06-01
 
 ### Added
 
 - Nested struct fields in Struct Overlay, including validation for invalid references/cycles/depth
 - New ASCII struct field type for readable C-style strings (null-terminated display)
-- Resizable Struct Overlay sidebar with persistent width
+- Resizable sidebar with persistent width
 
 ### Changed
 

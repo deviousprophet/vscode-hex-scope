@@ -10,7 +10,7 @@ import { rerender } from './render';
 import { getByte }  from './data';
 import {
     FIELD_TYPES,
-    fieldByteSize, structByteSize, decodeStruct, allStructs,
+    fieldByteSize, structByteSize, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
 } from './struct-codec.js';
 import type { DecodedField } from './struct-codec.js';
@@ -32,6 +32,8 @@ let _applyStructId: string | null = null;
 const _expanded = new Set<string>();
 /** Array field groups that are expanded. Key: `${pinId}::${baseName}`. Collapsed by default. */
 const _expandedArrayFields = new Set<string>();
+/** Nested element groups that are expanded. Key: `${pinId}::${baseName}::${idx}`. Collapsed by default. */
+const _expandedArrayElements = new Set<string>();
 
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'ieee';
 /** Default display type for value cells (per-field default). */
@@ -44,6 +46,8 @@ let _addingPin = false;
 let _selectedFieldAddr: number | null = null;
 /** Array group key of the currently highlighted array header. */
 let _selectedArrKey: string | null = null;
+/** Nested array element key of the currently highlighted element header. */
+let _selectedArrElemKey: string | null = null;
 /** Byte start addresses marked with struct-arr-sep in the hex view. */
 const _arrSepAddrs: number[] = [];
 /** Pin id of the currently selected instance card. */
@@ -659,6 +663,7 @@ export function resetStructViewState(): void {
     _managingTypes           = false;
     _editingPinId            = null;
     _editingPinDraftStructId = null;
+    _selectedArrElemKey      = null;
     renderStructPins();
 }
 
@@ -869,7 +874,7 @@ const TYPE_ABBREV: Record<string, string> = {
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
 
-function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
+function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: string): string {
     const nd  = !r.hasData ? ' si-no-data' : '';
     const ptr = r.type === 'pointer';
     let t = _fieldValTypes.get(bs);
@@ -890,8 +895,9 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
         `data-byte-start="${bs}" data-byte-cnt="${bc}">` +
         `<span class="si-f-off">+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}</span>` +
         `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
+        `<span class="si-toggle-pad" aria-hidden="true"></span>` +
         `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(r.fieldName)}</span>` +
+        `<span class="si-f-name">${esc(displayName ?? leafName(r.fieldName))}</span>` +
         `<span class="si-f-lead"></span>` +
         `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${bs}">${valHtml}</span>` +
         `</span>` +
@@ -899,14 +905,60 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number): string {
     );
 }
 
+function parseArrayIndex(fieldPath: string, baseName: string): number | null {
+    const escBase = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = fieldPath.match(new RegExp(`^${escBase}\\[(\\d+)\\]`));
+    if (!m) { return null; }
+    const idx = parseInt(m[1], 10);
+    return isNaN(idx) ? null : idx;
+}
+
+function indexedLeafName(fieldPath: string, baseName: string, idx: number): string {
+    const prefix = `${baseName}[${idx}].`;
+    if (fieldPath.startsWith(prefix)) {
+        const nested = fieldPath.slice(prefix.length);
+        const parts = nested.split('.').filter(Boolean);
+        return parts.length > 0 ? parts[parts.length - 1] : nested;
+    }
+    const parts = fieldPath.split('.').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : fieldPath;
+}
+
+function indexOnlyName(fieldPath: string, baseName: string): string {
+    const idx = parseArrayIndex(fieldPath, baseName);
+    return idx === null ? leafName(fieldPath) : `[${idx}]`;
+}
+
+function leafName(fieldPath: string): string {
+    const parts = fieldPath.split('.').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : fieldPath;
+}
+
+function disambiguateLeafNames(names: string[]): string[] {
+    const seen = new Map<string, number>();
+    return names.map(name => {
+        const count = (seen.get(name) ?? 0) + 1;
+        seen.set(name, count);
+        return count === 1 ? name : `${name}#${count}`;
+    });
+}
+
 function arrayGroupBaseName(fieldPath: string): string {
-    // Group by the nearest array ancestor (last [N] in the path), so names like
-    // "parent.arr[0].child" and "parent.arr[1].child" collapse under "parent.arr".
+    // Group by the first local segment (before first dot), even when arrays are present.
+    // This keeps nested fields under their owning parent node.
     const matches = [...fieldPath.matchAll(/\[\d+\]/g)];
-    if (matches.length === 0) { return fieldPath; }
-    const last = matches[matches.length - 1];
-    if (last.index === undefined) { return fieldPath; }
-    return fieldPath.slice(0, last.index);
+    if (matches.length === 0) {
+        const dot = fieldPath.indexOf('.');
+        return dot >= 0 ? fieldPath.slice(0, dot) : fieldPath;
+    }
+    const first = matches[0];
+    if (first.index === undefined) { return fieldPath; }
+    const firstArrayIdx = first.index;
+    const firstDot = fieldPath.indexOf('.');
+    if (firstDot >= 0 && firstDot < firstArrayIdx) {
+        return fieldPath.slice(0, firstDot);
+    }
+    return fieldPath.slice(0, first.index);
 }
 
 function buildInstanceCard(pin: StructPin, i: number): string {
@@ -919,8 +971,118 @@ function buildInstanceCard(pin: StructPin, i: number): string {
     let bodyHtml = '';
     if (expanded && def) {
         const rows = decodeStruct(def, pin.addr, getByte, S.endian);
+        const rowByteCnt = (r: DecodedField) => r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
 
-        // Group consecutive rows by nearest array ancestor for collapsible array sections.
+        const renderStructChildren = (structRows: DecodedField[], structBase: string, parentKey: string): string => {
+            const structPrefix = `${structBase}.`;
+            const nestedGroups: Array<{ baseRel: string; fullBase: string; rows: DecodedField[] }> = [];
+            for (const r of structRows) {
+                const relPath = r.fieldName.startsWith(structPrefix)
+                    ? r.fieldName.slice(structPrefix.length)
+                    : r.fieldName;
+                const baseRel = arrayGroupBaseName(relPath);
+                const fullBase = `${structBase}.${baseRel}`;
+                const lastNested = nestedGroups[nestedGroups.length - 1];
+                if (lastNested && lastNested.fullBase === fullBase) { lastNested.rows.push(r); }
+                else { nestedGroups.push({ baseRel, fullBase, rows: [r] }); }
+            }
+
+            return nestedGroups.map(ng => {
+                const nestedDeclared = resolveStructFieldByPath(def, ng.fullBase);
+                const nestedType = nestedDeclared?.field.type ?? ng.rows[0].type;
+                const nestedCount = nestedDeclared?.field.count ?? ng.rows.length;
+                const nestedIsStruct = nestedType === 'struct';
+                const nestedIsString = nestedType === 'ascii';
+                const nestedIsComposite = nestedIsStruct || (nestedCount > 1 && !nestedIsString);
+                if (!nestedIsComposite) {
+                    const labels = disambiguateLeafNames(ng.rows.map(r => leafName(r.fieldName)));
+                    return ng.rows.map((r, idx) =>
+                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), labels[idx])
+                    ).join('');
+                }
+
+                const nestedStructName = nestedDeclared?.structName ?? 'struct';
+                const nestedTypeAbbrev = TYPE_ABBREV[nestedType] ?? nestedType;
+                const nestedSummary = nestedIsStruct
+                    ? (nestedCount > 1 ? `${nestedStructName}[${nestedCount}]` : nestedStructName)
+                    : `${nestedTypeAbbrev}[${nestedCount}]`;
+                const nestedKey = `${parentKey}::${ng.baseRel}`;
+                const nestedOpen = _expandedArrayFields.has(nestedKey);
+                const nestedStart = pin.addr + ng.rows[0].byteOffset;
+                const nestedCnt = ng.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+
+                let nestedBodyHtml = '';
+                if (nestedIsStruct && nestedCount > 1) {
+                    type ElementGroup = { idx: number; rows: DecodedField[] };
+                    const elements: ElementGroup[] = [];
+                    for (const r of ng.rows) {
+                        const idx = parseArrayIndex(r.fieldName, ng.fullBase);
+                        if (idx === null) { continue; }
+                        const last = elements[elements.length - 1];
+                        if (last && last.idx === idx) { last.rows.push(r); }
+                        else { elements.push({ idx, rows: [r] }); }
+                    }
+                    nestedBodyHtml = elements.map(element => {
+                        const first = element.rows[0];
+                        const elementByteStart = pin.addr + first.byteOffset;
+                        const elementByteCnt = element.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+                        const elementKey = `${nestedKey}::${element.idx}`;
+                        const isElementOpen = _expandedArrayElements.has(elementKey);
+                        const childRowsHtml = renderStructChildren(
+                            element.rows,
+                            `${ng.fullBase}[${element.idx}]`,
+                            elementKey,
+                        );
+                        return (
+                            `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
+                            `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}">` +
+                            `<span class="si-node-pad" aria-hidden="true"></span>` +
+                            `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                            `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
+                            `<span class="si-f-body">` +
+                            `<span class="si-f-name">[${element.idx}]</span>` +
+                            `<span class="si-f-lead"></span>` +
+                            `<span class="si-arr-addr">${esc(nestedStructName)}</span>` +
+                            `</span>` +
+                            `</div>` +
+                            `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${childRowsHtml}</div>` +
+                            `</div>`
+                        );
+                    }).join('');
+                } else if (nestedIsStruct && nestedCount === 1) {
+                    nestedBodyHtml = renderStructChildren(ng.rows, ng.fullBase, nestedKey);
+                } else if (!nestedIsStruct && nestedCount > 1 && !nestedIsString) {
+                    nestedBodyHtml = ng.rows.map(r =>
+                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), indexOnlyName(r.fieldName, ng.fullBase))
+                    ).join('');
+                } else {
+                    const nestedLeafNames = disambiguateLeafNames(
+                        ng.rows.map(r => leafName(r.fieldName))
+                    );
+                    nestedBodyHtml = ng.rows.map((r, idx) =>
+                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), nestedLeafNames[idx])
+                    ).join('');
+                }
+
+                return (
+                    `<div class="si-arr-grp${nestedOpen ? ' open' : ''}" data-arr-key="${esc(nestedKey)}">` +
+                    `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${nestedCnt}">` +
+                    `<span class="si-node-pad" aria-hidden="true"></span>` +
+                    `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                    `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
+                    `<span class="si-f-body">` +
+                    `<span class="si-f-name">${esc(leafName(ng.baseRel))}</span>` +
+                    `<span class="si-f-lead"></span>` +
+                    `<span class="si-arr-addr">${esc(nestedSummary)}</span>` +
+                    `</span>` +
+                    `</div>` +
+                    `<div class="si-arr-grp-body"${nestedOpen ? '' : ' style=\"display:none\"'}>${nestedBodyHtml}</div>` +
+                    `</div>`
+                );
+            }).join('');
+        };
+
+        // Group consecutive rows into composite/leaf sections.
         const groups: Array<{ baseName: string; rows: typeof rows }> = [];
         for (const r of rows) {
             const base = arrayGroupBaseName(r.fieldName);
@@ -930,39 +1092,96 @@ function buildInstanceCard(pin: StructPin, i: number): string {
         }
 
         const fieldHtml = groups.map(g => {
-            if (g.rows.length === 1) {
-                // Scalar field — render flat
-                const r = g.rows[0];
-                const rowByteCnt = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
-                return mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt);
-            } else {
-                // Array field group — collapsible, collapsed by default
-                const key     = `${pin.id}::${g.baseName}`;
-                const isOpen  = _expandedArrayFields.has(key);
-                const r0      = g.rows[0];
-                const byteStart = pin.addr + r0.byteOffset;
-                const rowByteCnt = (r: DecodedField) => r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
-                const totalCnt  = g.rows.reduce((s, r) => s + rowByteCnt(r), 0);
-                const elHtml     = g.rows.map(r => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r))).join('');
-                const arrAbbrev  = TYPE_ABBREV[r0.type] ?? r0.type;
-                const arrSummary = `[${g.rows.length}]\u202f\u00b7\u202f${arrAbbrev}`;
-                const arrSummaryFull = `[${g.rows.length}] · ${r0.type}`;
-                return (
-                    `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
-                    `<div class="si-arr-grp-hdr" ` +
-                    `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}">` +
-                    `<span class="si-f-off">+${r0.byteOffset.toString(16).toUpperCase().padStart(3, '0')}</span>` +
-                    `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
-                    `<span class="si-f-body">` +
-                    `<span class="si-f-name">${esc(g.baseName)}</span>` +
-                    `<span class="si-f-lead"></span>` +
-                    `<span class="si-arr-addr" title="${esc(arrSummaryFull)}">${esc(arrSummary)}</span>` +
-                    `</span>` +
-                    `</div>` +
-                    `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
-                    `</div>`
-                );
+            const r0 = g.rows[0];
+            const declared = resolveStructFieldByPath(def, g.baseName);
+            const declaredType = declared?.field.type ?? r0.type;
+            const declaredCount = declared?.field.count ?? g.rows.length;
+            const isStruct = declaredType === 'struct';
+            const isArray = declaredCount > 1;
+            const isString = declaredType === 'ascii';
+            const isComposite = isStruct || (isArray && !isString);
+
+            if (!isComposite) {
+                // Scalar leaf field(s) — render flat using local labels.
+                const labels = disambiguateLeafNames(g.rows.map(r => leafName(r.fieldName)));
+                return g.rows.map((r, idx) => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), labels[idx])).join('');
             }
+
+            // Composite field group — collapsible, collapsed by default.
+            const key     = `${pin.id}::${g.baseName}`;
+            const isOpen  = _expandedArrayFields.has(key);
+            const byteStart = pin.addr + r0.byteOffset;
+            const totalCnt  = g.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+            let elHtml     = g.rows.map(r => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r))).join('');
+                const structName = declared?.structName ?? 'struct';
+                const scalarType = TYPE_ABBREV[declaredType] ?? declaredType;
+                const nodeSummary = isStruct
+                    ? (isArray ? `${structName}[${declaredCount}]` : structName)
+                    : `${scalarType}[${declaredCount}]`;
+                const nodeSummaryFull = nodeSummary;
+
+                if (isStruct && isArray) {
+                    type ElementGroup = { idx: number; rows: DecodedField[] };
+                    const elements: ElementGroup[] = [];
+                    for (const r of g.rows) {
+                        const idx = parseArrayIndex(r.fieldName, g.baseName);
+                        if (idx === null) { continue; }
+                        const last = elements[elements.length - 1];
+                        if (last && last.idx === idx) { last.rows.push(r); }
+                        else { elements.push({ idx, rows: [r] }); }
+                    }
+                    if (elements.length > 0) {
+                        elHtml = elements.map(element => {
+                            const first = element.rows[0];
+                            const elementByteStart = pin.addr + first.byteOffset;
+                            const elementByteCnt = element.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+                            const elementKey = `${key}::${element.idx}`;
+                            const isElementOpen = _expandedArrayElements.has(elementKey);
+                            const elementRowsHtml = renderStructChildren(
+                                element.rows,
+                                `${g.baseName}[${element.idx}]`,
+                                elementKey,
+                            );
+                            return (
+                                `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
+                                `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}">` +
+                                `<span class="si-node-pad" aria-hidden="true"></span>` +
+                                `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                                `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
+                                `<span class="si-f-body">` +
+                                `<span class="si-f-name">[${element.idx}]</span>` +
+                                `<span class="si-f-lead"></span>` +
+                                `<span class="si-arr-addr">${esc(structName)}</span>` +
+                                `</span>` +
+                                `</div>` +
+                                `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
+                                `</div>`
+                            );
+                        }).join('');
+                    }
+                } else if (isStruct && !isArray) {
+                    elHtml = renderStructChildren(g.rows, g.baseName, key);
+                } else if (!isStruct && isArray) {
+                    elHtml = g.rows.map(r =>
+                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), indexOnlyName(r.fieldName, g.baseName))
+                    ).join('');
+                }
+            return (
+                `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
+                `<div class="si-arr-grp-hdr" ` +
+                `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}">` +
+                `<span class="si-node-pad" aria-hidden="true"></span>` +
+                `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+                `<span class="si-f-body">` +
+                `<span class="si-f-name">${esc(leafName(g.baseName))}</span>` +
+                `<span class="si-f-lead"></span>` +
+                `<span class="si-arr-addr" title="${esc(nodeSummaryFull)}">${esc(nodeSummary)}</span>` +
+                `</span>` +
+                `</div>` +
+                `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
+                `</div>`
+            );
         }).join('');
 
         bodyHtml = `<div class="si-fields">${fieldHtml}</div>`;
@@ -1047,7 +1266,81 @@ function clearSelRow(): void {
         .forEach(el => el.classList.remove('si-selected'));
 }
 
+function setTreeLevel(el: HTMLElement, level: number): void {
+    el.style.setProperty('--si-level', String(level));
+}
+
+function asHtml(el: Element | null): HTMLElement | null {
+    if (!el) { return null; }
+    const candidate = el as HTMLElement;
+    return typeof candidate.classList !== 'undefined' ? candidate : null;
+}
+
+function firstDirectChildByClass(parent: HTMLElement, cls: string): HTMLElement | null {
+    for (const child of Array.from(parent.children)) {
+        const htmlChild = asHtml(child);
+        if (htmlChild && htmlChild.classList.contains(cls)) {
+            return htmlChild;
+        }
+    }
+    return null;
+}
+
+function applyTreeDepthStyles(sec: HTMLElement): void {
+    const annotateBody = (body: HTMLElement, level: number) => {
+        setTreeLevel(body, level);
+        for (const child of Array.from(body.children)) {
+            const htmlChild = asHtml(child);
+            if (!htmlChild) { continue; }
+            if (htmlChild.classList.contains('si-field')) {
+                setTreeLevel(htmlChild, level);
+                continue;
+            }
+            if (htmlChild.classList.contains('si-arr-grp')) {
+                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-grp-hdr');
+                if (hdr) { setTreeLevel(hdr, level); }
+                const childBody = firstDirectChildByClass(htmlChild, 'si-arr-grp-body');
+                if (childBody) { annotateBody(childBody, level + 1); }
+                continue;
+            }
+            if (htmlChild.classList.contains('si-arr-el-grp')) {
+                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-el-hdr');
+                if (hdr) { setTreeLevel(hdr, level); }
+                const childBody = firstDirectChildByClass(htmlChild, 'si-arr-el-body');
+                if (childBody) { annotateBody(childBody, level + 1); }
+            }
+        }
+    };
+
+    sec.querySelectorAll<HTMLElement>('.si-fields').forEach(fields => {
+        setTreeLevel(fields, 0);
+        for (const child of Array.from(fields.children)) {
+            const htmlChild = asHtml(child);
+            if (!htmlChild) { continue; }
+            if (htmlChild.classList.contains('si-field')) {
+                setTreeLevel(htmlChild, 0);
+                continue;
+            }
+            if (htmlChild.classList.contains('si-arr-grp')) {
+                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-grp-hdr');
+                if (hdr) { setTreeLevel(hdr, 0); }
+                const body = firstDirectChildByClass(htmlChild, 'si-arr-grp-body');
+                if (body) { annotateBody(body, 1); }
+                continue;
+            }
+            if (htmlChild.classList.contains('si-arr-el-grp')) {
+                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-el-hdr');
+                if (hdr) { setTreeLevel(hdr, 0); }
+                const body = firstDirectChildByClass(htmlChild, 'si-arr-el-body');
+                if (body) { annotateBody(body, 1); }
+            }
+        }
+    });
+}
+
 function wireInstanceCards(sec: HTMLElement): void {
+    applyTreeDepthStyles(sec);
+
     sec.querySelectorAll<HTMLElement>('.si-expand-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const id = btn.dataset.pinId!;
@@ -1100,17 +1393,84 @@ function wireInstanceCards(sec: HTMLElement): void {
             if (isNaN(start) || isNaN(cnt)) { return; }
             const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
             _selectedArrKey    = grp.dataset.arrKey!;
+            _selectedArrElemKey = null;
             _selectedFieldAddr = null;
-            // Mark each element's first byte (except element 0) for visual separation
-            grp.querySelectorAll<HTMLElement>('.si-field').forEach((row, i) => {
-                if (i === 0) { return; }
-                const bs = parseInt(row.dataset.byteStart!);
-                if (isNaN(bs)) { return; }
-                _arrSepAddrs.push(bs);
-                const ah = bs.toString(16).toUpperCase().padStart(8, '0');
+            // Mark each nested element's first byte (except element 0) for visual separation.
+            const elementHeaders = grp.querySelectorAll<HTMLElement>('.si-arr-el-hdr');
+            if (elementHeaders.length > 0) {
+                Array.from(elementHeaders).forEach((elHdr, i) => {
+                    if (i === 0) { return; }
+                    const bs = parseInt(elHdr.dataset.byteStart!);
+                    if (isNaN(bs)) { return; }
+                    _arrSepAddrs.push(bs);
+                    const ah = bs.toString(16).toUpperCase().padStart(8, '0');
+                    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
+                        .forEach(el => el.classList.add('struct-arr-sep'));
+                });
+            } else {
+                grp.querySelectorAll<HTMLElement>('.si-field').forEach((row, i) => {
+                    if (i === 0) { return; }
+                    const bs = parseInt(row.dataset.byteStart!);
+                    if (isNaN(bs)) { return; }
+                    _arrSepAddrs.push(bs);
+                    const ah = bs.toString(16).toUpperCase().padStart(8, '0');
+                    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
+                        .forEach(el => el.classList.add('struct-arr-sep'));
+                });
+            }
+            S.selStart = start;
+            S.selEnd   = start + cnt - 1;
+            hdr.classList.add('si-selected');
+            import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+            import('./sidebar.js').then(m => m.updateInspector());
+        });
+    });
+
+    // Nested element: arrow toggles expand; row selects that element range.
+    sec.querySelectorAll<HTMLElement>('.si-arr-el-hdr').forEach(hdr => {
+        const expBtn = hdr.querySelector<HTMLElement>('.si-arr-el-exp-btn')!;
+        const start  = parseInt(hdr.dataset.byteStart!);
+        const cnt    = parseInt(hdr.dataset.byteCnt!);
+
+        expBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            const grp = hdr.closest<HTMLElement>('.si-arr-el-grp')!;
+            const key = grp.dataset.arrElKey!;
+            const body = grp.querySelector<HTMLElement>('.si-arr-el-body')!;
+            const isOpen = _expandedArrayElements.has(key);
+            if (isOpen) {
+                _expandedArrayElements.delete(key);
+                grp.classList.remove('open');
+                body.style.display = 'none';
+                expBtn.textContent = '▸';
+            } else {
+                _expandedArrayElements.add(key);
+                grp.classList.add('open');
+                body.style.display = '';
+                expBtn.textContent = '▾';
+            }
+        });
+
+        hdr.addEventListener('mouseenter', () => {
+            for (let i = 0; i < cnt; i++) {
+                const ah = (start + i).toString(16).toUpperCase().padStart(8, '0');
                 document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
-                    .forEach(el => el.classList.add('struct-arr-sep'));
-            });
+                    .forEach(el => el.classList.add('struct-h'));
+            }
+        });
+        hdr.addEventListener('mouseleave', () => {
+            document.querySelectorAll<HTMLElement>('.struct-h')
+                .forEach(el => el.classList.remove('struct-h'));
+        });
+
+        hdr.addEventListener('click', e => {
+            if ((e.target as HTMLElement).closest('.si-arr-el-exp-btn')) { return; }
+            clearArrSep();
+            clearSelRow();
+            if (isNaN(start) || isNaN(cnt)) { return; }
+            _selectedArrElemKey = hdr.dataset.arrElKey!;
+            _selectedArrKey = null;
+            _selectedFieldAddr = null;
             S.selStart = start;
             S.selEnd   = start + cnt - 1;
             hdr.classList.add('si-selected');
@@ -1126,6 +1486,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             clearSelRow();
             _selectedFieldAddr = null;
             _selectedArrKey    = null;
+            _selectedArrElemKey = null;
             const card = hdr.closest<HTMLElement>('.si-card')!;
             const idx  = parseInt(card.dataset.idx!);
             const pin  = S.structPins[idx];
@@ -1197,6 +1558,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             row.classList.add('si-selected');
             _selectedFieldAddr = start;
             _selectedArrKey    = null;
+            _selectedArrElemKey = null;
             import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
             import('./sidebar.js').then(m => m.updateInspector());
         });
@@ -1308,6 +1670,12 @@ function wireInstanceCards(sec: HTMLElement): void {
         sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
             if (parseInt(row.dataset.byteStart!) === _selectedFieldAddr) {
                 row.classList.add('si-selected');
+            }
+        });
+    } else if (_selectedArrElemKey !== null) {
+        sec.querySelectorAll<HTMLElement>('.si-arr-el-hdr').forEach(hdr => {
+            if (hdr.dataset.arrElKey === _selectedArrElemKey) {
+                hdr.classList.add('si-selected');
             }
         });
     } else if (_selectedArrKey !== null) {
@@ -1628,6 +1996,7 @@ export function onSelectionChangeForStruct(): void {
     clearSelRow();
     _selectedFieldAddr = null;
     _selectedArrKey    = null;
+    _selectedArrElemKey = null;
     _selectedPinId     = null;
     if (S.selStart === null) { return; }
     S.activeStructAddr = S.selStart;
