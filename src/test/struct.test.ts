@@ -2,7 +2,7 @@ import * as assert from 'assert';
 
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
-    allStructs, parseStructText, fieldsToText, validateStructs, structToC,
+    allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
 import { initFlatBytes, getByte } from '../webview/data';
@@ -346,6 +346,57 @@ suite('decodeStruct()', () => {
     });
 });
 
+suite('resolveStructFieldByPath()', () => {
+    setup(() => resetStructState());
+
+    test('resolves nested struct array field using declared type and count', () => {
+        const child: StructDef = {
+            id: 'child',
+            name: 'ChildNode',
+            fields: [{ name: 'v', type: 'uint8', count: 1, endian: 'inherit' }],
+        };
+        const parent: StructDef = {
+            id: 'parent',
+            name: 'Parent',
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3, endian: 'inherit' }],
+        };
+
+        S.structs = [child, parent];
+
+        const resolved = resolveStructFieldByPath(parent, 'nodes');
+        assert.ok(resolved);
+        assert.strictEqual(resolved!.field.type, 'struct');
+        assert.strictEqual(resolved!.field.count, 3);
+        assert.strictEqual(resolved!.structName, 'ChildNode');
+    });
+
+    test('resolves path containing array indices to declared nested field', () => {
+        const leaf: StructDef = {
+            id: 'leaf',
+            name: 'Leaf',
+            fields: [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }],
+        };
+        const mid: StructDef = {
+            id: 'mid',
+            name: 'Mid',
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'leaf', count: 4, endian: 'inherit' }],
+        };
+        const top: StructDef = {
+            id: 'top',
+            name: 'Top',
+            fields: [{ name: 'wrappers', type: 'struct', refStructId: 'mid', count: 2, endian: 'inherit' }],
+        };
+
+        S.structs = [leaf, mid, top];
+
+        const resolved = resolveStructFieldByPath(top, 'wrappers[0].nodes');
+        assert.ok(resolved);
+        assert.strictEqual(resolved!.field.type, 'struct');
+        assert.strictEqual(resolved!.field.count, 4);
+        assert.strictEqual(resolved!.structName, 'Leaf');
+    });
+});
+
 // ── validateStructs ───────────────────────────────────────────────
 
 suite('validateStructs()', () => {
@@ -364,12 +415,19 @@ suite('validateStructs()', () => {
         assert.ok(errs.some(e => e.includes('cycle')), `errors: ${errs.join(' | ')}`);
     });
 
-    test('reports nesting depth overflow when depth > 3', () => {
-        const d: StructDef = { id: 'd', name: 'D', fields: [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }] };
-        const c: StructDef = { id: 'c', name: 'C', fields: [{ name: 'd', type: 'struct', refStructId: 'd', count: 1, endian: 'inherit' }] };
-        const b: StructDef = { id: 'b', name: 'B', fields: [{ name: 'c', type: 'struct', refStructId: 'c', count: 1, endian: 'inherit' }] };
-        const a: StructDef = { id: 'a', name: 'A', fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1, endian: 'inherit' }] };
-        const errs = validateStructs([a, b, c, d], 3);
+    test('reports nesting depth overflow when depth exceeds configured limit', () => {
+        const defs: StructDef[] = [];
+        const depth = 34;
+        for (let i = depth; i >= 1; i--) {
+            defs.push({
+                id: `s${i}`,
+                name: `S${i}`,
+                fields: i === depth
+                    ? [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }]
+                    : [{ name: `s${i + 1}`, type: 'struct', refStructId: `s${i + 1}`, count: 1, endian: 'inherit' }],
+            });
+        }
+        const errs = validateStructs(defs, 32);
         assert.ok(errs.some(e => e.includes('depth')), `errors: ${errs.join(' | ')}`);
     });
 });
