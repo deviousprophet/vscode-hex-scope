@@ -661,7 +661,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
         rows.push(`<tr${rowClass}>
             ${addrCell}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
-            <td class="rcnt">${r.byteCount}</td>
+            <td class="rcnt">${esc(String(r.byteCount))}</td>
             ${dataCell}
             <td>${chk}</td>
         </tr>`);
