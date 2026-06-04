@@ -660,7 +660,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
             : `<td class="raddr raddr-empty">—</td>`;
 
         rows.push(`<tr${rowClass}>
-            ${addrCell}
+            ${esc(addrCell)}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
             <td class="rcnt">${esc(String(r.byteCount))}</td>
             ${dataCell}
@@ -673,14 +673,15 @@ function renderRecordViewImpl(el: HTMLElement): void {
         appendRecordSpacerRows(rows, bottomOffset);
     }
 
-    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.join('')}</tbody></table>`;
+    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.map(esc).join('')}</tbody></table>`;
 }
 
 function appendRecordSpacerRows(rows: string[], totalHeight: number): void {
     let remaining = totalHeight;
     while (remaining > 0) {
         const chunk = Math.min(remaining, RECORD_MAX_SPACER_PX);
-        rows.push(`<tr style="height:${chunk}px"><td colspan="5"></td></tr>`);
+        const safeChunk = Math.max(0, Math.floor(chunk));
+        rows.push(`<tr style="height:${safeChunk}px"><td colspan="5"></td></tr>`);
         remaining -= chunk;
     }
 }
