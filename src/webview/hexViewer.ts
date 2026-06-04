@@ -648,11 +648,12 @@ function renderRecordViewImpl(el: HTMLElement): void {
         const dataCell = r.error
             ? `<td class="rdata rerr-msg">${esc(r.error)}</td>`
             : `<td class="rdata">${data || '—'}</td>`;
+        const checksumHex = esc(String(r.checksum.toString(16).toUpperCase().padStart(2, '0')));
         const chk  = r.error
             ? `<span class="rerr-dash">—</span>`
             : r.checksumValid
-                ? `<span class="cok">${r.checksum.toString(16).toUpperCase().padStart(2, '0')}</span>`
-                : `<span class="cerr">${r.checksum.toString(16).toUpperCase().padStart(2, '0')}</span><span class="cerr-tag">checksum error</span>`;
+                ? `<span class="cok">${checksumHex}</span>`
+                : `<span class="cerr">${checksumHex}</span><span class="cerr-tag">checksum error</span>`;
         const rowClass = (r.error || !r.checksumValid) ? ' class="rerr"' : '';
         const addrCell = isData
             ? `<td class="raddr">${ra}</td>`
