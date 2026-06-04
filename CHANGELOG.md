@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.2] — 2026-06-04
+
+### Fixed
+
+- Fixed multiple client-side cross-site scripting (XSS) issues in `hexViewer.ts` identified by CodeQL code scanning
+
 ## [2.5.1] — 2026-06-03
 
 ### Changed

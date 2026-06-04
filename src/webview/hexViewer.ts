@@ -488,11 +488,31 @@ function renderStats(): void {
     if (!el || !S.parseResult) { return; }
     const p = S.parseResult;
     const fmtLabel = p.format === 'srec' ? 'SREC' : 'IHEX';
-    el.innerHTML =
-        `<span class="si si-fmt"><span class="svl">${fmtLabel}</span></span>` +
-        `<span class="si"><span class="slb">Bytes</span><span class="svl">${fmtB(p.totalDataBytes)}</span></span>` +
-        `<span class="si"><span class="slb">Records</span><span class="svl">${p.recordCount ?? p.records.length}</span></span>` +
-    `<span class="si"><span class="slb">Segments</span><span class="svl">${p.segments.length}</span></span>`;
+
+    const addItem = (label: string | null, value: string, extraClass = ''): void => {
+        const item = document.createElement('span');
+        item.className = extraClass ? `si ${extraClass}` : 'si';
+
+        if (label !== null) {
+            const labelEl = document.createElement('span');
+            labelEl.className = 'slb';
+            labelEl.textContent = label;
+            item.appendChild(labelEl);
+        }
+
+        const valueEl = document.createElement('span');
+        valueEl.className = 'svl';
+        valueEl.textContent = value;
+        item.appendChild(valueEl);
+
+        el.appendChild(item);
+    };
+
+    el.textContent = '';
+    addItem(null, fmtLabel, 'si-fmt');
+    addItem('Bytes', fmtB(p.totalDataBytes));
+    addItem('Records', String(p.recordCount ?? p.records.length));
+    addItem('Segments', String(p.segments.length));
 }
 
 // ── Memory view ───────────────────────────────────────────────────
@@ -641,7 +661,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
         rows.push(`<tr${rowClass}>
             ${addrCell}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
-            <td class="rcnt">${r.byteCount}</td>
+            <td class="rcnt">${esc(String(r.byteCount))}</td>
             ${dataCell}
             <td>${chk}</td>
         </tr>`);
@@ -828,22 +848,36 @@ function showExternalChangeError(checksumErrors: number, malformedLines: number,
     } else {
         errorMsg = `${malformedLines} malformed line${malformedLines === 1 ? '' : 's'}`;
     }
-    
-    let buttonHtml = '';
+
+    const icon = document.createElement('span');
+    icon.className = 'eeb-icon';
+    icon.textContent = '❌';
+
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'eeb-msg';
+    msgSpan.append('File changed externally and is now invalid: ');
+
+    const strong = document.createElement('strong');
+    strong.textContent = errorMsg;
+    msgSpan.append(strong);
+
+    banner.append(icon, msgSpan);
+
     if (canQuickRepair) {
         // Only checksum errors — offer quick repair option only
-        buttonHtml =
-            `<button class="eeb-btn eeb-repair"  id="eeb-repair">Quick Repair &amp; reload</button>`;
+        const repairBtn = document.createElement('button');
+        repairBtn.className = 'eeb-btn eeb-repair';
+        repairBtn.id = 'eeb-repair';
+        repairBtn.textContent = 'Quick Repair & reload';
+        banner.append(repairBtn);
     } else {
         // Malformed lines present — can't auto-repair, just offer to switch to text editor
-        buttonHtml =
-            `<button class="eeb-btn eeb-view-text" id="eeb-view-text">View in text editor</button>`;
+        const viewTextBtn = document.createElement('button');
+        viewTextBtn.className = 'eeb-btn eeb-view-text';
+        viewTextBtn.id = 'eeb-view-text';
+        viewTextBtn.textContent = 'View in text editor';
+        banner.append(viewTextBtn);
     }
-    
-    banner.innerHTML =
-        `<span class="eeb-icon">❌</span>` +
-        `<span class="eeb-msg">File changed externally and is now invalid: <strong>${errorMsg}</strong></span>` +
-        buttonHtml;
 
     document.getElementById('app')!.prepend(banner);
 
