@@ -488,11 +488,31 @@ function renderStats(): void {
     if (!el || !S.parseResult) { return; }
     const p = S.parseResult;
     const fmtLabel = p.format === 'srec' ? 'SREC' : 'IHEX';
-    el.innerHTML =
-        `<span class="si si-fmt"><span class="svl">${fmtLabel}</span></span>` +
-        `<span class="si"><span class="slb">Bytes</span><span class="svl">${fmtB(p.totalDataBytes)}</span></span>` +
-        `<span class="si"><span class="slb">Records</span><span class="svl">${p.recordCount ?? p.records.length}</span></span>` +
-    `<span class="si"><span class="slb">Segments</span><span class="svl">${p.segments.length}</span></span>`;
+
+    const addItem = (label: string | null, value: string, extraClass = ''): void => {
+        const item = document.createElement('span');
+        item.className = extraClass ? `si ${extraClass}` : 'si';
+
+        if (label !== null) {
+            const labelEl = document.createElement('span');
+            labelEl.className = 'slb';
+            labelEl.textContent = label;
+            item.appendChild(labelEl);
+        }
+
+        const valueEl = document.createElement('span');
+        valueEl.className = 'svl';
+        valueEl.textContent = value;
+        item.appendChild(valueEl);
+
+        el.appendChild(item);
+    };
+
+    el.textContent = '';
+    addItem(null, fmtLabel, 'si-fmt');
+    addItem('Bytes', fmtB(p.totalDataBytes));
+    addItem('Records', String(p.recordCount ?? p.records.length));
+    addItem('Segments', String(p.segments.length));
 }
 
 // ── Memory view ───────────────────────────────────────────────────
