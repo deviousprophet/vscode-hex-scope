@@ -848,22 +848,36 @@ function showExternalChangeError(checksumErrors: number, malformedLines: number,
     } else {
         errorMsg = `${malformedLines} malformed line${malformedLines === 1 ? '' : 's'}`;
     }
-    
-    let buttonHtml = '';
+
+    const icon = document.createElement('span');
+    icon.className = 'eeb-icon';
+    icon.textContent = '❌';
+
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'eeb-msg';
+    msgSpan.append('File changed externally and is now invalid: ');
+
+    const strong = document.createElement('strong');
+    strong.textContent = errorMsg;
+    msgSpan.append(strong);
+
+    banner.append(icon, msgSpan);
+
     if (canQuickRepair) {
         // Only checksum errors — offer quick repair option only
-        buttonHtml =
-            `<button class="eeb-btn eeb-repair"  id="eeb-repair">Quick Repair &amp; reload</button>`;
+        const repairBtn = document.createElement('button');
+        repairBtn.className = 'eeb-btn eeb-repair';
+        repairBtn.id = 'eeb-repair';
+        repairBtn.textContent = 'Quick Repair & reload';
+        banner.append(repairBtn);
     } else {
         // Malformed lines present — can't auto-repair, just offer to switch to text editor
-        buttonHtml =
-            `<button class="eeb-btn eeb-view-text" id="eeb-view-text">View in text editor</button>`;
+        const viewTextBtn = document.createElement('button');
+        viewTextBtn.className = 'eeb-btn eeb-view-text';
+        viewTextBtn.id = 'eeb-view-text';
+        viewTextBtn.textContent = 'View in text editor';
+        banner.append(viewTextBtn);
     }
-    
-    banner.innerHTML =
-        `<span class="eeb-icon">❌</span>` +
-        `<span class="eeb-msg">File changed externally and is now invalid: <strong>${errorMsg}</strong></span>` +
-        buttonHtml;
 
     document.getElementById('app')!.prepend(banner);
 
