@@ -32,6 +32,14 @@ suite('detectFormatFromParts()', () => {
         assert.strictEqual(detectFormatFromParts('hex', ':020000040800F2\n'), 'ihex');
     });
 
+    test('".ihx" extension → ihex', () => {
+        assert.strictEqual(detectFormatFromParts('ihx', ':020000040800F2\n'), 'ihex');
+    });
+
+    test('".ihex" extension → ihex', () => {
+        assert.strictEqual(detectFormatFromParts('ihex', ':020000040800F2\n'), 'ihex');
+    });
+
     test('unknown extension with IHEX content → ihex', () => {
         assert.strictEqual(detectFormatFromParts('bin', ':020000040800F2\n'), 'ihex');
     });

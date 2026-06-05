@@ -1,5 +1,5 @@
 // ── Intel HEX Parser ─────────────────────────────────────────────
-// Parses Intel HEX files (.hex) and returns a ParseResult.
+// Parses Intel HEX files (.hex, .ihx, .ihex) and returns a ParseResult.
 // Shared interfaces live in ./types so neither parser depends on
 // the other.
 
