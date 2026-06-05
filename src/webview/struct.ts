@@ -121,12 +121,13 @@ function fieldRowHtml(
     );
 }
 
-// ── C syntax-highlighted HTML from a struct definition ──────────────────────
+// ── C syntax-highlighted struct preview ─────────────────────────────────────
 
 const SC_KW   = /\b(typedef|struct)\b/g;
 const SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
-function structToCHtml(def: StructDef): string {
+function buildStructCPreviewNodes(def: StructDef): DocumentFragment {
+    const out = document.createDocumentFragment();
     const nameEscRe = (def.name || 'MyStruct').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const nestedTypeNames = def.fields
         .filter(f => f.type === 'struct' && f.refStructId)
@@ -140,26 +141,82 @@ function structToCHtml(def: StructDef): string {
         nameEscRe,
         ...nestedTypeNames,
     ].join('|');
-    const scTyp = new RegExp(
-        `\\b(${typeUnion})\\b`,
-        'g'
-    );
-    return structToC(def).split('\n').map(line => {
+    const scTyp = new RegExp(`\\b(${typeUnion})\\b`, 'g');
+
+    const appendText = (parent: DocumentFragment | HTMLElement, text: string) => {
+        parent.appendChild(document.createTextNode(text));
+    };
+
+    const appendTokenizedCode = (parent: DocumentFragment | HTMLElement, code: string) => {
+        // Tokenize into spans/text nodes so user text is never parsed as HTML.
+        const tokenRe = new RegExp(`${SC_ATTR.source}|${SC_KW.source}|${scTyp.source}`, 'g');
+        let lastIdx = 0;
+        let m: RegExpExecArray | null;
+        while ((m = tokenRe.exec(code)) !== null) {
+            const idx = m.index;
+            if (idx > lastIdx) { appendText(parent, code.slice(lastIdx, idx)); }
+            const tok = m[0];
+            const span = document.createElement('span');
+            if (tok === '__attribute__((packed))') {
+                span.className = 'sc-attr';
+            } else if (tok === 'typedef' || tok === 'struct') {
+                span.className = 'sc-kw';
+            } else {
+                span.className = 'sc-type';
+            }
+            span.textContent = tok;
+            parent.appendChild(span);
+            lastIdx = idx + tok.length;
+        }
+        if (lastIdx < code.length) { appendText(parent, code.slice(lastIdx)); }
+    };
+
+    const lines = structToC(def).split('\n');
+    lines.forEach((line, i) => {
         const ci = line.indexOf('/*');
         const code = ci >= 0 ? line.slice(0, ci) : line;
-        const cmt  = ci >= 0 ? line.slice(ci) : '';
+        const cmt = ci >= 0 ? line.slice(ci) : '';
         const isPad = /\b_pad\w+/.test(code);
-        let h = esc(code);
         if (isPad) {
             const n = code.match(/_pad\w+\[(\d+)\]/)?.[1] ?? '?';
-            const indent = esc(line.slice(0, line.length - line.trimStart().length));
-            return `${indent}<span class="sc-cmt">/* ${n} byte${n === '1' ? '' : 's'} padding */</span>`;
+            const indent = line.slice(0, line.length - line.trimStart().length);
+            appendText(out, indent);
+            const span = document.createElement('span');
+            span.className = 'sc-cmt';
+            span.textContent = `/* ${n} byte${n === '1' ? '' : 's'} padding */`;
+            out.appendChild(span);
+        } else {
+            appendTokenizedCode(out, code);
+            if (cmt) {
+                const span = document.createElement('span');
+                span.className = 'sc-cmt';
+                span.textContent = cmt;
+                out.appendChild(span);
+            }
         }
-        h = h.replace(SC_KW,   '<span class="sc-kw">$&</span>');
-        h = h.replace(SC_ATTR, '<span class="sc-attr">$&</span>');
-        h = h.replace(scTyp,   '<span class="sc-type">$&</span>');
-        return h + (cmt ? `<span class="sc-cmt">${esc(cmt)}</span>` : '');
-    }).join('\n');
+        if (i < lines.length - 1) { appendText(out, '\n'); }
+    });
+
+    return out;
+}
+
+function renderStructCPreview(pre: HTMLElement, def: StructDef): void {
+    pre.replaceChildren(buildStructCPreviewNodes(def));
+}
+
+function hydrateStructPreviews(root: HTMLElement): void {
+    root.querySelectorAll<HTMLElement>('.si-c-preview[data-struct-preview-id]').forEach(pre => {
+        const id = pre.dataset.structPreviewId;
+        if (!id) { return; }
+        const def = (_editingType?.draft.id === id)
+            ? _editingType.draft
+            : allStructs().find(d => d.id === id);
+        if (!def) {
+            pre.textContent = '';
+            return;
+        }
+        renderStructCPreview(pre, def);
+    });
 }
 
 function editorHtml(draft: StructDef, existing: StructDef | null): string {
@@ -181,14 +238,14 @@ function editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<button id="se-save" class="struct-btn struct-btn-apply">Save</button>` +
         `<button id="se-cancel" class="struct-btn struct-btn-secondary">Cancel</button>` +
         `</div>` +
-        `<div id="se-preview" class="se-preview"><pre class="si-c-preview">${structToCHtml(draft)}</pre></div>` +
+        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
 }
 
 function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
-    draft.name   = (sec.querySelector<HTMLInputElement>('#se-name'))?.value.trim() ?? '';
+    draft.name   = sanitizeCIdent((sec.querySelector<HTMLInputElement>('#se-name'))?.value.trim() ?? '');
     draft.packed = sec.querySelector('#se-packed')?.classList.contains('active') ?? false;
     const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
     draft.fields = Array.from(rows).map(row => {
@@ -226,7 +283,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     function refreshEditorPreview(s: HTMLElement, d: StructDef): void {
         syncEditorDraft(s, d);
         const pre = s.querySelector<HTMLElement>('#se-preview pre');
-        if (pre) { pre.innerHTML = structToCHtml(d); }
+        if (pre) { renderStructCPreview(pre, d); }
     }
 
     sec.querySelector('#se-add')!.addEventListener('click', () => {
@@ -309,6 +366,12 @@ function wireEditorInSec(sec: HTMLElement): void {
     sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
         refreshEditorPreview(sec, draft);
     });
+    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('blur', e => {
+        const inp = e.target as HTMLInputElement;
+        const clean = sanitizeCIdent(inp.value);
+        if (clean !== inp.value) { inp.value = clean; }
+        refreshEditorPreview(sec, draft);
+    });
 
     sec.querySelector('#se-save')!.addEventListener('click', () => {
         syncEditorDraft(sec, draft);
@@ -316,7 +379,7 @@ function wireEditorInSec(sec: HTMLElement): void {
 
         // Auto-fill struct name if empty, ensuring uniqueness across existing structs
         const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
-        let name = nameInp.value.trim();
+        let name = sanitizeCIdent(nameInp.value.trim());
         if (!name) {
             const otherNames = new Set(S.structs.filter(d => d.id !== draft.id).map(d => d.name));
             let candidate = 'MyStruct';
@@ -432,7 +495,7 @@ export function renderStructPins(): void {
                 `<option value="${esc(d.id)}"${d.id === _applyStructId ? ' selected' : ''}>${esc(d.name)}</option>`
             ).join('');
             const previewHtml = applyDef
-                ? `<pre class="si-c-preview">${structToCHtml(applyDef)}</pre>`
+                ? `<pre class="si-c-preview" data-struct-preview-id="${esc(applyDef.id)}"></pre>`
                 : '';
             typeRowHtml =
                 `<div class="sa-row">` +
@@ -498,6 +561,8 @@ export function renderStructPins(): void {
 
         `</div>` + // si-panel-track
         `</div>`; // si-panel-clip
+
+    hydrateStructPreviews(sec);
 
     // ── Types button: slide in (no re-render) ──
     document.getElementById('si-types-btn')?.addEventListener('click', () => {
@@ -1189,7 +1254,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
 
     const typePreviewHtml = def
         ? `<div class="si-type-preview"${_previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
-          `<pre class="si-c-preview">${structToCHtml(def)}</pre>` +
+                    `<pre class="si-c-preview" data-struct-preview-id="${esc(def.id)}"></pre>` +
           `</div>`
         : '';
 
@@ -1204,7 +1269,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
         ).join('');
         const editDef = allStructs().find(d => d.id === draftStructId);
         const editPreviewHtml = editDef
-            ? `<pre class="si-c-preview">${structToCHtml(editDef)}</pre>`
+            ? `<pre class="si-c-preview" data-struct-preview-id="${esc(editDef.id)}"></pre>`
             : '';
         editFormHtml =
             `<div class="si-pin-edit-form">` +
