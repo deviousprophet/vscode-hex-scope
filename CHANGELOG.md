@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unrelease]
+
+### Added
+
+- Added Intel HEX extension support for `.ihx` and `.ihex` across language associations, custom editor selectors, and HexScope context menus
+
 ## [2.5.3] — 2026-06-05
 
 ### Fixed
@@ -220,7 +226,7 @@
 
 ### Added
 
-- Custom editor for Intel HEX (`.hex`) files, registered for `*.hex` via VS Code's custom editor API
+- Custom editor for Intel HEX (`.hex`, `.ihx`, `.ihex`) files, registered for matching Intel HEX filename patterns via VS Code's custom editor API
 - Intel HEX parser supporting all six record types: Data, End of File, Extended Segment Address, Start Segment Address, Extended Linear Address, and Start Linear Address
 - 32-bit address resolution for both Extended Linear Address (type 04) and Extended Segment Address (type 02) modes
 - Per-record checksum validation with error and malformed-line counters
@@ -236,7 +242,7 @@
 - **Right-click context menu** — single byte: Copy (Hex, Decimal, Binary, ASCII) and Patch submenus; multi-byte: Copy (8 formats with live preview), Analyze (Sum, XOR, CRC-8, CRC-16, CRC-32), and Fill/Patch submenus
 - Gap rows in the memory grid indicate non-contiguous address ranges with the unmapped byte count
 - **Segment labels**: named, color-coded address-range banners rendered inline in the memory grid; persisted per workspace per file via `workspaceState`; supports add, edit, delete, reorder, and visibility toggle
-- `Open with HexScope Viewer` command available in Explorer context menu and editor title button for `.hex` files
+- `Open with HexScope Viewer` command available in Explorer context menu and editor title button for Intel HEX files (`.hex`, `.ihx`, `.ihex`)
 - Commands: `hexScope.openInHexScope`, `hexScope.addSegmentLabel`, `hexScope.copyAsHexString`, `hexScope.copyAsCArray`, `hexScope.copyAsAscii`, `hexScope.copyRawRecord`
 - Intel HEX syntax highlighting via TextMate grammar with per-field token coloring (start code, byte count, address, record type, data, checksum)
 - Drag-to-select bytes across hex cells and decoded-text cells in the memory grid
