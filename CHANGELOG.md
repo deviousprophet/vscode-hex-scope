@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.3] — 2026-06-05
+
+### Fixed
+
+- Fixed DOM text reinterpreted as HTML in struct to C preview identified by CodeQL code scanning
+
 ## [2.5.2] — 2026-06-04
 
 ### Fixed
