@@ -68,7 +68,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Short summary
 -------------
-- TypeScript VS Code extension: custom editor for Intel HEX (.hex) and Motorola SREC (.srec/.mot/.s19) files.
+- TypeScript VS Code extension: custom editor for Intel HEX and Motorola SREC files.
 
 Key files
 ---------

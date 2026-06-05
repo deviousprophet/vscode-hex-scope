@@ -6,7 +6,7 @@ VS Code extension for viewing and analyzing firmware files (HEX, SREC) with hex 
 
 | Format | Extensions |
 |---|---|
-| Intel HEX | `.hex` |
+| Intel HEX | `.hex`, `.ihx`, `.ihex` |
 | Motorola SREC | `.srec`, `.mot`, `.s19`, `.s28`, `.s37` |
 
 ## Quick usage

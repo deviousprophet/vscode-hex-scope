@@ -28,7 +28,9 @@
           "ihex"
         ],
         "extensions": [
-          ".hex"
+          ".hex",
+          ".ihx",
+          ".ihex"
         ]
       },
       {
@@ -65,6 +67,12 @@
         "selector": [
           {
             "filenamePattern": "*.hex"
+          },
+          {
+            "filenamePattern": "*.ihx"
+          },
+          {
+            "filenamePattern": "*.ihex"
           },
           {
             "filenamePattern": "*.srec"
@@ -133,40 +141,40 @@
       "explorer/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37)",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
           "submenu": "hexScope.actions",
-          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37) && activeEditorIsNotPreview",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && activeEditorIsNotPreview",
           "group": "navigation"
         }
       ],
       "editor/title/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37)",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "(resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37) && activeCustomEditorId != 'hexScope.hexEditor'",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && activeCustomEditorId != 'hexScope.hexEditor'",
           "group": "navigation"
         }
       ],
       "hexScope.actions": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
         },
         {
           "command": "hexScope.quickRepair",
-          "when": "resourceExtname == .hex || resourceExtname == .srec || resourceExtname == .mot || resourceExtname == .s19 || resourceExtname == .s28 || resourceExtname == .s37",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
         }
       ]
