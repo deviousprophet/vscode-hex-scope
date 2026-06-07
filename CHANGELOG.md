@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unrelease]
+## [2.6.0] — 2026-06-07
 
 ### Added
 
-- Added Intel HEX extension support for `.ihx` and `.ihex` across language associations, custom editor selectors, and HexScope context menus
+- Added support for additional Intel HEX file extensions: `.ihx` and `.ihex`
 
 ## [2.5.3] — 2026-06-05
 
