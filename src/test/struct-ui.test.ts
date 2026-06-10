@@ -466,4 +466,75 @@ suite('struct UI array header summary', () => {
             .map(el => el.textContent ?? '');
         assert.ok(!labels.some(label => /#\d+$/.test(label)), 'nested labels should not use disambiguation suffixes');
     });
+
+    test('groups bit fields by storage unit with child rows', async () => {
+        const def: StructDef = {
+            id: 'bit_struct',
+            name: 'BitStruct',
+            fields: [
+                { name: 'mode', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
+                { name: 'flags', type: 'uint16', bitWidth: 5, count: 1, endian: 'inherit' },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bits', structId: 'bit_struct', addr: 0, name: 'inst' }];
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const unitHeader = document.querySelector<HTMLElement>('.si-arr-grp-hdr .si-f-name');
+        assert.ok(unitHeader, 'bit-field unit header should render');
+        assert.strictEqual(unitHeader!.textContent ?? '', 'BitField', 'bit-field header should display BitField');
+
+        const unitType = document.querySelector<HTMLElement>('.si-arr-grp-hdr .si-f-type');
+        assert.ok(unitType, 'bit-field header should show scalar-like type');
+        assert.strictEqual(unitType!.textContent ?? '', 'u16', 'bit-field header should use base scalar type');
+
+        const unitOffset = document.querySelector<HTMLElement>('.si-arr-grp-hdr .si-f-off');
+        assert.ok(unitOffset, 'bit-field header should show scalar-like offset');
+
+        const unitValue = document.querySelector<HTMLElement>('.si-arr-grp-hdr .si-f-val');
+        assert.ok(unitValue, 'bit-field unit should show scalar-like value cell');
+        assert.strictEqual(unitValue!.dataset.valType, 'bin', 'bit-field parent row should default to binary view');
+
+        const unitExpand = document.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn');
+        assert.ok(unitExpand, 'bit-field unit should be expandable');
+        unitExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.ok(childNames.includes('mode'), 'bit-field child row should contain mode');
+        assert.ok(childNames.includes('flags'), 'bit-field child row should contain flags');
+
+        const childType = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field .si-f-type');
+        assert.ok(childType, 'bit-field child row should show type');
+        assert.strictEqual(childType!.textContent ?? '', 'bit:3', 'bit-field child type should be displayed as bit:N');
+
+        const childOffset = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field .si-f-off');
+        assert.ok(childOffset, 'bit-field child row should show offset');
+        assert.strictEqual(childOffset!.textContent ?? '', '.0', 'bit-field child offset should use .N format');
+
+        const firstChild = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field');
+        assert.ok(firstChild, 'first bit-field child should render');
+        firstChild!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const selectedBits = document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-val .si-bit.sel');
+        assert.ok(selectedBits.length > 0, 'selecting bit-field child should highlight corresponding parent bits');
+
+        const selectedRows = document.querySelectorAll<HTMLElement>('.si-field.si-selected');
+        assert.strictEqual(selectedRows.length, 0, 'bit-field child selection should not apply row selection/jump styling');
+
+        // Hover highlight should clear when pointer leaves the struct panel.
+        const panel = document.getElementById('s-struct-pins');
+        assert.ok(panel, 'struct panel should exist');
+        panel!.dispatchEvent(new dom.window.MouseEvent('mouseleave', { bubbles: true }));
+
+        const selectedBitsAfterLeave = document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-val .si-bit.sel');
+        assert.ok(selectedBitsAfterLeave.length > 0, 'selected highlight should remain after hover leaves');
+    });
 });
