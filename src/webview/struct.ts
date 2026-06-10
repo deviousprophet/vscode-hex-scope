@@ -1,7 +1,7 @@
-﻿// ── Struct Overlay — UI layer ─────────────────────────────────────
-// Single section rendered into #s-struct-pins.
-// Type management (create / edit / delete) is inline within that section.
-// Pure codec logic lives in struct-codec.ts.
+﻿/** Struct Overlay — UI layer
+Single section rendered into #s-struct-pins.
+Type management (create / edit / delete) is inline within that section.
+Pure codec logic lives in struct-codec.ts. */
 
 import { S }        from './state';
 import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64 } from './utils';
@@ -48,6 +48,14 @@ let _selectedFieldAddr: number | null = null;
 let _selectedArrKey: string | null = null;
 /** Nested array element key of the currently highlighted element header. */
 let _selectedArrElemKey: string | null = null;
+/** Selected bit-field range to highlight on its parent bit-unit value. */
+let _selectedBitRange: { parentByteStart: number; startBit: number; endBit: number } | null = null;
+/** Hovered bit-field range to preview highlight on parent bit-unit value. */
+let _hoveredBitRange: { parentByteStart: number; startBit: number; endBit: number } | null = null;
+/** Selected bit-field child row identity: `${byteStart}:${bitStart}:${bitWidth}`. */
+let _selectedBitRowKey: string | null = null;
+/** Hovered bit-field child row identity: `${byteStart}:${bitStart}:${bitWidth}`. */
+let _hoveredBitRowKey: string | null = null;
 /** Byte start addresses marked with struct-arr-sep in the hex view. */
 const _arrSepAddrs: number[] = [];
 /** Pin id of the currently selected instance card. */
@@ -76,6 +84,113 @@ function sanitizeCIdent(raw: string): string {
     return raw.replace(/[^A-Za-z0-9_]/g, '').replace(/^(\d)/, '_$1');
 }
 
+function isBitCapableType(type: StructFieldType): boolean {
+    return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64' ||
+        type === 'int8' || type === 'int16' || type === 'int32' || type === 'int64';
+}
+
+function isBitFieldRow(r: DecodedField): boolean {
+    return r.isBitField === true && typeof r.bitWidth === 'number';
+}
+
+/** Calculate total bits used by all children in a bit-field container. */
+function usedBitsInContainer(f: import('./types').StructField): number {
+    if (!Array.isArray(f.bitFields)) {
+        return 0;
+    }
+    return f.bitFields.reduce((sum, child) => sum + child.bitWidth, 0);
+}
+
+/** Get maximum bit capacity for a field type (for bit-field containers). */
+function getMaxBitsForType(type: import('./types').StructFieldType): number {
+    const typeSize = fieldByteSize(type as any);
+    return typeSize ? typeSize * 8 : 8;
+}
+
+/** Calculate available bits remaining in a bit-field container. */
+function availableBitsInContainer(f: import('./types').StructField): number {
+    if (!isUnsignedScalarType(f.type)) { return 0; }
+    const typeBytes = fieldByteSize(f.type);
+    const totalBits = typeBytes * 8;
+    const usedBits = usedBitsInContainer(f);
+    return totalBits - usedBits;
+}
+
+function renderBitSpan(bit: string, idx: number, selected: boolean): string {
+    const sel = selected ? ' sel' : '';
+    return `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}${sel}" data-bit-idx="${idx}">${bit}</span>`;
+}
+
+function makeBitRowKey(byteStart: number, bitStart: number, bitWidth: number): string {
+    return `${byteStart}:${bitStart}:${bitWidth}`;
+}
+
+function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
+    const byteStart = parseInt(row.dataset.byteStart ?? '', 10);
+    const bitStart = parseInt(row.dataset.bitStart ?? '', 10);
+    const bitWidth = parseInt(row.dataset.bitWidth ?? '', 10);
+    if (!Number.isFinite(byteStart) || !Number.isFinite(bitStart) || !Number.isFinite(bitWidth) || bitWidth <= 0) {
+        return null;
+    }
+    return { byteStart, bitStart, bitWidth };
+}
+
+function applyBitHighlightsInPlace(sec: HTMLElement): void {
+    sec.querySelectorAll<HTMLElement>('.si-bit.hov').forEach(el => el.classList.remove('hov'));
+    sec.querySelectorAll<HTMLElement>('.si-bit.sel').forEach(el => el.classList.remove('sel'));
+
+    const applyRange = (
+        range: { parentByteStart: number; startBit: number; endBit: number } | null,
+        cls: 'sel' | 'hov',
+    ) => {
+        if (!range) { return; }
+        const parentVal = sec.querySelector<HTMLElement>(
+            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"]`
+        );
+        if (!parentVal) { return; }
+        for (let i = range.startBit; i <= range.endBit; i++) {
+            parentVal.querySelector<HTMLElement>(`.si-bit[data-bit-idx="${i}"]`)?.classList.add(cls);
+        }
+    };
+
+    applyRange(_selectedBitRange, 'sel');
+    applyRange(_hoveredBitRange, 'hov');
+}
+
+function renderBinaryFromBitRows(
+    rows: DecodedField[],
+    selectedRange?: { startBit: number; endBit: number } | null,
+): string {
+    const spans: string[] = [];
+    let idx = 0;
+    for (const r of rows) {
+        const w = r.bitWidth ?? 0;
+        if (w <= 0) { continue; }
+        if (!r.hasData) {
+            for (let i = 0; i < w; i++) {
+                const selected = !!selectedRange && idx >= selectedRange.startBit && idx <= selectedRange.endBit;
+                const sel = selected ? ' sel' : '';
+                spans.push(`<span class="si-bit unknown${sel}" data-bit-idx="${idx}">?</span>`);
+                idx += 1;
+            }
+            continue;
+        }
+        const v = BigInt(r.bitValueUnsigned ?? '0');
+        const bits = v.toString(2).padStart(w, '0');
+        for (const bit of bits) {
+            const selected = !!selectedRange && idx >= selectedRange.startBit && idx <= selectedRange.endBit;
+            spans.push(renderBitSpan(bit, idx, selected));
+            idx += 1;
+        }
+    }
+
+    const groups: string[] = [];
+    for (let i = 0; i < spans.length; i += 4) {
+        groups.push(spans.slice(i, i + 4).join(''));
+    }
+    return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+}
+
 function fieldRowHtml(
     f: import('./types').StructField,
     i: number,
@@ -97,18 +212,47 @@ function fieldRowHtml(
         `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
         (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '');
     const isArr = f.count > 1;
+    const isUnsigned = isUnsignedScalarType(f.type);
+    const isBitContainer = isUnsigned && Array.isArray(f.bitFields) && f.bitFields.length > 0;
+    const bitToggled = isUnsigned && ((isBitContainer) || (typeof f.bitWidth === 'number' && f.bitWidth > 0));
+    const bitCapable = isBitCapableType(f.type);
+    const hasLegacyBit = bitCapable && typeof f.bitWidth === 'number' && f.bitWidth > 0;
     const delCell = isOnly
         ? `<span class="sfe-del-placeholder"></span>`
         : `<button class="sfe-del-btn" title="Remove field">\u2715</button>`;
     const upDis  = i === 0         ? ' disabled' : '';
     const dnDis  = i === total - 1 ? ' disabled' : '';
+    const bfCollapsed = f.bitFieldsCollapsed === true;
+
+    // ── Child bitfield rows ──
+    let childrenHtml = '';
+    if (isBitContainer) {
+        const childRows = f.bitFields!.map((child, ci) => childFieldRowHtml(child, ci, f.bitFields!.length)).join('');
+        const remainingBits = availableBitsInContainer(f);
+        const canAddMore = remainingBits > 0;
+        const addBtnDisabled = !canAddMore ? ' disabled' : '';
+        const addBtnTitle = canAddMore ? 'Add bit-field child' : 'No bits remaining in parent';
+        childrenHtml =
+            `<div class="sfe-bf-children"${bfCollapsed ? ' style="display:none"' : ''}>` +
+            childRows +
+            `<button class="sfe-bf-add-child" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
+            `</div>`;
+    } else if (hasLegacyBit) {
+        // Legacy single-bitWidth: auto-migrate will happen on save
+    }
+
+    // :N toggle button
+    const bitBtnClass = bitToggled ? ' sfe-bit-btn-on' : '';
+    const bitBtnDisabled = !isUnsigned ? ' disabled' : '';
+
     return (
-        `<div class="struct-field-row" data-idx="${i}">` +
+        `<div class="struct-field-row${isBitContainer ? ' has-bit-children' : ''}" data-idx="${i}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
         `<input class="sfe-name-inp" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
+        `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details"${bitBtnDisabled}>:N</button>` +
         `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
-        `<button class="sfe-arr-toggle${isArr ? ' active' : ''}" title="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
+         `<button class="sfe-arr-toggle${isArr ? ' active' : ''}" title="${isArr ? 'Remove array' : 'Make array'}"${bitToggled ? ' disabled' : ''}>[ ]</button>` +
         `<input class="sfe-count-inp" type="text" inputmode="numeric" ` +
                `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
         `</div>` +
@@ -117,8 +261,43 @@ function fieldRowHtml(
         `<button class="sfe-move-btn sfe-move-dn" title="Move down"${dnDis}>&#x2192;</button>` +
         `</div>` +
         delCell +
+        childrenHtml +
         `</div>`
     );
+}
+
+/** Render a single bit-field child row inside a bit-field container parent. */
+function childFieldRowHtml(child: import('./types').BitFieldChild, ci: number, total: number): string {
+    const upDis  = ci === 0        ? ' disabled' : '';
+    const dnDis  = ci === total - 1 ? ' disabled' : '';
+    const delCell = total <= 1
+        ? `<span class="sfe-del-placeholder"></span>`
+        : `<button class="sfe-bf-del-child" title="Remove child">\u2715</button>`;
+    return (
+        `<div class="sfe-bf-child-row" data-child-idx="${ci}">` +
+        `<span class="sfe-bf-child-indent"></span>` +
+        `<input class="sfe-bf-child-name" type="text" value="${esc(child.name)}" maxlength="64" ` +
+               `placeholder="bit${ci}" spellcheck="false" autocomplete="off">` +
+        `<input class="sfe-bf-child-width" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
+               `placeholder="N" maxlength="2">` +
+        `<span class="sfe-bf-child-unit">bit</span>` +
+        `<div class="sfe-bf-child-move">` +
+        `<button class="sfe-move-btn sfe-move-up" title="Move up"${upDis}>&#x2192;</button>` +
+        `<button class="sfe-move-btn sfe-move-dn" title="Move down"${dnDis}>&#x2192;</button>` +
+        `</div>` +
+        delCell +
+        `</div>`
+    );
+}
+
+/** Check if a field type is an unsigned scalar (eligible for bit-field container). */
+function isUnsignedScalarType(type: import('./types').StructFieldType): type is import('./types').StructScalarFieldType {
+    return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
+}
+
+/** Get bit capacity for a parent field type. */
+function getParentBitCapacity(type: import('./types').StructFieldType): number {
+    return fieldByteSize(type as any) * 8;
 }
 
 // ── C syntax-highlighted struct preview ─────────────────────────────────────
@@ -230,7 +409,7 @@ function editorHtml(draft: StructDef, existing: StructDef | null): string {
                `maxlength="64" placeholder="TypeName" spellcheck="false" autocomplete="off">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="Toggle packed struct">__attribute__((packed))</button>` +
-        `<div class="se-field-hdr"><span>Type</span><span>Name</span><span>[ ]</span><span></span></div>` +
+         `<div class="se-field-hdr"><span>Type</span><span>Name</span><span>Bits</span><span>[ ]</span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="struct-add-field-btn">+ Add Field</button>` +
         errorHtml +
@@ -253,18 +432,67 @@ function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
         const isStruct = rawType.startsWith('struct:');
         const refStructId = isStruct ? rawType.slice('struct:'.length) : undefined;
         const type = (isStruct ? 'struct' : rawType) as StructFieldType;
-        return {
+        const bitBtnOn = row.querySelector('.sfe-bit-btn')?.classList.contains('sfe-bit-btn-on') ?? false;
+        const isUnsigned = !isStruct && (type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64');
+        const childrenContainer = row.querySelector<HTMLElement>('.sfe-bf-children');
+
+        // Parse child bit-field rows if toggled on and unsigned
+        let bitFields: import('./types').BitFieldChild[] | undefined;
+        let bitWidth: number | undefined;
+        if (bitBtnOn && isUnsigned && childrenContainer) {
+            const childRows = childrenContainer.querySelectorAll<HTMLElement>('.sfe-bf-child-row');
+            const childArray: import('./types').BitFieldChild[] = Array.from(childRows).map(childRow => {
+                const childName = sanitizeCIdent(
+                    (childRow.querySelector('.sfe-bf-child-name') as HTMLInputElement).value
+                ) || `bit${childRow.dataset.childIdx || '0'}`;
+                const childWidthRaw = (childRow.querySelector('.sfe-bf-child-width') as HTMLInputElement).value;
+                const childWidth = parseInt(childWidthRaw, 10);
+                return {
+                    name: childName,
+                    bitWidth: Number.isInteger(childWidth) && childWidth > 0 ? Math.min(childWidth, 64) : 1,
+                };
+            });
+            // Validate: sum of child widths must fit in parent type
+            // Auto-create one child if empty
+            if (childArray.length === 0) {
+                const unitBits = fieldByteSize(type as import('./types').StructScalarFieldType) * 8;
+                childArray.push({ name: 'bit0', bitWidth: unitBits });
+            }
+            bitFields = childArray;
+            // Keep the collapsed state
+            const collapsed = childrenContainer.style.display === 'none';
+            const bfCollapsed = collapsed || undefined;
+        }
+
+        if (!bitFields) {
+            // Check for legacy single bitWidth — migrated from old data
+            // For backward compat: read from bitWidth in the field if saved
+        }
+
+        const bitCollapsed = bitBtnOn && isUnsigned && childrenContainer
+            ? (childrenContainer.style.display === 'none') || undefined
+            : undefined;
+
+        const count = (() => {
+            if (bitFields) { return (row.dataset as { arrSfe?: string }).arrSfe === 'true' ? (parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value) || 1) : 1; }
+            const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
+            if (!cell.classList.contains('is-array')) { return 1; }
+            const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
+            return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
+        })();
+
+        const result: import('./types').StructField = {
             name: sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value),
             type,
             refStructId,
-            count: (() => {
-                const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
-                if (!cell.classList.contains('is-array')) { return 1; }
-                const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
-                return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
-            })(),
+            count,
             endian: 'inherit',
         };
+        if (bitFields && bitFields.length > 0) {
+            result.bitFields = bitFields;
+            if (bitCollapsed) { result.bitFieldsCollapsed = true; }
+        }
+        return result;
     });
 }
 
@@ -329,6 +557,7 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLElement>('.sfe-arr-toggle').forEach(btn => {
         btn.addEventListener('click', () => {
+            if ((btn as HTMLButtonElement).disabled) { return; }
             const cell = btn.closest<HTMLElement>('.sfe-arr-cell')!;
             const nowArr = !cell.classList.contains('is-array');
             cell.classList.toggle('is-array', nowArr);
@@ -350,6 +579,119 @@ function wireEditorInSec(sec: HTMLElement): void {
         });
     });
 
+    // ── Bit-field :N toggle button ─────────────────────────────────
+    sec.querySelectorAll<HTMLElement>('.sfe-bit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            syncEditorDraft(sec, draft);
+            const idx = parseInt(row.dataset.idx!);
+            const f = draft.fields[idx];
+            if (!f) { return; }
+            const isOn = btn.classList.contains('sfe-bit-btn-on');
+            if (isOn) {
+                // Toggle OFF: remove bitFields
+                btn.classList.remove('sfe-bit-btn-on');
+                delete f.bitFields;
+                delete f.bitFieldsCollapsed;
+                f.bitWidth = undefined;
+                const children = row.querySelector<HTMLElement>('.sfe-bf-children');
+                if (children) { children.remove(); }
+                row.classList.remove('has-bit-children');
+                // Re-enable array toggle
+                const arrBtn = row.querySelector<HTMLButtonElement>('.sfe-arr-toggle');
+                if (arrBtn) { arrBtn.disabled = false; }
+            } else {
+                // Toggle ON: create default first child with 1 bit width
+                btn.classList.add('sfe-bit-btn-on');
+                row.classList.add('has-bit-children');
+                f.bitFields = [{ name: 'bit0', bitWidth: 1 }];
+                f.bitFieldsCollapsed = undefined;
+                // Disable array toggle
+                const arrBtn = row.querySelector<HTMLButtonElement>('.sfe-arr-toggle');
+                if (arrBtn) { arrBtn.disabled = true; }
+                const arrCell = row.querySelector<HTMLElement>('.sfe-arr-cell');
+                if (arrCell) { arrCell.classList.remove('is-array'); }
+                f.count = 1;
+            }
+            // Update preview without re-syncing (refreshEditorPreview would overwrite our changes)
+            const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+            if (pre) { renderStructCPreview(pre, draft); }
+            renderStructPins();  // Re-render to show/hide child rows
+        });
+    });
+
+    // ── Bit-field child: add ────────────────────────────────────
+    sec.querySelectorAll<HTMLElement>('.sfe-bf-add-child').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            syncEditorDraft(sec, draft);
+            const idx = parseInt(row.dataset.idx!);
+            const f = draft.fields[idx];
+            if (!f) { return; }
+            if (!f.bitFields) { f.bitFields = []; }
+            const nextIdx = f.bitFields.length;
+            f.bitFields.push({ name: `bit${nextIdx}`, bitWidth: 1 });
+            renderStructPins();
+        });
+    });
+
+    // ── Bit-field child: delete ─────────────────────────────────
+    sec.querySelectorAll<HTMLElement>('.sfe-bf-del-child').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
+            const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
+            syncEditorDraft(sec, draft);
+            const idx = parseInt(parentRow.dataset.idx!);
+            const f = draft.fields[idx];
+            if (!f?.bitFields) { return; }
+            const ci = parseInt(childRow.dataset.childIdx!);
+            f.bitFields.splice(ci, 1);
+            if (f.bitFields.length === 0) {
+                // No children left → toggle bit mode off
+                const bitBtn = parentRow.querySelector<HTMLElement>('.sfe-bit-btn');
+                if (bitBtn) { bitBtn.classList.remove('sfe-bit-btn-on'); }
+                parentRow.classList.remove('has-bit-children');
+                delete f.bitFields;
+                delete f.bitFieldsCollapsed;
+            }
+            renderStructPins();
+        });
+    });
+
+    // ── Bit-field child: reorder up ─────────────────────────────
+    sec.querySelectorAll<HTMLElement>('.sfe-bf-child-row .sfe-move-up').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
+            const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
+            syncEditorDraft(sec, draft);
+            const idx = parseInt(parentRow.dataset.idx!);
+            const f = draft.fields[idx];
+            if (!f?.bitFields) { return; }
+            const ci = parseInt(childRow.dataset.childIdx!);
+            if (ci > 0) {
+                [f.bitFields[ci - 1], f.bitFields[ci]] = [f.bitFields[ci], f.bitFields[ci - 1]];
+                renderStructPins();
+            }
+        });
+    });
+
+    // ── Bit-field child: reorder down ───────────────────────────
+    sec.querySelectorAll<HTMLElement>('.sfe-bf-child-row .sfe-move-dn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
+            const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
+            syncEditorDraft(sec, draft);
+            const idx = parseInt(parentRow.dataset.idx!);
+            const f = draft.fields[idx];
+            if (!f?.bitFields) { return; }
+            const ci = parseInt(childRow.dataset.childIdx!);
+            if (ci < f.bitFields.length - 1) {
+                [f.bitFields[ci], f.bitFields[ci + 1]] = [f.bitFields[ci + 1], f.bitFields[ci]];
+                renderStructPins();
+            }
+        });
+    });
+
     sec.querySelectorAll<HTMLInputElement>('.sfe-name-inp').forEach(inp => {
         inp.addEventListener('input', () => { refreshEditorPreview(sec, draft); });
         inp.addEventListener('blur', () => {
@@ -360,7 +702,41 @@ function wireEditorInSec(sec: HTMLElement): void {
     });
 
     sec.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
-        sel.addEventListener('change', () => { refreshEditorPreview(sec, draft); });
+        sel.addEventListener('change', () => {
+            const row = sel.closest<HTMLElement>('.struct-field-row');
+            if (row) {
+                const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
+                const arrBtn = row.querySelector<HTMLButtonElement>('.sfe-arr-toggle');
+                const arrCell = row.querySelector<HTMLElement>('.sfe-arr-cell');
+                const rawType = sel.value;
+                const isStruct = rawType.startsWith('struct:');
+                const isUnsigned = !isStruct && (rawType === 'uint8' || rawType === 'uint16' || rawType === 'uint32' || rawType === 'uint64');
+                const bitToggled = bitBtn?.classList.contains('sfe-bit-btn-on') ?? false;
+                if (bitBtn) { (bitBtn as HTMLButtonElement).disabled = !isUnsigned; }
+                // If bit-mode was on and type changed to non-unsigned, turn off bit-mode
+                if (bitToggled && !isUnsigned) {
+                    bitBtn?.classList.remove('sfe-bit-btn-on');
+                    row.classList.remove('has-bit-children');
+                    const children = row.querySelector<HTMLElement>('.sfe-bf-children');
+                    if (children) { children.remove(); }
+                    syncEditorDraft(sec, draft);
+                    const idx = parseInt(row.dataset.idx!);
+                    const f = draft.fields[idx];
+                    if (f) { delete f.bitFields; delete f.bitFieldsCollapsed; f.bitWidth = undefined; }
+                    (arrBtn as HTMLButtonElement).disabled = false;
+                }
+                if (arrBtn) { (arrBtn as HTMLButtonElement).disabled = bitToggled || !isUnsigned && false; }
+                if (bitToggled && arrCell) { arrCell.classList.remove('is-array'); }
+            }
+            refreshEditorPreview(sec, draft);
+        });
+    });
+
+    // ── Bit-field child name/width input live refresh ───────────
+    sec.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name, .sfe-bf-child-width').forEach(inp => {
+        inp.addEventListener('input', () => {
+            refreshEditorPreview(sec, draft);
+        });
     });
 
     sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
@@ -729,12 +1105,32 @@ export function resetStructViewState(): void {
     _editingPinId            = null;
     _editingPinDraftStructId = null;
     _selectedArrElemKey      = null;
+    _selectedBitRange        = null;
+    _hoveredBitRange         = null;
+    _selectedBitRowKey       = null;
+    _hoveredBitRowKey        = null;
     renderStructPins();
 }
 
 /** Get a display string for a field given the requested column display type. */
 function getValForType(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
+    if (isBitFieldRow(r)) {
+        const width = r.bitWidth ?? 1;
+        const v = BigInt(r.bitValueUnsigned ?? '0');
+        if (valType === 'hex') {
+            return formatHexHtml(formatHex(v, Math.max(1, Math.ceil(width / 4))));
+        }
+        if (valType === 'bin') {
+            const bits = v.toString(2).padStart(width, '0');
+            const groups = bits.match(/.{1,4}/g) || [];
+            const html = groups.map(g => [...g].map(bit =>
+                `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`
+            ).join('')).join(' ');
+            return `<span class="si-bin-wrap">${html}</span>`;
+        }
+        return v.toString(10);
+    }
     const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
     const buf   = new ArrayBuffer(bytes.length);
     const dv    = new DataView(buf);
@@ -871,6 +1267,19 @@ function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le
 /** Get a plain-text representation suitable for copying. */
 function getCopyText(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
+    if (isBitFieldRow(r)) {
+        const width = r.bitWidth ?? 1;
+        const v = BigInt(r.bitValueUnsigned ?? '0');
+        if (valType === 'hex') {
+            return `0x${v.toString(16).toUpperCase().padStart(Math.max(1, Math.ceil(width / 4)), '0')}`;
+        }
+        if (valType === 'bin') {
+            const bits = v.toString(2).padStart(width, '0');
+            const groups = bits.match(/.{1,4}/g) || [];
+            return groups.join(' ');
+        }
+        return v.toString(10);
+    }
     if (r.type === 'ascii') { return r.decoded; }
     const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
     const le    = S.endian === 'le';
@@ -945,7 +1354,8 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
     let t = _fieldValTypes.get(bs);
     if (!t) {
         // Prefer decimal view for floating-point fields by default
-        if (r.type === 'float32' || r.type === 'float64') { t = 'dec'; }
+        if (isBitFieldRow(r)) { t = 'bin'; }
+        else if (r.type === 'float32' || r.type === 'float64') { t = 'dec'; }
         else if (r.type === 'ascii') { t = 'ascii'; }
         else { t = _defaultValType; }
     }
@@ -953,12 +1363,21 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
     const valHtml = (t === 'bin' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
     const byteCount = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : bc;
     const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
-    const abbrev  = r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
-    const fullTypeLabel = r.type === 'ascii' ? `ascii[${byteCount}]` : r.type;
+    const abbrev = isBitFieldRow(r)
+        ? `bit:${r.bitWidth}`
+        : (r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase);
+    const fullTypeLabel = isBitFieldRow(r)
+        ? `bit:${r.bitWidth}`
+        : (r.type === 'ascii' ? `ascii[${byteCount}]` : r.type);
+    const offsetLabel = isBitFieldRow(r)
+        ? `.${String(r.bitOffset ?? 0)}`
+        : `+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
-        `data-byte-start="${bs}" data-byte-cnt="${bc}">` +
-        `<span class="si-f-off">+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}</span>` +
+        `data-byte-start="${bs}" data-byte-cnt="${bc}"` +
+        (isBitFieldRow(r) ? ` data-bit-start="${r.bitOffset ?? 0}" data-bit-width="${r.bitWidth ?? 0}"` : '') +
+        `>` +
+        `<span class="si-f-off">${offsetLabel}</span>` +
         `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
         `<span class="si-toggle-pad" aria-hidden="true"></span>` +
         `<span class="si-f-body">` +
@@ -999,6 +1418,117 @@ function leafName(fieldPath: string): string {
     return parts.length > 0 ? parts[parts.length - 1] : fieldPath;
 }
 
+function isBitUnitGroup(rows: DecodedField[]): boolean {
+    return rows.length > 0 && rows.every(r => isBitFieldRow(r));
+}
+
+function groupHeaderName(baseName: string, rows: DecodedField[]): string {
+    if (!isBitUnitGroup(rows)) { return leafName(baseName); }
+    return 'BitField';
+}
+
+function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
+    if (!isBitUnitGroup(rows)) { return fallback; }
+    const first = rows[0];
+    if (!first) { return fallback; }
+    const rawParts = first.bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
+    if (rawParts.length === 0 || rawParts.some(p => p === '??')) { return '??'; }
+    const raw = rawParts.map(h => parseInt(h, 16));
+    if (raw.some(v => !Number.isFinite(v) || v < 0 || v > 0xFF)) { return '??'; }
+
+    let value = 0n;
+    if (S.endian === 'le') {
+        for (let i = 0; i < raw.length; i++) {
+            value |= BigInt(raw[i]) << BigInt(i * 8);
+        }
+    } else {
+        for (const b of raw) {
+            value = (value << 8n) | BigInt(b);
+        }
+    }
+
+    const hex = value.toString(16).toUpperCase().padStart(raw.length * 2, '0');
+    return `0x${hex} (${value.toString(10)})`;
+}
+
+function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
+    const first = rows[0];
+    if (!first) { return null; }
+    return {
+        fieldName: 'BitField',
+        type: first.type,
+        arrayIdx: 0,
+        byteOffset: first.byteOffset,
+        bytesHex: first.bytesHex,
+        decoded: first.decoded,
+        hasData: first.hasData,
+    };
+}
+
+function bitUnitHeaderHtml(
+    rows: DecodedField[],
+    start: number,
+    cnt: number,
+    isOpen: boolean,
+): string {
+    const agg = buildBitUnitAggregateRow(rows);
+    const headerName = groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''), rows);
+    if (!agg) {
+        return (
+            `<div class="si-arr-grp-hdr si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
+            `<span class="si-f-off">+000</span>` +
+            `<span class="si-f-type">u8</span>` +
+            `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+            `<span class="si-f-body">` +
+            `<span class="si-f-name">${esc(headerName)}</span>` +
+            `<span class="si-f-lead"></span>` +
+            `<span class="si-f-val si-f-pri" data-val-type="hex" data-bs="${start}">??</span>` +
+            `</span>` +
+            `</div>`
+        );
+    }
+
+    let t = _fieldValTypes.get(start);
+    if (!t) { t = 'bin'; }
+
+    const activeRange = (() => {
+        if (_selectedBitRange && _selectedBitRange.parentByteStart === start) {
+            return { startBit: _selectedBitRange.startBit, endBit: _selectedBitRange.endBit };
+        }
+        if (_hoveredBitRange && _hoveredBitRange.parentByteStart === start) {
+            return { startBit: _hoveredBitRange.startBit, endBit: _hoveredBitRange.endBit };
+        }
+        return null;
+    })();
+
+    const v = t === 'bin'
+        ? renderBinaryFromBitRows(
+            rows,
+            activeRange,
+        )
+        : getValForType(agg, t);
+    const ptr = agg.type === 'pointer';
+    const valHtml = (t === 'bin' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
+    const byteCount = agg.bytesHex.length > 0 ? agg.bytesHex.split(' ').length : cnt;
+    const abbrevBase = TYPE_ABBREV[agg.type] ?? agg.type;
+    const abbrev = agg.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
+    const fullTypeLabel = agg.type === 'ascii' ? `ascii[${byteCount}]` : agg.type;
+    const offsetLabel = `+${agg.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
+
+    return (
+        `<div class="si-arr-grp-hdr si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
+        `<span class="si-f-off">${offsetLabel}</span>` +
+        `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
+        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        `<span class="si-f-body">` +
+        `<span class="si-f-name">${esc(headerName)}</span>` +
+        `<span class="si-f-lead"></span>` +
+        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${start}">${valHtml}</span>` +
+        `</span>` +
+        `</div>`
+    );
+}
+
 function disambiguateLeafNames(names: string[]): string[] {
     const seen = new Map<string, number>();
     return names.map(name => {
@@ -1036,7 +1566,10 @@ function buildInstanceCard(pin: StructPin, i: number): string {
     let bodyHtml = '';
     if (expanded && def) {
         const rows = decodeStruct(def, pin.addr, getByte, S.endian);
-        const rowByteCnt = (r: DecodedField) => r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
+        const rowByteCnt = (r: DecodedField) => {
+            if (isBitFieldRow(r)) { return r.bitStorageByteSize ?? 1; }
+            return r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
+        };
 
         const renderStructChildren = (structRows: DecodedField[], structBase: string, parentKey: string): string => {
             const structPrefix = `${structBase}.`;
@@ -1058,7 +1591,8 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                 const nestedCount = nestedDeclared?.field.count ?? ng.rows.length;
                 const nestedIsStruct = nestedType === 'struct';
                 const nestedIsString = nestedType === 'ascii';
-                const nestedIsComposite = nestedIsStruct || (nestedCount > 1 && !nestedIsString);
+                const nestedIsBitUnit = isBitUnitGroup(ng.rows);
+                const nestedIsComposite = nestedIsBitUnit || nestedIsStruct || (nestedCount > 1 && !nestedIsString);
                 if (!nestedIsComposite) {
                     const labels = disambiguateLeafNames(ng.rows.map(r => leafName(r.fieldName)));
                     return ng.rows.map((r, idx) =>
@@ -1071,10 +1605,13 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                 const nestedSummary = nestedIsStruct
                     ? (nestedCount > 1 ? `${nestedStructName}[${nestedCount}]` : nestedStructName)
                     : `${nestedTypeAbbrev}[${nestedCount}]`;
+                const nestedSummaryLabel = groupSummaryLabel(ng.rows, nestedSummary);
                 const nestedKey = `${parentKey}::${ng.baseRel}`;
                 const nestedOpen = _expandedArrayFields.has(nestedKey);
                 const nestedStart = pin.addr + ng.rows[0].byteOffset;
-                const nestedCnt = ng.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+                const nestedCnt = nestedIsBitUnit
+                    ? rowByteCnt(ng.rows[0])
+                    : ng.rows.reduce((s, r) => s + rowByteCnt(r), 0);
 
                 let nestedBodyHtml = '';
                 if (nestedIsStruct && nestedCount > 1) {
@@ -1116,6 +1653,13 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                     }).join('');
                 } else if (nestedIsStruct && nestedCount === 1) {
                     nestedBodyHtml = renderStructChildren(ng.rows, ng.fullBase, nestedKey);
+                } else if (nestedIsBitUnit) {
+                    const nestedLeafNames = disambiguateLeafNames(
+                        ng.rows.map(r => leafName(r.fieldName))
+                    );
+                    nestedBodyHtml = ng.rows.map((r, idx) =>
+                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), nestedLeafNames[idx])
+                    ).join('');
                 } else if (!nestedIsStruct && nestedCount > 1 && !nestedIsString) {
                     nestedBodyHtml = ng.rows.map(r =>
                         mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), indexOnlyName(r.fieldName, ng.fullBase))
@@ -1131,16 +1675,19 @@ function buildInstanceCard(pin: StructPin, i: number): string {
 
                 return (
                     `<div class="si-arr-grp${nestedOpen ? ' open' : ''}" data-arr-key="${esc(nestedKey)}">` +
-                    `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${nestedCnt}">` +
-                    `<span class="si-node-pad" aria-hidden="true"></span>` +
-                    `<span class="si-node-type-pad" aria-hidden="true"></span>` +
-                    `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
-                    `<span class="si-f-body">` +
-                    `<span class="si-f-name">${esc(leafName(ng.baseRel))}</span>` +
-                    `<span class="si-f-lead"></span>` +
-                    `<span class="si-arr-addr">${esc(nestedSummary)}</span>` +
-                    `</span>` +
-                    `</div>` +
+                    (nestedIsBitUnit
+                        ? bitUnitHeaderHtml(ng.rows, nestedStart, nestedCnt, nestedOpen)
+                        : (`<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${nestedCnt}">` +
+                           `<span class="si-node-pad" aria-hidden="true"></span>` +
+                           `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                           `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
+                           `<span class="si-f-body">` +
+                           `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel, ng.rows))}</span>` +
+                           `<span class="si-f-lead"></span>` +
+                           `<span class="si-arr-addr">${esc(nestedSummaryLabel)}</span>` +
+                           `</span>` +
+                           `</div>`)
+                    ) +
                     `<div class="si-arr-grp-body"${nestedOpen ? '' : ' style=\"display:none\"'}>${nestedBodyHtml}</div>` +
                     `</div>`
                 );
@@ -1164,7 +1711,8 @@ function buildInstanceCard(pin: StructPin, i: number): string {
             const isStruct = declaredType === 'struct';
             const isArray = declaredCount > 1;
             const isString = declaredType === 'ascii';
-            const isComposite = isStruct || (isArray && !isString);
+            const isBitUnit = isBitUnitGroup(g.rows);
+            const isComposite = isBitUnit || isStruct || (isArray && !isString);
 
             if (!isComposite) {
                 // Scalar leaf field(s) — render flat using local labels.
@@ -1176,14 +1724,16 @@ function buildInstanceCard(pin: StructPin, i: number): string {
             const key     = `${pin.id}::${g.baseName}`;
             const isOpen  = _expandedArrayFields.has(key);
             const byteStart = pin.addr + r0.byteOffset;
-            const totalCnt  = g.rows.reduce((s, r) => s + rowByteCnt(r), 0);
+            const totalCnt  = isBitUnit
+                ? rowByteCnt(g.rows[0])
+                : g.rows.reduce((s, r) => s + rowByteCnt(r), 0);
             let elHtml     = g.rows.map(r => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r))).join('');
                 const structName = declared?.structName ?? 'struct';
                 const scalarType = TYPE_ABBREV[declaredType] ?? declaredType;
                 const nodeSummary = isStruct
                     ? (isArray ? `${structName}[${declaredCount}]` : structName)
                     : `${scalarType}[${declaredCount}]`;
-                const nodeSummaryFull = nodeSummary;
+                const nodeSummaryFull = groupSummaryLabel(g.rows, nodeSummary);
 
                 if (isStruct && isArray) {
                     type ElementGroup = { idx: number; rows: DecodedField[] };
@@ -1226,6 +1776,11 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                     }
                 } else if (isStruct && !isArray) {
                     elHtml = renderStructChildren(g.rows, g.baseName, key);
+                } else if (isBitUnit) {
+                    const labels = disambiguateLeafNames(g.rows.map(r => leafName(r.fieldName)));
+                    elHtml = g.rows.map((r, idx) =>
+                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), labels[idx])
+                    ).join('');
                 } else if (!isStruct && isArray) {
                     elHtml = g.rows.map(r =>
                         mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), indexOnlyName(r.fieldName, g.baseName))
@@ -1233,17 +1788,20 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                 }
             return (
                 `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
-                `<div class="si-arr-grp-hdr" ` +
-                `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}">` +
-                `<span class="si-node-pad" aria-hidden="true"></span>` +
-                `<span class="si-node-type-pad" aria-hidden="true"></span>` +
-                `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
-                `<span class="si-f-body">` +
-                `<span class="si-f-name">${esc(leafName(g.baseName))}</span>` +
-                `<span class="si-f-lead"></span>` +
-                `<span class="si-arr-addr" title="${esc(nodeSummaryFull)}">${esc(nodeSummary)}</span>` +
-                `</span>` +
-                `</div>` +
+                (isBitUnit
+                    ? bitUnitHeaderHtml(g.rows, byteStart, totalCnt, isOpen)
+                    : (`<div class="si-arr-grp-hdr" ` +
+                       `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}">` +
+                       `<span class="si-node-pad" aria-hidden="true"></span>` +
+                       `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                       `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+                       `<span class="si-f-body">` +
+                       `<span class="si-f-name">${esc(groupHeaderName(g.baseName, g.rows))}</span>` +
+                       `<span class="si-f-lead"></span>` +
+                       `<span class="si-arr-addr" title="${esc(nodeSummaryFull)}">${esc(nodeSummaryFull)}</span>` +
+                       `</span>` +
+                       `</div>`)
+                ) +
                 `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
                 `</div>`
             );
@@ -1406,6 +1964,33 @@ function applyTreeDepthStyles(sec: HTMLElement): void {
 function wireInstanceCards(sec: HTMLElement): void {
     applyTreeDepthStyles(sec);
 
+    // Keep bit hover highlight strictly tied to the current pointer target.
+    sec.onmousemove = (ev: MouseEvent) => {
+        const target = ev.target as HTMLElement | null;
+        const bitRow = target?.closest<HTMLElement>('.si-field[data-bit-start][data-bit-width]') ?? null;
+        let next: { parentByteStart: number; startBit: number; endBit: number } | null = null;
+        let nextKey: string | null = null;
+        if (bitRow) {
+            const meta = parseBitRowMeta(bitRow);
+            if (meta) {
+                next = { parentByteStart: meta.byteStart, startBit: meta.bitStart, endBit: meta.bitStart + meta.bitWidth - 1 };
+                nextKey = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
+            }
+        }
+        if (_hoveredBitRowKey !== nextKey) {
+            _hoveredBitRange = next;
+            _hoveredBitRowKey = nextKey;
+            applyBitHighlightsInPlace(sec);
+        }
+    };
+    sec.onmouseleave = () => {
+        if (_hoveredBitRange !== null || _hoveredBitRowKey !== null) {
+            _hoveredBitRange = null;
+            _hoveredBitRowKey = null;
+            applyBitHighlightsInPlace(sec);
+        }
+    };
+
     sec.querySelectorAll<HTMLElement>('.si-expand-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const id = btn.dataset.pinId!;
@@ -1419,6 +2004,7 @@ function wireInstanceCards(sec: HTMLElement): void {
         const expBtn = hdr.querySelector<HTMLElement>('.si-arr-exp-btn')!;
         const start  = parseInt(hdr.dataset.byteStart!);
         const cnt    = parseInt(hdr.dataset.byteCnt!);
+        const isBitUnitHdr = hdr.classList.contains('si-bitunit-hdr');
 
         expBtn.addEventListener('click', e => {
             e.stopPropagation();
@@ -1453,8 +2039,13 @@ function wireInstanceCards(sec: HTMLElement): void {
 
         hdr.addEventListener('click', e => {
             if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
+            if (isBitUnitHdr) { return; }
             clearArrSep();
             clearSelRow();
+            _selectedBitRange = null;
+            _hoveredBitRange = null;
+            _selectedBitRowKey = null;
+            _hoveredBitRowKey = null;
             if (isNaN(start) || isNaN(cnt)) { return; }
             const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
             _selectedArrKey    = grp.dataset.arrKey!;
@@ -1532,6 +2123,10 @@ function wireInstanceCards(sec: HTMLElement): void {
             if ((e.target as HTMLElement).closest('.si-arr-el-exp-btn')) { return; }
             clearArrSep();
             clearSelRow();
+            _selectedBitRange = null;
+            _hoveredBitRange = null;
+            _selectedBitRowKey = null;
+            _hoveredBitRowKey = null;
             if (isNaN(start) || isNaN(cnt)) { return; }
             _selectedArrElemKey = hdr.dataset.arrElKey!;
             _selectedArrKey = null;
@@ -1549,6 +2144,10 @@ function wireInstanceCards(sec: HTMLElement): void {
             if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions, .si-type-btn')) { return; }
             clearArrSep();
             clearSelRow();
+            _selectedBitRange = null;
+            _hoveredBitRange = null;
+            _selectedBitRowKey = null;
+            _hoveredBitRowKey = null;
             _selectedFieldAddr = null;
             _selectedArrKey    = null;
             _selectedArrElemKey = null;
@@ -1600,8 +2199,12 @@ function wireInstanceCards(sec: HTMLElement): void {
     sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
         const start = parseInt(row.dataset.byteStart!);
         const cnt   = parseInt(row.dataset.byteCnt!);
+        const bitStartRaw = row.dataset.bitStart;
+        const bitWidthRaw = row.dataset.bitWidth;
+        const isBitRow = bitStartRaw !== undefined && bitWidthRaw !== undefined;
 
         row.addEventListener('mouseenter', () => {
+            if (isBitRow) { return; }
             for (let i = 0; i < cnt; i++) {
                 const ah = (start + i).toString(16).toUpperCase().padStart(8, '0');
                 document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
@@ -1610,14 +2213,38 @@ function wireInstanceCards(sec: HTMLElement): void {
         });
 
         row.addEventListener('mouseleave', () => {
+            if (isBitRow) { return; }
             document.querySelectorAll<HTMLElement>('.struct-h')
                 .forEach(el => el.classList.remove('struct-h'));
         });
 
         row.addEventListener('click', () => {
             if (isNaN(start) || isNaN(cnt)) { return; }
+            if (isBitRow) {
+                const meta = parseBitRowMeta(row);
+                if (meta) {
+                    _selectedBitRange = { parentByteStart: meta.byteStart, startBit: meta.bitStart, endBit: meta.bitStart + meta.bitWidth - 1 };
+                    _selectedBitRowKey = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
+                } else {
+                    _selectedBitRange = null;
+                    _selectedBitRowKey = null;
+                }
+                _hoveredBitRange = null;
+                _hoveredBitRowKey = null;
+                _selectedFieldAddr = null;
+                _selectedArrKey = null;
+                _selectedArrElemKey = null;
+                clearSelRow();
+                // Do NOT add si-selected class to bit-field child rows
+                applyBitHighlightsInPlace(sec);
+                return;
+            }
             clearArrSep();
             clearSelRow();
+            _selectedBitRange = null;
+            _hoveredBitRange = null;
+            _selectedBitRowKey = null;
+            _hoveredBitRowKey = null;
             S.selStart = start;
             S.selEnd   = start + cnt - 1;
             row.classList.add('si-selected');
@@ -1626,6 +2253,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             _selectedArrElemKey = null;
             import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
             import('./sidebar.js').then(m => m.updateInspector());
+            renderStructPins();
         });
     });
 
@@ -1649,6 +2277,7 @@ function wireInstanceCards(sec: HTMLElement): void {
     // entire group (child elements).
     sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
         hdr.addEventListener('contextmenu', ev => {
+            if (hdr.classList.contains('si-bitunit-hdr')) { return; }
             ev.preventDefault(); ev.stopPropagation();
             const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
             const bsList = Array.from(grp.querySelectorAll<HTMLElement>('.si-field'))
@@ -1723,6 +2352,8 @@ function wireInstanceCards(sec: HTMLElement): void {
         }
     }
 
+    applyBitHighlightsInPlace(sec);
+
     // Re-apply selection highlight after DOM rebuild
     if (_selectedPinId !== null) {
         sec.querySelectorAll<HTMLElement>('.si-card').forEach(card => {
@@ -1731,7 +2362,16 @@ function wireInstanceCards(sec: HTMLElement): void {
             }
         });
     }
-    if (_selectedFieldAddr !== null) {
+    if (_selectedBitRowKey !== null) {
+        sec.querySelectorAll<HTMLElement>('.si-field[data-bit-start][data-bit-width]').forEach(row => {
+            const meta = parseBitRowMeta(row);
+            if (!meta) { return; }
+            const key = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
+            if (key === _selectedBitRowKey) {
+                row.classList.add('si-selected');
+            }
+        });
+    } else if (_selectedFieldAddr !== null) {
         sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
             if (parseInt(row.dataset.byteStart!) === _selectedFieldAddr) {
                 row.classList.add('si-selected');
@@ -1764,7 +2404,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
     // Determine candidate display types based on the field's native type.
     const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
     const allDefs = allStructs();
-    const findFieldTypeAt = (addr: number) => {
+    const findFieldAt = (addr: number): DecodedField | null => {
         let pin: StructPin | undefined;
         if (typeof pinIdx === 'number' && pinIdx >= 0) { pin = S.structPins[pinIdx]; }
         else {
@@ -1780,23 +2420,27 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
         if (!def) { return null; }
         const rows = decodeStruct(def, pin.addr, getByte, S.endian);
         const r = rows.find(rr => pin!.addr + rr.byteOffset === addr);
-        return r ? r.type : null;
+        return r ?? null;
     };
-    const sampleType = findFieldTypeAt(sampleAddr);
+    const sampleField = findFieldAt(sampleAddr);
+    const sampleType = sampleField?.type ?? null;
+    const isBitSample = sampleField ? isBitFieldRow(sampleField) : false;
     const isFloatSample = sampleType === 'float32' || sampleType === 'float64';
     const isAsciiSample = sampleType === 'ascii';
     const types: ColType[] = isFloatSample
         ? ['hex', 'dec', 'ieee', 'bin']
         : isAsciiSample
             ? ['ascii', 'hex', 'bin']
-            : ['hex', 'dec', 'bin', 'ascii'];
+            : isBitSample
+                ? ['bin', 'hex', 'dec']
+                : ['hex', 'dec', 'bin', 'ascii'];
     let cur: ColType | null = null;
     if (bsList && bsList.length > 0) {
         const vals = bsList.map(b => _fieldValTypes.get(b) ?? _defaultValType);
         const allSame = vals.every(v => v === vals[0]);
         cur = allSame ? (vals[0] as ColType) : null;
     } else {
-        cur = _fieldValTypes.get(bs) ?? _defaultValType;
+        cur = _fieldValTypes.get(bs) ?? (isBitSample ? 'bin' : _defaultValType);
     }
 
     // Helpers for menu
@@ -1853,8 +2497,11 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 if (cmd.startsWith('disp-') && bsList && bsList.length > 0) {
                     const t = cmd.replace('disp-', '') as ColType;
                     bsList.forEach(b => {
-                        const ft = findFieldTypeAt(b);
-                        const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
+                        const field = findFieldAt(b);
+                        const ft = field?.type ?? null;
+                        const implicit = field && isBitFieldRow(field)
+                            ? 'bin'
+                            : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
                         if (t === implicit) { _fieldValTypes.delete(b); }
                         else { _fieldValTypes.set(b, t); }
                     });
@@ -1996,8 +2643,11 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
             // Display type actions
             if (cmd.startsWith('disp-')) {
                 const t = cmd.replace('disp-', '') as ColType;
-                const ft = findFieldTypeAt(bs);
-                const implicit = (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
+                const field = findFieldAt(bs);
+                const ft = field?.type ?? null;
+                const implicit = field && isBitFieldRow(field)
+                    ? 'bin'
+                    : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
                 if (t === implicit) { _fieldValTypes.delete(bs); }
                 else { _fieldValTypes.set(bs, t); }
                 hideFieldValMenu();
