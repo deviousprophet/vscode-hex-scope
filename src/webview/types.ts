@@ -58,14 +58,27 @@ export type StructFieldType = StructScalarFieldType | 'struct';
 
 export type StructFieldEndian = 'le' | 'be' | 'inherit';
 
+/** A single named child of a BitField container field. */
+export interface BitFieldChild {
+    name: string;
+    bitWidth: number;
+}
+
 export interface StructField {
     name: string;
     type: StructFieldType;
     /** Required when type === 'struct'; references StructDef.id. */
     refStructId?: string;
+    /** Named bit-field children. When present, this field is a BitField container.
+     *  Only valid for unsigned integer base types (uint8/16/32/64). */
+    bitFields?: BitFieldChild[];
+    /** @deprecated Legacy single bit-field width. Prefer bitFields[]. */
+    bitWidth?: number;
     /** Array element count; 1 for a scalar field. */
     count: number;
     endian: StructFieldEndian;
+    /** Whether the bit-field detail editor is collapsed. Only applies to BitField containers. */
+    bitFieldsCollapsed?: boolean;
 }
 
 export interface StructDef {

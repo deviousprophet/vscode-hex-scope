@@ -98,7 +98,7 @@
 /* Field header + rows */
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 64px 1fr 72px 30px 18px;
+    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 9px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -108,7 +108,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 64px 1fr 72px 30px 18px;
+    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 
@@ -127,6 +127,18 @@
     box-sizing: border-box;
 }
 .sfe-type-sel:focus { border-color: var(--focus-bdr); }
+
+.sfe-bit-inp {
+    width: 100%; text-align: center;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
+    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
+    appearance: textfield;
+}
+.sfe-bit-inp::-webkit-outer-spin-button,
+.sfe-bit-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sfe-bit-inp:focus { border-color: var(--focus-bdr); }
+.sfe-bit-inp:disabled { opacity: .45; }
 
 /* Array cell */
 .sfe-arr-cell {
@@ -162,6 +174,80 @@
 }
 .sfe-del-btn:hover { color: var(--err); }
 .sfe-del-placeholder { display: block; width: 18px; }
+
+/* ── Bit-field toggle button (:N) ─────────────────────────────── */
+.sfe-bit-btn {
+    width: 28px; flex-shrink: 0; text-align: center;
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 9px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
+    white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
+}
+.sfe-bit-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
+.sfe-bit-btn.sfe-bit-btn-on              { border-style: solid; border-color: var(--high-color);
+                                            color: var(--high-color); background: rgba(79,195,247,.1); }
+.sfe-bit-btn.sfe-bit-btn-on:hover        { border-color: var(--err); color: var(--err);
+                                            background: rgba(255,80,80,.08); }
+.sfe-bit-btn:disabled                    { opacity: .35; cursor: not-allowed; }
+
+/* ── Bit-field children container ─────────────────────────────── */
+.sfe-bf-children {
+    grid-column: 1 / -1;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 3px 0 0 0; margin: 0;
+    border-top: 1px solid rgba(255,255,255,.06);
+    background: rgba(0,0,0,.1);
+}
+.struct-field-row.has-bit-children {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+.sfe-bf-child-row {
+    display: flex; align-items: center; gap: 3px;
+    padding: 1px 4px 1px 8px;
+}
+.sfe-bf-child-indent {
+    flex-shrink: 0; width: 8px;
+}
+.sfe-bf-child-name {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
+    font-size: 10px; padding: 1px 4px; outline: none; width: 60px;
+    box-sizing: border-box;
+}
+.sfe-bf-child-name:focus { border-color: var(--focus-bdr); }
+.sfe-bf-child-width {
+    width: 32px; text-align: center;
+    background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
+    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
+    appearance: textfield;
+}
+.sfe-bf-child-width::-webkit-outer-spin-button,
+.sfe-bf-child-width::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sfe-bf-child-width:focus { border-color: var(--focus-bdr); }
+.sfe-bf-child-unit {
+    flex-shrink: 0;
+    font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    -webkit-user-select: none; user-select: none;
+}
+.sfe-bf-child-move {
+    display: flex; align-items: center; gap: 1px;
+}
+.sfe-bf-del-child {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.sfe-bf-del-child:hover { color: var(--err); }
+.sfe-bf-add-child {
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-size: 9px;
+    font-family: var(--font-ui); padding: 2px 6px; cursor: pointer;
+    transition: border-color .1s, color .1s; text-align: center;
+    margin: 2px 4px;
+}
+.sfe-bf-add-child:hover { border-color: var(--high-color); color: var(--high-color); }
 
 .sfe-move-btns {
     display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1px;
@@ -518,6 +604,17 @@
 .si-bit { font-family: var(--font-editor); display: inline-block; letter-spacing: 0; padding: 0 .25ch; }
 .si-bit.one  { color: var(--fg); font-weight: 700; }
 .si-bit.zero { color: var(--fg); opacity: .70; }
+.si-bit.unknown { color: var(--addr-fg); opacity: .75; }
+.si-bit.sel {
+    background: rgba(79,195,247,.22);
+    border-bottom: 1px solid rgba(79,195,247,.85);
+    border-radius: 2px;
+}
+.si-bit.hov {
+    background: rgba(79,195,247,.12);
+    border-bottom: 1px dashed rgba(79,195,247,.55);
+    border-radius: 2px;
+}
 .si-bin-wrap { display: inline-block; max-width: 100%; white-space: normal; }
 .si-bin-wrap br { display: block; line-height: 1.1; }
 .si-f-ptr { color: #e8a020 !important; font-style: italic; }
