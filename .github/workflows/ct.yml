@@ -37,7 +37,7 @@ jobs:
 
       - name: Parse Test Results
         id: parse-tests
-        if: always()
+        if: github.event_name == 'pull_request'
         run: |
           if [ -f test-output.log ]; then
             PASS=$(grep -Eo '([0-9]+) passing' test-output.log | head -n1 | grep -Eo '[0-9]+' || true)
@@ -93,6 +93,7 @@ jobs:
           EOF
 
       - name: Upload Test Results Artifact
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           path: test-output.log
