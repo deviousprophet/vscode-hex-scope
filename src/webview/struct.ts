@@ -38,8 +38,8 @@ const _expandedArrayElements = new Set<string>();
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 /** Default display type for value cells (per-field default). */
 let _defaultValType: ColType = 'hex';
-/** Per-field display override keyed by absolute byte-start address. */
-const _fieldValTypes = new Map<number, ColType>();
+/** Per-value display override keyed by stable row identity. */
+const _fieldValTypes = new Map<string, ColType>();
 /** Whether the inline add-instance form is open. */
 let _addingPin = false;
 /** Byte start address of the currently highlighted field row. */
@@ -112,6 +112,18 @@ function renderBitSpan(bit: string, idx: number, selected: boolean): string {
 
 function makeBitRowKey(byteStart: number, bitStart: number, bitWidth: number): string {
     return `${byteStart}:${bitStart}:${bitWidth}`;
+}
+
+function scalarValKey(byteStart: number): string {
+    return `byte:${byteStart}`;
+}
+
+function bitChildValKey(byteStart: number, bitStart: number, bitWidth: number): string {
+    return `bit:${makeBitRowKey(byteStart, bitStart, bitWidth)}`;
+}
+
+function bitUnitValKey(byteStart: number): string {
+    return `bitunit:${byteStart}`;
 }
 
 function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
@@ -1364,7 +1376,10 @@ const TYPE_ABBREV: Record<string, string> = {
 function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: string): string {
     const nd  = !r.hasData ? ' si-no-data' : '';
     const ptr = r.type === 'pointer';
-    let t = _fieldValTypes.get(bs);
+    const valKey = isBitFieldRow(r)
+        ? bitChildValKey(bs, r.bitOffset ?? 0, r.bitWidth ?? 0)
+        : scalarValKey(bs);
+    let t = _fieldValTypes.get(valKey);
     if (!t) {
         // Prefer decimal view for floating-point fields by default
         if (isBitFieldRow(r)) { t = 'bin'; }
@@ -1373,7 +1388,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
         else { t = _defaultValType; }
     }
     const v   = getValForType(r, t);
-    const valHtml = (t === 'bin' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
+    const valHtml = (t === 'bin' || t === 'bin-sliced' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
     const byteCount = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : bc;
     const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
     const abbrev = isBitFieldRow(r)
@@ -1387,7 +1402,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
         : `+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
-        `data-byte-start="${bs}" data-byte-cnt="${bc}"` +
+        `data-byte-start="${bs}" data-byte-cnt="${bc}" data-val-key="${esc(valKey)}"` +
         (isBitFieldRow(r) ? ` data-bit-start="${r.bitOffset ?? 0}" data-bit-width="${r.bitWidth ?? 0}"` : '') +
         `>` +
         `<span class="si-f-off">${offsetLabel}</span>` +
@@ -1396,7 +1411,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(displayName ?? leafName(r.fieldName))}</span>` +
         `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${bs}">${valHtml}</span>` +
+        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${bs}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
         `</span>` +
         `</div>`
     );
@@ -1482,22 +1497,23 @@ function bitUnitHeaderHtml(
     const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''));
     const headerClass = kind === 'element' ? 'si-arr-el-hdr' : 'si-arr-grp-hdr';
     const buttonClass = kind === 'element' ? 'si-arr-el-exp-btn' : 'si-arr-exp-btn';
+    const valKey = bitUnitValKey(start);
     if (!agg) {
         return (
-            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
+            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
             `<span class="si-f-off">+000</span>` +
             `<span class="si-f-type">u8</span>` +
             `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
             `<span class="si-f-body">` +
             `<span class="si-f-name">${esc(headerName)}</span>` +
             `<span class="si-f-lead"></span>` +
-            `<span class="si-f-val si-f-pri" data-val-type="hex" data-bs="${start}">??</span>` +
+            `<span class="si-f-val si-f-pri" data-val-type="hex" data-bs="${start}" data-val-key="${esc(valKey)}">??</span>` +
             `</span>` +
             `</div>`
         );
     }
 
-    let t = _fieldValTypes.get(start);
+    let t = _fieldValTypes.get(valKey);
     if (!t) { t = 'bin'; }
 
     const activeRange = (() => {
@@ -1527,14 +1543,14 @@ function bitUnitHeaderHtml(
     const offsetLabel = `+${agg.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
 
     return (
-        `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
+        `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         `<span class="si-f-off">${offsetLabel}</span>` +
         `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
         `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${start}">${valHtml}</span>` +
+        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
         `</span>` +
         `</div>`
     );
@@ -2324,7 +2340,8 @@ function wireInstanceCards(sec: HTMLElement): void {
             const isPointer = valCell?.classList.contains('si-f-ptr');
             const isBitUnitHeader = row.classList.contains('si-bitunit-hdr');
             // Only allow per-element change, not group, for array elements
-            showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, { isPointer, isBitUnitHeader });
+            const valKey = row.dataset.valKey ?? scalarValKey(start);
+            showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, { isPointer, isBitUnitHeader, valKey });
         });
     });
 
@@ -2335,12 +2352,30 @@ function wireInstanceCards(sec: HTMLElement): void {
             if (hdr.classList.contains('si-bitunit-hdr')) { return; }
             ev.preventDefault(); ev.stopPropagation();
             const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
-            const bsList = Array.from(grp.querySelectorAll<HTMLElement>('.si-field'))
-                .map(r => parseInt(r.dataset.byteStart!));
+            const body = Array.from(grp.children).find(child =>
+                child.classList.contains('si-arr-grp-body')
+            ) as HTMLElement | undefined;
+            const directValueRows = body
+                ? Array.from(body.children).flatMap(child => {
+                    const childEl = child as HTMLElement;
+                    if (childEl.classList.contains('si-field')) { return [childEl]; }
+                    if (childEl.classList.contains('si-arr-el-grp')) {
+                        const hdr = Array.from(child.children).find(grandchild =>
+                            grandchild.classList.contains('si-arr-el-hdr') &&
+                            grandchild.classList.contains('si-field')
+                        ) as HTMLElement | undefined;
+                        return hdr ? [hdr] : [];
+                    }
+                    return [];
+                })
+                : [];
+            const bsList = directValueRows.map(r => parseInt(r.dataset.byteStart!));
+            const keyList = directValueRows.map(r => r.dataset.valKey ?? scalarValKey(parseInt(r.dataset.byteStart!)));
             const card = hdr.closest<HTMLElement>('.si-card');
             const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
             const start = bsList[0];
-            showFieldValMenu(ev.clientX, ev.clientY, start, bsList, pinIdx, { isArrayHeader: true });
+            if (start === undefined) { return; }
+            showFieldValMenu(ev.clientX, ev.clientY, start, bsList, pinIdx, { isArrayHeader: true, keyList });
         });
     });
 
@@ -2454,7 +2489,20 @@ function hideFieldValMenu(): void {
     if (_valMenuEl) { _valMenuEl.remove(); _valMenuEl = null; }
     document.removeEventListener('click', hideFieldValMenu);
 }
-function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], pinIdx?: number, opts?: { isPointer?: boolean, isArrayHeader?: boolean, isBitUnitHeader?: boolean }): void {
+function showFieldValMenu(
+    x: number,
+    y: number,
+    bs: number,
+    bsList?: number[],
+    pinIdx?: number,
+    opts?: {
+        isPointer?: boolean,
+        isArrayHeader?: boolean,
+        isBitUnitHeader?: boolean,
+        valKey?: string,
+        keyList?: string[],
+    },
+): void {
     hideFieldValMenu();
     // Determine candidate display types based on the field's native type.
     const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
@@ -2482,7 +2530,9 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
     const isBitSample = sampleField ? isBitFieldRow(sampleField) : false;
     const isFloatSample = sampleType === 'float32' || sampleType === 'float64';
     const isAsciiSample = sampleType === 'ascii';
-    const types: ColType[] = opts?.isBitUnitHeader
+    const key = opts?.valKey ?? scalarValKey(bs);
+    const arrayHasBitUnits = opts?.isArrayHeader && opts.keyList?.some(k => k.startsWith('bitunit:'));
+    const types: ColType[] = opts?.isBitUnitHeader || arrayHasBitUnits
         ? ['bin', 'bin-sliced', 'hex', 'dec']
         : isFloatSample
         ? ['hex', 'dec', 'ieee', 'bin']
@@ -2493,11 +2543,19 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 : ['hex', 'dec', 'bin', 'ascii'];
     let cur: ColType | null = null;
     if (bsList && bsList.length > 0) {
-        const vals = bsList.map(b => _fieldValTypes.get(b) ?? _defaultValType);
+        const vals = bsList.map((b, idx) => {
+            const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
+            const field = findFieldAt(b);
+            const ft = field?.type ?? null;
+            const implicit = (listKey.startsWith('bitunit:') || (field && isBitFieldRow(field)))
+                ? 'bin'
+                : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
+            return _fieldValTypes.get(listKey) ?? implicit;
+        });
         const allSame = vals.every(v => v === vals[0]);
         cur = allSame ? (vals[0] as ColType) : null;
     } else {
-        cur = _fieldValTypes.get(bs) ?? ((isBitSample || opts?.isBitUnitHeader) ? 'bin' : _defaultValType);
+        cur = _fieldValTypes.get(key) ?? ((isBitSample || opts?.isBitUnitHeader) ? 'bin' : _defaultValType);
     }
 
     // Helpers for menu
@@ -2553,14 +2611,15 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 }
                 if (cmd.startsWith('disp-') && bsList && bsList.length > 0) {
                     const t = cmd.replace('disp-', '') as ColType;
-                    bsList.forEach(b => {
+                    bsList.forEach((b, idx) => {
+                        const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
                         const field = findFieldAt(b);
                         const ft = field?.type ?? null;
-                        const implicit = field && isBitFieldRow(field)
+                        const implicit = (listKey.startsWith('bitunit:') || (field && isBitFieldRow(field)))
                             ? 'bin'
                             : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
-                        if (t === implicit) { _fieldValTypes.delete(b); }
-                        else { _fieldValTypes.set(b, t); }
+                        if (t === implicit) { _fieldValTypes.delete(listKey); }
+                        else { _fieldValTypes.set(listKey, t); }
                     });
                     hideFieldValMenu();
                     renderStructPins();
@@ -2705,8 +2764,8 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 const implicit = opts?.isBitUnitHeader || (field && isBitFieldRow(field))
                     ? 'bin'
                     : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
-                if (t === implicit) { _fieldValTypes.delete(bs); }
-                else { _fieldValTypes.set(bs, t); }
+                if (t === implicit) { _fieldValTypes.delete(key); }
+                else { _fieldValTypes.set(key, t); }
                 hideFieldValMenu();
                 renderStructPins();
                 return;

@@ -618,6 +618,84 @@ suite('struct UI array header summary', () => {
         assert.ok(slicedValue, 'bit-field parent should rerender after selecting sliced binary');
         assert.strictEqual(slicedValue!.dataset.valType, 'bin-sliced', 'sliced binary should use its own value type');
         assert.strictEqual(slicedValue!.textContent?.replace(/\s+/g, ''), '0011', 'sliced binary should show the declared bit range as one value');
+
+        const parentExpand = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        assert.ok(parentExpand, 'bit-field parent should be expandable');
+        parentExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childValues = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'));
+        assert.ok(childValues.length >= 2, 'bit-field child rows should render after expanding parent');
+        assert.ok(childValues.every(el => el.dataset.valType === 'bin'), 'changing bit-field parent view should not change child row views');
+
+        const firstChild = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]');
+        assert.ok(firstChild, 'first bit-field child should render');
+        firstChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+
+        const childDecItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-dec"]');
+        assert.ok(childDecItem, 'bit-field child decimal menu item should render');
+        childDecItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const parentAfterChildChange = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val');
+        assert.ok(parentAfterChildChange, 'bit-field parent should still render after changing a child');
+        assert.strictEqual(parentAfterChildChange!.dataset.valType, 'bin-sliced', 'changing a bit-field child should not change parent view');
+
+        const childValuesAfterChange = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'));
+        assert.strictEqual(childValuesAfterChange[0]?.dataset.valType, 'dec', 'changing a bit-field child should affect that child');
+        assert.strictEqual(childValuesAfterChange[1]?.dataset.valType, 'bin', 'changing a bit-field child should not affect sibling children');
+    });
+
+    test('array header view changes direct bit-field elements only', async () => {
+        const def: StructDef = {
+            id: 'bit_array_view_scope',
+            name: 'BitArrayViewScope',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 2,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'flags', bitWidth: 5 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_array_view_scope', structId: 'bit_array_view_scope', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x33, 0x55]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const arrayHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(arrayHeader, 'bit-field array header should render');
+        arrayHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+
+        const hexItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-hex"]');
+        assert.ok(hexItem, 'array header hex menu item should render');
+        hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandArray = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        assert.ok(expandArray, 'bit-field array should be expandable');
+        expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const elementValues = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-val'));
+        assert.strictEqual(elementValues.length, 2, 'bit-field array should render two direct element aggregate values');
+        assert.ok(elementValues.every(el => el.dataset.valType === 'hex'), 'array header view should change direct bit-field element parents');
+
+        const expandFirstElement = document.querySelector<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-arr-el-exp-btn');
+        assert.ok(expandFirstElement, 'bit-field array element should be expandable');
+        expandFirstElement!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childValues = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field[data-bit-start] .si-f-val'));
+        assert.ok(childValues.length > 0, 'bit-field array element should render child bit rows');
+        assert.ok(childValues.every(el => el.dataset.valType === 'bin'), 'array header view should not change nested bit-field children');
     });
 
     test('renders nested bit-field arrays with declared field names', async () => {
