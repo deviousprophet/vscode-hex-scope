@@ -12,6 +12,7 @@ function resetStructState(): void {
     S.parseResult = null;
     S.segmentIndex = [];
     S.endian = 'le';
+    S.bitFieldAllocation = 'msb';
     S.sidebarTab = 'struct';
 }
 
@@ -647,6 +648,65 @@ suite('struct UI array header summary', () => {
 
         const childRows = document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field');
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
+    });
+
+    test('shows independent byte endianness and bit-field allocation toggles', async () => {
+        const def: StructDef = {
+            id: 'bit_alloc_toggle',
+            name: 'BitAllocToggle',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'a', bitWidth: 3 },
+                        { name: 'b', bitWidth: 5 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_alloc_toggle', structId: 'bit_alloc_toggle', addr: 0x600, name: 'inst' }];
+        setBytesInSegment(0x600, [0xB1]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-group'))
+            .map(el => el.getAttribute('title') ?? '');
+        assert.ok(toggleGroups.some(title => title.includes('Byte endianness')), 'byte endianness detail should be available on hover');
+        assert.ok(toggleGroups.some(title => title.includes('Bit-field allocation')), 'bit-field allocation detail should be available on hover');
+        const toggleLabels = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-label'))
+            .map(el => el.textContent ?? '');
+        assert.ok(toggleLabels.includes('Endian'), 'compact endian label should render above the byte endianness toggle');
+        assert.ok(toggleLabels.includes('Bit Layout'), 'compact bit layout label should render above the bit-field allocation toggle');
+        assert.strictEqual(document.getElementById('sa-btn-le')?.textContent, 'LE');
+        assert.strictEqual(document.getElementById('sa-btn-be')?.textContent, 'BE');
+        assert.strictEqual(document.getElementById('sa-btn-bit-lsb')?.textContent, 'LSB');
+        assert.strictEqual(document.getElementById('sa-btn-bit-msb')?.textContent, 'MSB');
+        assert.ok(document.getElementById('sa-btn-bit-lsb')?.getAttribute('title')?.includes('least significant bit'), 'LSB button should explain allocation on hover');
+        assert.ok(document.getElementById('sa-btn-bit-msb')?.getAttribute('title')?.includes('most significant bit'), 'MSB button should explain allocation on hover');
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        assert.ok(expandBits, 'bit-field parent should be expandable');
+        expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childValuesMsb = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(childValuesMsb, ['101', '1 0001'], 'MSB-first should allocate from high bits by default');
+
+        document.getElementById('sa-btn-bit-lsb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childValuesLsb = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(childValuesLsb, ['001', '1 0110'], 'LSB-first should allocate from low bits independently of byte endianness');
     });
 
     test('defaults bit-field parent binary to full storage range', async () => {

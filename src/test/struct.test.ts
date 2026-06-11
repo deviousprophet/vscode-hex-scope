@@ -144,7 +144,7 @@ suite('structByteSize()', () => {
         assert.strictEqual(structByteSize(def), 2);
 
         setBytesInSegment(0, [0x81, 0x7F]);
-        const rows = decodeStruct(def, 0, getByte, 'le');
+        const rows = decodeStruct(def, 0, getByte, 'le', 'lsb');
         assert.strictEqual(rows.length, 4);
         assert.strictEqual(rows[0].fieldName, 'flags[0].enabled');
         assert.strictEqual(rows[1].fieldName, 'flags[0].mode');
@@ -360,32 +360,64 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[2].byteOffset, 8);
     });
 
-    test('decodes LE bit fields LSB-first as unsigned values', () => {
+    test('decodes bit fields MSB-first by default as unsigned values', () => {
         const def: StructDef = { id: 'x', name: 'Bits', packed: true, fields: [
             { name: 'a', type: 'uint8', bitWidth: 3, count: 1, endian: 'inherit' },
             { name: 'b', type: 'uint8', bitWidth: 5, count: 1, endian: 'inherit' },
         ]};
-        // 0b10110001 => a=0b001=1, b=0b10110=22 in LE LSB-first consumption.
+        // 0xB1 => a=0b101=5, b=0b10001=17 in MSB-first allocation.
         setBytesInSegment(0, [0xB1]);
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows.length, 2);
         assert.strictEqual(rows[0].isBitField, true);
         assert.strictEqual(rows[0].bitOffset, 0);
-        assert.strictEqual(rows[0].bitValueUnsigned, '1');
+        assert.strictEqual(rows[0].bitValueUnsigned, '5');
         assert.strictEqual(rows[1].bitOffset, 3);
-        assert.strictEqual(rows[1].bitValueUnsigned, '22');
+        assert.strictEqual(rows[1].bitValueUnsigned, '17');
     });
 
-    test('decodes BE bit fields MSB-first as unsigned values', () => {
+    test('decodes bit fields LSB-first when allocation is LSB', () => {
         const def: StructDef = { id: 'x', name: 'Bits', packed: true, fields: [
             { name: 'a', type: 'uint8', bitWidth: 3, count: 1, endian: 'inherit' },
             { name: 'b', type: 'uint8', bitWidth: 5, count: 1, endian: 'inherit' },
         ]};
-        // 0xB1 => a=0b101=5, b=0b10001=17 in BE MSB-first consumption.
+        // 0b10110001 => a=0b001=1, b=0b10110=22 in LSB-first allocation.
         setBytesInSegment(0, [0xB1]);
-        const rows = decodeStruct(def, 0, getByte, 'be');
-        assert.strictEqual(rows[0].bitValueUnsigned, '5');
-        assert.strictEqual(rows[1].bitValueUnsigned, '17');
+        const rows = decodeStruct(def, 0, getByte, 'le', 'lsb');
+        assert.strictEqual(rows[0].bitValueUnsigned, '1');
+        assert.strictEqual(rows[1].bitValueUnsigned, '22');
+    });
+
+    test('byte endianness and bit-field allocation are independent', () => {
+        const def: StructDef = { id: 'x', name: 'Bits16', packed: true, fields: [
+            {
+                name: 'word',
+                type: 'uint16',
+                count: 1,
+                endian: 'inherit',
+                bitFields: [
+                    { name: 'a', bitWidth: 4 },
+                    { name: 'b', bitWidth: 4 },
+                ],
+            },
+        ]};
+        setBytesInSegment(0, [0x12, 0x34]);
+
+        const leLsb = decodeStruct(def, 0, getByte, 'le', 'lsb');
+        assert.strictEqual(leLsb[0].bitValueUnsigned, '2');
+        assert.strictEqual(leLsb[1].bitValueUnsigned, '1');
+
+        const beLsb = decodeStruct(def, 0, getByte, 'be', 'lsb');
+        assert.strictEqual(beLsb[0].bitValueUnsigned, '4');
+        assert.strictEqual(beLsb[1].bitValueUnsigned, '3');
+
+        const leMsb = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.strictEqual(leMsb[0].bitValueUnsigned, '3');
+        assert.strictEqual(leMsb[1].bitValueUnsigned, '4');
+
+        const beMsb = decodeStruct(def, 0, getByte, 'be', 'msb');
+        assert.strictEqual(beMsb[0].bitValueUnsigned, '1');
+        assert.strictEqual(beMsb[1].bitValueUnsigned, '2');
     });
 
     test('bytesHex shows ?? for missing bytes', () => {

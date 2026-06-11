@@ -110,6 +110,15 @@ function renderBitSpan(bit: string, idx: number, selected: boolean): string {
     return `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}${sel}" data-bit-idx="${idx}">${bit}</span>`;
 }
 
+function allocationBitIndexForDisplayedBit(byteIdx: number, bitInByte: number, bitCount: number): number {
+    const numericBitIdx = S.endian === 'le'
+        ? byteIdx * 8 + bitInByte
+        : bitCount - (byteIdx * 8 + (8 - bitInByte));
+    return S.bitFieldAllocation === 'lsb'
+        ? numericBitIdx
+        : bitCount - numericBitIdx - 1;
+}
+
 function makeBitRowKey(byteStart: number, bitStart: number, bitWidth: number): string {
     return `${byteStart}:${bitStart}:${bitWidth}`;
 }
@@ -219,12 +228,12 @@ function renderBinaryFromBitRows(
         }
         const unitBits = raw.length * 8;
         const mask = (1n << BigInt(usedWidth)) - 1n;
-        const slicedValue = S.endian === 'le'
+        const slicedValue = S.bitFieldAllocation === 'lsb'
             ? value & mask
             : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
         const bits = slicedValue.toString(2).padStart(usedWidth, '0');
         const spans = [...bits].map((bit, displayIdx) => {
-            const bitIdx = S.endian === 'le' ? usedWidth - displayIdx - 1 : displayIdx;
+            const bitIdx = S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
             const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
             return renderBitSpan(bit, bitIdx, selected);
         });
@@ -233,7 +242,7 @@ function renderBinaryFromBitRows(
 
     const spans: string[] = [];
     for (let displayIdx = 0; displayIdx < usedWidth; displayIdx++) {
-        const bitIdx = S.endian === 'le' ? usedWidth - displayIdx - 1 : displayIdx;
+        const bitIdx = S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
         const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
         const sel = selected ? ' sel' : '';
         spans.push(`<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`);
@@ -251,7 +260,9 @@ function renderBinaryStorageUnit(
         const byteCount = r.bitStorageByteSize ?? (rawParts.length || 1);
         const bitCount = byteCount * 8;
         const spans = Array.from({ length: bitCount }, (_, displayIdx) => {
-            const bitIdx = bitCount - displayIdx - 1;
+            const byteIdx = Math.floor(displayIdx / 8);
+            const bitInByte = 7 - (displayIdx % 8);
+            const bitIdx = allocationBitIndexForDisplayedBit(byteIdx, bitInByte, bitCount);
             const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
             const sel = selected ? ' sel' : '';
             return `<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`;
@@ -266,9 +277,7 @@ function renderBinaryStorageUnit(
         const byte = bytes[byteIdx];
         for (let bitInByte = 7; bitInByte >= 0; bitInByte--) {
             const bit = ((byte >> bitInByte) & 1).toString();
-            const storageBitIdx = S.endian === 'le'
-                ? byteIdx * 8 + bitInByte
-                : bitCount - (byteIdx * 8 + (8 - bitInByte));
+            const storageBitIdx = allocationBitIndexForDisplayedBit(byteIdx, bitInByte, bitCount);
             const selected = !!selectedRange && storageBitIdx >= selectedRange.startBit && storageBitIdx <= selectedRange.endBit;
             spans.push(renderBitSpan(bit, storageBitIdx, selected));
         }
@@ -958,9 +967,19 @@ export function renderStructPins(): void {
         `<div class="si-main-panel">` +
         `<div class="si-hdr-row">` +
         `<span class="sb-hdr" style="margin:0">Struct Instances ${instBadge}</span>` +
+        `<div class="si-toggle-group" title="Byte endianness: how multi-byte scalar values are interpreted">` +
+        `<span class="si-toggle-label">Endian</span>` +
         `<div class="endian-tabs sa-endian-tabs">` +
-        `<button id="sa-btn-le" class="${S.endian === 'le' ? 'active' : ''}">LE</button>` +
-        `<button id="sa-btn-be" class="${S.endian === 'be' ? 'active' : ''}">BE</button>` +
+        `<button id="sa-btn-le" class="${S.endian === 'le' ? 'active' : ''}" title="Interpret multi-byte scalar values as little-endian">LE</button>` +
+        `<button id="sa-btn-be" class="${S.endian === 'be' ? 'active' : ''}" title="Interpret multi-byte scalar values as big-endian">BE</button>` +
+        `</div>` +
+        `</div>` +
+        `<div class="si-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
+        `<span class="si-toggle-label">Bit Layout</span>` +
+        `<div class="endian-tabs sa-bit-order-tabs">` +
+        `<button id="sa-btn-bit-lsb" class="${S.bitFieldAllocation === 'lsb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the least significant bit">LSB</button>` +
+        `<button id="sa-btn-bit-msb" class="${S.bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
+        `</div>` +
         `</div>` +
         `<button id="si-add-btn" class="si-add-btn"${_addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
         `<button id="si-types-btn" class="si-icon-btn" title="Manage types">&#9776;</button>` +
@@ -1118,7 +1137,7 @@ export function renderStructPins(): void {
         });
     }
 
-    // ── Endian tabs ──
+    // ── Byte endianness tabs ──
     document.getElementById('sa-btn-le')?.addEventListener('click', () => {
         S.endian = 'le';
         document.getElementById('sa-btn-le')?.classList.add('active');
@@ -1129,6 +1148,20 @@ export function renderStructPins(): void {
         S.endian = 'be';
         document.getElementById('sa-btn-be')?.classList.add('active');
         document.getElementById('sa-btn-le')?.classList.remove('active');
+        if (_expanded.size > 0) { renderStructPins(); }
+    });
+
+    // ── Bit-field allocation tabs ──
+    document.getElementById('sa-btn-bit-lsb')?.addEventListener('click', () => {
+        S.bitFieldAllocation = 'lsb';
+        document.getElementById('sa-btn-bit-lsb')?.classList.add('active');
+        document.getElementById('sa-btn-bit-msb')?.classList.remove('active');
+        if (_expanded.size > 0) { renderStructPins(); }
+    });
+    document.getElementById('sa-btn-bit-msb')?.addEventListener('click', () => {
+        S.bitFieldAllocation = 'msb';
+        document.getElementById('sa-btn-bit-msb')?.classList.add('active');
+        document.getElementById('sa-btn-bit-lsb')?.classList.remove('active');
         if (_expanded.size > 0) { renderStructPins(); }
     });
 
@@ -1654,7 +1687,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
 
     let bodyHtml = '';
     if (expanded && def) {
-        const rows = decodeStruct(def, pin.addr, getByte, S.endian);
+        const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
         const rowByteCnt = (r: DecodedField) => {
             if (isBitFieldRow(r)) { return r.bitStorageByteSize ?? 1; }
             return r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
@@ -2591,7 +2624,7 @@ function showFieldValMenu(
         if (!pin) { return []; }
         const def = allDefs.find(d => d.id === pin.structId);
         if (!def) { return []; }
-        const rows = decodeStruct(def, pin.addr, getByte, S.endian);
+        const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
         return rows.filter(rr => pin!.addr + rr.byteOffset === addr);
     };
     const findFieldAt = (addr: number): DecodedField | null => {
@@ -2738,7 +2771,7 @@ function showFieldValMenu(
                 if (!pin) { hideFieldValMenu(); return; }
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
-                const rows = decodeStruct(def, pin.addr, getByte, S.endian);
+                const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
                 const r = rows.find(rr => pin!.addr + rr.byteOffset === bs);
                 const toCopy = r ? getCopyText(r, 'hex') : '??';
                 if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2810,7 +2843,7 @@ function showFieldValMenu(
                 if (!pin) { hideFieldValMenu(); return; }
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
-                const rows = decodeStruct(def, pin.addr, getByte, S.endian);
+                const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
                 const toCopy = (bsList && bsList.length > 0)
                     ? bsList.map(b => {
                         const r = rows.find(rr => pin!.addr + rr.byteOffset === b);

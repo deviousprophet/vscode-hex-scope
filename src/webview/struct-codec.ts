@@ -3,6 +3,7 @@
 
 import { S } from './state';
 import type {
+    BitFieldAllocation,
     BitFieldChild,
     StructDef,
     StructField,
@@ -292,7 +293,7 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
                 errors.push(`Struct "${d.name}": field "${f.name}" bit-fields cannot be arrays.`);
             }
             if (f.endian !== 'inherit') {
-                errors.push(`Struct "${d.name}": field "${f.name}" bit-fields must inherit global endian.`);
+                errors.push(`Struct "${d.name}": field "${f.name}" bit-fields must inherit global byte endianness.`);
             }
         }
 
@@ -476,6 +477,7 @@ function decodeStructRecursive(
     baseAddr: number,
     getByte: (addr: number) => number | undefined,
     globalEndian: 'le' | 'be',
+    bitFieldAllocation: BitFieldAllocation,
     map: Map<string, StructDef>,
     rows: DecodedField[],
     depth: number,
@@ -532,7 +534,7 @@ function decodeStructRecursive(
                     const childName = child.name || `bit${bitPos}`;
                     const childPath = `${fieldPath}.${childName}`;
 
-                    const shift = endian === 'le'
+                    const shift = bitFieldAllocation === 'lsb'
                         ? bitPos
                         : unitBits - bitPos - w;
                     const unsignedValue = hasData ? (unitValue >> BigInt(shift)) & bitMask(w) : 0n;
@@ -608,7 +610,7 @@ function decodeStructRecursive(
             let unsignedValue = 0n;
             if (hasData && width > 0) {
                 const unitValue = bytesToBigUint(raw.filter(v => v >= 0), endian);
-                const shift = endian === 'le'
+                const shift = bitFieldAllocation === 'lsb'
                     ? bitOffset
                     : unitBits - bitOffset - width;
                 unsignedValue = (unitValue >> BigInt(shift)) & bitMask(width);
@@ -690,6 +692,7 @@ function decodeStructRecursive(
                         baseAddr,
                         getByte,
                         globalEndian,
+                        bitFieldAllocation,
                         map,
                         rows,
                         depth + 1,
@@ -741,10 +744,11 @@ export function decodeStruct(
     baseAddr: number,
     getByte: (addr: number) => number | undefined,
     globalEndian: 'le' | 'be',
+    bitFieldAllocation: BitFieldAllocation = 'msb',
 ): DecodedField[] {
     const rows: DecodedField[] = [];
     const map = defsMap(def);
-    decodeStructRecursive(def, baseAddr, getByte, globalEndian, map, rows, 1, '', 0);
+    decodeStructRecursive(def, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0);
     return rows;
 }
 

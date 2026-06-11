@@ -292,12 +292,24 @@
     padding-left: 1px; /* prevent border clipping on slide edge */
 }
 
-/* Header row: title + badge + ⚙ Types + LE/BE tabs + ＋ Add */
+/* Header row: title + badge + toggles + ＋ Add + ⚙ Types */
 .si-hdr-row {
     display: flex; align-items: center; gap: 6px;
     margin-bottom: 6px;
 }
 .si-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
+.si-toggle-group {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    flex-shrink: 0;
+}
+.si-toggle-label {
+    color: var(--addr-fg);
+    font-family: var(--font-ui);
+    font-size: 8px;
+    line-height: 1;
+    white-space: nowrap;
+}
+.si-toggle-group .endian-tabs button { font-size: 9px; padding: 1px 5px; }
 
 .si-add-btn {
     flex-shrink: 0;
@@ -341,7 +353,8 @@
 
 .sa-row { display: flex; align-items: center; gap: 4px; }
 .sa-btn-row { gap: 6px; }
-.sa-endian-tabs { flex-shrink: 0; }
+.sa-endian-tabs,
+.sa-bit-order-tabs { flex-shrink: 0; }
 
 /* Inline instance-edit form inside a card */
 .si-pin-edit-form {
@@ -594,15 +607,17 @@
 .si-bit.zero { color: var(--fg); opacity: .70; }
 .si-bit.unknown { color: var(--addr-fg); opacity: .75; }
 .si-bit.sel {
-    background: rgba(79,195,247,.22);
-    border-bottom: 1px solid rgba(79,195,247,.85);
+    background: var(--sel-bg);
+    color: var(--sel-fg, var(--fg));
     border-radius: 2px;
+    opacity: 1;
 }
 .si-bit.hov {
     background: rgba(79,195,247,.12);
     border-bottom: 1px dashed rgba(79,195,247,.55);
     border-radius: 2px;
 }
+.si-bit.sel.hov { border-bottom: 0; }
 .si-bin-wrap { display: inline-block; max-width: 100%; white-space: normal; }
 .si-bin-wrap br { display: block; line-height: 1.1; }
 .si-f-ptr { color: #e8a020 !important; font-style: italic; }

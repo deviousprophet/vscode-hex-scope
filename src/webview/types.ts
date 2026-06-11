@@ -40,6 +40,7 @@ export interface SegmentLabel {
 
 export type SearchMode = 'bytes' | 'value' | 'ascii' | 'addr';
 export type SearchEndianness = 'auto' | 'be' | 'le';
+export type BitFieldAllocation = 'lsb' | 'msb';
 
 export type MemRow =
     | { type: 'data'; address: number }
