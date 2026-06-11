@@ -644,6 +644,82 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(childValuesAfterChange[1]?.dataset.valType, 'bin', 'changing a bit-field child should not affect sibling children');
     });
 
+    test('omits sliced binary when bit fields fill parent storage', async () => {
+        const def: StructDef = {
+            id: 'bit_full_range_menu',
+            name: 'BitFullRangeMenu',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'lo', bitWidth: 4 },
+                        { name: 'hi', bitWidth: 4 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_full_range_menu', structId: 'bit_full_range_menu', addr: 0x200, name: 'inst' }];
+        setBytesInSegment(0x200, [0x33]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        assert.ok(bitHeader, 'bit-field parent header should render');
+        bitHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+
+        const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
+            .map(el => el.textContent ?? '');
+        assert.ok(labels.includes('Binary'), 'View as should include full Binary');
+        assert.ok(!labels.includes('Binary (bit field sliced)'), 'View as should omit sliced binary when it matches full range');
+    });
+
+    test('groups bit-field child binary from lower bits first', async () => {
+        const def: StructDef = {
+            id: 'bit_child_binary_grouping',
+            name: 'BitChildBinaryGrouping',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'wide', bitWidth: 5 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_child_binary_grouping', structId: 'bit_child_binary_grouping', addr: 0x300, name: 'inst' }];
+        setBytesInSegment(0x300, [0x00]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const parentExpand = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        assert.ok(parentExpand, 'bit-field parent should be expandable');
+        parentExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childValue = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val');
+        assert.ok(childValue, 'bit-field child value should render');
+        assert.strictEqual(childValue!.textContent, '0 0000', 'bit-field child binary should keep the lower four bits packed together');
+    });
+
     test('array header view changes direct bit-field elements only', async () => {
         const def: StructDef = {
             id: 'bit_array_view_scope',

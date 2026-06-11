@@ -126,6 +126,26 @@ function bitUnitValKey(byteStart: number): string {
     return `bitunit:${byteStart}`;
 }
 
+function bitRowWidth(row: DecodedField | null | undefined): number {
+    return isBitFieldRow(row as DecodedField) ? row?.bitWidth ?? 0 : 0;
+}
+
+function bitUnitUsesFullStorage(rows: DecodedField[]): boolean {
+    const first = rows[0];
+    if (!first || !isBitFieldRow(first)) { return false; }
+    const usedBits = rows.reduce((sum, row) => sum + bitRowWidth(row), 0);
+    const storageBits = (first.bitStorageByteSize ?? fieldByteSize(first.type)) * 8;
+    return usedBits >= storageBits;
+}
+
+function binaryGroupsLowBitsFirst(bits: string): string[] {
+    const groups: string[] = [];
+    for (let end = bits.length; end > 0; end -= 4) {
+        groups.unshift(bits.slice(Math.max(0, end - 4), end));
+    }
+    return groups;
+}
+
 function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
     const byteStart = parseInt(row.dataset.byteStart ?? '', 10);
     const bitStart = parseInt(row.dataset.bitStart ?? '', 10);
@@ -1150,7 +1170,7 @@ function getValForType(r: DecodedField, valType: ColType): string {
         }
         if (valType === 'bin' || valType === 'bin-sliced') {
             const bits = v.toString(2).padStart(width, '0');
-            const groups = bits.match(/.{1,4}/g) || [];
+            const groups = binaryGroupsLowBitsFirst(bits);
             const html = groups.map(g => [...g].map(bit =>
                 `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`
             ).join('')).join(' ');
@@ -1302,7 +1322,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         }
         if (valType === 'bin' || valType === 'bin-sliced') {
             const bits = v.toString(2).padStart(width, '0');
-            const groups = bits.match(/.{1,4}/g) || [];
+            const groups = binaryGroupsLowBitsFirst(bits);
             return groups.join(' ');
         }
         return v.toString(10);
@@ -2509,7 +2529,7 @@ function showFieldValMenu(
     // Determine candidate display types based on the field's native type.
     const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
     const allDefs = allStructs();
-    const findFieldAt = (addr: number): DecodedField | null => {
+    const findRowsAt = (addr: number): DecodedField[] => {
         let pin: StructPin | undefined;
         if (typeof pinIdx === 'number' && pinIdx >= 0) { pin = S.structPins[pinIdx]; }
         else {
@@ -2520,12 +2540,14 @@ function showFieldValMenu(
                 return addr >= p.addr && addr < p.addr + size;
             });
         }
-        if (!pin) { return null; }
+        if (!pin) { return []; }
         const def = allDefs.find(d => d.id === pin.structId);
-        if (!def) { return null; }
+        if (!def) { return []; }
         const rows = decodeStruct(def, pin.addr, getByte, S.endian);
-        const r = rows.find(rr => pin!.addr + rr.byteOffset === addr);
-        return r ?? null;
+        return rows.filter(rr => pin!.addr + rr.byteOffset === addr);
+    };
+    const findFieldAt = (addr: number): DecodedField | null => {
+        return findRowsAt(addr)[0] ?? null;
     };
     const sampleField = findFieldAt(sampleAddr);
     const sampleType = sampleField?.type ?? null;
@@ -2534,15 +2556,21 @@ function showFieldValMenu(
     const isAsciiSample = sampleType === 'ascii';
     const key = opts?.valKey ?? scalarValKey(bs);
     const arrayHasBitUnits = opts?.isArrayHeader && opts.keyList?.some(k => k.startsWith('bitunit:'));
-    const types: ColType[] = opts?.isBitUnitHeader || arrayHasBitUnits
-        ? ['bin', 'bin-sliced', 'hex', 'dec']
-        : isFloatSample
-        ? ['hex', 'dec', 'ieee', 'bin']
-        : isAsciiSample
-            ? ['ascii', 'hex', 'bin']
-            : isBitSample
-                ? ['bin', 'hex', 'dec']
-                : ['hex', 'dec', 'bin', 'ascii'];
+    const bitUnitTypes = (addresses: number[]): ColType[] => {
+        const hasPartialUnit = addresses.some(addr => !bitUnitUsesFullStorage(findRowsAt(addr)));
+        return hasPartialUnit ? ['bin', 'bin-sliced', 'hex', 'dec'] : ['bin', 'hex', 'dec'];
+    };
+    const types: ColType[] = opts?.isBitUnitHeader
+        ? bitUnitTypes([bs])
+        : arrayHasBitUnits
+            ? bitUnitTypes(bsList ?? [bs])
+            : isFloatSample
+                ? ['hex', 'dec', 'ieee', 'bin']
+                : isAsciiSample
+                    ? ['ascii', 'hex', 'bin']
+                    : isBitSample
+                        ? ['bin', 'hex', 'dec']
+                        : ['hex', 'dec', 'bin', 'ascii'];
     let cur: ColType | null = null;
     if (bsList && bsList.length > 0) {
         const vals = bsList.map((b, idx) => {
@@ -2833,6 +2861,7 @@ export function onSelectionChangeForStruct(): void {
     _selectedPinId     = null;
     if (S.selStart === null) { return; }
     S.activeStructAddr = S.selStart;
+    if (typeof document === 'undefined') { return; }
     if (S.sidebarTab === 'struct') {
         const addrHex = S.selStart.toString(16).toUpperCase().padStart(8, '0');
         if (_addingPin) {
