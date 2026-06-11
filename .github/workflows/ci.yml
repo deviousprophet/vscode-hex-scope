@@ -3,8 +3,6 @@ name: CI Workflow
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -14,6 +12,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  Fallow_Analysis:
+    name: Fallow Analysis
+    uses: ./.github/workflows/fallow.yml
+    permissions:
+      contents: read
+
   CT_After_Commit:
     name: Test After Commit
     uses: ./.github/workflows/ct.yml

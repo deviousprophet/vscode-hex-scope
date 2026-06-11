@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -37,7 +37,6 @@ jobs:
 
       - name: Parse Test Results
         id: parse-tests
-        if: always()
         run: |
           if [ -f test-output.log ]; then
             PASS=$(grep -Eo '([0-9]+) passing' test-output.log | head -n1 | grep -Eo '[0-9]+' || true)
@@ -59,16 +58,14 @@ jobs:
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
 
-      - name: Prepare Test Results Comment
-        id: prepare-test-comment
-        if: always() && github.event_name == 'pull_request'
+      - name: Job Summary
+        if: always()
         env:
           PASS: ${{ steps.parse-tests.outputs.passed }}
           FAIL: ${{ steps.parse-tests.outputs.failed }}
           TOTAL: ${{ steps.parse-tests.outputs.total }}
           PASS_RATE: ${{ steps.parse-tests.outputs.pass_rate }}
           RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
-          GITHUB_SHA: ${{ github.sha }}
         run: |
           PASS=${PASS:-0}
           FAIL=${FAIL:-0}
@@ -76,36 +73,26 @@ jobs:
           PASS_RATE=${PASS_RATE:-0}
           RUN_TESTS_OUTCOME=${RUN_TESTS_OUTCOME:-unknown}
 
-          echo "<!-- auto-tests -->" > pr-comment.md
-          echo "## Automated test results" >> pr-comment.md
-          if [ "$RUN_TESTS_OUTCOME" != "success" ] || [ "$TOTAL" -eq 0 ]; then
-            echo "" >> pr-comment.md
-            echo "**Status:** ❌ Tests were not executed successfully" >> pr-comment.md
-            COMMENT_STATUS=failure
-          elif [ -z "$FAIL" ] || [ "$FAIL" -eq 0 ]; then
-            echo "" >> pr-comment.md
-            echo "**Status:** ✅ All tests passed" >> pr-comment.md
-            COMMENT_STATUS=success
+          if [ "$RUN_TESTS_OUTCOME" != "success" ] || [ "${TOTAL:-0}" -eq 0 ]; then
+            STATUS="❌ Tests were not executed successfully"
+          elif [ "${FAIL:-0}" -eq 0 ]; then
+            STATUS="✅ All tests passed"
           else
-            echo "" >> pr-comment.md
-            echo "**Status:** ❌ Some tests failed" >> pr-comment.md
-            COMMENT_STATUS=failure
+            STATUS="❌ Some tests failed"
           fi
-          echo "" >> pr-comment.md
-          echo "| Passed | Failed | Total | Pass rate |" >> pr-comment.md
-          echo "|---:|---:|---:|---:|" >> pr-comment.md
-          echo "| $PASS | $FAIL | $TOTAL | $PASS_RATE% |" >> pr-comment.md
-          echo "" >> pr-comment.md
-          echo "Commit: $GITHUB_SHA" >> pr-comment.md
 
-          echo "comment-status=$COMMENT_STATUS" >> $GITHUB_OUTPUT
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          # 🤖 Automated test results
 
-      - name: Update Test Results on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: mshick/add-pr-comment@a1efecd81fb086a26f3d5135544a6d36f7c90139 # v3
+          $STATUS
+
+          | Passed | Failed | Total | Pass rate |
+          |---:|---:|---:|---:|
+          | ${PASS:-0} | ${FAIL:-0} | ${TOTAL:-0} | ${PASS_RATE:-0}% |
+          EOF
+
+      - name: Upload Test Results Artifact
+        uses: actions/upload-artifact@v4
         with:
-          message-id: auto-tests
-          message-path: pr-comment.md
-          attach-path: test-output.log
-          attach-name: full-test-output
-          status: ${{ steps.prepare-test-comment.outputs.comment-status }}
+          path: test-output.log
+          name: test-results-${{ github.sha }}
