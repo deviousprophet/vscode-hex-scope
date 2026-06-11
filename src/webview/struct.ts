@@ -1354,12 +1354,16 @@ function leafName(fieldPath: string): string {
     return parts.length > 0 ? parts[parts.length - 1] : fieldPath;
 }
 
+function displayFieldName(fieldPath: string): string {
+    return leafName(fieldPath).replace(/\[\d+\]$/, '');
+}
+
 function isBitUnitGroup(rows: DecodedField[]): boolean {
     return rows.length > 0 && rows.every(r => isBitFieldRow(r));
 }
 
-function groupHeaderName(baseName: string, rows: DecodedField[]): string {
-    return leafName(baseName);
+function groupHeaderName(baseName: string): string {
+    return displayFieldName(baseName);
 }
 
 function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
@@ -1409,7 +1413,7 @@ function bitUnitHeaderHtml(
     kind: 'group' | 'element' = 'group',
 ): string {
     const agg = buildBitUnitAggregateRow(rows);
-    const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''), rows);
+    const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''));
     const headerClass = kind === 'element' ? 'si-arr-el-hdr' : 'si-arr-grp-hdr';
     const buttonClass = kind === 'element' ? 'si-arr-el-exp-btn' : 'si-arr-exp-btn';
     if (!agg) {
@@ -1495,6 +1499,10 @@ function arrayGroupBaseName(fieldPath: string): string {
     return fieldPath.slice(0, first.index);
 }
 
+function bitUnitArrayBaseName(fieldPath: string): string {
+    return fieldPath.replace(/\[\d+\]$/, '');
+}
+
 function buildInstanceCard(pin: StructPin, i: number): string {
     const def        = allStructs().find(d => d.id === pin.structId);
     const defName    = def ? def.name : '?';
@@ -1522,10 +1530,11 @@ function buildInstanceCard(pin: StructPin, i: number): string {
             baseName: string,
             parentKey: string,
         ): string => {
+            const arrayBase = bitUnitArrayBaseName(baseName);
             type ElementGroup = { idx: number; rows: DecodedField[] };
             const elements: ElementGroup[] = [];
             for (const r of unitRows) {
-                const idx = parseArrayIndex(r.fieldName, baseName);
+                const idx = parseArrayIndex(r.fieldName, arrayBase);
                 if (idx === null) { continue; }
                 const last = elements[elements.length - 1];
                 if (last && last.idx === idx) { last.rows.push(r); }
@@ -1659,7 +1668,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                     `<span class="si-node-type-pad" aria-hidden="true"></span>` +
                     `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
                     `<span class="si-f-body">` +
-                    `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel, ng.rows))}</span>` +
+                    `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel))}</span>` +
                     `<span class="si-f-lead"></span>` +
                     `<span class="si-arr-addr">${esc(nestedSummaryLabel)}</span>` +
                     `</span>` +
@@ -1773,7 +1782,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                       `<span class="si-node-type-pad" aria-hidden="true"></span>` +
                       `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
                       `<span class="si-f-body">` +
-                      `<span class="si-f-name">${esc(groupHeaderName(g.baseName, g.rows))}</span>` +
+                      `<span class="si-f-name">${esc(groupHeaderName(g.baseName))}</span>` +
                       `<span class="si-f-lead"></span>` +
                       `<span class="si-arr-addr" title="${esc(nodeSummaryFull)}">${esc(nodeSummaryFull)}</span>` +
                       `</span>` +

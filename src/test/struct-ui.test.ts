@@ -551,4 +551,125 @@ suite('struct UI array header summary', () => {
         const childRows = document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field');
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
     });
+
+    test('renders nested bit-field arrays with declared field names', async () => {
+        const child: StructDef = {
+            id: 'child_bits',
+            name: 'ChildBits',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 2,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'flags', bitWidth: 5 },
+                    ],
+                },
+                { name: 'payload', type: 'uint8', count: 2, endian: 'inherit' },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'parent_bits',
+            name: 'ParentBits',
+            fields: [
+                { name: 'nodes', type: 'struct', refStructId: 'child_bits', count: 2, endian: 'inherit' },
+            ],
+        };
+
+        S.structs = [child, parent];
+        S.structPins = [{ id: 'pin_nested_bits', structId: 'parent_bits', addr: 0, name: 'inst' }];
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const parentGroupExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-exp-btn');
+        assert.ok(parentGroupExpand, 'nested struct array group should be expandable');
+        parentGroupExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const elementExpand = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn');
+        assert.ok(elementExpand, 'nested struct array element should be expandable');
+        elementExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const nestedBitGroup = document.querySelector<HTMLElement>('.si-arr-el-body .si-arr-grp-hdr .si-f-name');
+        assert.ok(nestedBitGroup, 'nested bit-field group should render a header');
+        assert.strictEqual(nestedBitGroup!.textContent ?? '', 'field0', 'nested bit-field group should show the declared field name');
+
+        const nestedBitExpand = document.querySelector<HTMLElement>('.si-arr-el-body .si-arr-grp .si-arr-exp-btn');
+        assert.ok(nestedBitExpand, 'nested bit-field group should be expandable');
+        nestedBitExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const nestedElementNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-arr-el-hdr .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.ok(nestedElementNames.includes('[0]'), 'nested bit-field array should show element index [0]');
+        assert.ok(nestedElementNames.includes('[1]'), 'nested bit-field array should show element index [1]');
+
+        const nestedChildNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-arr-el-body .si-field .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.ok(nestedChildNames.includes('mode'), 'nested bit-field child row should contain mode');
+        assert.ok(nestedChildNames.includes('flags'), 'nested bit-field child row should contain flags');
+        assert.ok(!nestedChildNames.includes('BitField'), 'nested bit-field groups should not use synthetic labels');
+    });
+
+    test('keeps scalar arrays separate from bit-field groups', async () => {
+        const def: StructDef = {
+            id: 'mixed_bits',
+            name: 'MixedBits',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 2,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'flags', bitWidth: 5 },
+                    ],
+                },
+                { name: 'data', type: 'uint8', count: 3, endian: 'inherit' },
+                {
+                    name: 'field1',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'bit0', bitWidth: 1 },
+                        { name: 'bit1', bitWidth: 1 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_mixed_bits', structId: 'mixed_bits', addr: 0, name: 'inst' }];
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(topHeaders, ['field0', 'data', 'field1'], 'mixed sibling groups should keep their declared order and names');
+
+        const dataGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2)');
+        assert.ok(dataGroup, 'scalar array group should render at the top level');
+        const dataExpand = dataGroup!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(dataExpand, 'scalar array group should be expandable');
+        dataExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const scalarArrayNames = Array.from(dataGroup!.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.ok(scalarArrayNames.includes('[0]'), 'scalar array should keep index-only child labels');
+        assert.ok(scalarArrayNames.includes('[1]'), 'scalar array should keep index-only child labels');
+        assert.ok(scalarArrayNames.includes('[2]'), 'scalar array should keep index-only child labels');
+        assert.ok(!scalarArrayNames.includes('BitField'), 'scalar arrays should not be reclassified as bit-field groups');
+    });
 });
