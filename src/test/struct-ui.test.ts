@@ -472,8 +472,16 @@ suite('struct UI array header summary', () => {
             id: 'bit_struct',
             name: 'BitStruct',
             fields: [
-                { name: 'mode', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
-                { name: 'flags', type: 'uint16', bitWidth: 5, count: 1, endian: 'inherit' },
+                {
+                    name: 'flags',
+                    type: 'uint16',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'flags', bitWidth: 5 },
+                    ],
+                },
             ],
         };
 

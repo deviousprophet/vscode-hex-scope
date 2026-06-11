@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
+    migrateStructDefBitFields,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
 import { initFlatBytes, getByte } from '../webview/data';
@@ -125,6 +126,32 @@ suite('structByteSize()', () => {
             { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },
         ]};
         assert.strictEqual(structByteSize(def), 8);
+    });
+
+    test('bit-field containers can be arrays', () => {
+        const def: StructDef = { id: 'x', name: 'Bits', fields: [
+            {
+                name: 'flags',
+                type: 'uint8',
+                count: 2,
+                endian: 'inherit',
+                bitFields: [
+                    { name: 'enabled', bitWidth: 1 },
+                    { name: 'mode', bitWidth: 7 },
+                ],
+            },
+        ]};
+        assert.strictEqual(structByteSize(def), 2);
+
+        setBytesInSegment(0, [0x81, 0x7F]);
+        const rows = decodeStruct(def, 0, getByte, 'le');
+        assert.strictEqual(rows.length, 4);
+        assert.strictEqual(rows[0].fieldName, 'flags[0].enabled');
+        assert.strictEqual(rows[1].fieldName, 'flags[0].mode');
+        assert.strictEqual(rows[2].fieldName, 'flags[1].enabled');
+        assert.strictEqual(rows[3].fieldName, 'flags[1].mode');
+        assert.strictEqual(rows[0].bitValueUnsigned, '1');
+        assert.strictEqual(rows[1].bitValueUnsigned, '64');
     });
 
     test('nested struct contributes child size and alignment', () => {
@@ -729,6 +756,24 @@ suite('parseStructText() round-trip', () => {
             assert.strictEqual(fields[i].count,  original[i].count,  `count mismatch at ${i}`);
             assert.strictEqual(fields[i].endian, original[i].endian, `endian mismatch at ${i}`);
         }
+    });
+});
+
+suite('migrateStructDefBitFields()', () => {
+    test('converts legacy flat bitWidth fields into container fields', () => {
+        const legacy: StructDef = {
+            id: 'x',
+            name: 'Legacy',
+            fields: [
+                { name: 'mode', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
+            ],
+        };
+        const migrated = migrateStructDefBitFields(legacy);
+        assert.strictEqual(migrated.fields[0].bitWidth, undefined);
+        assert.ok(Array.isArray(migrated.fields[0].bitFields), 'bitFields should exist after migration');
+        assert.strictEqual(migrated.fields[0].bitFields?.length, 1);
+        assert.strictEqual(migrated.fields[0].bitFields?.[0].name, 'mode');
+        assert.strictEqual(migrated.fields[0].bitFields?.[0].bitWidth, 3);
     });
 });
 

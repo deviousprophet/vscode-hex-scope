@@ -128,18 +128,6 @@
 }
 .sfe-type-sel:focus { border-color: var(--focus-bdr); }
 
-.sfe-bit-inp {
-    width: 100%; text-align: center;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
-    appearance: textfield;
-}
-.sfe-bit-inp::-webkit-outer-spin-button,
-.sfe-bit-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sfe-bit-inp:focus { border-color: var(--focus-bdr); }
-.sfe-bit-inp:disabled { opacity: .45; }
-
 /* Array cell */
 .sfe-arr-cell {
     display: flex; align-items: center; gap: 2px; width: 100%;
