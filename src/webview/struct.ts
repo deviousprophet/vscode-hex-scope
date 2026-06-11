@@ -1359,8 +1359,7 @@ function isBitUnitGroup(rows: DecodedField[]): boolean {
 }
 
 function groupHeaderName(baseName: string, rows: DecodedField[]): string {
-    if (!isBitUnitGroup(rows)) { return leafName(baseName); }
-    return 'BitField';
+    return leafName(baseName);
 }
 
 function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
@@ -1406,15 +1405,19 @@ function bitUnitHeaderHtml(
     start: number,
     cnt: number,
     isOpen: boolean,
+    headerNameOverride?: string,
+    kind: 'group' | 'element' = 'group',
 ): string {
     const agg = buildBitUnitAggregateRow(rows);
-    const headerName = groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''), rows);
+    const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''), rows);
+    const headerClass = kind === 'element' ? 'si-arr-el-hdr' : 'si-arr-grp-hdr';
+    const buttonClass = kind === 'element' ? 'si-arr-el-exp-btn' : 'si-arr-exp-btn';
     if (!agg) {
         return (
-            `<div class="si-arr-grp-hdr si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
+            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
             `<span class="si-f-off">+000</span>` +
             `<span class="si-f-type">u8</span>` +
-            `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+            `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
             `<span class="si-f-body">` +
             `<span class="si-f-name">${esc(headerName)}</span>` +
             `<span class="si-f-lead"></span>` +
@@ -1452,10 +1455,10 @@ function bitUnitHeaderHtml(
     const offsetLabel = `+${agg.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
 
     return (
-        `<div class="si-arr-grp-hdr si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
+        `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}">` +
         `<span class="si-f-off">${offsetLabel}</span>` +
         `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
-        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -1518,7 +1521,6 @@ function buildInstanceCard(pin: StructPin, i: number): string {
             unitRows: DecodedField[],
             baseName: string,
             parentKey: string,
-            typeLabel: string,
         ): string => {
             type ElementGroup = { idx: number; rows: DecodedField[] };
             const elements: ElementGroup[] = [];
@@ -1538,16 +1540,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                 const elementRowsHtml = renderBitUnitLeafRows(element.rows);
                 return (
                     `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
-                    `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}">` +
-                    `<span class="si-node-pad" aria-hidden="true"></span>` +
-                    `<span class="si-node-type-pad" aria-hidden="true"></span>` +
-                    `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
-                    `<span class="si-f-body">` +
-                    `<span class="si-f-name">[${element.idx}]</span>` +
-                    `<span class="si-f-lead"></span>` +
-                    `<span class="si-arr-addr">${esc(typeLabel)}</span>` +
-                    `</span>` +
-                    `</div>` +
+                    bitUnitHeaderHtml(element.rows, elementByteStart, elementByteCnt, isElementOpen, `[${element.idx}]`, 'element') +
                     `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
                     `</div>`
                 );
@@ -1641,7 +1634,6 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                         ng.rows,
                         ng.fullBase,
                         nestedKey,
-                        nestedTypeAbbrev,
                     );
                 } else if (nestedIsStruct && nestedCount === 1) {
                     nestedBodyHtml = renderStructChildren(ng.rows, ng.fullBase, nestedKey);
@@ -1761,7 +1753,7 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                         }).join('');
                     }
                 } else if (isBitUnit && isArray) {
-                    elHtml = renderBitUnitArrayElements(g.rows, g.baseName, key, scalarType);
+                    elHtml = renderBitUnitArrayElements(g.rows, g.baseName, key);
                 } else if (isStruct && !isArray) {
                     elHtml = renderStructChildren(g.rows, g.baseName, key);
                 } else if (isBitUnit) {
