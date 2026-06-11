@@ -147,7 +147,9 @@ function applyBitHighlightsInPlace(sec: HTMLElement): void {
         if (!range) { return; }
         const parentVal = sec.querySelector<HTMLElement>(
             `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"], ` +
-            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin-sliced"]`
+            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin-sliced"], ` +
+            `.si-arr-el-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"], ` +
+            `.si-arr-el-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin-sliced"]`
         );
         if (!parentVal) { return; }
         for (let i = range.startBit; i <= range.endBit; i++) {
@@ -2305,7 +2307,7 @@ function wireInstanceCards(sec: HTMLElement): void {
                 _selectedArrKey = null;
                 _selectedArrElemKey = null;
                 clearSelRow();
-                // Do NOT add si-selected class to bit-field child rows
+                row.classList.add('si-selected');
                 applyBitHighlightsInPlace(sec);
                 return;
             }

@@ -698,6 +698,57 @@ suite('struct UI array header summary', () => {
         assert.ok(childValues.every(el => el.dataset.valType === 'bin'), 'array header view should not change nested bit-field children');
     });
 
+    test('highlights array bit-field parent bits and selected child row', async () => {
+        const def: StructDef = {
+            id: 'bit_array_highlight',
+            name: 'BitArrayHighlight',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 2,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'flags', bitWidth: 5 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_array_highlight', structId: 'bit_array_highlight', addr: 0x100, name: 'inst' }];
+        setBytesInSegment(0x100, [0x33, 0x55]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandArray = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        assert.ok(expandArray, 'bit-field array should be expandable');
+        expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandFirstElement = document.querySelector<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-arr-el-exp-btn');
+        assert.ok(expandFirstElement, 'bit-field array element should be expandable');
+        expandFirstElement!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const firstChild = document.querySelector<HTMLElement>('.si-arr-el-body .si-field[data-bit-start]');
+        assert.ok(firstChild, 'bit-field child row should render');
+
+        firstChild!.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true }));
+        const hoveredBits = document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-val .si-bit.hov');
+        assert.ok(hoveredBits.length > 0, 'hovering array bit-field child should highlight bits in the element parent value');
+
+        firstChild!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.ok(firstChild!.classList.contains('si-selected'), 'selecting bit-field child should highlight the child row');
+
+        const selectedBits = document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-val .si-bit.sel');
+        assert.ok(selectedBits.length > 0, 'selecting array bit-field child should highlight bits in the element parent value');
+    });
+
     test('renders nested bit-field arrays with declared field names', async () => {
         const child: StructDef = {
             id: 'child_bits',
