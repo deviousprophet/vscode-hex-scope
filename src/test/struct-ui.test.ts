@@ -391,6 +391,90 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(bytesHeader!.textContent ?? '', 'bytes', 'max-depth scalar array should use local label');
     });
 
+    test('moves array offset from collapsed header to expanded child rows', async () => {
+        const def: StructDef = {
+            id: 'array_offset',
+            name: 'ArrayOffset',
+            fields: [
+                { name: 'prefix', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'values', type: 'uint16', count: 2, endian: 'inherit' },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_array_offset', structId: 'array_offset', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xAA, 0x11, 0x22, 0x33, 0x44]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const arrayHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(arrayHeader, 'array header should render');
+        assert.strictEqual(arrayHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+002', 'collapsed array header should show first element offset');
+
+        const expandArray = arrayHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expandArray, 'array expand button should render');
+        expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandedHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(expandedHeader, 'expanded array header should render');
+        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off'), null, 'expanded array header should not duplicate child offsets');
+
+        const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body > .si-field .si-f-off'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded array children should keep their own offsets');
+    });
+
+    test('moves nested struct offset from collapsed header to expanded child rows', async () => {
+        const child: StructDef = {
+            id: 'nested_offset_child',
+            name: 'NestedOffsetChild',
+            fields: [
+                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'nested_offset_parent',
+            name: 'NestedOffsetParent',
+            fields: [
+                { name: 'prefix', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'node', type: 'struct', refStructId: 'nested_offset_child', count: 1, endian: 'inherit' },
+            ],
+        };
+
+        S.structs = [child, parent];
+        S.structPins = [{ id: 'pin_nested_offset', structId: 'nested_offset_parent', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xAA, 0x11, 0x22, 0x33]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const structHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(structHeader, 'nested struct header should render');
+        assert.strictEqual(structHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+002', 'collapsed nested struct header should show first child offset');
+
+        const expandStruct = structHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expandStruct, 'nested struct expand button should render');
+        expandStruct!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandedHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(expandedHeader, 'expanded nested struct header should render');
+        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off'), null, 'expanded nested struct header should not duplicate child offsets');
+
+        const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body > .si-field .si-f-off'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded nested struct children should keep their own offsets');
+    });
+
     test('renders ascii string field as scalar leaf without collapse node', async () => {
         const def: StructDef = {
             id: 'str_leaf',
@@ -608,7 +692,7 @@ suite('struct UI array header summary', () => {
         const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
             .map(el => el.textContent ?? '');
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
-        assert.ok(labels.includes('Binary (bit field sliced)'), 'View as should include sliced bit-field binary');
+        assert.ok(labels.includes('Binary (bit fields only)'), 'View as should include bit-fields-only binary');
 
         const slicedItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin-sliced"]');
         assert.ok(slicedItem, 'sliced binary menu item should render');
@@ -680,7 +764,7 @@ suite('struct UI array header summary', () => {
         const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
             .map(el => el.textContent ?? '');
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
-        assert.ok(!labels.includes('Binary (bit field sliced)'), 'View as should omit sliced binary when it matches full range');
+        assert.ok(!labels.includes('Binary (bit fields only)'), 'View as should omit bit-fields-only binary when it matches full range');
     });
 
     test('groups bit-field child binary from lower bits first', async () => {
@@ -887,6 +971,67 @@ suite('struct UI array header summary', () => {
         assert.ok(nestedChildNames.includes('mode'), 'nested bit-field child row should contain mode');
         assert.ok(nestedChildNames.includes('flags'), 'nested bit-field child row should contain flags');
         assert.ok(!nestedChildNames.includes('BitField'), 'nested bit-field groups should not use synthetic labels');
+    });
+
+    test('renders nested single bit-field groups like top-level bit-field groups', async () => {
+        const child: StructDef = {
+            id: 'child_single_bits',
+            name: 'ChildSingleBits',
+            fields: [
+                {
+                    name: 'control',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'enabled', bitWidth: 1 },
+                    ],
+                },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'parent_single_bits',
+            name: 'ParentSingleBits',
+            fields: [
+                { name: 'node', type: 'struct', refStructId: 'child_single_bits', count: 1, endian: 'inherit' },
+            ],
+        };
+
+        S.structs = [child, parent];
+        S.structPins = [{ id: 'pin_nested_single_bits', structId: 'parent_single_bits', addr: 0x40, name: 'inst' }];
+        setBytesInSegment(0x40, [0x0B]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandNode = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        assert.ok(expandNode, 'nested struct node should be expandable');
+        expandNode!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const nestedBitHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body > .si-arr-grp > .si-bitunit-hdr');
+        assert.ok(nestedBitHeader, 'nested single bit-field group should use the scalar-like bit-field header');
+        assert.strictEqual(nestedBitHeader!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '', 'control', 'nested bit-field header should use declared field name');
+        assert.strictEqual(nestedBitHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+000', 'nested bit-field header should show its byte offset');
+        assert.strictEqual(nestedBitHeader!.querySelector<HTMLElement>('.si-f-type')?.textContent ?? '', 'u8', 'nested bit-field header should show the base scalar type');
+
+        const parentValue = nestedBitHeader!.querySelector<HTMLElement>('.si-f-val');
+        assert.ok(parentValue, 'nested bit-field parent should show an aggregate value');
+        assert.strictEqual(parentValue!.dataset.valType, 'bin', 'nested bit-field parent should default to full binary');
+        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00001011', 'nested bit-field parent should show full storage binary');
+
+        const expandBits = nestedBitHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expandBits, 'nested bit-field group should be expandable');
+        expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-field[data-bit-start] .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.ok(childNames.includes('mode'), 'nested bit-field child row should contain mode');
+        assert.ok(childNames.includes('enabled'), 'nested bit-field child row should contain enabled');
     });
 
     test('keeps scalar arrays separate from bit-field groups', async () => {

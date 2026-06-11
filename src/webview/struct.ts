@@ -1609,6 +1609,45 @@ function bitUnitArrayBaseName(fieldPath: string): string {
     return fieldPath.replace(/\[\d+\]$/, '');
 }
 
+function offsetLabel(byteOffset: number): string {
+    return `+${byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
+}
+
+function compositeHeaderPrefixHtml(isOpen: boolean, byteOffset: number): string {
+    if (isOpen) {
+        return (
+            `<span class="si-node-pad" aria-hidden="true"></span>` +
+            `<span class="si-node-type-pad" aria-hidden="true"></span>`
+        );
+    }
+    return (
+        `<span class="si-f-off">${offsetLabel(byteOffset)}</span>` +
+        `<span class="si-node-type-pad" aria-hidden="true"></span>`
+    );
+}
+
+function syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void {
+    if (hdr.classList.contains('si-bitunit-hdr')) { return; }
+
+    const existingOffset = hdr.querySelector<HTMLElement>(':scope > .si-f-off');
+    const existingPad = hdr.querySelector<HTMLElement>(':scope > .si-node-pad');
+    const typePad = hdr.querySelector<HTMLElement>(':scope > .si-node-type-pad');
+    if (isOpen) {
+        existingOffset?.remove();
+        if (!existingPad && typePad) {
+            typePad.insertAdjacentHTML('beforebegin', '<span class="si-node-pad" aria-hidden="true"></span>');
+        }
+        return;
+    }
+
+    const label = hdr.dataset.offsetLabel;
+    if (!label) { return; }
+    existingPad?.remove();
+    if (!existingOffset && typePad) {
+        typePad.insertAdjacentHTML('beforebegin', `<span class="si-f-off">${esc(label)}</span>`);
+    }
+}
+
 function buildInstanceCard(pin: StructPin, i: number): string {
     const def        = allStructs().find(d => d.id === pin.structId);
     const defName    = def ? def.name : '?';
@@ -1730,9 +1769,8 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                         );
                         return (
                             `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
-                            `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}">` +
-                            `<span class="si-node-pad" aria-hidden="true"></span>` +
-                            `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                            `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}" data-offset-label="${offsetLabel(first.byteOffset)}">` +
+                            compositeHeaderPrefixHtml(isElementOpen, first.byteOffset) +
                             `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
                             `<span class="si-f-body">` +
                             `<span class="si-f-name">[${element.idx}]</span>` +
@@ -1769,16 +1807,18 @@ function buildInstanceCard(pin: StructPin, i: number): string {
 
                 return (
                     `<div class="si-arr-grp${nestedOpen ? ' open' : ''}" data-arr-key="${esc(nestedKey)}">` +
-                    `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${nestedCnt}">` +
-                    `<span class="si-node-pad" aria-hidden="true"></span>` +
-                    `<span class="si-node-type-pad" aria-hidden="true"></span>` +
-                    `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
-                    `<span class="si-f-body">` +
-                    `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel))}</span>` +
-                    `<span class="si-f-lead"></span>` +
-                    `<span class="si-arr-addr">${esc(nestedSummaryLabel)}</span>` +
-                    `</span>` +
-                    `</div>` +
+                    (nestedIsBitUnit && nestedCount === 1
+                        ? bitUnitHeaderHtml(ng.rows, nestedStart, nestedCnt, nestedOpen, groupHeaderName(ng.baseRel))
+                        : `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${nestedCnt}" data-offset-label="${offsetLabel(ng.rows[0].byteOffset)}">` +
+                          compositeHeaderPrefixHtml(nestedOpen, ng.rows[0].byteOffset) +
+                          `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
+                          `<span class="si-f-body">` +
+                          `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel))}</span>` +
+                          `<span class="si-f-lead"></span>` +
+                          `<span class="si-arr-addr">${esc(nestedSummaryLabel)}</span>` +
+                          `</span>` +
+                          `</div>`
+                    ) +
                     `<div class="si-arr-grp-body"${nestedOpen ? '' : ' style=\"display:none\"'}>${nestedBodyHtml}</div>` +
                     `</div>`
                 );
@@ -1852,9 +1892,8 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                             );
                             return (
                                 `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
-                                `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}">` +
-                                `<span class="si-node-pad" aria-hidden="true"></span>` +
-                                `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                                `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}" data-offset-label="${offsetLabel(first.byteOffset)}">` +
+                                compositeHeaderPrefixHtml(isElementOpen, first.byteOffset) +
                                 `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
                                 `<span class="si-f-body">` +
                                 `<span class="si-f-name">[${element.idx}]</span>` +
@@ -1883,9 +1922,8 @@ function buildInstanceCard(pin: StructPin, i: number): string {
                 (isBitUnit && !isArray
                     ? bitUnitHeaderHtml(g.rows, byteStart, totalCnt, isOpen)
                     : `<div class="si-arr-grp-hdr" ` +
-                      `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}">` +
-                      `<span class="si-node-pad" aria-hidden="true"></span>` +
-                      `<span class="si-node-type-pad" aria-hidden="true"></span>` +
+                      `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}" data-offset-label="${offsetLabel(r0.byteOffset)}">` +
+                      compositeHeaderPrefixHtml(isOpen, r0.byteOffset) +
                       `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
                       `<span class="si-f-body">` +
                       `<span class="si-f-name">${esc(groupHeaderName(g.baseName))}</span>` +
@@ -2109,11 +2147,13 @@ function wireInstanceCards(sec: HTMLElement): void {
                 grp.classList.remove('open');
                 body.style.display = 'none';
                 expBtn.textContent = '▸';
+                syncCompositeHeaderOffset(hdr, false);
             } else {
                 _expandedArrayFields.add(key);
                 grp.classList.add('open');
                 body.style.display = '';
                 expBtn.textContent = '▾';
+                syncCompositeHeaderOffset(hdr, true);
             }
         });
 
@@ -2191,11 +2231,13 @@ function wireInstanceCards(sec: HTMLElement): void {
                 grp.classList.remove('open');
                 body.style.display = 'none';
                 expBtn.textContent = '▸';
+                syncCompositeHeaderOffset(hdr, false);
             } else {
                 _expandedArrayElements.add(key);
                 grp.classList.add('open');
                 body.style.display = '';
                 expBtn.textContent = '▾';
+                syncCompositeHeaderOffset(hdr, true);
             }
         });
 
@@ -2509,8 +2551,17 @@ function wireInstanceCards(sec: HTMLElement): void {
 let _valMenuEl: HTMLElement | null = null;
 function hideFieldValMenu(): void {
     if (_valMenuEl) { _valMenuEl.remove(); _valMenuEl = null; }
+    if (typeof document === 'undefined') { return; }
     document.removeEventListener('click', hideFieldValMenu);
 }
+
+function addFieldValMenuClickAway(): void {
+    setTimeout(() => {
+        if (typeof document === 'undefined') { return; }
+        document.addEventListener('click', hideFieldValMenu);
+    }, 0);
+}
+
 function showFieldValMenu(
     x: number,
     y: number,
@@ -2603,7 +2654,7 @@ function showFieldValMenu(
 
     // Array header: copy start address + view-as for all elements
     if (opts?.isArrayHeader) {
-        const TYPE_LABELS_FULL: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit field sliced)', ascii: 'ASCII', ieee: 'IEEE754' };
+        const TYPE_LABELS_FULL: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit fields only)', ascii: 'ASCII', ieee: 'IEEE754' };
         const dispMenu = types.map(t =>
             `<div class="ctx-row${t === cur ? ' active' : ''}" data-cmd="disp-${t}">` +
             `<span class="ctx-label">${TYPE_LABELS_FULL[t]}</span>` +
@@ -2657,7 +2708,7 @@ function showFieldValMenu(
             });
         });
         wireStructSubmenus(el);
-        setTimeout(() => document.addEventListener('click', hideFieldValMenu), 0);
+        addFieldValMenuClickAway();
         _valMenuEl = el;
         return;
     }
@@ -2708,12 +2759,12 @@ function showFieldValMenu(
                 return;
             });
         });
-        setTimeout(() => document.addEventListener('click', hideFieldValMenu), 0);
+        addFieldValMenuClickAway();
         _valMenuEl = el;
         return;
     }
 
-    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit field sliced)', ascii: 'ASCII', ieee: 'IEEE754' };
+    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit fields only)', ascii: 'ASCII', ieee: 'IEEE754' };
 
     // Copy submenu
     const copyMenu = types.map(t =>
@@ -2807,7 +2858,7 @@ function showFieldValMenu(
     wireStructSubmenus(el);
 
     // Hide when clicking outside
-    setTimeout(() => document.addEventListener('click', hideFieldValMenu), 0);
+    addFieldValMenuClickAway();
     _valMenuEl = el;
 }
 function wireStructSubmenus(menuEl: HTMLElement): void {
@@ -2853,6 +2904,7 @@ function wireStructSubmenus(menuEl: HTMLElement): void {
 
 /** Called when the user's byte selection changes. Fills the add-form address if open. */
 export function onSelectionChangeForStruct(): void {
+    if (typeof document === 'undefined') { return; }
     clearArrSep();
     clearSelRow();
     _selectedFieldAddr = null;
@@ -2861,7 +2913,6 @@ export function onSelectionChangeForStruct(): void {
     _selectedPinId     = null;
     if (S.selStart === null) { return; }
     S.activeStructAddr = S.selStart;
-    if (typeof document === 'undefined') { return; }
     if (S.sidebarTab === 'struct') {
         const addrHex = S.selStart.toString(16).toUpperCase().padStart(8, '0');
         if (_addingPin) {
