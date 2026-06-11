@@ -14,11 +14,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Get Branch Head SHA
-        id: branch-sha
-        run: |
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -72,7 +67,6 @@ jobs:
           TOTAL: ${{ steps.parse-tests.outputs.total }}
           PASS_RATE: ${{ steps.parse-tests.outputs.pass_rate }}
           RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
-          COMMIT_SHA: ${{ steps.branch-sha.outputs.sha }}
         run: |
           PASS=${PASS:-0}
           FAIL=${FAIL:-0}
@@ -80,22 +74,20 @@ jobs:
           PASS_RATE=${PASS_RATE:-0}
           RUN_TESTS_OUTCOME=${RUN_TESTS_OUTCOME:-unknown}
 
-          echo "# 🤖 Automated test results" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$RUN_TESTS_OUTCOME" != "success" ] || [ "$TOTAL" -eq 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "❌ Tests were not executed successfully" >> $GITHUB_STEP_SUMMARY
-          elif [ "$FAIL" -eq 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+          if [ "$RUN_TESTS_OUTCOME" != "success" ] || [ "${TOTAL:-0}" -eq 0 ]; then
+            STATUS="❌ Tests were not executed successfully"
+          elif [ "${FAIL:-0}" -eq 0 ]; then
+            STATUS="✅ All tests passed"
           else
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
+            STATUS="❌ Some tests failed"
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Passed | Failed | Total | Pass rate |" >> $GITHUB_STEP_SUMMARY
-          echo "|---:|---:|---:|---:|" >> $GITHUB_STEP_SUMMARY
-          echo "| $PASS | $FAIL | $TOTAL | $PASS_RATE% |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "*[${COMMIT_SHA:0:7}](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/commit/${COMMIT_SHA})*" >> $GITHUB_STEP_SUMMARY
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          # 🤖 Automated test results
+
+          $STATUS
+
+          | Passed | Failed | Total | Pass rate |
+          |---:|---:|---:|---:|
+          | ${PASS:-0} | ${FAIL:-0} | ${TOTAL:-0} | ${PASS_RATE:-0}% |
+          EOF
