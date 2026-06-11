@@ -98,4 +98,4 @@ jobs:
           echo "| $PASS | $FAIL | $TOTAL | $PASS_RATE% |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "*[${COMMIT_SHA}](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/commit/${COMMIT_SHA})*" >> $GITHUB_STEP_SUMMARY
+          echo "*[${COMMIT_SHA:0:7}](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/commit/${COMMIT_SHA})*" >> $GITHUB_STEP_SUMMARY
