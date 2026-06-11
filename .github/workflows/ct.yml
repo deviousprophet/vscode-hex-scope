@@ -37,7 +37,6 @@ jobs:
 
       - name: Parse Test Results
         id: parse-tests
-        if: github.event_name == 'pull_request'
         run: |
           if [ -f test-output.log ]; then
             PASS=$(grep -Eo '([0-9]+) passing' test-output.log | head -n1 | grep -Eo '[0-9]+' || true)
@@ -60,7 +59,7 @@ jobs:
           echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
 
       - name: Job Summary
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         env:
           PASS: ${{ steps.parse-tests.outputs.passed }}
           FAIL: ${{ steps.parse-tests.outputs.failed }}
@@ -93,7 +92,6 @@ jobs:
           EOF
 
       - name: Upload Test Results Artifact
-        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           path: test-output.log
