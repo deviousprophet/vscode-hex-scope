@@ -6,7 +6,10 @@ jobs:
   fallow:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: fallow-rs/fallow@1f9aaac198a279b340f688bd4ee56655e43551f4 #v2
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Fallow Analysis
+        uses: fallow-rs/fallow@v2
         with:
           format: sarif
