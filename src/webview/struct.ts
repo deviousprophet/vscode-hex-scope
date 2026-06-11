@@ -35,7 +35,7 @@ const _expandedArrayFields = new Set<string>();
 /** Nested element groups that are expanded. Key: `${pinId}::${baseName}::${idx}`. Collapsed by default. */
 const _expandedArrayElements = new Set<string>();
 
-type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'ieee';
+type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 /** Default display type for value cells (per-field default). */
 let _defaultValType: ColType = 'hex';
 /** Per-field display override keyed by absolute byte-start address. */
@@ -134,7 +134,8 @@ function applyBitHighlightsInPlace(sec: HTMLElement): void {
     ) => {
         if (!range) { return; }
         const parentVal = sec.querySelector<HTMLElement>(
-            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"]`
+            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"], ` +
+            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin-sliced"]`
         );
         if (!parentVal) { return; }
         for (let i = range.startBit; i <= range.endBit; i++) {
@@ -150,26 +151,91 @@ function renderBinaryFromBitRows(
     rows: DecodedField[],
     selectedRange?: { startBit: number; endBit: number } | null,
 ): string {
-    const spans: string[] = [];
-    let idx = 0;
-    for (const r of rows) {
-        const w = r.bitWidth ?? 0;
-        if (w <= 0) { continue; }
-        if (!r.hasData) {
-            for (let i = 0; i < w; i++) {
-                const selected = !!selectedRange && idx >= selectedRange.startBit && idx <= selectedRange.endBit;
-                const sel = selected ? ' sel' : '';
-                spans.push(`<span class="si-bit unknown${sel}" data-bit-idx="${idx}">?</span>`);
-                idx += 1;
+    const usedWidth = rows.reduce((sum, r) => sum + Math.max(0, r.bitWidth ?? 0), 0);
+    const first = rows[0];
+    if (!first || usedWidth <= 0) {
+        return '<span class="si-bin-wrap"></span>';
+    }
+    const rawParts = first.bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
+    const missing = rawParts.length === 0 || rawParts.some(p => p === '??') || !first.hasData;
+    if (!missing) {
+        const raw = rawParts.map(h => parseInt(h, 16));
+        let value = 0n;
+        if (S.endian === 'le') {
+            for (let i = 0; i < raw.length; i++) {
+                value |= BigInt(raw[i]) << BigInt(i * 8);
             }
-            continue;
+        } else {
+            for (const b of raw) {
+                value = (value << 8n) | BigInt(b);
+            }
         }
-        const v = BigInt(r.bitValueUnsigned ?? '0');
-        const bits = v.toString(2).padStart(w, '0');
-        for (const bit of bits) {
-            const selected = !!selectedRange && idx >= selectedRange.startBit && idx <= selectedRange.endBit;
-            spans.push(renderBitSpan(bit, idx, selected));
-            idx += 1;
+        const unitBits = raw.length * 8;
+        const mask = (1n << BigInt(usedWidth)) - 1n;
+        const slicedValue = S.endian === 'le'
+            ? value & mask
+            : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
+        const bits = slicedValue.toString(2).padStart(usedWidth, '0');
+        const spans = [...bits].map((bit, displayIdx) => {
+            const bitIdx = S.endian === 'le' ? usedWidth - displayIdx - 1 : displayIdx;
+            const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
+            return renderBitSpan(bit, bitIdx, selected);
+        });
+        const groups: string[] = [];
+        for (let i = 0; i < spans.length; i += 4) {
+            groups.push(spans.slice(i, i + 4).join(''));
+        }
+        return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+    }
+
+    const spans: string[] = [];
+    for (let displayIdx = 0; displayIdx < usedWidth; displayIdx++) {
+        const bitIdx = S.endian === 'le' ? usedWidth - displayIdx - 1 : displayIdx;
+        const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
+        const sel = selected ? ' sel' : '';
+        spans.push(`<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`);
+    }
+
+    const groups: string[] = [];
+    for (let i = 0; i < spans.length; i += 4) {
+        groups.push(spans.slice(i, i + 4).join(''));
+    }
+    return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+}
+
+function renderBinaryStorageUnit(
+    r: DecodedField,
+    selectedRange?: { startBit: number; endBit: number } | null,
+): string {
+    const rawParts = r.bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
+    if (rawParts.length === 0 || rawParts.some(p => p === '??')) {
+        const byteCount = r.bitStorageByteSize ?? (rawParts.length || 1);
+        const bitCount = byteCount * 8;
+        const spans = Array.from({ length: bitCount }, (_, displayIdx) => {
+            const bitIdx = bitCount - displayIdx - 1;
+            const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
+            const sel = selected ? ' sel' : '';
+            return `<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`;
+        });
+        const groups: string[] = [];
+        for (let i = 0; i < spans.length; i += 4) {
+            groups.push(spans.slice(i, i + 4).join(''));
+        }
+        return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+    }
+
+    const bytes = rawParts.map(h => parseInt(h, 16));
+    const bitCount = bytes.length * 8;
+    const spans: string[] = [];
+    for (let byteIdx = 0; byteIdx < bytes.length; byteIdx++) {
+        const byte = bytes[byteIdx];
+        for (let bitInByte = 7; bitInByte >= 0; bitInByte--) {
+            const bit = ((byte >> bitInByte) & 1).toString();
+            const storageBitIdx = S.endian === 'le'
+                ? byteIdx * 8 + bitInByte
+                : bitCount - (byteIdx * 8 + (8 - bitInByte));
+            const selected = !!selectedRange && storageBitIdx >= selectedRange.startBit && storageBitIdx <= selectedRange.endBit;
+            spans.push(renderBitSpan(bit, storageBitIdx, selected));
         }
     }
 
@@ -1068,7 +1134,7 @@ function getValForType(r: DecodedField, valType: ColType): string {
         if (valType === 'hex') {
             return formatHexHtml(formatHex(v, Math.max(1, Math.ceil(width / 4))));
         }
-        if (valType === 'bin') {
+        if (valType === 'bin' || valType === 'bin-sliced') {
             const bits = v.toString(2).padStart(width, '0');
             const groups = bits.match(/.{1,4}/g) || [];
             const html = groups.map(g => [...g].map(bit =>
@@ -1112,11 +1178,11 @@ function getValForType(r: DecodedField, valType: ColType): string {
             const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
             return formatHexHtml(`0x${hex}`);
         }
-        if (valType === 'bin') { return binFn(); }
+        if (valType === 'bin' || valType === 'bin-sliced') { return binFn(); }
         const s = r.decoded === '??' ? '' : r.decoded;
         return `'${s}'`;
     }
-    if (valType === 'bin') { return binFn(); }
+    if (valType === 'bin' || valType === 'bin-sliced') { return binFn(); }
     if (valType === 'ieee') {
         if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
         const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', S.endian);
@@ -1220,7 +1286,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         if (valType === 'hex') {
             return `0x${v.toString(16).toUpperCase().padStart(Math.max(1, Math.ceil(width / 4)), '0')}`;
         }
-        if (valType === 'bin') {
+        if (valType === 'bin' || valType === 'bin-sliced') {
             const bits = v.toString(2).padStart(width, '0');
             const groups = bits.match(/.{1,4}/g) || [];
             return groups.join(' ');
@@ -1239,7 +1305,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         const v = dv.getUint32(0, le) >>> 0;
         return hexPad(v, 8);
     }
-    if (valType === 'bin') {
+    if (valType === 'bin' || valType === 'bin-sliced') {
         const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
         const groups = bitSeq.match(/.{1,4}/g) || [];
         return groups.join(' ');
@@ -1445,13 +1511,15 @@ function bitUnitHeaderHtml(
     })();
 
     const v = t === 'bin'
+        ? renderBinaryStorageUnit(agg, activeRange)
+        : t === 'bin-sliced'
         ? renderBinaryFromBitRows(
             rows,
             activeRange,
         )
         : getValForType(agg, t);
     const ptr = agg.type === 'pointer';
-    const valHtml = (t === 'bin' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
+    const valHtml = (t === 'bin' || t === 'bin-sliced' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
     const byteCount = agg.bytesHex.length > 0 ? agg.bytesHex.split(' ').length : cnt;
     const abbrevBase = TYPE_ABBREV[agg.type] ?? agg.type;
     const abbrev = agg.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
@@ -2254,8 +2322,9 @@ function wireInstanceCards(sec: HTMLElement): void {
             // Determine if this is a pointer field
             const valCell = row.querySelector<HTMLElement>('.si-f-val');
             const isPointer = valCell?.classList.contains('si-f-ptr');
+            const isBitUnitHeader = row.classList.contains('si-bitunit-hdr');
             // Only allow per-element change, not group, for array elements
-            showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, { isPointer });
+            showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, { isPointer, isBitUnitHeader });
         });
     });
 
@@ -2385,7 +2454,7 @@ function hideFieldValMenu(): void {
     if (_valMenuEl) { _valMenuEl.remove(); _valMenuEl = null; }
     document.removeEventListener('click', hideFieldValMenu);
 }
-function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], pinIdx?: number, opts?: { isPointer?: boolean, isArrayHeader?: boolean }): void {
+function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], pinIdx?: number, opts?: { isPointer?: boolean, isArrayHeader?: boolean, isBitUnitHeader?: boolean }): void {
     hideFieldValMenu();
     // Determine candidate display types based on the field's native type.
     const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
@@ -2413,7 +2482,9 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
     const isBitSample = sampleField ? isBitFieldRow(sampleField) : false;
     const isFloatSample = sampleType === 'float32' || sampleType === 'float64';
     const isAsciiSample = sampleType === 'ascii';
-    const types: ColType[] = isFloatSample
+    const types: ColType[] = opts?.isBitUnitHeader
+        ? ['bin', 'bin-sliced', 'hex', 'dec']
+        : isFloatSample
         ? ['hex', 'dec', 'ieee', 'bin']
         : isAsciiSample
             ? ['ascii', 'hex', 'bin']
@@ -2426,7 +2497,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
         const allSame = vals.every(v => v === vals[0]);
         cur = allSame ? (vals[0] as ColType) : null;
     } else {
-        cur = _fieldValTypes.get(bs) ?? (isBitSample ? 'bin' : _defaultValType);
+        cur = _fieldValTypes.get(bs) ?? ((isBitSample || opts?.isBitUnitHeader) ? 'bin' : _defaultValType);
     }
 
     // Helpers for menu
@@ -2444,7 +2515,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
 
     // Array header: copy start address + view-as for all elements
     if (opts?.isArrayHeader) {
-        const TYPE_LABELS_FULL: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', ascii: 'ASCII', ieee: 'IEEE754' };
+        const TYPE_LABELS_FULL: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit field sliced)', ascii: 'ASCII', ieee: 'IEEE754' };
         const dispMenu = types.map(t =>
             `<div class="ctx-row${t === cur ? ' active' : ''}" data-cmd="disp-${t}">` +
             `<span class="ctx-label">${TYPE_LABELS_FULL[t]}</span>` +
@@ -2553,7 +2624,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
         return;
     }
 
-    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', ascii: 'ASCII', ieee: 'IEEE754' };
+    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit field sliced)', ascii: 'ASCII', ieee: 'IEEE754' };
 
     // Copy submenu
     const copyMenu = types.map(t =>
@@ -2631,7 +2702,7 @@ function showFieldValMenu(x: number, y: number, bs: number, bsList?: number[], p
                 const t = cmd.replace('disp-', '') as ColType;
                 const field = findFieldAt(bs);
                 const ft = field?.type ?? null;
-                const implicit = field && isBitFieldRow(field)
+                const implicit = opts?.isBitUnitHeader || (field && isBitFieldRow(field))
                     ? 'bin'
                     : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
                 if (t === implicit) { _fieldValTypes.delete(bs); }

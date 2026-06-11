@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
 import { S } from '../webview/state';
+import { initFlatBytes } from '../webview/data';
 import type { StructDef, StructPin } from '../webview/types';
 
 function resetStructState(): void {
@@ -12,6 +13,18 @@ function resetStructState(): void {
     S.segmentIndex = [];
     S.endian = 'le';
     S.sidebarTab = 'struct';
+}
+
+function setBytesInSegment(baseAddr: number, bytes: number[]): void {
+    S.parseResult = {
+        records: [],
+        segments: [{ startAddress: baseAddr, data: bytes }],
+        totalDataBytes: bytes.length,
+        checksumErrors: 0,
+        malformedLines: 0,
+        format: 'ihex',
+    };
+    initFlatBytes();
 }
 
 suite('struct UI array header summary', () => {
@@ -550,6 +563,61 @@ suite('struct UI array header summary', () => {
 
         const childRows = document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field');
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
+    });
+
+    test('defaults bit-field parent binary to full storage range', async () => {
+        const def: StructDef = {
+            id: 'bit_binary_modes',
+            name: 'BitBinaryModes',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'bit0', bitWidth: 1 },
+                        { name: 'bit1', bitWidth: 1 },
+                        { name: 'bit2', bitWidth: 1 },
+                        { name: 'bit3', bitWidth: 1 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_binary_modes', structId: 'bit_binary_modes', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x33]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        assert.ok(bitHeader, 'bit-field parent header should render');
+
+        const parentValue = bitHeader!.querySelector<HTMLElement>('.si-f-val');
+        assert.ok(parentValue, 'bit-field parent should render a value');
+        assert.strictEqual(parentValue!.dataset.valType, 'bin', 'bit-field parent should default to full binary');
+        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00110011', 'full binary should show the complete u8 storage range');
+
+        bitHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
+            .map(el => el.textContent ?? '');
+        assert.ok(labels.includes('Binary'), 'View as should include full Binary');
+        assert.ok(labels.includes('Binary (bit field sliced)'), 'View as should include sliced bit-field binary');
+
+        const slicedItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin-sliced"]');
+        assert.ok(slicedItem, 'sliced binary menu item should render');
+        slicedItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const slicedValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val');
+        assert.ok(slicedValue, 'bit-field parent should rerender after selecting sliced binary');
+        assert.strictEqual(slicedValue!.dataset.valType, 'bin-sliced', 'sliced binary should use its own value type');
+        assert.strictEqual(slicedValue!.textContent?.replace(/\s+/g, ''), '0011', 'sliced binary should show the declared bit range as one value');
     });
 
     test('renders nested bit-field arrays with declared field names', async () => {
