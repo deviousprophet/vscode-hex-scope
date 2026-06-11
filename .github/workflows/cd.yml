@@ -1,0 +1,25 @@
+name: CD Workflow
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Fallow_Analysis:
+    name: Fallow Analysis
+    uses: ./.github/workflows/fallow.yml
+    permissions:
+      contents: read
+
+  Package:
+    name: Package VSIX
+    uses: ./.github/workflows/package.yml
+    permissions:
+      contents: read

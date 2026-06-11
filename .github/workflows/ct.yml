@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -37,7 +37,6 @@ jobs:
 
       - name: Parse Test Results
         id: parse-tests
-        if: always()
         run: |
           if [ -f test-output.log ]; then
             PASS=$(grep -Eo '([0-9]+) passing' test-output.log | head -n1 | grep -Eo '[0-9]+' || true)
@@ -60,7 +59,7 @@ jobs:
           echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
 
       - name: Job Summary
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         env:
           PASS: ${{ steps.parse-tests.outputs.passed }}
           FAIL: ${{ steps.parse-tests.outputs.failed }}
@@ -93,7 +92,7 @@ jobs:
           EOF
 
       - name: Upload Test Results Artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           path: test-output.log
           name: test-results-${{ github.sha }}
