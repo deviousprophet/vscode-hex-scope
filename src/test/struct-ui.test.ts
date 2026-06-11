@@ -767,6 +767,57 @@ suite('struct UI array header summary', () => {
         assert.ok(!labels.includes('Binary (bit fields only)'), 'View as should omit bit-fields-only binary when it matches full range');
     });
 
+    test('wraps wide bit-field parent binary like scalar binary values', async () => {
+        const def: StructDef = {
+            id: 'wide_bit_parent_binary',
+            name: 'WideBitParentBinary',
+            fields: [
+                {
+                    name: 'flags',
+                    type: 'uint32',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'lo', bitWidth: 4 },
+                        { name: 'hi', bitWidth: 4 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_wide_bit_parent_binary', structId: 'wide_bit_parent_binary', addr: 0x500, name: 'inst' }];
+        setBytesInSegment(0x500, [0x12, 0x34, 0x56, 0x78]);
+
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const parentValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"]');
+        assert.ok(parentValue, 'wide bit-field parent should render full binary by default');
+        assert.strictEqual(parentValue!.querySelectorAll('br').length, 1, 'uint32 bit-field parent binary should wrap after 16 bits');
+        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00010010001101000101011001111000', 'wide bit-field parent binary should still show full storage bits');
+
+        const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        assert.ok(expandBits, 'wide bit-field parent should be expandable');
+        expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const firstChild = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]');
+        assert.ok(firstChild, 'wide bit-field child row should render');
+        firstChild!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const selectedBits = Array.from(document.querySelectorAll<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"] .si-bit.sel'));
+        assert.strictEqual(selectedBits.length, 4, 'selecting a wide bit-field child should highlight its bits on the wrapped parent value');
+        assert.deepStrictEqual(
+            selectedBits.map(el => el.dataset.bitIdx).sort(),
+            ['0', '1', '2', '3'],
+            'wrapped parent binary highlight should preserve bit indexes across lines',
+        );
+    });
+
     test('groups bit-field child binary from lower bits first', async () => {
         const def: StructDef = {
             id: 'bit_child_binary_grouping',

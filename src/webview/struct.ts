@@ -146,6 +146,19 @@ function binaryGroupsLowBitsFirst(bits: string): string[] {
     return groups;
 }
 
+function renderBinarySpanLines(spans: string[]): string {
+    const groups: string[] = [];
+    for (let i = 0; i < spans.length; i += 4) {
+        groups.push(spans.slice(i, i + 4).join(''));
+    }
+
+    const lines: string[] = [];
+    for (let i = 0; i < groups.length; i += 4) {
+        lines.push(groups.slice(i, i + 4).join(' '));
+    }
+    return `<span class="si-bin-wrap">${lines.join('<br>')}</span>`;
+}
+
 function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
     const byteStart = parseInt(row.dataset.byteStart ?? '', 10);
     const bitStart = parseInt(row.dataset.bitStart ?? '', 10);
@@ -215,11 +228,7 @@ function renderBinaryFromBitRows(
             const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
             return renderBitSpan(bit, bitIdx, selected);
         });
-        const groups: string[] = [];
-        for (let i = 0; i < spans.length; i += 4) {
-            groups.push(spans.slice(i, i + 4).join(''));
-        }
-        return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+        return renderBinarySpanLines(spans);
     }
 
     const spans: string[] = [];
@@ -230,11 +239,7 @@ function renderBinaryFromBitRows(
         spans.push(`<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`);
     }
 
-    const groups: string[] = [];
-    for (let i = 0; i < spans.length; i += 4) {
-        groups.push(spans.slice(i, i + 4).join(''));
-    }
-    return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+    return renderBinarySpanLines(spans);
 }
 
 function renderBinaryStorageUnit(
@@ -251,11 +256,7 @@ function renderBinaryStorageUnit(
             const sel = selected ? ' sel' : '';
             return `<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`;
         });
-        const groups: string[] = [];
-        for (let i = 0; i < spans.length; i += 4) {
-            groups.push(spans.slice(i, i + 4).join(''));
-        }
-        return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+        return renderBinarySpanLines(spans);
     }
 
     const bytes = rawParts.map(h => parseInt(h, 16));
@@ -273,11 +274,7 @@ function renderBinaryStorageUnit(
         }
     }
 
-    const groups: string[] = [];
-    for (let i = 0; i < spans.length; i += 4) {
-        groups.push(spans.slice(i, i + 4).join(''));
-    }
-    return `<span class="si-bin-wrap">${groups.join(' ')}</span>`;
+    return renderBinarySpanLines(spans);
 }
 
 function fieldRowHtml(
