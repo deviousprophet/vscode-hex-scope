@@ -586,12 +586,12 @@ const RECORD_BUFFER_ROWS = 5;
 const RECORD_MAX_SPACER_PX = 1_000_000;
 let recordRenderSignature = '';
 
-function renderRecordView(): void {
+export function renderRecordView(): void {
     const el = document.getElementById('record-view');
     if (!el || !S.parseResult) { return; }
 
     if (S.parseResult.records.length === 0) {
-        el.innerHTML = `<div class="raw-problems" style="margin:10px"><div class="raw-problems-hdr"><span class="raw-problems-title">Record View Unavailable</span></div><div style="padding:10px 12px">Record details are not loaded in the webview. Use Memory view for navigation and editing.</div></div>`;
+        el.replaceChildren(recordViewUnavailableNode());
         return;
     }
 
@@ -622,9 +622,19 @@ function renderRecordViewImpl(el: HTMLElement): void {
     const isSrec = S.parseResult.format === 'srec';
     const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
 
-    const header = `<tr><th>Addr</th><th>Type</th><th>Cnt</th><th>Data</th><th>CHK</th></tr>`;
+    const table = document.createElement('table');
+    table.className = 'rtbl';
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    ['Addr', 'Type', 'Cnt', 'Data', 'CHK'].forEach(label => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
 
-    const rows: string[] = [];
+    const rows: HTMLTableRowElement[] = [];
 
     if (firstVisibleIdx > 0) {
         const topOffset = firstVisibleIdx * RECORD_ROW_HEIGHT;
@@ -645,27 +655,18 @@ function renderRecordViewImpl(el: HTMLElement): void {
         const lbl = TYPE_LABELS[r.recordType] ?? (isSrec ? `S${r.recordType}` : `TYPE ${r.recordType}`);
         const ra   = r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0');
         const data = r.data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-        const dataCell = r.error
-            ? `<td class="rdata rerr-msg">${esc(r.error)}</td>`
-            : `<td class="rdata">${data || '—'}</td>`;
-        const checksumHex = esc(String(r.checksum.toString(16).toUpperCase().padStart(2, '0')));
-        const chk  = r.error
-            ? `<span class="rerr-dash">—</span>`
-            : r.checksumValid
-                ? `<span class="cok">${checksumHex}</span>`
-                : `<span class="cerr">${checksumHex}</span><span class="cerr-tag">checksum error</span>`;
-        const rowClass = (r.error || !r.checksumValid) ? ' class="rerr"' : '';
-        const addrCell = isData
-            ? `<td class="raddr">${ra}</td>`
-            : `<td class="raddr raddr-empty">—</td>`;
+        const checksumHex = String(r.checksum.toString(16).toUpperCase().padStart(2, '0'));
 
-        rows.push(`<tr${rowClass}>
-            ${esc(addrCell)}
-            <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
-            <td class="rcnt">${esc(String(r.byteCount))}</td>
-            ${dataCell}
-            <td>${chk}</td>
-        </tr>`);
+        const row = document.createElement('tr');
+        if (r.error || !r.checksumValid) { row.className = 'rerr'; }
+        row.append(
+            recordCellFromText(isData ? 'raddr' : 'raddr raddr-empty', isData ? ra : '—'),
+            recordTypeCell(badge, lbl),
+            recordCellFromText('rcnt', String(r.byteCount)),
+            recordCellFromText(r.error ? 'rdata rerr-msg' : 'rdata', r.error ? r.error : (data || '—')),
+            recordChecksumCell(!!r.error, r.checksumValid, checksumHex),
+        );
+        rows.push(row);
     }
 
     if (lastVisibleIdx < recordCount - 1) {
@@ -673,17 +674,88 @@ function renderRecordViewImpl(el: HTMLElement): void {
         appendRecordSpacerRows(rows, bottomOffset);
     }
 
-    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.map(esc).join('')}</tbody></table>`;
+    const tbody = document.createElement('tbody');
+    tbody.append(...rows);
+    table.appendChild(tbody);
+    el.replaceChildren(table);
 }
 
-function appendRecordSpacerRows(rows: string[], totalHeight: number): void {
+function appendRecordSpacerRows(rows: HTMLTableRowElement[], totalHeight: number): void {
     let remaining = totalHeight;
     while (remaining > 0) {
         const chunk = Math.min(remaining, RECORD_MAX_SPACER_PX);
         const safeChunk = Math.max(0, Math.floor(chunk));
-        rows.push(`<tr style="height:${safeChunk}px"><td colspan="5"></td></tr>`);
+        const row = document.createElement('tr');
+        row.style.height = `${safeChunk}px`;
+        const cell = document.createElement('td');
+        cell.colSpan = 5;
+        row.appendChild(cell);
+        rows.push(row);
         remaining -= chunk;
     }
+}
+
+function recordCellFromText(className: string, text: string): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    cell.className = className;
+    cell.textContent = text;
+    return cell;
+}
+
+function recordTypeCell(badgeClass: string, label: string): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = `rbadge ${badgeClass}`;
+    badge.textContent = label;
+    cell.appendChild(badge);
+    return cell;
+}
+
+function recordChecksumCell(hasError: boolean, checksumValid: boolean, checksumHex: string): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    if (hasError) {
+        const dash = document.createElement('span');
+        dash.className = 'rerr-dash';
+        dash.textContent = '—';
+        cell.appendChild(dash);
+        return cell;
+    }
+    if (checksumValid) {
+        const ok = document.createElement('span');
+        ok.className = 'cok';
+        ok.textContent = checksumHex;
+        cell.appendChild(ok);
+        return cell;
+    }
+
+    const bad = document.createElement('span');
+    bad.className = 'cerr';
+    bad.textContent = checksumHex;
+    const tag = document.createElement('span');
+    tag.className = 'cerr-tag';
+    tag.textContent = 'checksum error';
+    cell.append(bad, tag);
+    return cell;
+}
+
+function recordViewUnavailableNode(): HTMLElement {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'raw-problems';
+    wrapper.style.margin = '10px';
+
+    const header = document.createElement('div');
+    header.className = 'raw-problems-hdr';
+    const title = document.createElement('span');
+    title.className = 'raw-problems-title';
+    title.textContent = 'Record View Unavailable';
+    header.appendChild(title);
+
+    const body = document.createElement('div');
+    body.style.padding = '10px 12px';
+    body.textContent = 'Record details are not loaded in the webview. Use Memory view for navigation and editing.';
+
+    wrapper.append(header, body);
+    return wrapper;
 }
 
 // ── View switching ────────────────────────────────────────────────
