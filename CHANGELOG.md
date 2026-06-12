@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.7.1] - 2026-06-12
+
+### Fixed
+
+- Exclude the `.github` directory from VSCE packaging to reduce the extension size
+
 ## [2.7.0] - 2026-06-12
 
 ### Added
