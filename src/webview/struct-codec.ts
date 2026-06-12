@@ -159,63 +159,107 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
 
     for (const d of defs) {
         for (const f of d.fields) {
-            if (f.type === 'struct') {
-                if (!f.refStructId) {
-                    errors.push(`Struct "${d.name}": field "${f.name}" is missing a referenced struct.`);
-                    continue;
-                }
-                if (!byId.has(f.refStructId)) {
-                    errors.push(`Struct "${d.name}": field "${f.name}" references an unknown struct.`);
-                }
-            }
+            validateStructReference(d, f, byId, errors);
 
             // ── New bitFields container validation ──────────────────────────────
             if (isBitFieldContainer(f)) {
-                if (!isUnsignedScalarType(f.type)) {
-                    errors.push(`Struct "${d.name}": field "${f.name}" bit-field container must be an unsigned type.`);
-                    continue;
-                }
-                const unitBits = fieldByteSize(f.type as UnsignedScalarType) * 8;
-                let totalBits = 0;
-                for (const child of f.bitFields!) {
-                    if (!Number.isInteger(child.bitWidth) || child.bitWidth <= 0) {
-                        errors.push(`Struct "${d.name}": field "${f.name}" child "${child.name}" bit width must be > 0.`);
-                    } else {
-                        totalBits += child.bitWidth;
-                    }
-                }
-                if (totalBits > unitBits) {
-                    errors.push(`Struct "${d.name}": field "${f.name}" children total ${totalBits} bits exceeds ${unitBits}-bit container.`);
-                }
+                validateBitFieldContainer(d, f, errors);
                 continue;
             }
         }
     }
 
-    const visit = (defId: string, depth: number, stack: string[]): void => {
-        if (depth > maxDepth) {
-            const name = byId.get(defId)?.name ?? defId;
-            errors.push(`Nesting depth exceeds ${maxDepth} at struct "${name}".`);
-            return;
-        }
-        const def = byId.get(defId);
-        if (!def) { return; }
-
-        for (const f of def.fields) {
-            if (f.type !== 'struct' || !f.refStructId) { continue; }
-            if (stack.includes(f.refStructId)) {
-                const cycle = [...stack, f.refStructId]
-                    .map(id => byId.get(id)?.name ?? id)
-                    .join(' -> ');
-                errors.push(`Nested struct cycle detected: ${cycle}`);
-                continue;
-            }
-            visit(f.refStructId, depth + 1, [...stack, f.refStructId]);
-        }
-    };
-
-    defs.forEach(d => visit(d.id, 1, [d.id]));
+    defs.forEach(d => validateNestedStructGraph(d.id, 1, [d.id], byId, maxDepth, errors));
     return [...new Set(errors)];
+}
+
+function validateStructReference(
+    def: StructDef,
+    field: StructField,
+    byId: Map<string, StructDef>,
+    errors: string[],
+): void {
+    if (field.type !== 'struct') { return; }
+
+    if (!field.refStructId) {
+        errors.push(`Struct "${def.name}": field "${field.name}" is missing a referenced struct.`);
+        return;
+    }
+    if (!byId.has(field.refStructId)) {
+        errors.push(`Struct "${def.name}": field "${field.name}" references an unknown struct.`);
+    }
+}
+
+function validateBitFieldContainer(def: StructDef, field: StructField, errors: string[]): void {
+    if (!isUnsignedScalarType(field.type)) {
+        errors.push(`Struct "${def.name}": field "${field.name}" bit-field container must be an unsigned type.`);
+        return;
+    }
+
+    const unitBits = fieldByteSize(field.type as UnsignedScalarType) * 8;
+    const totalBits = validateBitFieldChildren(def, field, errors);
+    if (totalBits > unitBits) {
+        errors.push(`Struct "${def.name}": field "${field.name}" children total ${totalBits} bits exceeds ${unitBits}-bit container.`);
+    }
+}
+
+function validateBitFieldChildren(def: StructDef, field: StructField, errors: string[]): number {
+    let totalBits = 0;
+    for (const child of field.bitFields ?? []) {
+        if (!isValidBitWidth(child.bitWidth)) {
+            errors.push(`Struct "${def.name}": field "${field.name}" child "${child.name}" bit width must be > 0.`);
+        } else {
+            totalBits += child.bitWidth;
+        }
+    }
+    return totalBits;
+}
+
+function isValidBitWidth(bitWidth: number): boolean {
+    return Number.isInteger(bitWidth) && bitWidth > 0;
+}
+
+function validateNestedStructGraph(
+    defId: string,
+    depth: number,
+    stack: string[],
+    byId: Map<string, StructDef>,
+    maxDepth: number,
+    errors: string[],
+): void {
+    if (depth > maxDepth) {
+        const name = byId.get(defId)?.name ?? defId;
+        errors.push(`Nesting depth exceeds ${maxDepth} at struct "${name}".`);
+        return;
+    }
+
+    const def = byId.get(defId);
+    if (!def) { return; }
+
+    for (const field of def.fields) {
+        validateNestedStructField(field, depth, stack, byId, maxDepth, errors);
+    }
+}
+
+function validateNestedStructField(
+    field: StructField,
+    depth: number,
+    stack: string[],
+    byId: Map<string, StructDef>,
+    maxDepth: number,
+    errors: string[],
+): void {
+    if (field.type !== 'struct' || !field.refStructId) { return; }
+    if (stack.includes(field.refStructId)) {
+        errors.push(`Nested struct cycle detected: ${formatStructCycle([...stack, field.refStructId], byId)}`);
+        return;
+    }
+
+    validateNestedStructGraph(field.refStructId, depth + 1, [...stack, field.refStructId], byId, maxDepth, errors);
+}
+
+function formatStructCycle(stack: string[], byId: Map<string, StructDef>): string {
+    return stack.map(id => byId.get(id)?.name ?? id).join(' -> ');
 }
 
 // -- Decode logic --------------------------------------------------
