@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 
 import { esc, fmtB, byteClass } from '../webview/utils';
 import { S, BPR } from '../webview/state';
@@ -258,5 +259,73 @@ suite('buildMemRows()', () => {
             assert.ok(dataRows[i].type === 'data' && dataRows[i - 1].type === 'data');
             assert.ok(dataRows[i].address > dataRows[i - 1].address);
         }
+    });
+});
+
+suite('Record View rendering', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        resetState();
+        dom = new JSDOM('<!doctype html><html><body><div id="record-view"></div></body></html>');
+        Object.defineProperty(globalThis, 'window', {
+            value: dom.window,
+            configurable: true,
+            writable: true,
+        });
+        Object.defineProperty(globalThis, 'document', {
+            value: dom.window.document,
+            configurable: true,
+            writable: true,
+        });
+        Object.defineProperty(globalThis, 'acquireVsCodeApi', {
+            value: () => ({
+                postMessage: (_msg: unknown) => {},
+                getState: () => ({}),
+                setState: (_state: unknown) => {},
+            }),
+            configurable: true,
+            writable: true,
+        });
+    });
+
+    teardown(() => {
+        resetState();
+        dom.window.close();
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+    });
+
+    test('renders records as table rows instead of escaped markup text', async () => {
+        S.parseResult = {
+            records: [
+                {
+                    lineNumber: 1,
+                    raw: ':0400000001020304F2',
+                    byteCount: 4,
+                    address: 0,
+                    recordType: 0,
+                    data: [1, 2, 3, 4],
+                    checksum: 0xF2,
+                    checksumValid: true,
+                    resolvedAddress: 0x08000000,
+                },
+            ],
+            recordCount: 1,
+            segments: [{ startAddress: 0x08000000, data: [1, 2, 3, 4] }],
+            totalDataBytes: 4,
+            checksumErrors: 0,
+            malformedLines: 0,
+            format: 'ihex',
+        };
+
+        const { renderRecordView } = await import('../webview/hexViewer.js');
+        renderRecordView();
+
+        const rows = document.querySelectorAll('#record-view tbody tr');
+        assert.strictEqual(rows.length, 1, 'record view should render a real table row');
+        assert.strictEqual(document.querySelector('#record-view .raddr')?.textContent, '08000000');
+        assert.ok(!(document.getElementById('record-view')?.textContent ?? '').includes('<tr'), 'record markup should not be escaped as text');
     });
 });
