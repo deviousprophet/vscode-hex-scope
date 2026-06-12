@@ -30,24 +30,22 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
 type WebviewMessage = { type: string; [key: string]: unknown };
 type WebviewMessageHandler = (msg: WebviewMessage) => void;
 
-function messageHandlerFor(type: unknown): WebviewMessageHandler | undefined {
-    switch (type) {
-        case 'init': return handleInitMessage;
-        case 'loadError': return handleLoadErrorMessage;
-        case 'addLabel': return handleAddLabelMessage;
-        case 'updateLabel': return handleUpdateLabelMessage;
-        case 'copyCommand': return handleCopyCommandMessage;
-        case 'savedEdits': return handleSavedEditsMessage;
-        case 'externalChange': return handleExternalChangeMessage;
-        case 'externalChangeError': return handleExternalChangeErrorMessage;
-        case 'repairComplete': return handleRepairCompleteMessage;
-        default: return undefined;
-    }
-}
+const MESSAGE_HANDLERS: ReadonlyArray<readonly [string, WebviewMessageHandler]> = [
+    ['init', handleInitMessage],
+    ['loadError', handleLoadErrorMessage],
+    ['addLabel', handleAddLabelMessage],
+    ['updateLabel', handleUpdateLabelMessage],
+    ['copyCommand', handleCopyCommandMessage],
+    ['savedEdits', handleSavedEditsMessage],
+    ['externalChange', handleExternalChangeMessage],
+    ['externalChangeError', handleExternalChangeErrorMessage],
+    ['repairComplete', handleRepairCompleteMessage],
+];
 
 window.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as WebviewMessage;
-    messageHandlerFor(msg?.type)?.(msg);
+    const entry = MESSAGE_HANDLERS.find(([type]) => type === msg?.type);
+    entry?.[1](msg);
 });
 
 function handleInitMessage(msg: WebviewMessage): void {

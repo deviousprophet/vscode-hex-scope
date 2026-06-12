@@ -204,100 +204,93 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         watcher.onDidChange(onExternalChange);
         watcher.onDidCreate(onExternalChange);
 
-        // Handle messages from the webview
-        webviewPanel.webview.onDidReceiveMessage(async msg => {
-            switch (msg.type) {
-                case 'ready':
-                    webviewReady = true;
-                    await postInit();
-                    break;
-                case 'copyText':
-                    await vscode.env.clipboard.writeText(msg.text);
-                    vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
-                    break;
-                case 'saveLabels': {
-                    await this._context.workspaceState.update(labelKey, msg.labels);
-                    break;
-                }
-                case 'saveStructs': {
-                    const { defs } = normalizeStructDefs(msg.structs);
-                    await this._context.globalState.update(globalStructKey, defs);
-                    break;
-                }
-                case 'saveStructPins': {
-                    await this._context.workspaceState.update(structPinKey, msg.pins);
-                    break;
-                }
-                case 'updateLabelVisibility': {
-                    const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                    const next = current.map(l =>
-                        l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
-                    );
-                    await this._context.workspaceState.update(labelKey, next);
-                    break;
-                }
-                case 'reorderLabel': {
-                    const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                    const idx = current.findIndex(l => l.id === msg.id);
-                    if (idx < 0) { break; }
-                    const next = [...current];
-                    const dir  = (msg.dir as number);
-                    const swap = idx + dir;
-                    if (swap < 0 || swap >= next.length) { break; }
-                    [next[idx], next[swap]] = [next[swap], next[idx]];
-                    await this._context.workspaceState.update(labelKey, next);
-                    // Labels already updated client-side; just persist
-                    break;
-                }
-                case 'saveEdits': {
-                    if (!parseResult) { break; }
-                    const edits = msg.edits as Array<[number, number]>;
-                    const editMap = new Map<number, number>(edits);
-                    const newHex = format === 'srec'
-                        ? serializeSRec(raw, parseResult, editMap)
-                        : serializeIntelHex(raw, parseResult, editMap);
-                    suppressReload = true;
-                    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(newHex));
-                    raw = newHex;
-                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-                    webviewPanel.webview.postMessage({
-                        type: 'savedEdits',
-                        parseResult: serializeParseResult(parseResult, format),
-                    });
-                    vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${document.uri.fsPath.split(/[\/\\]/).pop()}`);
-                    break;
-                }
-                case 'reloadAccepted': {
-                    break;
-                }
-                case 'repairAndReload': {
-                    // File had checksum errors — repair them and reload HexScope
-                    if (!parseResult) { break; }
-                    const repairedRaw = repairChecksums(raw, parseResult);
-                    suppressReload = true;
-                    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(repairedRaw));
-                    raw = repairedRaw;
-                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-                    // Send the repaired content to the webview
-                    webviewPanel.webview.postMessage({
-                        type: 'repairComplete',
-                        parseResult: serializeParseResult(parseResult, format),
-                    });
-                    vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${document.uri.fsPath.split(/[\/\\]/).pop()}`);
-                    break;
-                }
-                case 'closePanel': {
-                    // File became invalid externally — user chose to close HexScope
-                    webviewPanel.dispose();
-                    break;
-                }
-                case 'viewInNormalEditor': {
-                    // File has malformed lines — open in text editor but keep HexScope view open
-                    const doc = await vscode.workspace.openTextDocument(document.uri);
-                    await vscode.window.showTextDocument(doc, { preview: false });
-                    break;
-                }
-            }
+        type WebviewMessage = { type: string; [key: string]: unknown };
+        type WebviewMessageHandler = (msg: WebviewMessage) => Promise<void>;
+
+        const currentFileName = () => document.uri.fsPath.split(/[\/\\]/).pop();
+        const parseCurrentRaw = () => format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
+        const writeRawAndReparse = async (nextRaw: string): Promise<ParseResult> => {
+            suppressReload = true;
+            await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(nextRaw));
+            raw = nextRaw;
+            parseResult = parseCurrentRaw();
+            return parseResult;
+        };
+
+        const messageHandlers: Record<string, WebviewMessageHandler> = {
+            ready: async () => {
+                webviewReady = true;
+                await postInit();
+            },
+            copyText: async msg => {
+                await vscode.env.clipboard.writeText(msg.text as string);
+                vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
+            },
+            saveLabels: async msg => {
+                await this._context.workspaceState.update(labelKey, msg.labels);
+            },
+            saveStructs: async msg => {
+                const { defs } = normalizeStructDefs(msg.structs);
+                await this._context.globalState.update(globalStructKey, defs);
+            },
+            saveStructPins: async msg => {
+                await this._context.workspaceState.update(structPinKey, msg.pins);
+            },
+            updateLabelVisibility: async msg => {
+                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
+                const next = current.map(l =>
+                    l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
+                );
+                await this._context.workspaceState.update(labelKey, next);
+            },
+            reorderLabel: async msg => {
+                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
+                const idx = current.findIndex(l => l.id === msg.id);
+                if (idx < 0) { return; }
+                const next = [...current];
+                const dir  = (msg.dir as number);
+                const swap = idx + dir;
+                if (swap < 0 || swap >= next.length) { return; }
+                [next[idx], next[swap]] = [next[swap], next[idx]];
+                await this._context.workspaceState.update(labelKey, next);
+            },
+            saveEdits: async msg => {
+                if (!parseResult) { return; }
+                const edits = msg.edits as Array<[number, number]>;
+                const editMap = new Map<number, number>(edits);
+                const newHex = format === 'srec'
+                    ? serializeSRec(raw, parseResult, editMap)
+                    : serializeIntelHex(raw, parseResult, editMap);
+                const nextParseResult = await writeRawAndReparse(newHex);
+                webviewPanel.webview.postMessage({
+                    type: 'savedEdits',
+                    parseResult: serializeParseResult(nextParseResult, format),
+                });
+                vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
+            },
+            reloadAccepted: async () => {},
+            repairAndReload: async () => {
+                if (!parseResult) { return; }
+                const repairedRaw = repairChecksums(raw, parseResult);
+                const nextParseResult = await writeRawAndReparse(repairedRaw);
+                webviewPanel.webview.postMessage({
+                    type: 'repairComplete',
+                    parseResult: serializeParseResult(nextParseResult, format),
+                });
+                vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${currentFileName()}`);
+            },
+            closePanel: async () => {
+                webviewPanel.dispose();
+            },
+            viewInNormalEditor: async () => {
+                const doc = await vscode.workspace.openTextDocument(document.uri);
+                await vscode.window.showTextDocument(doc, { preview: false });
+            },
+        };
+
+        webviewPanel.webview.onDidReceiveMessage(async rawMsg => {
+            const msg = rawMsg as WebviewMessage;
+            await messageHandlers[msg.type]?.(msg);
         });
 
         webviewPanel.onDidChangeViewState(e => {
