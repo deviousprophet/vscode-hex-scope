@@ -11,6 +11,15 @@ import { calcVisibleRange, calcTotalHeight, calcRowOffset, type VirtualScrollSta
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;
 let vscrollRenderedRange: [number, number] = [0, 0];
+type HexCellHandler = (e: MouseEvent, el: HTMLElement) => void;
+interface MemoryScrollElement extends HTMLElement {
+    _hexDownCallback?: HexCellHandler;
+    _hexCtxCallback?: HexCellHandler;
+}
+interface MemoryInteractionCallbacks {
+    onHexDown?: HexCellHandler;
+    onHexCtx?: HexCellHandler;
+}
 
 const VIRTUAL_SCROLL_CONFIG = {
     rowHeight: 20,   // CSS: var(--cell-size)  20px
@@ -51,74 +60,121 @@ function renderVisibleRows(): void {
     vscrollRenderedRange = [startIdx, endIdx];
 
     const container = document.getElementById('mem-rows')!;
-    const scrollContainer = document.getElementById('mem-scroll')!;
+    const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
     const labelMap = buildLabelMap();
-
-    // Calculate offset for top spacer
-    const topOffset = calcRowOffset(startIdx, vscrollState);
-
-    const parts: string[] = [];
-
-    // Top spacer (invisible, maintains scroll height ratio)
-    if (topOffset > 0) {
-        parts.push(`<div style="height:${topOffset}px"></div>`);
-    }
-
-    // Render only visible rows
-    for (let i = startIdx; i < endIdx && i < S.memRows.length; i++) {
-        const row = S.memRows[i];
-        if (row.type === 'gap') {
-            const f = row.from.toString(16).toUpperCase().padStart(8, '0');
-            const t = row.to.toString(16).toUpperCase().padStart(8, '0');
-            parts.push(`<div class="gap-row">
-                <span class="gap-dots"></span>
-                <span class="gap-range">0x${f}  0x${t}</span>
-                <span class="gap-size">${fmtB(row.bytes)} unmapped</span>
-            </div>`);
-        } else {
-            for (const lbl of (labelMap.get(row.address) ?? [])) {
-                parts.push(`<div class="seg-banner" style="border-color:${lbl.color};background:${lbl.color}14;color:${lbl.color}">
-                    <span class="sb-name">${esc(lbl.name)}</span>
-                    <span class="sb-meta">0x${lbl.startAddress.toString(16).toUpperCase().padStart(8, '0')}  ${fmtB(lbl.length)}</span>
-                </div>`);
-            }
-            parts.push(renderRow(row.address));
-        }
-    }
-
-    // Bottom spacer
-    const totalHeight = calcTotalHeight(vscrollState);
-    const bottomOffset = totalHeight - calcRowOffset(endIdx, vscrollState);
-    if (bottomOffset > 0) {
-        parts.push(`<div style="height:${bottomOffset}px"></div>`);
-    }
+    const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState);
 
     container.innerHTML = parts.join('');
+    attachMemoryCellHandlers(container, getMemoryInteractionCallbacks(scrollContainer));
+    refreshMemoryHighlights();
+}
 
-    // Re-attach interaction callbacks
-    const onHexDown = (scrollContainer as any)._hexDownCallback;
-    const onHexCtx = (scrollContainer as any)._hexCtxCallback;
+function buildVisibleRowsHtml(
+    startIdx: number,
+    endIdx: number,
+    labelMap: Map<number, typeof S.labels>,
+    state: VirtualScrollState,
+): string[] {
+    const parts: string[] = [];
+    appendSpacer(parts, calcRowOffset(startIdx, state));
+    appendVisibleMemoryRows(parts, startIdx, endIdx, labelMap);
+    appendSpacer(parts, calcTotalHeight(state) - calcRowOffset(endIdx, state));
+    return parts;
+}
 
-    if (onHexDown || onHexCtx) {
-        container.querySelectorAll<HTMLElement>('.data-cell[data-addr]').forEach(el => {
-            if (onHexDown) {
-                el.addEventListener('mousedown', e => onHexDown(e as MouseEvent, el));
-            }
-            if (onHexCtx) {
-                el.addEventListener('contextmenu', e => { onHexCtx(e as MouseEvent, el); e.preventDefault(); });
-            }
-        });
-        container.querySelectorAll<HTMLElement>('.char-cell[data-addr]').forEach(el => {
-            if (onHexDown) {
-                el.addEventListener('mousedown', e => onHexDown(e as MouseEvent, el));
-            }
-            if (onHexCtx) {
-                el.addEventListener('contextmenu', e => { onHexCtx(e as MouseEvent, el); e.preventDefault(); });
-            }
-        });
+function appendVisibleMemoryRows(
+    parts: string[],
+    startIdx: number,
+    endIdx: number,
+    labelMap: Map<number, typeof S.labels>,
+): void {
+    for (let i = startIdx; i < endIdx && i < S.memRows.length; i++) {
+        appendMemoryRow(parts, S.memRows[i], labelMap);
+    }
+}
+
+function appendSpacer(parts: string[], height: number): void {
+    if (height > 0) {
+        parts.push(`<div style="height:${height}px"></div>`);
+    }
+}
+
+function appendMemoryRow(
+    parts: string[],
+    row: (typeof S.memRows)[number],
+    labelMap: Map<number, typeof S.labels>,
+): void {
+    if (row.type === 'gap') {
+        parts.push(renderGapRow(row));
+        return;
     }
 
-    // Apply search and selection highlights
+    appendSegmentBanners(parts, labelMap.get(row.address) ?? []);
+    parts.push(renderRow(row.address));
+}
+
+function renderGapRow(row: Extract<(typeof S.memRows)[number], { type: 'gap' }>): string {
+    const f = row.from.toString(16).toUpperCase().padStart(8, '0');
+    const t = row.to.toString(16).toUpperCase().padStart(8, '0');
+    return `<div class="gap-row">
+        <span class="gap-dots"></span>
+        <span class="gap-range">0x${f}  0x${t}</span>
+        <span class="gap-size">${fmtB(row.bytes)} unmapped</span>
+    </div>`;
+}
+
+function appendSegmentBanners(parts: string[], labels: typeof S.labels): void {
+    for (const lbl of labels) {
+        parts.push(`<div class="seg-banner" style="border-color:${lbl.color};background:${lbl.color}14;color:${lbl.color}">
+            <span class="sb-name">${esc(lbl.name)}</span>
+            <span class="sb-meta">0x${lbl.startAddress.toString(16).toUpperCase().padStart(8, '0')}  ${fmtB(lbl.length)}</span>
+        </div>`);
+    }
+}
+
+function getMemoryInteractionCallbacks(scrollContainer: MemoryScrollElement): MemoryInteractionCallbacks {
+    return {
+        onHexDown: scrollContainer._hexDownCallback,
+        onHexCtx: scrollContainer._hexCtxCallback,
+    };
+}
+
+function storeMemoryInteractionCallbacks(
+    scrollContainer: MemoryScrollElement,
+    onHexDown: HexCellHandler,
+    onHexCtx: HexCellHandler,
+): void {
+    scrollContainer._hexDownCallback = onHexDown;
+    scrollContainer._hexCtxCallback = onHexCtx;
+}
+
+function attachMemoryCellHandlers(container: HTMLElement, callbacks: MemoryInteractionCallbacks): void {
+    if (!callbacks.onHexDown && !callbacks.onHexCtx) { return; }
+    attachMemoryCellHandlersForSelector(container, '.data-cell[data-addr]', callbacks);
+    attachMemoryCellHandlersForSelector(container, '.char-cell[data-addr]', callbacks);
+}
+
+function attachMemoryCellHandlersForSelector(
+    container: HTMLElement,
+    selector: string,
+    callbacks: MemoryInteractionCallbacks,
+): void {
+    container.querySelectorAll<HTMLElement>(selector).forEach(el => attachMemoryCellHandler(el, callbacks));
+}
+
+function attachMemoryCellHandler(el: HTMLElement, callbacks: MemoryInteractionCallbacks): void {
+    if (callbacks.onHexDown) {
+        el.addEventListener('mousedown', e => callbacks.onHexDown?.(e as MouseEvent, el));
+    }
+    if (callbacks.onHexCtx) {
+        el.addEventListener('contextmenu', e => {
+            callbacks.onHexCtx?.(e as MouseEvent, el);
+            e.preventDefault();
+        });
+    }
+}
+
+function refreshMemoryHighlights(): void {
     applyMatchHighlights();
     applySel();
 }
@@ -137,7 +193,7 @@ export function renderMemBody(
     }
 
     // Initialize virtual scroll state
-    const scrollContainer = document.getElementById('mem-scroll')!;
+    const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
 
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
@@ -149,9 +205,7 @@ export function renderMemBody(
     };
     vscrollRenderedRange = [-1, -1];
 
-    // Store callbacks for scroll listener
-    (scrollContainer as any)._hexDownCallback = onHexDown;
-    (scrollContainer as any)._hexCtxCallback = onHexCtx;
+    storeMemoryInteractionCallbacks(scrollContainer, onHexDown, onHexCtx);
 
     // Keep header columns aligned with horizontal body scrolling.
     syncHeaderScroll(scrollContainer.scrollLeft);
