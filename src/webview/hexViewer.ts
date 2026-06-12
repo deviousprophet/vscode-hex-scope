@@ -643,7 +643,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
             (isSrec  && r.recordType === 0)                         ? 'rb-ext'   :
             r.error                                                 ? 'rb-bad'   : 'rb-data';
         const lbl = TYPE_LABELS[r.recordType] ?? (isSrec ? `S${r.recordType}` : `TYPE ${r.recordType}`);
-        const ra   = r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0');
+        const ra   = esc(r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0'));
         const data = r.data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
         const dataCell = r.error
             ? `<td class="rdata rerr-msg">${esc(r.error)}</td>`
