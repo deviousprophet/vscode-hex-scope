@@ -586,7 +586,7 @@ const RECORD_BUFFER_ROWS = 5;
 const RECORD_MAX_SPACER_PX = 1_000_000;
 let recordRenderSignature = '';
 
-function renderRecordView(): void {
+export function renderRecordView(): void {
     const el = document.getElementById('record-view');
     if (!el || !S.parseResult) { return; }
 
@@ -660,7 +660,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
             : `<td class="raddr raddr-empty">—</td>`;
 
         rows.push(`<tr${rowClass}>
-            ${esc(addrCell)}
+            ${addrCell}
             <td><span class="rbadge ${badge}">${esc(lbl)}</span></td>
             <td class="rcnt">${esc(String(r.byteCount))}</td>
             ${dataCell}
@@ -673,7 +673,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
         appendRecordSpacerRows(rows, bottomOffset);
     }
 
-    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.map(esc).join('')}</tbody></table>`;
+    el.innerHTML = `<table class="rtbl"><thead>${header}</thead><tbody>${rows.join('')}</tbody></table>`;
 }
 
 function appendRecordSpacerRows(rows: string[], totalHeight: number): void {
