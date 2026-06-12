@@ -1,10 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [2.7.0] - 2026-06-12
 
 ### Added
 
-- Bit field support on Struct Overlay
+- Struct Overlay now supports C-style bit fields, including named bit-field groups, nested struct bit-field containers, and bit-field arrays
+- Struct instances now include a Bit Layout control for bit-field allocation (`LSB` / `MSB`) alongside byte endianness
+- Bit-field parent rows can be viewed as full storage-width binary or as `Binary (bit fields only)`
+
+### Changed
+
+- Array and nested-struct headers now show their first child offset while collapsed, then move offsets to child rows when expanded
 
 ## [2.6.0] — 2026-06-07
 
