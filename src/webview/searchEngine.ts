@@ -366,7 +366,11 @@ function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndiannes
 }
 
 function parseBytePattern(raw: string): number[] {
-    const tokens = raw.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
+    return parseHexBytes(raw.replace(/\s/g, ''));
+}
+
+function parseHexBytes(hex: string): number[] {
+    const tokens = hex.match(/.{1,2}/g) ?? [];
     const bytes: number[] = [];
     for (const tok of tokens) {
         const v = parseInt(tok, 16);
@@ -380,29 +384,28 @@ function parseValuePattern(raw: string): number[] {
     const s = raw.trim().replace(/_/g, '');
     if (!s) { return []; }
 
-    if (/^0x[0-9a-fA-F]+$/.test(s)) {
-        let hex = s.slice(2);
-        if (hex.length % 2 === 1) {
-            hex = `0${hex}`;
-        }
-        const out: number[] = [];
-        for (let i = 0; i < hex.length; i += 2) {
-            const v = parseInt(hex.slice(i, i + 2), 16);
-            if (isNaN(v)) { return []; }
-            out.push(v);
-        }
-        return out;
-    }
+    if (/^0x[0-9a-fA-F]+$/.test(s)) { return parseHexValueBytes(s.slice(2)); }
 
     if (!/^\d+$/.test(s)) { return []; }
 
-    let value: bigint;
-    try {
-        value = BigInt(s);
-    } catch {
-        return [];
-    }
+    const value = parseDecimalBigInt(s);
+    return value === null ? [] : bigIntToBigEndianBytes(value);
+}
 
+function parseHexValueBytes(hexValue: string): number[] {
+    const hex = hexValue.length % 2 === 1 ? `0${hexValue}` : hexValue;
+    return parseHexBytes(hex);
+}
+
+function parseDecimalBigInt(s: string): bigint | null {
+    try {
+        return BigInt(s);
+    } catch {
+        return null;
+    }
+}
+
+function bigIntToBigEndianBytes(value: bigint): number[] {
     if (value === 0n) { return [0]; }
 
     const out: number[] = [];
