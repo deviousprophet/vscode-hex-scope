@@ -36,8 +36,26 @@ export function computeSRecChecksum(byteCount: number, address: number, addressS
 
 // ── Line parser ───────────────────────────────────────────────────
 
+interface SRecLayout {
+    byteCount: number;
+    addressSize: number;
+}
+
+interface ParsedSRecLine {
+    recordType: number;
+    hex: string;
+    layout: SRecLayout;
+}
+
 function parseLine(raw: string, lineNumber: number): HexRecord {
-    const base: HexRecord = {
+    const base = createBaseRecord(raw, lineNumber);
+    const parsed = parseSRecLine(raw, base);
+    if (!isParsedSRecLine(parsed)) { return parsed; }
+    return buildSRecRecord(raw, lineNumber, parsed);
+}
+
+function createBaseRecord(raw: string, lineNumber: number): HexRecord {
+    return {
         lineNumber,
         raw,
         byteCount: 0,
@@ -48,87 +66,146 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
         checksumValid: false,
         resolvedAddress: 0,
     };
+}
 
+function parseRecordType(raw: string, base: HexRecord): number | HexRecord {
+    const typeChar = raw[1];
+    const prefixError = validateRecordPrefix(raw, typeChar, base);
+    if (prefixError) { return prefixError; }
+
+    const recordType = parseInt(typeChar, 10);
+    const reservedError = validateRecordType(recordType, base);
+    if (reservedError) { return reservedError; }
+
+    return recordType;
+}
+
+function validateRecordPrefix(raw: string, typeChar: string, base: HexRecord): HexRecord | null {
     if (!raw.startsWith('S') || raw.length < 4) {
         return { ...base, error: 'Missing "S" start code or line too short' };
     }
 
-    const typeChar = raw[1];
     if (!/^[0-9]$/.test(typeChar)) {
         return { ...base, error: `Invalid record type character: "${typeChar}"` };
     }
-    const recordType = parseInt(typeChar, 10);
 
-    // S4 is reserved and undefined in the SREC standard
-    if (recordType === 4) {
-        return { ...base, recordType, error: 'Reserved record type: S4' };
-    }
+    return null;
+}
 
-    const hex = raw.slice(2); // everything after "Sn"
+function validateRecordType(recordType: number, base: HexRecord): HexRecord | null {
+    return recordType === 4 ? { ...base, recordType, error: 'Reserved record type: S4' } : null;
+}
 
+function validateHexPayload(hex: string, recordType: number, base: HexRecord): HexRecord | null {
     if (!/^[0-9A-Fa-f]+$/.test(hex)) {
         return { ...base, recordType, error: 'Non-hex characters in record' };
     }
     if (hex.length < 4) {
         return { ...base, recordType, error: 'Record too short' };
     }
+    return null;
+}
 
+function parseSRecLayout(hex: string, recordType: number, base: HexRecord): SRecLayout | HexRecord {
     const byteCount = parseInt(hex.slice(0, 2), 16);
-    const asz = SREC_ADDR_SIZES[recordType] ?? 2;
+    const addressSize = SREC_ADDR_SIZES[recordType] ?? 2;
+    const layout = { byteCount, addressSize };
 
-    // byteCount covers: address bytes + data bytes + 1 checksum byte (minimum = asz + 1)
-    if (byteCount < asz + 1) {
-        return { ...base, recordType, byteCount,
-                 error: `Byte count ${byteCount} too small for S${recordType} (minimum ${asz + 1})` };
-    }
+    return validateSRecByteCount(layout, recordType, base)
+        ?? validateSRecHexLength(hex, layout, recordType, base)
+        ?? layout;
+}
 
-    // S5-S9 carry no data payload; byte count must be exactly asz+1
-    if (recordType >= 5 && byteCount !== asz + 1) {
-        return { ...base, recordType, byteCount,
-                 error: `S${recordType} must have byte count ${asz + 1}, got ${byteCount}` };
-    }
+function isSRecLayout(result: SRecLayout | HexRecord): result is SRecLayout {
+    return 'addressSize' in result;
+}
 
-    // Total hex chars: 2 (byteCount field) + byteCount * 2 (all remaining bytes)
-    const expectedHexLen = 2 + byteCount * 2;
-    if (hex.length !== expectedHexLen) {
-        return {
-            ...base, recordType, byteCount,
-            error: `Expected ${expectedHexLen} hex chars, got ${hex.length}`,
-        };
-    }
-
-    // ── Parse address ─────────────────────────────────────────────
+function parseSRecAddress(hex: string, addressSize: number): number {
     let address = 0;
-    for (let i = 0; i < asz; i++) {
+    for (let i = 0; i < addressSize; i++) {
         address = (address * 256 + parseInt(hex.slice(2 + i * 2, 4 + i * 2), 16));
     }
-    address = address >>> 0; // coerce to unsigned 32-bit
+    return address >>> 0;
+}
 
-    // ── Parse data bytes ──────────────────────────────────────────
-    const dataOffset = 2 + asz * 2;
-    const dataLen = byteCount - asz - 1; // byteCount − addrBytes − checksumByte
+function parseSRecData(hex: string, layout: SRecLayout): Uint8Array {
+    const dataOffset = 2 + layout.addressSize * 2;
+    const dataLen = layout.byteCount - layout.addressSize - 1;
     const data = new Uint8Array(Math.max(0, dataLen));
     for (let i = 0; i < data.length; i++) {
         data[i] = parseInt(hex.slice(dataOffset + i * 2, dataOffset + i * 2 + 2), 16);
     }
+    return data;
+}
 
-    // ── Checksum (last byte) ──────────────────────────────────────
-    const checksum = parseInt(hex.slice(hex.length - 2), 16);
+function parseSRecLine(raw: string, base: HexRecord): ParsedSRecLine | HexRecord {
+    const recordTypeResult = parseRecordType(raw, base);
+    if (typeof recordTypeResult !== 'number') { return recordTypeResult; }
 
-    // Validate: one's complement of sum of byteCount + address bytes + data bytes
-    const expectedChecksum = computeSRecChecksum(byteCount, address, asz, data);
-    const checksumValid = checksum === expectedChecksum;
+    const recordType = recordTypeResult;
+    const hex = raw.slice(2); // everything after "Sn"
+    const hexError = validateHexPayload(hex, recordType, base);
+    if (hexError) { return hexError; }
+
+    const layoutResult = parseSRecLayout(hex, recordType, base);
+    if (!isSRecLayout(layoutResult)) { return layoutResult; }
+
+    return { recordType, hex, layout: layoutResult };
+}
+
+function isParsedSRecLine(result: ParsedSRecLine | HexRecord): result is ParsedSRecLine {
+    return 'layout' in result;
+}
+
+function validateSRecByteCount(layout: SRecLayout, recordType: number, base: HexRecord): HexRecord | null {
+    if (layout.byteCount < layout.addressSize + 1) {
+        return { ...base, recordType, byteCount: layout.byteCount,
+                 error: `Byte count ${layout.byteCount} too small for S${recordType} (minimum ${layout.addressSize + 1})` };
+    }
+
+    if (isInvalidCountRecord(recordType, layout)) {
+        return { ...base, recordType, byteCount: layout.byteCount,
+                 error: `S${recordType} must have byte count ${layout.addressSize + 1}, got ${layout.byteCount}` };
+    }
+
+    return null;
+}
+
+function isInvalidCountRecord(recordType: number, layout: SRecLayout): boolean {
+    return recordType >= 5 && layout.byteCount !== layout.addressSize + 1;
+}
+
+function validateSRecHexLength(
+    hex: string,
+    layout: SRecLayout,
+    recordType: number,
+    base: HexRecord,
+): HexRecord | null {
+    const expectedHexLen = 2 + layout.byteCount * 2;
+    if (hex.length === expectedHexLen) { return null; }
+
+    return {
+        ...base, recordType, byteCount: layout.byteCount,
+        error: `Expected ${expectedHexLen} hex chars, got ${hex.length}`,
+    };
+}
+
+function buildSRecRecord(raw: string, lineNumber: number, parsed: ParsedSRecLine): HexRecord {
+    const address = parseSRecAddress(parsed.hex, parsed.layout.addressSize);
+    const data = parseSRecData(parsed.hex, parsed.layout);
+    const checksum = parseInt(parsed.hex.slice(parsed.hex.length - 2), 16);
+    const expectedChecksum = computeSRecChecksum(parsed.layout.byteCount, address, parsed.layout.addressSize, data);
 
     return {
         lineNumber,
         raw,
-        byteCount,
+        byteCount: parsed.layout.byteCount,
         address,
-        recordType,
+        recordType: parsed.recordType,
         data,
         checksum,
-        checksumValid,
-        resolvedAddress: srecIsData(recordType) ? address : 0,
+        checksumValid: checksum === expectedChecksum,
+        resolvedAddress: srecIsData(parsed.recordType) ? address : 0,
     };
 }
 
