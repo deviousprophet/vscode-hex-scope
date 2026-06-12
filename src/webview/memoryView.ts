@@ -346,51 +346,98 @@ function getSelectedColumns(selStart: number, selEnd: number): Set<number> {
 
 //  Match highlight 
 
+interface VisibleCellIndex {
+    cellsByAddr: Map<number, HTMLElement[]>;
+    visibleMin: number;
+    visibleMax: number;
+}
+
 export function applyMatchHighlights(): void {
-    const renderedCells = document.querySelectorAll<HTMLElement>('.data-cell[data-addr], .char-cell[data-addr]');
-    renderedCells.forEach(el => el.classList.remove('match', 'amatch'));
+    const renderedCells = getRenderedAddressCells();
+    clearMatchClasses(renderedCells);
     if (!S.matchAddrs.length) { return; }
 
     const nLen = getNeedleLen();
     if (!nLen) { return; }
 
-    const cellsByAddr = new Map<number, HTMLElement[]>();
-    let visibleMin = Number.MAX_SAFE_INTEGER;
-    let visibleMax = Number.MIN_SAFE_INTEGER;
+    const cellIndex = buildVisibleCellIndex(renderedCells);
+    if (!cellIndex) { return; }
+    highlightVisibleMatches(cellIndex, nLen);
+}
 
-    renderedCells.forEach(el => {
-        const addrHex = el.dataset.addr;
-        if (!addrHex) { return; }
-        const addr = parseInt(addrHex, 16);
-        if (isNaN(addr)) { return; }
+function getRenderedAddressCells(): NodeListOf<HTMLElement> {
+    return document.querySelectorAll<HTMLElement>('.data-cell[data-addr], .char-cell[data-addr]');
+}
 
-        const existing = cellsByAddr.get(addr);
-        if (existing) {
-            existing.push(el);
-        } else {
-            cellsByAddr.set(addr, [el]);
-        }
-        if (addr < visibleMin) { visibleMin = addr; }
-        if (addr > visibleMax) { visibleMax = addr; }
-    });
+function clearMatchClasses(renderedCells: NodeListOf<HTMLElement>): void {
+    renderedCells.forEach(el => el.classList.remove('match', 'amatch'));
+}
 
-    if (cellsByAddr.size === 0) { return; }
+function buildVisibleCellIndex(renderedCells: NodeListOf<HTMLElement>): VisibleCellIndex | null {
+    const cellIndex: VisibleCellIndex = {
+        cellsByAddr: new Map<number, HTMLElement[]>(),
+        visibleMin: Number.MAX_SAFE_INTEGER,
+        visibleMax: Number.MIN_SAFE_INTEGER,
+    };
 
-    const firstRelevant = lowerBound(S.matchAddrs, visibleMin - (nLen - 1));
+    renderedCells.forEach(el => addVisibleCell(cellIndex, el));
+    return cellIndex.cellsByAddr.size === 0 ? null : cellIndex;
+}
+
+function addVisibleCell(cellIndex: VisibleCellIndex, el: HTMLElement): void {
+    const addr = getElementAddress(el);
+    if (addr === null) { return; }
+
+    addCellAddress(cellIndex.cellsByAddr, addr, el);
+    cellIndex.visibleMin = Math.min(cellIndex.visibleMin, addr);
+    cellIndex.visibleMax = Math.max(cellIndex.visibleMax, addr);
+}
+
+function getElementAddress(el: HTMLElement): number | null {
+    const addrHex = el.dataset.addr;
+    if (!addrHex) { return null; }
+
+    const addr = parseInt(addrHex, 16);
+    return isNaN(addr) ? null : addr;
+}
+
+function addCellAddress(cellsByAddr: Map<number, HTMLElement[]>, addr: number, el: HTMLElement): void {
+    const existing = cellsByAddr.get(addr);
+    if (existing) {
+        existing.push(el);
+        return;
+    }
+
+    cellsByAddr.set(addr, [el]);
+}
+
+function highlightVisibleMatches(cellIndex: VisibleCellIndex, nLen: number): void {
+    const firstRelevant = lowerBound(S.matchAddrs, cellIndex.visibleMin - (nLen - 1));
     for (let mi = firstRelevant; mi < S.matchAddrs.length; mi++) {
         const matchBase = S.matchAddrs[mi];
-        if (matchBase > visibleMax) { break; }
-        if (matchBase + nLen - 1 < visibleMin) { continue; }
+        if (matchBase > cellIndex.visibleMax) { break; }
+        if (matchBase + nLen - 1 < cellIndex.visibleMin) { continue; }
+        highlightMatchRange(cellIndex.cellsByAddr, matchBase, nLen, mi === S.matchIdx);
+    }
+}
 
-        for (let i = 0; i < nLen; i++) {
-            const active = mi === S.matchIdx;
-            const cells = cellsByAddr.get(matchBase + i);
-            if (!cells) { continue; }
-            for (const el of cells) {
-                el.classList.add('match');
-                if (active) { el.classList.add('amatch'); }
-            }
-        }
+function highlightMatchRange(
+    cellsByAddr: Map<number, HTMLElement[]>,
+    matchBase: number,
+    nLen: number,
+    active: boolean,
+): void {
+    for (let i = 0; i < nLen; i++) {
+        const cells = cellsByAddr.get(matchBase + i);
+        if (!cells) { continue; }
+        highlightMatchCells(cells, active);
+    }
+}
+
+function highlightMatchCells(cells: HTMLElement[], active: boolean): void {
+    for (const el of cells) {
+        el.classList.add('match');
+        if (active) { el.classList.add('amatch'); }
     }
 }
 
