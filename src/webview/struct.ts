@@ -206,11 +206,11 @@ function renderPlainBinaryBits(bits: string): string {
 
 function formatPlainBinaryBits(bits: string): string {
     const groups = bits.match(/.{1,4}/g) || [];
-    const lines: string[] = [];
-    for (let i = 0; i < groups.length; i += 4) {
-        lines.push(groups.slice(i, i + 4).join(' '));
-    }
-    return lines.join('\n');
+    return groups.join(' ');
+}
+
+function singleLineCopyText(text: string): string {
+    return text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
@@ -1380,6 +1380,9 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         const v = dv.getUint32(0, le) >>> 0;
         return hexPad(v, 8);
     }
+    if (valType === 'bin-sliced' && typeof r.bitWidth === 'number' && r.bitValueUnsigned !== undefined) {
+        return formatPlainBinaryBits(BigInt(r.bitValueUnsigned).toString(2).padStart(r.bitWidth, '0'));
+    }
     if (valType === 'bin' || valType === 'bin-sliced') {
         return formatPlainBinaryBits(binaryBitsForValue(bytes, endian));
     }
@@ -1525,6 +1528,19 @@ function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
 function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
     const first = rows[0];
     if (!first) { return null; }
+    const usedWidth = rows.reduce((sum, row) => sum + bitRowWidth(row), 0);
+    let slicedValue: string | undefined;
+    const rawParts = byteHexParts(first.bytesHex);
+    if (usedWidth > 0 && !hasMissingByte(rawParts) && first.hasData) {
+        const raw = bytesFromHexParts(rawParts);
+        const value = bytesToValue(raw, first.endian);
+        const unitBits = raw.length * 8;
+        const mask = (1n << BigInt(usedWidth)) - 1n;
+        const sliced = S.bitFieldAllocation === 'lsb'
+            ? value & mask
+            : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
+        slicedValue = sliced.toString(10);
+    }
     return {
         fieldName: 'BitField',
         type: first.type,
@@ -1534,6 +1550,9 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
         decoded: first.decoded,
         hasData: first.hasData,
         endian: first.endian,
+        bitWidth: usedWidth,
+        bitStorageByteSize: first.bitStorageByteSize,
+        bitValueUnsigned: slicedValue,
     };
 }
 
@@ -2791,7 +2810,7 @@ function showFieldValMenu(
                 if (!def) { hideFieldValMenu(); return; }
                 const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
                 const r = findFieldForKey(rows, bs - pin.addr, opts?.valKey);
-                const toCopy = r ? getCopyText(r, 'hex') : '??';
+                const toCopy = r ? singleLineCopyText(getCopyText(r, 'hex')) : '??';
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(toCopy).catch(() => {
                         const ta = document.createElement('textarea');
@@ -2866,11 +2885,11 @@ function showFieldValMenu(
                     ? bsList.map((b, idx) => {
                         const listKey = opts?.keyList?.[idx];
                         const r = findFieldForKey(rows, b - pin!.addr, listKey);
-                        return r ? getCopyText(r, t) : '??';
-                      }).join('\n')
+                        return r ? singleLineCopyText(getCopyText(r, t)) : '??';
+                      }).join('; ')
                     : (() => {
                         const r = findFieldForKey(rows, bs - pin!.addr, opts?.valKey);
-                        return r ? getCopyText(r, t) : '??';
+                        return r ? singleLineCopyText(getCopyText(r, t)) : '??';
                       })();
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(toCopy).catch(() => {

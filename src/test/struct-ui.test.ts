@@ -83,6 +83,19 @@ suite('struct UI array header summary', () => {
         return expandCard!;
     }
 
+    function captureClipboardWrites(): string[] {
+        const writes: string[] = [];
+        Object.defineProperty(dom.window.navigator, 'clipboard', {
+            value: { writeText: (text: string) => { writes.push(text); return Promise.resolve(); } },
+            configurable: true,
+        });
+        Object.defineProperty(globalThis.navigator, 'clipboard', {
+            value: dom.window.navigator.clipboard,
+            configurable: true,
+        });
+        return writes;
+    }
+
     test('uses declared struct type and element count for nested struct array header', async () => {
         const child: StructDef = {
             id: 'child',
@@ -857,15 +870,7 @@ suite('struct UI array header summary', () => {
     });
 
     test('copies bit-field parent and child values from the clicked row', async () => {
-        const writes: string[] = [];
-        Object.defineProperty(dom.window.navigator, 'clipboard', {
-            value: { writeText: (text: string) => { writes.push(text); return Promise.resolve(); } },
-            configurable: true,
-        });
-        Object.defineProperty(globalThis.navigator, 'clipboard', {
-            value: dom.window.navigator.clipboard,
-            configurable: true,
-        });
+        const writes = captureClipboardWrites();
 
         const def: StructDef = {
             id: 'bit_copy_rows',
@@ -910,6 +915,82 @@ suite('struct UI array header summary', () => {
         assert.ok(childCopyDec, 'child copy decimal item should render');
         childCopyDec!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(writes.pop(), '6', 'child copy should use the clicked bit-field child value');
+    });
+
+    test('copies every struct value format as a single line', async () => {
+        const writes = captureClipboardWrites();
+        const def: StructDef = {
+            id: 'single_line_copy',
+            name: 'SingleLineCopy',
+            fields: [
+                { name: 'wide', type: 'uint64', count: 1, endian: 'inherit' },
+                { name: 'flt', type: 'float32', count: 1, endian: 'inherit' },
+                { name: 'text', type: 'ascii', count: 4, endian: 'inherit' },
+                {
+                    name: 'flags',
+                    type: 'uint32',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'top', bitWidth: 5 },
+                        { name: 'mid', bitWidth: 7 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_single_line_copy', structId: 'single_line_copy', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x00, 0x00, 0x80, 0x3F,
+            0x41, 0x0A, 0x42, 0x43,
+            0x12, 0x34, 0x56, 0x78,
+        ]);
+
+        await renderPinsAndExpandCard();
+
+        const copyFromRow = (row: HTMLElement, cmd: string): string => {
+            row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+            const item = document.querySelector<HTMLElement>(`#si-val-menu .ctx-row[data-cmd="${cmd}"]`);
+            assert.ok(item, `${cmd} menu item should render`);
+            item!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+            const copied = writes.pop();
+            assert.ok(copied !== undefined, `${cmd} should write to clipboard`);
+            assert.ok(!/[\r\n]/.test(copied!), `${cmd} should copy a single line`);
+            return copied!;
+        };
+
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field'));
+        assert.ok(rows.length >= 3, 'scalar rows should render');
+        assert.strictEqual(
+            copyFromRow(rows[0]!, 'copy-bin'),
+            '1110 1111 1100 1101 1010 1011 1000 1001 0110 0111 0100 0101 0010 0011 0000 0001',
+            'wide binary copy should flatten wrapped binary groups',
+        );
+        assert.strictEqual(
+            copyFromRow(rows[1]!, 'copy-ieee'),
+            'sign: 0; exponent: 0x7F; mantissa: 0x000000; class: normal',
+            'IEEE copy should remain a single-line summary',
+        );
+        assert.strictEqual(
+            copyFromRow(rows[2]!, 'copy-ascii'),
+            'A.BC',
+            'ASCII copy should replace non-printable bytes instead of copying line breaks',
+        );
+
+        const bitParent = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        assert.ok(bitParent, 'bit-field parent should render');
+        assert.strictEqual(
+            copyFromRow(bitParent!, 'copy-bin'),
+            '0111 1000 0101 0110 0011 0100 0001 0010',
+            'bit-field parent full binary copy should be single-line',
+        );
+        assert.strictEqual(
+            copyFromRow(bitParent!, 'copy-bin-sliced'),
+            '0111 1000 0101',
+            'bit-fields-only binary copy should be single-line',
+        );
     });
 
     test('wraps wide bit-field parent binary like scalar binary values', async () => {
