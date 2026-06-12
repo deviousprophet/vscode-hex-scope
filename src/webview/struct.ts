@@ -110,13 +110,41 @@ function renderBitSpan(bit: string, idx: number, selected: boolean): string {
     return `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}${sel}" data-bit-idx="${idx}">${bit}</span>`;
 }
 
-function allocationBitIndexForDisplayedBit(byteIdx: number, bitInByte: number, bitCount: number): number {
-    const numericBitIdx = S.endian === 'le'
-        ? byteIdx * 8 + bitInByte
-        : bitCount - (byteIdx * 8 + (8 - bitInByte));
-    return S.bitFieldAllocation === 'lsb'
-        ? numericBitIdx
-        : bitCount - numericBitIdx - 1;
+function renderUnknownBitSpan(bitIdx: number, selected: boolean): string {
+    return `<span class="si-bit unknown${selected ? ' sel' : ''}" data-bit-idx="${bitIdx}">?</span>`;
+}
+
+function isBitSelected(
+    bitIdx: number,
+    selectedRange?: { startBit: number; endBit: number } | null,
+): boolean {
+    return !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
+}
+
+function byteHexParts(bytesHex: string): string[] {
+    return bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
+}
+
+function hasMissingByte(parts: string[]): boolean {
+    return parts.length === 0 || parts.some(p => p === '??');
+}
+
+function bytesFromHexParts(parts: string[]): number[] {
+    return parts.map(h => parseInt(h, 16));
+}
+
+function bytesToValue(raw: number[], endian: 'le' | 'be'): bigint {
+    let value = 0n;
+    if (endian === 'le') {
+        for (let i = 0; i < raw.length; i++) {
+            value |= BigInt(raw[i]) << BigInt(i * 8);
+        }
+        return value;
+    }
+    for (const b of raw) {
+        value = (value << 8n) | BigInt(b);
+    }
+    return value;
 }
 
 function makeBitRowKey(byteStart: number, bitStart: number, bitWidth: number): string {
@@ -168,6 +196,23 @@ function renderBinarySpanLines(spans: string[]): string {
     return `<span class="si-bin-wrap">${lines.join('<br>')}</span>`;
 }
 
+function binaryBitsForValue(bytes: number[], endian: 'le' | 'be'): string {
+    return bytesToValue(bytes, endian).toString(2).padStart(bytes.length * 8, '0');
+}
+
+function renderPlainBinaryBits(bits: string): string {
+    return renderBinarySpanLines([...bits].map((bit, idx) => renderBitSpan(bit, idx, false)));
+}
+
+function formatPlainBinaryBits(bits: string): string {
+    const groups = bits.match(/.{1,4}/g) || [];
+    const lines: string[] = [];
+    for (let i = 0; i < groups.length; i += 4) {
+        lines.push(groups.slice(i, i + 4).join(' '));
+    }
+    return lines.join('\n');
+}
+
 function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
     const byteStart = parseInt(row.dataset.byteStart ?? '', 10);
     const bitStart = parseInt(row.dataset.bitStart ?? '', 10);
@@ -212,20 +257,11 @@ function renderBinaryFromBitRows(
     if (!first || usedWidth <= 0) {
         return '<span class="si-bin-wrap"></span>';
     }
-    const rawParts = first.bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
-    const missing = rawParts.length === 0 || rawParts.some(p => p === '??') || !first.hasData;
+    const rawParts = byteHexParts(first.bytesHex);
+    const missing = hasMissingByte(rawParts) || !first.hasData;
     if (!missing) {
-        const raw = rawParts.map(h => parseInt(h, 16));
-        let value = 0n;
-        if (S.endian === 'le') {
-            for (let i = 0; i < raw.length; i++) {
-                value |= BigInt(raw[i]) << BigInt(i * 8);
-            }
-        } else {
-            for (const b of raw) {
-                value = (value << 8n) | BigInt(b);
-            }
-        }
+        const raw = bytesFromHexParts(rawParts);
+        const value = bytesToValue(raw, first.endian);
         const unitBits = raw.length * 8;
         const mask = (1n << BigInt(usedWidth)) - 1n;
         const slicedValue = S.bitFieldAllocation === 'lsb'
@@ -234,8 +270,7 @@ function renderBinaryFromBitRows(
         const bits = slicedValue.toString(2).padStart(usedWidth, '0');
         const spans = [...bits].map((bit, displayIdx) => {
             const bitIdx = S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
-            const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
-            return renderBitSpan(bit, bitIdx, selected);
+            return renderBitSpan(bit, bitIdx, isBitSelected(bitIdx, selectedRange));
         });
         return renderBinarySpanLines(spans);
     }
@@ -243,9 +278,7 @@ function renderBinaryFromBitRows(
     const spans: string[] = [];
     for (let displayIdx = 0; displayIdx < usedWidth; displayIdx++) {
         const bitIdx = S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
-        const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
-        const sel = selected ? ' sel' : '';
-        spans.push(`<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`);
+        spans.push(renderUnknownBitSpan(bitIdx, isBitSelected(bitIdx, selectedRange)));
     }
 
     return renderBinarySpanLines(spans);
@@ -255,33 +288,26 @@ function renderBinaryStorageUnit(
     r: DecodedField,
     selectedRange?: { startBit: number; endBit: number } | null,
 ): string {
-    const rawParts = r.bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
-    if (rawParts.length === 0 || rawParts.some(p => p === '??')) {
+    const rawParts = byteHexParts(r.bytesHex);
+    if (hasMissingByte(rawParts)) {
         const byteCount = r.bitStorageByteSize ?? (rawParts.length || 1);
         const bitCount = byteCount * 8;
         const spans = Array.from({ length: bitCount }, (_, displayIdx) => {
-            const byteIdx = Math.floor(displayIdx / 8);
-            const bitInByte = 7 - (displayIdx % 8);
-            const bitIdx = allocationBitIndexForDisplayedBit(byteIdx, bitInByte, bitCount);
-            const selected = !!selectedRange && bitIdx >= selectedRange.startBit && bitIdx <= selectedRange.endBit;
-            const sel = selected ? ' sel' : '';
-            return `<span class="si-bit unknown${sel}" data-bit-idx="${bitIdx}">?</span>`;
+            const numericBitIdx = bitCount - displayIdx - 1;
+            const bitIdx = S.bitFieldAllocation === 'lsb' ? numericBitIdx : displayIdx;
+            return renderUnknownBitSpan(bitIdx, isBitSelected(bitIdx, selectedRange));
         });
         return renderBinarySpanLines(spans);
     }
 
-    const bytes = rawParts.map(h => parseInt(h, 16));
+    const bytes = bytesFromHexParts(rawParts);
     const bitCount = bytes.length * 8;
-    const spans: string[] = [];
-    for (let byteIdx = 0; byteIdx < bytes.length; byteIdx++) {
-        const byte = bytes[byteIdx];
-        for (let bitInByte = 7; bitInByte >= 0; bitInByte--) {
-            const bit = ((byte >> bitInByte) & 1).toString();
-            const storageBitIdx = allocationBitIndexForDisplayedBit(byteIdx, bitInByte, bitCount);
-            const selected = !!selectedRange && storageBitIdx >= selectedRange.startBit && storageBitIdx <= selectedRange.endBit;
-            spans.push(renderBitSpan(bit, storageBitIdx, selected));
-        }
-    }
+    const bits = binaryBitsForValue(bytes, r.endian);
+    const spans = [...bits].map((bit, displayIdx) => {
+        const numericBitIdx = bitCount - displayIdx - 1;
+        const storageBitIdx = S.bitFieldAllocation === 'lsb' ? numericBitIdx : displayIdx;
+        return renderBitSpan(bit, storageBitIdx, isBitSelected(storageBitIdx, selectedRange));
+    });
 
     return renderBinarySpanLines(spans);
 }
@@ -1212,26 +1238,10 @@ function getValForType(r: DecodedField, valType: ColType): string {
     const buf   = new ArrayBuffer(bytes.length);
     const dv    = new DataView(buf);
     bytes.forEach((b, i) => dv.setUint8(i, b));
-    const le    = S.endian === 'le';
-    const binFn = () => {
-        // Continuous bit string (MSB-first per byte), grouped into 4-bit nibbles.
-        const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
-        const groups = bitSeq.match(/.{1,4}/g) || [];
-        const renderGroups = (grps: string[]) => grps.map(g =>
-            [...g].map(bit => `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`).join('')
-        ).join(' ');
-
-        // Full HTML broken into lines of max 16 bits (4 nibbles) per line.
-        const groupsPerLine = 4; // 4 nibbles = 16 bits
-        const lines: string[] = [];
-        for (let i = 0; i < groups.length; i += groupsPerLine) {
-            lines.push(renderGroups(groups.slice(i, i + groupsPerLine)));
-        }
-        const fullHtml = lines.join('<br>');
-
-        // Always return the full, multi-line binary HTML.
-        return `<span class="si-bin-wrap">${fullHtml}</span>`;
-    };
+    const endian = r.endian ?? S.endian;
+    const le    = endian === 'le';
+    const rawBinFn = () => renderPlainBinaryBits(bytes.map(b => b.toString(2).padStart(8, '0')).join(''));
+    const numericBinFn = () => renderPlainBinaryBits(binaryBitsForValue(bytes, endian));
     // Pointer always renders as arrow → hex address regardless of valType
     if (r.type === 'pointer') {
         const v = dv.getUint32(0, le) >>> 0;
@@ -1242,14 +1252,14 @@ function getValForType(r: DecodedField, valType: ColType): string {
             const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
             return formatHexHtml(`0x${hex}`);
         }
-        if (valType === 'bin' || valType === 'bin-sliced') { return binFn(); }
+        if (valType === 'bin' || valType === 'bin-sliced') { return rawBinFn(); }
         const s = r.decoded === '??' ? '' : r.decoded;
         return `'${s}'`;
     }
-    if (valType === 'bin' || valType === 'bin-sliced') { return binFn(); }
+    if (valType === 'bin' || valType === 'bin-sliced') { return numericBinFn(); }
     if (valType === 'ieee') {
         if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
-        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', S.endian);
+        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
         if (!parts) { return '??'; }
         return (
             `<pre class="si-ieee">` +
@@ -1359,7 +1369,8 @@ function getCopyText(r: DecodedField, valType: ColType): string {
     }
     if (r.type === 'ascii') { return r.decoded; }
     const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
-    const le    = S.endian === 'le';
+    const endian = r.endian ?? S.endian;
+    const le    = endian === 'le';
     const hexPad = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
     const hexPadBig = (v: bigint, pad: number) => `0x${v.toString(16).toUpperCase().padStart(pad, '0')}`;
     if (r.type === 'pointer') {
@@ -1370,13 +1381,11 @@ function getCopyText(r: DecodedField, valType: ColType): string {
         return hexPad(v, 8);
     }
     if (valType === 'bin' || valType === 'bin-sliced') {
-        const bitSeq = bytes.map(b => b.toString(2).padStart(8, '0')).join('');
-        const groups = bitSeq.match(/.{1,4}/g) || [];
-        return groups.join(' ');
+        return formatPlainBinaryBits(binaryBitsForValue(bytes, endian));
     }
     if (valType === 'ieee') {
         if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
-        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', S.endian);
+        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
         if (!parts) { return '??'; }
         // Copy as a single-line summary (UI remains multiline)
         return `sign: ${parts.sign}; exponent: ${parts.exponentHex}; mantissa: ${parts.mantissaHex}; class: ${parts.className}`;
@@ -1503,22 +1512,12 @@ function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
     if (!isBitUnitGroup(rows)) { return fallback; }
     const first = rows[0];
     if (!first) { return fallback; }
-    const rawParts = first.bytesHex.split(' ').map(p => p.trim()).filter(Boolean);
-    if (rawParts.length === 0 || rawParts.some(p => p === '??')) { return '??'; }
-    const raw = rawParts.map(h => parseInt(h, 16));
+    const rawParts = byteHexParts(first.bytesHex);
+    if (hasMissingByte(rawParts)) { return '??'; }
+    const raw = bytesFromHexParts(rawParts);
     if (raw.some(v => !Number.isFinite(v) || v < 0 || v > 0xFF)) { return '??'; }
 
-    let value = 0n;
-    if (S.endian === 'le') {
-        for (let i = 0; i < raw.length; i++) {
-            value |= BigInt(raw[i]) << BigInt(i * 8);
-        }
-    } else {
-        for (const b of raw) {
-            value = (value << 8n) | BigInt(b);
-        }
-    }
-
+    const value = bytesToValue(raw, first.endian);
     const hex = value.toString(16).toUpperCase().padStart(raw.length * 2, '0');
     return `0x${hex} (${value.toString(10)})`;
 }
@@ -1534,6 +1533,7 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
         bytesHex: first.bytesHex,
         decoded: first.decoded,
         hasData: first.hasData,
+        endian: first.endian,
     };
 }
 

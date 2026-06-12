@@ -12,7 +12,7 @@ import type {
     StructScalarFieldType,
 } from './types';
 
-export type { BitFieldChild, StructDef, StructField, StructFieldType, StructFieldEndian };
+export type { StructDef, StructField, StructFieldType, StructFieldEndian };
 
 export const MAX_NESTED_DEPTH = 32;
 
@@ -53,7 +53,7 @@ function isBitFieldContainer(field: StructField): boolean {
 }
 
 /** Migrate a legacy bitWidth field to the new bitFields container model. */
-export function migrateFieldToBitFields(field: StructField): StructField {
+function migrateFieldToBitFields(field: StructField): StructField {
     if (!isBitField(field) || isBitFieldContainer(field)) { return field; }
     const { bitWidth, ...rest } = field;
     return { ...rest, bitFields: [{ name: field.name, bitWidth: bitWidth! }] };
@@ -354,6 +354,8 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
 export interface DecodedField {
     fieldName: string;
     type: StructScalarFieldType;
+    /** Effective byte endianness used to decode this row. */
+    endian: 'le' | 'be';
     /** Index within the array (0 for scalars). */
     arrayIdx: number;
     byteOffset: number;
@@ -551,6 +553,7 @@ function decodeStructRecursive(
                         bytesHex,
                         decoded,
                         hasData,
+                        endian,
                         isBitField: true,
                         bitWidth: w,
                         bitOffset: bitPos,
@@ -628,6 +631,7 @@ function decodeStructRecursive(
                 bytesHex,
                 decoded,
                 hasData,
+                endian,
                 isBitField: true,
                 bitWidth: width,
                 bitOffset,
@@ -674,6 +678,7 @@ function decodeStructRecursive(
                 bytesHex,
                 decoded,
                 hasData,
+                endian,
             });
             offset += totalBytes;
             continue;
@@ -691,7 +696,7 @@ function decodeStructRecursive(
                         child,
                         baseAddr,
                         getByte,
-                        globalEndian,
+                        endian,
                         bitFieldAllocation,
                         map,
                         rows,
@@ -723,6 +728,7 @@ function decodeStructRecursive(
                 bytesHex,
                 decoded,
                 hasData,
+                endian,
             });
 
             offset += elemSize;

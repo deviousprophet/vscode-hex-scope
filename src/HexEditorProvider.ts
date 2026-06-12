@@ -362,7 +362,7 @@ ${cssLinks}
     }
 }
 
-export interface SegmentLabel {
+interface SegmentLabel {
     id: string;
     name: string;
     startAddress: number;
@@ -399,7 +399,7 @@ function serializeParseResult(result: ParseResult, format: 'ihex' | 'srec'): Ser
 }
 
 // Types safe to transfer over the webview message boundary
-export interface SerializedRecord {
+interface SerializedRecord {
     lineNumber: number;
     raw: string;
     byteCount: number;
@@ -412,12 +412,12 @@ export interface SerializedRecord {
     error?: string;
 }
 
-export interface SerializedSegment {
+interface SerializedSegment {
     startAddress: number;
     data: number[];
 }
 
-export interface SerializedParseResult {
+interface SerializedParseResult {
     records: SerializedRecord[];
     recordCount?: number;
     segments: SerializedSegment[];

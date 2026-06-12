@@ -73,6 +73,16 @@ suite('struct UI array header summary', () => {
         delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
     });
 
+    async function renderPinsAndExpandCard(): Promise<HTMLElement> {
+        const { renderStructPins } = await import('../webview/struct.js');
+        renderStructPins();
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        return expandCard!;
+    }
+
     test('uses declared struct type and element count for nested struct array header', async () => {
         const child: StructDef = {
             id: 'child',
@@ -99,12 +109,7 @@ suite('struct UI array header summary', () => {
         S.structs = [child, parent];
         S.structPins = [pin];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expand = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expand, 'expand button should be rendered');
-        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const header = document.querySelector<HTMLElement>('.si-arr-addr');
         assert.ok(header, 'array header summary should be rendered');
@@ -146,12 +151,7 @@ suite('struct UI array header summary', () => {
         S.structs = [child, parent];
         S.structPins = [pin];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should be rendered');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const expandArray = document.querySelector<HTMLElement>('.si-arr-exp-btn');
         assert.ok(expandArray, 'array group expand button should be rendered');
@@ -231,12 +231,7 @@ suite('struct UI array header summary', () => {
         S.structs = [child, parent];
         S.structPins = [pin];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should be rendered');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
             .map(el => el.textContent ?? '');
@@ -279,12 +274,7 @@ suite('struct UI array header summary', () => {
         S.structs = [child, parent];
         S.structPins = [{ id: 'pin_collapse', structId: 'parent_collapse', addr: 0, name: 'inst' }];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const topGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp');
         assert.ok(topGroup, 'top composite group should render');
@@ -322,12 +312,7 @@ suite('struct UI array header summary', () => {
         S.structs = [child, parent];
         S.structPins = [{ id: 'pin_single_leaf', structId: 'single_leaf_parent', addr: 0, name: 'inst' }];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
             .map(el => el.textContent ?? '');
@@ -364,12 +349,7 @@ suite('struct UI array header summary', () => {
         S.structs = [level3, level2, level1];
         S.structPins = [{ id: 'pin_depth', structId: 'depth_l1', addr: 0, name: 'inst' }];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const topHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name');
         assert.ok(topHeader, 'top nested struct header should render');
@@ -406,12 +386,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_array_offset', structId: 'array_offset', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xAA, 0x11, 0x22, 0x33, 0x44]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const arrayHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
         assert.ok(arrayHeader, 'array header should render');
@@ -452,12 +427,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_nested_offset', structId: 'nested_offset_parent', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xAA, 0x11, 0x22, 0x33]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const structHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
         assert.ok(structHeader, 'nested struct header should render');
@@ -494,12 +464,7 @@ suite('struct UI array header summary', () => {
         S.structs = [def];
         S.structPins = [pin];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const arrNodeNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
             .map(el => el.textContent ?? '');
@@ -542,12 +507,7 @@ suite('struct UI array header summary', () => {
         S.structs = [leaf, mid, top];
         S.structPins = [pin];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const openFirst = (selector: string) => {
             const btn = document.querySelector<HTMLElement>(selector);
@@ -596,12 +556,7 @@ suite('struct UI array header summary', () => {
         S.structs = [def];
         S.structPins = [{ id: 'pin_bits', structId: 'bit_struct', addr: 0, name: 'inst' }];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const topField0 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(1) > .si-arr-grp-hdr .si-f-name');
         assert.ok(topField0, 'array bit-field group should render a top-level header');
@@ -672,8 +627,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_bit_alloc_toggle', structId: 'bit_alloc_toggle', addr: 0x600, name: 'inst' }];
         setBytesInSegment(0x600, [0xB1]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
+        await renderPinsAndExpandCard();
 
         const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-group'))
             .map(el => el.getAttribute('title') ?? '');
@@ -690,10 +644,6 @@ suite('struct UI array header summary', () => {
         assert.ok(document.getElementById('sa-btn-bit-lsb')?.getAttribute('title')?.includes('least significant bit'), 'LSB button should explain allocation on hover');
         assert.ok(document.getElementById('sa-btn-bit-msb')?.getAttribute('title')?.includes('most significant bit'), 'MSB button should explain allocation on hover');
 
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-
         const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
         assert.ok(expandBits, 'bit-field parent should be expandable');
         expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -707,6 +657,95 @@ suite('struct UI array header summary', () => {
         const childValuesLsb = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(childValuesLsb, ['001', '1 0110'], 'LSB-first should allocate from low bits independently of byte endianness');
+    });
+
+    test('renders scalar values with each field effective endian instead of the global toggle', async () => {
+        const fields: StructDef['fields'] = [
+            { name: 'u16', type: 'uint16', count: 1, endian: 'inherit' },
+            { name: 'i16', type: 'int16', count: 1, endian: 'inherit' },
+            { name: 'u32', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'i32', type: 'int32', count: 1, endian: 'inherit' },
+            { name: 'u64', type: 'uint64', count: 1, endian: 'inherit' },
+            { name: 'i64', type: 'int64', count: 1, endian: 'inherit' },
+            { name: 'f32', type: 'float32', count: 1, endian: 'inherit' },
+            { name: 'f64', type: 'float64', count: 1, endian: 'inherit' },
+            { name: 'ptr', type: 'pointer', count: 1, endian: 'inherit' },
+            { name: 'arr', type: 'uint16', count: 2, endian: 'inherit' },
+        ];
+        const leBytes = [
+            0x34, 0x12, 0xFE, 0xFF, 0x78, 0x56, 0x34, 0x12,
+            0xFE, 0xFF, 0xFF, 0xFF, 0x08,0x07,0x06,0x05,0x04,0x03,0x02,0x01,
+            0xFE,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, 0x00, 0x00, 0x80, 0x3F,
+            0x00,0x00,0x00,0x00,0x00,0x00,0xF0,0x3F, 0x78, 0x56, 0x34, 0x12,
+            0x34, 0x12, 0x78, 0x56,
+        ];
+        const beBytes = [
+            0x12, 0x34, 0xFF, 0xFE, 0x12, 0x34, 0x56, 0x78,
+            0xFF, 0xFF, 0xFF, 0xFE, 0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
+            0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFE, 0x3F, 0x80, 0x00, 0x00,
+            0x3F,0xF0,0x00,0x00,0x00,0x00,0x00,0x00, 0x12, 0x34, 0x56, 0x78,
+            0x12, 0x34, 0x56, 0x78,
+        ];
+
+        const renderValues = async (fieldEndian: 'le' | 'be', globalEndian: 'le' | 'be', bytes: number[]) => {
+            resetStructState();
+            S.endian = globalEndian;
+            const def: StructDef = {
+                id: `scalar_${fieldEndian}`,
+                name: `Scalar${fieldEndian.toUpperCase()}`,
+                packed: true,
+                fields: fields.map(f => ({ ...f, endian: fieldEndian })),
+            };
+            S.structs = [def];
+            S.structPins = [{ id: `pin_${fieldEndian}`, structId: def.id, addr: 0, name: 'inst' }];
+            setBytesInSegment(0, bytes);
+            await renderPinsAndExpandCard();
+            return Array.from(document.querySelectorAll<HTMLElement>('.si-field > .si-f-body > .si-f-val'))
+                .map(el => el.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+        };
+
+        const leValues = await renderValues('le', 'be', leBytes);
+        assert.ok(leValues[0].includes('0x1234'), `u16 LE display: ${leValues[0]}`);
+        assert.ok(leValues[1].includes('0xFFFE'), `i16 LE display: ${leValues[1]}`);
+        assert.ok(leValues[2].includes('0x12345678'), `u32 LE display: ${leValues[2]}`);
+        assert.ok(leValues[3].includes('0xFFFFFFFE'), `i32 LE display: ${leValues[3]}`);
+        assert.ok(leValues[4].includes('0x0102030405060708'), `u64 LE display: ${leValues[4]}`);
+        assert.ok(leValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 LE display: ${leValues[5]}`);
+        assert.ok(leValues[6].startsWith('1.000000e+0'), `f32 LE display: ${leValues[6]}`);
+        assert.ok(leValues[7].startsWith('1.0000000000000000e+0'), `f64 LE display: ${leValues[7]}`);
+        assert.ok(leValues[8].includes('0x12345678'), `ptr LE display: ${leValues[8]}`);
+        let firstRow = document.querySelector<HTMLElement>('.si-field');
+        assert.ok(firstRow, 'first scalar row should render');
+        firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        let binItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin"]');
+        assert.ok(binItem, 'binary view menu item should render');
+        binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        let firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
+        assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'LE binary should display the numeric value bits, not raw memory byte order');
+        firstRow = document.querySelector<HTMLElement>('.si-field');
+        firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const hexItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-hex"]');
+        assert.ok(hexItem, 'hex view menu item should render');
+        hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const beValues = await renderValues('be', 'le', beBytes);
+        assert.ok(beValues[0].includes('0x1234'), `u16 BE display: ${beValues[0]}`);
+        assert.ok(beValues[1].includes('0xFFFE'), `i16 BE display: ${beValues[1]}`);
+        assert.ok(beValues[2].includes('0x12345678'), `u32 BE display: ${beValues[2]}`);
+        assert.ok(beValues[3].includes('0xFFFFFFFE'), `i32 BE display: ${beValues[3]}`);
+        assert.ok(beValues[4].includes('0x0102030405060708'), `u64 BE display: ${beValues[4]}`);
+        assert.ok(beValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 BE display: ${beValues[5]}`);
+        assert.ok(beValues[6].startsWith('1.000000e+0'), `f32 BE display: ${beValues[6]}`);
+        assert.ok(beValues[7].startsWith('1.0000000000000000e+0'), `f64 BE display: ${beValues[7]}`);
+        assert.ok(beValues[8].includes('0x12345678'), `ptr BE display: ${beValues[8]}`);
+        firstRow = document.querySelector<HTMLElement>('.si-field');
+        assert.ok(firstRow, 'first scalar row should render after BE rerender');
+        firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        binItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin"]');
+        assert.ok(binItem, 'binary view menu item should render after BE rerender');
+        binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
+        assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'BE binary should display the same numeric value bits for the same decoded value');
     });
 
     test('defaults bit-field parent binary to full storage range', async () => {
@@ -733,12 +772,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_bit_binary_modes', structId: 'bit_binary_modes', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x33]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
         assert.ok(bitHeader, 'bit-field parent header should render');
@@ -810,12 +844,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_bit_full_range_menu', structId: 'bit_full_range_menu', addr: 0x200, name: 'inst' }];
         setBytesInSegment(0x200, [0x33]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
         assert.ok(bitHeader, 'bit-field parent header should render');
@@ -849,17 +878,12 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_wide_bit_parent_binary', structId: 'wide_bit_parent_binary', addr: 0x500, name: 'inst' }];
         setBytesInSegment(0x500, [0x12, 0x34, 0x56, 0x78]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const parentValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"]');
         assert.ok(parentValue, 'wide bit-field parent should render full binary by default');
         assert.strictEqual(parentValue!.querySelectorAll('br').length, 1, 'uint32 bit-field parent binary should wrap after 16 bits');
-        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00010010001101000101011001111000', 'wide bit-field parent binary should still show full storage bits');
+        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '01111000010101100011010000010010', 'wide bit-field parent binary should show full storage bits in effective endian order');
 
         const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
         assert.ok(expandBits, 'wide bit-field parent should be expandable');
@@ -899,12 +923,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_bit_child_binary_grouping', structId: 'bit_child_binary_grouping', addr: 0x300, name: 'inst' }];
         setBytesInSegment(0x300, [0x00]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const parentExpand = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
         assert.ok(parentExpand, 'bit-field parent should be expandable');
@@ -937,12 +956,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_bit_array_view_scope', structId: 'bit_array_view_scope', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x33, 0x55]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const arrayHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
         assert.ok(arrayHeader, 'bit-field array header should render');
@@ -991,12 +1005,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_bit_array_highlight', structId: 'bit_array_highlight', addr: 0x100, name: 'inst' }];
         setBytesInSegment(0x100, [0x33, 0x55]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const expandArray = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
         assert.ok(expandArray, 'bit-field array should be expandable');
@@ -1049,12 +1058,7 @@ suite('struct UI array header summary', () => {
         S.structs = [child, parent];
         S.structPins = [{ id: 'pin_nested_bits', structId: 'parent_bits', addr: 0, name: 'inst' }];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const parentGroupExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-exp-btn');
         assert.ok(parentGroupExpand, 'nested struct array group should be expandable');
@@ -1113,12 +1117,7 @@ suite('struct UI array header summary', () => {
         S.structPins = [{ id: 'pin_nested_single_bits', structId: 'parent_single_bits', addr: 0x40, name: 'inst' }];
         setBytesInSegment(0x40, [0x0B]);
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const expandNode = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
         assert.ok(expandNode, 'nested struct node should be expandable');
@@ -1177,12 +1176,7 @@ suite('struct UI array header summary', () => {
         S.structs = [def];
         S.structPins = [{ id: 'pin_mixed_bits', structId: 'mixed_bits', addr: 0, name: 'inst' }];
 
-        const { renderStructPins } = await import('../webview/struct.js');
-        renderStructPins();
-
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
-        assert.ok(expandCard, 'expand button should render');
-        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await renderPinsAndExpandCard();
 
         const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
             .map(el => el.textContent ?? '');

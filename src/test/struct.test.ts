@@ -239,6 +239,27 @@ suite('decodeField()', () => {
         assert.strictEqual(r, '-1');
     });
 
+    test('all multi-byte scalar types honor little and big endian byte order', () => {
+        assert.ok(decodeField([0x34, 0x12], 'uint16', 'le').startsWith('4660'), 'uint16 LE');
+        assert.ok(decodeField([0x12, 0x34], 'uint16', 'be').startsWith('4660'), 'uint16 BE');
+        assert.strictEqual(decodeField([0xFE, 0xFF], 'int16', 'le'), '-2', 'int16 LE');
+        assert.strictEqual(decodeField([0xFF, 0xFE], 'int16', 'be'), '-2', 'int16 BE');
+        assert.ok(decodeField([0x78, 0x56, 0x34, 0x12], 'uint32', 'le').startsWith('305419896'), 'uint32 LE');
+        assert.ok(decodeField([0x12, 0x34, 0x56, 0x78], 'uint32', 'be').startsWith('305419896'), 'uint32 BE');
+        assert.strictEqual(decodeField([0xFE, 0xFF, 0xFF, 0xFF], 'int32', 'le'), '-2', 'int32 LE');
+        assert.strictEqual(decodeField([0xFF, 0xFF, 0xFF, 0xFE], 'int32', 'be'), '-2', 'int32 BE');
+        assert.ok(decodeField([0x08,0x07,0x06,0x05,0x04,0x03,0x02,0x01], 'uint64', 'le').startsWith('72623859790382856'), 'uint64 LE');
+        assert.ok(decodeField([0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08], 'uint64', 'be').startsWith('72623859790382856'), 'uint64 BE');
+        assert.strictEqual(decodeField([0xFE,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF], 'int64', 'le'), '-2', 'int64 LE');
+        assert.strictEqual(decodeField([0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFE], 'int64', 'be'), '-2', 'int64 BE');
+        assert.strictEqual(parseFloat(decodeField([0x00, 0x00, 0x80, 0x3F], 'float32', 'le')), 1, 'float32 LE');
+        assert.strictEqual(parseFloat(decodeField([0x3F, 0x80, 0x00, 0x00], 'float32', 'be')), 1, 'float32 BE');
+        assert.strictEqual(parseFloat(decodeField([0x00,0x00,0x00,0x00,0x00,0x00,0xF0,0x3F], 'float64', 'le')), 1, 'float64 LE');
+        assert.strictEqual(parseFloat(decodeField([0x3F,0xF0,0x00,0x00,0x00,0x00,0x00,0x00], 'float64', 'be')), 1, 'float64 BE');
+        assert.strictEqual(decodeField([0x78, 0x56, 0x34, 0x12], 'pointer', 'le'), '0x12345678', 'pointer LE');
+        assert.strictEqual(decodeField([0x12, 0x34, 0x56, 0x78], 'pointer', 'be'), '0x12345678', 'pointer BE');
+    });
+
     test('float32 LE 1.0 (0x3F800000)', () => {
         // 1.0f LE bytes: 00 00 80 3F
         const r = decodeField([0x00, 0x00, 0x80, 0x3F], 'float32', 'le');
@@ -334,6 +355,45 @@ suite('decodeStruct()', () => {
         // BE read of 00 01 = 1
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.ok(rows[0].decoded.startsWith('1'), rows[0].decoded);
+    });
+
+    test('decoded rows keep effective endian for arrays and nested structs', () => {
+        const child: StructDef = {
+            id: 'endian_child',
+            name: 'EndianChild',
+            fields: [
+                { name: 'word', type: 'uint16', count: 2, endian: 'inherit' },
+                { name: 'flt', type: 'float32', count: 1, endian: 'inherit' },
+                { name: 'ptr', type: 'pointer', count: 1, endian: 'inherit' },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'endian_parent',
+            name: 'EndianParent',
+            packed: true,
+            fields: [
+                { name: 'leWord', type: 'uint16', count: 1, endian: 'le' },
+                { name: 'beNode', type: 'struct', refStructId: 'endian_child', count: 1, endian: 'be' },
+            ],
+        };
+        S.structs = [child, parent];
+        setBytesInSegment(0, [
+            0x34, 0x12,
+            0x12, 0x34,
+            0x56, 0x78,
+            0x3F, 0x80, 0x00, 0x00,
+            0x12, 0x34, 0x56, 0x78,
+        ]);
+
+        const rows = decodeStruct(parent, 0, getByte, 'le');
+        assert.strictEqual(rows[0].fieldName, 'leWord');
+        assert.strictEqual(rows[0].endian, 'le');
+        assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);
+        assert.deepStrictEqual(rows.slice(1).map(r => r.endian), ['be', 'be', 'be', 'be']);
+        assert.ok(rows[1].decoded.startsWith('4660'), rows[1].decoded);
+        assert.ok(rows[2].decoded.startsWith('22136'), rows[2].decoded);
+        assert.strictEqual(parseFloat(rows[3].decoded), 1);
+        assert.strictEqual(rows[4].decoded, '0x12345678');
     });
 
     test('byte offsets accumulate correctly (packed)', () => {
