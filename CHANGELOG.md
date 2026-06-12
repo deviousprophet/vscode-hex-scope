@@ -12,6 +12,10 @@
 
 - Array and nested-struct headers now show their first child offset while collapsed, then move offsets to child rows when expanded
 
+### Fixed
+
+- Fixed Records View rendering so record rows display as table rows instead of escaped markup, while avoiding dynamic HTML injection in the record table
+
 ## [2.6.0] — 2026-06-07
 
 ### Added
