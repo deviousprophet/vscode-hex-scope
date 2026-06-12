@@ -30,27 +30,24 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
 type WebviewMessage = { type: string; [key: string]: unknown };
 type WebviewMessageHandler = (msg: WebviewMessage) => void;
 
-const MESSAGE_HANDLERS: Record<string, WebviewMessageHandler> = {
-    init: handleInitMessage,
-    loadError: handleLoadErrorMessage,
-    addLabel: handleAddLabelMessage,
-    updateLabel: handleUpdateLabelMessage,
-    copyCommand: handleCopyCommandMessage,
-    savedEdits: handleSavedEditsMessage,
-    externalChange: handleExternalChangeMessage,
-    externalChangeError: handleExternalChangeErrorMessage,
-    repairComplete: handleRepairCompleteMessage,
-};
+function messageHandlerFor(type: unknown): WebviewMessageHandler | undefined {
+    switch (type) {
+        case 'init': return handleInitMessage;
+        case 'loadError': return handleLoadErrorMessage;
+        case 'addLabel': return handleAddLabelMessage;
+        case 'updateLabel': return handleUpdateLabelMessage;
+        case 'copyCommand': return handleCopyCommandMessage;
+        case 'savedEdits': return handleSavedEditsMessage;
+        case 'externalChange': return handleExternalChangeMessage;
+        case 'externalChangeError': return handleExternalChangeErrorMessage;
+        case 'repairComplete': return handleRepairCompleteMessage;
+        default: return undefined;
+    }
+}
 
 window.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as WebviewMessage;
-    const type = msg?.type;
-    if (typeof type !== 'string') { return; }
-    if (!Object.prototype.hasOwnProperty.call(MESSAGE_HANDLERS, type)) { return; }
-    const handler = MESSAGE_HANDLERS[type];
-    if (typeof handler === 'function') {
-        handler(msg);
-    }
+    messageHandlerFor(msg?.type)?.(msg);
 });
 
 function handleInitMessage(msg: WebviewMessage): void {
