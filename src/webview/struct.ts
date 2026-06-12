@@ -14,15 +14,7 @@ import {
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
 } from './struct-codec.js';
 import type { DecodedField } from './struct-codec.js';
-import type { StructDef, StructFieldType, StructPin } from './types';
-
-// Re-export codec symbols so callers can import from a single path.
-export {
-    FIELD_TYPES, TYPE_TO_C,
-    fieldByteSize, fieldAlignment, structByteSize, decodeStruct, allStructs,
-    parseStructText, fieldsToText, structToC,
-} from './struct-codec.js';
-export type { DecodedField, ParseStructTextResult } from './struct-codec.js';
+import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from './types';
 
 // ── Module state ──────────────────────────────────────────────────
 
@@ -312,50 +304,65 @@ function renderBinaryStorageUnit(
     return renderBinarySpanLines(spans);
 }
 
-function fieldRowHtml(
-    f: import('./types').StructField,
-    i: number,
-    isOnly: boolean,
-    total: number,
-    draftId: string,
-): string {
+function fieldTypeOptionsHtml(f: StructField, draftId: string): string {
     const scalarOptions = FIELD_TYPES.map(t =>
         `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`
     ).join('');
     const structOptions = allStructs()
         .filter(d => d.id !== draftId)
-        .map(d => {
-            const val = `struct:${d.id}`;
-            const selected = f.type === 'struct' && f.refStructId === d.id;
-            return `<option value="${esc(val)}"${selected ? ' selected' : ''}>struct ${esc(d.name)}</option>`;
-        }).join('');
-    const typeOpts =
-        `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
+        .map(d => structOptionHtml(f, d))
+        .join('');
+    return `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
         (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '');
-    const isArr = f.count > 1;
-    const isUnsigned = isUnsignedScalarType(f.type);
-    const isBitContainer = isUnsigned && Array.isArray(f.bitFields) && f.bitFields.length > 0;
-    const bitToggled = isUnsigned && isBitContainer;
-    const delCell = isOnly
+}
+
+function structOptionHtml(f: StructField, d: StructDef): string {
+    const val = `struct:${d.id}`;
+    const selected = f.type === 'struct' && f.refStructId === d.id;
+    return `<option value="${esc(val)}"${selected ? ' selected' : ''}>struct ${esc(d.name)}</option>`;
+}
+
+function isBitContainerField(f: StructField): boolean {
+    return isUnsignedScalarType(f.type) && Array.isArray(f.bitFields) && f.bitFields.length > 0;
+}
+
+function bitChildrenHtml(f: StructField, isBitContainer: boolean): string {
+    if (!isBitContainer) { return ''; }
+    const bitFields = f.bitFields ?? [];
+    const childRows = bitFields.map((child, ci) => childFieldRowHtml(child, ci, bitFields.length)).join('');
+    const remainingBits = availableBitsInContainer(f);
+    const addBtnDisabled = remainingBits > 0 ? '' : ' disabled';
+    const addBtnTitle = remainingBits > 0 ? 'Add bit-field child' : 'No bits remaining in parent';
+    return (
+        `<div class="sfe-bf-children"${f.bitFieldsCollapsed === true ? ' style="display:none"' : ''}>` +
+        childRows +
+        `<button class="sfe-bf-add-child" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
+        `</div>`
+    );
+}
+
+function deleteFieldCellHtml(isOnly: boolean): string {
+    return isOnly
         ? `<span class="sfe-del-placeholder"></span>`
         : `<button class="sfe-del-btn" title="Remove field">\u2715</button>`;
+}
+
+function fieldRowHtml(
+    f: StructField,
+    i: number,
+    isOnly: boolean,
+    total: number,
+    draftId: string,
+): string {
+    const typeOpts = fieldTypeOptionsHtml(f, draftId);
+    const isArr = f.count > 1;
+    const isUnsigned = isUnsignedScalarType(f.type);
+    const isBitContainer = isBitContainerField(f);
+    const bitToggled = isUnsigned && isBitContainer;
+    const delCell = deleteFieldCellHtml(isOnly);
     const upDis  = i === 0         ? ' disabled' : '';
     const dnDis  = i === total - 1 ? ' disabled' : '';
-
-    // ── Child bitfield rows ──
-    let childrenHtml = '';
-    if (isBitContainer) {
-        const childRows = f.bitFields!.map((child, ci) => childFieldRowHtml(child, ci, f.bitFields!.length)).join('');
-        const remainingBits = availableBitsInContainer(f);
-        const canAddMore = remainingBits > 0;
-        const addBtnDisabled = !canAddMore ? ' disabled' : '';
-        const addBtnTitle = canAddMore ? 'Add bit-field child' : 'No bits remaining in parent';
-        childrenHtml =
-            `<div class="sfe-bf-children"${f.bitFieldsCollapsed === true ? ' style="display:none"' : ''}>` +
-            childRows +
-            `<button class="sfe-bf-add-child" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
-            `</div>`;
-    }
+    const childrenHtml = bitChildrenHtml(f, isBitContainer);
 
     // :N toggle button
     const bitBtnClass = bitToggled ? ' sfe-bit-btn-on' : '';
@@ -383,7 +390,7 @@ function fieldRowHtml(
 }
 
 /** Render a single bit-field child row inside a bit-field container parent. */
-function childFieldRowHtml(child: import('./types').BitFieldChild, ci: number, total: number): string {
+function childFieldRowHtml(child: BitFieldChild, ci: number, total: number): string {
     const upDis  = ci === 0        ? ' disabled' : '';
     const dnDis  = ci === total - 1 ? ' disabled' : '';
     const delCell = total <= 1
@@ -1218,96 +1225,147 @@ export function resetStructViewState(): void {
 /** Get a display string for a field given the requested column display type. */
 function getValForType(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
-    if (isBitFieldRow(r)) {
-        const width = r.bitWidth ?? 1;
-        const v = BigInt(r.bitValueUnsigned ?? '0');
-        if (valType === 'hex') {
-            return formatHexHtml(formatHex(v, Math.max(1, Math.ceil(width / 4))));
-        }
-        if (valType === 'bin' || valType === 'bin-sliced') {
-            const bits = v.toString(2).padStart(width, '0');
-            const groups = binaryGroupsLowBitsFirst(bits);
-            const html = groups.map(g => [...g].map(bit =>
-                `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`
-            ).join('')).join(' ');
-            return `<span class="si-bin-wrap">${html}</span>`;
-        }
-        return v.toString(10);
-    }
-    const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
-    const buf   = new ArrayBuffer(bytes.length);
-    const dv    = new DataView(buf);
-    bytes.forEach((b, i) => dv.setUint8(i, b));
+    if (isBitFieldRow(r)) { return renderBitFieldValue(r, valType); }
+
+    const bytes = fieldBytes(r);
     const endian = r.endian ?? S.endian;
-    const le    = endian === 'le';
-    const rawBinFn = () => renderPlainBinaryBits(bytes.map(b => b.toString(2).padStart(8, '0')).join(''));
-    const numericBinFn = () => renderPlainBinaryBits(binaryBitsForValue(bytes, endian));
-    // Pointer always renders as arrow → hex address regardless of valType
-    if (r.type === 'pointer') {
-        const v = dv.getUint32(0, le) >>> 0;
-        return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8));
+    const dv = dataViewForBytes(bytes);
+    return renderScalarValue(r, valType, bytes, dv, endian);
+}
+
+function fieldBytes(r: DecodedField): number[] {
+    return r.bytesHex.split(' ').map(h => parseInt(h, 16));
+}
+
+function dataViewForBytes(bytes: number[]): DataView {
+    const buf = new ArrayBuffer(bytes.length);
+    const dv = new DataView(buf);
+    bytes.forEach((b, i) => dv.setUint8(i, b));
+    return dv;
+}
+
+function isBinaryDisplay(valType: ColType): boolean {
+    return valType === 'bin' || valType === 'bin-sliced';
+}
+
+function renderBitFieldValue(r: DecodedField, valType: ColType): string {
+    const width = r.bitWidth ?? 1;
+    const v = BigInt(r.bitValueUnsigned ?? '0');
+    if (valType === 'hex') {
+        return formatHexHtml(formatHex(v, Math.max(1, Math.ceil(width / 4))));
     }
-    if (r.type === 'ascii') {
-        if (valType === 'hex') {
-            const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
-            return formatHexHtml(`0x${hex}`);
-        }
-        if (valType === 'bin' || valType === 'bin-sliced') { return rawBinFn(); }
-        const s = r.decoded === '??' ? '' : r.decoded;
-        return `'${s}'`;
+    if (isBinaryDisplay(valType)) {
+        const groups = binaryGroupsLowBitsFirst(v.toString(2).padStart(width, '0'));
+        const html = groups.map(g => [...g].map(bit =>
+            `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`
+        ).join('')).join(' ');
+        return `<span class="si-bin-wrap">${html}</span>`;
     }
-    if (valType === 'bin' || valType === 'bin-sliced') { return numericBinFn(); }
-    if (valType === 'ieee') {
-        if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
-        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
-        if (!parts) { return '??'; }
-        return (
-            `<pre class="si-ieee">` +
-            `<span class="si-ieee-label">sign:</span> <span class="si-ieee-val">${esc(String(parts.sign))}</span><br>` +
-            `<span class="si-ieee-label">exponent:</span> ${formatHexHtml(parts.exponentHex)}<br>` +
-            `<span class="si-ieee-label">mantissa:</span> ${formatHexHtml(parts.mantissaHex)}<br>` +
-            `<span class="si-ieee-label">class:</span> <span class="si-ieee-val">${esc(parts.className)}</span>` +
-            `</pre>`
-        );
+    return v.toString(10);
+}
+
+function copyBitFieldValue(r: DecodedField, valType: ColType): string {
+    const width = r.bitWidth ?? 1;
+    const v = BigInt(r.bitValueUnsigned ?? '0');
+    if (valType === 'hex') {
+        return `0x${v.toString(16).toUpperCase().padStart(Math.max(1, Math.ceil(width / 4)), '0')}`;
     }
-    if (valType === 'ascii') {
-        const s = bytes.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.').join('');
-        return `'${s}'`;
+    if (isBinaryDisplay(valType)) {
+        return binaryGroupsLowBitsFirst(v.toString(2).padStart(width, '0')).join(' ');
     }
-    switch (r.type) {
-        case 'uint8':  { const v = dv.getUint8(0);              return valType === 'hex' ? formatHexHtml(formatHex(v, 2)) : String(v); }
-        case 'int8':   { const v = dv.getInt8(0);               return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint8(0), 2)) : String(v); }
-        case 'uint16': { const v = dv.getUint16(0, le);         return valType === 'hex' ? formatHexHtml(formatHex(v, 4)) : String(v); }
-        case 'int16':  { const v = dv.getInt16(0, le);          return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint16(0, le), 4)) : String(v); }
-        case 'uint32': { const v = dv.getUint32(0, le) >>> 0;   return valType === 'hex' ? formatHexHtml(formatHex(v, 8)) : String(v); }
-        case 'int32':  { const v = dv.getInt32(0, le);          return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint32(0, le), 8)) : String(v); }
-        case 'float32': {
-            const v = dv.getFloat32(0, le);
-            return valType === 'hex'
-                ? formatHexHtml(formatHex(dv.getUint32(0, le) >>> 0, 8))
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(6);
-        }
-        case 'uint64': {
-            const v = getBigUint64(dv, 0, le);
-            return valType === 'hex' ? formatHexHtml(formatHex(v, 16)) : formatDecimal(v as bigint);
-        }
-        case 'int64': {
-            const v = getBigInt64(dv, 0, le);
-            if (valType === 'hex') {
-                // show two's-complement hex of the underlying bytes
-                const u = asUint64(v as bigint);
-                return formatHexHtml(formatHex(u, 16));
-            }
-            return formatDecimal(v as bigint);
-        }
-        case 'float64': {
-            const v = dv.getFloat64(0, le);
-            return valType === 'hex'
-                ? formatHexHtml(formatHex(getBigUint64(dv, 0, le), 16))
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(16);
-        }
-        default: return r.decoded;
+    return v.toString(10);
+}
+
+function renderScalarValue(
+    r: DecodedField,
+    valType: ColType,
+    bytes: number[],
+    dv: DataView,
+    endian: 'le' | 'be',
+): string {
+    const le = endian === 'le';
+    if (r.type === 'pointer') { return renderPointerValue(dv, le); }
+    if (r.type === 'ascii') { return renderAsciiValue(r, valType, bytes); }
+    if (isBinaryDisplay(valType)) { return renderPlainBinaryBits(binaryBitsForValue(bytes, endian)); }
+    if (valType === 'ieee') { return renderIeeeValue(r, bytes, endian); }
+    if (valType === 'ascii') { return `'${asciiFromBytes(bytes)}'`; }
+    return renderNumericValue(r, valType, dv, le);
+}
+
+function renderPointerValue(dv: DataView, le: boolean): string {
+    const v = dv.getUint32(0, le) >>> 0;
+    return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8));
+}
+
+function renderAsciiValue(r: DecodedField, valType: ColType, bytes: number[]): string {
+    if (valType === 'hex') {
+        const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+        return formatHexHtml(`0x${hex}`);
     }
+    if (isBinaryDisplay(valType)) {
+        return renderPlainBinaryBits(bytes.map(b => b.toString(2).padStart(8, '0')).join(''));
+    }
+    const s = r.decoded === '??' ? '' : r.decoded;
+    return `'${s}'`;
+}
+
+function renderIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
+    if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
+    const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
+    if (!parts) { return '??'; }
+    return (
+        `<pre class="si-ieee">` +
+        `<span class="si-ieee-label">sign:</span> <span class="si-ieee-val">${esc(String(parts.sign))}</span><br>` +
+        `<span class="si-ieee-label">exponent:</span> ${formatHexHtml(parts.exponentHex)}<br>` +
+        `<span class="si-ieee-label">mantissa:</span> ${formatHexHtml(parts.mantissaHex)}<br>` +
+        `<span class="si-ieee-label">class:</span> <span class="si-ieee-val">${esc(parts.className)}</span>` +
+        `</pre>`
+    );
+}
+
+type NumericValueFormatter = (valType: ColType, dv: DataView, le: boolean) => string;
+
+const RENDER_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
+    uint8:  (valType, dv)     => { const v = dv.getUint8(0);            return valType === 'hex' ? formatHexHtml(formatHex(v, 2)) : String(v); },
+    int8:   (valType, dv)     => { const v = dv.getInt8(0);             return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint8(0), 2)) : String(v); },
+    uint16: (valType, dv, le) => { const v = dv.getUint16(0, le);       return valType === 'hex' ? formatHexHtml(formatHex(v, 4)) : String(v); },
+    int16:  (valType, dv, le) => { const v = dv.getInt16(0, le);        return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint16(0, le), 4)) : String(v); },
+    uint32: (valType, dv, le) => { const v = dv.getUint32(0, le) >>> 0; return valType === 'hex' ? formatHexHtml(formatHex(v, 8)) : String(v); },
+    int32:  (valType, dv, le) => { const v = dv.getInt32(0, le);        return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint32(0, le), 8)) : String(v); },
+    float32: (valType, dv, le) => {
+        const v = dv.getFloat32(0, le);
+        return valType === 'hex'
+            ? formatHexHtml(formatHex(dv.getUint32(0, le) >>> 0, 8))
+            : formatFloat(v, 6);
+    },
+    uint64: (valType, dv, le) => {
+        const v = getBigUint64(dv, 0, le);
+        return valType === 'hex' ? formatHexHtml(formatHex(v, 16)) : formatDecimal(v as bigint);
+    },
+    int64: (valType, dv, le) => {
+        const v = getBigInt64(dv, 0, le);
+        return valType === 'hex'
+            ? formatHexHtml(formatHex(asUint64(v as bigint), 16))
+            : formatDecimal(v as bigint);
+    },
+    float64: (valType, dv, le) => {
+        const v = dv.getFloat64(0, le);
+        return valType === 'hex'
+            ? formatHexHtml(formatHex(getBigUint64(dv, 0, le), 16))
+            : formatFloat(v, 16);
+    },
+};
+
+function renderNumericValue(r: DecodedField, valType: ColType, dv: DataView, le: boolean): string {
+    return RENDER_NUMERIC_VALUE[r.type]?.(valType, dv, le) ?? r.decoded;
+}
+
+function formatFloat(v: number, digits: number): string {
+    return isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(digits);
+}
+
+function asciiFromBytes(bytes: number[]): string {
+    return bytes.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.').join('');
 }
 
 /** Parse IEEE754 parts from raw bytes for float32/float64. Returns null on missing/invalid bytes. */
@@ -1354,80 +1412,76 @@ function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le
 /** Get a plain-text representation suitable for copying. */
 function getCopyText(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
-    if (isBitFieldRow(r)) {
-        const width = r.bitWidth ?? 1;
-        const v = BigInt(r.bitValueUnsigned ?? '0');
-        if (valType === 'hex') {
-            return `0x${v.toString(16).toUpperCase().padStart(Math.max(1, Math.ceil(width / 4)), '0')}`;
-        }
-        if (valType === 'bin' || valType === 'bin-sliced') {
-            const bits = v.toString(2).padStart(width, '0');
-            const groups = binaryGroupsLowBitsFirst(bits);
-            return groups.join(' ');
-        }
-        return v.toString(10);
-    }
+    if (isBitFieldRow(r)) { return copyBitFieldValue(r, valType); }
     if (r.type === 'ascii') { return r.decoded; }
-    const bytes = r.bytesHex.split(' ').map(h => parseInt(h, 16));
+
+    const bytes = fieldBytes(r);
     const endian = r.endian ?? S.endian;
-    const le    = endian === 'le';
-    const hexPad = (v: number, pad: number) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
-    const hexPadBig = (v: bigint, pad: number) => `0x${v.toString(16).toUpperCase().padStart(pad, '0')}`;
+    const le = endian === 'le';
     if (r.type === 'pointer') {
-        const buf = new ArrayBuffer(bytes.length);
-        const dv = new DataView(buf);
-        bytes.forEach((b, i) => dv.setUint8(i, b));
+        const dv = dataViewForBytes(bytes);
         const v = dv.getUint32(0, le) >>> 0;
         return hexPad(v, 8);
     }
     if (valType === 'bin-sliced' && typeof r.bitWidth === 'number' && r.bitValueUnsigned !== undefined) {
         return formatPlainBinaryBits(BigInt(r.bitValueUnsigned).toString(2).padStart(r.bitWidth, '0'));
     }
-    if (valType === 'bin' || valType === 'bin-sliced') {
+    if (isBinaryDisplay(valType)) {
         return formatPlainBinaryBits(binaryBitsForValue(bytes, endian));
     }
     if (valType === 'ieee') {
-        if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
-        const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
-        if (!parts) { return '??'; }
-        // Copy as a single-line summary (UI remains multiline)
-        return `sign: ${parts.sign}; exponent: ${parts.exponentHex}; mantissa: ${parts.mantissaHex}; class: ${parts.className}`;
+        return copyIeeeValue(r, bytes, endian);
     }
-    if (valType === 'ascii') {
-        return bytes.map(b => (b >= 0x20 && b < 0x7f) ? String.fromCharCode(b) : '.').join('');
-    }
-    const buf = new ArrayBuffer(bytes.length);
-    const dv = new DataView(buf);
-    bytes.forEach((b, i) => dv.setUint8(i, b));
-    switch (r.type) {
-        case 'uint8':  { const v = dv.getUint8(0);              return valType === 'hex' ? hexPad(v, 2) : String(v); }
-        case 'int8':   { const v = dv.getInt8(0);               return valType === 'hex' ? hexPad(dv.getUint8(0), 2) : String(v); }
-        case 'uint16': { const v = dv.getUint16(0, le);         return valType === 'hex' ? hexPad(v, 4) : String(v); }
-        case 'int16':  { const v = dv.getInt16(0, le);          return valType === 'hex' ? hexPad(dv.getUint16(0, le), 4) : String(v); }
-        case 'uint32': { const v = dv.getUint32(0, le) >>> 0;   return valType === 'hex' ? hexPad(v, 8) : String(v); }
-        case 'int32':  { const v = dv.getInt32(0, le);          return valType === 'hex' ? hexPad(dv.getUint32(0, le), 8) : String(v); }
-        case 'float32': {
-            const v = dv.getFloat32(0, le);
-            return valType === 'hex'
-                ? hexPad(dv.getUint32(0, le) >>> 0, 8)
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(6);
-        }
-        case 'uint64': {
-            const v = dv.getBigUint64(0, le);
-            return valType === 'hex' ? hexPadBig(v, 16) : v.toString(10);
-        }
-        case 'int64': {
-            const v = dv.getBigInt64(0, le);
-            return valType === 'hex' ? hexPadBig(BigInt.asUintN(64, v as bigint), 16) : v.toString(10);
-        }
-        case 'float64': {
-            const v = dv.getFloat64(0, le);
-            return valType === 'hex'
-                ? hexPadBig(dv.getBigUint64(0, le), 16)
-                : isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(16);
-        }
-        default: return r.decoded;
-    }
+    if (valType === 'ascii') { return asciiFromBytes(bytes); }
+    return copyNumericValue(r, valType, dataViewForBytes(bytes), le);
+}
+
+function hexPad(v: number, pad: number): string {
+    return `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
+}
+
+function hexPadBig(v: bigint, pad: number): string {
+    return `0x${v.toString(16).toUpperCase().padStart(pad, '0')}`;
+}
+
+function copyIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
+    if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
+    const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
+    if (!parts) { return '??'; }
+    return `sign: ${parts.sign}; exponent: ${parts.exponentHex}; mantissa: ${parts.mantissaHex}; class: ${parts.className}`;
+}
+
+const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
+    uint8:  (valType, dv)     => { const v = dv.getUint8(0);            return valType === 'hex' ? hexPad(v, 2) : String(v); },
+    int8:   (valType, dv)     => { const v = dv.getInt8(0);             return valType === 'hex' ? hexPad(dv.getUint8(0), 2) : String(v); },
+    uint16: (valType, dv, le) => { const v = dv.getUint16(0, le);       return valType === 'hex' ? hexPad(v, 4) : String(v); },
+    int16:  (valType, dv, le) => { const v = dv.getInt16(0, le);        return valType === 'hex' ? hexPad(dv.getUint16(0, le), 4) : String(v); },
+    uint32: (valType, dv, le) => { const v = dv.getUint32(0, le) >>> 0; return valType === 'hex' ? hexPad(v, 8) : String(v); },
+    int32:  (valType, dv, le) => { const v = dv.getInt32(0, le);        return valType === 'hex' ? hexPad(dv.getUint32(0, le), 8) : String(v); },
+    float32: (valType, dv, le) => {
+        const v = dv.getFloat32(0, le);
+        return valType === 'hex'
+            ? hexPad(dv.getUint32(0, le) >>> 0, 8)
+            : formatFloat(v, 6);
+    },
+    uint64: (valType, dv, le) => {
+        const v = dv.getBigUint64(0, le);
+        return valType === 'hex' ? hexPadBig(v, 16) : v.toString(10);
+    },
+    int64: (valType, dv, le) => {
+        const v = dv.getBigInt64(0, le);
+        return valType === 'hex' ? hexPadBig(BigInt.asUintN(64, v as bigint), 16) : v.toString(10);
+    },
+    float64: (valType, dv, le) => {
+        const v = dv.getFloat64(0, le);
+        return valType === 'hex'
+            ? hexPadBig(dv.getBigUint64(0, le), 16)
+            : formatFloat(v, 16);
+    },
+};
+
+function copyNumericValue(r: DecodedField, valType: ColType, dv: DataView, le: boolean): string {
+    return COPY_NUMERIC_VALUE[r.type]?.(valType, dv, le) ?? r.decoded;
 }
 
 const TYPE_ABBREV: Record<string, string> = {
@@ -1437,37 +1491,65 @@ const TYPE_ABBREV: Record<string, string> = {
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
 
+function fieldValueKey(r: DecodedField, byteStart: number): string {
+    return isBitFieldRow(r)
+        ? bitChildValKey(byteStart, r.bitOffset ?? 0, r.bitWidth ?? 0)
+        : scalarValKey(byteStart);
+}
+
+function defaultValueTypeForRow(r: DecodedField): ColType {
+    if (isBitFieldRow(r)) { return 'bin'; }
+    if (r.type === 'float32' || r.type === 'float64') { return 'dec'; }
+    if (r.type === 'ascii') { return 'ascii'; }
+    return _defaultValType;
+}
+
+function valueTypeForRow(r: DecodedField, valKey: string): ColType {
+    return _fieldValTypes.get(valKey) ?? defaultValueTypeForRow(r);
+}
+
+function fieldTypeAbbrev(r: DecodedField, byteCount: number): string {
+    if (isBitFieldRow(r)) { return `bit:${r.bitWidth}`; }
+    const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
+    return r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
+}
+
+function fieldFullTypeLabel(r: DecodedField, byteCount: number): string {
+    if (isBitFieldRow(r)) { return `bit:${r.bitWidth}`; }
+    return r.type === 'ascii' ? `ascii[${byteCount}]` : r.type;
+}
+
+function fieldOffsetLabel(r: DecodedField): string {
+    if (isBitFieldRow(r)) { return `.${String(r.bitOffset ?? 0)}`; }
+    return `+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
+}
+
+function bitFieldDataAttrs(r: DecodedField): string {
+    if (!isBitFieldRow(r)) { return ''; }
+    return ` data-bit-start="${r.bitOffset ?? 0}" data-bit-width="${r.bitWidth ?? 0}"`;
+}
+
+function valueHtmlForRow(r: DecodedField, valType: ColType, ptr: boolean): string {
+    const value = getValForType(r, valType);
+    return (valType === 'bin' || valType === 'bin-sliced' || valType === 'ieee' || valType === 'hex' || ptr)
+        ? value
+        : esc(value);
+}
+
 function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: string): string {
     const nd  = !r.hasData ? ' si-no-data' : '';
     const ptr = r.type === 'pointer';
-    const valKey = isBitFieldRow(r)
-        ? bitChildValKey(bs, r.bitOffset ?? 0, r.bitWidth ?? 0)
-        : scalarValKey(bs);
-    let t = _fieldValTypes.get(valKey);
-    if (!t) {
-        // Prefer decimal view for floating-point fields by default
-        if (isBitFieldRow(r)) { t = 'bin'; }
-        else if (r.type === 'float32' || r.type === 'float64') { t = 'dec'; }
-        else if (r.type === 'ascii') { t = 'ascii'; }
-        else { t = _defaultValType; }
-    }
-    const v   = getValForType(r, t);
-    const valHtml = (t === 'bin' || t === 'bin-sliced' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
+    const valKey = fieldValueKey(r, bs);
+    const t = valueTypeForRow(r, valKey);
+    const valHtml = valueHtmlForRow(r, t, ptr);
     const byteCount = r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : bc;
-    const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
-    const abbrev = isBitFieldRow(r)
-        ? `bit:${r.bitWidth}`
-        : (r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase);
-    const fullTypeLabel = isBitFieldRow(r)
-        ? `bit:${r.bitWidth}`
-        : (r.type === 'ascii' ? `ascii[${byteCount}]` : r.type);
-    const offsetLabel = isBitFieldRow(r)
-        ? `.${String(r.bitOffset ?? 0)}`
-        : `+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
+    const abbrev = fieldTypeAbbrev(r, byteCount);
+    const fullTypeLabel = fieldFullTypeLabel(r, byteCount);
+    const offsetLabel = fieldOffsetLabel(r);
     return (
         `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
         `data-byte-start="${bs}" data-byte-cnt="${bc}" data-val-key="${esc(valKey)}"` +
-        (isBitFieldRow(r) ? ` data-bit-start="${r.bitOffset ?? 0}" data-bit-width="${r.bitWidth ?? 0}"` : '') +
+        bitFieldDataAttrs(r) +
         `>` +
         `<span class="si-f-off">${offsetLabel}</span>` +
         `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
@@ -1556,6 +1638,57 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
     };
 }
 
+function activeBitRangeForHeader(start: number): { startBit: number; endBit: number } | null {
+    if (_selectedBitRange && _selectedBitRange.parentByteStart === start) {
+        return { startBit: _selectedBitRange.startBit, endBit: _selectedBitRange.endBit };
+    }
+    if (_hoveredBitRange && _hoveredBitRange.parentByteStart === start) {
+        return { startBit: _hoveredBitRange.startBit, endBit: _hoveredBitRange.endBit };
+    }
+    return null;
+}
+
+function bitUnitHeaderClasses(kind: 'group' | 'element'): { headerClass: string; buttonClass: string } {
+    return {
+        headerClass: kind === 'element' ? 'si-arr-el-hdr' : 'si-arr-grp-hdr',
+        buttonClass: kind === 'element' ? 'si-arr-el-exp-btn' : 'si-arr-exp-btn',
+    };
+}
+
+function emptyBitUnitHeaderHtml(
+    headerClass: string,
+    buttonClass: string,
+    headerName: string,
+    valKey: string,
+    start: number,
+    cnt: number,
+    isOpen: boolean,
+): string {
+    return (
+        `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
+        `<span class="si-f-off">+000</span>` +
+        `<span class="si-f-type">u8</span>` +
+        `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
+        `<span class="si-f-body">` +
+        `<span class="si-f-name">${esc(headerName)}</span>` +
+        `<span class="si-f-lead"></span>` +
+        `<span class="si-f-val si-f-pri" data-val-type="hex" data-bs="${start}" data-val-key="${esc(valKey)}">??</span>` +
+        `</span>` +
+        `</div>`
+    );
+}
+
+function bitUnitHeaderValueHtml(
+    rows: DecodedField[],
+    agg: DecodedField,
+    valueType: ColType,
+    activeRange: { startBit: number; endBit: number } | null,
+): string {
+    if (valueType === 'bin') { return renderBinaryStorageUnit(agg, activeRange); }
+    if (valueType === 'bin-sliced') { return renderBinaryFromBitRows(rows, activeRange); }
+    return getValForType(agg, valueType);
+}
+
 function bitUnitHeaderHtml(
     rows: DecodedField[],
     start: number,
@@ -1566,52 +1699,20 @@ function bitUnitHeaderHtml(
 ): string {
     const agg = buildBitUnitAggregateRow(rows);
     const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''));
-    const headerClass = kind === 'element' ? 'si-arr-el-hdr' : 'si-arr-grp-hdr';
-    const buttonClass = kind === 'element' ? 'si-arr-el-exp-btn' : 'si-arr-exp-btn';
+    const { headerClass, buttonClass } = bitUnitHeaderClasses(kind);
     const valKey = bitUnitValKey(start);
     if (!agg) {
-        return (
-            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
-            `<span class="si-f-off">+000</span>` +
-            `<span class="si-f-type">u8</span>` +
-            `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
-            `<span class="si-f-body">` +
-            `<span class="si-f-name">${esc(headerName)}</span>` +
-            `<span class="si-f-lead"></span>` +
-            `<span class="si-f-val si-f-pri" data-val-type="hex" data-bs="${start}" data-val-key="${esc(valKey)}">??</span>` +
-            `</span>` +
-            `</div>`
-        );
+        return emptyBitUnitHeaderHtml(headerClass, buttonClass, headerName, valKey, start, cnt, isOpen);
     }
 
-    let t = _fieldValTypes.get(valKey);
-    if (!t) { t = 'bin'; }
-
-    const activeRange = (() => {
-        if (_selectedBitRange && _selectedBitRange.parentByteStart === start) {
-            return { startBit: _selectedBitRange.startBit, endBit: _selectedBitRange.endBit };
-        }
-        if (_hoveredBitRange && _hoveredBitRange.parentByteStart === start) {
-            return { startBit: _hoveredBitRange.startBit, endBit: _hoveredBitRange.endBit };
-        }
-        return null;
-    })();
-
-    const v = t === 'bin'
-        ? renderBinaryStorageUnit(agg, activeRange)
-        : t === 'bin-sliced'
-        ? renderBinaryFromBitRows(
-            rows,
-            activeRange,
-        )
-        : getValForType(agg, t);
+    const t = _fieldValTypes.get(valKey) ?? 'bin';
+    const v = bitUnitHeaderValueHtml(rows, agg, t, activeBitRangeForHeader(start));
     const ptr = agg.type === 'pointer';
     const valHtml = (t === 'bin' || t === 'bin-sliced' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
     const byteCount = agg.bytesHex.length > 0 ? agg.bytesHex.split(' ').length : cnt;
-    const abbrevBase = TYPE_ABBREV[agg.type] ?? agg.type;
-    const abbrev = agg.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
-    const fullTypeLabel = agg.type === 'ascii' ? `ascii[${byteCount}]` : agg.type;
-    const offsetLabel = `+${agg.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
+    const abbrev = fieldTypeAbbrev(agg, byteCount);
+    const fullTypeLabel = fieldFullTypeLabel(agg, byteCount);
+    const offsetLabel = fieldOffsetLabel(agg);
 
     return (
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +

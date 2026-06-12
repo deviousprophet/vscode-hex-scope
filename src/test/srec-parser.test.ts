@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import { parseSRec, SREC_ADDR_SIZES, srecIsData } from '../parser/SRecParser';
+import { assertParsedRecordPayload } from './helpers';
 
 suite('SRecParser', () => {
 
@@ -95,12 +96,12 @@ suite('SRecParser', () => {
         assert.strictEqual(result.records.length, 2);
         const r = result.records[0];
         assert.strictEqual(r.recordType, 1);
-        assert.strictEqual(r.byteCount, 7); // 2 addr + 4 data + 1 chk
-        assert.strictEqual(r.address, 0x0010);
         assert.strictEqual(r.resolvedAddress, 0x0010);
-        assert.deepStrictEqual(Array.from(r.data), [0xCA, 0xFE, 0xBA, 0xBE]);
-        assert.strictEqual(r.checksumValid, true);
-        assert.strictEqual(r.error, undefined);
+        assertParsedRecordPayload(r, {
+            byteCount: 7,
+            address: 0x0010,
+            data: [0xCA, 0xFE, 0xBA, 0xBE],
+        });
     });
 
     test('parses a well-formed S2 data record (3-byte address)', () => {

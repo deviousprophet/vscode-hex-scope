@@ -3,7 +3,6 @@ import * as assert from 'assert';
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
-    migrateStructDefBitFields,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
 import { initFlatBytes, getByte } from '../webview/data';
@@ -112,17 +111,33 @@ suite('structByteSize()', () => {
 
     test('bit fields share storage unit for same base type', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint16', bitWidth: 5, count: 1, endian: 'inherit' },
-            { name: 'c', type: 'uint16', bitWidth: 4, count: 1, endian: 'inherit' },
+            {
+                name: 'bits',
+                type: 'uint16',
+                count: 1,
+                endian: 'inherit',
+                bitFields: [
+                    { name: 'a', bitWidth: 3 },
+                    { name: 'b', bitWidth: 5 },
+                    { name: 'c', bitWidth: 4 },
+                ],
+            },
         ]};
         assert.strictEqual(structByteSize(def), 2);
     });
 
     test('bit fields followed by normal field align to next natural boundary', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint16', bitWidth: 5, count: 1, endian: 'inherit' },
+            {
+                name: 'bits',
+                type: 'uint16',
+                count: 1,
+                endian: 'inherit',
+                bitFields: [
+                    { name: 'a', bitWidth: 3 },
+                    { name: 'b', bitWidth: 5 },
+                ],
+            },
             { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },
         ]};
         assert.strictEqual(structByteSize(def), 8);
@@ -422,8 +437,16 @@ suite('decodeStruct()', () => {
 
     test('decodes bit fields MSB-first by default as unsigned values', () => {
         const def: StructDef = { id: 'x', name: 'Bits', packed: true, fields: [
-            { name: 'a', type: 'uint8', bitWidth: 3, count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint8', bitWidth: 5, count: 1, endian: 'inherit' },
+            {
+                name: 'bits',
+                type: 'uint8',
+                count: 1,
+                endian: 'inherit',
+                bitFields: [
+                    { name: 'a', bitWidth: 3 },
+                    { name: 'b', bitWidth: 5 },
+                ],
+            },
         ]};
         // 0xB1 => a=0b101=5, b=0b10001=17 in MSB-first allocation.
         setBytesInSegment(0, [0xB1]);
@@ -438,8 +461,16 @@ suite('decodeStruct()', () => {
 
     test('decodes bit fields LSB-first when allocation is LSB', () => {
         const def: StructDef = { id: 'x', name: 'Bits', packed: true, fields: [
-            { name: 'a', type: 'uint8', bitWidth: 3, count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint8', bitWidth: 5, count: 1, endian: 'inherit' },
+            {
+                name: 'bits',
+                type: 'uint8',
+                count: 1,
+                endian: 'inherit',
+                bitFields: [
+                    { name: 'a', bitWidth: 3 },
+                    { name: 'b', bitWidth: 5 },
+                ],
+            },
         ]};
         // 0b10110001 => a=0b001=1, b=0b10110=22 in LSB-first allocation.
         setBytesInSegment(0, [0xB1]);
@@ -596,19 +627,25 @@ suite('validateStructs()', () => {
         assert.ok(errs.some(e => e.includes('depth')), `errors: ${errs.join(' | ')}`);
     });
 
-    test('reports bit-field width overflow and boundary crossing', () => {
+    test('reports bit-field container child overflow', () => {
         const bad: StructDef = {
             id: 'bad',
             name: 'BadBits',
             fields: [
-                { name: 'a', type: 'uint8', bitWidth: 9, count: 1, endian: 'inherit' },
-                { name: 'b', type: 'uint8', bitWidth: 4, count: 1, endian: 'inherit' },
-                { name: 'c', type: 'uint8', bitWidth: 5, count: 1, endian: 'inherit' },
+                {
+                    name: 'flags',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'a', bitWidth: 9 },
+                        { name: 'b', bitWidth: 1 },
+                    ],
+                },
             ],
         };
         const errs = validateStructs([bad]);
-        assert.ok(errs.some(e => e.includes('exceeds 8 bits')), errs.join(' | '));
-        assert.ok(errs.some(e => e.includes('crosses a 8-bit storage unit boundary')), errs.join(' | '));
+        assert.ok(errs.some(e => e.includes('children total 10 bits exceeds 8-bit container')), errs.join(' | '));
     });
 });
 
@@ -764,9 +801,11 @@ suite('parseStructText()', () => {
     test('parses fixed-width integer bit fields with :N syntax', () => {
         const { fields, errors } = parseStructText('uint16_t mode:3;\nuint16_t flags:5;');
         assert.strictEqual(errors.length, 0, errors.join(' | '));
-        assert.strictEqual(fields.length, 2);
-        assert.strictEqual(fields[0].bitWidth, 3);
-        assert.strictEqual(fields[1].bitWidth, 5);
+        assert.strictEqual(fields.length, 1);
+        assert.strictEqual(fields[0].name, 'mode');
+        assert.strictEqual(fields[0].type, 'uint16');
+        assert.strictEqual(fields[0].bitFields?.[0].bitWidth, 3);
+        assert.strictEqual(fields[0].bitFields?.[1].bitWidth, 5);
         assert.strictEqual(fields[0].count, 1);
     });
 
@@ -821,7 +860,13 @@ suite('fieldsToText()', () => {
     });
 
     test('bit field emits :N suffix', () => {
-        const f: StructField[] = [{ name: 'mode', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' }];
+        const f: StructField[] = [{
+            name: 'mode',
+            type: 'uint16',
+            count: 1,
+            endian: 'inherit',
+            bitFields: [{ name: 'mode', bitWidth: 3 }],
+        }];
         assert.ok(fieldsToText(f).includes('mode:3;'));
     });
 });
@@ -832,7 +877,13 @@ suite('parseStructText() round-trip', () => {
     test('fields → text → parse produces identical fields', () => {
         const original: StructField[] = [
             { name: 'sp',   type: 'uint32',  count: 1,  endian: 'inherit' },
-            { name: 'mode', type: 'uint16',  bitWidth: 3, count: 1, endian: 'inherit' },
+            {
+                name: 'mode',
+                type: 'uint16',
+                count: 1,
+                endian: 'inherit',
+                bitFields: [{ name: 'mode', bitWidth: 3 }],
+            },
             { name: 'data', type: 'uint8',   count: 16, endian: 'inherit' },
             { name: 'temp', type: 'float32', count: 1,  endian: 'be' },
             { name: 'val',  type: 'int16',   count: 2,  endian: 'le' },
@@ -840,32 +891,7 @@ suite('parseStructText() round-trip', () => {
         const text = fieldsToText(original);
         const { fields, errors } = parseStructText(text);
         assert.strictEqual(errors.length, 0, `Unexpected errors: ${errors.join(', ')}`);
-        assert.strictEqual(fields.length, original.length);
-        for (let i = 0; i < original.length; i++) {
-            assert.strictEqual(fields[i].name,   original[i].name,   `name mismatch at ${i}`);
-            assert.strictEqual(fields[i].type,   original[i].type,   `type mismatch at ${i}`);
-            assert.strictEqual(fields[i].bitWidth, original[i].bitWidth, `bitWidth mismatch at ${i}`);
-            assert.strictEqual(fields[i].count,  original[i].count,  `count mismatch at ${i}`);
-            assert.strictEqual(fields[i].endian, original[i].endian, `endian mismatch at ${i}`);
-        }
-    });
-});
-
-suite('migrateStructDefBitFields()', () => {
-    test('converts legacy flat bitWidth fields into container fields', () => {
-        const legacy: StructDef = {
-            id: 'x',
-            name: 'Legacy',
-            fields: [
-                { name: 'mode', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
-            ],
-        };
-        const migrated = migrateStructDefBitFields(legacy);
-        assert.strictEqual(migrated.fields[0].bitWidth, undefined);
-        assert.ok(Array.isArray(migrated.fields[0].bitFields), 'bitFields should exist after migration');
-        assert.strictEqual(migrated.fields[0].bitFields?.length, 1);
-        assert.strictEqual(migrated.fields[0].bitFields?.[0].name, 'mode');
-        assert.strictEqual(migrated.fields[0].bitFields?.[0].bitWidth, 3);
+        assert.deepStrictEqual(fields, original);
     });
 });
 
@@ -921,8 +947,16 @@ suite('structToC()', () => {
             id: 'x',
             name: 'Bits',
             fields: [
-                { name: 'mode', type: 'uint16', bitWidth: 3, count: 1, endian: 'inherit' },
-                { name: 'flags', type: 'uint16', bitWidth: 5, count: 1, endian: 'inherit' },
+                {
+                    name: 'flags',
+                    type: 'uint16',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'flags', bitWidth: 5 },
+                    ],
+                },
             ],
         };
         const text = structToC(def, [def]);

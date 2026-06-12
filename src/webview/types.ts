@@ -73,8 +73,6 @@ export interface StructField {
     /** Named bit-field children. When present, this field is a BitField container.
      *  Only valid for unsigned integer base types (uint8/16/32/64). */
     bitFields?: BitFieldChild[];
-    /** @deprecated Legacy single bit-field width. Prefer bitFields[]. */
-    bitWidth?: number;
     /** Array element count; 1 for a scalar field. */
     count: number;
     endian: StructFieldEndian;

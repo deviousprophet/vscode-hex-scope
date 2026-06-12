@@ -354,39 +354,53 @@ function lowerBound(sorted: number[], value: number): number {
     return lo;
 }
 
+type NeedleLenReader = (query: string) => number | null;
+
+const NEEDLE_LEN_BY_MODE: Record<typeof S.searchMode, NeedleLenReader> = {
+    addr: () => 1,
+    bytes: bytesNeedleLen,
+    value: valueNeedleLen,
+    ascii: asciiNeedleLen,
+};
+
 function getNeedleLen(): number | null {
     const q = (document.getElementById('search-input') as HTMLInputElement)?.value ?? '';
     if (!q.trim()) { return null; }
-    if (S.searchMode === 'addr') { return 1; }
-    if (S.searchMode === 'bytes') {
-        const tokens = q.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
-        const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
-        return n || null;
+    return NEEDLE_LEN_BY_MODE[S.searchMode](q);
+}
+
+function bytesNeedleLen(query: string): number | null {
+    const tokens = query.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
+    const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
+    return n || null;
+}
+
+function valueNeedleLen(query: string): number | null {
+    const raw = query.trim().replace(/_/g, '');
+    if (/^0x[0-9a-fA-F]+$/.test(raw)) {
+        return Math.max(1, Math.ceil(raw.slice(2).length / 2));
     }
-    if (S.searchMode === 'value') {
-        const raw = q.trim().replace(/_/g, '');
-        if (/^0x[0-9a-fA-F]+$/.test(raw)) {
-            const hexDigits = raw.slice(2);
-            return Math.max(1, Math.ceil(hexDigits.length / 2));
-        }
-        if (/^\d+$/.test(raw)) {
-            try {
-                const value = BigInt(raw);
-                if (value === 0n) { return 1; }
-                let tmp = value;
-                let bytes = 0;
-                while (tmp > 0n && bytes < 8) {
-                    bytes++;
-                    tmp >>= 8n;
-                }
-                return bytes || null;
-            } catch {
-                return null;
-            }
-        }
+    if (!/^\d+$/.test(raw)) { return null; }
+    try {
+        return decimalValueNeedleLen(BigInt(raw));
+    } catch {
         return null;
     }
-    return new TextEncoder().encode(q).length || null;
+}
+
+function decimalValueNeedleLen(value: bigint): number | null {
+    if (value === 0n) { return 1; }
+    let tmp = value;
+    let bytes = 0;
+    while (tmp > 0n && bytes < 8) {
+        bytes++;
+        tmp >>= 8n;
+    }
+    return bytes || null;
+}
+
+function asciiNeedleLen(query: string): number | null {
+    return new TextEncoder().encode(query).length || null;
 }
 
 //  Scroll 

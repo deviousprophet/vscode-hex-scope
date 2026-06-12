@@ -1,9 +1,8 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { parseIntelHex } from './parser/IntelHexParser';
-import { parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
+import { computeSRecChecksum, parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
 import type { ParseResult } from './parser/types';
-import { migrateStructDefBitFields } from './webview/struct-codec.js';
 import type { StructDef } from './webview/types';
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
@@ -90,9 +89,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 }
                 seenIds.add(id);
                 seenNames.add(name);
-                const migrated = migrateStructDefBitFields(item as StructDef);
-                if (migrated !== item) { changed = true; }
-                out.push(migrated);
+                out.push(item as StructDef);
             }
             return { defs: out, changed };
         };
@@ -430,30 +427,46 @@ interface SerializedParseResult {
 
 /** Rebuild an Intel HEX file from original parse + a map of addr→newValue overrides. */
 function serializeIntelHex(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
+    return serializeEditedRecords(
+        originalRaw,
+        parseResult,
+        edits,
+        rec => rec.recordType === 0 /* Data */,
+        (rec, data) => buildDataRecord(rec.address, data),
+    );
+}
+
+type ParsedRecord = ParseResult['records'][number];
+
+function serializeEditedRecords(
+    originalRaw: string,
+    parseResult: ParseResult,
+    edits: Map<number, number>,
+    canEditRecord: (rec: ParsedRecord) => boolean,
+    rebuildRecord: (rec: ParsedRecord, data: number[]) => string,
+): string {
     if (edits.size === 0) { return originalRaw; }
 
     const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const lines: string[] = [];
-    for (const rec of parseResult.records) {
-        if (rec.error || rec.recordType !== 0 /* Data */) {
-            lines.push(rec.raw);
-            continue;
-        }
-        // Apply any edits that fall inside this record
-        const data = Array.from(rec.data);
-        let changed = false;
-        for (let i = 0; i < data.length; i++) {
-            const addr = rec.resolvedAddress + i;
-            if (edits.has(addr)) {
-                data[i] = edits.get(addr)!;
-                changed = true;
-            }
-        }
-        if (!changed) { lines.push(rec.raw); continue; }
-        // Rebuild the record line with updated data + recomputed checksum
-        lines.push(buildDataRecord(rec.address, data));
-    }
+    const lines = parseResult.records.map(rec => {
+        if (rec.error || !canEditRecord(rec)) { return rec.raw; }
+        const edited = applyRecordEdits(rec, edits);
+        return edited ? rebuildRecord(rec, edited) : rec.raw;
+    });
     return lines.join(eol);
+}
+
+function applyRecordEdits(rec: ParsedRecord, edits: Map<number, number>): number[] | null {
+    const data = Array.from(rec.data);
+    let changed = false;
+    for (let i = 0; i < data.length; i++) {
+        const addr = rec.resolvedAddress + i;
+        if (edits.has(addr)) {
+            data[i] = edits.get(addr)!;
+            changed = true;
+        }
+    }
+    return changed ? data : null;
 }
 
 function buildDataRecord(addr16: number, data: number[]): string {
@@ -491,41 +504,19 @@ function detectFormat(uri: vscode.Uri, raw: string): 'ihex' | 'srec' {
 
 /** Rebuild a Motorola SREC file from original parse + a map of addr→newValue overrides. */
 export function serializeSRec(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
-    if (edits.size === 0) { return originalRaw; }
-
-    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const lines: string[] = [];
-
-    for (const rec of parseResult.records) {
-        if (rec.error || !srecIsData(rec.recordType)) {
-            lines.push(rec.raw);
-            continue;
-        }
-        // Apply any edits that fall inside this record
-        const data = Array.from(rec.data);
-        let changed = false;
-        for (let i = 0; i < data.length; i++) {
-            const addr = rec.resolvedAddress + i;
-            if (edits.has(addr)) {
-                data[i] = edits.get(addr)!;
-                changed = true;
-            }
-        }
-        if (!changed) { lines.push(rec.raw); continue; }
-        lines.push(buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data));
-    }
-    return lines.join(eol);
+    return serializeEditedRecords(
+        originalRaw,
+        parseResult,
+        edits,
+        rec => srecIsData(rec.recordType),
+        (rec, data) => buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data),
+    );
 }
 
 export function buildSRecDataRecord(type: number, address: number, data: number[]): string {
     const asz = SREC_ADDR_SIZES[type] ?? 2;
     const byteCount = asz + data.length + 1; // addrBytes + dataBytes + checksumByte
-    let sum = byteCount;
-    for (let i = 0; i < asz; i++) {
-        sum += (address >>> ((asz - 1 - i) * 8)) & 0xFF;
-    }
-    for (const b of data) { sum += b; }
-    const chk = (~sum) & 0xFF;
+    const chk = computeSRecChecksum(byteCount, address, asz, data);
     const bcHex   = byteCount.toString(16).toUpperCase().padStart(2, '0');
     const addrHex = address.toString(16).toUpperCase().padStart(asz * 2, '0');
     const dataHex = data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');

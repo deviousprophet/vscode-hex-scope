@@ -12,7 +12,7 @@ import type {
     StructScalarFieldType,
 } from './types';
 
-export type { StructDef, StructField, StructFieldType, StructFieldEndian };
+export type { StructDef, StructField };
 
 export const MAX_NESTED_DEPTH = 32;
 
@@ -26,16 +26,20 @@ export const FIELD_TYPES: StructScalarFieldType[] = [
     'pointer',
 ];
 
-type IntScalarFieldType =
-    | 'uint8' | 'uint16' | 'uint32' | 'uint64'
-    | 'int8' | 'int16' | 'int32' | 'int64';
-
-function isIntScalarType(type: StructScalarFieldType): type is IntScalarFieldType {
-    return (
-        type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64' ||
-        type === 'int8' || type === 'int16' || type === 'int32' || type === 'int64'
-    );
-}
+const FIELD_BYTE_SIZE: Record<StructScalarFieldType, number> = {
+    ascii: 1,
+    uint8: 1,
+    int8: 1,
+    uint16: 2,
+    int16: 2,
+    uint32: 4,
+    int32: 4,
+    float32: 4,
+    pointer: 4,
+    uint64: 8,
+    int64: 8,
+    float64: 8,
+};
 
 type UnsignedScalarType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
 
@@ -43,25 +47,9 @@ function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
-function isBitField(field: StructField): boolean {
-    return field.type !== 'struct' && typeof field.bitWidth === 'number';
-}
-
 function isBitFieldContainer(field: StructField): boolean {
     return Array.isArray(field.bitFields) && field.bitFields.length > 0 &&
         isUnsignedScalarType(field.type);
-}
-
-/** Migrate a legacy bitWidth field to the new bitFields container model. */
-function migrateFieldToBitFields(field: StructField): StructField {
-    if (!isBitField(field) || isBitFieldContainer(field)) { return field; }
-    const { bitWidth, ...rest } = field;
-    return { ...rest, bitFields: [{ name: field.name, bitWidth: bitWidth! }] };
-}
-
-/** Migrate all legacy bitWidth fields in a StructDef to bitFields containers. */
-export function migrateStructDefBitFields(def: StructDef): StructDef {
-    return { ...def, fields: def.fields.map(migrateFieldToBitFields) };
 }
 
 function bitMask(width: number): bigint {
@@ -84,28 +72,11 @@ function bytesToBigUint(raw: number[], endian: 'le' | 'be'): bigint {
 }
 
 export function fieldByteSize(type: StructScalarFieldType): number {
-    switch (type) {
-        case 'ascii':
-        case 'uint8':
-        case 'int8':
-            return 1;
-        case 'uint16':
-        case 'int16':
-            return 2;
-        case 'uint32':
-        case 'int32':
-        case 'float32':
-        case 'pointer':
-            return 4;
-        case 'uint64':
-        case 'int64':
-        case 'float64':
-            return 8;
-    }
+    return FIELD_BYTE_SIZE[type];
 }
 
 /** Natural alignment for a scalar field type. */
-export function fieldAlignment(type: StructScalarFieldType): number {
+function fieldAlignment(type: StructScalarFieldType): number {
     return fieldByteSize(type);
 }
 
@@ -158,58 +129,8 @@ function structAlignmentWithDefs(def: StructDef, map: Map<string, StructDef>, de
 function structByteSizeWithDefs(def: StructDef, map: Map<string, StructDef>, depth: number): number {
     let offset = 0;
     let maxAlign = 1;
-    let bitUnitStart = -1;
-    let bitUnitBytes = 0;
-    let bitUnitType: StructScalarFieldType | null = null;
-    let bitUsed = 0;
-
-    const flushBitUnit = () => {
-        if (bitUnitStart < 0) { return; }
-        offset = bitUnitStart + bitUnitBytes;
-        bitUnitStart = -1;
-        bitUnitBytes = 0;
-        bitUnitType = null;
-        bitUsed = 0;
-    };
 
     for (const f of def.fields) {
-            if (isBitField(f) && f.type !== 'struct' && isIntScalarType(f.type)) {
-            const width = f.bitWidth ?? 0;
-            const unitBytes = fieldByteSize(f.type);
-            const unitBits = unitBytes * 8;
-            const align = def.packed ? 1 : fieldAlignWithDefs(f, map, depth);
-
-            if (align > maxAlign) { maxAlign = align; }
-
-            const compatibleUnit =
-                bitUnitStart >= 0 &&
-                bitUnitType === f.type &&
-                bitUnitBytes === unitBytes;
-
-            if (!compatibleUnit) {
-                flushBitUnit();
-                offset = alignUp(offset, align);
-                bitUnitStart = offset;
-                bitUnitBytes = unitBytes;
-                bitUnitType = f.type;
-                bitUsed = 0;
-            }
-
-            if (bitUsed + width > unitBits) {
-                // Invalid bit-field layout; keep deterministic sizing by starting a fresh unit.
-                flushBitUnit();
-                offset = alignUp(offset, align);
-                bitUnitStart = offset;
-                bitUnitBytes = unitBytes;
-                bitUnitType = f.type;
-                bitUsed = 0;
-            }
-
-            bitUsed += width;
-            continue;
-        }
-
-        flushBitUnit();
         const sz = fieldSizeWithDefs(f, map, depth);
         const align = def.packed ? 1 : fieldAlignWithDefs(f, map, depth);
         if (align > maxAlign) { maxAlign = align; }
@@ -217,7 +138,6 @@ function structByteSizeWithDefs(def: StructDef, map: Map<string, StructDef>, dep
         offset += sz * f.count;
     }
 
-    flushBitUnit();
     if (def.packed) { return offset; }
     return alignUp(offset, maxAlign);
 }
@@ -268,57 +188,6 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
                     errors.push(`Struct "${d.name}": field "${f.name}" children total ${totalBits} bits exceeds ${unitBits}-bit container.`);
                 }
                 continue;
-            }
-
-            if (!isBitField(f)) { continue; }
-
-            if (f.type === 'struct') {
-                errors.push(`Struct "${d.name}": field "${f.name}" cannot be a bit-field.`);
-                continue;
-            }
-            if (!isIntScalarType(f.type)) {
-                errors.push(`Struct "${d.name}": field "${f.name}" uses unsupported bit-field base type "${f.type}".`);
-                continue;
-            }
-
-            const width = f.bitWidth ?? 0;
-            const maxBits = fieldByteSize(f.type) * 8;
-            if (!Number.isInteger(width) || width <= 0) {
-                errors.push(`Struct "${d.name}": field "${f.name}" bit width must be > 0.`);
-            }
-            if (width > maxBits) {
-                errors.push(`Struct "${d.name}": field "${f.name}" bit width exceeds ${maxBits} bits.`);
-            }
-            if (f.count !== 1) {
-                errors.push(`Struct "${d.name}": field "${f.name}" bit-fields cannot be arrays.`);
-            }
-            if (f.endian !== 'inherit') {
-                errors.push(`Struct "${d.name}": field "${f.name}" bit-fields must inherit global byte endianness.`);
-            }
-        }
-
-        let bitUnitType: StructScalarFieldType | null = null;
-        let bitUnitUsed = 0;
-        let bitUnitBits = 0;
-        for (const f of d.fields) {
-            if (isBitField(f) && f.type !== 'struct' && isIntScalarType(f.type)) {
-                const width = f.bitWidth ?? 0;
-                const unitBits = fieldByteSize(f.type) * 8;
-                const compatibleUnit = bitUnitType === f.type;
-                if (!compatibleUnit) {
-                    bitUnitType = f.type;
-                    bitUnitUsed = 0;
-                    bitUnitBits = unitBits;
-                }
-                if (bitUnitUsed + width > bitUnitBits) {
-                    errors.push(`Struct "${d.name}": field "${f.name}" crosses a ${bitUnitBits}-bit storage unit boundary.`);
-                } else {
-                    bitUnitUsed += width;
-                }
-            } else {
-                bitUnitType = null;
-                bitUnitUsed = 0;
-                bitUnitBits = 0;
             }
         }
     }
@@ -412,6 +281,45 @@ export function resolveStructFieldByPath(
     return null;
 }
 
+type FieldDecoder = (dv: DataView, le: boolean) => string;
+
+function decodeFloat(value: number, precision: number): string {
+    if (isNaN(value)) { return 'NaN'; }
+    if (!isFinite(value)) { return String(value); }
+    return value.toExponential(precision);
+}
+
+const FIELD_DECODERS: Record<StructScalarFieldType, FieldDecoder> = {
+    ascii: dv => {
+        const b = dv.getUint8(0);
+        if (b === 0) { return ''; }
+        return b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.';
+    },
+    int8: dv => `${dv.getInt8(0)}`,
+    int16: (dv, le) => `${dv.getInt16(0, le)}`,
+    int32: (dv, le) => `${dv.getInt32(0, le)}`,
+    int64: (dv, le) => dv.getBigInt64(0, le).toString(10),
+    uint8: dv => `${dv.getUint8(0)}  (0x${dv.getUint8(0).toString(16).toUpperCase().padStart(2, '0')})`,
+    uint16: (dv, le) => {
+        const v = dv.getUint16(0, le);
+        return `${v}  (0x${v.toString(16).toUpperCase().padStart(4, '0')})`;
+    },
+    uint32: (dv, le) => {
+        const v = dv.getUint32(0, le);
+        return `${v >>> 0}  (0x${(v >>> 0).toString(16).toUpperCase().padStart(8, '0')})`;
+    },
+    uint64: (dv, le) => {
+        const v = dv.getBigUint64(0, le);
+        return `${v.toString(10)}  (0x${v.toString(16).toUpperCase().padStart(16, '0')})`;
+    },
+    float32: (dv, le) => decodeFloat(dv.getFloat32(0, le), 6),
+    float64: (dv, le) => decodeFloat(dv.getFloat64(0, le), 16),
+    pointer: (dv, le) => {
+        const v = dv.getUint32(0, le);
+        return `0x${(v >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
+    },
+};
+
 export function decodeField(
     bytes: number[],
     type: StructScalarFieldType,
@@ -425,53 +333,220 @@ export function decodeField(
     const le = endian === 'le';
     bytes.slice(0, size).forEach((b, i) => dv.setUint8(i, b));
 
-    switch (type) {
-        case 'ascii': {
-            const b = dv.getUint8(0);
-            if (b === 0) { return ''; }
-            return b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.';
-        }
-        case 'int8':
-            return `${dv.getInt8(0)}`;
-        case 'int16':
-            return `${dv.getInt16(0, le)}`;
-        case 'int32':
-            return `${dv.getInt32(0, le)}`;
-        case 'int64': {
-            const v = dv.getBigInt64(0, le);
-            return `${v.toString(10)}`;
-        }
-        case 'uint8':
-            return `${dv.getUint8(0)}  (0x${dv.getUint8(0).toString(16).toUpperCase().padStart(2, '0')})`;
-        case 'uint16': {
-            const v = dv.getUint16(0, le);
-            return `${v}  (0x${v.toString(16).toUpperCase().padStart(4, '0')})`;
-        }
-        case 'uint32': {
-            const v = dv.getUint32(0, le);
-            return `${v >>> 0}  (0x${(v >>> 0).toString(16).toUpperCase().padStart(8, '0')})`;
-        }
-        case 'uint64': {
-            const v = dv.getBigUint64(0, le);
-            return `${v.toString(10)}  (0x${v.toString(16).toUpperCase().padStart(16, '0')})`;
-        }
-        case 'float32': {
-            const v = dv.getFloat32(0, le);
-            if (isNaN(v)) { return 'NaN'; }
-            if (!isFinite(v)) { return String(v); }
-            return v.toExponential(6);
-        }
-        case 'float64': {
-            const v = dv.getFloat64(0, le);
-            if (isNaN(v)) { return 'NaN'; }
-            if (!isFinite(v)) { return String(v); }
-            return v.toExponential(16);
-        }
-        case 'pointer': {
-            const v = dv.getUint32(0, le);
-            return `0x${(v >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
-        }
+    return FIELD_DECODERS[type](dv, le);
+}
+
+interface DecodeContext {
+    baseAddr: number;
+    getByte: (addr: number) => number | undefined;
+    bitFieldAllocation: BitFieldAllocation;
+    map: Map<string, StructDef>;
+    rows: DecodedField[];
+    depth: number;
+    pathPrefix: string;
+    baseOffset: number;
+}
+
+function readFieldBytes(ctx: DecodeContext, absOffset: number, count: number): number[] {
+    const raw: number[] = [];
+    for (let b = 0; b < count; b++) {
+        const v = ctx.getByte(ctx.baseAddr + absOffset + b);
+        raw.push(v !== undefined ? v : -1);
     }
+    return raw;
+}
+
+function bytesToHex(raw: number[]): string {
+    return raw
+        .map(v => (v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??'))
+        .join(' ');
+}
+
+function joinFieldPath(prefix: string, name: string): string {
+    return prefix ? `${prefix}.${name}` : name;
+}
+
+function decodeAsciiBytes(raw: number[]): string {
+    const chars: string[] = [];
+    for (const b of raw) {
+        if (b === 0) { break; }
+        chars.push(b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.');
+    }
+    return chars.join('');
+}
+
+function bitFieldValueText(value: bigint, width: number): string {
+    const hexDigits = Math.max(1, Math.ceil(width / 4));
+    return `${value.toString(10)}  (0x${value.toString(16).toUpperCase().padStart(hexDigits, '0')})`;
+}
+
+function extractBitFieldValue(
+    unitValue: bigint,
+    unitBits: number,
+    bitOffset: number,
+    width: number,
+    allocation: BitFieldAllocation,
+): bigint {
+    const shift = allocation === 'lsb'
+        ? bitOffset
+        : unitBits - bitOffset - width;
+    return (unitValue >> BigInt(shift)) & bitMask(width);
+}
+
+function decodeBitFieldContainer(
+    ctx: DecodeContext,
+    field: StructField,
+    offset: number,
+    align: number,
+    endian: 'le' | 'be',
+): number {
+    const unitBytes = fieldByteSize(field.type as UnsignedScalarType);
+    const unitBits = unitBytes * 8;
+    const alignedOffset = alignUp(offset, align);
+
+    for (let idx = 0; idx < field.count; idx++) {
+        const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
+        const fieldPath = joinFieldPath(ctx.pathPrefix, elementName);
+        const absOffset = ctx.baseOffset + alignedOffset + idx * unitBytes;
+        decodeBitFieldChildren(ctx, field, fieldPath, idx, absOffset, unitBytes, unitBits, endian);
+    }
+
+    return alignedOffset + unitBytes * field.count;
+}
+
+function decodeBitFieldChildren(
+    ctx: DecodeContext,
+    field: StructField,
+    fieldPath: string,
+    arrayIdx: number,
+    absOffset: number,
+    unitBytes: number,
+    unitBits: number,
+    endian: 'le' | 'be',
+): void {
+    const raw = readFieldBytes(ctx, absOffset, unitBytes);
+    const hasData = raw.every(v => v >= 0);
+    const bytesHex = bytesToHex(raw);
+    const unitValue = hasData ? bytesToBigUint(raw.filter(v => v >= 0), endian) : 0n;
+    let bitPos = 0;
+
+    for (const child of field.bitFields!) {
+        const width = child.bitWidth;
+        if (width <= 0) { bitPos += width; continue; }
+
+        const unsignedValue = hasData
+            ? extractBitFieldValue(unitValue, unitBits, bitPos, width, ctx.bitFieldAllocation)
+            : 0n;
+        ctx.rows.push({
+            fieldName: `${fieldPath}.${child.name || `bit${bitPos}`}`,
+            type: field.type as UnsignedScalarType,
+            arrayIdx,
+            byteOffset: absOffset,
+            bytesHex,
+            decoded: hasData ? bitFieldValueText(unsignedValue, width) : '??',
+            hasData,
+            endian,
+            isBitField: true,
+            bitWidth: width,
+            bitOffset: bitPos,
+            bitStorageByteSize: unitBytes,
+            bitValueUnsigned: hasData ? unsignedValue.toString(10) : undefined,
+        });
+        bitPos += width;
+    }
+}
+
+function decodeAsciiField(
+    ctx: DecodeContext,
+    field: StructField,
+    offset: number,
+    elemSize: number,
+    endian: 'le' | 'be',
+): number {
+    const absOffset = ctx.baseOffset + offset;
+    const totalBytes = elemSize * field.count;
+    const raw = readFieldBytes(ctx, absOffset, totalBytes);
+    const hasData = raw.every(v => v >= 0);
+    ctx.rows.push({
+        fieldName: joinFieldPath(ctx.pathPrefix, field.name),
+        type: 'ascii',
+        arrayIdx: 0,
+        byteOffset: absOffset,
+        bytesHex: bytesToHex(raw),
+        decoded: hasData ? decodeAsciiBytes(raw) : '??',
+        hasData,
+        endian,
+    });
+    return offset + totalBytes;
+}
+
+function decodeScalarFieldElement(
+    ctx: DecodeContext,
+    field: StructField,
+    fieldPath: string,
+    arrayIdx: number,
+    absOffset: number,
+    elemSize: number,
+    endian: 'le' | 'be',
+): void {
+    if (field.type === 'struct') { return; }
+    const raw = readFieldBytes(ctx, absOffset, elemSize);
+    const hasData = raw.every(v => v >= 0);
+    ctx.rows.push({
+        fieldName: fieldPath,
+        type: field.type,
+        arrayIdx,
+        byteOffset: absOffset,
+        bytesHex: bytesToHex(raw),
+        decoded: hasData ? decodeField(raw, field.type, endian) : '??',
+        hasData,
+        endian,
+    });
+}
+
+function decodeNestedStructField(
+    ctx: DecodeContext,
+    field: StructField,
+    fieldPath: string,
+    absOffset: number,
+    endian: 'le' | 'be',
+): void {
+    const child = referencedStruct(field, ctx.map);
+    if (!child || ctx.depth >= MAX_NESTED_DEPTH) { return; }
+    decodeStructRecursive(
+        child,
+        ctx.baseAddr,
+        ctx.getByte,
+        endian,
+        ctx.bitFieldAllocation,
+        ctx.map,
+        ctx.rows,
+        ctx.depth + 1,
+        fieldPath,
+        absOffset,
+    );
+}
+
+function decodeFieldElements(
+    ctx: DecodeContext,
+    field: StructField,
+    offset: number,
+    elemSize: number,
+    endian: 'le' | 'be',
+): number {
+    let nextOffset = offset;
+    for (let idx = 0; idx < field.count; idx++) {
+        const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
+        const fieldPath = joinFieldPath(ctx.pathPrefix, elementName);
+        const absOffset = ctx.baseOffset + nextOffset;
+        if (field.type === 'struct') {
+            decodeNestedStructField(ctx, field, fieldPath, absOffset, endian);
+        } else {
+            decodeScalarFieldElement(ctx, field, fieldPath, idx, absOffset, elemSize, endian);
+        }
+        nextOffset += elemSize;
+    }
+    return nextOffset;
 }
 
 function decodeStructRecursive(
@@ -487,19 +562,7 @@ function decodeStructRecursive(
     baseOffset: number,
 ): number {
     let offset = 0;
-    let bitUnitStart = -1;
-    let bitUnitBytes = 0;
-    let bitUnitType: StructScalarFieldType | null = null;
-    let bitUsed = 0;
-
-    const flushBitUnit = () => {
-        if (bitUnitStart < 0) { return; }
-        offset = bitUnitStart + bitUnitBytes;
-        bitUnitStart = -1;
-        bitUnitBytes = 0;
-        bitUnitType = null;
-        bitUsed = 0;
-    };
+    const ctx: DecodeContext = { baseAddr, getByte, bitFieldAllocation, map, rows, depth, pathPrefix, baseOffset };
 
     for (const field of def.fields) {
         const align = def.packed ? 1 : fieldAlignWithDefs(field, map, depth);
@@ -508,234 +571,19 @@ function decodeStructRecursive(
 
         // ── New: named BitField container (uint8/16/32/64 with bitFields[]) ──────
         if (isBitFieldContainer(field)) {
-            flushBitUnit();
-            const unitBytes = fieldByteSize(field.type as UnsignedScalarType);
-            const unitBits = unitBytes * 8;
-            offset = alignUp(offset, align);
-
-            for (let idx = 0; idx < field.count; idx++) {
-                const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
-                const fieldPath = pathPrefix ? `${pathPrefix}.${elementName}` : elementName;
-                const absOffset = baseOffset + offset + idx * unitBytes;
-
-                const raw: number[] = [];
-                for (let b = 0; b < unitBytes; b++) {
-                    const v = getByte(baseAddr + absOffset + b);
-                    raw.push(v !== undefined ? v : -1);
-                }
-                const hasData = raw.every(v => v >= 0);
-                const bytesHex = raw
-                    .map(v => (v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??'))
-                    .join(' ');
-                const unitValue = hasData ? bytesToBigUint(raw.filter(v => v >= 0), endian) : 0n;
-
-                let bitPos = 0;
-                for (const child of field.bitFields!) {
-                    const w = child.bitWidth;
-                    if (w <= 0) { bitPos += w; continue; }
-                    const childName = child.name || `bit${bitPos}`;
-                    const childPath = `${fieldPath}.${childName}`;
-
-                    const shift = bitFieldAllocation === 'lsb'
-                        ? bitPos
-                        : unitBits - bitPos - w;
-                    const unsignedValue = hasData ? (unitValue >> BigInt(shift)) & bitMask(w) : 0n;
-                    const hexDigits = Math.max(1, Math.ceil(w / 4));
-                    const decoded = hasData
-                        ? `${unsignedValue.toString(10)}  (0x${unsignedValue.toString(16).toUpperCase().padStart(hexDigits, '0')})`
-                        : '??';
-
-                    rows.push({
-                        fieldName: childPath,
-                        type: field.type as UnsignedScalarType,
-                        arrayIdx: idx,
-                        byteOffset: absOffset,
-                        bytesHex,
-                        decoded,
-                        hasData,
-                        endian,
-                        isBitField: true,
-                        bitWidth: w,
-                        bitOffset: bitPos,
-                        bitStorageByteSize: unitBytes,
-                        bitValueUnsigned: hasData ? unsignedValue.toString(10) : undefined,
-                    });
-
-                    bitPos += w;
-                }
-            }
-
-            offset += unitBytes * field.count;
+            offset = decodeBitFieldContainer(ctx, field, offset, align, endian);
             continue;
         }
 
-        if (isBitField(field) && field.type !== 'struct' && isIntScalarType(field.type)) {
-            const width = field.bitWidth ?? 0;
-            const unitBytes = fieldByteSize(field.type);
-            const unitBits = unitBytes * 8;
-            const compatibleUnit =
-                bitUnitStart >= 0 &&
-                bitUnitType === field.type &&
-                bitUnitBytes === unitBytes;
-
-            if (!compatibleUnit) {
-                flushBitUnit();
-                offset = alignUp(offset, align);
-                bitUnitStart = offset;
-                bitUnitBytes = unitBytes;
-                bitUnitType = field.type;
-                bitUsed = 0;
-            }
-
-            if (bitUsed + width > unitBits) {
-                flushBitUnit();
-                offset = alignUp(offset, align);
-                bitUnitStart = offset;
-                bitUnitBytes = unitBytes;
-                bitUnitType = field.type;
-                bitUsed = 0;
-            }
-
-            const absOffset = baseOffset + bitUnitStart;
-            const marker = `@bf_${absOffset.toString(16).toUpperCase().padStart(4, '0')}`;
-            const fieldPath = pathPrefix ? `${pathPrefix}.${marker}.${field.name}` : `${marker}.${field.name}`;
-            const raw: number[] = [];
-            for (let b = 0; b < unitBytes; b++) {
-                const v = getByte(baseAddr + absOffset + b);
-                raw.push(v !== undefined ? v : -1);
-            }
-            const hasData = raw.every(v => v >= 0);
-            const bytesHex = raw
-                .map(v => (v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??'))
-                .join(' ');
-
-            const bitOffset = bitUsed;
-            let unsignedValue = 0n;
-            if (hasData && width > 0) {
-                const unitValue = bytesToBigUint(raw.filter(v => v >= 0), endian);
-                const shift = bitFieldAllocation === 'lsb'
-                    ? bitOffset
-                    : unitBits - bitOffset - width;
-                unsignedValue = (unitValue >> BigInt(shift)) & bitMask(width);
-            }
-            const hexDigits = Math.max(1, Math.ceil(width / 4));
-            const decoded = hasData
-                ? `${unsignedValue.toString(10)}  (0x${unsignedValue.toString(16).toUpperCase().padStart(hexDigits, '0')})`
-                : '??';
-
-            rows.push({
-                fieldName: fieldPath,
-                type: field.type,
-                arrayIdx: 0,
-                byteOffset: absOffset,
-                bytesHex,
-                decoded,
-                hasData,
-                endian,
-                isBitField: true,
-                bitWidth: width,
-                bitOffset,
-                bitStorageByteSize: unitBytes,
-                bitValueUnsigned: hasData ? unsignedValue.toString(10) : undefined,
-            });
-
-            bitUsed += width;
-            continue;
-        }
-
-        flushBitUnit();
         offset = alignUp(offset, align);
 
         if (field.type === 'ascii') {
-            const fieldPath = pathPrefix ? `${pathPrefix}.${field.name}` : field.name;
-            const absOffset = baseOffset + offset;
-            const totalBytes = elemSize * field.count;
-            const raw: number[] = [];
-            for (let b = 0; b < totalBytes; b++) {
-                const v = getByte(baseAddr + absOffset + b);
-                raw.push(v !== undefined ? v : -1);
-            }
-            const hasData = raw.every(v => v >= 0);
-            const bytesHex = raw
-                .map(v => (v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??'))
-                .join(' ');
-            const decoded = hasData
-                ? (() => {
-                    const chars: string[] = [];
-                    for (const b of raw) {
-                        if (b === 0) { break; }
-                        chars.push(b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.');
-                    }
-                    return chars.join('');
-                })()
-                : '??';
-
-            rows.push({
-                fieldName: fieldPath,
-                type: 'ascii',
-                arrayIdx: 0,
-                byteOffset: absOffset,
-                bytesHex,
-                decoded,
-                hasData,
-                endian,
-            });
-            offset += totalBytes;
+            offset = decodeAsciiField(ctx, field, offset, elemSize, endian);
             continue;
         }
 
-        for (let idx = 0; idx < field.count; idx++) {
-            const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
-            const fieldPath = pathPrefix ? `${pathPrefix}.${elementName}` : elementName;
-            const absOffset = baseOffset + offset;
-
-            if (field.type === 'struct') {
-                const child = referencedStruct(field, map);
-                if (child && depth < MAX_NESTED_DEPTH) {
-                    decodeStructRecursive(
-                        child,
-                        baseAddr,
-                        getByte,
-                        endian,
-                        bitFieldAllocation,
-                        map,
-                        rows,
-                        depth + 1,
-                        fieldPath,
-                        absOffset,
-                    );
-                }
-                offset += elemSize;
-                continue;
-            }
-
-            const raw: number[] = [];
-            for (let b = 0; b < elemSize; b++) {
-                const v = getByte(baseAddr + absOffset + b);
-                raw.push(v !== undefined ? v : -1);
-            }
-            const hasData = raw.every(v => v >= 0);
-            const bytesHex = raw
-                .map(v => (v >= 0 ? v.toString(16).toUpperCase().padStart(2, '0') : '??'))
-                .join(' ');
-            const decoded = hasData ? decodeField(raw, field.type, endian) : '??';
-
-            rows.push({
-                fieldName: fieldPath,
-                type: field.type,
-                arrayIdx: idx,
-                byteOffset: absOffset,
-                bytesHex,
-                decoded,
-                hasData,
-                endian,
-            });
-
-            offset += elemSize;
-        }
+        offset = decodeFieldElements(ctx, field, offset, elemSize, endian);
     }
-
-    flushBitUnit();
 
     if (!def.packed) {
         const structAlign = structAlignmentWithDefs(def, map, depth);
@@ -802,7 +650,7 @@ const C_TYPE_MAP: Record<string, StructScalarFieldType> = {
 };
 
 /** Maps scalar field types back to canonical C type names for serialization. */
-export const TYPE_TO_C: Record<StructScalarFieldType, string> = {
+const TYPE_TO_C: Record<StructScalarFieldType, string> = {
     ascii: 'char',
     uint8: 'uint8_t', uint16: 'uint16_t', uint32: 'uint32_t', uint64: 'uint64_t',
     int8: 'int8_t', int16: 'int16_t', int32: 'int32_t', int64: 'int64_t',
@@ -826,6 +674,112 @@ export interface ParseStructTextResult {
     errors: string[];
 }
 
+function appendParsedBitField(
+    fields: StructField[],
+    type: UnsignedScalarType,
+    name: string,
+    bitWidth: number,
+): void {
+    const unitBits = fieldByteSize(type) * 8;
+    const last = fields[fields.length - 1];
+    const lastUsedBits = last?.bitFields?.reduce((sum, child) => sum + child.bitWidth, 0) ?? 0;
+    if (last && last.type === type && last.count === 1 && last.endian === 'inherit' &&
+        Array.isArray(last.bitFields) && lastUsedBits + bitWidth <= unitBits) {
+        last.bitFields.push({ name, bitWidth });
+        return;
+    }
+
+    fields.push({
+        name,
+        type,
+        count: 1,
+        endian: 'inherit',
+        bitFields: [{ name, bitWidth }],
+    });
+}
+
+type ParsedStructLine =
+    | { kind: 'skip' }
+    | { kind: 'error'; message: string }
+    | { kind: 'field'; field: StructField }
+    | { kind: 'bitField'; type: UnsignedScalarType; name: string; bitWidth: number };
+
+function preserveMultilineCommentSpacing(text: string): string {
+    return text.replace(/\/\*[\s\S]*?\*\//g, m => {
+        const newlines = (m.match(/\n/g) ?? []).length;
+        return newlines === 0 ? m : '\n'.repeat(newlines);
+    });
+}
+
+function stripStructLine(rawLine: string): { stripped: string; comment: string } {
+    const blockComMatch = rawLine.match(/\/\*([^*\n]*)\*\//);
+    const blockComment = blockComMatch ? blockComMatch[1].trim() : '';
+    const noBlock = rawLine.replace(/\/\*[^*\n]*\*\//g, '');
+    const slashIdx = noBlock.indexOf('//');
+    const lineComment = slashIdx >= 0 ? noBlock.slice(slashIdx + 2).trim() : '';
+    const line = (slashIdx >= 0 ? noBlock.slice(0, slashIdx) : noBlock).trim();
+    return { stripped: line.replace(/;$/, '').trim(), comment: lineComment || blockComment };
+}
+
+function endianFromComment(comment: string): StructFieldEndian {
+    if (/\bbe\b/i.test(comment)) { return 'be'; }
+    if (/\ble\b/i.test(comment)) { return 'le'; }
+    return 'inherit';
+}
+
+function parseBitFieldDeclaration(
+    fieldName: string,
+    mapped: StructScalarFieldType,
+    bitWidth: number,
+    count: number,
+): ParsedStructLine {
+    if (!isUnsignedScalarType(mapped)) {
+        return { kind: 'error', message: `Bit-field "${fieldName}" must use an unsigned integer base type.` };
+    }
+    if (!Number.isInteger(bitWidth) || bitWidth <= 0) {
+        return { kind: 'error', message: `Bit-field "${fieldName}" has invalid width "${bitWidth}".` };
+    }
+    const maxBits = fieldByteSize(mapped) * 8;
+    if (bitWidth > maxBits) {
+        return { kind: 'error', message: `Bit-field "${fieldName}" width ${bitWidth} exceeds ${maxBits}.` };
+    }
+    if (count !== 1) {
+        return { kind: 'error', message: `Bit-field "${fieldName}" cannot be declared as an array.` };
+    }
+    return { kind: 'bitField', type: mapped, name: fieldName, bitWidth };
+}
+
+function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
+    const { stripped, comment } = stripStructLine(rawLine);
+    if (!stripped || stripped === '{' || stripped === '}' || /^(?:typedef|struct|union)\b/.test(stripped)) {
+        return { kind: 'skip' };
+    }
+
+    const unqual = stripped.replace(/^(?:(?:const|volatile|static|register)\s+)+/, '');
+    const match = unqual.match(/^((?:unsigned|signed)\s+\w+|\w+)\s+(\w+)\s*(?::\s*(\d+))?\s*(?:\[(\d+)\])?$/);
+    if (!match) {
+        return { kind: 'error', message: `Cannot parse: "${stripped}"` };
+    }
+
+    const rawType = match[1].replace(/\s+/g, ' ');
+    const fieldName = match[2];
+    const mapped = C_TYPE_MAP[rawType] ?? C_TYPE_MAP[rawType.toLowerCase()];
+    if (!mapped) {
+        return { kind: 'error', message: `Unknown type "${rawType}" for field "${fieldName}"` };
+    }
+
+    const bitWidth = match[3] ? parseInt(match[3], 10) : null;
+    const count = match[4] ? Math.max(1, parseInt(match[4], 10)) : 1;
+    if (bitWidth !== null) {
+        return parseBitFieldDeclaration(fieldName, mapped, bitWidth, count);
+    }
+
+    return {
+        kind: 'field',
+        field: { name: fieldName, type: mapped, count, endian: endianFromComment(comment) },
+    };
+}
+
 /**
  * Parse C-style struct field declarations into StructField[].
  * Accepts bare field declarations OR a full `struct Name { ... }` / `typedef struct Name { ... }`.
@@ -836,10 +790,7 @@ export function parseStructText(text: string): ParseStructTextResult {
     const fields: StructField[] = [];
     let structName: string | null = null;
 
-    const cleaned = text.replace(/\/\*[\s\S]*?\*\//g, m => {
-        const newlines = (m.match(/\n/g) ?? []).length;
-        return newlines === 0 ? m : '\n'.repeat(newlines);
-    });
+    const cleaned = preserveMultilineCommentSpacing(text);
 
     const nameMatch = cleaned.match(/(?:typedef\s+)?struct\s+(\w+)\s*\{/);
     if (nameMatch) { structName = nameMatch[1]; }
@@ -848,66 +799,17 @@ export function parseStructText(text: string): ParseStructTextResult {
     const body = bodyMatch ? bodyMatch[1] : cleaned;
 
     for (const rawLine of body.split('\n')) {
-        const blockComMatch = rawLine.match(/\/\*([^*\n]*)\*\//);
-        const blockComment = blockComMatch ? blockComMatch[1].trim() : '';
-        const noBlock = rawLine.replace(/\/\*[^*\n]*\*\//g, '');
-        const slashIdx = noBlock.indexOf('//');
-        const lineComment = slashIdx >= 0 ? noBlock.slice(slashIdx + 2).trim() : '';
-        const line = (slashIdx >= 0 ? noBlock.slice(0, slashIdx) : noBlock).trim();
-        const comment = lineComment || blockComment;
-
-        const stripped = line.replace(/;$/, '').trim();
-        if (!stripped || stripped === '{' || stripped === '}' || /^(?:typedef|struct|union)\b/.test(stripped)) {
+        const parsed = parseStructDeclarationLine(rawLine);
+        if (parsed.kind === 'skip') { continue; }
+        if (parsed.kind === 'error') {
+            errors.push(parsed.message);
             continue;
         }
-
-        const unqual = stripped.replace(/^(?:(?:const|volatile|static|register)\s+)+/, '');
-        const m = unqual.match(/^((?:unsigned|signed)\s+\w+|\w+)\s+(\w+)\s*(?::\s*(\d+))?\s*(?:\[(\d+)\])?$/);
-        if (!m) {
-            if (unqual) { errors.push(`Cannot parse: "${stripped}"`); }
+        if (parsed.kind === 'bitField') {
+            appendParsedBitField(fields, parsed.type, parsed.name, parsed.bitWidth);
             continue;
         }
-
-        const rawType = m[1].replace(/\s+/g, ' ');
-        const fieldName = m[2];
-        const bitWidth = m[3] ? parseInt(m[3], 10) : null;
-        const count = m[4] ? Math.max(1, parseInt(m[4], 10)) : 1;
-
-        const mapped = C_TYPE_MAP[rawType] ?? C_TYPE_MAP[rawType.toLowerCase()];
-        if (!mapped) {
-            errors.push(`Unknown type "${rawType}" for field "${fieldName}"`);
-            continue;
-        }
-
-        if (bitWidth !== null) {
-            if (!isIntScalarType(mapped)) {
-                errors.push(`Bit-field "${fieldName}" must use an int/uint base type.`);
-                continue;
-            }
-            if (!Number.isInteger(bitWidth) || bitWidth <= 0) {
-                errors.push(`Bit-field "${fieldName}" has invalid width "${bitWidth}".`);
-                continue;
-            }
-            const maxBits = fieldByteSize(mapped) * 8;
-            if (bitWidth > maxBits) {
-                errors.push(`Bit-field "${fieldName}" width ${bitWidth} exceeds ${maxBits}.`);
-                continue;
-            }
-            if (count !== 1) {
-                errors.push(`Bit-field "${fieldName}" cannot be declared as an array.`);
-                continue;
-            }
-        }
-
-        let endian: StructFieldEndian = 'inherit';
-        if (bitWidth === null) {
-            if (/\bbe\b/i.test(comment)) { endian = 'be'; }
-            else if (/\ble\b/i.test(comment)) { endian = 'le'; }
-        }
-
-        const field: StructField = { name: fieldName, type: mapped, count, endian };
-        if (bitWidth !== null) { field.bitWidth = bitWidth; }
-        fields.push(field);
+        fields.push(parsed.field);
     }
 
     return { structName, fields, errors };
@@ -928,10 +830,9 @@ export function fieldsToText(fields: StructField[], defs: StructDef[] = allStruc
             return f.bitFields!.map(child => `${cType} ${child.name}${arr}:${child.bitWidth};`).join('\n');
         }
         const cType = typeNames[i].padEnd(maxTypeLen);
-        const bit = isBitField(f) ? `:${f.bitWidth}` : '';
-        const arr = !isBitField(f) && f.count > 1 ? `[${f.count}]` : '';
+        const arr = f.count > 1 ? `[${f.count}]` : '';
         const hint = f.endian !== 'inherit' ? `  // ${f.endian}` : '';
-        return `${cType} ${f.name}${bit}${arr};${hint}`;
+        return `${cType} ${f.name}${arr};${hint}`;
     }).join('\n');
 }
 
@@ -949,24 +850,10 @@ export function structToC(def: StructDef, defs: StructDef[] = allStructs()): str
 
     let offset = 0;
     let maxAlign = 1;
-    let bitUnitStart = -1;
-    let bitUnitBytes = 0;
-    let bitUnitType: StructScalarFieldType | null = null;
-    let bitUsed = 0;
-
-    const flushBitUnit = () => {
-        if (bitUnitStart < 0) { return; }
-        offset = bitUnitStart + bitUnitBytes;
-        bitUnitStart = -1;
-        bitUnitBytes = 0;
-        bitUnitType = null;
-        bitUsed = 0;
-    };
 
     def.fields.forEach((f, fi) => {
         // ── New: BitField container ────────────────────────────────────────────
         if (isBitFieldContainer(f)) {
-            flushBitUnit();
             const unitBytes = fieldByteSize(f.type as UnsignedScalarType);
             const unitBits = unitBytes * 8;
             const align = def.packed ? 1 : fieldAlignWithDefs(f, byId, 1);
@@ -1001,63 +888,6 @@ export function structToC(def: StructDef, defs: StructDef[] = allStructs()): str
             return;
         }
 
-        if (isBitField(f) && f.type !== 'struct' && isIntScalarType(f.type)) {
-            const width = f.bitWidth ?? 0;
-            const unitBytes = fieldByteSize(f.type);
-            const unitBits = unitBytes * 8;
-            const align = def.packed ? 1 : fieldAlignWithDefs(f, byId, 1);
-            if (align > maxAlign) { maxAlign = align; }
-
-            const compatibleUnit =
-                bitUnitStart >= 0 &&
-                bitUnitType === f.type &&
-                bitUnitBytes === unitBytes;
-            if (!compatibleUnit) {
-                flushBitUnit();
-                const aligned = alignUp(offset, align);
-                if (!def.packed && aligned > offset) {
-                    const padBytes = aligned - offset;
-                    lines.push(
-                        `    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
-                        `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`
-                    );
-                }
-                offset = aligned;
-                bitUnitStart = offset;
-                bitUnitBytes = unitBytes;
-                bitUnitType = f.type;
-                bitUsed = 0;
-            }
-
-            if (bitUsed + width > unitBits) {
-                flushBitUnit();
-                const aligned = alignUp(offset, align);
-                if (!def.packed && aligned > offset) {
-                    const padBytes = aligned - offset;
-                    lines.push(
-                        `    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
-                        `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`
-                    );
-                }
-                offset = aligned;
-                bitUnitStart = offset;
-                bitUnitBytes = unitBytes;
-                bitUnitType = f.type;
-                bitUsed = 0;
-            }
-
-            const cType = fieldTypeToC(f, byId).padEnd(maxTypeLen);
-            const displayFieldName = f.name || `field${fi}`;
-            const startBit = bitUsed;
-            lines.push(
-                `    ${cType} ${displayFieldName}:${width};`.padEnd(44) +
-                `/* +${offset.toString().padStart(3)}:${startBit.toString().padStart(2)}  ${unitBits}b unit */`
-            );
-            bitUsed += width;
-            return;
-        }
-
-        flushBitUnit();
         const sz = fieldSizeWithDefs(f, byId, 1);
         const align = def.packed ? 1 : fieldAlignWithDefs(f, byId, 1);
         if (align > maxAlign) { maxAlign = align; }
@@ -1085,8 +915,6 @@ export function structToC(def: StructDef, defs: StructDef[] = allStructs()): str
 
         offset += fieldBytes;
     });
-
-    flushBitUnit();
 
     const totalUnpadded = offset;
     const totalPadded = alignUp(offset, maxAlign);

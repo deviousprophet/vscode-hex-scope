@@ -5,6 +5,8 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
+import { buildContiguousSegments } from './segments';
+import { parseSourceRecords } from './records';
 
 // ── SREC record-type metadata ─────────────────────────────────────
 
@@ -21,6 +23,15 @@ export const SREC_ADDR_SIZES: Record<number, number> = {
 /** Returns true for SREC record types that carry data payload (S1, S2, S3). */
 export function srecIsData(type: number): boolean {
     return type === 1 || type === 2 || type === 3;
+}
+
+export function computeSRecChecksum(byteCount: number, address: number, addressSize: number, data: Iterable<number>): number {
+    let sum = byteCount;
+    for (let i = 0; i < addressSize; i++) {
+        sum += (address >>> ((addressSize - 1 - i) * 8)) & 0xFF;
+    }
+    for (const b of data) { sum += b; }
+    return (~sum) & 0xFF;
 }
 
 // ── Line parser ───────────────────────────────────────────────────
@@ -105,12 +116,7 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
     const checksum = parseInt(hex.slice(hex.length - 2), 16);
 
     // Validate: one's complement of sum of byteCount + address bytes + data bytes
-    let sum = byteCount;
-    for (let i = 0; i < asz; i++) {
-        sum += (address >>> ((asz - 1 - i) * 8)) & 0xFF;
-    }
-    for (const b of data) { sum += b; }
-    const expectedChecksum = (~sum) & 0xFF;
+    const expectedChecksum = computeSRecChecksum(byteCount, address, asz, data);
     const checksumValid = checksum === expectedChecksum;
 
     return {
@@ -129,25 +135,7 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
 // ── Segment builder ───────────────────────────────────────────────
 
 function buildSegments(records: HexRecord[]): MemorySegment[] {
-    const blocks: { address: number; data: number[] }[] = [];
-    let current: { address: number; data: number[] } | null = null;
-
-    for (const rec of records) {
-        if (rec.error || !srecIsData(rec.recordType) || !rec.checksumValid) {
-            continue;
-        }
-        if (!current) {
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        } else if (rec.resolvedAddress !== current.address + current.data.length) {
-            // Address gap — start a new segment
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        }
-        for (const b of rec.data) { current.data.push(b); }
-    }
-
-    return blocks.map(b => ({ startAddress: b.address, data: new Uint8Array(b.data) }));
+    return buildContiguousSegments(records, rec => srecIsData(rec.recordType));
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -158,28 +146,14 @@ function buildSegments(records: HexRecord[]): MemorySegment[] {
  * so the rest of the extension can be format-agnostic.
  */
 export function parseSRec(source: string): ParseResult {
-    const lines = source.split(/\r?\n/);
-    const records: HexRecord[] = [];
-    let checksumErrors = 0;
-    let malformedLines = 0;
     let startAddress: number | undefined;
 
-    for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        const trimmed = raw.trim();
-        if (trimmed === '') { continue; }
-
-        const record = parseLine(trimmed, i + 1);
-        records.push(record);
-
-        if (record.error) { malformedLines++; continue; }
-        if (!record.checksumValid) { checksumErrors++; }
-
+    const { records, checksumErrors, malformedLines } = parseSourceRecords(source, parseLine, record => {
         // S7/S8/S9 carry the execution start address
         if (record.recordType === 7 || record.recordType === 8 || record.recordType === 9) {
             startAddress = record.address;
         }
-    }
+    });
 
     const segments = buildSegments(records);
     const totalDataBytes = segments.reduce((s, seg) => s + seg.data.length, 0);

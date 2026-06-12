@@ -4,7 +4,8 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
-export type { HexRecord, MemorySegment, ParseResult } from './types';
+import { buildContiguousSegments } from './segments';
+import { parseSourceRecords } from './records';
 
 // ── Record-type metadata ──────────────────────────────────────────
 
@@ -19,7 +20,7 @@ export const enum RecordType {
 }
 
 /** Display names for Intel HEX record types. */
-export const RECORD_TYPE_NAMES: Record<number, string> = {
+const RECORD_TYPE_NAMES: Record<number, string> = {
     0x00: 'Data',
     0x01: 'End of File',
     0x02: 'Ext Segment Addr',
@@ -36,34 +37,11 @@ export const RECORD_TYPE_NAMES: Record<number, string> = {
  * segments, checksum error count, and optional execution start address.
  */
 export function parseIntelHex(source: string): ParseResult {
-    const lines = source.split(/\r?\n/);
-    const records: HexRecord[] = [];
     let upperAddress = 0; // holds upper 16 bits (type 04) or segment (type 02)
     let addressMode: 'linear' | 'segment' = 'linear';
-    let checksumErrors = 0;
-    let malformedLines = 0;
     let startAddress: number | undefined;
 
-    for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        const trimmed = raw.trim();
-
-        if (trimmed === '') {
-            continue;
-        }
-
-        const record = parseLine(trimmed, i + 1);
-        records.push(record);
-
-        if (record.error) {
-            malformedLines++;
-            continue;
-        }
-
-        if (!record.checksumValid) {
-            checksumErrors++;
-        }
-
+    const { records, checksumErrors, malformedLines } = parseSourceRecords(source, parseLine, record => {
         switch (record.recordType) {
             case RecordType.ExtendedLinearAddress:
                 addressMode = 'linear';
@@ -86,7 +64,7 @@ export function parseIntelHex(source: string): ParseResult {
                 ? (upperAddress + record.address) >>> 0
                 : (upperAddress + record.address) & 0xFFFFF;
         }
-    }
+    });
 
     const segments = buildSegments(records);
     const totalDataBytes = segments.reduce((sum, s) => sum + s.data.length, 0);
@@ -166,25 +144,5 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
 // ── Segment builder ───────────────────────────────────────────────
 
 function buildSegments(records: HexRecord[]): MemorySegment[] {
-    const blocks: { address: number; data: number[] }[] = [];
-    let current: { address: number; data: number[] } | null = null;
-
-    for (const rec of records) {
-        if (rec.error || rec.recordType !== RecordType.Data || !rec.checksumValid) {
-            continue;
-        }
-
-        if (!current) {
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        } else if (rec.resolvedAddress !== current.address + current.data.length) {
-            // Gap — start a new segment
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        }
-
-        for (const b of rec.data) {current.data.push(b);}
-    }
-
-    return blocks.map(b => ({ startAddress: b.address, data: new Uint8Array(b.data) }));
+    return buildContiguousSegments(records, rec => rec.recordType === RecordType.Data);
 }

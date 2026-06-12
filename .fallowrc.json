@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/extension.ts",
+    "src/webview/hexViewer.ts",
+    "src/test/**/*.test.ts",
+    ".vscode-test.mjs",
+    "esbuild.js",
+    "sample/generate-large-hex.js"
+  ],
+  "dynamicallyLoaded": [
+    "src/webview/*.css"
+  ],
+  "usedClassMembers": [
+    {
+      "implements": "vscode.CustomReadonlyEditorProvider",
+      "members": [
+        "openCustomDocument",
+        "resolveCustomEditor"
+      ]
+    }
+  ]
+}

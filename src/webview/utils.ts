@@ -65,7 +65,7 @@ export function wireActionBtns(
  * Clicking Yes calls `onConfirm`; clicking No or outside dismisses it.
  * Only one popover is live at a time.
  */
-export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void): void {
+function inlineConfirm(anchor: HTMLElement, onConfirm: () => void): void {
     // Remove any existing popover first
     dismissConfirmPopover();
 

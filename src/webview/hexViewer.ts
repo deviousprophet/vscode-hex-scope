@@ -10,6 +10,7 @@ import { renderInspector, renderBits, renderLabels, updateInspector, updateLabel
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
+import type { SerializedRecord } from './types';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -26,128 +27,137 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
 
 // ── Message handler ───────────────────────────────────────────────
 
+type WebviewMessage = { type: string; [key: string]: unknown };
+type WebviewMessageHandler = (msg: WebviewMessage) => void;
+
+const MESSAGE_HANDLERS: Record<string, WebviewMessageHandler> = {
+    init: handleInitMessage,
+    loadError: handleLoadErrorMessage,
+    addLabel: handleAddLabelMessage,
+    updateLabel: handleUpdateLabelMessage,
+    copyCommand: handleCopyCommandMessage,
+    savedEdits: handleSavedEditsMessage,
+    externalChange: handleExternalChangeMessage,
+    externalChangeError: handleExternalChangeErrorMessage,
+    repairComplete: handleRepairCompleteMessage,
+};
+
 window.addEventListener('message', (e: MessageEvent) => {
-    const msg = e.data as { type: string; [key: string]: unknown };
-    switch (msg.type) {
-        case 'init': {
-            S.parseResult = msg.parseResult as typeof S.parseResult;
-            S.labels      = (msg.labels as typeof S.labels) ?? [];
-            S.structs     = (msg.structs as typeof S.structs) ?? [];
-            S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
-            initFlatBytes();
-            buildMemRows();
-            
-            S.currentView = 'memory';
-            render();
-            break;
-        }
-        case 'loadError':
-            renderLoadError(String(msg.message ?? 'Failed to open file.'));
-            break;
-        case 'addLabel':
-            S.labels = [...S.labels, msg.label as typeof S.labels[0]];
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
-            break;
-        case 'updateLabel': {
-            const updated = msg.label as typeof S.labels[0];
-            S.labels = S.labels.map(l => l.id === updated.id ? updated : l);
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
-            break;
-        }
-        case 'copyCommand':
-            handleCopyCommand(msg.command as string);
-            break;
-        case 'savedEdits':
-            // Extension confirmed the file was written — clear edits and exit edit mode
-            S.parseResult = msg.parseResult as typeof S.parseResult;
-            initFlatBytes();
-            buildMemRows();
-            S.edits.clear();
-            S.undoStack.length = 0;
-            S.editMode = false;
-            document.getElementById('btn-edit-mode')!.style.display = '';
-            document.getElementById('edit-mode-group')!.style.display = 'none';
-            updateDirtyBar();
-            renderStats();
-            if (S.currentView === 'memory') { memRerender(); }
-            else if (S.currentView === 'record') { renderRecordView(); }
-            break;
-        case 'externalChange': {
-            // File changed externally while the webview is open.
-            // Lock the view and show conflict decision banner.
-            const incoming = {
-                parseResult: msg.parseResult as typeof S.parseResult,
-                labels:      (msg.labels as typeof S.labels) ?? [],
-            };
-            S.lockedDueToExternalChange = true;
-            removeAllExternalChangeBanners();
-            updateLockState();
-            if (S.editMode && S.edits.size > 0) {
-                showExternalChangeConflict(incoming);
-            } else {
-                showExternalChangeReloadBanner(incoming);
-            }
-            break;
-        }
-        case 'externalChangeError': {
-            // File changed externally and became invalid (checksum/malformed errors)
-            // Update state with the new (invalid) data and show error banner
-            const checksumErrors = msg.checksumErrors as number;
-            const malformedLines = msg.malformedLines as number;
-            const errorCount = msg.errorCount as number;
-            const canQuickRepair = msg.canQuickRepair as boolean;
-            
-            // Update with the new external data (even though it has errors)
-            S.parseResult = msg.parseResult as typeof S.parseResult;
-            S.labels      = (msg.labels as typeof S.labels) ?? [];
-            initFlatBytes();
-            buildMemRows();
-            
-            S.lockedDueToExternalChange = true;
-            removeAllExternalChangeBanners();
-            updateLockState();
-            
-            // Discard any unsaved edits (can't merge with invalid content)
-            if (S.editMode && S.edits.size > 0) {
-                S.edits.clear();
-                S.undoStack.length = 0;
-                S.editMode = false;
-            }
-            
-            // Show error banner with action buttons
-            showExternalChangeError(checksumErrors, malformedLines, errorCount, canQuickRepair);
-            
-            // Rerender current view to show the new (invalid) data
-            if (S.currentView === 'memory') { memRerender(); }
-            else if (S.currentView === 'record') { renderRecordView(); }
-            break;
-        }
-        case 'repairComplete': {
-            // Checksums were repaired and file reloaded successfully
-            S.parseResult = msg.parseResult as typeof S.parseResult;
-            initFlatBytes();
-            buildMemRows();
-            // Clear edit mode and edits
-            S.edits.clear();
-            S.undoStack.length = 0;
-            S.editMode = false;
-            // Remove the error banner and unlock
-            document.getElementById('ext-error-banner')?.remove();
-            S.lockedDueToExternalChange = false;
-            updateLockState();
-            updateEditControls();
-            updateDirtyBar();
-            renderStats();
-            if (S.currentView === 'memory') { rerender.memory(); }
-            else if (S.currentView === 'record') { renderRecordView(); }
-            break;
-        }
-    }
+    MESSAGE_HANDLERS[(e.data as WebviewMessage).type]?.(e.data as WebviewMessage);
 });
+
+function handleInitMessage(msg: WebviewMessage): void {
+    S.parseResult = msg.parseResult as typeof S.parseResult;
+    S.labels      = (msg.labels as typeof S.labels) ?? [];
+    S.structs     = (msg.structs as typeof S.structs) ?? [];
+    S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
+    initFlatBytes();
+    buildMemRows();
+
+    S.currentView = 'memory';
+    render();
+}
+
+function handleLoadErrorMessage(msg: WebviewMessage): void {
+    renderLoadError(String(msg.message ?? 'Failed to open file.'));
+}
+
+function handleAddLabelMessage(msg: WebviewMessage): void {
+    S.labels = [...S.labels, msg.label as typeof S.labels[0]];
+    rebuildLabelsAndMemory();
+}
+
+function handleUpdateLabelMessage(msg: WebviewMessage): void {
+    const updated = msg.label as typeof S.labels[0];
+    S.labels = S.labels.map(l => l.id === updated.id ? updated : l);
+    rebuildLabelsAndMemory();
+}
+
+function handleCopyCommandMessage(msg: WebviewMessage): void {
+    handleCopyCommand(msg.command as string);
+}
+
+function handleSavedEditsMessage(msg: WebviewMessage): void {
+    S.parseResult = msg.parseResult as typeof S.parseResult;
+    initFlatBytes();
+    buildMemRows();
+    clearEditState();
+    document.getElementById('btn-edit-mode')!.style.display = '';
+    document.getElementById('edit-mode-group')!.style.display = 'none';
+    updateDirtyBar();
+    renderStats();
+    renderCurrentDataView();
+}
+
+function handleExternalChangeMessage(msg: WebviewMessage): void {
+    const incoming = incomingFileFromMessage(msg);
+    S.lockedDueToExternalChange = true;
+    removeAllExternalChangeBanners();
+    updateLockState();
+    if (S.editMode && S.edits.size > 0) {
+        showExternalChangeConflict(incoming);
+    } else {
+        showExternalChangeReloadBanner(incoming);
+    }
+}
+
+function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
+    S.parseResult = msg.parseResult as typeof S.parseResult;
+    S.labels      = (msg.labels as typeof S.labels) ?? [];
+    initFlatBytes();
+    buildMemRows();
+
+    S.lockedDueToExternalChange = true;
+    removeAllExternalChangeBanners();
+    updateLockState();
+    if (S.editMode && S.edits.size > 0) { clearEditState(); }
+
+    showExternalChangeError(
+        msg.checksumErrors as number,
+        msg.malformedLines as number,
+        msg.errorCount as number,
+        msg.canQuickRepair as boolean,
+    );
+    renderCurrentDataView();
+}
+
+function handleRepairCompleteMessage(msg: WebviewMessage): void {
+    S.parseResult = msg.parseResult as typeof S.parseResult;
+    initFlatBytes();
+    buildMemRows();
+    clearEditState();
+    document.getElementById('ext-error-banner')?.remove();
+    S.lockedDueToExternalChange = false;
+    updateLockState();
+    updateEditControls();
+    updateDirtyBar();
+    renderStats();
+    renderCurrentDataView();
+}
+
+function rebuildLabelsAndMemory(): void {
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
+}
+
+function clearEditState(): void {
+    S.edits.clear();
+    S.undoStack.length = 0;
+    S.editMode = false;
+}
+
+function renderCurrentDataView(): void {
+    if (S.currentView === 'memory') { memRerender(); }
+    else if (S.currentView === 'record') { renderRecordView(); }
+}
+
+function incomingFileFromMessage(msg: WebviewMessage): IncomingFile {
+    return {
+        parseResult: msg.parseResult as typeof S.parseResult,
+        labels:      (msg.labels as typeof S.labels) ?? [],
+    };
+}
 
 // ── Helper: apply external change and unlock ──────────────────────
 
@@ -246,22 +256,34 @@ function render(): void {
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
 
-    // Toolbar buttons
+    setupRenderedUi();
+}
+
+function setupRenderedUi(): void {
+    setupToolbarButtons();
+    setupLockInterception();
+    setupSidebarResize();
+    setupEditButtons();
+    setupSearchControls();
+    setupRerenderCallbacks();
+    initSearch(() => switchView('memory'));
+    setupMemoryDragSelection();
+    setupSideTabs();
+    renderInitialViews();
+}
+
+function setupToolbarButtons(): void {
     document.getElementById('btn-mem')!.addEventListener('click', () => switchView('memory'));
     document.getElementById('btn-rec')!.addEventListener('click', () => switchView('record'));
     updateEditControls();
+}
 
-    // Setup persistent lock interception listeners (check flag on each click)
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    if (mainArea) {
-        mainArea.addEventListener('click', preventClickWhenLocked, { capture: true });
-    }
-    if (toolbar) {
-        toolbar.addEventListener('click', preventClickWhenLocked, { capture: true });
-    }
+function setupLockInterception(): void {
+    document.getElementById('main-area')?.addEventListener('click', preventClickWhenLocked, { capture: true });
+    document.getElementById('toolbar')?.addEventListener('click', preventClickWhenLocked, { capture: true });
+}
 
-    // Sidebar resize state: current CSS variable is the startup default fallback.
+function setupSidebarResize(): void {
     const root = document.documentElement;
     const cssDefaultWidth = parseSidebarWidth(getComputedStyle(root).getPropertyValue('--sidebar-w')) ?? 360;
     const savedWidth = parseSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY));
@@ -269,67 +291,61 @@ function render(): void {
     root.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
 
     const sidebarResizer = document.getElementById('sidebar-resizer');
-    if (sidebarResizer) {
-        let dragging = false;
+    if (!sidebarResizer) { return; }
 
-        const onMove = (ev: MouseEvent) => {
-            if (!dragging) { return; }
-            const tabs = document.getElementById('side-tabs');
-            const tabsWidth = tabs ? tabs.getBoundingClientRect().width : 0;
-            const maxAllowed = Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - tabsWidth - 220);
-            sidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxAllowed, window.innerWidth - ev.clientX - tabsWidth));
-            root.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
-        };
+    let dragging = false;
+    const onMove = (ev: MouseEvent) => {
+        if (!dragging) { return; }
+        const tabs = document.getElementById('side-tabs');
+        const tabsWidth = tabs ? tabs.getBoundingClientRect().width : 0;
+        const maxAllowed = Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - tabsWidth - 220);
+        sidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxAllowed, window.innerWidth - ev.clientX - tabsWidth));
+        root.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
+    };
+    const stopDrag = () => {
+        if (!dragging) { return; }
+        dragging = false;
+        sidebarResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', stopDrag);
+    };
 
-        const stopDrag = () => {
-            if (!dragging) { return; }
-            dragging = false;
-            sidebarResizer.classList.remove('dragging');
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', stopDrag);
-        };
+    sidebarResizer.addEventListener('mousedown', ev => {
+        if (ev.button !== 0) { return; }
+        dragging = true;
+        sidebarResizer.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', stopDrag);
+        ev.preventDefault();
+    });
+}
 
-        sidebarResizer.addEventListener('mousedown', ev => {
-            if (ev.button !== 0) { return; }
-            dragging = true;
-            sidebarResizer.classList.add('dragging');
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', stopDrag);
-            ev.preventDefault();
-        });
-    }
-
-    // Edit mode toggle
+function setupEditButtons(): void {
     document.getElementById('btn-edit-mode')!.addEventListener('click', () => {
         S.editMode = true;
         updateEditControls();
         updateDirtyBar();
         if (S.currentView === 'memory') { memRerender(); }
     });
-
-    // Cancel: discard edits
     document.getElementById('btn-cancel')!.addEventListener('click', () => {
-        S.edits.clear();
-        S.undoStack.length = 0;
-        S.editMode = false;
+        clearEditState();
         updateEditControls();
         updateDirtyBar();
         if (S.currentView === 'memory') { memRerender(); }
         updateInspector();
     });
-
-    // Save button
     document.getElementById('btn-save')!.addEventListener('click', () => {
         if (S.edits.size === 0) { return; }
         vscode.postMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()) });
     });
+}
 
-    // Search
+function setupSearchControls(): void {
     const modeEl  = document.getElementById('search-mode')  as HTMLSelectElement;
     const inputEl = document.getElementById('search-input') as HTMLInputElement;
     const endianToggleEl = document.getElementById('search-endian-toggle') as HTMLDivElement;
@@ -339,22 +355,18 @@ function render(): void {
 
     const applySearchModeUi = (): void => {
         endianToggleEl.style.display = S.searchMode === 'value' ? 'inline-flex' : 'none';
-        if (S.searchMode === 'bytes') {
-            inputEl.placeholder = 'Bytes (e.g. DE AD BE EF)';
-        } else if (S.searchMode === 'value') {
-            inputEl.placeholder = 'Value (e.g. 0x12345678 or 305419896)';
-        } else if (S.searchMode === 'ascii') {
-            inputEl.placeholder = 'ASCII text';
-        } else {
-            inputEl.placeholder = 'Address (e.g. 0800 or 0x08001234)';
-        }
+        inputEl.placeholder = searchPlaceholder();
+    };
+    const applyEndianUi = (): void => {
+        searchBtnAuto.classList.toggle('active', S.searchEndianness === 'auto');
+        searchBtnLE.classList.toggle('active', S.searchEndianness === 'le');
+        searchBtnBE.classList.toggle('active', S.searchEndianness === 'be');
     };
 
     modeEl.addEventListener('change', () => {
         S.searchMode = modeEl.value as typeof S.searchMode;
         applySearchModeUi();
     });
-
     inputEl.addEventListener('keydown', e => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -365,87 +377,82 @@ function render(): void {
     document.getElementById('btn-prev')!.addEventListener('click', prevMatch);
     document.getElementById('btn-next')!.addEventListener('click', nextMatch);
     document.getElementById('btn-clear-search')!.addEventListener('click', clearSearch);
+    searchBtnAuto.addEventListener('click', () => setSearchEndian('auto', applyEndianUi));
+    searchBtnLE.addEventListener('click', () => setSearchEndian('le', applyEndianUi));
+    searchBtnBE.addEventListener('click', () => setSearchEndian('be', applyEndianUi));
+    document.addEventListener('keydown', e => handleGlobalKeydown(e, inputEl));
 
-    const applyEndianUi = (): void => {
-        searchBtnAuto.classList.toggle('active', S.searchEndianness === 'auto');
-        searchBtnLE.classList.toggle('active', S.searchEndianness === 'le');
-        searchBtnBE.classList.toggle('active', S.searchEndianness === 'be');
-    };
     applySearchModeUi();
     applyEndianUi();
+}
 
-    searchBtnAuto.addEventListener('click', () => {
-        S.searchEndianness = 'auto';
-        applyEndianUi();
-    });
+function searchPlaceholder(): string {
+    const placeholders: Record<typeof S.searchMode, string> = {
+        bytes: 'Bytes (e.g. DE AD BE EF)',
+        value: 'Value (e.g. 0x12345678 or 305419896)',
+        ascii: 'ASCII text',
+        addr: 'Address (e.g. 0800 or 0x08001234)',
+    };
+    return placeholders[S.searchMode];
+}
 
-    searchBtnLE.addEventListener('click', () => {
-        S.searchEndianness = 'le';
-        applyEndianUi();
-    });
+function setSearchEndian(value: typeof S.searchEndianness, updateUi: () => void): void {
+    S.searchEndianness = value;
+    updateUi();
+}
 
-    searchBtnBE.addEventListener('click', () => {
-        S.searchEndianness = 'be';
-        applyEndianUi();
-    });
+function handleGlobalKeydown(e: KeyboardEvent, inputEl: HTMLInputElement): void {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        inputEl.focus();
+        inputEl.select();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
+        e.preventDefault();
+        undoLastEdit();
+    }
+}
 
-    // Ctrl+F / Cmd+F focuses the search bar; Ctrl+Z undoes last edit
-    document.addEventListener('keydown', e => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-            e.preventDefault();
-            inputEl.focus();
-            inputEl.select();
-        }
-        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
-            e.preventDefault();
-            undoLastEdit();
-        }
-    });
-
-    // Wire rerender callbacks
+function setupRerenderCallbacks(): void {
     rerender.memory   = () => memRerender();
     rerender.labels   = () => renderLabels();
     rerender.toMemory = () => switchView('memory');
     rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
+}
 
-    // Wire search module
-    initSearch(() => switchView('memory'));
-
-    // Drag-to-select
+function setupMemoryDragSelection(): void {
     let dragAnchor: number | null = null;
     document.getElementById('mem-rows')!.addEventListener('mousedown', e => {
-        if (e.button !== 0) { return; }  // ignore right/middle-click
+        if (e.button !== 0) { return; }
         const el = (e.target as HTMLElement).closest<HTMLElement>('[data-addr]');
-        if (el) {
-            dragAnchor = parseInt(el.dataset.addr!, 16);
-            e.preventDefault(); // prevent browser text selection while dragging
-        }
+        if (!el) { return; }
+        dragAnchor = parseInt(el.dataset.addr!, 16);
+        e.preventDefault();
     });
     document.addEventListener('mousemove', e => {
-        if (dragAnchor === null || !(e.buttons & 1)) { dragAnchor = null; return; }
-        const el = document.elementFromPoint(e.clientX, e.clientY)
-            ?.closest<HTMLElement>('[data-addr]');
-        if (!el) { return; }
-        const addr = parseInt(el.dataset.addr!, 16);
-        if (isNaN(addr)) { return; }
-        const newStart = Math.min(dragAnchor, addr);
-        const newEnd   = Math.max(dragAnchor, addr);
-        if (newStart === S.selStart && newEnd === S.selEnd) { return; }
-        S.selStart = newStart;
-        S.selEnd   = newEnd;
-        applySel();
-        updateInspector();
-        updateLabelFormSel();
+        dragAnchor = updateDragSelection(e, dragAnchor);
     });
     document.addEventListener('mouseup', () => { dragAnchor = null; });
+}
 
-    // Side tabs
-    function applySidebarState(): void {
-        document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
-        document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
-        document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
-        document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
-    }
+function updateDragSelection(e: MouseEvent, dragAnchor: number | null): number | null {
+    if (dragAnchor === null || !(e.buttons & 1)) { return null; }
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-addr]');
+    if (!el) { return dragAnchor; }
+    const addr = parseInt(el.dataset.addr!, 16);
+    if (isNaN(addr)) { return dragAnchor; }
+    const newStart = Math.min(dragAnchor, addr);
+    const newEnd   = Math.max(dragAnchor, addr);
+    if (newStart === S.selStart && newEnd === S.selEnd) { return dragAnchor; }
+    S.selStart = newStart;
+    S.selEnd   = newEnd;
+    applySel();
+    updateInspector();
+    updateLabelFormSel();
+    return dragAnchor;
+}
+
+function setupSideTabs(): void {
     document.getElementById('stab-insp')!.addEventListener('click', () => {
         resetStructViewState();
         S.sidebarTab = 'inspector';
@@ -456,8 +463,16 @@ function render(): void {
         S.sidebarTab = 'struct';
         applySidebarState();
     });
+}
 
-    // Initial renders
+function applySidebarState(): void {
+    document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
+    document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+    document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
+    document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+}
+
+function renderInitialViews(): void {
     renderStats();
     renderMemHeader();
     renderInspector();
@@ -465,9 +480,7 @@ function render(): void {
     renderStructPins();
     renderLabels();
     setupCtxMenu();
-
-    if (S.currentView === 'memory') { memRerender(); }
-    else if (S.currentView === 'record') { renderRecordView(); }
+    renderCurrentDataView();
 }
 
 function renderLoadError(message: string): void {
@@ -610,31 +623,16 @@ function renderRecordViewImpl(el: HTMLElement): void {
     if (!S.parseResult) { return; }
 
     const recordCount = S.parseResult.records.length;
-    const containerHeight = el.clientHeight;
-    const scrollTop = el.scrollTop;
-
-    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / RECORD_ROW_HEIGHT) - RECORD_BUFFER_ROWS);
-    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / RECORD_ROW_HEIGHT) + RECORD_BUFFER_ROWS);
-    const signature = `${recordCount}:${firstVisibleIdx}:${lastVisibleIdx}`;
-    if (signature === recordRenderSignature) { return; }
-    recordRenderSignature = signature;
+    const range = recordVisibleRange(el, recordCount);
+    if (range.signature === recordRenderSignature) { return; }
+    recordRenderSignature = range.signature;
 
     const isSrec = S.parseResult.format === 'srec';
     const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
-
-    const table = document.createElement('table');
-    table.className = 'rtbl';
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    ['Addr', 'Type', 'Cnt', 'Data', 'CHK'].forEach(label => {
-        const th = document.createElement('th');
-        th.textContent = label;
-        headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
+    const table = recordTableElement();
     const rows: HTMLTableRowElement[] = [];
+    const firstVisibleIdx = range.first;
+    const lastVisibleIdx = range.last;
 
     if (firstVisibleIdx > 0) {
         const topOffset = firstVisibleIdx * RECORD_ROW_HEIGHT;
@@ -642,31 +640,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
     }
 
     for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
-        const r = S.parseResult.records[i];
-        const isData = !r.error && (isSrec ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
-                                           : r.recordType === 0);
-        const badge =
-            (!isSrec && (r.recordType === 4 || r.recordType === 2)) ? 'rb-ext'   :
-            (!isSrec && (r.recordType === 5 || r.recordType === 3)) ? 'rb-start' :
-            (!isSrec && r.recordType === 1)                         ? 'rb-eof'   :
-            (isSrec  && (r.recordType === 7 || r.recordType === 8 || r.recordType === 9)) ? 'rb-eof' :
-            (isSrec  && r.recordType === 0)                         ? 'rb-ext'   :
-            r.error                                                 ? 'rb-bad'   : 'rb-data';
-        const lbl = TYPE_LABELS[r.recordType] ?? (isSrec ? `S${r.recordType}` : `TYPE ${r.recordType}`);
-        const ra   = r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0');
-        const data = r.data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-        const checksumHex = String(r.checksum.toString(16).toUpperCase().padStart(2, '0'));
-
-        const row = document.createElement('tr');
-        if (r.error || !r.checksumValid) { row.className = 'rerr'; }
-        row.append(
-            recordCellFromText(isData ? 'raddr' : 'raddr raddr-empty', isData ? ra : '—'),
-            recordTypeCell(badge, lbl),
-            recordCellFromText('rcnt', String(r.byteCount)),
-            recordCellFromText(r.error ? 'rdata rerr-msg' : 'rdata', r.error ? r.error : (data || '—')),
-            recordChecksumCell(!!r.error, r.checksumValid, checksumHex),
-        );
-        rows.push(row);
+        rows.push(recordRow(S.parseResult.records[i], isSrec, TYPE_LABELS));
     }
 
     if (lastVisibleIdx < recordCount - 1) {
@@ -678,6 +652,78 @@ function renderRecordViewImpl(el: HTMLElement): void {
     tbody.append(...rows);
     table.appendChild(tbody);
     el.replaceChildren(table);
+}
+
+function recordVisibleRange(el: HTMLElement, recordCount: number): { first: number; last: number; signature: string } {
+    const first = Math.max(0, Math.floor(el.scrollTop / RECORD_ROW_HEIGHT) - RECORD_BUFFER_ROWS);
+    const last = Math.min(
+        recordCount - 1,
+        Math.ceil((el.scrollTop + el.clientHeight) / RECORD_ROW_HEIGHT) + RECORD_BUFFER_ROWS,
+    );
+    return { first, last, signature: `${recordCount}:${first}:${last}` };
+}
+
+function recordTableElement(): HTMLTableElement {
+    const table = document.createElement('table');
+    table.className = 'rtbl';
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    ['Addr', 'Type', 'Cnt', 'Data', 'CHK'].forEach(label => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    return table;
+}
+
+function recordRow(r: SerializedRecord, isSrec: boolean, typeLabels: Record<number, string>): HTMLTableRowElement {
+    const isData = recordHasDataAddress(r, isSrec);
+    const label = typeLabels[r.recordType] ?? (isSrec ? `S${r.recordType}` : `TYPE ${r.recordType}`);
+    const address = r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0');
+    const data = r.data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    const checksumHex = String(r.checksum.toString(16).toUpperCase().padStart(2, '0'));
+    const row = document.createElement('tr');
+
+    if (r.error || !r.checksumValid) { row.className = 'rerr'; }
+    row.append(
+        recordCellFromText(isData ? 'raddr' : 'raddr raddr-empty', isData ? address : '—'),
+        recordTypeCell(recordBadgeClass(r, isSrec), label),
+        recordCellFromText('rcnt', String(r.byteCount)),
+        recordCellFromText(r.error ? 'rdata rerr-msg' : 'rdata', r.error ? r.error : (data || '—')),
+        recordChecksumCell(!!r.error, r.checksumValid, checksumHex),
+    );
+    return row;
+}
+
+function recordHasDataAddress(r: SerializedRecord, isSrec: boolean): boolean {
+    return !r.error && (isSrec
+        ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
+        : r.recordType === 0);
+}
+
+const IHEX_EXT_RECORD_TYPES = new Set([2, 4]);
+const IHEX_START_RECORD_TYPES = new Set([3, 5]);
+const SREC_EOF_RECORD_TYPES = new Set([7, 8, 9]);
+
+function recordBadgeClass(r: SerializedRecord, isSrec: boolean): string {
+    if (r.error) { return 'rb-bad'; }
+    if (isSrec) { return srecBadgeClass(r.recordType); }
+    return ihexBadgeClass(r.recordType);
+}
+
+function ihexBadgeClass(recordType: number): string {
+    if (IHEX_EXT_RECORD_TYPES.has(recordType)) { return 'rb-ext'; }
+    if (IHEX_START_RECORD_TYPES.has(recordType)) { return 'rb-start'; }
+    if (recordType === 1) { return 'rb-eof'; }
+    return 'rb-data';
+}
+
+function srecBadgeClass(recordType: number): string {
+    if (SREC_EOF_RECORD_TYPES.has(recordType)) { return 'rb-eof'; }
+    if (recordType === 0) { return 'rb-ext'; }
+    return 'rb-data';
 }
 
 function appendRecordSpacerRows(rows: HTMLTableRowElement[], totalHeight: number): void {

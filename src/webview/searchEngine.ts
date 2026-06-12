@@ -3,14 +3,14 @@ import { S } from './state';
 import { applyMatchHighlights, applySel, scrollTo } from './memoryView';
 import type { SearchEndianness, SearchMode, SerializedSegment } from './types';
 
-export interface SearchRequest {
+interface SearchRequest {
     mode: SearchMode;
     raw: string;
     segments: SerializedSegment[];
     endianness?: SearchEndianness;
 }
 
-export interface SearchHandlers {
+interface SearchHandlers {
     onProgressUpdate?: (matches: number[], percentComplete: number) => void;
     onComplete: (matches: number[]) => void;
 }
@@ -19,7 +19,7 @@ const SEARCH_DEBOUNCE_MS = 120;
 const SEARCH_CHUNK_BUDGET_MS = 24;
 const SEARCH_PROGRESS_THROTTLE_MS = 150;
 
-export class SearchEngine {
+class SearchEngine {
     private token = 0;
     private debounceHandle: number | null = null;
     private chunkHandle: number | null = null;
@@ -502,7 +502,7 @@ export function prevMatch(): void {
     goToMatch();
 }
 
-export function updMC(): void {
+function updMC(): void {
     const el = document.getElementById('match-count');
     if (!el) { return; }
     const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
