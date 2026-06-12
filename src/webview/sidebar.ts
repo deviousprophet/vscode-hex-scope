@@ -510,6 +510,205 @@ export function renderLabels(): void {
 
 // ── Label inline form ─────────────────────────────────────────────
 
+type LabelRangeMode = 'len' | 'end';
+type LabelState = typeof S.labels[number];
+type LabelLengthResult =
+    | { ok: true; length: number }
+    | { ok: false; error: string };
+type LabelDraftResult =
+    | { ok: true; name: string; startAddress: number; length: number }
+    | { ok: false; error: string };
+
+const LABEL_COLORS = [
+    { name: 'Sky Blue', v: '#4fc3f7' }, { name: 'Green',  v: '#81c784' },
+    { name: 'Orange',   v: '#ffb74d' }, { name: 'Red',    v: '#e57373' },
+    { name: 'Purple',   v: '#ce93d8' }, { name: 'Teal',   v: '#80cbc4' },
+    { name: 'Yellow',   v: '#fff176' }, { name: 'Pink',   v: '#f48fb1' },
+];
+
+function labelAddrHex(n: number): string {
+    return `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+function nextLabelName(): string {
+    const taken = new Set(S.labels.map(l => l.name));
+    let candidate = 'Label_0';
+    let n = 1;
+    while (taken.has(candidate)) { candidate = `Label_${n++}`; }
+    return candidate;
+}
+
+function labelWarnEl(): HTMLElement {
+    return document.getElementById('lf-warn')! as HTMLElement;
+}
+
+function labelNameEl(): HTMLInputElement {
+    return document.getElementById('lf-name')! as HTMLInputElement;
+}
+
+function labelStartEl(): HTMLInputElement {
+    return document.getElementById('lf-start')! as HTMLInputElement;
+}
+
+function labelRangeEl(): HTMLInputElement {
+    return document.getElementById('lf-range')! as HTMLInputElement;
+}
+
+function clearLabelWarning(): void {
+    labelWarnEl().textContent = '';
+}
+
+function defaultLabelStart(editing: LabelState | undefined): string {
+    if (editing) { return labelAddrHex(editing.startAddress); }
+    return S.selStart !== null ? labelAddrHex(S.selStart) : '';
+}
+
+function defaultLabelRange(editing: LabelState | undefined): string {
+    if (editing) { return `${editing.length}`; }
+    return S.selStart !== null && S.selEnd !== null ? `${S.selEnd - S.selStart + 1}` : '';
+}
+
+function labelSwatchesHtml(chosenColor: string): string {
+    return LABEL_COLORS.map(c =>
+        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}"></span>`
+    ).join('');
+}
+
+function wireLabelColorSwatches(sec: HTMLElement, onColor: (color: string) => void): void {
+    sec.querySelectorAll<HTMLElement>('.lf-swatch').forEach(sw => {
+        sw.addEventListener('click', () => {
+            sec.querySelectorAll('.lf-swatch').forEach(s => s.classList.remove('selected'));
+            sw.classList.add('selected');
+            onColor(sw.dataset.color!);
+        });
+    });
+}
+
+function switchLabelRangeMode(
+    sec: HTMLElement,
+    btn: HTMLElement,
+    currentMode: LabelRangeMode,
+    editing: LabelState | undefined,
+): LabelRangeMode {
+    if (btn.classList.contains('active')) { return currentMode; }
+    sec.querySelectorAll('.lf-mode').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const nextMode = btn.dataset.mode as LabelRangeMode;
+    const start = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
+    updateLabelRangeValue(currentMode, nextMode, start, editing);
+    return nextMode;
+}
+
+function updateLabelRangeValue(
+    currentMode: LabelRangeMode,
+    nextMode: LabelRangeMode,
+    start: number,
+    editing: LabelState | undefined,
+): void {
+    if (currentMode === 'len' && nextMode === 'end') {
+        showEndAddressRange(start);
+        return;
+    }
+
+    showLengthRange(start, editing);
+}
+
+function showEndAddressRange(start: number): void {
+    const rangeEl = labelRangeEl();
+    rangeEl.placeholder = '0x0800FFFF';
+    const length = parseInt(rangeEl.value, 10);
+    rangeEl.value = (!isNaN(start) && !isNaN(length) && length > 0)
+        ? labelAddrHex(start + length - 1)
+        : '';
+}
+
+function showLengthRange(start: number, editing: LabelState | undefined): void {
+    const rangeEl = labelRangeEl();
+    rangeEl.placeholder = '512';
+    const end = parseInt(rangeEl.value.replace(/^0x/i, ''), 16);
+    rangeEl.value = (!isNaN(start) && !isNaN(end) && end >= start)
+        ? `${end - start + 1}`
+        : (editing ? `${editing.length}` : '');
+}
+
+function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLengthResult {
+    const raw = labelRangeEl().value;
+    if (mode === 'end') {
+        const end = parseInt(raw.replace(/^0x/i, ''), 16);
+        if (isNaN(end) || end < startAddress) { return { ok: false, error: 'Invalid end address.' }; }
+        return { ok: true, length: end - startAddress + 1 };
+    }
+
+    const length = /^0x/i.test(raw) ? parseInt(raw, 16) : parseInt(raw, 10);
+    if (isNaN(length) || length <= 0) { return { ok: false, error: 'Invalid length.' }; }
+    return { ok: true, length };
+}
+
+function labelRangeWarning(startAddress: number, length: number, editId: string | undefined): string | null {
+    const segs = S.parseResult?.segments ?? [];
+    const segEnd = startAddress + length - 1;
+    if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
+        return 'Range is outside mapped data. Click Save again to confirm.';
+    }
+
+    const overlap = S.labels.filter(l =>
+        l.id !== editId &&
+        startAddress <= l.startAddress + l.length - 1 &&
+        segEnd >= l.startAddress
+    );
+    return overlap.length > 0
+        ? `Overlaps with: ${overlap.map(l => `"${esc(l.name)}"`).join(', ')}. Click Save again.`
+        : null;
+}
+
+function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
+    const name = labelNameEl().value.trim() || nextLabelName();
+    if (!name) { return { ok: false, error: 'Name is required.' }; }
+
+    const startAddress = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
+    if (isNaN(startAddress)) { return { ok: false, error: 'Invalid start address.' }; }
+
+    const parsedLength = parseLabelLength(rangeMode, startAddress);
+    if (!parsedLength.ok) { return { ok: false, error: parsedLength.error }; }
+
+    return { ok: true, name, startAddress, length: parsedLength.length };
+}
+
+function applyLabel(editId: string | undefined, editing: LabelState | undefined, color: string, draft: Extract<LabelDraftResult, { ok: true }>): void {
+    const label = {
+        id: editId ?? `lbl_${Date.now()}`,
+        name: draft.name,
+        startAddress: draft.startAddress,
+        length: draft.length,
+        color,
+        hidden: editing?.hidden,
+    };
+    S.labels = editId
+        ? S.labels.map(l => l.id === editId ? label : l)
+        : [...S.labels, label];
+
+    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
+}
+
+function saveLabel(editId: string | undefined, editing: LabelState | undefined, color: string, rangeMode: LabelRangeMode, confirmed: boolean): boolean {
+    clearLabelWarning();
+
+    const draft = readLabelDraft(rangeMode);
+    if (!draft.ok) { labelWarnEl().textContent = draft.error; return false; }
+
+    const warning = confirmed ? null : labelRangeWarning(draft.startAddress, draft.length, editId);
+    if (warning) {
+        labelWarnEl().textContent = warning;
+        return true;
+    }
+
+    applyLabel(editId, editing, color, draft);
+    return false;
+}
+
 function renderLabelForm(editId?: string): void {
     const sec     = document.getElementById('s-labels')!;
     const editing = editId ? S.labels.find(l => l.id === editId) : undefined;
@@ -518,24 +717,8 @@ function renderLabelForm(editId?: string): void {
     sec.dataset.collapsed = 'false';
     sec.classList.remove('collapsed');
 
-    const COLORS = [
-        { name: 'Sky Blue', v: '#4fc3f7' }, { name: 'Green',  v: '#81c784' },
-        { name: 'Orange',   v: '#ffb74d' }, { name: 'Red',    v: '#e57373' },
-        { name: 'Purple',   v: '#ce93d8' }, { name: 'Teal',   v: '#80cbc4' },
-        { name: 'Yellow',   v: '#fff176' }, { name: 'Pink',   v: '#f48fb1' },
-    ];
-
-    const fh = (n: number) => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
-    let chosenColor = editing?.color ?? COLORS[S.labels.length % COLORS.length].v;
-
-    const defaultStart = editing ? fh(editing.startAddress)
-        : (S.selStart !== null ? fh(S.selStart) : '');
-    const defaultRange = editing ? `${editing.length}`
-        : (S.selStart !== null && S.selEnd !== null ? `${S.selEnd - S.selStart + 1}` : '');
-
-    const swatchHtml = COLORS.map(c =>
-        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}"></span>`
-    ).join('');
+    let chosenColor = editing?.color ?? LABEL_COLORS[S.labels.length % LABEL_COLORS.length].v;
+    const swatchHtml = labelSwatchesHtml(chosenColor);
 
     sec.innerHTML = `
         <div class="sb-hdr">${editing ? 'Edit Label' : 'New Label'}</div>
@@ -546,7 +729,7 @@ function renderLabelForm(editId?: string): void {
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultStart}">
+                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultLabelStart(editing)}">
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Range</span>
@@ -555,7 +738,7 @@ function renderLabelForm(editId?: string): void {
                         <button class="lf-mode active" data-mode="len">Length</button>
                         <button class="lf-mode" data-mode="end">End addr</button>
                     </div>
-                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultRange}">
+                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultLabelRange(editing)}">
                 </div>
             </div>
             <div class="lf-field">
@@ -569,43 +752,17 @@ function renderLabelForm(editId?: string): void {
             </div>
         </div>`;
 
-    let rangeMode: 'len' | 'end' = 'len';
+    let rangeMode: LabelRangeMode = 'len';
     let pendingWarning = false;
 
-    const warnEl  = () => document.getElementById('lf-warn')!  as HTMLElement;
-    const nameEl  = () => document.getElementById('lf-name')!  as HTMLInputElement;
-    const startEl = () => document.getElementById('lf-start')! as HTMLInputElement;
-    const rangeEl = () => document.getElementById('lf-range')! as HTMLInputElement;
-
-    // Color swatches
-    sec.querySelectorAll<HTMLElement>('.lf-swatch').forEach(sw => {
-        sw.addEventListener('click', () => {
-            sec.querySelectorAll('.lf-swatch').forEach(s => s.classList.remove('selected'));
-            sw.classList.add('selected');
-            chosenColor = sw.dataset.color!;
-        });
-    });
+    wireLabelColorSwatches(sec, color => { chosenColor = color; });
 
     // Range mode toggle
     sec.querySelectorAll<HTMLElement>('.lf-mode').forEach(btn => {
         btn.addEventListener('click', () => {
-            if (btn.classList.contains('active')) { return; }
-            sec.querySelectorAll('.lf-mode').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const prev = rangeMode;
-            rangeMode  = btn.dataset.mode as 'len' | 'end';
-            const s = parseInt(startEl().value.replace(/^0x/i, ''), 16);
-            if (prev === 'len' && rangeMode === 'end') {
-                rangeEl().placeholder = '0x0800FFFF';
-                const l = parseInt(rangeEl().value, 10);
-                rangeEl().value = (!isNaN(s) && !isNaN(l) && l > 0) ? fh(s + l - 1) : '';
-            } else {
-                rangeEl().placeholder = '512';
-                const e = parseInt(rangeEl().value.replace(/^0x/i, ''), 16);
-                rangeEl().value = (!isNaN(s) && !isNaN(e) && e >= s) ? `${e - s + 1}` : (editing ? `${editing.length}` : '');
-            }
+            rangeMode = switchLabelRangeMode(sec, btn, rangeMode, editing);
             pendingWarning = false;
-            warnEl().textContent = '';
+            clearLabelWarning();
         });
     });
 
@@ -613,7 +770,7 @@ function renderLabelForm(editId?: string): void {
     ['lf-name', 'lf-start', 'lf-range'].forEach(id => {
         document.getElementById(id)?.addEventListener('input', () => {
             pendingWarning = false;
-            warnEl().textContent = '';
+            clearLabelWarning();
         });
     });
 
@@ -622,61 +779,7 @@ function renderLabelForm(editId?: string): void {
 
     // Save
     document.getElementById('lf-save')?.addEventListener('click', () => {
-        warnEl().textContent = '';
-
-        const name = nameEl().value.trim() || (() => {
-            const taken = new Set(S.labels.map(l => l.name));
-            let candidate = 'Label_0';
-            let n = 1;
-            while (taken.has(candidate)) { candidate = `Label_${n++}`; }
-            return candidate;
-        })();
-        if (!name) { warnEl().textContent = 'Name is required.'; return; }
-
-        const startAddress = parseInt(startEl().value.replace(/^0x/i, ''), 16);
-        if (isNaN(startAddress)) { warnEl().textContent = 'Invalid start address.'; return; }
-
-        let length: number;
-        if (rangeMode === 'end') {
-            const end = parseInt(rangeEl().value.replace(/^0x/i, ''), 16);
-            if (isNaN(end) || end < startAddress) { warnEl().textContent = 'Invalid end address.'; return; }
-            length = end - startAddress + 1;
-        } else {
-            length = /^0x/i.test(rangeEl().value) ? parseInt(rangeEl().value, 16) : parseInt(rangeEl().value, 10);
-            if (isNaN(length) || length <= 0) { warnEl().textContent = 'Invalid length.'; return; }
-        }
-
-        if (!pendingWarning) {
-            const segs   = S.parseResult?.segments ?? [];
-            const segEnd = startAddress + length - 1;
-            if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
-                warnEl().textContent = 'Range is outside mapped data. Click Save again to confirm.';
-                pendingWarning = true; return;
-            }
-            const overlap = S.labels.filter(l =>
-                l.id !== editId &&
-                startAddress <= l.startAddress + l.length - 1 &&
-                segEnd >= l.startAddress
-            );
-            if (overlap.length > 0) {
-                warnEl().textContent = `Overlaps with: ${overlap.map(l => `"${esc(l.name)}"`).join(', ')}. Click Save again.`;
-                pendingWarning = true; return;
-            }
-        }
-
-        const label = {
-            id: editId ?? `lbl_${Date.now()}`,
-            name, startAddress, length, color: chosenColor,
-            hidden: editing?.hidden,
-        };
-        S.labels = editId
-            ? S.labels.map(l => l.id === editId ? label : l)
-            : [...S.labels, label];
-
-        vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-        buildMemRows();
-        rerender.labels();
-        if (S.currentView === 'memory') { rerender.memory(); }
+        pendingWarning = saveLabel(editId, editing, chosenColor, rangeMode, pendingWarning);
     });
 }
 
