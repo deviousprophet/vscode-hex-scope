@@ -856,6 +856,62 @@ suite('struct UI array header summary', () => {
         assert.ok(!labels.includes('Binary (bit fields only)'), 'View as should omit bit-fields-only binary when it matches full range');
     });
 
+    test('copies bit-field parent and child values from the clicked row', async () => {
+        const writes: string[] = [];
+        Object.defineProperty(dom.window.navigator, 'clipboard', {
+            value: { writeText: (text: string) => { writes.push(text); return Promise.resolve(); } },
+            configurable: true,
+        });
+        Object.defineProperty(globalThis.navigator, 'clipboard', {
+            value: dom.window.navigator.clipboard,
+            configurable: true,
+        });
+
+        const def: StructDef = {
+            id: 'bit_copy_rows',
+            name: 'BitCopyRows',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 1,
+                    endian: 'inherit',
+                    bitFields: [
+                        { name: 'a', bitWidth: 2 },
+                        { name: 'b', bitWidth: 3 },
+                        { name: 'c', bitWidth: 3 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_copy_rows', structId: 'bit_copy_rows', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xB1]);
+
+        await renderPinsAndExpandCard();
+
+        const parent = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        assert.ok(parent, 'bit-field parent should render');
+        parent!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const parentCopyHex = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="copy-hex"]');
+        assert.ok(parentCopyHex, 'parent copy hex item should render');
+        parentCopyHex!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(writes.pop(), '0xB1', 'parent copy should use the aggregate storage value');
+
+        const expandParent = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        assert.ok(expandParent, 'bit-field parent should be expandable');
+        expandParent!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const children = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]'));
+        assert.strictEqual(children.length, 3, 'three bit-field children should render');
+        children[1]!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const childCopyDec = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="copy-dec"]');
+        assert.ok(childCopyDec, 'child copy decimal item should render');
+        childCopyDec!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(writes.pop(), '6', 'child copy should use the clicked bit-field child value');
+    });
+
     test('wraps wide bit-field parent binary like scalar binary values', async () => {
         const def: StructDef = {
             id: 'wide_bit_parent_binary',

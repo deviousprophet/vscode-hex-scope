@@ -2630,6 +2630,24 @@ function showFieldValMenu(
     const findFieldAt = (addr: number): DecodedField | null => {
         return findRowsAt(addr)[0] ?? null;
     };
+    const findFieldForKey = (rows: DecodedField[], addr: number, valKey?: string): DecodedField | null => {
+        const atAddr = rows.filter(rr => rr.byteOffset === addr);
+        if (!valKey) { return atAddr[0] ?? null; }
+        if (valKey.startsWith('bit:')) {
+            const parts = valKey.split(':');
+            const bitStart = parseInt(parts[2] ?? '', 10);
+            const bitWidth = parseInt(parts[3] ?? '', 10);
+            return atAddr.find(rr =>
+                isBitFieldRow(rr) &&
+                rr.bitOffset === bitStart &&
+                rr.bitWidth === bitWidth
+            ) ?? atAddr[0] ?? null;
+        }
+        if (valKey.startsWith('bitunit:')) {
+            return buildBitUnitAggregateRow(atAddr.filter(isBitFieldRow));
+        }
+        return atAddr[0] ?? null;
+    };
     const sampleField = findFieldAt(sampleAddr);
     const sampleType = sampleField?.type ?? null;
     const isBitSample = sampleField ? isBitFieldRow(sampleField) : false;
@@ -2772,7 +2790,7 @@ function showFieldValMenu(
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
                 const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
-                const r = rows.find(rr => pin!.addr + rr.byteOffset === bs);
+                const r = findFieldForKey(rows, bs - pin.addr, opts?.valKey);
                 const toCopy = r ? getCopyText(r, 'hex') : '??';
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(toCopy).catch(() => {
@@ -2845,12 +2863,13 @@ function showFieldValMenu(
                 if (!def) { hideFieldValMenu(); return; }
                 const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
                 const toCopy = (bsList && bsList.length > 0)
-                    ? bsList.map(b => {
-                        const r = rows.find(rr => pin!.addr + rr.byteOffset === b);
+                    ? bsList.map((b, idx) => {
+                        const listKey = opts?.keyList?.[idx];
+                        const r = findFieldForKey(rows, b - pin!.addr, listKey);
                         return r ? getCopyText(r, t) : '??';
                       }).join('\n')
                     : (() => {
-                        const r = rows.find(rr => pin!.addr + rr.byteOffset === bs);
+                        const r = findFieldForKey(rows, bs - pin!.addr, opts?.valKey);
                         return r ? getCopyText(r, t) : '??';
                       })();
                 if (navigator.clipboard && navigator.clipboard.writeText) {
