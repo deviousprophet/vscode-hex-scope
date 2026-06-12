@@ -1759,6 +1759,159 @@ function bitUnitArrayBaseName(fieldPath: string): string {
     return fieldPath.replace(/\[\d+\]$/, '');
 }
 
+type FieldGroup = { baseName: string; rows: DecodedField[] };
+type IndexedFieldGroup = { idx: number; rows: DecodedField[] };
+type NestedFieldGroup = { baseRel: string; fullBase: string; rows: DecodedField[] };
+type StructGroupInfo = {
+    declaredType: StructFieldType;
+    count: number;
+    isArray: boolean;
+    isStruct: boolean;
+    isString: boolean;
+    isBitUnit: boolean;
+    isComposite: boolean;
+    structName: string;
+    summary: string;
+    summaryLabel: string;
+    byteCount: number;
+};
+
+function decodedRowByteCount(r: DecodedField): number {
+    if (isBitFieldRow(r)) { return r.bitStorageByteSize ?? 1; }
+    return r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
+}
+
+function sumDecodedRowBytes(rows: DecodedField[]): number {
+    return rows.reduce((sum, row) => sum + decodedRowByteCount(row), 0);
+}
+
+function isCompositeStructGroup(isBitUnit: boolean, isStruct: boolean, isArray: boolean, isString: boolean): boolean {
+    if (isBitUnit || isStruct) { return true; }
+    return isArray && !isString;
+}
+
+function structGroupSummary(type: StructFieldType, isArray: boolean, count: number, structName: string): string {
+    if (type === 'struct') {
+        return isArray ? `${structName}[${count}]` : structName;
+    }
+    const scalarType = TYPE_ABBREV[type] ?? type;
+    return `${scalarType}[${count}]`;
+}
+
+function structGroupSummaryLabel(rows: DecodedField[], isBitUnit: boolean, isArray: boolean, summary: string): string {
+    return isBitUnit && isArray ? summary : groupSummaryLabel(rows, summary);
+}
+
+function structGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: boolean, count: number): number {
+    return isBitUnit && isArray ? decodedRowByteCount(rows[0]) * count : sumDecodedRowBytes(rows);
+}
+
+function describeStructGroup(def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
+    const first = rows[0];
+    const declared = resolveStructFieldByPath(def, baseName);
+    const declaredType = declared?.field.type ?? first.type;
+    const count = declared?.field.count ?? rows.length;
+    const isArray = count > 1;
+    const isStruct = declaredType === 'struct';
+    const isString = declaredType === 'ascii';
+    const isBitUnit = isBitUnitGroup(rows);
+    const isComposite = isCompositeStructGroup(isBitUnit, isStruct, isArray, isString);
+    const structName = declared?.structName ?? 'struct';
+    const summary = structGroupSummary(declaredType, isArray, count, structName);
+    return {
+        declaredType,
+        count,
+        isArray,
+        isStruct,
+        isString,
+        isBitUnit,
+        isComposite,
+        structName,
+        summary,
+        summaryLabel: structGroupSummaryLabel(rows, isBitUnit, isArray, summary),
+        byteCount: structGroupByteCount(rows, isBitUnit, isArray, count),
+    };
+}
+
+function groupRowsByBase(rows: DecodedField[]): FieldGroup[] {
+    const groups: FieldGroup[] = [];
+    for (const row of rows) {
+        const base = arrayGroupBaseName(row.fieldName);
+        const last = groups[groups.length - 1];
+        if (last && last.baseName === base) { last.rows.push(row); }
+        else { groups.push({ baseName: base, rows: [row] }); }
+    }
+    return groups;
+}
+
+function groupRowsByArrayIndex(rows: DecodedField[], baseName: string): IndexedFieldGroup[] {
+    const groups: IndexedFieldGroup[] = [];
+    for (const row of rows) {
+        const idx = parseArrayIndex(row.fieldName, baseName);
+        if (idx === null) { continue; }
+        const last = groups[groups.length - 1];
+        if (last && last.idx === idx) { last.rows.push(row); }
+        else { groups.push({ idx, rows: [row] }); }
+    }
+    return groups;
+}
+
+function groupNestedRows(rows: DecodedField[], structBase: string): NestedFieldGroup[] {
+    const structPrefix = `${structBase}.`;
+    const groups: NestedFieldGroup[] = [];
+    for (const row of rows) {
+        const relPath = row.fieldName.startsWith(structPrefix)
+            ? row.fieldName.slice(structPrefix.length)
+            : row.fieldName;
+        const baseRel = arrayGroupBaseName(relPath);
+        const fullBase = `${structBase}.${baseRel}`;
+        const last = groups[groups.length - 1];
+        if (last && last.fullBase === fullBase) { last.rows.push(row); }
+        else { groups.push({ baseRel, fullBase, rows: [row] }); }
+    }
+    return groups;
+}
+
+function leafRowsHtml(rows: DecodedField[], baseAddr: number): string {
+    const labels = disambiguateLeafNames(rows.map(r => leafName(r.fieldName)));
+    return rows.map((row, idx) =>
+        mkFieldRow(row, baseAddr + row.byteOffset, decodedRowByteCount(row), labels[idx])
+    ).join('');
+}
+
+function indexedRowsHtml(rows: DecodedField[], baseAddr: number, baseName: string): string {
+    return rows.map(row =>
+        mkFieldRow(row, baseAddr + row.byteOffset, decodedRowByteCount(row), indexOnlyName(row.fieldName, baseName))
+    ).join('');
+}
+
+function structArrayElementHtml(
+    element: IndexedFieldGroup,
+    elementKey: string,
+    baseAddr: number,
+    byteCnt: number,
+    isOpen: boolean,
+    summary: string,
+    bodyHtml: string,
+): string {
+    const first = element.rows[0];
+    const byteStart = baseAddr + first.byteOffset;
+    return (
+        `<div class="si-arr-el-grp${isOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
+        `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${byteStart}" data-byte-cnt="${byteCnt}" data-offset-label="${offsetLabel(first.byteOffset)}">` +
+        compositeHeaderPrefixHtml(isOpen, first.byteOffset) +
+        `<button class="si-arr-el-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        `<span class="si-f-body">` +
+        `<span class="si-f-name">[${element.idx}]</span>` +
+        `<span class="si-f-lead"></span>` +
+        `<span class="si-arr-addr">${esc(summary)}</span>` +
+        `</span>` +
+        `</div>` +
+        `<div class="si-arr-el-body"${isOpen ? '' : ' style=\"display:none\"'}>${bodyHtml}</div>` +
+        `</div>`
+    );
+}
+
 function offsetLabel(byteOffset: number): string {
     return `+${byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
 }
@@ -1798,342 +1951,263 @@ function syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void {
     }
 }
 
-function buildInstanceCard(pin: StructPin, i: number): string {
-    const def        = allStructs().find(d => d.id === pin.structId);
-    const defName    = def ? def.name : '?';
-    const totalBytes = def ? structByteSize(def) : 0;
-    const addrHex    = pin.addr.toString(16).toUpperCase().padStart(8, '0');
-    const expanded   = _expanded.has(pin.id);
+type StructRenderContext = { def: StructDef; pin: StructPin };
+type RenderBodyGroup = {
+    rows: DecodedField[];
+    baseName: string;
+    key: string;
+    info: StructGroupInfo;
+};
+type BodyRule = readonly [
+    (group: RenderBodyGroup) => boolean,
+    (ctx: StructRenderContext, group: RenderBodyGroup) => string,
+];
 
-    let bodyHtml = '';
-    if (expanded && def) {
-        const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
-        const rowByteCnt = (r: DecodedField) => {
-            if (isBitFieldRow(r)) { return r.bitStorageByteSize ?? 1; }
-            return r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
-        };
+const BODY_RULES: ReadonlyArray<BodyRule> = [
+    [
+        group => group.info.isStruct && group.info.isArray,
+        (ctx, group) => renderStructArrayElements(ctx, group.rows, group.baseName, group.key, group.info.structName),
+    ],
+    [
+        group => group.info.isBitUnit && group.info.isArray,
+        (ctx, group) => renderBitUnitArrayElements(group.rows, group.baseName, group.key, ctx),
+    ],
+    [
+        group => group.info.isStruct && !group.info.isArray,
+        (ctx, group) => renderStructChildren(ctx, group.rows, group.baseName, group.key),
+    ],
+    [
+        group => group.info.isBitUnit,
+        (ctx, group) => renderBitUnitLeafRows(group.rows, ctx),
+    ],
+    [
+        group => !group.info.isStruct && group.info.isArray && !group.info.isString,
+        (ctx, group) => indexedRowsHtml(group.rows, ctx.pin.addr, group.baseName),
+    ],
+];
 
-        const renderBitUnitLeafRows = (unitRows: DecodedField[]): string => {
-            const labels = disambiguateLeafNames(unitRows.map(r => leafName(r.fieldName)));
-            return unitRows.map((r, idx) =>
-                mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), labels[idx])
-            ).join('');
-        };
+function renderStructBody(def: StructDef, pin: StructPin): string {
+    const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
+    return `<div class="si-fields">${renderStructFieldGroups({ def, pin }, rows)}</div>`;
+}
 
-        const renderBitUnitArrayElements = (
-            unitRows: DecodedField[],
-            baseName: string,
-            parentKey: string,
-        ): string => {
-            const arrayBase = bitUnitArrayBaseName(baseName);
-            type ElementGroup = { idx: number; rows: DecodedField[] };
-            const elements: ElementGroup[] = [];
-            for (const r of unitRows) {
-                const idx = parseArrayIndex(r.fieldName, arrayBase);
-                if (idx === null) { continue; }
-                const last = elements[elements.length - 1];
-                if (last && last.idx === idx) { last.rows.push(r); }
-                else { elements.push({ idx, rows: [r] }); }
-            }
-            return elements.map(element => {
-                const first = element.rows[0];
-                const elementByteStart = pin.addr + first.byteOffset;
-                const elementByteCnt = rowByteCnt(first);
-                const elementKey = `${parentKey}::${element.idx}`;
-                const isElementOpen = _expandedArrayElements.has(elementKey);
-                const elementRowsHtml = renderBitUnitLeafRows(element.rows);
-                return (
-                    `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
-                    bitUnitHeaderHtml(element.rows, elementByteStart, elementByteCnt, isElementOpen, `[${element.idx}]`, 'element') +
-                    `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
-                    `</div>`
-                );
-            }).join('');
-        };
+function renderBitUnitLeafRows(unitRows: DecodedField[], ctx: StructRenderContext): string {
+    return leafRowsHtml(unitRows, ctx.pin.addr);
+}
 
-        const renderStructChildren = (structRows: DecodedField[], structBase: string, parentKey: string): string => {
-            const structPrefix = `${structBase}.`;
-            const nestedGroups: Array<{ baseRel: string; fullBase: string; rows: DecodedField[] }> = [];
-            for (const r of structRows) {
-                const relPath = r.fieldName.startsWith(structPrefix)
-                    ? r.fieldName.slice(structPrefix.length)
-                    : r.fieldName;
-                const baseRel = arrayGroupBaseName(relPath);
-                const fullBase = `${structBase}.${baseRel}`;
-                const lastNested = nestedGroups[nestedGroups.length - 1];
-                if (lastNested && lastNested.fullBase === fullBase) { lastNested.rows.push(r); }
-                else { nestedGroups.push({ baseRel, fullBase, rows: [r] }); }
-            }
+function renderBitUnitArrayElements(
+    unitRows: DecodedField[],
+    baseName: string,
+    parentKey: string,
+    ctx: StructRenderContext,
+): string {
+    const arrayBase = bitUnitArrayBaseName(baseName);
+    return groupRowsByArrayIndex(unitRows, arrayBase).map(element => {
+        const first = element.rows[0];
+        const elementByteStart = ctx.pin.addr + first.byteOffset;
+        const elementByteCnt = decodedRowByteCount(first);
+        const elementKey = `${parentKey}::${element.idx}`;
+        const isElementOpen = _expandedArrayElements.has(elementKey);
+        const elementRowsHtml = renderBitUnitLeafRows(element.rows, ctx);
+        return (
+            `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
+            bitUnitHeaderHtml(element.rows, elementByteStart, elementByteCnt, isElementOpen, `[${element.idx}]`, 'element') +
+            `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
+            `</div>`
+        );
+    }).join('');
+}
 
-            return nestedGroups.map(ng => {
-                const nestedDeclared = resolveStructFieldByPath(def, ng.fullBase);
-                const nestedType = nestedDeclared?.field.type ?? ng.rows[0].type;
-                const nestedCount = nestedDeclared?.field.count ?? ng.rows.length;
-                const nestedIsStruct = nestedType === 'struct';
-                const nestedIsString = nestedType === 'ascii';
-                const nestedIsBitUnit = isBitUnitGroup(ng.rows);
-                const nestedIsComposite = nestedIsBitUnit || nestedIsStruct || (nestedCount > 1 && !nestedIsString);
-                if (!nestedIsComposite) {
-                    const labels = disambiguateLeafNames(ng.rows.map(r => leafName(r.fieldName)));
-                    return ng.rows.map((r, idx) =>
-                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), labels[idx])
-                    ).join('');
-                }
+function renderStructChildren(ctx: StructRenderContext, structRows: DecodedField[], structBase: string, parentKey: string): string {
+    return groupNestedRows(structRows, structBase).map(ng => renderNestedStructGroup(ctx, ng, parentKey)).join('');
+}
 
-                const nestedStructName = nestedDeclared?.structName ?? 'struct';
-                const nestedTypeAbbrev = TYPE_ABBREV[nestedType] ?? nestedType;
-                const nestedSummary = nestedIsStruct
-                    ? (nestedCount > 1 ? `${nestedStructName}[${nestedCount}]` : nestedStructName)
-                    : `${nestedTypeAbbrev}[${nestedCount}]`;
-                const nestedSummaryLabel = nestedIsBitUnit && nestedCount > 1
-                    ? nestedSummary
-                    : groupSummaryLabel(ng.rows, nestedSummary);
-                const nestedKey = `${parentKey}::${ng.baseRel}`;
-                const nestedOpen = _expandedArrayFields.has(nestedKey);
-                const nestedStart = pin.addr + ng.rows[0].byteOffset;
-                const nestedCnt = nestedIsBitUnit && nestedCount > 1
-                    ? rowByteCnt(ng.rows[0]) * nestedCount
-                    : ng.rows.reduce((s, r) => s + rowByteCnt(r), 0);
-
-                let nestedBodyHtml = '';
-                if (nestedIsStruct && nestedCount > 1) {
-                    type ElementGroup = { idx: number; rows: DecodedField[] };
-                    const elements: ElementGroup[] = [];
-                    for (const r of ng.rows) {
-                        const idx = parseArrayIndex(r.fieldName, ng.fullBase);
-                        if (idx === null) { continue; }
-                        const last = elements[elements.length - 1];
-                        if (last && last.idx === idx) { last.rows.push(r); }
-                        else { elements.push({ idx, rows: [r] }); }
-                    }
-                    nestedBodyHtml = elements.map(element => {
-                        const first = element.rows[0];
-                        const elementByteStart = pin.addr + first.byteOffset;
-                        const elementByteCnt = element.rows.reduce((s, r) => s + rowByteCnt(r), 0);
-                        const elementKey = `${nestedKey}::${element.idx}`;
-                        const isElementOpen = _expandedArrayElements.has(elementKey);
-                        const childRowsHtml = renderStructChildren(
-                            element.rows,
-                            `${ng.fullBase}[${element.idx}]`,
-                            elementKey,
-                        );
-                        return (
-                            `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
-                            `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}" data-offset-label="${offsetLabel(first.byteOffset)}">` +
-                            compositeHeaderPrefixHtml(isElementOpen, first.byteOffset) +
-                            `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
-                            `<span class="si-f-body">` +
-                            `<span class="si-f-name">[${element.idx}]</span>` +
-                            `<span class="si-f-lead"></span>` +
-                            `<span class="si-arr-addr">${esc(nestedStructName)}</span>` +
-                            `</span>` +
-                            `</div>` +
-                            `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${childRowsHtml}</div>` +
-                            `</div>`
-                        );
-                    }).join('');
-                } else if (nestedIsBitUnit && nestedCount > 1) {
-                    nestedBodyHtml = renderBitUnitArrayElements(
-                        ng.rows,
-                        ng.fullBase,
-                        nestedKey,
-                    );
-                } else if (nestedIsStruct && nestedCount === 1) {
-                    nestedBodyHtml = renderStructChildren(ng.rows, ng.fullBase, nestedKey);
-                } else if (nestedIsBitUnit) {
-                    nestedBodyHtml = renderBitUnitLeafRows(ng.rows);
-                } else if (!nestedIsStruct && nestedCount > 1 && !nestedIsString) {
-                    nestedBodyHtml = ng.rows.map(r =>
-                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), indexOnlyName(r.fieldName, ng.fullBase))
-                    ).join('');
-                } else {
-                    const nestedLeafNames = disambiguateLeafNames(
-                        ng.rows.map(r => leafName(r.fieldName))
-                    );
-                    nestedBodyHtml = ng.rows.map((r, idx) =>
-                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), nestedLeafNames[idx])
-                    ).join('');
-                }
-
-                return (
-                    `<div class="si-arr-grp${nestedOpen ? ' open' : ''}" data-arr-key="${esc(nestedKey)}">` +
-                    (nestedIsBitUnit && nestedCount === 1
-                        ? bitUnitHeaderHtml(ng.rows, nestedStart, nestedCnt, nestedOpen, groupHeaderName(ng.baseRel))
-                        : `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${nestedCnt}" data-offset-label="${offsetLabel(ng.rows[0].byteOffset)}">` +
-                          compositeHeaderPrefixHtml(nestedOpen, ng.rows[0].byteOffset) +
-                          `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
-                          `<span class="si-f-body">` +
-                          `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel))}</span>` +
-                          `<span class="si-f-lead"></span>` +
-                          `<span class="si-arr-addr">${esc(nestedSummaryLabel)}</span>` +
-                          `</span>` +
-                          `</div>`
-                    ) +
-                    `<div class="si-arr-grp-body"${nestedOpen ? '' : ' style=\"display:none\"'}>${nestedBodyHtml}</div>` +
-                    `</div>`
-                );
-            }).join('');
-        };
-
-        // Group consecutive rows into composite/leaf sections.
-        const groups: Array<{ baseName: string; rows: typeof rows }> = [];
-        for (const r of rows) {
-            const base = arrayGroupBaseName(r.fieldName);
-            const last = groups[groups.length - 1];
-            if (last && last.baseName === base) { last.rows.push(r); }
-            else { groups.push({ baseName: base, rows: [r] }); }
-        }
-
-        const fieldHtml = groups.map(g => {
-            const r0 = g.rows[0];
-            const declared = resolveStructFieldByPath(def, g.baseName);
-            const declaredType = declared?.field.type ?? r0.type;
-            const declaredCount = declared?.field.count ?? g.rows.length;
-            const isStruct = declaredType === 'struct';
-            const isArray = declaredCount > 1;
-            const isString = declaredType === 'ascii';
-            const isBitUnit = isBitUnitGroup(g.rows);
-            const isComposite = isBitUnit || isStruct || (isArray && !isString);
-
-            if (!isComposite) {
-                // Scalar leaf field(s) — render flat using local labels.
-                const labels = disambiguateLeafNames(g.rows.map(r => leafName(r.fieldName)));
-                return g.rows.map((r, idx) => mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), labels[idx])).join('');
-            }
-
-            // Composite field group — collapsible, collapsed by default.
-            const key     = `${pin.id}::${g.baseName}`;
-            const isOpen  = _expandedArrayFields.has(key);
-            const byteStart = pin.addr + r0.byteOffset;
-            const totalCnt  = isBitUnit && isArray
-                ? rowByteCnt(g.rows[0]) * declaredCount
-                : g.rows.reduce((s, r) => s + rowByteCnt(r), 0);
-                const structName = declared?.structName ?? 'struct';
-                const scalarType = TYPE_ABBREV[declaredType] ?? declaredType;
-                const nodeSummary = isStruct
-                    ? (isArray ? `${structName}[${declaredCount}]` : structName)
-                    : `${scalarType}[${declaredCount}]`;
-                const nodeSummaryFull = isBitUnit && isArray
-                    ? nodeSummary
-                    : groupSummaryLabel(g.rows, nodeSummary);
-            let elHtml = '';
-
-                if (isStruct && isArray) {
-                    type ElementGroup = { idx: number; rows: DecodedField[] };
-                    const elements: ElementGroup[] = [];
-                    for (const r of g.rows) {
-                        const idx = parseArrayIndex(r.fieldName, g.baseName);
-                        if (idx === null) { continue; }
-                        const last = elements[elements.length - 1];
-                        if (last && last.idx === idx) { last.rows.push(r); }
-                        else { elements.push({ idx, rows: [r] }); }
-                    }
-                    if (elements.length > 0) {
-                        elHtml = elements.map(element => {
-                            const first = element.rows[0];
-                            const elementByteStart = pin.addr + first.byteOffset;
-                            const elementByteCnt = element.rows.reduce((s, r) => s + rowByteCnt(r), 0);
-                            const elementKey = `${key}::${element.idx}`;
-                            const isElementOpen = _expandedArrayElements.has(elementKey);
-                            const elementRowsHtml = renderStructChildren(
-                                element.rows,
-                                `${g.baseName}[${element.idx}]`,
-                                elementKey,
-                            );
-                            return (
-                                `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
-                                `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${elementByteStart}" data-byte-cnt="${elementByteCnt}" data-offset-label="${offsetLabel(first.byteOffset)}">` +
-                                compositeHeaderPrefixHtml(isElementOpen, first.byteOffset) +
-                                `<button class="si-arr-el-exp-btn">${isElementOpen ? '▾' : '▸'}</button>` +
-                                `<span class="si-f-body">` +
-                                `<span class="si-f-name">[${element.idx}]</span>` +
-                                `<span class="si-f-lead"></span>` +
-                                `<span class="si-arr-addr">${esc(structName)}</span>` +
-                                `</span>` +
-                                `</div>` +
-                                `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
-                                `</div>`
-                            );
-                        }).join('');
-                    }
-                } else if (isBitUnit && isArray) {
-                    elHtml = renderBitUnitArrayElements(g.rows, g.baseName, key);
-                } else if (isStruct && !isArray) {
-                    elHtml = renderStructChildren(g.rows, g.baseName, key);
-                } else if (isBitUnit) {
-                    elHtml = renderBitUnitLeafRows(g.rows);
-                } else if (!isStruct && isArray) {
-                    elHtml = g.rows.map(r =>
-                        mkFieldRow(r, pin.addr + r.byteOffset, rowByteCnt(r), indexOnlyName(r.fieldName, g.baseName))
-                    ).join('');
-                }
-            return (
-                `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
-                (isBitUnit && !isArray
-                    ? bitUnitHeaderHtml(g.rows, byteStart, totalCnt, isOpen)
-                    : `<div class="si-arr-grp-hdr" ` +
-                      `data-byte-start="${byteStart}" data-byte-cnt="${totalCnt}" data-offset-label="${offsetLabel(r0.byteOffset)}">` +
-                      compositeHeaderPrefixHtml(isOpen, r0.byteOffset) +
-                      `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
-                      `<span class="si-f-body">` +
-                      `<span class="si-f-name">${esc(groupHeaderName(g.baseName))}</span>` +
-                      `<span class="si-f-lead"></span>` +
-                      `<span class="si-arr-addr" title="${esc(nodeSummaryFull)}">${esc(nodeSummaryFull)}</span>` +
-                      `</span>` +
-                      `</div>`
-                ) +
-                `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
-                `</div>`
-            );
-        }).join('');
-
-        bodyHtml = `<div class="si-fields">${fieldHtml}</div>`;
+function renderNestedStructGroup(ctx: StructRenderContext, ng: NestedFieldGroup, parentKey: string): string {
+    const info = describeStructGroup(ctx.def, ng.rows, ng.fullBase);
+    if (!info.isComposite) {
+        return leafRowsHtml(ng.rows, ctx.pin.addr);
     }
 
-    const typePreviewHtml = def
+    const nestedKey = `${parentKey}::${ng.baseRel}`;
+    const nestedOpen = _expandedArrayFields.has(nestedKey);
+    const nestedStart = ctx.pin.addr + ng.rows[0].byteOffset;
+    const nestedBodyHtml = renderNestedStructBody(ctx, {
+        rows: ng.rows,
+        baseName: ng.fullBase,
+        key: nestedKey,
+        info,
+    });
+
+    return (
+        `<div class="si-arr-grp${nestedOpen ? ' open' : ''}" data-arr-key="${esc(nestedKey)}">` +
+        (info.isBitUnit && !info.isArray
+            ? bitUnitHeaderHtml(ng.rows, nestedStart, info.byteCount, nestedOpen, groupHeaderName(ng.baseRel))
+            : `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${info.byteCount}" data-offset-label="${offsetLabel(ng.rows[0].byteOffset)}">` +
+              compositeHeaderPrefixHtml(nestedOpen, ng.rows[0].byteOffset) +
+              `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
+              `<span class="si-f-body">` +
+              `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel))}</span>` +
+              `<span class="si-f-lead"></span>` +
+              `<span class="si-arr-addr">${esc(info.summaryLabel)}</span>` +
+              `</span>` +
+              `</div>`
+        ) +
+        `<div class="si-arr-grp-body"${nestedOpen ? '' : ' style=\"display:none\"'}>${nestedBodyHtml}</div>` +
+        `</div>`
+    );
+}
+
+function renderNestedStructBody(
+    ctx: StructRenderContext,
+    group: RenderBodyGroup,
+): string {
+    const rule = BODY_RULES.find(([matches]) => matches(group));
+    return rule ? rule[1](ctx, group) : leafRowsHtml(group.rows, ctx.pin.addr);
+}
+
+function renderStructArrayElements(
+    ctx: StructRenderContext,
+    rows: DecodedField[],
+    baseName: string,
+    parentKey: string,
+    structName: string,
+): string {
+    return groupRowsByArrayIndex(rows, baseName).map(element => {
+        const elementKey = `${parentKey}::${element.idx}`;
+        const isElementOpen = _expandedArrayElements.has(elementKey);
+        const childRowsHtml = renderStructChildren(
+            ctx,
+            element.rows,
+            `${baseName}[${element.idx}]`,
+            elementKey,
+        );
+        return structArrayElementHtml(
+            element,
+            elementKey,
+            ctx.pin.addr,
+            sumDecodedRowBytes(element.rows),
+            isElementOpen,
+            structName,
+            childRowsHtml,
+        );
+    }).join('');
+}
+
+function renderStructFieldGroups(ctx: StructRenderContext, rows: DecodedField[]): string {
+    return groupRowsByBase(rows).map(g => renderStructFieldGroup(ctx, g)).join('');
+}
+
+function renderStructFieldGroup(ctx: StructRenderContext, g: FieldGroup): string {
+    const r0 = g.rows[0];
+    const info = describeStructGroup(ctx.def, g.rows, g.baseName);
+    if (!info.isComposite) {
+        return leafRowsHtml(g.rows, ctx.pin.addr);
+    }
+
+    const key = `${ctx.pin.id}::${g.baseName}`;
+    const isOpen = _expandedArrayFields.has(key);
+    const byteStart = ctx.pin.addr + r0.byteOffset;
+    const elHtml = renderStructFieldBody(ctx, {
+        rows: g.rows,
+        baseName: g.baseName,
+        key,
+        info,
+    });
+
+    return (
+        `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
+        (info.isBitUnit && !info.isArray
+            ? bitUnitHeaderHtml(g.rows, byteStart, info.byteCount, isOpen)
+            : `<div class="si-arr-grp-hdr" ` +
+              `data-byte-start="${byteStart}" data-byte-cnt="${info.byteCount}" data-offset-label="${offsetLabel(r0.byteOffset)}">` +
+              compositeHeaderPrefixHtml(isOpen, r0.byteOffset) +
+              `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+              `<span class="si-f-body">` +
+              `<span class="si-f-name">${esc(groupHeaderName(g.baseName))}</span>` +
+              `<span class="si-f-lead"></span>` +
+              `<span class="si-arr-addr" title="${esc(info.summaryLabel)}">${esc(info.summaryLabel)}</span>` +
+              `</span>` +
+              `</div>`
+        ) +
+        `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
+        `</div>`
+    );
+}
+
+function renderStructFieldBody(
+    ctx: StructRenderContext,
+    group: RenderBodyGroup,
+): string {
+    const rule = BODY_RULES.find(([matches]) => matches(group));
+    return rule ? rule[1](ctx, group) : '';
+}
+
+function instanceTypePreviewHtml(def: StructDef | undefined, pin: StructPin): string {
+    return def
         ? `<div class="si-type-preview"${_previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
                     `<pre class="si-c-preview" data-struct-preview-id="${esc(def.id)}"></pre>` +
           `</div>`
         : '';
+}
 
-    const isEditingThis = _editingPinId === pin.id;
+function instanceEditFormHtml(pin: StructPin): string {
+    if (_editingPinId !== pin.id) { return ''; }
 
-    // Inline edit form replaces the card header area
-    let editFormHtml = '';
-    if (isEditingThis) {
-        const draftStructId = _editingPinDraftStructId ?? pin.structId;
-        const structOpts = allStructs().map(d =>
-            `<option value="${esc(d.id)}"${d.id === draftStructId ? ' selected' : ''}>${esc(d.name)}</option>`
-        ).join('');
-        const editDef = allStructs().find(d => d.id === draftStructId);
-        const editPreviewHtml = editDef
-            ? `<pre class="si-c-preview" data-struct-preview-id="${esc(editDef.id)}"></pre>`
-            : '';
-        editFormHtml =
-            `<div class="si-pin-edit-form">` +
-            `<div class="sa-form-hdr sa-form-hdr-edit">&#9998; Edit Instance</div>` +
-            `<div class="sa-row">` +
-            `<input class="si-pe-name sa-name-inp" type="text" maxlength="40" ` +
-                   `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin.name)}">` +
-            `</div>` +
-            `<div class="sa-row">` +
-            `<span class="struct-addr-pfx">0x</span>` +
-            `<input class="si-pe-addr struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
-                   `autocomplete="off" spellcheck="false" placeholder="08000000" value="${esc(addrHex)}">` +
-            `</div>` +
-            `<div class="sa-row">` +
-            `<select class="si-pe-type struct-sel">${structOpts}</select>` +
-            `</div>` +
-            editPreviewHtml +
-            `<div class="sa-row sa-btn-row">` +
-            `<button class="si-pe-save struct-btn struct-btn-apply">Save</button>` +
-            `<button class="si-pe-cancel struct-btn struct-btn-cancel">Cancel</button>` +
-            `</div>` +
-            `</div>`;
-    }
+    const draftStructId = _editingPinDraftStructId ?? pin.structId;
+    const addrHex = pin.addr.toString(16).toUpperCase().padStart(8, '0');
+    const structOpts = allStructs().map(d =>
+        `<option value="${esc(d.id)}"${d.id === draftStructId ? ' selected' : ''}>${esc(d.name)}</option>`
+    ).join('');
+    const editDef = allStructs().find(d => d.id === draftStructId);
+    const editPreviewHtml = editDef
+        ? `<pre class="si-c-preview" data-struct-preview-id="${esc(editDef.id)}"></pre>`
+        : '';
 
     return (
-        `<div class="si-card${expanded ? ' si-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
+        `<div class="si-pin-edit-form">` +
+        `<div class="sa-form-hdr sa-form-hdr-edit">&#9998; Edit Instance</div>` +
+        `<div class="sa-row">` +
+        `<input class="si-pe-name sa-name-inp" type="text" maxlength="40" ` +
+               `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin.name)}">` +
+        `</div>` +
+        `<div class="sa-row">` +
+        `<span class="struct-addr-pfx">0x</span>` +
+        `<input class="si-pe-addr struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
+               `autocomplete="off" spellcheck="false" placeholder="08000000" value="${esc(addrHex)}">` +
+        `</div>` +
+        `<div class="sa-row">` +
+        `<select class="si-pe-type struct-sel">${structOpts}</select>` +
+        `</div>` +
+        editPreviewHtml +
+        `<div class="sa-row sa-btn-row">` +
+        `<button class="si-pe-save struct-btn struct-btn-apply">Save</button>` +
+        `<button class="si-pe-cancel struct-btn struct-btn-cancel">Cancel</button>` +
+        `</div>` +
+        `</div>`
+    );
+}
+
+function instanceBodyHtml(def: StructDef | undefined, pin: StructPin, expanded: boolean): string {
+    return expanded && def ? renderStructBody(def, pin) : '';
+}
+
+function instanceActionsHtml(def: StructDef | undefined, pin: StructPin, index: number): string {
+    if (def) {
+        return actionBtnsHtml(`data-pin-id="${esc(pin.id)}"`, `data-idx="${index}"`);
+    }
+    return `<span class="act-btn act-btn-del" data-idx="${index}" title="Delete">&#128465;&#xFE0E;</span>`;
+}
+
+function instanceHeaderHtml(
+    pin: StructPin,
+    index: number,
+    def: StructDef | undefined,
+    defName: string,
+    totalBytes: number,
+    addrHex: string,
+    expanded: boolean,
+): string {
+    return (
         `<div class="si-card-hdr">` +
         `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}">${expanded ? '\u25be' : '\u25b8'}</button>` +
         `<div class="si-card-info">` +
@@ -2146,11 +2220,31 @@ function buildInstanceCard(pin: StructPin, i: number): string {
         `</div>` +
         `</div>` +
         `<div class="si-card-actions">` +
-        (def ? actionBtnsHtml(`data-pin-id="${esc(pin.id)}"`, `data-idx="${i}"`) : `<span class="act-btn act-btn-del" data-idx="${i}" title="Delete">&#128465;&#xFE0E;</span>`) +
+        instanceActionsHtml(def, pin, index) +
         `</div>` +
-        `</div>` +
-        editFormHtml +
-        (isEditingThis ? '' : typePreviewHtml + bodyHtml) +
+        `</div>`
+    );
+}
+
+function instanceContentHtml(pin: StructPin, editFormHtml: string, typePreviewHtml: string, bodyHtml: string): string {
+    return _editingPinId === pin.id ? editFormHtml : editFormHtml + typePreviewHtml + bodyHtml;
+}
+
+function buildInstanceCard(pin: StructPin, i: number): string {
+    const def        = allStructs().find(d => d.id === pin.structId);
+    const defName    = def ? def.name : '?';
+    const totalBytes = def ? structByteSize(def) : 0;
+    const addrHex    = pin.addr.toString(16).toUpperCase().padStart(8, '0');
+    const expanded   = _expanded.has(pin.id);
+
+    const bodyHtml = instanceBodyHtml(def, pin, expanded);
+    const typePreviewHtml = instanceTypePreviewHtml(def, pin);
+    const editFormHtml = instanceEditFormHtml(pin);
+
+    return (
+        `<div class="si-card${expanded ? ' si-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
+        instanceHeaderHtml(pin, i, def, defName, totalBytes, addrHex, expanded) +
+        instanceContentHtml(pin, editFormHtml, typePreviewHtml, bodyHtml) +
         `</div>`
     );
 }
