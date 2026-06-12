@@ -473,46 +473,15 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
     const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
     const q = raw.trim();
     const searchKey = makeSearchKey(S.searchMode, q, S.searchEndianness);
-    const isUnchangedCompleted = searchKey === _lastCompletedSearchKey;
 
-    if (_searchRunning) {
-        if (q.length === 0) {
-            clearSearch();
-            return;
-        }
-
-        if (searchKey === _activeSearchKey) {
-            if (trigger === 'enter-prev') {
-                prevMatch();
-            } else if (trigger === 'enter-next') {
-                nextMatch();
-            }
-            return;
-        }
-
-        // New query/mode while running: cancel current search and start latest immediately.
-        engine.clear();
-        _searchRunning = false;
-    }
-
-    if (q.length > 0 && isUnchangedCompleted && trigger !== 'button') {
-        if (trigger === 'enter-prev') {
-            prevMatch();
-        } else {
-            nextMatch();
-        }
-        return;
-    }
+    if (handleRunningSearch(q, searchKey, trigger)) { return; }
+    if (handleCompletedSearchNavigation(q, searchKey, trigger)) { return; }
 
     S.matchAddrs = [];
     S.matchIdx = -1;
 
     if (q.length === 0) {
-        _lastCompletedSearchKey = '';
-        engine.clear();
-        setSearchBusy(false);
-        applyMatchHighlights();
-        updMC();
+        clearEmptySearchQuery();
         return;
     }
 
@@ -522,6 +491,50 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
         raw: q,
         endianness: S.searchEndianness,
     });
+}
+
+function handleRunningSearch(q: string, searchKey: string, trigger: SearchTrigger): boolean {
+    if (!_searchRunning) { return false; }
+
+    if (q.length === 0) {
+        clearSearch();
+        return true;
+    }
+
+    if (searchKey === _activeSearchKey) {
+        navigateBySearchTrigger(trigger);
+        return true;
+    }
+
+    // New query/mode while running: cancel current search and start latest immediately.
+    engine.clear();
+    _searchRunning = false;
+    return false;
+}
+
+function handleCompletedSearchNavigation(q: string, searchKey: string, trigger: SearchTrigger): boolean {
+    if (q.length === 0 || searchKey !== _lastCompletedSearchKey || trigger === 'button') {
+        return false;
+    }
+
+    navigateBySearchTrigger(trigger);
+    return true;
+}
+
+function navigateBySearchTrigger(trigger: SearchTrigger): void {
+    if (trigger === 'enter-prev') {
+        prevMatch();
+    } else if (trigger === 'enter-next') {
+        nextMatch();
+    }
+}
+
+function clearEmptySearchQuery(): void {
+    _lastCompletedSearchKey = '';
+    engine.clear();
+    setSearchBusy(false);
+    applyMatchHighlights();
+    updMC();
 }
 
 function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; endianness: SearchEndianness }): void {
