@@ -43,7 +43,6 @@ const MESSAGE_HANDLERS: Record<string, WebviewMessageHandler> = {
 };
 
 window.addEventListener('message', (e: MessageEvent) => {
-    MESSAGE_HANDLERS[(e.data as WebviewMessage).type]?.(e.data as WebviewMessage);
     const msg = e.data as WebviewMessage;
     const type = msg?.type;
     if (typeof type !== 'string') { return; }
