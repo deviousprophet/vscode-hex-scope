@@ -101,6 +101,9 @@ suite('state constants and defaults', () => {
     test('default byte order is little-endian', () => {
         assert.strictEqual(S.endian, 'le');
     });
+    test('default bit-field allocation is MSB-first', () => {
+        assert.strictEqual(S.bitFieldAllocation, 'msb');
+    });
     test('default search mode is "bytes"', () => {
         assert.strictEqual(S.searchMode, 'bytes');
     });

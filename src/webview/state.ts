@@ -1,7 +1,7 @@
 // ── Shared mutable state ─────────────────────────────────────────
 // All modules import this object and mutate it directly.
 
-import type { SerializedParseResult, SegmentLabel, SearchMode, SearchEndianness, MemRow, StructDef, StructPin } from './types';
+import type { SerializedParseResult, SegmentLabel, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from './types';
 
 export const BPR = 16; // bytes per memory row
 
@@ -14,6 +14,7 @@ export const S = {
     selStart:     null   as number | null,
     selEnd:       null   as number | null,
     endian:       'le'   as 'le' | 'be',
+    bitFieldAllocation: 'msb' as BitFieldAllocation,
     searchMode:   'bytes'  as SearchMode,
     searchEndianness: 'auto' as SearchEndianness,
     matchAddrs:   []     as number[],

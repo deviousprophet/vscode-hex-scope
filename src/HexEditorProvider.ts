@@ -3,6 +3,8 @@ import * as vscode from 'vscode';
 import { parseIntelHex } from './parser/IntelHexParser';
 import { parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
 import type { ParseResult } from './parser/types';
+import { migrateStructDefBitFields } from './webview/struct-codec.js';
+import type { StructDef } from './webview/types';
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
@@ -68,31 +70,40 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const globalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
 
-        const normalizeStructDefs = (value: unknown): unknown[] => {
-            if (!Array.isArray(value)) { return []; }
-            const out: unknown[] = [];
+        const normalizeStructDefs = (value: unknown): { defs: StructDef[]; changed: boolean } => {
+            if (!Array.isArray(value)) { return { defs: [], changed: false }; }
+            const out: StructDef[] = [];
             const seenIds = new Set<string>();
             const seenNames = new Set<string>();
+            let changed = false;
 
             for (const item of value) {
                 const id = (item as { id?: unknown })?.id;
                 const name = (item as { name?: unknown })?.name;
-                if (typeof id !== 'string' || typeof name !== 'string') { continue; }
-                if (seenIds.has(id) || seenNames.has(name)) { continue; }
+                if (typeof id !== 'string' || typeof name !== 'string') {
+                    changed = true;
+                    continue;
+                }
+                if (seenIds.has(id) || seenNames.has(name)) {
+                    changed = true;
+                    continue;
+                }
                 seenIds.add(id);
                 seenNames.add(name);
-                out.push(item);
+                const migrated = migrateStructDefBitFields(item as StructDef);
+                if (migrated !== item) { changed = true; }
+                out.push(migrated);
             }
-            return out;
+            return { defs: out, changed };
         };
 
         const loadStructs = async () => {
             const globalStructs = this._context.globalState.get<unknown>(globalStructKey, []);
             const legacyStructs = this._context.workspaceState.get<unknown>(structKey, []);
-            let globalArr = normalizeStructDefs(globalStructs);
-            const legacyArr = normalizeStructDefs(legacyStructs);
+            let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
+            const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
 
-            if (!Array.isArray(globalStructs) || globalArr.length !== globalStructs.length) {
+            if (!Array.isArray(globalStructs) || globalChanged) {
                 await this._context.globalState.update(globalStructKey, globalArr);
             }
 
@@ -121,6 +132,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             }
 
             await this._context.workspaceState.update(structKey, undefined);
+
             return globalArr;
         };
 
@@ -211,7 +223,8 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     break;
                 }
                 case 'saveStructs': {
-                    await this._context.globalState.update(globalStructKey, normalizeStructDefs(msg.structs));
+                    const { defs } = normalizeStructDefs(msg.structs);
+                    await this._context.globalState.update(globalStructKey, defs);
                     break;
                 }
                 case 'saveStructPins': {
@@ -349,7 +362,7 @@ ${cssLinks}
     }
 }
 
-export interface SegmentLabel {
+interface SegmentLabel {
     id: string;
     name: string;
     startAddress: number;
@@ -386,7 +399,7 @@ function serializeParseResult(result: ParseResult, format: 'ihex' | 'srec'): Ser
 }
 
 // Types safe to transfer over the webview message boundary
-export interface SerializedRecord {
+interface SerializedRecord {
     lineNumber: number;
     raw: string;
     byteCount: number;
@@ -399,12 +412,12 @@ export interface SerializedRecord {
     error?: string;
 }
 
-export interface SerializedSegment {
+interface SerializedSegment {
     startAddress: number;
     data: number[];
 }
 
-export interface SerializedParseResult {
+interface SerializedParseResult {
     records: SerializedRecord[];
     recordCount?: number;
     segments: SerializedSegment[];
