@@ -297,32 +297,56 @@ export function resolveStructFieldByPath(
     fieldPath: string,
     defs: StructDef[] = allStructs(),
 ): ResolvedStructFieldPath | null {
+    const parts = parseStructFieldPathParts(fieldPath);
+    if (!parts) { return null; }
+
+    const byId = createStructDefMap(def, defs);
+    const field = resolveStructPathParts(def, parts, byId);
+    return field ? buildResolvedStructFieldPath(field, byId) : null;
+}
+
+function parseStructFieldPathParts(fieldPath: string): string[] | null {
     const normalized = fieldPath.replace(/\[\d+\]/g, '');
     const parts = normalized.split('.').map(p => p.trim()).filter(Boolean);
-    if (parts.length === 0) { return null; }
+    return parts.length > 0 ? parts : null;
+}
 
+function createStructDefMap(def: StructDef, defs: StructDef[]): Map<string, StructDef> {
     const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
     byId.set(def.id, def);
+    return byId;
+}
 
+function resolveStructPathParts(
+    def: StructDef,
+    parts: string[],
+    byId: Map<string, StructDef>,
+): StructField | null {
     let curDef: StructDef | null = def;
     for (let i = 0; i < parts.length; i++) {
         if (!curDef) { return null; }
-        const part = parts[i];
-        const field: StructField | undefined = curDef.fields.find((candidate: StructField) => candidate.name === part);
+        const field = findStructField(curDef, parts[i]);
         if (!field) { return null; }
-        const isLast = i === parts.length - 1;
-        if (isLast) {
-            if (field.type !== 'struct') {
-                return { field };
-            }
-            const child = field.refStructId ? byId.get(field.refStructId) : null;
-            return { field, structName: child?.name };
-        }
-        if (field.type !== 'struct' || !field.refStructId) { return null; }
-        curDef = byId.get(field.refStructId) ?? null;
+        if (i === parts.length - 1) { return field; }
+        curDef = resolveChildStructDef(field, byId);
     }
 
     return null;
+}
+
+function findStructField(def: StructDef, fieldName: string): StructField | undefined {
+    return def.fields.find((candidate: StructField) => candidate.name === fieldName);
+}
+
+function resolveChildStructDef(field: StructField, byId: Map<string, StructDef>): StructDef | null {
+    if (field.type !== 'struct' || !field.refStructId) { return null; }
+    return byId.get(field.refStructId) ?? null;
+}
+
+function buildResolvedStructFieldPath(field: StructField, byId: Map<string, StructDef>): ResolvedStructFieldPath {
+    if (field.type !== 'struct') { return { field }; }
+    const child = field.refStructId ? byId.get(field.refStructId) : null;
+    return { field, structName: child?.name };
 }
 
 type FieldDecoder = (dv: DataView, le: boolean) => string;
