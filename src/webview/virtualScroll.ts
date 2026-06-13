@@ -14,12 +14,29 @@ export interface VirtualScrollState {
     visibleRowIndices: [number, number];  // [start, end) indices into S.memRows
 }
 
+export interface VirtualScrollLayout {
+    totalHeight: number;
+    physicalHeight: number;
+    logicalScrollable: number;
+    physicalScrollable: number;
+    isCompressed: boolean;
+}
+
+export const MAX_VIRTUAL_SCROLL_HEIGHT = 16_000_000;
+
 let cacheLen = -1;
+let cacheRowHeight = -1;
+let cacheGapHeight = -1;
 let cumulativeHeights: number[] = [];
 let cachedTotalHeight = 0;
 
 function ensureHeightCache(state: VirtualScrollState): void {
-    if (cacheLen === S.memRows.length && cumulativeHeights.length === S.memRows.length + 1) { return; }
+    if (
+        cacheLen === S.memRows.length &&
+        cacheRowHeight === state.rowHeight &&
+        cacheGapHeight === state.gapHeight &&
+        cumulativeHeights.length === S.memRows.length + 1
+    ) { return; }
     cumulativeHeights = new Array<number>(S.memRows.length + 1);
     cumulativeHeights[0] = 0;
     for (let i = 0; i < S.memRows.length; i++) {
@@ -28,6 +45,8 @@ function ensureHeightCache(state: VirtualScrollState): void {
     }
     cachedTotalHeight = cumulativeHeights[S.memRows.length] ?? 0;
     cacheLen = S.memRows.length;
+    cacheRowHeight = state.rowHeight;
+    cacheGapHeight = state.gapHeight;
 }
 
 function lowerBound(values: number[], target: number): number {
@@ -85,4 +104,37 @@ function calcRangeHeight(start: number, end: number, state: VirtualScrollState):
     const s = Math.max(0, Math.min(start, S.memRows.length));
     const e = Math.max(s, Math.min(end, S.memRows.length));
     return (cumulativeHeights[e] ?? 0) - (cumulativeHeights[s] ?? 0);
+}
+
+export function calcScrollLayout(state: VirtualScrollState, maxPhysicalHeight = MAX_VIRTUAL_SCROLL_HEIGHT): VirtualScrollLayout {
+    const totalHeight = calcTotalHeight(state);
+    const physicalHeight = Math.min(totalHeight, maxPhysicalHeight);
+    const logicalScrollable = Math.max(0, totalHeight - state.containerHeight);
+    const physicalScrollable = Math.max(0, physicalHeight - state.containerHeight);
+
+    return {
+        totalHeight,
+        physicalHeight,
+        logicalScrollable,
+        physicalScrollable,
+        isCompressed: totalHeight > physicalHeight,
+    };
+}
+
+export function physicalToLogicalScroll(physicalScrollTop: number, state: VirtualScrollState): number {
+    const layout = calcScrollLayout(state);
+    if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
+        return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
+    }
+    const ratio = Math.max(0, Math.min(physicalScrollTop, layout.physicalScrollable)) / layout.physicalScrollable;
+    return ratio * layout.logicalScrollable;
+}
+
+export function logicalToPhysicalScroll(logicalScrollTop: number, state: VirtualScrollState): number {
+    const layout = calcScrollLayout(state);
+    if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
+        return Math.max(0, Math.min(logicalScrollTop, layout.physicalScrollable));
+    }
+    const ratio = Math.max(0, Math.min(logicalScrollTop, layout.logicalScrollable)) / layout.logicalScrollable;
+    return ratio * layout.physicalScrollable;
 }

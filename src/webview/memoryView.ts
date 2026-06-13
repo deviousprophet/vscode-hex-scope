@@ -6,7 +6,15 @@
 import { S, BPR } from './state';
 import { getByte } from './data';
 import { esc, fmtB, byteClass } from './utils';
-import { calcVisibleRange, calcTotalHeight, calcRowOffset, type VirtualScrollState } from './virtualScroll';
+import {
+    calcScrollLayout,
+    calcVisibleRange,
+    calcTotalHeight,
+    calcRowOffset,
+    logicalToPhysicalScroll,
+    physicalToLogicalScroll,
+    type VirtualScrollState,
+} from './virtualScroll';
 
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;
@@ -22,15 +30,73 @@ interface MemoryInteractionCallbacks {
 }
 
 const VIRTUAL_SCROLL_CONFIG = {
-    rowHeight: 20,   // CSS: var(--cell-size)  20px
-    gapHeight: 30,   // CSS: var(--cell-size) * 1.5  30px
-    bufferSize: 10,  // render 10 rows above/below viewport
+    fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
+    fallbackGapHeight: 35.2,  // CSS fallback: row * 1.5 + 2px vertical margins
+    bufferSize: 10,           // render 10 rows above/below viewport
 };
 
 function syncHeaderScroll(scrollLeft: number): void {
     const header = document.getElementById('mem-header');
     if (!header) { return; }
     header.scrollLeft = scrollLeft;
+}
+
+function parsePx(value: string | null | undefined): number | null {
+    if (!value) { return null; }
+    const n = parseFloat(value.trim());
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function measureCssHeight(scrollContainer: HTMLElement, cssHeight: string, fallback: number): number {
+    const probe = document.createElement('div');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.pointerEvents = 'none';
+    probe.style.height = cssHeight;
+    probe.style.width = '0';
+    probe.style.margin = '0';
+    probe.style.padding = '0';
+    probe.style.border = '0';
+    scrollContainer.appendChild(probe);
+    const height = parsePx(getComputedStyle(probe).height) ?? probe.getBoundingClientRect().height;
+    probe.remove();
+    return height > 0 ? height : fallback;
+}
+
+function getVirtualScrollMetrics(scrollContainer: HTMLElement): { rowHeight: number; gapHeight: number } {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const editorFontSize = parsePx(rootStyle.getPropertyValue('--vscode-editor-font-size'));
+
+    if (editorFontSize !== null) {
+        const rowHeight = editorFontSize * 1.6;
+        return {
+            rowHeight,
+            gapHeight: rowHeight * 1.5 + 4,
+        };
+    }
+
+    const rowHeight = measureCssHeight(scrollContainer, 'var(--cell-size)', VIRTUAL_SCROLL_CONFIG.fallbackRowHeight);
+    const gapBoxHeight = measureCssHeight(scrollContainer, 'calc(var(--cell-size) * 1.5)', rowHeight * 1.5);
+    return {
+        rowHeight,
+        gapHeight: gapBoxHeight + 4,
+    };
+}
+
+function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
+    if (!vscrollState) { return; }
+    const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
+    const containerHeight = scrollContainer.clientHeight;
+    if (
+        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01 &&
+        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01 &&
+        vscrollState.containerHeight === containerHeight
+    ) { return; }
+
+    vscrollState.rowHeight = rowHeight;
+    vscrollState.gapHeight = gapHeight;
+    vscrollState.containerHeight = containerHeight;
+    vscrollRenderedRange = [-1, -1];
 }
 
 //  Column header 
@@ -53,18 +119,37 @@ export function renderMemHeader(): void {
 function renderVisibleRows(): void {
     if (!vscrollState) { return; }
 
-    const [startIdx, endIdx] = calcVisibleRange(vscrollState);
-
-    // No change in rendered range? Skip
-    if (startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1]) { return; }
-    vscrollRenderedRange = [startIdx, endIdx];
-
     const container = document.getElementById('mem-rows')!;
     const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
-    const labelMap = buildLabelMap();
-    const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState);
+    syncVirtualScrollMetrics(scrollContainer);
 
-    container.innerHTML = parts.join('');
+    const [startIdx, endIdx] = calcVisibleRange(vscrollState);
+    const layout = calcScrollLayout(vscrollState);
+
+    // No change in rendered range? Skip
+    if (!layout.isCompressed && startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1]) { return; }
+    vscrollRenderedRange = [startIdx, endIdx];
+
+    const labelMap = buildLabelMap();
+    const topOffset = calcRowOffset(startIdx, vscrollState);
+    const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState, !layout.isCompressed);
+
+    if (layout.isCompressed) {
+        container.style.position = 'relative';
+        container.style.height = `${layout.physicalHeight}px`;
+    } else {
+        container.style.position = '';
+        container.style.height = '';
+    }
+
+    if (layout.isCompressed) {
+        const physicalScrollTop = scrollContainer.scrollTop;
+        const windowTop = physicalScrollTop + topOffset - vscrollState.scrollTop;
+        container.innerHTML = `<div style="position:absolute;top:${windowTop}px;left:0;width:max-content;min-width:100%">${parts.join('')}</div>`;
+    } else {
+        container.innerHTML = parts.join('');
+    }
+
     attachMemoryCellHandlers(container, getMemoryInteractionCallbacks(scrollContainer));
     refreshMemoryHighlights();
 }
@@ -74,11 +159,12 @@ function buildVisibleRowsHtml(
     endIdx: number,
     labelMap: Map<number, typeof S.labels>,
     state: VirtualScrollState,
+    includeSpacers = true,
 ): string[] {
     const parts: string[] = [];
-    appendSpacer(parts, calcRowOffset(startIdx, state));
+    if (includeSpacers) { appendSpacer(parts, calcRowOffset(startIdx, state)); }
     appendVisibleMemoryRows(parts, startIdx, endIdx, labelMap);
-    appendSpacer(parts, calcTotalHeight(state) - calcRowOffset(endIdx, state));
+    if (includeSpacers) { appendSpacer(parts, calcTotalHeight(state) - calcRowOffset(endIdx, state)); }
     return parts;
 }
 
@@ -194,11 +280,12 @@ export function renderMemBody(
 
     // Initialize virtual scroll state
     const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
+    const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
 
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
-        rowHeight: VIRTUAL_SCROLL_CONFIG.rowHeight,
-        gapHeight: VIRTUAL_SCROLL_CONFIG.gapHeight,
+        rowHeight,
+        gapHeight,
         scrollTop: scrollContainer.scrollTop,
         bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
         visibleRowIndices: [0, 0],
@@ -242,8 +329,13 @@ export function renderMemBody(
         scrollContainer.dataset.vscrollInit = '1';
         scrollContainer.addEventListener('scroll', () => {
             if (!vscrollState) { return; }
-            vscrollState.scrollTop = scrollContainer.scrollTop;
+            vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
             syncHeaderScroll(scrollContainer.scrollLeft);
+            renderVisibleRows();
+        });
+        window.addEventListener('resize', () => {
+            if (!vscrollState) { return; }
+            vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
             renderVisibleRows();
         });
     }
@@ -520,13 +612,16 @@ export function scrollTo(addr: number): void {
     const rowIndex = findRowIndex(row);
     if (rowIndex < 0) { return; }
 
+    syncVirtualScrollMetrics(scrollContainer);
     const targetTop = Math.max(0, calcRowOffset(rowIndex, vscrollState) - vscrollState.rowHeight * 2);
+    const layout = calcScrollLayout(vscrollState);
+    const physicalTop = logicalToPhysicalScroll(targetTop, vscrollState);
     vscrollState.scrollTop = targetTop;
-    scrollContainer.scrollTop = targetTop;
+    scrollContainer.scrollTop = physicalTop;
     renderVisibleRows();
 
     const el = document.querySelector<HTMLElement>(`.data-row[data-row="${row}"]`);
-    if (el) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    if (el && !layout.isCompressed) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
 }
 
 function findRowIndex(rowBase: number): number {

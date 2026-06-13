@@ -11,6 +11,7 @@ import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } fr
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
 import type { SerializedRecord } from './types';
+import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -618,10 +619,61 @@ const SREC_TYPE_LABELS: Record<number, string> = {
     5: 'COUNT', 6: 'COUNT S6', 7: 'END S7', 8: 'END S8', 9: 'END S9',
 };
 
-const RECORD_ROW_HEIGHT = 28;
+const RECORD_FALLBACK_ROW_HEIGHT = 28;
 const RECORD_BUFFER_ROWS = 5;
 const RECORD_MAX_SPACER_PX = 1_000_000;
 let recordRenderSignature = '';
+
+interface RecordScrollLayout {
+    totalHeight: number;
+    physicalHeight: number;
+    logicalScrollable: number;
+    physicalScrollable: number;
+    isCompressed: boolean;
+}
+
+function calcRecordScrollLayout(recordCount: number, containerHeight: number, rowHeight: number): RecordScrollLayout {
+    const totalHeight = recordCount * rowHeight;
+    const physicalHeight = Math.min(totalHeight, MAX_VIRTUAL_SCROLL_HEIGHT);
+    const logicalScrollable = Math.max(0, totalHeight - containerHeight);
+    const physicalScrollable = Math.max(0, physicalHeight - containerHeight);
+
+    return {
+        totalHeight,
+        physicalHeight,
+        logicalScrollable,
+        physicalScrollable,
+        isCompressed: totalHeight > physicalHeight,
+    };
+}
+
+function recordPhysicalToLogicalScroll(physicalScrollTop: number, layout: RecordScrollLayout): number {
+    if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
+        return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
+    }
+    const ratio = Math.max(0, Math.min(physicalScrollTop, layout.physicalScrollable)) / layout.physicalScrollable;
+    return ratio * layout.logicalScrollable;
+}
+
+function getRecordRowHeight(el: HTMLElement): number {
+    const table = document.createElement('table');
+    table.className = 'rtbl';
+    table.style.position = 'absolute';
+    table.style.visibility = 'hidden';
+    table.style.pointerEvents = 'none';
+    table.style.width = '100%';
+
+    const tbody = document.createElement('tbody');
+    const row = document.createElement('tr');
+    row.appendChild(recordCellFromText('raddr', '00000000'));
+    tbody.appendChild(row);
+    table.appendChild(tbody);
+    el.appendChild(table);
+
+    const height = row.getBoundingClientRect().height;
+    table.remove();
+    return height > 0 ? height : RECORD_FALLBACK_ROW_HEIGHT;
+}
 
 export function renderRecordView(): void {
     const el = document.getElementById('record-view');
@@ -647,20 +699,28 @@ function renderRecordViewImpl(el: HTMLElement): void {
     if (!S.parseResult) { return; }
 
     const recordCount = S.parseResult.records.length;
-    const range = recordVisibleRange(el, recordCount);
-    if (range.signature === recordRenderSignature) { return; }
-    recordRenderSignature = range.signature;
+    const containerHeight = el.clientHeight;
+    const rowHeight = getRecordRowHeight(el);
+    const layout = calcRecordScrollLayout(recordCount, containerHeight, rowHeight);
+    const physicalScrollTop = el.scrollTop;
+    const scrollTop = recordPhysicalToLogicalScroll(physicalScrollTop, layout);
+
+    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - RECORD_BUFFER_ROWS);
+    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / rowHeight) + RECORD_BUFFER_ROWS);
+    const signature = `${recordCount}:${firstVisibleIdx}:${lastVisibleIdx}:${layout.isCompressed ? Math.floor(physicalScrollTop) : ''}`;
+    if (signature === recordRenderSignature) { return; }
+    recordRenderSignature = signature;
 
     const isSrec = S.parseResult.format === 'srec';
     const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
     const table = recordTableElement();
     const rows: HTMLTableRowElement[] = [];
-    const firstVisibleIdx = range.first;
-    const lastVisibleIdx = range.last;
 
     if (firstVisibleIdx > 0) {
-        const topOffset = firstVisibleIdx * RECORD_ROW_HEIGHT;
-        appendRecordSpacerRows(rows, topOffset);
+        const topOffset = firstVisibleIdx * rowHeight;
+        if (!layout.isCompressed) {
+            appendRecordSpacerRows(rows, topOffset);
+        }
     }
 
     for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
@@ -668,23 +728,29 @@ function renderRecordViewImpl(el: HTMLElement): void {
     }
 
     if (lastVisibleIdx < recordCount - 1) {
-        const bottomOffset = (recordCount - 1 - lastVisibleIdx) * RECORD_ROW_HEIGHT;
-        appendRecordSpacerRows(rows, bottomOffset);
+        const bottomOffset = (recordCount - 1 - lastVisibleIdx) * rowHeight;
+        if (!layout.isCompressed) {
+            appendRecordSpacerRows(rows, bottomOffset);
+        }
     }
 
     const tbody = document.createElement('tbody');
     tbody.append(...rows);
     table.appendChild(tbody);
-    el.replaceChildren(table);
-}
 
-function recordVisibleRange(el: HTMLElement, recordCount: number): { first: number; last: number; signature: string } {
-    const first = Math.max(0, Math.floor(el.scrollTop / RECORD_ROW_HEIGHT) - RECORD_BUFFER_ROWS);
-    const last = Math.min(
-        recordCount - 1,
-        Math.ceil((el.scrollTop + el.clientHeight) / RECORD_ROW_HEIGHT) + RECORD_BUFFER_ROWS,
-    );
-    return { first, last, signature: `${recordCount}:${first}:${last}` };
+    if (layout.isCompressed) {
+        const wrapper = document.createElement('div');
+        wrapper.style.position = 'relative';
+        wrapper.style.height = `${layout.physicalHeight}px`;
+        const topOffset = firstVisibleIdx * rowHeight;
+        table.style.position = 'absolute';
+        table.style.top = `${physicalScrollTop + topOffset - scrollTop}px`;
+        table.style.left = '0';
+        wrapper.appendChild(table);
+        el.replaceChildren(wrapper);
+    } else {
+        el.replaceChildren(table);
+    }
 }
 
 function recordTableElement(): HTMLTableElement {

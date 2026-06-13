@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.2] - 2026-06-13
+
+### Fixed
+
+- Fixed Memory view scrolling near the end of large files, especially when VS Code is zoomed in
+- Fixed blank or missing rows that could appear even though valid memory data was loaded
+- Improved Record view scrolling for very large files and zoomed-in layouts
+
 ## [2.7.1] - 2026-06-12
 
 ### Fixed
