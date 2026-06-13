@@ -183,6 +183,28 @@ function updateEditControls(): void {
     document.getElementById('edit-mode-group')!.style.display = inMemory && S.editMode ? '' : 'none';
 }
 
+function activeClass(isActive: boolean): string {
+    return isActive ? 'active' : '';
+}
+
+function selectedAttr(isSelected: boolean): string {
+    return isSelected ? 'selected' : '';
+}
+
+function visibleClass(isVisible: boolean): string {
+    return isVisible ? 'visible' : '';
+}
+
+type SidebarTabName = 'inspector' | 'struct';
+
+function tabPanelClass(tab: SidebarTabName): string {
+    return S.sidebarTab === tab ? 'sb-tab-panel active' : 'sb-tab-panel';
+}
+
+function sideTabClass(tab: SidebarTabName): string {
+    return S.sidebarTab === tab ? 'stab active' : 'stab';
+}
+
 // ── Lock click interception ──────────────────────────────────────
 
 function preventClickWhenLocked(e: Event): void {
@@ -199,8 +221,8 @@ function render(): void {
     document.getElementById('app')!.innerHTML = `
         <div id="toolbar">
             <div class="view-tabs">
-                <button id="btn-mem" class="${S.currentView === 'memory' ? 'active' : ''}">Memory</button>
-                <button id="btn-rec" class="${S.currentView === 'record' ? 'active' : ''}">Records</button>
+                <button id="btn-mem" class="${activeClass(S.currentView === 'memory')}">Memory</button>
+                <button id="btn-rec" class="${activeClass(S.currentView === 'record')}">Records</button>
             </div>
             <div class="tb-sep"></div>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode">&#11041; Edit</button>
@@ -212,15 +234,15 @@ function render(): void {
             </div>
             <div id="search-box">
                 <div id="search-endian-toggle" class="endian-tabs search-endian-toggle" style="display:none">
-                    <button id="search-btn-auto" class="${S.searchEndianness === 'auto' ? 'active' : ''}" type="button">Auto</button>
-                    <button id="search-btn-le" class="${S.searchEndianness === 'le' ? 'active' : ''}" type="button">LE</button>
-                    <button id="search-btn-be" class="${S.searchEndianness === 'be' ? 'active' : ''}" type="button">BE</button>
+                    <button id="search-btn-auto" class="${activeClass(S.searchEndianness === 'auto')}" type="button">Auto</button>
+                    <button id="search-btn-le" class="${activeClass(S.searchEndianness === 'le')}" type="button">LE</button>
+                    <button id="search-btn-be" class="${activeClass(S.searchEndianness === 'be')}" type="button">BE</button>
                 </div>
                 <select id="search-mode">
-                    <option value="bytes" ${S.searchMode === 'bytes' ? 'selected' : ''}>Bytes</option>
-                    <option value="value" ${S.searchMode === 'value' ? 'selected' : ''}>Value</option>
-                    <option value="ascii" ${S.searchMode === 'ascii' ? 'selected' : ''}>ASCII</option>
-                    <option value="addr"  ${S.searchMode === 'addr'  ? 'selected' : ''}>Addr</option>
+                    <option value="bytes" ${selectedAttr(S.searchMode === 'bytes')}>Bytes</option>
+                    <option value="value" ${selectedAttr(S.searchMode === 'value')}>Value</option>
+                    <option value="ascii" ${selectedAttr(S.searchMode === 'ascii')}>ASCII</option>
+                    <option value="addr"  ${selectedAttr(S.searchMode === 'addr')}>Addr</option>
                 </select>
                 <input id="search-input" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
@@ -234,26 +256,26 @@ function render(): void {
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
-                <div id="memory-view" class="${S.currentView === 'memory' ? 'visible' : ''}">
+                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}">
                     <div id="mem-header"></div>
                     <div id="mem-scroll"><div id="mem-rows"></div></div>
                 </div>
-                <div id="record-view" class="${S.currentView === 'record' ? 'visible' : ''}"></div>
+                <div id="record-view" class="${visibleClass(S.currentView === 'record')}"></div>
             </div>
             <div id="sidebar-resizer" aria-label="Resize sidebar" title="Drag to resize sidebar"></div>
             <div id="sidebar">
-                <div class="sb-tab-panel ${S.sidebarTab === 'inspector' ? 'active' : ''}" id="sbp-insp">
+                <div class="${tabPanelClass('inspector')}" id="sbp-insp">
                     <div class="sb-section" id="s-insp"></div>
                     <div class="sb-section" id="s-bits"></div>
                     <div class="sb-section" id="s-labels"></div>
                 </div>
-                <div class="sb-tab-panel ${S.sidebarTab === 'struct' ? 'active' : ''}" id="sbp-struct">
+                <div class="${tabPanelClass('struct')}" id="sbp-struct">
                     <div id="s-struct-pins"></div>
                 </div>
             </div>
             <div id="side-tabs">
-                <button class="stab${S.sidebarTab === 'inspector' ? ' active' : ''}" id="stab-insp">Inspector</button>
-                <button class="stab${S.sidebarTab === 'struct'    ? ' active' : ''}" id="stab-struct">Struct Overlay</button>
+                <button class="${sideTabClass('inspector')}" id="stab-insp">Inspector</button>
+                <button class="${sideTabClass('struct')}" id="stab-struct">Struct Overlay</button>
             </div>
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
