@@ -1080,24 +1080,44 @@ function getSelBytes(): number[] {
     return out;
 }
 
+const COPY_COMMANDS = ['hex', 'hex-raw', 'binary', 'ascii', 'dec-array', 'hex-array', 'base64', 'dec', 'c-array'] as const;
+type CopyCommand = typeof COPY_COMMANDS[number];
+const COPY_COMMAND_SET = new Set<string>(COPY_COMMANDS);
+
+const COPY_FORMATTERS: Record<CopyCommand, (bytes: number[]) => string> = {
+    hex: bytes => bytes.map(hexByte).join(' '),
+    'hex-raw': bytes => bytes.map(hexByte).join(''),
+    binary: bytes => bytes.map(b => b.toString(2).padStart(8, '0')).join(' '),
+    ascii: bytes => bytes.map(formatAsciiByte).join(''),
+    'dec-array': bytes => `[${bytes.join(', ')}]`,
+    'hex-array': bytes => `[${bytes.map(formatHexArrayByte).join(', ')}]`,
+    base64: bytes => btoa(String.fromCharCode(...bytes)),
+    dec: bytes => `${bytes[0]}`,
+    'c-array': bytes => `{${bytes.map(formatHexArrayByte).join(', ')}}`,
+};
+
 function handleCopyCommand(cmd: string): void {
     const bytes = getSelBytes();
-    if (bytes.length === 0) { return; }
-    const h = (b: number) => b.toString(16).toUpperCase().padStart(2, '0');
-    let text = '';
-    switch (cmd) {
-        case 'hex':       text = bytes.map(h).join(' ');                                          break;
-        case 'hex-raw':   text = bytes.map(h).join('');                                           break;
-        case 'binary':    text = bytes.map(b => b.toString(2).padStart(8, '0')).join(' ');        break;
-        case 'ascii':     text = bytes.map(b => (b >= 0x20 && b < 0x7F) ? String.fromCharCode(b) : '.').join(''); break;
-        case 'dec-array': text = `[${bytes.join(', ')}]`;                                         break;
-        case 'hex-array': text = `[${bytes.map(b => '0x' + h(b)).join(', ')}]`;                   break;
-        case 'base64':    text = btoa(String.fromCharCode(...bytes));                              break;
-        case 'dec':       text = `${bytes[0]}`;                                                    break;
-        case 'c-array':   text = `{${bytes.map(b => '0x' + h(b)).join(', ')}}`;                   break;
-        default: return;
-    }
+    if (bytes.length === 0 || !isCopyCommand(cmd)) { return; }
+
+    const text = COPY_FORMATTERS[cmd](bytes);
     vscode.postMessage({ type: 'copyText', text, label: `${bytes.length} bytes as ${cmd}` });
+}
+
+function isCopyCommand(cmd: string): cmd is CopyCommand {
+    return COPY_COMMAND_SET.has(cmd);
+}
+
+function hexByte(b: number): string {
+    return b.toString(16).toUpperCase().padStart(2, '0');
+}
+
+function formatHexArrayByte(b: number): string {
+    return `0x${hexByte(b)}`;
+}
+
+function formatAsciiByte(b: number): string {
+    return (b >= 0x20 && b < 0x7F) ? String.fromCharCode(b) : '.';
 }
 
 // ── CRC helpers ──────────────────────────────────────────────────
