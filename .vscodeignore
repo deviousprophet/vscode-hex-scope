@@ -15,3 +15,5 @@ vsc-extension-quickstart.md
 **/.vscode-test.*
 sample/**
 .github/**
+.codegraph/**
+.fallow/**
