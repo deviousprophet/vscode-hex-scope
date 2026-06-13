@@ -347,6 +347,40 @@ function deleteFieldCellHtml(isOnly: boolean): string {
         : `<button class="sfe-del-btn" title="Remove field">\u2715</button>`;
 }
 
+function disabledAttr(isDisabled: boolean): string {
+    return isDisabled ? ' disabled' : '';
+}
+
+function activeClassAttr(isActive: boolean): string {
+    return isActive ? ' active' : '';
+}
+
+function fieldArrayCellHtml(f: StructField): string {
+    const isArr = f.count > 1;
+    return (
+        `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
+        `<button class="sfe-arr-toggle${activeClassAttr(isArr)}" title="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
+        `<input class="sfe-count-inp" type="text" inputmode="numeric" ` +
+               `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
+        `</div>`
+    );
+}
+
+function fieldBitToggleHtml(f: StructField, isBitContainer: boolean): string {
+    const isUnsigned = isUnsignedScalarType(f.type);
+    const bitBtnClass = isUnsigned && isBitContainer ? ' sfe-bit-btn-on' : '';
+    return `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details"${disabledAttr(!isUnsigned)}>:N</button>`;
+}
+
+function fieldMoveButtonsHtml(i: number, total: number): string {
+    return (
+        `<div class="sfe-move-btns">` +
+        `<button class="sfe-move-btn sfe-move-up" title="Move up"${disabledAttr(i === 0)}>&#x2192;</button>` +
+        `<button class="sfe-move-btn sfe-move-dn" title="Move down"${disabledAttr(i === total - 1)}>&#x2192;</button>` +
+        `</div>`
+    );
+}
+
 function fieldRowHtml(
     f: StructField,
     i: number,
@@ -355,34 +389,18 @@ function fieldRowHtml(
     draftId: string,
 ): string {
     const typeOpts = fieldTypeOptionsHtml(f, draftId);
-    const isArr = f.count > 1;
-    const isUnsigned = isUnsignedScalarType(f.type);
     const isBitContainer = isBitContainerField(f);
-    const bitToggled = isUnsigned && isBitContainer;
     const delCell = deleteFieldCellHtml(isOnly);
-    const upDis  = i === 0         ? ' disabled' : '';
-    const dnDis  = i === total - 1 ? ' disabled' : '';
     const childrenHtml = bitChildrenHtml(f, isBitContainer);
-
-    // :N toggle button
-    const bitBtnClass = bitToggled ? ' sfe-bit-btn-on' : '';
-    const bitBtnDisabled = !isUnsigned ? ' disabled' : '';
 
     return (
         `<div class="struct-field-row${isBitContainer ? ' has-bit-children' : ''}" data-idx="${i}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
         `<input class="sfe-name-inp" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
-        `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details"${bitBtnDisabled}>:N</button>` +
-        `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
-         `<button class="sfe-arr-toggle${isArr ? ' active' : ''}" title="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
-        `<input class="sfe-count-inp" type="text" inputmode="numeric" ` +
-               `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
-        `</div>` +
-        `<div class="sfe-move-btns">` +
-        `<button class="sfe-move-btn sfe-move-up" title="Move up"${upDis}>&#x2192;</button>` +
-        `<button class="sfe-move-btn sfe-move-dn" title="Move down"${dnDis}>&#x2192;</button>` +
-        `</div>` +
+        fieldBitToggleHtml(f, isBitContainer) +
+        fieldArrayCellHtml(f) +
+        fieldMoveButtonsHtml(i, total) +
         delCell +
         childrenHtml +
         `</div>`
