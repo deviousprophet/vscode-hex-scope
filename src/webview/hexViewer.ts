@@ -1149,41 +1149,70 @@ function crc32(data: number[]): number {
     return (c ^ 0xFFFFFFFF) >>> 0;
 }
 
+type AnalyzeResult = { text: string; label: string };
+type AnalyzeFormatter = (bytes: number[]) => AnalyzeResult;
+const ANALYZE_COMMANDS = ['an-sum', 'an-xor', 'an-crc8', 'an-crc16', 'an-crc32'] as const;
+type AnalyzeCommand = typeof ANALYZE_COMMANDS[number];
+const ANALYZE_COMMAND_SET = new Set<string>(ANALYZE_COMMANDS);
+
+const ANALYZE_FORMATTERS: Record<AnalyzeCommand, AnalyzeFormatter> = {
+    'an-sum': formatAnalyzeSum,
+    'an-xor': formatAnalyzeXor,
+    'an-crc8': bytes => ({ text: `0x${hexValue(crc8(bytes))}`, label: 'CRC-8' }),
+    'an-crc16': bytes => ({ text: `0x${hexValue(crc16(bytes), 4)}`, label: 'CRC-16' }),
+    'an-crc32': bytes => ({ text: `0x${hexValue(crc32(bytes), 8)}`, label: 'CRC-32' }),
+};
+
 // ── Context menu ──────────────────────────────────────────────────
 
 function handleCtxCommand(cmd: string): void {
     const bytes = getSelBytes();
     if (bytes.length === 0) { return; }
-    const h = (v: number, w = 2) => v.toString(16).toUpperCase().padStart(w, '0');
-
     // Copy
-    if (['hex','hex-raw','binary','ascii','dec','dec-array','hex-array','c-array','base64'].includes(cmd)) {
-        handleCopyCommand(cmd); return;
+    if (isCopyCommand(cmd)) {
+        handleCopyCommand(cmd);
+        return;
     }
     // Analyze
-    if (cmd.startsWith('an-')) {
-        let text = '', label = '';
-        switch (cmd) {
-            case 'an-sum': {
-                const s = bytes.reduce((a, b) => a + b, 0);
-                const w = Math.max(4, s.toString(16).length + (s.toString(16).length % 2));
-                text = `0x${h(s, w)} (${s})`; label = 'sum'; break;
-            }
-            case 'an-xor': { const x = bytes.reduce((a, b) => a ^ b, 0); text = `0x${h(x)}`; label = 'XOR'; break; }
-            case 'an-crc8':  text = `0x${h(crc8(bytes))}`; label = 'CRC-8';  break;
-            case 'an-crc16': text = `0x${h(crc16(bytes), 4)}`; label = 'CRC-16'; break;
-            case 'an-crc32': text = `0x${h(crc32(bytes), 8)}`; label = 'CRC-32'; break;
-        }
-        if (text) { vscode.postMessage({ type: 'copyText', text, label }); }
-        return;
-    }
+    if (handleAnalyzeCommand(cmd, bytes)) { return; }
     // Fill / Patch — edit bytes in place (edit mode) or noop
     if (cmd.startsWith('fill-')) {
-        if (!S.editMode) { return; }
-        const val = parseInt(cmd.slice(5), 16);
-        if (!isNaN(val) && val >= 0 && val <= 0xFF) { applyFill(val); }
-        return;
+        handleFillCommand(cmd);
     }
+}
+
+function handleAnalyzeCommand(cmd: string, bytes: number[]): boolean {
+    if (!isAnalyzeCommand(cmd)) { return false; }
+
+    const { text, label } = ANALYZE_FORMATTERS[cmd](bytes);
+    vscode.postMessage({ type: 'copyText', text, label });
+    return true;
+}
+
+function isAnalyzeCommand(cmd: string): cmd is AnalyzeCommand {
+    return ANALYZE_COMMAND_SET.has(cmd);
+}
+
+function formatAnalyzeSum(bytes: number[]): AnalyzeResult {
+    const sum = bytes.reduce((a, b) => a + b, 0);
+    const width = Math.max(4, sum.toString(16).length + (sum.toString(16).length % 2));
+    return { text: `0x${hexValue(sum, width)} (${sum})`, label: 'sum' };
+}
+
+function formatAnalyzeXor(bytes: number[]): AnalyzeResult {
+    const xor = bytes.reduce((a, b) => a ^ b, 0);
+    return { text: `0x${hexValue(xor)}`, label: 'XOR' };
+}
+
+function handleFillCommand(cmd: string): void {
+    if (!S.editMode) { return; }
+
+    const val = parseInt(cmd.slice(5), 16);
+    if (!isNaN(val) && val >= 0 && val <= 0xFF) { applyFill(val); }
+}
+
+function hexValue(value: number, width = 2): string {
+    return value.toString(16).toUpperCase().padStart(width, '0');
 }
 
 function setupCtxMenu(): void {
