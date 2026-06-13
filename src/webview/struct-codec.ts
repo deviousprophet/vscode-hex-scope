@@ -923,6 +923,86 @@ export function fieldsToText(fields: StructField[], defs: StructDef[] = allStruc
     }).join('\n');
 }
 
+type StructCEmitState = {
+    byId: Map<string, StructDef>;
+    lines: string[];
+    maxTypeLen: number;
+    offset: number;
+    maxAlign: number;
+    packed: boolean;
+};
+
+function emitStructCField(f: StructField, fieldIndex: number, state: StructCEmitState): void {
+    if (isBitFieldContainer(f)) {
+        emitBitFieldContainerC(f, state);
+        return;
+    }
+
+    emitScalarStructFieldC(f, fieldIndex, state);
+}
+
+function emitBitFieldContainerC(f: StructField, state: StructCEmitState): void {
+    const unitBytes = fieldByteSize(f.type as UnsignedScalarType);
+    const align = state.packed ? 1 : fieldAlignWithDefs(f, state.byId, 1);
+    applyStructCAlignment(align, state);
+
+    const cType = fieldTypeToC(f, state.byId);
+    const arr = f.count > 1 ? `[${f.count}]` : '';
+    const fieldName = f.name || 'bitfield';
+
+    state.lines.push(`    struct {`);
+    appendBitFieldChildrenC(f, cType, state.lines);
+    state.lines.push(`    } ${fieldName}${arr};`);
+    state.offset += unitBytes * f.count;
+}
+
+function appendBitFieldChildrenC(f: StructField, cType: string, lines: string[]): void {
+    let childBitPos = 0;
+    for (const child of f.bitFields!) {
+        const width = child.bitWidth;
+        const childName = child.name || `bit${childBitPos}`;
+        lines.push(
+            `        ${cType} ${childName}:${width};`.padEnd(44) +
+            `/* ${childBitPos.toString().padStart(2)}..${(childBitPos + width - 1).toString().padStart(2)} */`
+        );
+        childBitPos += width;
+    }
+}
+
+function emitScalarStructFieldC(f: StructField, fieldIndex: number, state: StructCEmitState): void {
+    const fieldSize = fieldSizeWithDefs(f, state.byId, 1);
+    const align = state.packed ? 1 : fieldAlignWithDefs(f, state.byId, 1);
+    applyStructCAlignment(align, state);
+
+    const cType = fieldTypeToC(f, state.byId).padEnd(state.maxTypeLen);
+    const displayFieldName = f.name || `field${fieldIndex}`;
+    const arr = f.count > 1 ? `[${f.count}]` : '';
+    const fieldBytes = fieldSize * f.count;
+    const endianHint = f.endian !== 'inherit' ? `  /* ${f.endian} */` : '';
+
+    state.lines.push(
+        `    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
+        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B${endianHint} */`
+    );
+    state.offset += fieldBytes;
+}
+
+function applyStructCAlignment(align: number, state: StructCEmitState): void {
+    if (align > state.maxAlign) { state.maxAlign = align; }
+    const aligned = alignUp(state.offset, align);
+    if (!state.packed && aligned > state.offset) {
+        appendStructCPadding(state.lines, state.offset, aligned - state.offset);
+    }
+    state.offset = aligned;
+}
+
+function appendStructCPadding(lines: string[], offset: number, padBytes: number): void {
+    lines.push(
+        `    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
+        `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`
+    );
+}
+
 /** Render a StructDef as a C typedef with per-field offset comments. */
 export function structToC(def: StructDef, defs: StructDef[] = allStructs()): string {
     const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
@@ -935,86 +1015,21 @@ export function structToC(def: StructDef, defs: StructDef[] = allStructs()): str
     const typeLens = def.fields.map(f => fieldTypeToC(f, byId).length);
     const maxTypeLen = typeLens.length > 0 ? Math.max(...typeLens) : 8;
 
-    let offset = 0;
-    let maxAlign = 1;
+    const state: StructCEmitState = { byId, lines, maxTypeLen, offset: 0, maxAlign: 1, packed: !!def.packed };
 
-    def.fields.forEach((f, fi) => {
-        // ── New: BitField container ────────────────────────────────────────────
-        if (isBitFieldContainer(f)) {
-            const unitBytes = fieldByteSize(f.type as UnsignedScalarType);
-            const unitBits = unitBytes * 8;
-            const align = def.packed ? 1 : fieldAlignWithDefs(f, byId, 1);
-            if (align > maxAlign) { maxAlign = align; }
-            const aligned = alignUp(offset, align);
-            if (!def.packed && aligned > offset) {
-                const padBytes = aligned - offset;
-                lines.push(
-                    `    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
-                    `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`
-                );
-            }
-            offset = aligned;
-            const cType = fieldTypeToC(f, byId);
-            const arr = f.count > 1 ? `[${f.count}]` : '';
-            const fieldName = f.name || 'bitfield';
+    for (let fieldIndex = 0; fieldIndex < def.fields.length; fieldIndex++) {
+        emitStructCField(def.fields[fieldIndex], fieldIndex, state);
+    }
 
-            // Generate nested struct for bit-field container
-            lines.push(`    struct {`);
-            let childBitPos = 0;
-            for (const child of f.bitFields!) {
-                const w = child.bitWidth;
-                const childName = child.name || `bit${childBitPos}`;
-                lines.push(
-                    `        ${cType} ${childName}:${w};`.padEnd(44) +
-                    `/* ${childBitPos.toString().padStart(2)}..${(childBitPos + w - 1).toString().padStart(2)} */`
-                );
-                childBitPos += w;
-            }
-            lines.push(`    } ${fieldName}${arr};`);
-            offset += unitBytes * f.count;
-            return;
-        }
-
-        const sz = fieldSizeWithDefs(f, byId, 1);
-        const align = def.packed ? 1 : fieldAlignWithDefs(f, byId, 1);
-        if (align > maxAlign) { maxAlign = align; }
-        const aligned = alignUp(offset, align);
-
-        if (!def.packed && aligned > offset) {
-            const padBytes = aligned - offset;
-            lines.push(
-                `    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
-                `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`
-            );
-        }
-
-        offset = aligned;
-        const cType = fieldTypeToC(f, byId).padEnd(maxTypeLen);
-        const displayFieldName = f.name || `field${fi}`;
-        const arr = f.count > 1 ? `[${f.count}]` : '';
-        const fieldBytes = sz * f.count;
-        const endianHint = f.endian !== 'inherit' ? `  /* ${f.endian} */` : '';
-
-        lines.push(
-            `    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
-            `/* +${offset.toString().padStart(3)}  ${fieldBytes}B${endianHint} */`
-        );
-
-        offset += fieldBytes;
-    });
-
-    const totalUnpadded = offset;
-    const totalPadded = alignUp(offset, maxAlign);
+    const totalUnpadded = state.offset;
+    const totalPadded = alignUp(state.offset, state.maxAlign);
     if (!def.packed && totalPadded > totalUnpadded) {
         const padBytes = totalPadded - totalUnpadded;
-        lines.push(
-            `    uint8_t  _pad${offset}[${padBytes}];`.padEnd(44) +
-            `/* +${offset.toString().padStart(3)}  ${padBytes}B padding */`
-        );
+        appendStructCPadding(lines, state.offset, padBytes);
     }
 
     const totalBytes = def.packed ? totalUnpadded : totalPadded;
-    const alignNote = def.packed ? 'packed' : `align=${maxAlign}`;
+    const alignNote = def.packed ? 'packed' : `align=${state.maxAlign}`;
     const displayName = def.name || 'MyStruct';
     lines.push(`} ${displayName};`.padEnd(44) + `/* ${totalBytes}B, ${alignNote} */`);
 
