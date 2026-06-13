@@ -1220,39 +1220,27 @@ function setupCtxMenu(): void {
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { hideCtx(); } });
 }
 
-function showCtxMenu(x: number, y: number): void {
-    if (S.selStart === null || selLen() === 0) { return; }
+const CTX_SEP = `<div class="ctx-sep"></div>`;
 
-    const el    = document.getElementById('ctx-menu')!;
-    const len   = selLen();
-    const bytes = getSelBytes();
-    const h     = (v: number, w = 2) => v.toString(16).toUpperCase().padStart(w, '0');
-
-    // Pre-compute analyze values
-    const sum    = bytes.reduce((a, b) => a + b, 0);
-    const xorVal = bytes.reduce((a, b) => a ^ b, 0);
-    const sumW   = Math.max(4, sum.toString(16).length + (sum.toString(16).length % 2));
-
-    // Truncated preview string for copy hints
-    const preview = (s: string) => s.length > 20 ? `${s.slice(0, 18)}…` : s;
-
-    // Build helpers
-    const item = (cmd: string, label: string, hint = '') =>
-        `<div class="ctx-row" data-cmd="${cmd}">` +
+function ctxItem(cmd: string, label: string, hint = ''): string {
+    return `<div class="ctx-row" data-cmd="${cmd}">` +
         `<span class="ctx-label">${esc(label)}</span>` +
         (hint ? `<span class="ctx-hint">${esc(hint)}</span>` : '') +
         `</div>`;
-    const sep = `<div class="ctx-sep"></div>`;
-    const sub = (label: string, id: string, body: string) =>
-        `<div class="ctx-row ctx-has-sub" data-sub="${id}">` +
+}
+
+function ctxSubmenu(label: string, id: string, body: string): string {
+    return `<div class="ctx-row ctx-has-sub" data-sub="${id}">` +
         `<span class="ctx-label">${esc(label)}</span>` +
         `<div class="ctx-submenu">${body}</div>` +
         `</div>`;
+}
 
-    let menuBody = '';
+function ctxPreview(text: string): string {
+    return text.length > 20 ? `${text.slice(0, 18)}\u2026` : text;
+}
 
-    // Shared fill presets + custom input row (used for both single and multi)
-    const fillLabel = len === 1 ? 'Patch' : 'Fill / Patch';
+function buildFillMenu(len: number): string {
     const fillPresets: [number, string][] = [
         [0x00, 'Zero              (0x00)'],
         [0xFF, 'Erased flash      (0xFF)'],
@@ -1263,60 +1251,83 @@ function showCtxMenu(x: number, y: number): void {
         `<div class="ctx-custom-input-wrap">` +
         `<span class="ctx-custom-prefix">0x</span>` +
         `<input class="ctx-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
-        `<button class="ctx-fill-apply" title="Apply">✓</button>` +
+        `<button class="ctx-fill-apply" title="Apply">&#10003;</button>` +
         `</div></div>`;
-    const fillMenu =
-        fillPresets.map(([v, lbl]) => item(`fill-${h(v)}`, lbl, len > 1 ? `× ${len}` : '')).join('') +
-        sep +
+
+    return fillPresets.map(([v, lbl]) => ctxItem(`fill-${hexByte(v)}`, lbl, len > 1 ? `× ${len}` : '')).join('') +
+        CTX_SEP +
         customRow;
+}
 
-    if (len === 1) {
-        // ── Single byte: Copy submenu + Patch submenu ──
-        const val  = bytes[0];
-        const hexV = `0x${h(val)}`;
-        const binV = val.toString(2).padStart(8, '0');
-        const p    = val >= 0x20 && val < 0x7F;
-        const copyMenu =
-            item('hex',    'Hex',     hexV) +
-            item('dec',    'Decimal', `${val}`) +
-            item('binary', 'Binary',  `${binV.slice(0, 4)} ${binV.slice(4)}`) +
-            (p ? item('ascii', 'ASCII', `'${String.fromCharCode(val)}'`) : '');
-        menuBody =
-            sub('Copy',     'copy',  copyMenu) +
-            (S.editMode ? sep + sub(fillLabel,  'fill',  fillMenu) : '');
-    } else {
-        // ── Multi-byte: Copy + Analyze + Fill submenus ──
-        const copyMenu =
-            item('hex',       'Hex (spaces)',  preview(bytes.map(b => h(b)).join(' '))) +
-            item('hex-raw',   'Hex (raw)',     preview(bytes.map(b => h(b)).join(''))) +
-            item('binary',    'Binary',        preview(bytes.map(b => b.toString(2).padStart(8, '0')).join(' '))) +
-            item('ascii',     'ASCII',         preview(bytes.map(b => b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.').join(''))) +
-            sep +
-            item('dec-array', 'Decimal Array', preview(`[${bytes.join(', ')}]`)) +
-            item('hex-array', 'Hex Array',     preview(`[${bytes.map(b => '0x' + h(b)).join(', ')}]`)) +
-            item('c-array',   'C Array',       preview(`{${bytes.map(b => '0x' + h(b)).join(', ')}}`)) +
-            sep +
-            item('base64',    'Base64',        preview(btoa(String.fromCharCode(...bytes))));
-        const analyzeMenu =
-            item('an-sum',   'Sum',    `0x${h(sum, sumW)}  (${sum})`) +
-            item('an-xor',   'XOR',    `0x${h(xorVal)}`) +
-            sep +
-            item('an-crc8',  'CRC-8',  `0x${h(crc8(bytes))}`) +
-            item('an-crc16', 'CRC-16', `0x${h(crc16(bytes), 4)}`) +
-            item('an-crc32', 'CRC-32', `0x${h(crc32(bytes), 8)}`);
-        menuBody =
-            sub('Copy',      'copy',    copyMenu) +
-            sub('Analyze',   'analyze', analyzeMenu) +
-            (S.editMode ? sep + sub(fillLabel,   'fill',    fillMenu) : '');
-    }
+function buildSingleByteCtxMenu(val: number, len: number): string {
+    const hexV = `0x${hexByte(val)}`;
+    const binV = val.toString(2).padStart(8, '0');
+    const copyMenu =
+        ctxItem('hex',    'Hex',     hexV) +
+        ctxItem('dec',    'Decimal', `${val}`) +
+        ctxItem('binary', 'Binary',  `${binV.slice(0, 4)} ${binV.slice(4)}`) +
+        (formatAsciiByte(val) !== '.' ? ctxItem('ascii', 'ASCII', `'${String.fromCharCode(val)}'`) : '');
 
-    el.innerHTML =
-        `<div class="ctx-hdr">${esc(`${len} byte${len === 1 ? '' : 's'} selected`)}</div>` +
+    return ctxSubmenu('Copy', 'copy', copyMenu) +
+        (S.editMode ? CTX_SEP + ctxSubmenu('Patch', 'fill', buildFillMenu(len)) : '');
+}
+
+function buildMultiByteCopyMenu(bytes: number[]): string {
+    return ctxItem('hex',       'Hex (spaces)',  ctxPreview(bytes.map(hexByte).join(' '))) +
+        ctxItem('hex-raw',   'Hex (raw)',     ctxPreview(bytes.map(hexByte).join(''))) +
+        ctxItem('binary',    'Binary',        ctxPreview(bytes.map(b => b.toString(2).padStart(8, '0')).join(' '))) +
+        ctxItem('ascii',     'ASCII',         ctxPreview(bytes.map(formatAsciiByte).join(''))) +
+        CTX_SEP +
+        ctxItem('dec-array', 'Decimal Array', ctxPreview(`[${bytes.join(', ')}]`)) +
+        ctxItem('hex-array', 'Hex Array',     ctxPreview(`[${bytes.map(formatHexArrayByte).join(', ')}]`)) +
+        ctxItem('c-array',   'C Array',       ctxPreview(`{${bytes.map(formatHexArrayByte).join(', ')}}`)) +
+        CTX_SEP +
+        ctxItem('base64',    'Base64',        ctxPreview(btoa(String.fromCharCode(...bytes))));
+}
+
+function buildAnalyzeMenu(bytes: number[]): string {
+    const sum = bytes.reduce((a, b) => a + b, 0);
+    const xorVal = bytes.reduce((a, b) => a ^ b, 0);
+    const sumWidth = Math.max(4, sum.toString(16).length + (sum.toString(16).length % 2));
+
+    return ctxItem('an-sum',   'Sum',    `0x${hexValue(sum, sumWidth)}  (${sum})`) +
+        ctxItem('an-xor',   'XOR',    `0x${hexValue(xorVal)}`) +
+        CTX_SEP +
+        ctxItem('an-crc8',  'CRC-8',  `0x${hexValue(crc8(bytes))}`) +
+        ctxItem('an-crc16', 'CRC-16', `0x${hexValue(crc16(bytes), 4)}`) +
+        ctxItem('an-crc32', 'CRC-32', `0x${hexValue(crc32(bytes), 8)}`);
+}
+
+function buildMultiByteCtxMenu(bytes: number[], len: number): string {
+    return ctxSubmenu('Copy', 'copy', buildMultiByteCopyMenu(bytes)) +
+        ctxSubmenu('Analyze', 'analyze', buildAnalyzeMenu(bytes)) +
+        (S.editMode ? CTX_SEP + ctxSubmenu('Fill / Patch', 'fill', buildFillMenu(len)) : '');
+}
+
+function renderCtxMenuHtml(bytes: number[], len: number): string {
+    const menuBody = len === 1 ? buildSingleByteCtxMenu(bytes[0], len) : buildMultiByteCtxMenu(bytes, len);
+
+    return `<div class="ctx-hdr">${esc(`${len} byte${len === 1 ? '' : 's'} selected`)}</div>` +
         (S.editMode ? `<div class="ctx-edit-badge">✏ Editing</div>` : '') +
-        sep +
+        CTX_SEP +
         menuBody;
+}
 
-    // Wire leaf-item clicks
+function showCtxMenu(x: number, y: number): void {
+    if (S.selStart === null || selLen() === 0) { return; }
+
+    const el    = document.getElementById('ctx-menu')!;
+    const len   = selLen();
+    const bytes = getSelBytes();
+
+    el.innerHTML = renderCtxMenuHtml(bytes, len);
+    wireCtxCommands(el);
+    wireCustomFill(el);
+    wireSubmenus(el);
+    positionCtxMenu(el, x, y);
+}
+
+function wireCtxCommands(el: HTMLElement): void {
     el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row =>
         row.addEventListener('click', ev => {
             ev.stopPropagation();
@@ -1324,47 +1335,51 @@ function showCtxMenu(x: number, y: number): void {
             hideCtx();
         })
     );
+}
 
-    // Wire custom fill input
-    const fillInput  = el.querySelector<HTMLInputElement>('.ctx-fill-input');
-    const fillApply  = el.querySelector<HTMLButtonElement>('.ctx-fill-apply');
-    const applyCustomFill = () => {
-        const raw = fillInput?.value.trim().replace(/^0x/i, '') ?? '';
-        const val = parseInt(raw, 16);
-        if (isNaN(val) || val < 0 || val > 0xFF || raw === '') {
-            fillInput?.classList.add('ctx-fill-invalid');
-            fillInput?.focus();
-            return;
-        }
-        fillInput?.classList.remove('ctx-fill-invalid');
-        handleCtxCommand(`fill-${val.toString(16).toUpperCase().padStart(2, '0')}`);
-        hideCtx();
-    };
-    fillInput?.addEventListener('click',   ev => ev.stopPropagation());
+function wireCustomFill(el: HTMLElement): void {
+    const fillInput = el.querySelector<HTMLInputElement>('.ctx-fill-input');
+    const fillApply = el.querySelector<HTMLButtonElement>('.ctx-fill-apply');
+
+    fillInput?.addEventListener('click', ev => ev.stopPropagation());
     fillInput?.addEventListener('mousedown', ev => ev.stopPropagation());
-    fillInput?.addEventListener('focus', () => {
-        // Cancel any pending submenu close when user focuses the input
-        const sub = fillInput.closest<HTMLElement>('.ctx-submenu');
-        if (sub) { sub.style.display = 'block'; }
-    });
-    fillInput?.addEventListener('keydown',  ev => {
-        ev.stopPropagation();
-        if (ev.key === 'Enter') { applyCustomFill(); }
-        if (ev.key === 'Escape') { hideCtx(); }
-    });
+    fillInput?.addEventListener('focus', () => keepFillSubmenuOpen(fillInput));
+    fillInput?.addEventListener('keydown', ev => handleFillInputKeydown(ev, fillInput));
     fillInput?.addEventListener('input', () => fillInput.classList.remove('ctx-fill-invalid'));
-    fillApply?.addEventListener('click',   ev => { ev.stopPropagation(); applyCustomFill(); });
+    fillApply?.addEventListener('click', ev => { ev.stopPropagation(); applyCustomFill(fillInput); });
     fillApply?.addEventListener('mousedown', ev => ev.stopPropagation());
+}
 
-    // Wire submenus
-    wireSubmenus(el);
+function keepFillSubmenuOpen(fillInput: HTMLInputElement): void {
+    const sub = fillInput.closest<HTMLElement>('.ctx-submenu');
+    if (sub) { sub.style.display = 'block'; }
+}
 
-    // Position menu
+function handleFillInputKeydown(ev: KeyboardEvent, fillInput: HTMLInputElement): void {
+    ev.stopPropagation();
+    if (ev.key === 'Enter') { applyCustomFill(fillInput); }
+    if (ev.key === 'Escape') { hideCtx(); }
+}
+
+function applyCustomFill(fillInput: HTMLInputElement | null): void {
+    const raw = fillInput?.value.trim().replace(/^0x/i, '') ?? '';
+    const val = parseInt(raw, 16);
+    if (isNaN(val) || val < 0 || val > 0xFF || raw === '') {
+        fillInput?.classList.add('ctx-fill-invalid');
+        fillInput?.focus();
+        return;
+    }
+    fillInput?.classList.remove('ctx-fill-invalid');
+    handleCtxCommand(`fill-${hexByte(val)}`);
+    hideCtx();
+}
+
+function positionCtxMenu(el: HTMLElement, x: number, y: number): void {
     el.style.display = 'block';
-    const mw = el.offsetWidth  || 220;
+    const mw = el.offsetWidth || 220;
     const mh = el.offsetHeight || 120;
-    el.style.left = `${Math.min(x, window.innerWidth  - mw - 8)}px`;
-    el.style.top  = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+    el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
+    el.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
 }
 
 function wireSubmenus(menuEl: HTMLElement): void {
