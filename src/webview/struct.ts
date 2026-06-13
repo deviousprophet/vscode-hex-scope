@@ -1432,7 +1432,10 @@ function getCopyText(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
     if (isBitFieldRow(r)) { return copyBitFieldValue(r, valType); }
     if (r.type === 'ascii') { return r.decoded; }
+    return copyNonAsciiFieldValue(r, valType);
+}
 
+function copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
     const bytes = fieldBytes(r);
     const endian = r.endian ?? S.endian;
     const le = endian === 'le';
