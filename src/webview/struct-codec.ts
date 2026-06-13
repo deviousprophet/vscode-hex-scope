@@ -772,6 +772,13 @@ type ParsedStructLine =
     | { kind: 'field'; field: StructField }
     | { kind: 'bitField'; type: UnsignedScalarType; name: string; bitWidth: number };
 
+interface StructDeclarationParts {
+    rawType: string;
+    fieldName: string;
+    bitWidth: number | null;
+    count: number;
+}
+
 function preserveMultilineCommentSpacing(text: string): string {
     return text.replace(/\/\*[\s\S]*?\*\//g, m => {
         const newlines = (m.match(/\n/g) ?? []).length;
@@ -819,33 +826,45 @@ function parseBitFieldDeclaration(
 
 function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
     const { stripped, comment } = stripStructLine(rawLine);
-    if (!stripped || stripped === '{' || stripped === '}' || /^(?:typedef|struct|union)\b/.test(stripped)) {
-        return { kind: 'skip' };
-    }
+    if (shouldSkipStructDeclaration(stripped)) { return { kind: 'skip' }; }
 
-    const unqual = stripped.replace(/^(?:(?:const|volatile|static|register)\s+)+/, '');
-    const match = unqual.match(/^((?:unsigned|signed)\s+\w+|\w+)\s+(\w+)\s*(?::\s*(\d+))?\s*(?:\[(\d+)\])?$/);
-    if (!match) {
-        return { kind: 'error', message: `Cannot parse: "${stripped}"` };
-    }
+    const parts = parseStructDeclarationParts(stripped);
+    if (!parts) { return { kind: 'error', message: `Cannot parse: "${stripped}"` }; }
 
-    const rawType = match[1].replace(/\s+/g, ' ');
-    const fieldName = match[2];
-    const mapped = C_TYPE_MAP[rawType] ?? C_TYPE_MAP[rawType.toLowerCase()];
+    const mapped = mapStructDeclarationType(parts.rawType);
     if (!mapped) {
-        return { kind: 'error', message: `Unknown type "${rawType}" for field "${fieldName}"` };
+        return { kind: 'error', message: `Unknown type "${parts.rawType}" for field "${parts.fieldName}"` };
     }
 
-    const bitWidth = match[3] ? parseInt(match[3], 10) : null;
-    const count = match[4] ? Math.max(1, parseInt(match[4], 10)) : 1;
-    if (bitWidth !== null) {
-        return parseBitFieldDeclaration(fieldName, mapped, bitWidth, count);
+    if (parts.bitWidth !== null) {
+        return parseBitFieldDeclaration(parts.fieldName, mapped, parts.bitWidth, parts.count);
     }
 
     return {
         kind: 'field',
-        field: { name: fieldName, type: mapped, count, endian: endianFromComment(comment) },
+        field: { name: parts.fieldName, type: mapped, count: parts.count, endian: endianFromComment(comment) },
     };
+}
+
+function shouldSkipStructDeclaration(stripped: string): boolean {
+    return !stripped || stripped === '{' || stripped === '}' || /^(?:typedef|struct|union)\b/.test(stripped);
+}
+
+function parseStructDeclarationParts(stripped: string): StructDeclarationParts | null {
+    const unqual = stripped.replace(/^(?:(?:const|volatile|static|register)\s+)+/, '');
+    const match = unqual.match(/^((?:unsigned|signed)\s+\w+|\w+)\s+(\w+)\s*(?::\s*(\d+))?\s*(?:\[(\d+)\])?$/);
+    if (!match) { return null; }
+
+    return {
+        rawType: match[1].replace(/\s+/g, ' '),
+        fieldName: match[2],
+        bitWidth: match[3] ? parseInt(match[3], 10) : null,
+        count: match[4] ? Math.max(1, parseInt(match[4], 10)) : 1,
+    };
+}
+
+function mapStructDeclarationType(rawType: string): StructScalarFieldType | undefined {
+    return C_TYPE_MAP[rawType] ?? C_TYPE_MAP[rawType.toLowerCase()];
 }
 
 /**
