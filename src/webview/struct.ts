@@ -1707,6 +1707,26 @@ function bitUnitHeaderValueHtml(
     return getValForType(agg, valueType);
 }
 
+function bitUnitHeaderDisplayValue(
+    rows: DecodedField[],
+    agg: DecodedField,
+    valueType: ColType,
+    start: number,
+): string {
+    const value = bitUnitHeaderValueHtml(rows, agg, valueType, activeBitRangeForHeader(start));
+    return shouldUseRawHeaderValue(valueType, agg) ? value : esc(value);
+}
+
+const RAW_BIT_UNIT_VALUE_TYPES = new Set<ColType>(['bin', 'bin-sliced', 'ieee', 'hex']);
+
+function shouldUseRawHeaderValue(valueType: ColType, agg: DecodedField): boolean {
+    return RAW_BIT_UNIT_VALUE_TYPES.has(valueType) || agg.type === 'pointer';
+}
+
+function bitUnitByteCount(agg: DecodedField, fallback: number): number {
+    return agg.bytesHex.length > 0 ? agg.bytesHex.split(' ').length : fallback;
+}
+
 function bitUnitHeaderHtml(
     rows: DecodedField[],
     start: number,
@@ -1724,10 +1744,9 @@ function bitUnitHeaderHtml(
     }
 
     const t = _fieldValTypes.get(valKey) ?? 'bin';
-    const v = bitUnitHeaderValueHtml(rows, agg, t, activeBitRangeForHeader(start));
     const ptr = agg.type === 'pointer';
-    const valHtml = (t === 'bin' || t === 'bin-sliced' || t === 'ieee' || t === 'hex' || ptr) ? v : esc(v);
-    const byteCount = agg.bytesHex.length > 0 ? agg.bytesHex.split(' ').length : cnt;
+    const valHtml = bitUnitHeaderDisplayValue(rows, agg, t, start);
+    const byteCount = bitUnitByteCount(agg, cnt);
     const abbrev = fieldTypeAbbrev(agg, byteCount);
     const fullTypeLabel = fieldFullTypeLabel(agg, byteCount);
     const offsetLabel = fieldOffsetLabel(agg);
