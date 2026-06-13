@@ -29,6 +29,23 @@ const RECORD_TYPE_NAMES: Record<number, string> = {
     0x05: 'Start Linear Addr',
 };
 
+const REQUIRED_BYTE_COUNT: Partial<Record<number, number>> = {
+    0x01: 0,
+    0x02: 2,
+    0x03: 4,
+    0x04: 2,
+    0x05: 4,
+};
+
+interface IntelHexFields {
+    byteCount: number;
+    address: number;
+    recordType: number;
+    data: Uint8Array;
+    checksum: number;
+    checksumValid: boolean;
+}
+
 // ── Public API ───────────────────────────────────────────────────
 
 /**
@@ -75,7 +92,17 @@ export function parseIntelHex(source: string): ParseResult {
 // ── Line parser ───────────────────────────────────────────────────
 
 function parseLine(raw: string, lineNumber: number): HexRecord {
-    const base: HexRecord = {
+    const base = createBaseRecord(raw, lineNumber);
+    const hexResult = parseIntelHexPayload(raw, base);
+    if (typeof hexResult !== 'string') { return hexResult; }
+
+    const fields = parseIntelHexFields(hexResult);
+    const error = validateIntelHexFields(fields);
+    return buildIntelHexRecord(raw, lineNumber, fields, error);
+}
+
+function createBaseRecord(raw: string, lineNumber: number): HexRecord {
+    return {
         lineNumber,
         raw,
         byteCount: 0,
@@ -86,59 +113,86 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
         checksumValid: false,
         resolvedAddress: 0,
     };
+}
 
+function parseIntelHexPayload(raw: string, base: HexRecord): string | HexRecord {
     if (raw[0] !== ':') {
         return { ...base, error: 'Missing start code ":"' };
     }
 
     const hex = raw.slice(1);
+    return validateIntelHexPayload(hex, base) ?? hex;
+}
 
+function validateIntelHexPayload(hex: string, base: HexRecord): HexRecord | null {
     if (!/^[0-9A-Fa-f]+$/.test(hex)) {
         return { ...base, error: 'Non-hex characters in record' };
     }
-
     if (hex.length < 10) {
         return { ...base, error: 'Record too short' };
     }
 
-    const byteCount = parseInt(hex.slice(0, 2), 16);
-    const expectedLength = 10 + byteCount * 2;
-
+    const expectedLength = 10 + parseInt(hex.slice(0, 2), 16) * 2;
     if (hex.length !== expectedLength) {
         return { ...base, error: `Expected ${expectedLength} hex chars, got ${hex.length}` };
     }
+    return null;
+}
 
+function parseIntelHexFields(hex: string): IntelHexFields {
+    const byteCount = parseInt(hex.slice(0, 2), 16);
     const address = parseInt(hex.slice(2, 6), 16);
     const recordType = parseInt(hex.slice(6, 8), 16);
-    const data = new Uint8Array(byteCount);
+    const data = parseIntelHexData(hex, byteCount);
+    const checksum = parseInt(hex.slice(8 + byteCount * 2), 16);
+    const checksumValid = checksum === computeIntelHexChecksum(byteCount, address, recordType, data);
+    return { byteCount, address, recordType, data, checksum, checksumValid };
+}
 
+function parseIntelHexData(hex: string, byteCount: number): Uint8Array {
+    const data = new Uint8Array(byteCount);
     for (let i = 0; i < byteCount; i++) {
         data[i] = parseInt(hex.slice(8 + i * 2, 10 + i * 2), 16);
     }
+    return data;
+}
 
-    const checksum = parseInt(hex.slice(8 + byteCount * 2), 16);
-
-    // Validate checksum: two's complement of sum of all bytes
+function computeIntelHexChecksum(byteCount: number, address: number, recordType: number, data: Uint8Array): number {
     let sum = byteCount + ((address >> 8) & 0xFF) + (address & 0xFF) + recordType;
-    for (const b of data) {sum += b;}
-    const expectedChecksum = ((~sum + 1) & 0xFF);
-    const checksumValid = checksum === expectedChecksum;
+    for (const b of data) { sum += b; }
+    return ((~sum + 1) & 0xFF);
+}
 
-    // Structural validation: unknown record type
-    if (!(recordType in RECORD_TYPE_NAMES)) {
-        return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0,
-                 error: `Unknown record type: 0x${recordType.toString(16).toUpperCase().padStart(2, '0')}` };
+function validateIntelHexFields(fields: IntelHexFields): string | undefined {
+    if (!(fields.recordType in RECORD_TYPE_NAMES)) {
+        return `Unknown record type: 0x${fields.recordType.toString(16).toUpperCase().padStart(2, '0')}`;
     }
 
-    // Structural validation: byte count must match the fixed size for non-data record types
-    const REQUIRED_BYTE_COUNT: Partial<Record<number, number>> = { 0x01: 0, 0x02: 2, 0x03: 4, 0x04: 2, 0x05: 4 };
-    const requiredBC = REQUIRED_BYTE_COUNT[recordType];
-    if (requiredBC !== undefined && byteCount !== requiredBC) {
-        return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0,
-                 error: `${RECORD_TYPE_NAMES[recordType]} must have byte count ${requiredBC}, got ${byteCount}` };
+    const requiredByteCount = REQUIRED_BYTE_COUNT[fields.recordType];
+    if (requiredByteCount !== undefined && fields.byteCount !== requiredByteCount) {
+        return `${RECORD_TYPE_NAMES[fields.recordType]} must have byte count ${requiredByteCount}, got ${fields.byteCount}`;
     }
+    return undefined;
+}
 
-    return { lineNumber, raw, byteCount, address, recordType, data, checksum, checksumValid, resolvedAddress: 0 };
+function buildIntelHexRecord(
+    raw: string,
+    lineNumber: number,
+    fields: IntelHexFields,
+    error?: string,
+): HexRecord {
+    return {
+        lineNumber,
+        raw,
+        byteCount: fields.byteCount,
+        address: fields.address,
+        recordType: fields.recordType,
+        data: fields.data,
+        checksum: fields.checksum,
+        checksumValid: fields.checksumValid,
+        resolvedAddress: 0,
+        ...(error ? { error } : {}),
+    };
 }
 
 // ── Segment builder ───────────────────────────────────────────────
