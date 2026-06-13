@@ -99,7 +99,7 @@ export function calcRowOffset(rowIndex: number, state: VirtualScrollState): numb
 /**
  * Calculate the total height contribution of rows in range [start, end).
  */
-export function calcRangeHeight(start: number, end: number, state: VirtualScrollState): number {
+function calcRangeHeight(start: number, end: number, state: VirtualScrollState): number {
     ensureHeightCache(state);
     const s = Math.max(0, Math.min(start, S.memRows.length));
     const e = Math.max(s, Math.min(end, S.memRows.length));

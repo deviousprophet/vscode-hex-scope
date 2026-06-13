@@ -3,23 +3,41 @@ import { S } from './state';
 import { applyMatchHighlights, applySel, scrollTo } from './memoryView';
 import type { SearchEndianness, SearchMode, SerializedSegment } from './types';
 
-export interface SearchRequest {
+interface SearchRequest {
     mode: SearchMode;
     raw: string;
     segments: SerializedSegment[];
     endianness?: SearchEndianness;
 }
 
-export interface SearchHandlers {
+interface SearchHandlers {
     onProgressUpdate?: (matches: number[], percentComplete: number) => void;
     onComplete: (matches: number[]) => void;
+}
+
+interface SearchCursor {
+    segmentIndex: number;
+    offset: number;
+}
+
+interface AddressSearchBounds {
+    queryMin: number;
+    queryMax: number;
+    prefixShift: number;
+    prefixValue: number;
+}
+
+interface SearchProgressState {
+    total: number;
+    scanned: number;
+    lastUpdateTime: number;
 }
 
 const SEARCH_DEBOUNCE_MS = 120;
 const SEARCH_CHUNK_BUDGET_MS = 24;
 const SEARCH_PROGRESS_THROTTLE_MS = 150;
 
-export class SearchEngine {
+class SearchEngine {
     private token = 0;
     private debounceHandle: number | null = null;
     private chunkHandle: number | null = null;
@@ -65,60 +83,15 @@ export class SearchEngine {
         const matches: number[] = [];
         const segments = sortSegmentsByStart(req.segments);
 
-        let segIdx = 0;
-        let addrInSeg = 0;
-        const totalSegmentBytes = segments.reduce((sum, seg) => sum + seg.data.length, 0);
-        let scannedBytes = 0;
-        let lastProgressUpdateTime = performance.now();
+        const cursor: SearchCursor = { segmentIndex: 0, offset: 0 };
+        const progress = createSearchProgress(segments);
 
         const step = (): void => {
             if (token !== this.token) { return; }
 
-            const deadline = performance.now() + SEARCH_CHUNK_BUDGET_MS;
-            while (segIdx < segments.length && performance.now() < deadline) {
-                const seg = segments[segIdx];
-                const segData = seg.data;
-                const segStart = seg.startAddress;
-
-                while (addrInSeg <= segData.length - needleLen) {
-                    if (performance.now() >= deadline) {
-                        break;
-                    }
-                    
-                    for (const needle of needles) {
-                        if (matchSequenceInSegment(segData, addrInSeg, needle)) {
-                            matches.push(segStart + addrInSeg);
-                            break;
-                        }
-                    }
-                    addrInSeg++;
-                    scannedBytes++;
-                }
-
-                if (addrInSeg > segData.length - needleLen) {
-                    segIdx++;
-                    addrInSeg = 0;
-                }
-            }
-
-            const now = performance.now();
-            if (now - lastProgressUpdateTime >= SEARCH_PROGRESS_THROTTLE_MS || segIdx >= segments.length) {
-                if (totalSegmentBytes > 0) {
-                    const percent = Math.min(100, Math.floor((scannedBytes / totalSegmentBytes) * 100));
-                    handlers.onProgressUpdate?.(matches, percent);
-                    lastProgressUpdateTime = now;
-                }
-            }
-
-            if (segIdx < segments.length) {
-                this.chunkHandle = window.setTimeout(step, 0);
-                return;
-            }
-
-            this.chunkHandle = null;
-            if (token !== this.token) { return; }
-
-            handlers.onComplete(matches);
+            progress.scanned += scanByteSearchChunk(segments, needles, needleLen, cursor, matches);
+            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segments.length);
+            this.continueOrCompleteSearch(token, cursor, segments.length, step, handlers, matches);
         };
 
         step();
@@ -138,67 +111,17 @@ export class SearchEngine {
 
         const matches: number[] = [];
         const segments = sortSegmentsByStart(req.segments);
-        const totalAddresses = segments.reduce((sum, seg) => sum + seg.data.length, 0);
-        let segmentIndex = 0;
-        let addrInSegment = 0;
-        let scannedAddresses = 0;
-        let lastProgressUpdateTime = performance.now();
+        const cursor: SearchCursor = { segmentIndex: 0, offset: 0 };
+        const progress = createSearchProgress(segments);
 
-        const queryMin = parseInt(query.padEnd(8, '0'), 16);
-        const queryMax = parseInt(query.padEnd(8, 'F'), 16);
-        const prefixShift = (8 - query.length) * 4;
-        const prefixValue = parseInt(query, 16) >>> 0;
+        const bounds = buildAddressSearchBounds(query);
 
         const step = (): void => {
             if (token !== this.token) { return; }
 
-            const deadline = performance.now() + SEARCH_CHUNK_BUDGET_MS;
-            while (segmentIndex < segments.length && performance.now() < deadline) {
-                const seg = segments[segmentIndex];
-                const segStart = seg.startAddress;
-                const segEnd = seg.startAddress + seg.data.length - 1;
-
-                if (segEnd >= queryMin && segStart <= queryMax) {
-                    while (addrInSegment < seg.data.length) {
-                        if (performance.now() >= deadline) {
-                            break;
-                        }
-                        const addr = (segStart + addrInSegment) >>> 0;
-                        if ((addr >>> prefixShift) === prefixValue) {
-                            matches.push(addr);
-                        }
-                        addrInSegment++;
-                        scannedAddresses++;
-                    }
-                } else {
-                    addrInSegment = seg.data.length;
-                    scannedAddresses += seg.data.length;
-                }
-
-                if (addrInSegment >= seg.data.length) {
-                    segmentIndex++;
-                    addrInSegment = 0;
-                }
-            }
-
-            const now = performance.now();
-            if (now - lastProgressUpdateTime >= SEARCH_PROGRESS_THROTTLE_MS || segmentIndex >= segments.length) {
-                if (totalAddresses > 0) {
-                    const percent = Math.min(100, Math.floor((scannedAddresses / totalAddresses) * 100));
-                    handlers.onProgressUpdate?.(matches, percent);
-                    lastProgressUpdateTime = now;
-                }
-            }
-
-            if (segmentIndex < segments.length) {
-                this.chunkHandle = window.setTimeout(step, 0);
-                return;
-            }
-
-            this.chunkHandle = null;
-            if (token !== this.token) { return; }
-
-            handlers.onComplete(matches);
+            progress.scanned += scanAddressSearchChunk(segments, bounds, cursor, matches);
+            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segments.length);
+            this.continueOrCompleteSearch(token, cursor, segments.length, step, handlers, matches);
         };
 
         step();
@@ -216,6 +139,195 @@ export class SearchEngine {
         }
     }
 
+    private continueOrCompleteSearch(
+        token: number,
+        cursor: SearchCursor,
+        segmentCount: number,
+        step: () => void,
+        handlers: SearchHandlers,
+        matches: number[],
+    ): void {
+        if (cursor.segmentIndex < segmentCount) {
+            this.chunkHandle = window.setTimeout(step, 0);
+            return;
+        }
+
+        this.chunkHandle = null;
+        if (token !== this.token) { return; }
+
+        handlers.onComplete(matches);
+    }
+
+}
+
+function scanByteSearchChunk(
+    segments: SerializedSegment[],
+    needles: number[][],
+    needleLen: number,
+    cursor: SearchCursor,
+    matches: number[],
+): number {
+    return scanSegmentsWithinBudget(
+        segments,
+        cursor,
+        (seg, deadline) => scanByteSegment(seg, needles, needleLen, cursor, matches, deadline),
+        seg => cursor.offset > seg.data.length - needleLen,
+    );
+}
+
+function scanByteSegment(
+    seg: SerializedSegment,
+    needles: number[][],
+    needleLen: number,
+    cursor: SearchCursor,
+    matches: number[],
+    deadline: number,
+): number {
+    let scanned = 0;
+    while (cursor.offset <= seg.data.length - needleLen) {
+        if (performance.now() >= deadline) { break; }
+        if (matchesAnyNeedle(seg.data, cursor.offset, needles)) {
+            matches.push(seg.startAddress + cursor.offset);
+        }
+        cursor.offset++;
+        scanned++;
+    }
+    return scanned;
+}
+
+function matchesAnyNeedle(segmentData: number[], offset: number, needles: number[][]): boolean {
+    for (const needle of needles) {
+        if (matchSequenceInSegment(segmentData, offset, needle)) { return true; }
+    }
+    return false;
+}
+
+function buildAddressSearchBounds(query: string): AddressSearchBounds {
+    return {
+        queryMin: parseInt(query.padEnd(8, '0'), 16),
+        queryMax: parseInt(query.padEnd(8, 'F'), 16),
+        prefixShift: (8 - query.length) * 4,
+        prefixValue: parseInt(query, 16) >>> 0,
+    };
+}
+
+function scanAddressSearchChunk(
+    segments: SerializedSegment[],
+    bounds: AddressSearchBounds,
+    cursor: SearchCursor,
+    matches: number[],
+): number {
+    return scanSegmentsWithinBudget(
+        segments,
+        cursor,
+        (seg, deadline) => scanAddressSearchSegment(seg, bounds, cursor, matches, deadline),
+        seg => cursor.offset >= seg.data.length,
+    );
+}
+
+function scanSegmentsWithinBudget(
+    segments: SerializedSegment[],
+    cursor: SearchCursor,
+    scanSegment: (seg: SerializedSegment, deadline: number) => number,
+    isSegmentComplete: (seg: SerializedSegment) => boolean,
+): number {
+    const deadline = performance.now() + SEARCH_CHUNK_BUDGET_MS;
+    let scanned = 0;
+
+    while (cursor.segmentIndex < segments.length && performance.now() < deadline) {
+        const seg = segments[cursor.segmentIndex];
+        scanned += scanSegment(seg, deadline);
+
+        if (isSegmentComplete(seg)) {
+            cursor.segmentIndex++;
+            cursor.offset = 0;
+        }
+    }
+
+    return scanned;
+}
+
+function segmentOverlapsAddressBounds(seg: SerializedSegment, bounds: AddressSearchBounds): boolean {
+    const segStart = seg.startAddress;
+    const segEnd = seg.startAddress + seg.data.length - 1;
+    return segEnd >= bounds.queryMin && segStart <= bounds.queryMax;
+}
+
+function scanAddressSegment(
+    seg: SerializedSegment,
+    bounds: AddressSearchBounds,
+    cursor: SearchCursor,
+    matches: number[],
+    deadline: number,
+): number {
+    let scanned = 0;
+    while (cursor.offset < seg.data.length) {
+        if (performance.now() >= deadline) { break; }
+        const addr = (seg.startAddress + cursor.offset) >>> 0;
+        if ((addr >>> bounds.prefixShift) === bounds.prefixValue) {
+            matches.push(addr);
+        }
+        cursor.offset++;
+        scanned++;
+    }
+    return scanned;
+}
+
+function scanAddressSearchSegment(
+    seg: SerializedSegment,
+    bounds: AddressSearchBounds,
+    cursor: SearchCursor,
+    matches: number[],
+    deadline: number,
+): number {
+    if (segmentOverlapsAddressBounds(seg, bounds)) {
+        return scanAddressSegment(seg, bounds, cursor, matches, deadline);
+    }
+
+    cursor.offset = seg.data.length;
+    return seg.data.length;
+}
+
+function createSearchProgress(segments: SerializedSegment[]): SearchProgressState {
+    return {
+        total: segments.reduce((sum, seg) => sum + seg.data.length, 0),
+        scanned: 0,
+        lastUpdateTime: performance.now(),
+    };
+}
+
+function updateSearchProgress(
+    handlers: SearchHandlers,
+    matches: number[],
+    progress: SearchProgressState,
+    complete: boolean,
+): void {
+    progress.lastUpdateTime = reportSearchProgress(
+        handlers,
+        matches,
+        progress.total,
+        progress.scanned,
+        progress.lastUpdateTime,
+        complete,
+    );
+}
+
+function reportSearchProgress(
+    handlers: SearchHandlers,
+    matches: number[],
+    total: number,
+    scanned: number,
+    lastProgressUpdateTime: number,
+    complete: boolean,
+): number {
+    const now = performance.now();
+    if (total <= 0 || (now - lastProgressUpdateTime < SEARCH_PROGRESS_THROTTLE_MS && !complete)) {
+        return lastProgressUpdateTime;
+    }
+
+    const percent = Math.min(100, Math.floor((scanned / total) * 100));
+    handlers.onProgressUpdate?.(matches, percent);
+    return now;
 }
 
 function matchSequenceInSegment(segmentData: number[], offset: number, needle: number[]): boolean {
@@ -254,7 +366,11 @@ function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndiannes
 }
 
 function parseBytePattern(raw: string): number[] {
-    const tokens = raw.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
+    return parseHexBytes(raw.replace(/\s/g, ''));
+}
+
+function parseHexBytes(hex: string): number[] {
+    const tokens = hex.match(/.{1,2}/g) ?? [];
     const bytes: number[] = [];
     for (const tok of tokens) {
         const v = parseInt(tok, 16);
@@ -268,29 +384,28 @@ function parseValuePattern(raw: string): number[] {
     const s = raw.trim().replace(/_/g, '');
     if (!s) { return []; }
 
-    if (/^0x[0-9a-fA-F]+$/.test(s)) {
-        let hex = s.slice(2);
-        if (hex.length % 2 === 1) {
-            hex = `0${hex}`;
-        }
-        const out: number[] = [];
-        for (let i = 0; i < hex.length; i += 2) {
-            const v = parseInt(hex.slice(i, i + 2), 16);
-            if (isNaN(v)) { return []; }
-            out.push(v);
-        }
-        return out;
-    }
+    if (/^0x[0-9a-fA-F]+$/.test(s)) { return parseHexValueBytes(s.slice(2)); }
 
     if (!/^\d+$/.test(s)) { return []; }
 
-    let value: bigint;
-    try {
-        value = BigInt(s);
-    } catch {
-        return [];
-    }
+    const value = parseDecimalBigInt(s);
+    return value === null ? [] : bigIntToBigEndianBytes(value);
+}
 
+function parseHexValueBytes(hexValue: string): number[] {
+    const hex = hexValue.length % 2 === 1 ? `0${hexValue}` : hexValue;
+    return parseHexBytes(hex);
+}
+
+function parseDecimalBigInt(s: string): bigint | null {
+    try {
+        return BigInt(s);
+    } catch {
+        return null;
+    }
+}
+
+function bigIntToBigEndianBytes(value: bigint): number[] {
     if (value === 0n) { return [0]; }
 
     const out: number[] = [];
@@ -361,46 +476,15 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
     const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
     const q = raw.trim();
     const searchKey = makeSearchKey(S.searchMode, q, S.searchEndianness);
-    const isUnchangedCompleted = searchKey === _lastCompletedSearchKey;
 
-    if (_searchRunning) {
-        if (q.length === 0) {
-            clearSearch();
-            return;
-        }
-
-        if (searchKey === _activeSearchKey) {
-            if (trigger === 'enter-prev') {
-                prevMatch();
-            } else if (trigger === 'enter-next') {
-                nextMatch();
-            }
-            return;
-        }
-
-        // New query/mode while running: cancel current search and start latest immediately.
-        engine.clear();
-        _searchRunning = false;
-    }
-
-    if (q.length > 0 && isUnchangedCompleted && trigger !== 'button') {
-        if (trigger === 'enter-prev') {
-            prevMatch();
-        } else {
-            nextMatch();
-        }
-        return;
-    }
+    if (handleRunningSearch(q, searchKey, trigger)) { return; }
+    if (handleCompletedSearchNavigation(q, searchKey, trigger)) { return; }
 
     S.matchAddrs = [];
     S.matchIdx = -1;
 
     if (q.length === 0) {
-        _lastCompletedSearchKey = '';
-        engine.clear();
-        setSearchBusy(false);
-        applyMatchHighlights();
-        updMC();
+        clearEmptySearchQuery();
         return;
     }
 
@@ -410,6 +494,50 @@ export function runSearch(trigger: SearchTrigger = 'button'): void {
         raw: q,
         endianness: S.searchEndianness,
     });
+}
+
+function handleRunningSearch(q: string, searchKey: string, trigger: SearchTrigger): boolean {
+    if (!_searchRunning) { return false; }
+
+    if (q.length === 0) {
+        clearSearch();
+        return true;
+    }
+
+    if (searchKey === _activeSearchKey) {
+        navigateBySearchTrigger(trigger);
+        return true;
+    }
+
+    // New query/mode while running: cancel current search and start latest immediately.
+    engine.clear();
+    _searchRunning = false;
+    return false;
+}
+
+function handleCompletedSearchNavigation(q: string, searchKey: string, trigger: SearchTrigger): boolean {
+    if (q.length === 0 || searchKey !== _lastCompletedSearchKey || trigger === 'button') {
+        return false;
+    }
+
+    navigateBySearchTrigger(trigger);
+    return true;
+}
+
+function navigateBySearchTrigger(trigger: SearchTrigger): void {
+    if (trigger === 'enter-prev') {
+        prevMatch();
+    } else if (trigger === 'enter-next') {
+        nextMatch();
+    }
+}
+
+function clearEmptySearchQuery(): void {
+    _lastCompletedSearchKey = '';
+    engine.clear();
+    setSearchBusy(false);
+    applyMatchHighlights();
+    updMC();
 }
 
 function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; endianness: SearchEndianness }): void {
@@ -502,7 +630,7 @@ export function prevMatch(): void {
     goToMatch();
 }
 
-export function updMC(): void {
+function updMC(): void {
     const el = document.getElementById('match-count');
     if (!el) { return; }
     const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
@@ -572,17 +700,15 @@ function makeSearchKey(mode: SearchMode, raw: string, endianness: SearchEndianne
 function canonicalizeQuery(mode: SearchMode, raw: string): string {
     if (mode === 'bytes') {
         const bytes = parseBytePattern(raw);
-        if (bytes.length > 0) {
-            return bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
-        }
+        const canonical = canonicalizeBytes(bytes);
+        if (canonical) { return canonical; }
         return raw.replace(/\s/g, '').toUpperCase();
     }
 
     if (mode === 'value') {
         const bytes = parseValuePattern(raw);
-        if (bytes.length > 0) {
-            return bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
-        }
+        const canonical = canonicalizeBytes(bytes);
+        if (canonical) { return canonical; }
         return raw.replace(/_/g, '').toUpperCase();
     }
 
@@ -593,3 +719,7 @@ function canonicalizeQuery(mode: SearchMode, raw: string): string {
     return raw;
 }
 
+function canonicalizeBytes(bytes: number[]): string | null {
+    if (bytes.length === 0) { return null; }
+    return bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+}

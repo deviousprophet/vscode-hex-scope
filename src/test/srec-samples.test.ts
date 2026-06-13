@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseIntelHex } from '../parser/IntelHexParser';
 import { parseSRec } from '../parser/SRecParser';
+import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
 
 // Sample files are at <workspace-root>/sample/; tests compile to out/test/
 const SAMPLES  = path.resolve(__dirname, '..', '..', 'sample');
@@ -50,8 +51,7 @@ suite('sample/srec: minimal.srec', () => {
     });
 
     test('totalDataBytes equals sum of segment lengths', () => {
-        const sum = r.segments.reduce((acc, s) => acc + s.data.length, 0);
-        assert.strictEqual(r.totalDataBytes, sum);
+        assert.strictEqual(r.totalDataBytes, segmentDataLengthTotal(r.segments));
     });
 
     test('all S1 records fit within 16-bit address space', () => {
@@ -171,11 +171,7 @@ suite('sample/srec: firmware_s3.srec', () => {
     });
 
     test('0xDEADBEEF sentinel bytes are present in parsed memory', () => {
-        const flat: number[] = [];
-        for (const seg of r.segments) { flat.push(...seg.data); }
-        const magic = [0xDE, 0xAD, 0xBE, 0xEF];
-        const found = flat.some((_, i) => magic.every((b, j) => flat[i + j] === b));
-        assert.ok(found, '0xDEADBEEF bytes not found in any segment');
+        assertSegmentsContainBytes(r.segments, [0xDE, 0xAD, 0xBE, 0xEF], '0xDEADBEEF');
     });
 
     test('all records use 32-bit addresses (fits in 4-byte S3 addr field)', () => {

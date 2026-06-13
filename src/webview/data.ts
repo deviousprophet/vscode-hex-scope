@@ -8,7 +8,7 @@ import { S, BPR } from './state';
  * Build segment index from parseResult for O(log n) byte access.
  * Index maps each segment's memory range for binary-search lookup.
  */
-export function initSegmentIndex(): void {
+function initSegmentIndex(): void {
     S.segmentIndex = [];
     if (!S.parseResult || S.parseResult.segments.length === 0) { 
         return; 

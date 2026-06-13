@@ -5,6 +5,8 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
+import { buildContiguousSegments } from './segments';
+import { parseSourceRecords } from './records';
 
 // ── SREC record-type metadata ─────────────────────────────────────
 
@@ -23,10 +25,37 @@ export function srecIsData(type: number): boolean {
     return type === 1 || type === 2 || type === 3;
 }
 
+export function computeSRecChecksum(byteCount: number, address: number, addressSize: number, data: Iterable<number>): number {
+    let sum = byteCount;
+    for (let i = 0; i < addressSize; i++) {
+        sum += (address >>> ((addressSize - 1 - i) * 8)) & 0xFF;
+    }
+    for (const b of data) { sum += b; }
+    return (~sum) & 0xFF;
+}
+
 // ── Line parser ───────────────────────────────────────────────────
 
+interface SRecLayout {
+    byteCount: number;
+    addressSize: number;
+}
+
+interface ParsedSRecLine {
+    recordType: number;
+    hex: string;
+    layout: SRecLayout;
+}
+
 function parseLine(raw: string, lineNumber: number): HexRecord {
-    const base: HexRecord = {
+    const base = createBaseRecord(raw, lineNumber);
+    const parsed = parseSRecLine(raw, base);
+    if (!isParsedSRecLine(parsed)) { return parsed; }
+    return buildSRecRecord(raw, lineNumber, parsed);
+}
+
+function createBaseRecord(raw: string, lineNumber: number): HexRecord {
+    return {
         lineNumber,
         raw,
         byteCount: 0,
@@ -37,117 +66,153 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
         checksumValid: false,
         resolvedAddress: 0,
     };
+}
 
+function parseRecordType(raw: string, base: HexRecord): number | HexRecord {
+    const typeChar = raw[1];
+    const prefixError = validateRecordPrefix(raw, typeChar, base);
+    if (prefixError) { return prefixError; }
+
+    const recordType = parseInt(typeChar, 10);
+    const reservedError = validateRecordType(recordType, base);
+    if (reservedError) { return reservedError; }
+
+    return recordType;
+}
+
+function validateRecordPrefix(raw: string, typeChar: string, base: HexRecord): HexRecord | null {
     if (!raw.startsWith('S') || raw.length < 4) {
         return { ...base, error: 'Missing "S" start code or line too short' };
     }
 
-    const typeChar = raw[1];
     if (!/^[0-9]$/.test(typeChar)) {
         return { ...base, error: `Invalid record type character: "${typeChar}"` };
     }
-    const recordType = parseInt(typeChar, 10);
 
-    // S4 is reserved and undefined in the SREC standard
-    if (recordType === 4) {
-        return { ...base, recordType, error: 'Reserved record type: S4' };
-    }
+    return null;
+}
 
-    const hex = raw.slice(2); // everything after "Sn"
+function validateRecordType(recordType: number, base: HexRecord): HexRecord | null {
+    return recordType === 4 ? { ...base, recordType, error: 'Reserved record type: S4' } : null;
+}
 
+function validateHexPayload(hex: string, recordType: number, base: HexRecord): HexRecord | null {
     if (!/^[0-9A-Fa-f]+$/.test(hex)) {
         return { ...base, recordType, error: 'Non-hex characters in record' };
     }
     if (hex.length < 4) {
         return { ...base, recordType, error: 'Record too short' };
     }
+    return null;
+}
 
+function parseSRecLayout(hex: string, recordType: number, base: HexRecord): SRecLayout | HexRecord {
     const byteCount = parseInt(hex.slice(0, 2), 16);
-    const asz = SREC_ADDR_SIZES[recordType] ?? 2;
+    const addressSize = SREC_ADDR_SIZES[recordType] ?? 2;
+    const layout = { byteCount, addressSize };
 
-    // byteCount covers: address bytes + data bytes + 1 checksum byte (minimum = asz + 1)
-    if (byteCount < asz + 1) {
-        return { ...base, recordType, byteCount,
-                 error: `Byte count ${byteCount} too small for S${recordType} (minimum ${asz + 1})` };
-    }
+    return validateSRecByteCount(layout, recordType, base)
+        ?? validateSRecHexLength(hex, layout, recordType, base)
+        ?? layout;
+}
 
-    // S5-S9 carry no data payload; byte count must be exactly asz+1
-    if (recordType >= 5 && byteCount !== asz + 1) {
-        return { ...base, recordType, byteCount,
-                 error: `S${recordType} must have byte count ${asz + 1}, got ${byteCount}` };
-    }
+function isSRecLayout(result: SRecLayout | HexRecord): result is SRecLayout {
+    return 'addressSize' in result;
+}
 
-    // Total hex chars: 2 (byteCount field) + byteCount * 2 (all remaining bytes)
-    const expectedHexLen = 2 + byteCount * 2;
-    if (hex.length !== expectedHexLen) {
-        return {
-            ...base, recordType, byteCount,
-            error: `Expected ${expectedHexLen} hex chars, got ${hex.length}`,
-        };
-    }
-
-    // ── Parse address ─────────────────────────────────────────────
+function parseSRecAddress(hex: string, addressSize: number): number {
     let address = 0;
-    for (let i = 0; i < asz; i++) {
+    for (let i = 0; i < addressSize; i++) {
         address = (address * 256 + parseInt(hex.slice(2 + i * 2, 4 + i * 2), 16));
     }
-    address = address >>> 0; // coerce to unsigned 32-bit
+    return address >>> 0;
+}
 
-    // ── Parse data bytes ──────────────────────────────────────────
-    const dataOffset = 2 + asz * 2;
-    const dataLen = byteCount - asz - 1; // byteCount − addrBytes − checksumByte
+function parseSRecData(hex: string, layout: SRecLayout): Uint8Array {
+    const dataOffset = 2 + layout.addressSize * 2;
+    const dataLen = layout.byteCount - layout.addressSize - 1;
     const data = new Uint8Array(Math.max(0, dataLen));
     for (let i = 0; i < data.length; i++) {
         data[i] = parseInt(hex.slice(dataOffset + i * 2, dataOffset + i * 2 + 2), 16);
     }
+    return data;
+}
 
-    // ── Checksum (last byte) ──────────────────────────────────────
-    const checksum = parseInt(hex.slice(hex.length - 2), 16);
+function parseSRecLine(raw: string, base: HexRecord): ParsedSRecLine | HexRecord {
+    const recordTypeResult = parseRecordType(raw, base);
+    if (typeof recordTypeResult !== 'number') { return recordTypeResult; }
 
-    // Validate: one's complement of sum of byteCount + address bytes + data bytes
-    let sum = byteCount;
-    for (let i = 0; i < asz; i++) {
-        sum += (address >>> ((asz - 1 - i) * 8)) & 0xFF;
+    const recordType = recordTypeResult;
+    const hex = raw.slice(2); // everything after "Sn"
+    const hexError = validateHexPayload(hex, recordType, base);
+    if (hexError) { return hexError; }
+
+    const layoutResult = parseSRecLayout(hex, recordType, base);
+    if (!isSRecLayout(layoutResult)) { return layoutResult; }
+
+    return { recordType, hex, layout: layoutResult };
+}
+
+function isParsedSRecLine(result: ParsedSRecLine | HexRecord): result is ParsedSRecLine {
+    return 'layout' in result;
+}
+
+function validateSRecByteCount(layout: SRecLayout, recordType: number, base: HexRecord): HexRecord | null {
+    if (layout.byteCount < layout.addressSize + 1) {
+        return { ...base, recordType, byteCount: layout.byteCount,
+                 error: `Byte count ${layout.byteCount} too small for S${recordType} (minimum ${layout.addressSize + 1})` };
     }
-    for (const b of data) { sum += b; }
-    const expectedChecksum = (~sum) & 0xFF;
-    const checksumValid = checksum === expectedChecksum;
+
+    if (isInvalidCountRecord(recordType, layout)) {
+        return { ...base, recordType, byteCount: layout.byteCount,
+                 error: `S${recordType} must have byte count ${layout.addressSize + 1}, got ${layout.byteCount}` };
+    }
+
+    return null;
+}
+
+function isInvalidCountRecord(recordType: number, layout: SRecLayout): boolean {
+    return recordType >= 5 && layout.byteCount !== layout.addressSize + 1;
+}
+
+function validateSRecHexLength(
+    hex: string,
+    layout: SRecLayout,
+    recordType: number,
+    base: HexRecord,
+): HexRecord | null {
+    const expectedHexLen = 2 + layout.byteCount * 2;
+    if (hex.length === expectedHexLen) { return null; }
+
+    return {
+        ...base, recordType, byteCount: layout.byteCount,
+        error: `Expected ${expectedHexLen} hex chars, got ${hex.length}`,
+    };
+}
+
+function buildSRecRecord(raw: string, lineNumber: number, parsed: ParsedSRecLine): HexRecord {
+    const address = parseSRecAddress(parsed.hex, parsed.layout.addressSize);
+    const data = parseSRecData(parsed.hex, parsed.layout);
+    const checksum = parseInt(parsed.hex.slice(parsed.hex.length - 2), 16);
+    const expectedChecksum = computeSRecChecksum(parsed.layout.byteCount, address, parsed.layout.addressSize, data);
 
     return {
         lineNumber,
         raw,
-        byteCount,
+        byteCount: parsed.layout.byteCount,
         address,
-        recordType,
+        recordType: parsed.recordType,
         data,
         checksum,
-        checksumValid,
-        resolvedAddress: srecIsData(recordType) ? address : 0,
+        checksumValid: checksum === expectedChecksum,
+        resolvedAddress: srecIsData(parsed.recordType) ? address : 0,
     };
 }
 
 // ── Segment builder ───────────────────────────────────────────────
 
 function buildSegments(records: HexRecord[]): MemorySegment[] {
-    const blocks: { address: number; data: number[] }[] = [];
-    let current: { address: number; data: number[] } | null = null;
-
-    for (const rec of records) {
-        if (rec.error || !srecIsData(rec.recordType) || !rec.checksumValid) {
-            continue;
-        }
-        if (!current) {
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        } else if (rec.resolvedAddress !== current.address + current.data.length) {
-            // Address gap — start a new segment
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        }
-        for (const b of rec.data) { current.data.push(b); }
-    }
-
-    return blocks.map(b => ({ startAddress: b.address, data: new Uint8Array(b.data) }));
+    return buildContiguousSegments(records, rec => srecIsData(rec.recordType));
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -158,28 +223,14 @@ function buildSegments(records: HexRecord[]): MemorySegment[] {
  * so the rest of the extension can be format-agnostic.
  */
 export function parseSRec(source: string): ParseResult {
-    const lines = source.split(/\r?\n/);
-    const records: HexRecord[] = [];
-    let checksumErrors = 0;
-    let malformedLines = 0;
     let startAddress: number | undefined;
 
-    for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        const trimmed = raw.trim();
-        if (trimmed === '') { continue; }
-
-        const record = parseLine(trimmed, i + 1);
-        records.push(record);
-
-        if (record.error) { malformedLines++; continue; }
-        if (!record.checksumValid) { checksumErrors++; }
-
+    const { records, checksumErrors, malformedLines } = parseSourceRecords(source, parseLine, record => {
         // S7/S8/S9 carry the execution start address
         if (record.recordType === 7 || record.recordType === 8 || record.recordType === 9) {
             startAddress = record.address;
         }
-    }
+    });
 
     const segments = buildSegments(records);
     const totalDataBytes = segments.reduce((s, seg) => s + seg.data.length, 0);

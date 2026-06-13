@@ -34,83 +34,113 @@ export function renderInspector(): void {
     }
 }
 
+function inspectorSelectionLength(): number {
+    if (S.selStart === null) { return 0; }
+    return (S.selEnd !== null && S.selEnd >= S.selStart) ? S.selEnd - S.selStart + 1 : 1;
+}
+
+function renderInspectorNoSelection(addrEl: HTMLElement, valsEl: HTMLElement): void {
+    addrEl.style.display = 'none';
+    valsEl.innerHTML = '<div class="sb-empty">Click a byte to inspect</div>';
+    renderBits();
+    renderMultiInline();
+}
+
+function renderInspectorNoData(valsEl: HTMLElement): void {
+    valsEl.innerHTML = '<div class="sb-empty">No data at this address</div>';
+    renderBits();
+    renderMultiInline();
+}
+
+function renderInspectorAddress(addrEl: HTMLElement, len: number): void {
+    const startHex = S.selStart!.toString(16).toUpperCase().padStart(8, '0');
+    addrEl.style.display = '';
+    if (len === 1) {
+        addrEl.innerHTML = `<span class=\"insp-addr-value\">0x${startHex}</span>`;
+        return;
+    }
+
+    const endHex = S.selEnd!.toString(16).toUpperCase().padStart(8, '0');
+    addrEl.innerHTML =
+        `<span class=\"insp-addr-value\">0x${startHex}</span>` +
+        `<span class=\"insp-addr-sep\">–</span>` +
+        `<span class=\"insp-addr-value\">0x${endHex}</span>` +
+        `<span class=\"insp-addr-len\">${len} bytes</span>`;
+}
+
+function singleByteInspectorHtml(val: number): string {
+    const hexStr  = `0x${val.toString(16).toUpperCase().padStart(2, '0')}`;
+    const binRaw  = val.toString(2).padStart(8, '0');
+    const binDisp = `${binRaw.slice(0, 4)} ${binRaw.slice(4)}`;
+    const asciiChip = val >= 0x20 && val < 0x7F
+        ? `<span class="insp-ascii-chip">'${esc(String.fromCharCode(val))}'</span>`
+        : '';
+    return (
+        `<div class="insp-byte-row">` +
+        `<span class="insp-hex-chip" data-copy="${esc(hexStr)}" data-label="hex" title="Click to copy">${hexStr}</span>` +
+        `<span class="insp-dec-chip" data-copy="${esc(String(val))}" data-label="decimal" title="Click to copy">${val}</span>` +
+        `${asciiChip}` +
+        `</div>` +
+        `<div class="insp-bin-row" data-copy="${esc(binRaw)}" data-label="binary" title="Click to copy">${binDisp}</div>`
+    );
+}
+
+function selectedBytes(len: number): number[] {
+    const bytes: number[] = [];
+    for (let a = S.selStart!; a <= S.selEnd!; a++) {
+        bytes.push(getByte(a) ?? 0);
+    }
+    return bytes.slice(0, len);
+}
+
+function multiByteInspectorHtml(selBytes: number[], len: number): string {
+    const dumpBytes = selBytes.slice(0, 8);
+    const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    const copyStr   = len > 8 ? `${dumpStr} …` : dumpStr;
+    return (
+        `<div class="insp-raw-dump" data-copy="${esc(copyStr)}" data-label="bytes" title="Click to copy">` +
+        `${dumpStr}${len > 8 ? ' <span class="insp-dump-ellipsis">…</span>' : ''}` +
+        `</div>`
+    );
+}
+
+function wireInspectorCopies(valsEl: HTMLElement): void {
+    valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
+        el.addEventListener('click', () => {
+            vscode.postMessage({ type: 'copyText', text: el.dataset.copy!, label: el.dataset.label ?? 'value' });
+        });
+    });
+}
+
 export function updateInspector(): void {
     const addrEl = document.getElementById('insp-addr');
     const valsEl = document.getElementById('insp-vals');
     if (!addrEl || !valsEl) { return; }
 
     if (S.selStart === null) {
-        addrEl.style.display = 'none';
-        valsEl.innerHTML = '<div class="sb-empty">Click a byte to inspect</div>';
-        renderBits(); renderMultiInline(); return;
+        renderInspectorNoSelection(addrEl, valsEl);
+        return;
     }
 
-    const len = (S.selEnd !== null && S.selEnd >= S.selStart) ? S.selEnd - S.selStart + 1 : 1;
+    const len = inspectorSelectionLength();
     const val = getByte(S.selStart);
-
-    // ── Address bar ──
-    const ah = S.selStart.toString(16).toUpperCase().padStart(8, '0');
-    addrEl.style.display = '';
-    if (len === 1) {
-        addrEl.innerHTML = `<span class=\"insp-addr-value\">0x${ah}</span>`;
-    } else {
-        const endH = S.selEnd!.toString(16).toUpperCase().padStart(8, '0');
-        addrEl.innerHTML =
-            `<span class=\"insp-addr-value\">0x${ah}</span>` +
-            `<span class=\"insp-addr-sep\">–</span>` +
-            `<span class=\"insp-addr-value\">0x${endH}</span>` +
-            `<span class=\"insp-addr-len\">${len} bytes</span>`;
-    }
+    renderInspectorAddress(addrEl, len);
 
     if (val === undefined) {
-        valsEl.innerHTML = '<div class="sb-empty">No data at this address</div>';
-        renderBits(); renderMultiInline(); return;
+        renderInspectorNoData(valsEl);
+        return;
     }
 
-    let html = '';
-
     if (len === 1) {
-        // ── Single byte: hex · dec · ASCII, then nibble-grouped binary ──
-        const hexStr  = `0x${val.toString(16).toUpperCase().padStart(2, '0')}`;
-        const binRaw  = val.toString(2).padStart(8, '0');
-        const binDisp = `${binRaw.slice(0, 4)} ${binRaw.slice(4)}`;
-        const p = val >= 0x20 && val < 0x7F;
-        const asciiChip = p
-            ? `<span class="insp-ascii-chip">'${esc(String.fromCharCode(val))}'</span>`
-            : '';
-        html =
-            `<div class="insp-byte-row">` +
-            `<span class="insp-hex-chip" data-copy="${esc(hexStr)}" data-label="hex" title="Click to copy">${hexStr}</span>` +
-            `<span class="insp-dec-chip" data-copy="${esc(String(val))}" data-label="decimal" title="Click to copy">${val}</span>` +
-            `${asciiChip}` +
-            `</div>` +
-            `<div class="insp-bin-row" data-copy="${esc(binRaw)}" data-label="binary" title="Click to copy">${binDisp}</div>`;
+        valsEl.innerHTML = singleByteInspectorHtml(val);
         renderBits(val);
     } else {
-        // ── Multi-byte: show raw byte dump only — typed values are in the interpreter below ──
-        const selBytes: number[] = [];
-        for (let a = S.selStart; a <= S.selEnd!; a++) {
-            selBytes.push(getByte(a) ?? 0);
-        }
-        const dumpBytes = selBytes.slice(0, 8);
-        const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-        const copyStr   = len > 8 ? `${dumpStr} …` : dumpStr;
-        html =
-            `<div class="insp-raw-dump" data-copy="${esc(copyStr)}" data-label="bytes" title="Click to copy">` +
-            `${dumpStr}${len > 8 ? ' <span class="insp-dump-ellipsis">…</span>' : ''}` +
-            `</div>`;
+        const selBytes = selectedBytes(len);
+        valsEl.innerHTML = multiByteInspectorHtml(selBytes, len);
         renderBitsMulti(selBytes.slice(0, Math.min(len, 8)));
     }
 
-    valsEl.innerHTML = html;
-
-    // Wire click-to-copy on all data-copy elements inside the inspector values panel
-    valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
-        el.addEventListener('click', () => {
-            vscode.postMessage({ type: 'copyText', text: el.dataset.copy!, label: el.dataset.label ?? 'value' });
-        });
-    });
-
+    wireInspectorCopies(valsEl);
     renderMultiInline();
 }
 
@@ -223,6 +253,126 @@ function byteRow(val: number, label: string | null): string {
 
 // ── Multi-byte interpreter (inline, inside inspector) ─────────────
 
+type MultiValues = {
+    u16: number;
+    i16: number;
+    u32: number;
+    i32: number;
+    f32: number;
+    u64: bigint;
+    i64: bigint;
+    f64: number;
+};
+
+function multiWidth(selLen: number): number {
+    return selLen <= 2 ? 2 : selLen <= 4 ? 4 : 8;
+}
+
+function selectedPaddedBytes(width: number, selLen: number): number[] {
+    return Array.from({ length: width }, (_, i) => {
+        const v = getByte(S.selStart! + i);
+        return (i < selLen && v !== undefined) ? v : 0;
+    });
+}
+
+function readMultiValues(raw: number[], le: boolean): MultiValues {
+    const bytesLE = le ? [...raw] : [...raw].reverse();
+    const buf8 = new ArrayBuffer(8);
+    const dv8 = new DataView(buf8);
+    for (let i = 0; i < 8; i++) { dv8.setUint8(i, bytesLE[i] ?? 0); }
+    return {
+        u16: dv8.getUint16(0, true),
+        i16: dv8.getInt16(0, true),
+        u32: dv8.getUint32(0, true),
+        i32: dv8.getInt32(0, true),
+        f32: dv8.getFloat32(0, true),
+        u64: dv8.getBigUint64(0, true),
+        i64: dv8.getBigInt64(0, true),
+        f64: dv8.getFloat64(0, true),
+    };
+}
+
+function fmtFloat(v: number, sig: number): string {
+    if (isNaN(v))     { return 'NaN'; }
+    if (!isFinite(v)) { return `${v > 0 ? '+' : ''}${v}`; }
+    return v.toExponential(sig - 1);
+}
+
+function multiCard(type: string, primary: string, copy: string): string {
+    return `<div class="mi-card">` +
+        `<span class="mi-type">${type}</span>` +
+        `<div class="mi-vals"><span class="mi-dec" data-copy="${esc(copy)}" title="Click to copy">${primary}</span></div>` +
+        `</div>`;
+}
+
+function multiUnsignedCard(type: string, uVal: number | bigint, hexW: number): string {
+    const dec = formatDecimal(uVal);
+    const hex = formatHex(uVal, hexW);
+    return `<div class="mi-card mi-ucard">` +
+        `<span class="mi-type">${type}</span>` +
+        `<div class="mi-vals">` +
+        `<span class="mi-dec" data-copy="${esc(String(uVal))}" title="Click to copy decimal">${dec}</span>` +
+        `<span class="mi-hex" data-copy="${esc(hex)}" title="Click to copy hex">${hex}</span>` +
+        `</div>` +
+        `</div>`;
+}
+
+function multiValueGroupHtml(width: number, values: MultiValues): string {
+    if (width === 2) {
+        return (
+            multiUnsignedCard('uint16', values.u16, 4) +
+            multiCard('int16', formatDecimal(values.i16), String(values.i16))
+        );
+    }
+    if (width === 4) {
+        return (
+            multiUnsignedCard('uint32', values.u32, 8) +
+            multiCard('int32', formatDecimal(values.i32), String(values.i32)) +
+            multiCard('float32', fmtFloat(values.f32, 7), fmtFloat(values.f32, 7))
+        );
+    }
+    return (
+        multiUnsignedCard('uint64', values.u64, 16) +
+        multiCard('int64', formatDecimal(values.i64), String(values.i64)) +
+        multiCard('float64', fmtFloat(values.f64, 10), fmtFloat(values.f64, 10))
+    );
+}
+
+function multiEndianControlsHtml(width: number, le: boolean): string {
+    if (width < 2) { return ''; }
+    return `<div class="mi-ctrl-row">` +
+        `<span class="mi-ctrl-lbl">Byte order</span>` +
+        `<div class="endian-tabs">` +
+        `<button id="btn-le" class="${le  ? 'active' : ''}">LE</button>` +
+        `<button id="btn-be" class="${!le ? 'active' : ''}">BE</button>` +
+        `</div></div>`;
+}
+
+function multiPadNoteHtml(selLen: number, width: number): string {
+    return selLen < width
+        ? `<div class="mi-pad-row"><span class="mi-pad-note">zero-padded to ${width * 8}-bit</span></div>`
+        : '';
+}
+
+function wireMultiInlineControls(el: HTMLElement): void {
+    document.getElementById('btn-le')?.addEventListener('click', () => { S.endian = 'le'; renderMultiInline(); });
+    document.getElementById('btn-be')?.addEventListener('click', () => { S.endian = 'be'; renderMultiInline(); });
+
+    el.querySelectorAll<HTMLElement>('.mi-dec[data-copy]').forEach(span => {
+        span.addEventListener('click', e => {
+            e.stopPropagation();
+            vscode.postMessage({ type: 'copyText', text: span.dataset.copy!, label: 'decimal' });
+        });
+    });
+
+    el.querySelectorAll<HTMLElement>('.mi-hex[data-copy]').forEach(span => {
+        span.addEventListener('click', e => {
+            e.stopPropagation();
+            vscode.postMessage({ type: 'copyText', text: span.dataset.copy!, label: 'hex' });
+        });
+    });
+}
+
 function renderMultiInline(): void {
     const el = document.getElementById('insp-multi');
     if (!el) { return; }
@@ -233,115 +383,17 @@ function renderMultiInline(): void {
     const selLen = (S.selEnd !== null && S.selEnd >= S.selStart) ? S.selEnd - S.selStart + 1 : 1;
     if (selLen < 2) { el.innerHTML = ''; return; }
 
-    // Upper-fit: map selection length to [2|4|8] — smallest type that holds it
-    const width = selLen <= 2 ? 2 : selLen <= 4 ? 4 : 8;
-
-    // Read selection bytes, zero-pad to width
-    const raw = Array.from({ length: width }, (_, i) => {
-        const v = getByte(S.selStart! + i);
-        return (i < selLen && v !== undefined) ? v : 0;
-    });
-
-    const le  = S.endian === 'le';
-
-    // ── Calculations ──
-    // Build a zero-padded 8-byte little-endian buffer and reuse it for all reads.
-    const bytesLE = le ? [...raw] : [...raw].reverse();
-    const buf8 = new ArrayBuffer(8);
-    const dv8 = new DataView(buf8);
-    for (let i = 0; i < 8; i++) { dv8.setUint8(i, bytesLE[i] ?? 0); }
-
-    const u16 = dv8.getUint16(0, true);
-    const i16 = dv8.getInt16(0, true);
-
-    const u32 = dv8.getUint32(0, true);
-    const i32 = dv8.getInt32(0, true);
-
-    const f32val = dv8.getFloat32(0, true);
-
-    const u64 = dv8.getBigUint64(0, true);
-    const i64 = dv8.getBigInt64(0, true);
-    const f64val = dv8.getFloat64(0, true);
-
-    function fmtF(v: number, sig: number): string {
-        if (isNaN(v))     { return 'NaN'; }
-        if (!isFinite(v)) { return `${v > 0 ? '+' : ''}${v}`; }
-        return v.toExponential(sig - 1);
-    }
-    // Use shared formatting helpers for decimal/hex output
-    const fmtI = (v: number | bigint) => formatDecimal(v);
-    const fmtH = (v: number | bigint, w: number) => formatHex(v, w);
-
-    const padNote = selLen < width
-        ? `<span class="mi-pad-note">zero-padded to ${width * 8}-bit</span>` : '';
-
-    const card = (type: string, primary: string, copy: string) => {
-        return `<div class="mi-card">` +
-            `<span class="mi-type">${type}</span>` +
-            `<div class="mi-vals"><span class="mi-dec" data-copy="${esc(copy)}" title="Click to copy">${primary}</span></div>` +
-            `</div>`;
-    };
-
-    // Unsigned card — shows dec and hex stacked, each clickable to copy their value
-    const ucard = (type: string, uVal: number | bigint, hexW: number) => {
-        const dec = fmtI(uVal);
-        const hex = fmtH(uVal, hexW);
-        return `<div class="mi-card mi-ucard">` +
-            `<span class="mi-type">${type}</span>` +
-            `<div class="mi-vals">` +
-            `<span class="mi-dec" data-copy="${esc(String(uVal))}" title="Click to copy decimal">${dec}</span>` +
-            `<span class="mi-hex" data-copy="${esc(hex)}" title="Click to copy hex">${hex}</span>` +
-            `</div>` +
-            `</div>`;
-    };
-
-    let group = '';
-    if (width === 2) {
-        group =
-            ucard('uint16', u16, 4) +
-            card('int16', fmtI(i16), String(i16));
-    } else if (width === 4) {
-        group =
-            ucard('uint32', u32, 8) +
-            card('int32', fmtI(i32), String(i32)) +
-            card('float32', fmtF(f32val, 7), fmtF(f32val, 7));
-    } else {
-        group =
-            ucard('uint64', u64, 16) +
-            card('int64', fmtI(i64), String(i64)) +
-            card('float64', fmtF(f64val, 10), fmtF(f64val, 10));
-    }
+    const width = multiWidth(selLen);
+    const le = S.endian === 'le';
+    const raw = selectedPaddedBytes(width, selLen);
+    const group = multiValueGroupHtml(width, readMultiValues(raw, le));
 
     el.innerHTML =
-        (width >= 2
-            ? `<div class="mi-ctrl-row">` +
-              `<span class="mi-ctrl-lbl">Byte order</span>` +
-              `<div class="endian-tabs">` +
-              `<button id="btn-le" class="${le  ? 'active' : ''}">LE</button>` +
-              `<button id="btn-be" class="${!le ? 'active' : ''}">BE</button>` +
-              `</div></div>`
-            : '') +
-        (padNote ? `<div class="mi-pad-row">${padNote}</div>` : '') +
+        multiEndianControlsHtml(width, le) +
+        multiPadNoteHtml(selLen, width) +
         `<div class="mi-group">${group}</div>`;
 
-    document.getElementById('btn-le')?.addEventListener('click', () => { S.endian = 'le'; renderMultiInline(); });
-    document.getElementById('btn-be')?.addEventListener('click', () => { S.endian = 'be'; renderMultiInline(); });
-
-    // Copy decimal value (all cards)
-    el.querySelectorAll<HTMLElement>('.mi-dec[data-copy]').forEach(span => {
-        span.addEventListener('click', e => {
-            e.stopPropagation();
-            vscode.postMessage({ type: 'copyText', text: span.dataset.copy!, label: 'decimal' });
-        });
-    });
-
-    // Copy hex value (unsigned cards only)
-    el.querySelectorAll<HTMLElement>('.mi-hex[data-copy]').forEach(span => {
-        span.addEventListener('click', e => {
-            e.stopPropagation();
-            vscode.postMessage({ type: 'copyText', text: span.dataset.copy!, label: 'hex' });
-        });
-    });
+    wireMultiInlineControls(el);
 }
 
 // ── Labels ────────────────────────────────────────────────────────
@@ -458,6 +510,205 @@ export function renderLabels(): void {
 
 // ── Label inline form ─────────────────────────────────────────────
 
+type LabelRangeMode = 'len' | 'end';
+type LabelState = typeof S.labels[number];
+type LabelLengthResult =
+    | { ok: true; length: number }
+    | { ok: false; error: string };
+type LabelDraftResult =
+    | { ok: true; name: string; startAddress: number; length: number }
+    | { ok: false; error: string };
+
+const LABEL_COLORS = [
+    { name: 'Sky Blue', v: '#4fc3f7' }, { name: 'Green',  v: '#81c784' },
+    { name: 'Orange',   v: '#ffb74d' }, { name: 'Red',    v: '#e57373' },
+    { name: 'Purple',   v: '#ce93d8' }, { name: 'Teal',   v: '#80cbc4' },
+    { name: 'Yellow',   v: '#fff176' }, { name: 'Pink',   v: '#f48fb1' },
+];
+
+function labelAddrHex(n: number): string {
+    return `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+function nextLabelName(): string {
+    const taken = new Set(S.labels.map(l => l.name));
+    let candidate = 'Label_0';
+    let n = 1;
+    while (taken.has(candidate)) { candidate = `Label_${n++}`; }
+    return candidate;
+}
+
+function labelWarnEl(): HTMLElement {
+    return document.getElementById('lf-warn')! as HTMLElement;
+}
+
+function labelNameEl(): HTMLInputElement {
+    return document.getElementById('lf-name')! as HTMLInputElement;
+}
+
+function labelStartEl(): HTMLInputElement {
+    return document.getElementById('lf-start')! as HTMLInputElement;
+}
+
+function labelRangeEl(): HTMLInputElement {
+    return document.getElementById('lf-range')! as HTMLInputElement;
+}
+
+function clearLabelWarning(): void {
+    labelWarnEl().textContent = '';
+}
+
+function defaultLabelStart(editing: LabelState | undefined): string {
+    if (editing) { return labelAddrHex(editing.startAddress); }
+    return S.selStart !== null ? labelAddrHex(S.selStart) : '';
+}
+
+function defaultLabelRange(editing: LabelState | undefined): string {
+    if (editing) { return `${editing.length}`; }
+    return S.selStart !== null && S.selEnd !== null ? `${S.selEnd - S.selStart + 1}` : '';
+}
+
+function labelSwatchesHtml(chosenColor: string): string {
+    return LABEL_COLORS.map(c =>
+        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}"></span>`
+    ).join('');
+}
+
+function wireLabelColorSwatches(sec: HTMLElement, onColor: (color: string) => void): void {
+    sec.querySelectorAll<HTMLElement>('.lf-swatch').forEach(sw => {
+        sw.addEventListener('click', () => {
+            sec.querySelectorAll('.lf-swatch').forEach(s => s.classList.remove('selected'));
+            sw.classList.add('selected');
+            onColor(sw.dataset.color!);
+        });
+    });
+}
+
+function switchLabelRangeMode(
+    sec: HTMLElement,
+    btn: HTMLElement,
+    currentMode: LabelRangeMode,
+    editing: LabelState | undefined,
+): LabelRangeMode {
+    if (btn.classList.contains('active')) { return currentMode; }
+    sec.querySelectorAll('.lf-mode').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const nextMode = btn.dataset.mode as LabelRangeMode;
+    const start = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
+    updateLabelRangeValue(currentMode, nextMode, start, editing);
+    return nextMode;
+}
+
+function updateLabelRangeValue(
+    currentMode: LabelRangeMode,
+    nextMode: LabelRangeMode,
+    start: number,
+    editing: LabelState | undefined,
+): void {
+    if (currentMode === 'len' && nextMode === 'end') {
+        showEndAddressRange(start);
+        return;
+    }
+
+    showLengthRange(start, editing);
+}
+
+function showEndAddressRange(start: number): void {
+    const rangeEl = labelRangeEl();
+    rangeEl.placeholder = '0x0800FFFF';
+    const length = parseInt(rangeEl.value, 10);
+    rangeEl.value = (!isNaN(start) && !isNaN(length) && length > 0)
+        ? labelAddrHex(start + length - 1)
+        : '';
+}
+
+function showLengthRange(start: number, editing: LabelState | undefined): void {
+    const rangeEl = labelRangeEl();
+    rangeEl.placeholder = '512';
+    const end = parseInt(rangeEl.value.replace(/^0x/i, ''), 16);
+    rangeEl.value = (!isNaN(start) && !isNaN(end) && end >= start)
+        ? `${end - start + 1}`
+        : (editing ? `${editing.length}` : '');
+}
+
+function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLengthResult {
+    const raw = labelRangeEl().value;
+    if (mode === 'end') {
+        const end = parseInt(raw.replace(/^0x/i, ''), 16);
+        if (isNaN(end) || end < startAddress) { return { ok: false, error: 'Invalid end address.' }; }
+        return { ok: true, length: end - startAddress + 1 };
+    }
+
+    const length = /^0x/i.test(raw) ? parseInt(raw, 16) : parseInt(raw, 10);
+    if (isNaN(length) || length <= 0) { return { ok: false, error: 'Invalid length.' }; }
+    return { ok: true, length };
+}
+
+function labelRangeWarning(startAddress: number, length: number, editId: string | undefined): string | null {
+    const segs = S.parseResult?.segments ?? [];
+    const segEnd = startAddress + length - 1;
+    if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
+        return 'Range is outside mapped data. Click Save again to confirm.';
+    }
+
+    const overlap = S.labels.filter(l =>
+        l.id !== editId &&
+        startAddress <= l.startAddress + l.length - 1 &&
+        segEnd >= l.startAddress
+    );
+    return overlap.length > 0
+        ? `Overlaps with: ${overlap.map(l => `"${esc(l.name)}"`).join(', ')}. Click Save again.`
+        : null;
+}
+
+function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
+    const name = labelNameEl().value.trim() || nextLabelName();
+    if (!name) { return { ok: false, error: 'Name is required.' }; }
+
+    const startAddress = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
+    if (isNaN(startAddress)) { return { ok: false, error: 'Invalid start address.' }; }
+
+    const parsedLength = parseLabelLength(rangeMode, startAddress);
+    if (!parsedLength.ok) { return { ok: false, error: parsedLength.error }; }
+
+    return { ok: true, name, startAddress, length: parsedLength.length };
+}
+
+function applyLabel(editId: string | undefined, editing: LabelState | undefined, color: string, draft: Extract<LabelDraftResult, { ok: true }>): void {
+    const label = {
+        id: editId ?? `lbl_${Date.now()}`,
+        name: draft.name,
+        startAddress: draft.startAddress,
+        length: draft.length,
+        color,
+        hidden: editing?.hidden,
+    };
+    S.labels = editId
+        ? S.labels.map(l => l.id === editId ? label : l)
+        : [...S.labels, label];
+
+    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
+}
+
+function saveLabel(editId: string | undefined, editing: LabelState | undefined, color: string, rangeMode: LabelRangeMode, confirmed: boolean): boolean {
+    clearLabelWarning();
+
+    const draft = readLabelDraft(rangeMode);
+    if (!draft.ok) { labelWarnEl().textContent = draft.error; return false; }
+
+    const warning = confirmed ? null : labelRangeWarning(draft.startAddress, draft.length, editId);
+    if (warning) {
+        labelWarnEl().textContent = warning;
+        return true;
+    }
+
+    applyLabel(editId, editing, color, draft);
+    return false;
+}
+
 function renderLabelForm(editId?: string): void {
     const sec     = document.getElementById('s-labels')!;
     const editing = editId ? S.labels.find(l => l.id === editId) : undefined;
@@ -466,24 +717,8 @@ function renderLabelForm(editId?: string): void {
     sec.dataset.collapsed = 'false';
     sec.classList.remove('collapsed');
 
-    const COLORS = [
-        { name: 'Sky Blue', v: '#4fc3f7' }, { name: 'Green',  v: '#81c784' },
-        { name: 'Orange',   v: '#ffb74d' }, { name: 'Red',    v: '#e57373' },
-        { name: 'Purple',   v: '#ce93d8' }, { name: 'Teal',   v: '#80cbc4' },
-        { name: 'Yellow',   v: '#fff176' }, { name: 'Pink',   v: '#f48fb1' },
-    ];
-
-    const fh = (n: number) => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
-    let chosenColor = editing?.color ?? COLORS[S.labels.length % COLORS.length].v;
-
-    const defaultStart = editing ? fh(editing.startAddress)
-        : (S.selStart !== null ? fh(S.selStart) : '');
-    const defaultRange = editing ? `${editing.length}`
-        : (S.selStart !== null && S.selEnd !== null ? `${S.selEnd - S.selStart + 1}` : '');
-
-    const swatchHtml = COLORS.map(c =>
-        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}"></span>`
-    ).join('');
+    let chosenColor = editing?.color ?? LABEL_COLORS[S.labels.length % LABEL_COLORS.length].v;
+    const swatchHtml = labelSwatchesHtml(chosenColor);
 
     sec.innerHTML = `
         <div class="sb-hdr">${editing ? 'Edit Label' : 'New Label'}</div>
@@ -494,7 +729,7 @@ function renderLabelForm(editId?: string): void {
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultStart}">
+                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultLabelStart(editing)}">
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Range</span>
@@ -503,7 +738,7 @@ function renderLabelForm(editId?: string): void {
                         <button class="lf-mode active" data-mode="len">Length</button>
                         <button class="lf-mode" data-mode="end">End addr</button>
                     </div>
-                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultRange}">
+                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultLabelRange(editing)}">
                 </div>
             </div>
             <div class="lf-field">
@@ -517,43 +752,17 @@ function renderLabelForm(editId?: string): void {
             </div>
         </div>`;
 
-    let rangeMode: 'len' | 'end' = 'len';
+    let rangeMode: LabelRangeMode = 'len';
     let pendingWarning = false;
 
-    const warnEl  = () => document.getElementById('lf-warn')!  as HTMLElement;
-    const nameEl  = () => document.getElementById('lf-name')!  as HTMLInputElement;
-    const startEl = () => document.getElementById('lf-start')! as HTMLInputElement;
-    const rangeEl = () => document.getElementById('lf-range')! as HTMLInputElement;
-
-    // Color swatches
-    sec.querySelectorAll<HTMLElement>('.lf-swatch').forEach(sw => {
-        sw.addEventListener('click', () => {
-            sec.querySelectorAll('.lf-swatch').forEach(s => s.classList.remove('selected'));
-            sw.classList.add('selected');
-            chosenColor = sw.dataset.color!;
-        });
-    });
+    wireLabelColorSwatches(sec, color => { chosenColor = color; });
 
     // Range mode toggle
     sec.querySelectorAll<HTMLElement>('.lf-mode').forEach(btn => {
         btn.addEventListener('click', () => {
-            if (btn.classList.contains('active')) { return; }
-            sec.querySelectorAll('.lf-mode').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const prev = rangeMode;
-            rangeMode  = btn.dataset.mode as 'len' | 'end';
-            const s = parseInt(startEl().value.replace(/^0x/i, ''), 16);
-            if (prev === 'len' && rangeMode === 'end') {
-                rangeEl().placeholder = '0x0800FFFF';
-                const l = parseInt(rangeEl().value, 10);
-                rangeEl().value = (!isNaN(s) && !isNaN(l) && l > 0) ? fh(s + l - 1) : '';
-            } else {
-                rangeEl().placeholder = '512';
-                const e = parseInt(rangeEl().value.replace(/^0x/i, ''), 16);
-                rangeEl().value = (!isNaN(s) && !isNaN(e) && e >= s) ? `${e - s + 1}` : (editing ? `${editing.length}` : '');
-            }
+            rangeMode = switchLabelRangeMode(sec, btn, rangeMode, editing);
             pendingWarning = false;
-            warnEl().textContent = '';
+            clearLabelWarning();
         });
     });
 
@@ -561,7 +770,7 @@ function renderLabelForm(editId?: string): void {
     ['lf-name', 'lf-start', 'lf-range'].forEach(id => {
         document.getElementById(id)?.addEventListener('input', () => {
             pendingWarning = false;
-            warnEl().textContent = '';
+            clearLabelWarning();
         });
     });
 
@@ -570,61 +779,7 @@ function renderLabelForm(editId?: string): void {
 
     // Save
     document.getElementById('lf-save')?.addEventListener('click', () => {
-        warnEl().textContent = '';
-
-        const name = nameEl().value.trim() || (() => {
-            const taken = new Set(S.labels.map(l => l.name));
-            let candidate = 'Label_0';
-            let n = 1;
-            while (taken.has(candidate)) { candidate = `Label_${n++}`; }
-            return candidate;
-        })();
-        if (!name) { warnEl().textContent = 'Name is required.'; return; }
-
-        const startAddress = parseInt(startEl().value.replace(/^0x/i, ''), 16);
-        if (isNaN(startAddress)) { warnEl().textContent = 'Invalid start address.'; return; }
-
-        let length: number;
-        if (rangeMode === 'end') {
-            const end = parseInt(rangeEl().value.replace(/^0x/i, ''), 16);
-            if (isNaN(end) || end < startAddress) { warnEl().textContent = 'Invalid end address.'; return; }
-            length = end - startAddress + 1;
-        } else {
-            length = /^0x/i.test(rangeEl().value) ? parseInt(rangeEl().value, 16) : parseInt(rangeEl().value, 10);
-            if (isNaN(length) || length <= 0) { warnEl().textContent = 'Invalid length.'; return; }
-        }
-
-        if (!pendingWarning) {
-            const segs   = S.parseResult?.segments ?? [];
-            const segEnd = startAddress + length - 1;
-            if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
-                warnEl().textContent = 'Range is outside mapped data. Click Save again to confirm.';
-                pendingWarning = true; return;
-            }
-            const overlap = S.labels.filter(l =>
-                l.id !== editId &&
-                startAddress <= l.startAddress + l.length - 1 &&
-                segEnd >= l.startAddress
-            );
-            if (overlap.length > 0) {
-                warnEl().textContent = `Overlaps with: ${overlap.map(l => `"${esc(l.name)}"`).join(', ')}. Click Save again.`;
-                pendingWarning = true; return;
-            }
-        }
-
-        const label = {
-            id: editId ?? `lbl_${Date.now()}`,
-            name, startAddress, length, color: chosenColor,
-            hidden: editing?.hidden,
-        };
-        S.labels = editId
-            ? S.labels.map(l => l.id === editId ? label : l)
-            : [...S.labels, label];
-
-        vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-        buildMemRows();
-        rerender.labels();
-        if (S.currentView === 'memory') { rerender.memory(); }
+        pendingWarning = saveLabel(editId, editing, chosenColor, rangeMode, pendingWarning);
     });
 }
 

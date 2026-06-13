@@ -1,5 +1,6 @@
 ﻿import * as assert from 'assert';
 import { parseIntelHex, RecordType } from '../parser/IntelHexParser';
+import { assertParsedRecordPayload } from './helpers';
 
 suite('IntelHexParser', () => {
 
@@ -35,11 +36,11 @@ suite('IntelHexParser', () => {
         assert.strictEqual(result.records.length, 2);
         const r = result.records[0];
         assert.strictEqual(r.recordType, RecordType.Data);
-        assert.strictEqual(r.byteCount, 4);
-        assert.strictEqual(r.address, 0x0010);
-        assert.deepStrictEqual(Array.from(r.data), [0xCA, 0xFE, 0xBA, 0xBE]);
-        assert.strictEqual(r.checksumValid, true);
-        assert.strictEqual(r.error, undefined);
+        assertParsedRecordPayload(r, {
+            byteCount: 4,
+            address: 0x0010,
+            data: [0xCA, 0xFE, 0xBA, 0xBE],
+        });
     });
 
     test('accepts the End of File record', () => {

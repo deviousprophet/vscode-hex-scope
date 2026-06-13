@@ -1,9 +1,8 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { parseIntelHex } from './parser/IntelHexParser';
-import { parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
+import { computeSRecChecksum, parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
 import type { ParseResult } from './parser/types';
-import { migrateStructDefBitFields } from './webview/struct-codec.js';
 import type { StructDef } from './webview/types';
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
@@ -90,9 +89,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 }
                 seenIds.add(id);
                 seenNames.add(name);
-                const migrated = migrateStructDefBitFields(item as StructDef);
-                if (migrated !== item) { changed = true; }
-                out.push(migrated);
+                out.push(item as StructDef);
             }
             return { defs: out, changed };
         };
@@ -207,100 +204,93 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         watcher.onDidChange(onExternalChange);
         watcher.onDidCreate(onExternalChange);
 
-        // Handle messages from the webview
-        webviewPanel.webview.onDidReceiveMessage(async msg => {
-            switch (msg.type) {
-                case 'ready':
-                    webviewReady = true;
-                    await postInit();
-                    break;
-                case 'copyText':
-                    await vscode.env.clipboard.writeText(msg.text);
-                    vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
-                    break;
-                case 'saveLabels': {
-                    await this._context.workspaceState.update(labelKey, msg.labels);
-                    break;
-                }
-                case 'saveStructs': {
-                    const { defs } = normalizeStructDefs(msg.structs);
-                    await this._context.globalState.update(globalStructKey, defs);
-                    break;
-                }
-                case 'saveStructPins': {
-                    await this._context.workspaceState.update(structPinKey, msg.pins);
-                    break;
-                }
-                case 'updateLabelVisibility': {
-                    const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                    const next = current.map(l =>
-                        l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
-                    );
-                    await this._context.workspaceState.update(labelKey, next);
-                    break;
-                }
-                case 'reorderLabel': {
-                    const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                    const idx = current.findIndex(l => l.id === msg.id);
-                    if (idx < 0) { break; }
-                    const next = [...current];
-                    const dir  = (msg.dir as number);
-                    const swap = idx + dir;
-                    if (swap < 0 || swap >= next.length) { break; }
-                    [next[idx], next[swap]] = [next[swap], next[idx]];
-                    await this._context.workspaceState.update(labelKey, next);
-                    // Labels already updated client-side; just persist
-                    break;
-                }
-                case 'saveEdits': {
-                    if (!parseResult) { break; }
-                    const edits = msg.edits as Array<[number, number]>;
-                    const editMap = new Map<number, number>(edits);
-                    const newHex = format === 'srec'
-                        ? serializeSRec(raw, parseResult, editMap)
-                        : serializeIntelHex(raw, parseResult, editMap);
-                    suppressReload = true;
-                    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(newHex));
-                    raw = newHex;
-                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-                    webviewPanel.webview.postMessage({
-                        type: 'savedEdits',
-                        parseResult: serializeParseResult(parseResult, format),
-                    });
-                    vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${document.uri.fsPath.split(/[\/\\]/).pop()}`);
-                    break;
-                }
-                case 'reloadAccepted': {
-                    break;
-                }
-                case 'repairAndReload': {
-                    // File had checksum errors — repair them and reload HexScope
-                    if (!parseResult) { break; }
-                    const repairedRaw = repairChecksums(raw, parseResult);
-                    suppressReload = true;
-                    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(repairedRaw));
-                    raw = repairedRaw;
-                    parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-                    // Send the repaired content to the webview
-                    webviewPanel.webview.postMessage({
-                        type: 'repairComplete',
-                        parseResult: serializeParseResult(parseResult, format),
-                    });
-                    vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${document.uri.fsPath.split(/[\/\\]/).pop()}`);
-                    break;
-                }
-                case 'closePanel': {
-                    // File became invalid externally — user chose to close HexScope
-                    webviewPanel.dispose();
-                    break;
-                }
-                case 'viewInNormalEditor': {
-                    // File has malformed lines — open in text editor but keep HexScope view open
-                    const doc = await vscode.workspace.openTextDocument(document.uri);
-                    await vscode.window.showTextDocument(doc, { preview: false });
-                    break;
-                }
-            }
+        type WebviewMessage = { type: string; [key: string]: unknown };
+        type WebviewMessageHandler = (msg: WebviewMessage) => Promise<void>;
+
+        const currentFileName = () => document.uri.fsPath.split(/[\/\\]/).pop();
+        const parseCurrentRaw = () => format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
+        const writeRawAndReparse = async (nextRaw: string): Promise<ParseResult> => {
+            suppressReload = true;
+            await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(nextRaw));
+            raw = nextRaw;
+            parseResult = parseCurrentRaw();
+            return parseResult;
+        };
+
+        const messageHandlers: Record<string, WebviewMessageHandler> = {
+            ready: async () => {
+                webviewReady = true;
+                await postInit();
+            },
+            copyText: async msg => {
+                await vscode.env.clipboard.writeText(msg.text as string);
+                vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
+            },
+            saveLabels: async msg => {
+                await this._context.workspaceState.update(labelKey, msg.labels);
+            },
+            saveStructs: async msg => {
+                const { defs } = normalizeStructDefs(msg.structs);
+                await this._context.globalState.update(globalStructKey, defs);
+            },
+            saveStructPins: async msg => {
+                await this._context.workspaceState.update(structPinKey, msg.pins);
+            },
+            updateLabelVisibility: async msg => {
+                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
+                const next = current.map(l =>
+                    l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
+                );
+                await this._context.workspaceState.update(labelKey, next);
+            },
+            reorderLabel: async msg => {
+                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
+                const idx = current.findIndex(l => l.id === msg.id);
+                if (idx < 0) { return; }
+                const next = [...current];
+                const dir  = (msg.dir as number);
+                const swap = idx + dir;
+                if (swap < 0 || swap >= next.length) { return; }
+                [next[idx], next[swap]] = [next[swap], next[idx]];
+                await this._context.workspaceState.update(labelKey, next);
+            },
+            saveEdits: async msg => {
+                if (!parseResult) { return; }
+                const edits = msg.edits as Array<[number, number]>;
+                const editMap = new Map<number, number>(edits);
+                const newHex = format === 'srec'
+                    ? serializeSRec(raw, parseResult, editMap)
+                    : serializeIntelHex(raw, parseResult, editMap);
+                const nextParseResult = await writeRawAndReparse(newHex);
+                webviewPanel.webview.postMessage({
+                    type: 'savedEdits',
+                    parseResult: serializeParseResult(nextParseResult, format),
+                });
+                vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
+            },
+            reloadAccepted: async () => {},
+            repairAndReload: async () => {
+                if (!parseResult) { return; }
+                const repairedRaw = repairChecksums(raw, parseResult);
+                const nextParseResult = await writeRawAndReparse(repairedRaw);
+                webviewPanel.webview.postMessage({
+                    type: 'repairComplete',
+                    parseResult: serializeParseResult(nextParseResult, format),
+                });
+                vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${currentFileName()}`);
+            },
+            closePanel: async () => {
+                webviewPanel.dispose();
+            },
+            viewInNormalEditor: async () => {
+                const doc = await vscode.workspace.openTextDocument(document.uri);
+                await vscode.window.showTextDocument(doc, { preview: false });
+            },
+        };
+
+        webviewPanel.webview.onDidReceiveMessage(async rawMsg => {
+            const msg = rawMsg as WebviewMessage;
+            await messageHandlers[msg.type]?.(msg);
         });
 
         webviewPanel.onDidChangeViewState(e => {
@@ -430,30 +420,46 @@ interface SerializedParseResult {
 
 /** Rebuild an Intel HEX file from original parse + a map of addr→newValue overrides. */
 function serializeIntelHex(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
+    return serializeEditedRecords(
+        originalRaw,
+        parseResult,
+        edits,
+        rec => rec.recordType === 0 /* Data */,
+        (rec, data) => buildDataRecord(rec.address, data),
+    );
+}
+
+type ParsedRecord = ParseResult['records'][number];
+
+function serializeEditedRecords(
+    originalRaw: string,
+    parseResult: ParseResult,
+    edits: Map<number, number>,
+    canEditRecord: (rec: ParsedRecord) => boolean,
+    rebuildRecord: (rec: ParsedRecord, data: number[]) => string,
+): string {
     if (edits.size === 0) { return originalRaw; }
 
     const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const lines: string[] = [];
-    for (const rec of parseResult.records) {
-        if (rec.error || rec.recordType !== 0 /* Data */) {
-            lines.push(rec.raw);
-            continue;
-        }
-        // Apply any edits that fall inside this record
-        const data = Array.from(rec.data);
-        let changed = false;
-        for (let i = 0; i < data.length; i++) {
-            const addr = rec.resolvedAddress + i;
-            if (edits.has(addr)) {
-                data[i] = edits.get(addr)!;
-                changed = true;
-            }
-        }
-        if (!changed) { lines.push(rec.raw); continue; }
-        // Rebuild the record line with updated data + recomputed checksum
-        lines.push(buildDataRecord(rec.address, data));
-    }
+    const lines = parseResult.records.map(rec => {
+        if (rec.error || !canEditRecord(rec)) { return rec.raw; }
+        const edited = applyRecordEdits(rec, edits);
+        return edited ? rebuildRecord(rec, edited) : rec.raw;
+    });
     return lines.join(eol);
+}
+
+function applyRecordEdits(rec: ParsedRecord, edits: Map<number, number>): number[] | null {
+    const data = Array.from(rec.data);
+    let changed = false;
+    for (let i = 0; i < data.length; i++) {
+        const addr = rec.resolvedAddress + i;
+        if (edits.has(addr)) {
+            data[i] = edits.get(addr)!;
+            changed = true;
+        }
+    }
+    return changed ? data : null;
 }
 
 function buildDataRecord(addr16: number, data: number[]): string {
@@ -491,41 +497,19 @@ function detectFormat(uri: vscode.Uri, raw: string): 'ihex' | 'srec' {
 
 /** Rebuild a Motorola SREC file from original parse + a map of addr→newValue overrides. */
 export function serializeSRec(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
-    if (edits.size === 0) { return originalRaw; }
-
-    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const lines: string[] = [];
-
-    for (const rec of parseResult.records) {
-        if (rec.error || !srecIsData(rec.recordType)) {
-            lines.push(rec.raw);
-            continue;
-        }
-        // Apply any edits that fall inside this record
-        const data = Array.from(rec.data);
-        let changed = false;
-        for (let i = 0; i < data.length; i++) {
-            const addr = rec.resolvedAddress + i;
-            if (edits.has(addr)) {
-                data[i] = edits.get(addr)!;
-                changed = true;
-            }
-        }
-        if (!changed) { lines.push(rec.raw); continue; }
-        lines.push(buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data));
-    }
-    return lines.join(eol);
+    return serializeEditedRecords(
+        originalRaw,
+        parseResult,
+        edits,
+        rec => srecIsData(rec.recordType),
+        (rec, data) => buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data),
+    );
 }
 
 export function buildSRecDataRecord(type: number, address: number, data: number[]): string {
     const asz = SREC_ADDR_SIZES[type] ?? 2;
     const byteCount = asz + data.length + 1; // addrBytes + dataBytes + checksumByte
-    let sum = byteCount;
-    for (let i = 0; i < asz; i++) {
-        sum += (address >>> ((asz - 1 - i) * 8)) & 0xFF;
-    }
-    for (const b of data) { sum += b; }
-    const chk = (~sum) & 0xFF;
+    const chk = computeSRecChecksum(byteCount, address, asz, data);
     const bcHex   = byteCount.toString(16).toUpperCase().padStart(2, '0');
     const addrHex = address.toString(16).toUpperCase().padStart(asz * 2, '0');
     const dataHex = data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');

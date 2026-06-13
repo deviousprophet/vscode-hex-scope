@@ -19,6 +19,15 @@ import {
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;
 let vscrollRenderedRange: [number, number] = [0, 0];
+type HexCellHandler = (e: MouseEvent, el: HTMLElement) => void;
+interface MemoryScrollElement extends HTMLElement {
+    _hexDownCallback?: HexCellHandler;
+    _hexCtxCallback?: HexCellHandler;
+}
+interface MemoryInteractionCallbacks {
+    onHexDown?: HexCellHandler;
+    onHexCtx?: HexCellHandler;
+}
 
 const VIRTUAL_SCROLL_CONFIG = {
     fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
@@ -111,7 +120,7 @@ function renderVisibleRows(): void {
     if (!vscrollState) { return; }
 
     const container = document.getElementById('mem-rows')!;
-    const scrollContainer = document.getElementById('mem-scroll')!;
+    const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
     syncVirtualScrollMetrics(scrollContainer);
 
     const [startIdx, endIdx] = calcVisibleRange(vscrollState);
@@ -122,11 +131,8 @@ function renderVisibleRows(): void {
     vscrollRenderedRange = [startIdx, endIdx];
 
     const labelMap = buildLabelMap();
-
-    // Calculate offset for top spacer
     const topOffset = calcRowOffset(startIdx, vscrollState);
-
-    const parts: string[] = [];
+    const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState, !layout.isCompressed);
 
     if (layout.isCompressed) {
         container.style.position = 'relative';
@@ -134,40 +140,6 @@ function renderVisibleRows(): void {
     } else {
         container.style.position = '';
         container.style.height = '';
-    }
-
-    // Top spacer (invisible, maintains scroll height ratio)
-    if (!layout.isCompressed && topOffset > 0) {
-        parts.push(`<div style="height:${topOffset}px"></div>`);
-    }
-
-    // Render only visible rows
-    for (let i = startIdx; i < endIdx && i < S.memRows.length; i++) {
-        const row = S.memRows[i];
-        if (row.type === 'gap') {
-            const f = row.from.toString(16).toUpperCase().padStart(8, '0');
-            const t = row.to.toString(16).toUpperCase().padStart(8, '0');
-            parts.push(`<div class="gap-row">
-                <span class="gap-dots"></span>
-                <span class="gap-range">0x${f}  0x${t}</span>
-                <span class="gap-size">${fmtB(row.bytes)} unmapped</span>
-            </div>`);
-        } else {
-            for (const lbl of (labelMap.get(row.address) ?? [])) {
-                parts.push(`<div class="seg-banner" style="border-color:${lbl.color};background:${lbl.color}14;color:${lbl.color}">
-                    <span class="sb-name">${esc(lbl.name)}</span>
-                    <span class="sb-meta">0x${lbl.startAddress.toString(16).toUpperCase().padStart(8, '0')}  ${fmtB(lbl.length)}</span>
-                </div>`);
-            }
-            parts.push(renderRow(row.address));
-        }
-    }
-
-    // Bottom spacer
-    const totalHeight = calcTotalHeight(vscrollState);
-    const bottomOffset = totalHeight - calcRowOffset(endIdx, vscrollState);
-    if (!layout.isCompressed && bottomOffset > 0) {
-        parts.push(`<div style="height:${bottomOffset}px"></div>`);
     }
 
     if (layout.isCompressed) {
@@ -178,30 +150,117 @@ function renderVisibleRows(): void {
         container.innerHTML = parts.join('');
     }
 
-    // Re-attach interaction callbacks
-    const onHexDown = (scrollContainer as any)._hexDownCallback;
-    const onHexCtx = (scrollContainer as any)._hexCtxCallback;
+    attachMemoryCellHandlers(container, getMemoryInteractionCallbacks(scrollContainer));
+    refreshMemoryHighlights();
+}
 
-    if (onHexDown || onHexCtx) {
-        container.querySelectorAll<HTMLElement>('.data-cell[data-addr]').forEach(el => {
-            if (onHexDown) {
-                el.addEventListener('mousedown', e => onHexDown(e as MouseEvent, el));
-            }
-            if (onHexCtx) {
-                el.addEventListener('contextmenu', e => { onHexCtx(e as MouseEvent, el); e.preventDefault(); });
-            }
-        });
-        container.querySelectorAll<HTMLElement>('.char-cell[data-addr]').forEach(el => {
-            if (onHexDown) {
-                el.addEventListener('mousedown', e => onHexDown(e as MouseEvent, el));
-            }
-            if (onHexCtx) {
-                el.addEventListener('contextmenu', e => { onHexCtx(e as MouseEvent, el); e.preventDefault(); });
-            }
-        });
+function buildVisibleRowsHtml(
+    startIdx: number,
+    endIdx: number,
+    labelMap: Map<number, typeof S.labels>,
+    state: VirtualScrollState,
+    includeSpacers = true,
+): string[] {
+    const parts: string[] = [];
+    if (includeSpacers) { appendSpacer(parts, calcRowOffset(startIdx, state)); }
+    appendVisibleMemoryRows(parts, startIdx, endIdx, labelMap);
+    if (includeSpacers) { appendSpacer(parts, calcTotalHeight(state) - calcRowOffset(endIdx, state)); }
+    return parts;
+}
+
+function appendVisibleMemoryRows(
+    parts: string[],
+    startIdx: number,
+    endIdx: number,
+    labelMap: Map<number, typeof S.labels>,
+): void {
+    for (let i = startIdx; i < endIdx && i < S.memRows.length; i++) {
+        appendMemoryRow(parts, S.memRows[i], labelMap);
+    }
+}
+
+function appendSpacer(parts: string[], height: number): void {
+    if (height > 0) {
+        parts.push(`<div style="height:${height}px"></div>`);
+    }
+}
+
+function appendMemoryRow(
+    parts: string[],
+    row: (typeof S.memRows)[number],
+    labelMap: Map<number, typeof S.labels>,
+): void {
+    if (row.type === 'gap') {
+        parts.push(renderGapRow(row));
+        return;
     }
 
-    // Apply search and selection highlights
+    appendSegmentBanners(parts, labelMap.get(row.address) ?? []);
+    parts.push(renderRow(row.address));
+}
+
+function renderGapRow(row: Extract<(typeof S.memRows)[number], { type: 'gap' }>): string {
+    const f = row.from.toString(16).toUpperCase().padStart(8, '0');
+    const t = row.to.toString(16).toUpperCase().padStart(8, '0');
+    return `<div class="gap-row">
+        <span class="gap-dots"></span>
+        <span class="gap-range">0x${f}  0x${t}</span>
+        <span class="gap-size">${fmtB(row.bytes)} unmapped</span>
+    </div>`;
+}
+
+function appendSegmentBanners(parts: string[], labels: typeof S.labels): void {
+    for (const lbl of labels) {
+        parts.push(`<div class="seg-banner" style="border-color:${lbl.color};background:${lbl.color}14;color:${lbl.color}">
+            <span class="sb-name">${esc(lbl.name)}</span>
+            <span class="sb-meta">0x${lbl.startAddress.toString(16).toUpperCase().padStart(8, '0')}  ${fmtB(lbl.length)}</span>
+        </div>`);
+    }
+}
+
+function getMemoryInteractionCallbacks(scrollContainer: MemoryScrollElement): MemoryInteractionCallbacks {
+    return {
+        onHexDown: scrollContainer._hexDownCallback,
+        onHexCtx: scrollContainer._hexCtxCallback,
+    };
+}
+
+function storeMemoryInteractionCallbacks(
+    scrollContainer: MemoryScrollElement,
+    onHexDown: HexCellHandler,
+    onHexCtx: HexCellHandler,
+): void {
+    scrollContainer._hexDownCallback = onHexDown;
+    scrollContainer._hexCtxCallback = onHexCtx;
+}
+
+function attachMemoryCellHandlers(container: HTMLElement, callbacks: MemoryInteractionCallbacks): void {
+    if (!callbacks.onHexDown && !callbacks.onHexCtx) { return; }
+    attachMemoryCellHandlersForSelector(container, '.data-cell[data-addr]', callbacks);
+    attachMemoryCellHandlersForSelector(container, '.char-cell[data-addr]', callbacks);
+}
+
+function attachMemoryCellHandlersForSelector(
+    container: HTMLElement,
+    selector: string,
+    callbacks: MemoryInteractionCallbacks,
+): void {
+    container.querySelectorAll<HTMLElement>(selector).forEach(el => attachMemoryCellHandler(el, callbacks));
+}
+
+function attachMemoryCellHandler(el: HTMLElement, callbacks: MemoryInteractionCallbacks): void {
+    if (callbacks.onHexDown) {
+        el.addEventListener('mousedown', e => callbacks.onHexDown?.(e as MouseEvent, el));
+    }
+    if (callbacks.onHexCtx) {
+        el.addEventListener('contextmenu', e => {
+            callbacks.onHexCtx?.(e as MouseEvent, el);
+            e.preventDefault();
+        });
+    }
+}
+
+function refreshMemoryHighlights(): void {
     applyMatchHighlights();
     applySel();
 }
@@ -220,7 +279,7 @@ export function renderMemBody(
     }
 
     // Initialize virtual scroll state
-    const scrollContainer = document.getElementById('mem-scroll')!;
+    const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
 
     vscrollState = {
@@ -233,9 +292,7 @@ export function renderMemBody(
     };
     vscrollRenderedRange = [-1, -1];
 
-    // Store callbacks for scroll listener
-    (scrollContainer as any)._hexDownCallback = onHexDown;
-    (scrollContainer as any)._hexCtxCallback = onHexCtx;
+    storeMemoryInteractionCallbacks(scrollContainer, onHexDown, onHexCtx);
 
     // Keep header columns aligned with horizontal body scrolling.
     syncHeaderScroll(scrollContainer.scrollLeft);
@@ -381,51 +438,98 @@ function getSelectedColumns(selStart: number, selEnd: number): Set<number> {
 
 //  Match highlight 
 
+interface VisibleCellIndex {
+    cellsByAddr: Map<number, HTMLElement[]>;
+    visibleMin: number;
+    visibleMax: number;
+}
+
 export function applyMatchHighlights(): void {
-    const renderedCells = document.querySelectorAll<HTMLElement>('.data-cell[data-addr], .char-cell[data-addr]');
-    renderedCells.forEach(el => el.classList.remove('match', 'amatch'));
+    const renderedCells = getRenderedAddressCells();
+    clearMatchClasses(renderedCells);
     if (!S.matchAddrs.length) { return; }
 
     const nLen = getNeedleLen();
     if (!nLen) { return; }
 
-    const cellsByAddr = new Map<number, HTMLElement[]>();
-    let visibleMin = Number.MAX_SAFE_INTEGER;
-    let visibleMax = Number.MIN_SAFE_INTEGER;
+    const cellIndex = buildVisibleCellIndex(renderedCells);
+    if (!cellIndex) { return; }
+    highlightVisibleMatches(cellIndex, nLen);
+}
 
-    renderedCells.forEach(el => {
-        const addrHex = el.dataset.addr;
-        if (!addrHex) { return; }
-        const addr = parseInt(addrHex, 16);
-        if (isNaN(addr)) { return; }
+function getRenderedAddressCells(): NodeListOf<HTMLElement> {
+    return document.querySelectorAll<HTMLElement>('.data-cell[data-addr], .char-cell[data-addr]');
+}
 
-        const existing = cellsByAddr.get(addr);
-        if (existing) {
-            existing.push(el);
-        } else {
-            cellsByAddr.set(addr, [el]);
-        }
-        if (addr < visibleMin) { visibleMin = addr; }
-        if (addr > visibleMax) { visibleMax = addr; }
-    });
+function clearMatchClasses(renderedCells: NodeListOf<HTMLElement>): void {
+    renderedCells.forEach(el => el.classList.remove('match', 'amatch'));
+}
 
-    if (cellsByAddr.size === 0) { return; }
+function buildVisibleCellIndex(renderedCells: NodeListOf<HTMLElement>): VisibleCellIndex | null {
+    const cellIndex: VisibleCellIndex = {
+        cellsByAddr: new Map<number, HTMLElement[]>(),
+        visibleMin: Number.MAX_SAFE_INTEGER,
+        visibleMax: Number.MIN_SAFE_INTEGER,
+    };
 
-    const firstRelevant = lowerBound(S.matchAddrs, visibleMin - (nLen - 1));
+    renderedCells.forEach(el => addVisibleCell(cellIndex, el));
+    return cellIndex.cellsByAddr.size === 0 ? null : cellIndex;
+}
+
+function addVisibleCell(cellIndex: VisibleCellIndex, el: HTMLElement): void {
+    const addr = getElementAddress(el);
+    if (addr === null) { return; }
+
+    addCellAddress(cellIndex.cellsByAddr, addr, el);
+    cellIndex.visibleMin = Math.min(cellIndex.visibleMin, addr);
+    cellIndex.visibleMax = Math.max(cellIndex.visibleMax, addr);
+}
+
+function getElementAddress(el: HTMLElement): number | null {
+    const addrHex = el.dataset.addr;
+    if (!addrHex) { return null; }
+
+    const addr = parseInt(addrHex, 16);
+    return isNaN(addr) ? null : addr;
+}
+
+function addCellAddress(cellsByAddr: Map<number, HTMLElement[]>, addr: number, el: HTMLElement): void {
+    const existing = cellsByAddr.get(addr);
+    if (existing) {
+        existing.push(el);
+        return;
+    }
+
+    cellsByAddr.set(addr, [el]);
+}
+
+function highlightVisibleMatches(cellIndex: VisibleCellIndex, nLen: number): void {
+    const firstRelevant = lowerBound(S.matchAddrs, cellIndex.visibleMin - (nLen - 1));
     for (let mi = firstRelevant; mi < S.matchAddrs.length; mi++) {
         const matchBase = S.matchAddrs[mi];
-        if (matchBase > visibleMax) { break; }
-        if (matchBase + nLen - 1 < visibleMin) { continue; }
+        if (matchBase > cellIndex.visibleMax) { break; }
+        if (matchBase + nLen - 1 < cellIndex.visibleMin) { continue; }
+        highlightMatchRange(cellIndex.cellsByAddr, matchBase, nLen, mi === S.matchIdx);
+    }
+}
 
-        for (let i = 0; i < nLen; i++) {
-            const active = mi === S.matchIdx;
-            const cells = cellsByAddr.get(matchBase + i);
-            if (!cells) { continue; }
-            for (const el of cells) {
-                el.classList.add('match');
-                if (active) { el.classList.add('amatch'); }
-            }
-        }
+function highlightMatchRange(
+    cellsByAddr: Map<number, HTMLElement[]>,
+    matchBase: number,
+    nLen: number,
+    active: boolean,
+): void {
+    for (let i = 0; i < nLen; i++) {
+        const cells = cellsByAddr.get(matchBase + i);
+        if (!cells) { continue; }
+        highlightMatchCells(cells, active);
+    }
+}
+
+function highlightMatchCells(cells: HTMLElement[], active: boolean): void {
+    for (const el of cells) {
+        el.classList.add('match');
+        if (active) { el.classList.add('amatch'); }
     }
 }
 
@@ -443,39 +547,53 @@ function lowerBound(sorted: number[], value: number): number {
     return lo;
 }
 
+type NeedleLenReader = (query: string) => number | null;
+
+const NEEDLE_LEN_BY_MODE: Record<typeof S.searchMode, NeedleLenReader> = {
+    addr: () => 1,
+    bytes: bytesNeedleLen,
+    value: valueNeedleLen,
+    ascii: asciiNeedleLen,
+};
+
 function getNeedleLen(): number | null {
     const q = (document.getElementById('search-input') as HTMLInputElement)?.value ?? '';
     if (!q.trim()) { return null; }
-    if (S.searchMode === 'addr') { return 1; }
-    if (S.searchMode === 'bytes') {
-        const tokens = q.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
-        const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
-        return n || null;
+    return NEEDLE_LEN_BY_MODE[S.searchMode](q);
+}
+
+function bytesNeedleLen(query: string): number | null {
+    const tokens = query.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
+    const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
+    return n || null;
+}
+
+function valueNeedleLen(query: string): number | null {
+    const raw = query.trim().replace(/_/g, '');
+    if (/^0x[0-9a-fA-F]+$/.test(raw)) {
+        return Math.max(1, Math.ceil(raw.slice(2).length / 2));
     }
-    if (S.searchMode === 'value') {
-        const raw = q.trim().replace(/_/g, '');
-        if (/^0x[0-9a-fA-F]+$/.test(raw)) {
-            const hexDigits = raw.slice(2);
-            return Math.max(1, Math.ceil(hexDigits.length / 2));
-        }
-        if (/^\d+$/.test(raw)) {
-            try {
-                const value = BigInt(raw);
-                if (value === 0n) { return 1; }
-                let tmp = value;
-                let bytes = 0;
-                while (tmp > 0n && bytes < 8) {
-                    bytes++;
-                    tmp >>= 8n;
-                }
-                return bytes || null;
-            } catch {
-                return null;
-            }
-        }
+    if (!/^\d+$/.test(raw)) { return null; }
+    try {
+        return decimalValueNeedleLen(BigInt(raw));
+    } catch {
         return null;
     }
-    return new TextEncoder().encode(q).length || null;
+}
+
+function decimalValueNeedleLen(value: bigint): number | null {
+    if (value === 0n) { return 1; }
+    let tmp = value;
+    let bytes = 0;
+    while (tmp > 0n && bytes < 8) {
+        bytes++;
+        tmp >>= 8n;
+    }
+    return bytes || null;
+}
+
+function asciiNeedleLen(query: string): number | null {
+    return new TextEncoder().encode(query).length || null;
 }
 
 //  Scroll 

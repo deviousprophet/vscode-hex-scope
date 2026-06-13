@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseIntelHex } from '../parser/IntelHexParser';
+import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
 
 // Sample files are at <workspace-root>/sample/ihex/; tests compile to out/test/
 const SAMPLES  = path.resolve(__dirname, '..', '..', 'sample');
@@ -37,8 +38,7 @@ suite('sample: minimal.hex', () => {
     });
 
     test('totalDataBytes equals the sum of all segment data lengths', () => {
-        const total = r.segments.reduce((acc, s) => acc + s.data.length, 0);
-        assert.strictEqual(r.totalDataBytes, total);
+        assert.strictEqual(r.totalDataBytes, segmentDataLengthTotal(r.segments));
     });
 
     test('total data byte count is 40', () => {
@@ -77,11 +77,7 @@ suite('sample: firmware.hex', () => {
     });
 
     test('0xDEADBEEF sentinel bytes are present in parsed memory', () => {
-        const flat: number[] = [];
-        for (const seg of r.segments) { flat.push(...seg.data); }
-        const magic = [0xDE, 0xAD, 0xBE, 0xEF];
-        const found = flat.some((_, i) => magic.every((b, j) => flat[i + j] === b));
-        assert.ok(found, '0xDEADBEEF bytes not found in any segment');
+        assertSegmentsContainBytes(r.segments, [0xDE, 0xAD, 0xBE, 0xEF], '0xDEADBEEF');
     });
 });
 
