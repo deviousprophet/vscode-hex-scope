@@ -4,6 +4,14 @@ import { JSDOM } from 'jsdom';
 import { esc, fmtB, byteClass } from '../webview/utils';
 import { S, BPR } from '../webview/state';
 import { initFlatBytes, buildMemRows, getByte } from '../webview/data';
+import {
+    calcRowOffset,
+    calcScrollLayout,
+    calcTotalHeight,
+    logicalToPhysicalScroll,
+    physicalToLogicalScroll,
+    type VirtualScrollState,
+} from '../webview/virtualScroll';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -262,6 +270,56 @@ suite('buildMemRows()', () => {
             assert.ok(dataRows[i].type === 'data' && dataRows[i - 1].type === 'data');
             assert.ok(dataRows[i].address > dataRows[i - 1].address);
         }
+    });
+});
+
+suite('virtual scroll metrics', () => {
+    setup(resetState);
+
+    test('recalculates cached offsets when row heights change', () => {
+        S.memRows = [
+            { type: 'data', address: 0x0000 },
+            { type: 'gap', from: 0x0010, to: 0x001F, bytes: 16 },
+            { type: 'data', address: 0x0020 },
+        ];
+
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            rowHeight: 20,
+            gapHeight: 30,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+        };
+
+        assert.strictEqual(calcTotalHeight(state), 70);
+
+        state.rowHeight = 32;
+        state.gapHeight = 52;
+
+        assert.strictEqual(calcTotalHeight(state), 116);
+        assert.strictEqual(calcRowOffset(2, state), 84);
+    });
+
+    test('maps large logical scroll ranges onto capped physical height', () => {
+        S.memRows = Array.from({ length: 200_000 }, (_, i) => ({ type: 'data', address: i * BPR }));
+
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            rowHeight: 100,
+            gapHeight: 150,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+        };
+
+        const layout = calcScrollLayout(state);
+        assert.strictEqual(layout.totalHeight, 20_000_000);
+        assert.strictEqual(layout.physicalHeight, 16_000_000);
+        assert.strictEqual(layout.isCompressed, true);
+
+        assert.strictEqual(logicalToPhysicalScroll(layout.logicalScrollable, state), layout.physicalScrollable);
+        assert.strictEqual(physicalToLogicalScroll(layout.physicalScrollable, state), layout.logicalScrollable);
     });
 });
 
