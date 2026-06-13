@@ -681,22 +681,49 @@ function recordTableElement(): HTMLTableElement {
 }
 
 function recordRow(r: SerializedRecord, isSrec: boolean, typeLabels: Record<number, string>): HTMLTableRowElement {
-    const isData = recordHasDataAddress(r, isSrec);
-    const label = typeLabels[r.recordType] ?? (isSrec ? `S${r.recordType}` : `TYPE ${r.recordType}`);
-    const address = r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0');
-    const data = r.data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    const checksumHex = String(r.checksum.toString(16).toUpperCase().padStart(2, '0'));
     const row = document.createElement('tr');
-
     if (r.error || !r.checksumValid) { row.className = 'rerr'; }
+
     row.append(
-        recordCellFromText(isData ? 'raddr' : 'raddr raddr-empty', isData ? address : '—'),
-        recordTypeCell(recordBadgeClass(r, isSrec), label),
+        recordCellFromText(recordAddressClass(r, isSrec), recordAddressText(r, isSrec)),
+        recordTypeCell(recordBadgeClass(r, isSrec), recordTypeLabel(r, isSrec, typeLabels)),
         recordCellFromText('rcnt', String(r.byteCount)),
-        recordCellFromText(r.error ? 'rdata rerr-msg' : 'rdata', r.error ? r.error : (data || '—')),
-        recordChecksumCell(!!r.error, r.checksumValid, checksumHex),
+        recordCellFromText(recordDataClass(r), recordDataText(r)),
+        recordChecksumCell(!!r.error, r.checksumValid, formatRecordByte(r.checksum)),
     );
     return row;
+}
+
+function recordTypeLabel(r: SerializedRecord, isSrec: boolean, typeLabels: Record<number, string>): string {
+    return typeLabels[r.recordType] ?? defaultRecordTypeLabel(r.recordType, isSrec);
+}
+
+function defaultRecordTypeLabel(recordType: number, isSrec: boolean): string {
+    return isSrec ? `S${recordType}` : `TYPE ${recordType}`;
+}
+
+function recordAddressClass(r: SerializedRecord, isSrec: boolean): string {
+    return recordHasDataAddress(r, isSrec) ? 'raddr' : 'raddr raddr-empty';
+}
+
+function recordAddressText(r: SerializedRecord, isSrec: boolean): string {
+    return recordHasDataAddress(r, isSrec)
+        ? r.resolvedAddress.toString(16).toUpperCase().padStart(8, '0')
+        : '\u2014';
+}
+
+function recordDataClass(r: SerializedRecord): string {
+    return r.error ? 'rdata rerr-msg' : 'rdata';
+}
+
+function recordDataText(r: SerializedRecord): string {
+    if (r.error) { return r.error; }
+    const data = r.data.map(formatRecordByte).join(' ');
+    return data || '\u2014';
+}
+
+function formatRecordByte(value: number): string {
+    return value.toString(16).toUpperCase().padStart(2, '0');
 }
 
 function recordHasDataAddress(r: SerializedRecord, isSrec: boolean): boolean {
