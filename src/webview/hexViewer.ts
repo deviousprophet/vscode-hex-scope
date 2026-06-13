@@ -955,54 +955,65 @@ function enableAllInteractiveElements(): void {
 
 /** Show an error banner when external change results in an invalid file. */
 function showExternalChangeError(checksumErrors: number, malformedLines: number, errorCount: number, canQuickRepair: boolean): void {
-    // Remove any previous banner
     document.getElementById('ext-error-banner')?.remove();
 
     const banner = document.createElement('div');
     banner.id = 'ext-error-banner';
     banner.className = 'ext-error-banner';
-    
-    let errorMsg = '';
+
+    banner.append(createExternalErrorIcon(), createExternalErrorMessage(checksumErrors, malformedLines));
+    banner.append(createExternalErrorAction(canQuickRepair));
+    document.getElementById('app')!.prepend(banner);
+    wireExternalErrorActions();
+}
+
+function formatExternalErrorText(checksumErrors: number, malformedLines: number): string {
     if (checksumErrors > 0 && malformedLines > 0) {
-        errorMsg = `${checksumErrors} checksum error${checksumErrors === 1 ? '' : 's'} and ${malformedLines} malformed line${malformedLines === 1 ? '' : 's'}`;
-    } else if (checksumErrors > 0) {
-        errorMsg = `${checksumErrors} checksum error${checksumErrors === 1 ? '' : 's'}`;
-    } else {
-        errorMsg = `${malformedLines} malformed line${malformedLines === 1 ? '' : 's'}`;
+        return `${formatCount(checksumErrors, 'checksum error')} and ${formatCount(malformedLines, 'malformed line')}`;
     }
 
+    return checksumErrors > 0
+        ? formatCount(checksumErrors, 'checksum error')
+        : formatCount(malformedLines, 'malformed line');
+}
+
+function formatCount(count: number, singular: string): string {
+    return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+function createExternalErrorIcon(): HTMLSpanElement {
     const icon = document.createElement('span');
     icon.className = 'eeb-icon';
-    icon.textContent = '❌';
+    icon.textContent = '\u274C';
+    return icon;
+}
 
+function createExternalErrorMessage(checksumErrors: number, malformedLines: number): HTMLSpanElement {
     const msgSpan = document.createElement('span');
     msgSpan.className = 'eeb-msg';
     msgSpan.append('File changed externally and is now invalid: ');
 
     const strong = document.createElement('strong');
-    strong.textContent = errorMsg;
+    strong.textContent = formatExternalErrorText(checksumErrors, malformedLines);
     msgSpan.append(strong);
+    return msgSpan;
+}
 
-    banner.append(icon, msgSpan);
+function createExternalErrorAction(canQuickRepair: boolean): HTMLButtonElement {
+    return canQuickRepair
+        ? createExternalErrorButton('eeb-repair', 'eeb-btn eeb-repair', 'Quick Repair & reload')
+        : createExternalErrorButton('eeb-view-text', 'eeb-btn eeb-view-text', 'View in text editor');
+}
 
-    if (canQuickRepair) {
-        // Only checksum errors — offer quick repair option only
-        const repairBtn = document.createElement('button');
-        repairBtn.className = 'eeb-btn eeb-repair';
-        repairBtn.id = 'eeb-repair';
-        repairBtn.textContent = 'Quick Repair & reload';
-        banner.append(repairBtn);
-    } else {
-        // Malformed lines present — can't auto-repair, just offer to switch to text editor
-        const viewTextBtn = document.createElement('button');
-        viewTextBtn.className = 'eeb-btn eeb-view-text';
-        viewTextBtn.id = 'eeb-view-text';
-        viewTextBtn.textContent = 'View in text editor';
-        banner.append(viewTextBtn);
-    }
+function createExternalErrorButton(id: string, className: string, text: string): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.id = id;
+    button.className = className;
+    button.textContent = text;
+    return button;
+}
 
-    document.getElementById('app')!.prepend(banner);
-
+function wireExternalErrorActions(): void {
     const repairBtn = document.getElementById('eeb-repair');
     if (repairBtn) {
         repairBtn.addEventListener('click', () => {
