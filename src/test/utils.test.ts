@@ -14,7 +14,7 @@ suite('webview utils formatting', () => {
 
     test('formatHex produces padded uppercase hex with 0x prefix', () => {
         assert.strictEqual(formatHex(0xFF, 2), '0xFF');
-        assert.strictEqual(formatHex(0x1, 4), '0x0000');
+        assert.strictEqual(formatHex(0x1, 4), '0x0001');
         assert.strictEqual(formatHex(0xABCDEF01, 8), '0xABCDEF01');
     });
 
