@@ -35,64 +35,17 @@ jobs:
           set -o pipefail
           xvfb-run -a npm test 2>&1 | tee test-output.log
 
-      - name: Parse Test Results
-        id: parse-tests
-        run: |
-          if [ -f test-output.log ]; then
-            PASS=$(grep -Eo '([0-9]+) passing' test-output.log | head -n1 | grep -Eo '[0-9]+' || true)
-            FAIL=$(grep -Eo '([0-9]+) failing' test-output.log | head -n1 | grep -Eo '[0-9]+' || true)
-          else
-            PASS=0
-            FAIL=0
-          fi
-          PASS=${PASS:-0}
-          FAIL=${FAIL:-0}
-          TOTAL=$((PASS + FAIL))
-          if [ "$TOTAL" -gt 0 ]; then
-            PASS_RATE=$(( PASS * 100 / TOTAL ))
-          else
-            PASS_RATE=0
-          fi
-          echo "passed=$PASS" >> $GITHUB_OUTPUT
-          echo "failed=$FAIL" >> $GITHUB_OUTPUT
-          echo "total=$TOTAL" >> $GITHUB_OUTPUT
-          echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
-
       - name: Job Summary
         if: always()
         env:
-          PASS: ${{ steps.parse-tests.outputs.passed }}
-          FAIL: ${{ steps.parse-tests.outputs.failed }}
-          TOTAL: ${{ steps.parse-tests.outputs.total }}
-          PASS_RATE: ${{ steps.parse-tests.outputs.pass_rate }}
           RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
-        run: |
-          PASS=${PASS:-0}
-          FAIL=${FAIL:-0}
-          TOTAL=${TOTAL:-0}
-          PASS_RATE=${PASS_RATE:-0}
-          RUN_TESTS_OUTCOME=${RUN_TESTS_OUTCOME:-unknown}
-
-          if [ "$RUN_TESTS_OUTCOME" != "success" ] || [ "${TOTAL:-0}" -eq 0 ]; then
-            STATUS="❌ Tests were not executed successfully"
-          elif [ "${FAIL:-0}" -eq 0 ]; then
-            STATUS="✅ All tests passed"
-          else
-            STATUS="❌ Some tests failed"
-          fi
-
-          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-          # 🤖 Automated test results
-
-          $STATUS
-
-          | Passed | Failed | Total | Pass rate |
-          |---:|---:|---:|---:|
-          | ${PASS:-0} | ${FAIL:-0} | ${TOTAL:-0} | ${PASS_RATE:-0}% |
-          EOF
+          LOG_FILE: test-output.log
+        run: bash .github/scripts/summarize-tests.sh
 
       - name: Upload Test Results Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           path: test-output.log
           name: test-results-${{ github.sha }}
+          overwrite: true
