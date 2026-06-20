@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.7.3] - 2026-06-20
+
+### Added
+
+- Added an Inspector sidebar segment list showing each parsed segment's start address, end address, and size, with click-to-jump navigation
+
+### Fixed
+
+- Fixed high-address jumps from segments, labels, search, and Struct Overlay hiding earlier memory rows when the Memory view content fits without a scrollbar
+
 ## [2.7.2] - 2026-06-13
 
 ### Fixed
