@@ -1,4 +1,4 @@
-name: Fallow
+name: Fallow Analysis
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  Analyze:
+  Fallow:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
