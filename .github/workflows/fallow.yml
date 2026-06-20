@@ -19,4 +19,5 @@ jobs:
       - name: Run Fallow Analysis
         uses: fallow-rs/fallow@v2
         with:
+          command: audit
           format: sarif
