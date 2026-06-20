@@ -315,7 +315,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
         const cssFiles = [
             'base', 'toolbar', 'layout', 'sidebar',
-            'record-view', 'memory-view', 'context-menu', 'struct',
+            'record-view', 'memory-view', 'context-menu', 'struct', 'integrity',
         ];
         const cssLinks = cssFiles.map(name => {
             const uri = webview.asWebviewUri(

@@ -508,3 +508,76 @@ suite('Record View rendering', () => {
         assert.ok(!(document.getElementById('record-view')?.textContent ?? '').includes('<tr'), 'record markup should not be escaped as text');
     });
 });
+
+suite('Integrity Checks sidebar', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        resetState();
+        dom = installWebviewDom('<!doctype html><html><body><div id="s-integrity"></div></body></html>');
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [1, 2, 3, 4] }],
+            totalDataBytes: 4,
+            checksumErrors: 0,
+            malformedLines: 0,
+            format: 'ihex',
+        };
+        initFlatBytes();
+        S.selStart = 0x1000;
+        S.selEnd = 0x1002;
+    });
+
+    teardown(() => cleanupWebviewDom(dom));
+
+    test('prefills once, recalculates visible bytes, clears invalid results, and copies', async () => {
+        const api = await import('../webview/api.js');
+        const originalPostMessage = api.vscode.postMessage;
+        const posted: unknown[] = [];
+        api.vscode.postMessage = msg => { posted.push(msg); };
+
+        try {
+            const view = await import('../webview/integrityView.js');
+            const { calculateIntegrity } = await import('../webview/integrity.js');
+            view.renderIntegrity();
+            view.activateIntegrity();
+
+            const start = document.getElementById('integrity-start') as HTMLInputElement;
+            const end = document.getElementById('integrity-end') as HTMLInputElement;
+            assert.strictEqual(start.value, '0x00001000');
+            assert.strictEqual(end.value, '0x00001002');
+
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const expectedInitial = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([1, 2, 3]));
+            assert.strictEqual(document.getElementById('integrity-value')?.textContent, expectedInitial.value);
+
+            start.value = '1001';
+            start.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+            view.activateIntegrity();
+            assert.strictEqual(start.value, '1001', 'later activation must preserve user range');
+
+            S.edits.set(0x1001, 0xFF);
+            view.notifyIntegrityBytesChanged();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const expectedEdited = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
+            assert.strictEqual(document.getElementById('integrity-value')?.textContent, expectedEdited.value);
+
+            end.value = 'not-hex';
+            end.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+            assert.strictEqual((document.getElementById('integrity-result') as HTMLElement).hidden, true);
+            assert.match(document.getElementById('integrity-error')?.textContent ?? '', /hexadecimal/);
+
+            end.value = '1002';
+            end.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            document.getElementById('integrity-copy')?.click();
+            assert.deepStrictEqual(posted.at(-1), {
+                type: 'copyText',
+                text: expectedEdited.value,
+                label: 'CRC32/ISO-HDLC',
+            });
+        } finally {
+            api.vscode.postMessage = originalPostMessage;
+        }
+    });
+});

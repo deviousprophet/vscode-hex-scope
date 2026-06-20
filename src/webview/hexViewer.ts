@@ -10,8 +10,9 @@ import { renderInspector, renderBits, renderSegments, renderLabels, updateInspec
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
-import type { SerializedRecord } from './types';
+import type { SerializedRecord, SidebarTab } from './types';
 import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
+import { activateIntegrity, notifyIntegrityBytesChanged, renderIntegrity } from './integrityView';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -124,6 +125,7 @@ function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
     );
     renderSegments();
     renderCurrentDataView();
+    notifyIntegrityBytesChanged();
 }
 
 function handleRepairCompleteMessage(msg: WebviewMessage): void {
@@ -151,6 +153,7 @@ function clearEditState(): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.editMode = false;
+    notifyIntegrityBytesChanged();
 }
 
 function renderCurrentDataView(): void {
@@ -199,13 +202,11 @@ function visibleClass(isVisible: boolean): string {
     return isVisible ? 'visible' : '';
 }
 
-type SidebarTabName = 'inspector' | 'struct';
-
-function tabPanelClass(tab: SidebarTabName): string {
+function tabPanelClass(tab: SidebarTab): string {
     return S.sidebarTab === tab ? 'sb-tab-panel active' : 'sb-tab-panel';
 }
 
-function sideTabClass(tab: SidebarTabName): string {
+function sideTabClass(tab: SidebarTab): string {
     return S.sidebarTab === tab ? 'stab active' : 'stab';
 }
 
@@ -277,10 +278,14 @@ function render(): void {
                 <div class="${tabPanelClass('struct')}" id="sbp-struct">
                     <div id="s-struct-pins"></div>
                 </div>
+                <div class="${tabPanelClass('integrity')}" id="sbp-integrity">
+                    <div id="s-integrity"></div>
+                </div>
             </div>
             <div id="side-tabs">
                 <button class="${sideTabClass('inspector')}" id="stab-insp">Inspector</button>
                 <button class="${sideTabClass('struct')}" id="stab-struct">Struct Overlay</button>
+                <button class="${sideTabClass('integrity')}" id="stab-integrity">Integrity Checks</button>
             </div>
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
@@ -492,13 +497,20 @@ function setupSideTabs(): void {
         S.sidebarTab = 'struct';
         applySidebarState();
     });
+    document.getElementById('stab-integrity')!.addEventListener('click', () => {
+        S.sidebarTab = 'integrity';
+        applySidebarState();
+        activateIntegrity();
+    });
 }
 
 function applySidebarState(): void {
     document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
     document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+    document.getElementById('sbp-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
     document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
     document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+    document.getElementById('stab-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
 }
 
 function renderInitialViews(): void {
@@ -507,6 +519,7 @@ function renderInitialViews(): void {
     renderInspector();
     renderBits();
     renderStructPins();
+    renderIntegrity();
     renderSegments();
     renderLabels();
     setupCtxMenu();
@@ -1174,6 +1187,7 @@ function applyFill(fillVal: number): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    notifyIntegrityBytesChanged();
 }
 
 function undoLastEdit(): void {
@@ -1190,6 +1204,7 @@ function undoLastEdit(): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    notifyIntegrityBytesChanged();
 }
 
 function updateDirtyBar(): void {
