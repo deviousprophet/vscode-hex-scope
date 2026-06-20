@@ -1,5 +1,5 @@
 /* ── Memory view container ───────────────────────────────────── */
-#memory-view { flex: 1; overflow: hidden; display: none; flex-direction: column; }
+#memory-view { flex: 1; min-height: 0; overflow: hidden; display: none; flex-direction: column; }
 #memory-view.visible { display: flex; }
 
 /* ── Column header (mirrors vscode-hexeditor DataHeader) ─────── */
@@ -25,7 +25,7 @@
 }
 
 /* ── Scroll viewport ─────────────────────────────────────────── */
-#mem-scroll { flex: 1; overflow: auto; }
+#mem-scroll { flex: 1; min-height: 0; overflow: auto; }
 #mem-rows   { padding: 2px 0; width: fit-content; min-width: 100%; }
 
 /* ── Data row (mirrors vscode-hexeditor DataRow) ─────────────── */

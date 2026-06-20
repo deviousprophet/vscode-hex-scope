@@ -613,11 +613,15 @@ export function scrollTo(addr: number): void {
     if (rowIndex < 0) { return; }
 
     syncVirtualScrollMetrics(scrollContainer);
-    const targetTop = Math.max(0, calcRowOffset(rowIndex, vscrollState) - vscrollState.rowHeight * 2);
+    const desiredTop = Math.max(0, calcRowOffset(rowIndex, vscrollState) - vscrollState.rowHeight * 2);
     const layout = calcScrollLayout(vscrollState);
+    const targetTop = Math.min(desiredTop, layout.logicalScrollable);
     const physicalTop = logicalToPhysicalScroll(targetTop, vscrollState);
-    vscrollState.scrollTop = targetTop;
     scrollContainer.scrollTop = physicalTop;
+    // Keep virtual state aligned with the scroll position the browser accepted.
+    // This matters when content is shorter than the viewport or the target is
+    // near the end, where the browser clamps scrollTop below the desired value.
+    vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
     renderVisibleRows();
 
     const el = document.querySelector<HTMLElement>(`.data-row[data-row="${row}"]`);
