@@ -92,6 +92,7 @@
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 12px;
     overflow-wrap: anywhere;
+    -webkit-user-select: text;
     user-select: text;
 }
 
