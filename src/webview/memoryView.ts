@@ -13,6 +13,7 @@ import {
     calcRowOffset,
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
+    type VirtualScrollLayout,
     type VirtualScrollState,
 } from './virtualScroll';
 
@@ -598,34 +599,46 @@ function asciiNeedleLen(query: string): number | null {
 
 //  Scroll 
 
+function scrollRenderedRow(row: number): void {
+    const el = document.querySelector<HTMLElement>(`.data-row[data-row="${row}"]`);
+    if (!el) { return; }
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function setVirtualScrollPosition(scrollContainer: HTMLElement, rowIndex: number): VirtualScrollLayout {
+    const state = vscrollState!;
+    syncVirtualScrollMetrics(scrollContainer);
+    const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.rowHeight * 2);
+    const layout = calcScrollLayout(state);
+    const targetTop = Math.min(desiredTop, layout.logicalScrollable);
+    scrollContainer.scrollTop = logicalToPhysicalScroll(targetTop, state);
+    // Keep virtual state aligned with the scroll position the browser accepted.
+    // Browsers clamp scrollTop when content fits or the target is near the end.
+    state.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, state);
+    return layout;
+}
+
+function scrollRenderedRowWhenUncompressed(row: number, layout: VirtualScrollLayout): void {
+    if (layout.isCompressed) { return; }
+    scrollRenderedRow(row);
+}
+
 export function scrollTo(addr: number): void {
     const row = addr - (addr % BPR);
     const scrollContainer = document.getElementById('mem-scroll');
     if (!scrollContainer) { return; }
 
     if (!vscrollState) {
-        const el = document.querySelector<HTMLElement>(`.data-row[data-row="${row}"]`);
-        if (el) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+        scrollRenderedRow(row);
         return;
     }
 
     const rowIndex = findRowIndex(row);
     if (rowIndex < 0) { return; }
 
-    syncVirtualScrollMetrics(scrollContainer);
-    const desiredTop = Math.max(0, calcRowOffset(rowIndex, vscrollState) - vscrollState.rowHeight * 2);
-    const layout = calcScrollLayout(vscrollState);
-    const targetTop = Math.min(desiredTop, layout.logicalScrollable);
-    const physicalTop = logicalToPhysicalScroll(targetTop, vscrollState);
-    scrollContainer.scrollTop = physicalTop;
-    // Keep virtual state aligned with the scroll position the browser accepted.
-    // This matters when content is shorter than the viewport or the target is
-    // near the end, where the browser clamps scrollTop below the desired value.
-    vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
+    const layout = setVirtualScrollPosition(scrollContainer, rowIndex);
     renderVisibleRows();
-
-    const el = document.querySelector<HTMLElement>(`.data-row[data-row="${row}"]`);
-    if (el && !layout.isCompressed) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    scrollRenderedRowWhenUncompressed(row, layout);
 }
 
 function findRowIndex(rowBase: number): number {

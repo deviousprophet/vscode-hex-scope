@@ -34,6 +34,38 @@ function resetState(): void {
     S.sidebarTab       = 'inspector';
 }
 
+function installWebviewDom(markup: string): JSDOM {
+    const dom = new JSDOM(markup);
+    const globals = globalThis as unknown as {
+        window: Window;
+        document: Document;
+        getComputedStyle: typeof getComputedStyle;
+        acquireVsCodeApi: () => unknown;
+    };
+    globals.window = dom.window as unknown as Window;
+    globals.document = dom.window.document as unknown as Document;
+    globals.getComputedStyle = dom.window.getComputedStyle.bind(dom.window) as typeof getComputedStyle;
+    globals.acquireVsCodeApi = () => ({
+        postMessage: (_msg: unknown) => {},
+        getState: () => ({}),
+        setState: (_state: unknown) => {},
+    });
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
+        value: () => {},
+        configurable: true,
+    });
+    return dom;
+}
+
+function cleanupWebviewDom(dom: JSDOM): void {
+    resetState();
+    dom.window.close();
+    delete (globalThis as unknown as { window?: Window }).window;
+    delete (globalThis as unknown as { document?: Document }).document;
+    delete (globalThis as unknown as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle;
+    delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+}
+
 // ── HTML escaping ───────────────────────────────────────────────
 
 suite('esc()', () => {
@@ -326,36 +358,15 @@ suite('virtual scroll metrics', () => {
 
 suite('Memory View navigation', () => {
     let dom: JSDOM;
-    let originalGetComputedStyle: typeof globalThis.getComputedStyle | undefined;
 
     setup(() => {
         resetState();
-        dom = new JSDOM(`<!doctype html><html><body>
+        dom = installWebviewDom(`<!doctype html><html><body>
             <div id="mem-header"></div>
             <div id="mem-scroll"><div id="mem-rows"></div></div>
         </body></html>`);
-        Object.defineProperty(globalThis, 'window', {
-            value: dom.window,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'document', {
-            value: dom.window.document,
-            configurable: true,
-            writable: true,
-        });
-        originalGetComputedStyle = globalThis.getComputedStyle;
-        Object.defineProperty(globalThis, 'getComputedStyle', {
-            value: dom.window.getComputedStyle.bind(dom.window),
-            configurable: true,
-            writable: true,
-        });
         Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
             value: 600,
-            configurable: true,
-        });
-        Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
-            value: () => {},
             configurable: true,
         });
 
@@ -377,15 +388,7 @@ suite('Memory View navigation', () => {
     });
 
     teardown(() => {
-        resetState();
-        dom.window.close();
-        delete (globalThis as unknown as { window?: Window }).window;
-        delete (globalThis as unknown as { document?: Document }).document;
-        if (originalGetComputedStyle) {
-            globalThis.getComputedStyle = originalGetComputedStyle;
-        } else {
-            delete (globalThis as unknown as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle;
-        }
+        cleanupWebviewDom(dom);
     });
 
     test('keeps all rows rendered when jumping in a viewport taller than the content', async () => {
@@ -406,36 +409,13 @@ suite('Parsed Segment Navigator', () => {
 
     setup(() => {
         resetState();
-        dom = new JSDOM('<!doctype html><html><body><div class="sb-section" id="s-segments"></div></body></html>');
-        Object.defineProperty(globalThis, 'window', {
-            value: dom.window,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'document', {
-            value: dom.window.document,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'acquireVsCodeApi', {
-            value: () => ({
-                postMessage: (_msg: unknown) => {},
-                getState: () => ({}),
-                setState: (_state: unknown) => {},
-            }),
-            configurable: true,
-            writable: true,
-        });
+        dom = installWebviewDom('<!doctype html><html><body><div class="sb-section" id="s-segments"></div></body></html>');
         originalJumpTo = rerender.jumpTo;
     });
 
     teardown(() => {
         rerender.jumpTo = originalJumpTo;
-        resetState();
-        dom.window.close();
-        delete (globalThis as unknown as { window?: Window }).window;
-        delete (globalThis as unknown as { document?: Document }).document;
-        delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+        cleanupWebviewDom(dom);
     });
 
     test('sorts segments, renders inclusive ranges and size, and jumps to start', async () => {
@@ -458,10 +438,10 @@ suite('Parsed Segment Navigator', () => {
 
         const items = document.querySelectorAll<HTMLElement>('.segment-item');
         assert.strictEqual(items.length, 2);
-        assert.strictEqual(document.querySelector('.sb-badge')?.textContent, '2');
-        assert.strictEqual(items[0].querySelector('.segment-nm')?.textContent, 'Segment 1');
-        assert.strictEqual(items[0].querySelector('.segment-rng')?.textContent, '0x00001000–0x00001001 · 2 B');
-        assert.strictEqual(items[1].querySelector('.segment-rng')?.textContent, '0x00002000–0x00002003 · 4 B');
+        assert.strictEqual(document.querySelector('.sb-badge')!.textContent, '2');
+        assert.strictEqual(items[0].querySelector('.segment-nm')!.textContent, 'Segment 1');
+        assert.strictEqual(items[0].querySelector('.segment-rng')!.textContent, '0x00001000–0x00001001 · 2 B');
+        assert.strictEqual(items[1].querySelector('.segment-rng')!.textContent, '0x00002000–0x00002003 · 4 B');
 
         items[0].click();
         assert.strictEqual(jumpedTo, 0x1000);
@@ -489,34 +469,11 @@ suite('Record View rendering', () => {
 
     setup(() => {
         resetState();
-        dom = new JSDOM('<!doctype html><html><body><div id="record-view"></div></body></html>');
-        Object.defineProperty(globalThis, 'window', {
-            value: dom.window,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'document', {
-            value: dom.window.document,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'acquireVsCodeApi', {
-            value: () => ({
-                postMessage: (_msg: unknown) => {},
-                getState: () => ({}),
-                setState: (_state: unknown) => {},
-            }),
-            configurable: true,
-            writable: true,
-        });
+        dom = installWebviewDom('<!doctype html><html><body><div id="record-view"></div></body></html>');
     });
 
     teardown(() => {
-        resetState();
-        dom.window.close();
-        delete (globalThis as unknown as { window?: Window }).window;
-        delete (globalThis as unknown as { document?: Document }).document;
-        delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+        cleanupWebviewDom(dom);
     });
 
     test('renders records as table rows instead of escaped markup text', async () => {
