@@ -3,7 +3,11 @@ import * as assert from 'assert';
 import {
     calculateIntegrity,
     collectIntegrityBytes,
+    integrityBytesEqual,
+    integrityValueToBytes,
+    normalizeIntegrityProfiles,
     parseIntegrityAddress,
+    readStoredIntegrityBytes,
     type IntegrityAlgorithm,
     validateIntegrityRange,
 } from '../webview/integrity';
@@ -75,5 +79,67 @@ suite('integrity range parsing', () => {
         const edits = new Map([[0x2001, 0xFF]]);
         const bytes = collectIntegrityBytes(request.value, address => edits.get(address) ?? source.get(address));
         assert.deepStrictEqual(bytes, { ok: true, value: new Uint8Array([1, 0xFF, 3]) });
+    });
+
+    test('excludes an overlapping stored field from calculation bytes', () => {
+        const request = validateIntegrityRange('1000', '1005', 'crc32-iso-hdlc');
+        assert.strictEqual(request.ok, true);
+        if (!request.ok) { return; }
+        const bytes = collectIntegrityBytes(
+            request.value,
+            address => address - 0x1000,
+            { startAddress: 0x1002, byteLength: 2 },
+        );
+        assert.deepStrictEqual(bytes, { ok: true, value: new Uint8Array([0, 1, 4, 5]) });
+    });
+
+    test('encodes calculated values in selectable stored byte order', () => {
+        assert.deepStrictEqual(integrityValueToBytes('1234ABCD', 'be'), new Uint8Array([0x12, 0x34, 0xAB, 0xCD]));
+        assert.deepStrictEqual(integrityValueToBytes('1234ABCD', 'le'), new Uint8Array([0xCD, 0xAB, 0x34, 0x12]));
+        assert.strictEqual(integrityBytesEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2])), true);
+        assert.strictEqual(integrityBytesEqual(new Uint8Array([1, 2]), new Uint8Array([2, 1])), false);
+    });
+
+    test('reads stored bytes and reports an unmapped stored address', () => {
+        assert.deepStrictEqual(readStoredIntegrityBytes(
+            { startAddress: 0x2000, byteLength: 2 },
+            address => address === 0x2000 ? 0xAA : 0xBB,
+        ), { ok: true, value: new Uint8Array([0xAA, 0xBB]) });
+        assert.deepStrictEqual(readStoredIntegrityBytes(
+            { startAddress: 0x2000, byteLength: 2 },
+            address => address === 0x2000 ? 0xAA : undefined,
+        ), { ok: false, error: 'No mapped stored byte at 0x00002001.' });
+    });
+});
+
+suite('integrity profile normalization', () => {
+    const validProfile = {
+        schemaVersion: 1,
+        id: 'profile-1',
+        name: ' STM32 App ',
+        checks: [{
+            algorithm: 'crc32-iso-hdlc',
+            startAddress: 0x08000000,
+            endAddress: 0x080000FF,
+            storedAddress: 0x08000100,
+            byteOrder: 'le',
+        }],
+    };
+
+    test('normalizes valid versioned profiles', () => {
+        const profiles = normalizeIntegrityProfiles([validProfile]);
+        assert.strictEqual(profiles.length, 1);
+        assert.strictEqual(profiles[0].name, 'STM32 App');
+        assert.strictEqual(profiles[0].checks[0].storedAddress, 0x08000100);
+    });
+
+    test('drops malformed profiles and case-insensitive duplicate names', () => {
+        const profiles = normalizeIntegrityProfiles([
+            validProfile,
+            { ...validProfile, id: 'profile-2', name: 'stm32 app' },
+            { ...validProfile, id: 'bad-version', schemaVersion: 2 },
+            { ...validProfile, id: 'bad-range', name: 'Bad', checks: [{ ...validProfile.checks[0], endAddress: 1 }] },
+        ]);
+        assert.deepStrictEqual(profiles.map(profile => profile.id), ['profile-1']);
     });
 });

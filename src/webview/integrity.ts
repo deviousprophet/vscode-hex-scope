@@ -8,6 +8,24 @@ const INTEGRITY_ALGORITHMS = [
 ] as const;
 
 export type IntegrityAlgorithm = typeof INTEGRITY_ALGORITHMS[number];
+export type IntegrityByteOrder = 'be' | 'le';
+
+const INTEGRITY_PROFILE_SCHEMA_VERSION = 1 as const;
+
+export interface IntegrityCheckConfig {
+    algorithm: IntegrityAlgorithm;
+    startAddress: number;
+    endAddress: number;
+    storedAddress?: number;
+    byteOrder: IntegrityByteOrder;
+}
+
+export interface IntegrityProfile {
+    schemaVersion: typeof INTEGRITY_PROFILE_SCHEMA_VERSION;
+    id: string;
+    name: string;
+    checks: IntegrityCheckConfig[];
+}
 
 export interface IntegrityRequest {
     algorithm: IntegrityAlgorithm;
@@ -21,11 +39,116 @@ export interface IntegrityResult {
     byteCount: number;
 }
 
+export interface IntegrityStoredField {
+    startAddress: number;
+    byteLength: number;
+}
+
 export type IntegrityValidation<T> =
     | { ok: true; value: T }
     | { ok: false; error: string };
 
 const MAX_ADDRESS = 0xFFFF_FFFF;
+
+function isIntegrityAlgorithm(value: unknown): value is IntegrityAlgorithm {
+    return typeof value === 'string' && (INTEGRITY_ALGORITHMS as readonly string[]).includes(value);
+}
+
+function isUint32(value: number): boolean {
+    return Number.isSafeInteger(value) && (value >>> 0) === value;
+}
+
+export function normalizeIntegrityProfiles(value: unknown): IntegrityProfile[] {
+    if (!Array.isArray(value)) { return []; }
+    const profiles: IntegrityProfile[] = [];
+    for (const candidate of value) {
+        appendNormalizedProfile(profiles, candidate);
+    }
+    return profiles;
+}
+
+function appendNormalizedProfile(profiles: IntegrityProfile[], candidate: unknown): void {
+    const profile = normalizeIntegrityProfile(candidate);
+    if (!profile) { return; }
+    if (profiles.some(item => item.id === profile.id)) { return; }
+    if (profiles.some(item => item.name.toLocaleLowerCase() === profile.name.toLocaleLowerCase())) { return; }
+    profiles.push(profile);
+}
+
+function normalizeIntegrityProfile(value: unknown): IntegrityProfile | null {
+    const raw = integrityProfileCandidate(value);
+    if (!raw) { return null; }
+    const identity = integrityProfileIdentity(raw);
+    if (!identity) { return null; }
+    const checks = normalizeIntegrityChecks(raw.checks);
+    if (!checks) { return null; }
+    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, ...identity, checks };
+}
+
+function integrityProfileCandidate(value: unknown): Partial<IntegrityProfile> | null {
+    if (value === null) { return null; }
+    if (typeof value !== 'object') { return null; }
+    return value as Partial<IntegrityProfile>;
+}
+
+function integrityProfileIdentity(raw: Partial<IntegrityProfile>): Pick<IntegrityProfile, 'id' | 'name'> | null {
+    if (raw.schemaVersion !== INTEGRITY_PROFILE_SCHEMA_VERSION) { return null; }
+    const id = trimmedString(raw.id);
+    if (!id) { return null; }
+    const name = trimmedString(raw.name);
+    return name ? { id, name } : null;
+}
+
+function trimmedString(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeIntegrityChecks(value: unknown): IntegrityCheckConfig[] | null {
+    if (!Array.isArray(value)) { return null; }
+    const checks = value.map(normalizeIntegrityCheck).filter((check): check is IntegrityCheckConfig => !!check);
+    if (checks.length === 0) { return null; }
+    return checks.length === value.length ? checks : null;
+}
+
+function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
+    const raw = integrityCheckCandidate(value);
+    if (!raw) { return null; }
+    if (!isIntegrityCheckCore(raw)) { return null; }
+    if (!isStoredAddressValid(raw.storedAddress)) { return null; }
+    return {
+        algorithm: raw.algorithm,
+        startAddress: raw.startAddress as number,
+        endAddress: raw.endAddress as number,
+        ...normalizedStoredAddress(raw.storedAddress),
+        byteOrder: raw.byteOrder,
+    };
+}
+
+function normalizedStoredAddress(value: number | undefined): { storedAddress?: number } {
+    return value === undefined ? {} : { storedAddress: value };
+}
+
+function integrityCheckCandidate(value: unknown): Partial<IntegrityCheckConfig> | null {
+    if (value === null) { return null; }
+    return typeof value === 'object' ? value as Partial<IntegrityCheckConfig> : null;
+}
+
+function isIntegrityCheckCore(raw: Partial<IntegrityCheckConfig>): raw is IntegrityCheckConfig {
+    if (!isIntegrityAlgorithm(raw.algorithm)) { return false; }
+    if (!isIntegrityRange(raw.startAddress, raw.endAddress)) { return false; }
+    return raw.byteOrder === 'be' || raw.byteOrder === 'le';
+}
+
+function isIntegrityRange(start: unknown, end: unknown): start is number {
+    if (!isUint32(start as number)) { return false; }
+    if (!isUint32(end as number)) { return false; }
+    return (end as number) >= (start as number);
+}
+
+function isStoredAddressValid(value: unknown): boolean {
+    if (value === undefined) { return true; }
+    return isUint32(value as number);
+}
 
 export function parseIntegrityAddress(raw: string, label: string): IntegrityValidation<number> {
     const text = raw.trim();
@@ -39,10 +162,6 @@ export function parseIntegrityAddress(raw: string, label: string): IntegrityVali
         return { ok: false, error: `${label} address must be between 0x00000000 and 0xFFFFFFFF.` };
     }
     return { ok: true, value };
-}
-
-function isUint32(value: number): boolean {
-    return Number.isSafeInteger(value) && (value >>> 0) === value;
 }
 
 export function validateIntegrityRange(
@@ -63,19 +182,64 @@ export function validateIntegrityRange(
 export function collectIntegrityBytes(
     request: IntegrityRequest,
     readByte: (address: number) => number | undefined,
+    excluded?: IntegrityStoredField,
 ): IntegrityValidation<Uint8Array> {
-    const length = request.endAddress - request.startAddress + 1;
-    for (let offset = 0; offset < length; offset++) {
-        const address = request.startAddress + offset;
-        if (readByte(address) === undefined) {
+    const values: number[] = [];
+    for (let address = request.startAddress; address <= request.endAddress; address++) {
+        if (isExcludedIntegrityAddress(address, excluded)) { continue; }
+        const value = readByte(address);
+        if (value === undefined) {
             return { ok: false, error: `No mapped byte at ${formatIntegrityAddress(address)}.` };
         }
+        values.push(value);
     }
-    const bytes = new Uint8Array(length);
-    for (let offset = 0; offset < length; offset++) {
-        bytes[offset] = readByte(request.startAddress + offset)!;
+    return { ok: true, value: Uint8Array.from(values) };
+}
+
+function isExcludedIntegrityAddress(address: number, excluded?: IntegrityStoredField): boolean {
+    if (!excluded) { return false; }
+    if (address < excluded.startAddress) { return false; }
+    return address < excluded.startAddress + excluded.byteLength;
+}
+
+export function integrityValueToBytes(value: string, byteOrder: IntegrityByteOrder): Uint8Array {
+    if (value.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(value)) {
+        throw new Error('Integrity value must contain complete hexadecimal bytes.');
+    }
+    const bytes = Uint8Array.from(value.match(/../g)!, pair => Number.parseInt(pair, 16));
+    return byteOrder === 'le' ? bytes.reverse() : bytes;
+}
+
+export function readStoredIntegrityBytes(
+    field: IntegrityStoredField,
+    readByte: (address: number) => number | undefined,
+): IntegrityValidation<Uint8Array> {
+    if (!isStoredFieldInAddressSpace(field)) {
+        return { ok: false, error: 'Stored value extends beyond 0xFFFFFFFF.' };
+    }
+    const bytes = new Uint8Array(field.byteLength);
+    for (let offset = 0; offset < field.byteLength; offset++) {
+        const address = field.startAddress + offset;
+        const value = readByte(address);
+        if (value === undefined) {
+            return { ok: false, error: `No mapped stored byte at ${formatIntegrityAddress(address)}.` };
+        }
+        bytes[offset] = value;
     }
     return { ok: true, value: bytes };
+}
+
+function isStoredFieldInAddressSpace(field: IntegrityStoredField): boolean {
+    if (field.byteLength < 1) { return false; }
+    return field.startAddress + field.byteLength - 1 <= MAX_ADDRESS;
+}
+
+export function integrityBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function integrityBytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
 export async function calculateIntegrity(
