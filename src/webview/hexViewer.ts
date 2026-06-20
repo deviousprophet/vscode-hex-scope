@@ -1174,15 +1174,7 @@ function getOriginalByte(addr: number): number | undefined {
 // ── Edit helpers ──────────────────────────────────────────────────
 
 function applyFill(fillVal: number): void {
-    if (S.selStart === null || S.selEnd === null) { return; }
-    const prev: Array<[number, number]> = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) {
-        const orig = getByte(a);
-        if (orig !== undefined) {
-            prev.push([a, orig]);
-            S.edits.set(a, fillVal);
-        }
-    }
+    const prev = buildFillTransaction(fillVal);
     if (prev.length > 0) { S.undoStack.push(prev); }
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
@@ -1190,21 +1182,50 @@ function applyFill(fillVal: number): void {
     notifyIntegrityBytesChanged();
 }
 
+function currentSelectionRange(): { start: number; end: number } | null {
+    if (S.selStart === null) { return null; }
+    if (S.selEnd === null) { return null; }
+    return { start: S.selStart, end: S.selEnd };
+}
+
+function buildFillTransaction(fillVal: number): Array<[number, number]> {
+    const range = currentSelectionRange();
+    if (!range) { return []; }
+    const prev: Array<[number, number]> = [];
+    for (let a = range.start; a <= range.end; a++) {
+        const orig = getByte(a);
+        if (orig === undefined) { continue; }
+        prev.push([a, orig]);
+        S.edits.set(a, fillVal);
+    }
+    return prev;
+}
+
 function undoLastEdit(): void {
-    if (!S.editMode || S.undoStack.length === 0) { return; }
-    const txn = S.undoStack.pop()!;
+    const txn = popUndoTransaction();
+    if (!txn) { return; }
     for (const [addr, prevVal] of txn) {
-        const orig = getOriginalByte(addr);
-        if (orig !== undefined && prevVal === orig) {
-            S.edits.delete(addr);
-        } else {
-            S.edits.set(addr, prevVal);
-        }
+        restoreEditedByte(addr, prevVal);
     }
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
     notifyIntegrityBytesChanged();
+}
+
+function popUndoTransaction(): Array<[number, number]> | null {
+    if (!S.editMode) { return null; }
+    if (S.undoStack.length === 0) { return null; }
+    return S.undoStack.pop()!;
+}
+
+function restoreEditedByte(addr: number, prevVal: number): void {
+    const orig = getOriginalByte(addr);
+    if (orig !== undefined && prevVal === orig) {
+        S.edits.delete(addr);
+        return;
+    }
+    S.edits.set(addr, prevVal);
 }
 
 function updateDirtyBar(): void {
