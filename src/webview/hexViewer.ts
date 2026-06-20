@@ -12,7 +12,13 @@ import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './sear
 import { initFlatBytes, buildMemRows, getByte }      from './data';
 import type { SerializedRecord, SidebarTab } from './types';
 import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
-import { activateIntegrity, notifyIntegrityBytesChanged, renderIntegrity } from './integrityView';
+import {
+    activateIntegrity,
+    notifyIntegrityBytesChanged,
+    renderIntegrity,
+    setIntegrityEditHandler,
+    setIntegrityProfiles,
+} from './integrityView';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -42,6 +48,7 @@ const MESSAGE_HANDLERS: ReadonlyArray<readonly [string, WebviewMessageHandler]> 
     ['externalChange', handleExternalChangeMessage],
     ['externalChangeError', handleExternalChangeErrorMessage],
     ['repairComplete', handleRepairCompleteMessage],
+    ['integrityProfiles', handleIntegrityProfilesMessage],
 ];
 
 window.addEventListener('message', (e: MessageEvent) => {
@@ -55,11 +62,16 @@ function handleInitMessage(msg: WebviewMessage): void {
     S.labels      = (msg.labels as typeof S.labels) ?? [];
     S.structs     = (msg.structs as typeof S.structs) ?? [];
     S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
+    setIntegrityProfiles(msg.integrityProfiles);
     initFlatBytes();
     buildMemRows();
 
     S.currentView = 'memory';
     render();
+}
+
+function handleIntegrityProfilesMessage(msg: WebviewMessage): void {
+    setIntegrityProfiles(msg.profiles, typeof msg.error === 'string' ? msg.error : '');
 }
 
 function handleLoadErrorMessage(msg: WebviewMessage): void {
@@ -300,6 +312,7 @@ function setupRenderedUi(): void {
     setupEditButtons();
     setupSearchControls();
     setupRerenderCallbacks();
+    setIntegrityEditHandler(stageIntegrityEdits);
     initSearch(() => switchView('memory'));
     setupMemoryDragSelection();
     setupSideTabs();
@@ -1169,6 +1182,40 @@ function getOriginalByte(addr: number): number | undefined {
         if (off >= 0 && off < seg.data.length) { return seg.data[off]; }
     }
     return undefined;
+}
+
+function stageIntegrityEdits(edits: Array<[number, number]>): void {
+    const previous: Array<[number, number]> = [];
+    for (const [address, value] of edits) {
+        const prior = stageIntegrityEdit(address, value);
+        if (prior) { previous.push(prior); }
+    }
+    if (previous.length === 0) { return; }
+    S.undoStack.push(previous);
+    S.editMode = true;
+    refreshAfterIntegrityEdits();
+}
+
+function refreshAfterIntegrityEdits(): void {
+    updateEditControls();
+    updateDirtyBar();
+    if (S.currentView === 'memory') { memRerender(); }
+    updateInspector();
+    notifyIntegrityBytesChanged();
+}
+
+function stageIntegrityEdit(address: number, value: number): [number, number] | null {
+    const original = getOriginalByte(address);
+    if (original === undefined) { return null; }
+    const current = currentIntegrityByte(address, original);
+    if (current === value) { return null; }
+    if (value === original) { S.edits.delete(address); }
+    else { S.edits.set(address, value); }
+    return [address, current];
+}
+
+function currentIntegrityByte(address: number, original: number): number {
+    return S.edits.has(address) ? S.edits.get(address)! : original;
 }
 
 // ── Edit helpers ──────────────────────────────────────────────────

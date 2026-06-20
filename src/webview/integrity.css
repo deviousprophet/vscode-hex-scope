@@ -19,7 +19,76 @@
 
 .integrity-help {
     line-height: 1.45;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
+}
+
+.integrity-profiles {
+    border-bottom: 1px solid var(--vscode-widget-border, transparent);
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+}
+
+.integrity-profile-actions,
+.integrity-check-actions,
+.integrity-result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.integrity-profile-actions button,
+.integrity-check-actions button,
+.integrity-add {
+    background: var(--vscode-button-secondaryBackground);
+    border: 0;
+    color: var(--vscode-button-secondaryForeground);
+    cursor: pointer;
+    font: inherit;
+    padding: 5px 8px;
+}
+
+.integrity-profile-actions button:hover,
+.integrity-check-actions button:hover,
+.integrity-add:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.integrity-profile-actions button:disabled,
+.integrity-check-actions button:disabled {
+    cursor: default;
+    opacity: .45;
+}
+
+.integrity-check {
+    border: 1px solid var(--vscode-widget-border, transparent);
+    margin-bottom: 12px;
+    padding: 10px;
+}
+
+.integrity-check-header {
+    align-items: center;
+    display: flex;
+    font-size: 11px;
+    font-weight: 600;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.integrity-check-actions button {
+    min-width: 24px;
+    padding: 3px 6px;
+}
+
+.integrity-address-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.integrity-address-grid.stored {
+    border-top: 1px solid var(--vscode-widget-border, transparent);
+    margin-top: 2px;
+    padding-top: 10px;
 }
 
 .integrity-field {
@@ -86,6 +155,24 @@
     text-transform: uppercase;
 }
 
+.integrity-result-label.stored-label {
+    margin-top: 9px;
+}
+
+.integrity-status {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.integrity-status.match {
+    color: var(--vscode-testing-iconPassed, #73c991);
+}
+
+.integrity-status.mismatch {
+    color: var(--vscode-testing-iconFailed, #f14c4c);
+}
+
 .integrity-result code {
     color: var(--vscode-foreground);
     display: block;
@@ -103,9 +190,17 @@
     cursor: pointer;
     margin-top: 10px;
     padding: 5px 12px;
-    width: 100%;
+    flex: 1 1 auto;
 }
 
 .integrity-result button:hover {
     background: var(--vscode-button-hoverBackground);
+}
+
+.integrity-result-actions {
+    margin-top: 10px;
+}
+
+.integrity-add {
+    width: 100%;
 }

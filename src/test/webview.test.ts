@@ -612,6 +612,45 @@ suite('Integrity Checks sidebar', () => {
             const expectedEdited = await verifyEditedIntegrityResult(view, calculateIntegrity, dom);
             verifyInvalidIntegrityRange(dom);
             await verifyIntegrityCopy(dom, expectedEdited, posted);
+
+            document.getElementById('integrity-add-check')!.click();
+            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 2);
+            document.querySelectorAll<HTMLElement>('[data-check-action="up"]')[1].click();
+            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 2);
+            document.querySelectorAll<HTMLElement>('[data-check-action="remove"]')[1].click();
+            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 1);
+
+            view.setIntegrityProfiles([{
+                schemaVersion: 1,
+                id: 'stm32-profile',
+                name: 'STM32 Layout',
+                checks: [
+                    { algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1001, byteOrder: 'be' },
+                    { algorithm: 'crc16-ccitt-false', startAddress: 0x1002, endAddress: 0x1003, storedAddress: 0x1000, byteOrder: 'le' },
+                ],
+            }]);
+            const profileSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+            profileSelect.value = 'stm32-profile';
+            profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            document.getElementById('integrity-profile-apply')!.click();
+            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 2);
+            assert.strictEqual((document.getElementById('integrity-start') as HTMLInputElement).value, '0x00001000');
+            assert.strictEqual((document.querySelector('[data-control="stored"]') as HTMLInputElement).value, '');
+            assert.strictEqual((document.querySelectorAll('[data-control="stored"]')[1] as HTMLInputElement).value, '0x00001000');
+
+            document.getElementById('integrity-profile-update')!.click();
+            assert.strictEqual((posted.at(-1) as { type: string }).type, 'updateIntegrityProfile');
+            dom.window.prompt = () => 'Renamed Layout';
+            document.getElementById('integrity-profile-rename')!.click();
+            assert.deepStrictEqual(posted.at(-1), {
+                type: 'renameIntegrityProfile', id: 'stm32-profile', name: 'Renamed Layout',
+            });
+            dom.window.confirm = () => true;
+            document.getElementById('integrity-profile-delete')!.click();
+            assert.deepStrictEqual(posted.at(-1), { type: 'deleteIntegrityProfile', id: 'stm32-profile' });
+            dom.window.prompt = () => 'New Layout';
+            document.getElementById('integrity-profile-save')!.click();
+            assert.strictEqual((posted.at(-1) as { type: string }).type, 'createIntegrityProfile');
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }
