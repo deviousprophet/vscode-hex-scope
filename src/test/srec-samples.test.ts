@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { parseIntelHex } from '../parser/IntelHexParser';
-import { parseSRec } from '../parser/SRecParser';
+import { parseSRec, srecIsData } from '../parser/SRecParser';
 import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
 import { loadIntelHexFixture as loadHex, loadSRecFixture as loadSrec } from './parser-fixtures';
 
@@ -294,8 +294,9 @@ suite('SREC fixture: errors', () => {
 
     test('only valid checksum records contribute bytes to segments', () => {
         const validBytes = r.records
-            .filter(rec => (rec.recordType === 1 || rec.recordType === 2 || rec.recordType === 3)
-                && rec.checksumValid && !rec.error)
+            .filter(rec => srecIsData(rec.recordType))
+            .filter(rec => rec.checksumValid)
+            .filter(rec => rec.error === undefined)
             .reduce((sum, rec) => sum + rec.byteCount - 3, 0); // subtract 2-byte addr + 1-byte chk
         const segBytes = r.segments.reduce((sum, s) => sum + s.data.length, 0);
         assert.strictEqual(segBytes, validBytes);
