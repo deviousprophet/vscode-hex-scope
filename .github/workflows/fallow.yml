@@ -1,4 +1,4 @@
-name: Fallow
+name: Fallow Analysis
 
 on:
   pull_request:
@@ -10,13 +10,23 @@ permissions:
   contents: read
 
 jobs:
-  Analyze:
+  Fallow:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Fallow PR Audit
+        if: github.event_name == 'pull_request'
+        uses: fallow-rs/fallow@v2
+        with:
+          command: audit
+          format: sarif
 
       - name: Run Fallow Analysis
+        if: github.event_name == 'push'
         uses: fallow-rs/fallow@v2
         with:
           format: sarif

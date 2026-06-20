@@ -1,19 +1,11 @@
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 import { parseIntelHex } from '../parser/IntelHexParser';
 import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
+import { loadIntelHexFixture as loadHex } from './parser-fixtures';
 
-// Sample files are at <workspace-root>/sample/ihex/; tests compile to out/test/
-const SAMPLES  = path.resolve(__dirname, '..', '..', 'sample');
-const IHEX_DIR = path.join(SAMPLES, 'ihex');
-const loadHex  = (name: string) => fs.readFileSync(path.join(IHEX_DIR, name), 'utf8');
+// Minimal 16-bit image with two disjoint address ranges and 40 data bytes.
 
-// ── minimal.hex ─────────────────────────────────────────────────────────────
-// A hand-crafted file using only 16-bit addressing.  Two disjoint
-// address ranges: 0x0000–0x0007 and 0x0030–0x004F (40 bytes total).
-
-suite('sample: minimal.hex', () => {
+suite('Intel HEX fixture: minimal', () => {
     let r: ReturnType<typeof parseIntelHex>;
     setup(() => { r = parseIntelHex(loadHex('minimal.hex')); });
 
@@ -46,11 +38,9 @@ suite('sample: minimal.hex', () => {
     });
 });
 
-// ── firmware.hex ─────────────────────────────────────────────────────────────
-// STM32-style image with two Extended Linear Address records and a
-// known 0xDEADBEEF sentinel in one of the data records.
+// STM32-style image with multiple extended addresses and a known sentinel.
 
-suite('sample: firmware.hex', () => {
+suite('Intel HEX fixture: firmware', () => {
     let r: ReturnType<typeof parseIntelHex>;
     setup(() => { r = parseIntelHex(loadHex('firmware.hex')); });
 
@@ -81,10 +71,9 @@ suite('sample: firmware.hex', () => {
     });
 });
 
-// ── stm32_16bpr.hex ──────────────────────────────────────────────────────────
-// Standard 16-bytes-per-record STM32 firmware image.
+// STM32 image encoded with 16-byte data records.
 
-suite('sample: stm32_16bpr.hex', () => {
+suite('Intel HEX fixture: STM32 16 bytes per record', () => {
     let r: ReturnType<typeof parseIntelHex>;
     setup(() => { r = parseIntelHex(loadHex('stm32_16bpr.hex')); });
 
@@ -120,11 +109,9 @@ suite('sample: stm32_16bpr.hex', () => {
     });
 });
 
-// ── stm32_32bpr.hex ──────────────────────────────────────────────────────────
-// Same firmware as stm32_16bpr.hex but encoded with 32-byte-wide records.
-// The parsed memory content must be identical.
+// Equivalent STM32 image encoded with 32-byte data records.
 
-suite('sample: stm32_32bpr.hex', () => {
+suite('Intel HEX fixture: STM32 32 bytes per record', () => {
     let r32: ReturnType<typeof parseIntelHex>;
     let r16: ReturnType<typeof parseIntelHex>;
     setup(() => {
@@ -163,11 +150,9 @@ suite('sample: stm32_32bpr.hex', () => {
     });
 });
 
-// ── errors.hex ───────────────────────────────────────────────────────────────
-// A file that deliberately contains two bad checksums and three malformed lines:
-// (1) no-':' comment line, (2) unknown record type 0x06, (3) EOF with byte count 2.
+// Invalid input: two bad checksums plus three malformed records.
 
-suite('sample: errors.hex', () => {
+suite('Intel HEX fixture: errors', () => {
     let r: ReturnType<typeof parseIntelHex>;
     setup(() => { r = parseIntelHex(loadHex('errors.hex')); });
 

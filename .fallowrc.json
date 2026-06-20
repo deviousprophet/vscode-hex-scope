@@ -5,8 +5,7 @@
     "src/webview/hexViewer.ts",
     "src/test/**/*.test.ts",
     ".vscode-test.mjs",
-    "esbuild.js",
-    "sample/generate-large-hex.js"
+    "esbuild.js"
   ],
   "dynamicallyLoaded": [
     "src/webview/*.css"
