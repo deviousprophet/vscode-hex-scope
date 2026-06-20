@@ -5,6 +5,7 @@ import {
     collectIntegrityBytes,
     formatIntegrityAddress,
     type IntegrityAlgorithm,
+    type IntegrityRequest,
     type IntegrityResult,
     validateIntegrityRange,
 } from './integrity';
@@ -104,14 +105,27 @@ function wireIntegrityControls(): void {
 
 function scheduleIntegrityCalculation(): void {
     const token = ++integrityState.token;
-    if (integrityState.timer !== null) { window.clearTimeout(integrityState.timer); }
-    integrityState.timer = null;
+    cancelPendingCalculation();
     clearResult();
 
+    const request = prepareIntegrityRequest();
+    if (!request) { return; }
+    integrityState.timer = window.setTimeout(() => {
+        integrityState.timer = null;
+        void calculateAndRender(token, request);
+    }, DEBOUNCE_MS);
+}
+
+function cancelPendingCalculation(): void {
+    if (integrityState.timer !== null) { window.clearTimeout(integrityState.timer); }
+    integrityState.timer = null;
+}
+
+function prepareIntegrityRequest(): IntegrityRequest | null {
     if (integrityState.startRaw.trim() === '' && integrityState.endRaw.trim() === '') {
         showMeta('Enter a start and end address.');
         showError('');
-        return;
+        return null;
     }
 
     const validation = validateIntegrityRange(
@@ -122,44 +136,50 @@ function scheduleIntegrityCalculation(): void {
     if (!validation.ok) {
         showMeta('');
         showError(validation.error);
-        return;
+        return null;
     }
 
     const byteCount = validation.value.endAddress - validation.value.startAddress + 1;
-    showMeta(`${byteCount.toLocaleString()} byte${byteCount === 1 ? '' : 's'}`);
+    showMeta(formatByteCount(byteCount));
     showError('');
-    integrityState.timer = window.setTimeout(() => {
-        integrityState.timer = null;
-        void calculateAndRender(token);
-    }, DEBOUNCE_MS);
+    return validation.value;
 }
 
-async function calculateAndRender(token: number): Promise<void> {
-    const validation = validateIntegrityRange(
-        integrityState.startRaw,
-        integrityState.endRaw,
-        integrityState.algorithm,
-    );
-    if (!validation.ok || token !== integrityState.token) { return; }
+async function calculateAndRender(token: number, request: IntegrityRequest): Promise<void> {
+    const bytes = collectBytesOrShowError(token, request);
+    if (!bytes) { return; }
+    showMeta(`Calculating ${formatByteCount(bytes.length)}…`);
+    try {
+        const result = await calculateIntegrity(request.algorithm, bytes);
+        applyResultIfCurrent(token, result);
+    } catch (error) {
+        showCalculationErrorIfCurrent(token, error);
+    }
+}
 
-    const bytes = collectIntegrityBytes(validation.value, address => S.edits.get(address) ?? getByte(address));
+function collectBytesOrShowError(token: number, request: IntegrityRequest): Uint8Array | null {
+    const bytes = collectIntegrityBytes(request, address => S.edits.get(address) ?? getByte(address));
     if (!bytes.ok) {
         if (token === integrityState.token) { showError(bytes.error); }
-        return;
+        return null;
     }
+    return bytes.value;
+}
 
-    showMeta(`Calculating ${bytes.value.length.toLocaleString()} byte${bytes.value.length === 1 ? '' : 's'}…`);
-    try {
-        const result = await calculateIntegrity(validation.value.algorithm, bytes.value);
-        if (token !== integrityState.token) { return; }
-        integrityState.result = result;
-        showMeta(`${result.byteCount.toLocaleString()} byte${result.byteCount === 1 ? '' : 's'}`);
-        showResult(result.value);
-    } catch (error) {
-        if (token === integrityState.token) {
-            showError(error instanceof Error ? error.message : 'Integrity calculation failed.');
-        }
-    }
+function applyResultIfCurrent(token: number, result: IntegrityResult): void {
+    if (token !== integrityState.token) { return; }
+    integrityState.result = result;
+    showMeta(formatByteCount(result.byteCount));
+    showResult(result.value);
+}
+
+function showCalculationErrorIfCurrent(token: number, error: unknown): void {
+    if (token !== integrityState.token) { return; }
+    showError(error instanceof Error ? error.message : 'Integrity calculation failed.');
+}
+
+function formatByteCount(byteCount: number): string {
+    return `${byteCount.toLocaleString()} byte${byteCount === 1 ? '' : 's'}`;
 }
 
 function copyIntegrityResult(): void {

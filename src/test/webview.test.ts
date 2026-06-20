@@ -509,6 +509,75 @@ suite('Record View rendering', () => {
     });
 });
 
+type IntegrityViewModule = typeof import('../webview/integrityView.js');
+type IntegrityCalculator = typeof import('../webview/integrity.js').calculateIntegrity;
+
+function integrityInputs(): { start: HTMLInputElement; end: HTMLInputElement } {
+    return {
+        start: document.getElementById('integrity-start') as HTMLInputElement,
+        end: document.getElementById('integrity-end') as HTMLInputElement,
+    };
+}
+
+function setIntegrityInput(input: HTMLInputElement, value: string, dom: JSDOM): void {
+    input.value = value;
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+}
+
+async function waitForIntegrityCalculation(): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, 300));
+}
+
+async function verifyInitialIntegrityResult(
+    view: IntegrityViewModule,
+    calculateIntegrity: IntegrityCalculator,
+): Promise<void> {
+    view.renderIntegrity();
+    view.activateIntegrity();
+    const { start, end } = integrityInputs();
+    assert.strictEqual(start.value, '0x00001000');
+    assert.strictEqual(end.value, '0x00001002');
+    await waitForIntegrityCalculation();
+    const expected = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([1, 2, 3]));
+    assert.strictEqual(document.getElementById('integrity-value')!.textContent, expected.value);
+}
+
+async function verifyEditedIntegrityResult(
+    view: IntegrityViewModule,
+    calculateIntegrity: IntegrityCalculator,
+    dom: JSDOM,
+): Promise<string> {
+    const { start } = integrityInputs();
+    setIntegrityInput(start, '1001', dom);
+    view.activateIntegrity();
+    assert.strictEqual(start.value, '1001', 'later activation must preserve user range');
+    S.edits.set(0x1001, 0xFF);
+    view.notifyIntegrityBytesChanged();
+    await waitForIntegrityCalculation();
+    const expected = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
+    assert.strictEqual(document.getElementById('integrity-value')!.textContent, expected.value);
+    return expected.value;
+}
+
+function verifyInvalidIntegrityRange(dom: JSDOM): void {
+    const { end } = integrityInputs();
+    setIntegrityInput(end, 'not-hex', dom);
+    assert.strictEqual((document.getElementById('integrity-result') as HTMLElement).hidden, true);
+    assert.match(document.getElementById('integrity-error')!.textContent!, /hexadecimal/);
+}
+
+async function verifyIntegrityCopy(dom: JSDOM, expected: string, posted: unknown[]): Promise<void> {
+    const { end } = integrityInputs();
+    setIntegrityInput(end, '1002', dom);
+    await waitForIntegrityCalculation();
+    document.getElementById('integrity-copy')!.click();
+    assert.deepStrictEqual(posted.at(-1), {
+        type: 'copyText',
+        text: expected,
+        label: 'CRC32/ISO-HDLC',
+    });
+}
+
 suite('Integrity Checks sidebar', () => {
     let dom: JSDOM;
 
@@ -539,43 +608,10 @@ suite('Integrity Checks sidebar', () => {
         try {
             const view = await import('../webview/integrityView.js');
             const { calculateIntegrity } = await import('../webview/integrity.js');
-            view.renderIntegrity();
-            view.activateIntegrity();
-
-            const start = document.getElementById('integrity-start') as HTMLInputElement;
-            const end = document.getElementById('integrity-end') as HTMLInputElement;
-            assert.strictEqual(start.value, '0x00001000');
-            assert.strictEqual(end.value, '0x00001002');
-
-            await new Promise(resolve => setTimeout(resolve, 300));
-            const expectedInitial = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([1, 2, 3]));
-            assert.strictEqual(document.getElementById('integrity-value')?.textContent, expectedInitial.value);
-
-            start.value = '1001';
-            start.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-            view.activateIntegrity();
-            assert.strictEqual(start.value, '1001', 'later activation must preserve user range');
-
-            S.edits.set(0x1001, 0xFF);
-            view.notifyIntegrityBytesChanged();
-            await new Promise(resolve => setTimeout(resolve, 300));
-            const expectedEdited = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
-            assert.strictEqual(document.getElementById('integrity-value')?.textContent, expectedEdited.value);
-
-            end.value = 'not-hex';
-            end.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-            assert.strictEqual((document.getElementById('integrity-result') as HTMLElement).hidden, true);
-            assert.match(document.getElementById('integrity-error')?.textContent ?? '', /hexadecimal/);
-
-            end.value = '1002';
-            end.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-            await new Promise(resolve => setTimeout(resolve, 300));
-            document.getElementById('integrity-copy')?.click();
-            assert.deepStrictEqual(posted.at(-1), {
-                type: 'copyText',
-                text: expectedEdited.value,
-                label: 'CRC32/ISO-HDLC',
-            });
+            await verifyInitialIntegrityResult(view, calculateIntegrity);
+            const expectedEdited = await verifyEditedIntegrityResult(view, calculateIntegrity, dom);
+            verifyInvalidIntegrityRange(dom);
+            await verifyIntegrityCopy(dom, expectedEdited, posted);
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }

@@ -1,4 +1,4 @@
-export const INTEGRITY_ALGORITHMS = [
+const INTEGRITY_ALGORITHMS = [
     'crc16-ccitt-false',
     'crc32-iso-hdlc',
     'md5',
@@ -35,10 +35,14 @@ export function parseIntegrityAddress(raw: string, label: string): IntegrityVali
         return { ok: false, error: `${label} address must be hexadecimal.` };
     }
     const value = Number.parseInt(digits, 16);
-    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_ADDRESS) {
+    if (!isUint32(value)) {
         return { ok: false, error: `${label} address must be between 0x00000000 and 0xFFFFFFFF.` };
     }
     return { ok: true, value };
+}
+
+function isUint32(value: number): boolean {
+    return Number.isSafeInteger(value) && (value >>> 0) === value;
 }
 
 export function validateIntegrityRange(
@@ -78,17 +82,20 @@ export async function calculateIntegrity(
     algorithm: IntegrityAlgorithm,
     bytes: Uint8Array,
 ): Promise<IntegrityResult> {
-    let value: string;
-    switch (algorithm) {
-        case 'crc16-ccitt-false': value = crc16CcittFalse(bytes).toString(16).padStart(4, '0'); break;
-        case 'crc32-iso-hdlc': value = crc32IsoHdlc(bytes).toString(16).padStart(8, '0'); break;
-        case 'md5': value = md5(bytes); break;
-        case 'sha-1': value = await subtleDigest('SHA-1', bytes); break;
-        case 'sha-256': value = await subtleDigest('SHA-256', bytes); break;
-        case 'sha-512': value = await subtleDigest('SHA-512', bytes); break;
-    }
+    const value = await INTEGRITY_CALCULATORS[algorithm](bytes);
     return { algorithm, value: value.toUpperCase(), byteCount: bytes.length };
 }
+
+type IntegrityCalculator = (bytes: Uint8Array) => string | Promise<string>;
+
+const INTEGRITY_CALCULATORS: Record<IntegrityAlgorithm, IntegrityCalculator> = {
+    'crc16-ccitt-false': bytes => crc16CcittFalse(bytes).toString(16).padStart(4, '0'),
+    'crc32-iso-hdlc': bytes => crc32IsoHdlc(bytes).toString(16).padStart(8, '0'),
+    md5,
+    'sha-1': bytes => subtleDigest('SHA-1', bytes),
+    'sha-256': bytes => subtleDigest('SHA-256', bytes),
+    'sha-512': bytes => subtleDigest('SHA-512', bytes),
+};
 
 export function formatIntegrityAddress(address: number): string {
     return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
@@ -154,15 +161,10 @@ function md5(input: Uint8Array): string {
         const words = Array.from({ length: 16 }, (_, i) => view.getUint32(block + i * 4, true));
         let a = a0, b = b0, c = c0, d = d0;
         for (let i = 0; i < 64; i++) {
-            let f: number;
-            let g: number;
-            if (i < 16) { f = (b & c) | (~b & d); g = i; }
-            else if (i < 32) { f = (d & b) | (~d & c); g = (5 * i + 1) % 16; }
-            else if (i < 48) { f = b ^ c ^ d; g = (3 * i + 5) % 16; }
-            else { f = c ^ (b | ~d); g = (7 * i) % 16; }
+            const { mix, wordIndex } = md5Round(i, b, c, d);
             const nextD = c;
             c = b;
-            const sum = (a + f + MD5_CONSTANTS[i] + words[g]) >>> 0;
+            const sum = (a + mix + MD5_CONSTANTS[i] + words[wordIndex]) >>> 0;
             b = (b + rotateLeft(sum, MD5_SHIFTS[i])) >>> 0;
             a = d;
             d = nextD;
@@ -177,6 +179,13 @@ function md5(input: Uint8Array): string {
     const outputView = new DataView(output.buffer);
     [a0, b0, c0, d0].forEach((word, i) => outputView.setUint32(i * 4, word, true));
     return bytesToHex(output);
+}
+
+function md5Round(i: number, b: number, c: number, d: number): { mix: number; wordIndex: number } {
+    if (i < 16) { return { mix: (b & c) | (~b & d), wordIndex: i }; }
+    if (i < 32) { return { mix: (d & b) | (~d & c), wordIndex: (5 * i + 1) % 16 }; }
+    if (i < 48) { return { mix: b ^ c ^ d, wordIndex: (3 * i + 5) % 16 }; }
+    return { mix: c ^ (b | ~d), wordIndex: (7 * i) % 16 };
 }
 
 function rotateLeft(value: number, count: number): number {
