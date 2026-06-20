@@ -1,23 +1,12 @@
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 import { parseIntelHex } from '../parser/IntelHexParser';
 import { parseSRec } from '../parser/SRecParser';
 import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
+import { loadIntelHexFixture as loadHex, loadSRecFixture as loadSrec } from './parser-fixtures';
 
-// Sample files are at <workspace-root>/sample/; tests compile to out/test/
-const SAMPLES  = path.resolve(__dirname, '..', '..', 'sample');
-const IHEX_DIR = path.join(SAMPLES, 'ihex');
-const SREC_DIR = path.join(SAMPLES, 'srec');
-const loadHex  = (name: string) => fs.readFileSync(path.join(IHEX_DIR, name), 'utf8');
-const loadSrec = (name: string) => fs.readFileSync(path.join(SREC_DIR, name), 'utf8');
+// Minimal SREC image: header, two contiguous data records, count, and terminator.
 
-// ── minimal.srec ─────────────────────────────────────────────────────────────
-// Simplest valid SREC file: S0 header + 2 contiguous S1 data records +
-// S5 record count + S9 end-of-file.
-// Single segment at 0x0000 totalling 16 bytes.
-
-suite('sample/srec: minimal.srec', () => {
+suite('SREC fixture: minimal', () => {
     let r: ReturnType<typeof parseSRec>;
     setup(() => { r = parseSRec(loadSrec('minimal.srec')); });
 
@@ -69,12 +58,9 @@ suite('sample/srec: minimal.srec', () => {
     });
 });
 
-// ── firmware_s1.srec ──────────────────────────────────────────────────────────
-// 8051-style SREC using S1 (2-byte address) records.
-// Mirrors the content of ihex/minimal.hex.
-// Two segments: 0x0000–0x0007 (reset + padding) and 0x0030–0x004F (code).
+// 8051-style S1 image equivalent to the minimal Intel HEX fixture.
 
-suite('sample/srec: firmware_s1.srec', () => {
+suite('SREC fixture: firmware S1', () => {
     let r: ReturnType<typeof parseSRec>;
     setup(() => { r = parseSRec(loadSrec('firmware_s1.srec')); });
 
@@ -122,12 +108,9 @@ suite('sample/srec: firmware_s1.srec', () => {
     });
 });
 
-// ── firmware_s3.srec ──────────────────────────────────────────────────────────
-// STM32-style SREC using S3 (4-byte address) records.
-// Three segments at 0x08000000, 0x08002000, 0x08010000.
-// Contains 0xDEADBEEF sentinel in the second segment.
+// STM32-style S3 image with three segments and a known sentinel.
 
-suite('sample/srec: firmware_s3.srec', () => {
+suite('SREC fixture: firmware S3', () => {
     let r: ReturnType<typeof parseSRec>;
     setup(() => { r = parseSRec(loadSrec('firmware_s3.srec')); });
 
@@ -182,12 +165,9 @@ suite('sample/srec: firmware_s3.srec', () => {
     });
 });
 
-// ── stm32_s3.srec ─────────────────────────────────────────────────────────────
-// Realistic STM32F103-class image in S3 format:
-// vector table at 0x08000000, code at 0x080000C0, flash/string data
-// at 0x08010000 onward. 264 total bytes across 5 segments.
+// STM32F103-style S3 image with vector table, code, and flash data regions.
 
-suite('sample/srec: stm32_s3.srec', () => {
+suite('SREC fixture: STM32 S3', () => {
     let r: ReturnType<typeof parseSRec>;
     setup(() => { r = parseSRec(loadSrec('stm32_s3.srec')); });
 
@@ -241,11 +221,9 @@ suite('sample/srec: stm32_s3.srec', () => {
     });
 });
 
-// ── mixed_addr.srec ───────────────────────────────────────────────────────────
-// File combining S1, S2, and S3 record types within the same image.
-// Tests that the parser resolves all three address sizes correctly.
+// Mixed S1, S2, and S3 records exercise all supported address widths.
 
-suite('sample/srec: mixed_addr.srec', () => {
+suite('SREC fixture: mixed addresses', () => {
     let r: ReturnType<typeof parseSRec>;
     setup(() => { r = parseSRec(loadSrec('mixed_addr.srec')); });
 
@@ -294,12 +272,9 @@ suite('sample/srec: mixed_addr.srec', () => {
     });
 });
 
-// ── errors.srec ───────────────────────────────────────────────────────────────
-// Deliberately broken file: 2 records with corrupt checksums and 1
-// malformed (non-SREC) line. Only the single valid data record contributes
-// to segments.
+// Invalid input with corrupt checksums and malformed records.
 
-suite('sample/srec: errors.srec', () => {
+suite('SREC fixture: errors', () => {
     let r: ReturnType<typeof parseSRec>;
     setup(() => { r = parseSRec(loadSrec('errors.srec')); });
 
@@ -340,12 +315,12 @@ suite('sample/srec: errors.srec', () => {
     });
 });
 
-// ── Cross-file edge cases ─────────────────────────────────────────────────────
+// Cross-format invariants and malformed-input behavior.
 
-suite('sample/srec: cross-file edge cases', () => {
+suite('SREC fixture: cross-format edge cases', () => {
 
     test('S1 and IHEX files produce structurally equivalent segments when data is the same', () => {
-        // firmware_s1 and ihex/minimal both encode LJMP+padding at 0x0000 and code at 0x0030
+        // Both fixtures encode identical reset and code regions.
         const sri = parseSRec(loadSrec('firmware_s1.srec'));
         const ihx = parseIntelHex(loadHex('minimal.hex'));
         assert.strictEqual(sri.totalDataBytes, ihx.totalDataBytes,
@@ -374,7 +349,7 @@ suite('sample/srec: cross-file edge cases', () => {
         const r = parseSRec(loadSrec('errors.srec'));
         const corruptRecs = r.records.filter(rec => !rec.checksumValid && !rec.error);
         assert.ok(corruptRecs.length === 2, 'expected exactly 2 records with bad checksums');
-        // Corrupt records must not appear in any segment data
+        // Corrupt records must not contribute segment data.
         for (const rec of corruptRecs) {
             const inSeg = r.segments.some(s =>
                 rec.resolvedAddress >= s.startAddress &&
@@ -403,7 +378,7 @@ suite('sample/srec: cross-file edge cases', () => {
         }
     });
 
-    test('all SREC sample files parse without throwing', () => {
+    test('all SREC fixtures parse without throwing', () => {
         const files = ['minimal.srec', 'firmware_s1.srec', 'firmware_s3.srec', 'stm32_s3.srec', 'mixed_addr.srec', 'errors.srec'];
         for (const f of files) {
             assert.doesNotThrow(() => parseSRec(loadSrec(f)), `parseSRec threw on ${f}`);
