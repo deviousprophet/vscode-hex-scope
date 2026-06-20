@@ -1,0 +1,111 @@
+.integrity-shell {
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 16px 14px;
+}
+
+.integrity-title {
+    color: var(--vscode-foreground);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.integrity-help,
+.integrity-meta {
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.integrity-help {
+    line-height: 1.45;
+    margin-bottom: 16px;
+}
+
+.integrity-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 12px;
+    min-width: 0;
+}
+
+.integrity-field > span {
+    color: var(--vscode-foreground);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.integrity-field small {
+    color: var(--vscode-descriptionForeground);
+    font-size: inherit;
+    font-weight: 400;
+}
+
+.integrity-field input,
+.integrity-field select {
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent);
+    box-sizing: border-box;
+    color: var(--vscode-input-foreground);
+    font: inherit;
+    min-width: 0;
+    outline: none;
+    padding: 6px 7px;
+    width: 100%;
+}
+
+.integrity-field input:focus,
+.integrity-field select:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+.integrity-meta {
+    min-height: 17px;
+}
+
+.integrity-error {
+    color: var(--vscode-errorForeground);
+    font-size: 11px;
+    line-height: 1.4;
+    min-height: 17px;
+    overflow-wrap: anywhere;
+}
+
+.integrity-result {
+    background: var(--vscode-textCodeBlock-background);
+    border: 1px solid var(--vscode-widget-border, transparent);
+    margin-top: 8px;
+    padding: 10px;
+}
+
+.integrity-result-label {
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+.integrity-result code {
+    color: var(--vscode-foreground);
+    display: block;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.integrity-result button {
+    background: var(--vscode-button-background);
+    border: 0;
+    color: var(--vscode-button-foreground);
+    cursor: pointer;
+    margin-top: 10px;
+    padding: 5px 12px;
+    width: 100%;
+}
+
+.integrity-result button:hover {
+    background: var(--vscode-button-hoverBackground);
+}

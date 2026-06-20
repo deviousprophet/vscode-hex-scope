@@ -10,8 +10,9 @@ import { renderInspector, renderBits, renderSegments, renderLabels, updateInspec
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
-import type { SerializedRecord } from './types';
+import type { SerializedRecord, SidebarTab } from './types';
 import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
+import { activateIntegrity, notifyIntegrityBytesChanged, renderIntegrity } from './integrityView';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -124,6 +125,7 @@ function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
     );
     renderSegments();
     renderCurrentDataView();
+    notifyIntegrityBytesChanged();
 }
 
 function handleRepairCompleteMessage(msg: WebviewMessage): void {
@@ -151,6 +153,7 @@ function clearEditState(): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.editMode = false;
+    notifyIntegrityBytesChanged();
 }
 
 function renderCurrentDataView(): void {
@@ -199,13 +202,11 @@ function visibleClass(isVisible: boolean): string {
     return isVisible ? 'visible' : '';
 }
 
-type SidebarTabName = 'inspector' | 'struct';
-
-function tabPanelClass(tab: SidebarTabName): string {
+function tabPanelClass(tab: SidebarTab): string {
     return S.sidebarTab === tab ? 'sb-tab-panel active' : 'sb-tab-panel';
 }
 
-function sideTabClass(tab: SidebarTabName): string {
+function sideTabClass(tab: SidebarTab): string {
     return S.sidebarTab === tab ? 'stab active' : 'stab';
 }
 
@@ -277,10 +278,14 @@ function render(): void {
                 <div class="${tabPanelClass('struct')}" id="sbp-struct">
                     <div id="s-struct-pins"></div>
                 </div>
+                <div class="${tabPanelClass('integrity')}" id="sbp-integrity">
+                    <div id="s-integrity"></div>
+                </div>
             </div>
             <div id="side-tabs">
                 <button class="${sideTabClass('inspector')}" id="stab-insp">Inspector</button>
                 <button class="${sideTabClass('struct')}" id="stab-struct">Struct Overlay</button>
+                <button class="${sideTabClass('integrity')}" id="stab-integrity">Integrity Checks</button>
             </div>
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
@@ -492,13 +497,20 @@ function setupSideTabs(): void {
         S.sidebarTab = 'struct';
         applySidebarState();
     });
+    document.getElementById('stab-integrity')!.addEventListener('click', () => {
+        S.sidebarTab = 'integrity';
+        applySidebarState();
+        activateIntegrity();
+    });
 }
 
 function applySidebarState(): void {
     document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
     document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+    document.getElementById('sbp-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
     document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
     document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
+    document.getElementById('stab-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
 }
 
 function renderInitialViews(): void {
@@ -507,6 +519,7 @@ function renderInitialViews(): void {
     renderInspector();
     renderBits();
     renderStructPins();
+    renderIntegrity();
     renderSegments();
     renderLabels();
     setupCtxMenu();
@@ -1161,35 +1174,58 @@ function getOriginalByte(addr: number): number | undefined {
 // ── Edit helpers ──────────────────────────────────────────────────
 
 function applyFill(fillVal: number): void {
-    if (S.selStart === null || S.selEnd === null) { return; }
-    const prev: Array<[number, number]> = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) {
-        const orig = getByte(a);
-        if (orig !== undefined) {
-            prev.push([a, orig]);
-            S.edits.set(a, fillVal);
-        }
-    }
+    const prev = buildFillTransaction(fillVal);
     if (prev.length > 0) { S.undoStack.push(prev); }
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    notifyIntegrityBytesChanged();
+}
+
+function currentSelectionRange(): { start: number; end: number } | null {
+    if (S.selStart === null) { return null; }
+    if (S.selEnd === null) { return null; }
+    return { start: S.selStart, end: S.selEnd };
+}
+
+function buildFillTransaction(fillVal: number): Array<[number, number]> {
+    const range = currentSelectionRange();
+    if (!range) { return []; }
+    const prev: Array<[number, number]> = [];
+    for (let a = range.start; a <= range.end; a++) {
+        const orig = getByte(a);
+        if (orig === undefined) { continue; }
+        prev.push([a, orig]);
+        S.edits.set(a, fillVal);
+    }
+    return prev;
 }
 
 function undoLastEdit(): void {
-    if (!S.editMode || S.undoStack.length === 0) { return; }
-    const txn = S.undoStack.pop()!;
+    const txn = popUndoTransaction();
+    if (!txn) { return; }
     for (const [addr, prevVal] of txn) {
-        const orig = getOriginalByte(addr);
-        if (orig !== undefined && prevVal === orig) {
-            S.edits.delete(addr);
-        } else {
-            S.edits.set(addr, prevVal);
-        }
+        restoreEditedByte(addr, prevVal);
     }
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    notifyIntegrityBytesChanged();
+}
+
+function popUndoTransaction(): Array<[number, number]> | null {
+    if (!S.editMode) { return null; }
+    if (S.undoStack.length === 0) { return null; }
+    return S.undoStack.pop()!;
+}
+
+function restoreEditedByte(addr: number, prevVal: number): void {
+    const orig = getOriginalByte(addr);
+    if (orig !== undefined && prevVal === orig) {
+        S.edits.delete(addr);
+        return;
+    }
+    S.edits.set(addr, prevVal);
 }
 
 function updateDirtyBar(): void {
