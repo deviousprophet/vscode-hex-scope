@@ -1,11 +1,12 @@
 // ── Sidebar panels ────────────────────────────────────────────────
-// Inspector · Bit View · Multi-Byte interpreter · Segment Labels
+// Inspector · Bit View · Multi-Byte interpreter · Parsed Segments · Segment Labels
 
 import { S } from './state';
 import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from './utils';
 import { vscode } from './api';
 import { rerender } from './render';
 import { buildMemRows, getByte } from './data';
+import type { SerializedSegment } from './types';
 
 // ── Inspector ────────────────────────────────────────────────────
 
@@ -394,6 +395,76 @@ function renderMultiInline(): void {
         `<div class="mi-group">${group}</div>`;
 
     wireMultiInlineControls(el);
+}
+
+// ── Parsed segments ───────────────────────────────────────────────
+
+function segmentAddress(address: number): string {
+    return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+function sortedSegments(): SerializedSegment[] {
+    if (!S.parseResult) { return []; }
+    return [...S.parseResult.segments].sort((a, b) => a.startAddress - b.startAddress);
+}
+
+function segmentBadgeHtml(segments: SerializedSegment[]): string {
+    return segments.length > 0 ? `<span class="sb-badge">${segments.length}</span>` : '';
+}
+
+function segmentItemHtml(segment: SerializedSegment, index: number): string {
+    const endAddress = segment.startAddress + segment.data.length - 1;
+    const start = segmentAddress(segment.startAddress);
+    return `
+        <div class="segment-item" data-start="${segment.startAddress}" role="button" tabindex="0"
+             title="Jump to ${start}" aria-label="Jump to Segment ${index + 1} at ${start}">
+            <div class="segment-nm">Segment ${index + 1}</div>
+            <div class="segment-rng">${start}&ndash;${segmentAddress(endAddress)} &middot; ${fmtB(segment.data.length)}</div>
+        </div>`;
+}
+
+function segmentItemsHtml(segments: SerializedSegment[]): string {
+    if (segments.length === 0) { return '<div class="sb-empty">No segments</div>'; }
+    return segments.map(segmentItemHtml).join('');
+}
+
+function setupSegmentCollapse(sec: HTMLElement): void {
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
+    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
+
+    sec.querySelector<HTMLElement>('.sb-hdr')!.addEventListener('click', () => {
+        const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+        sec.dataset.collapsed = now;
+        sec.classList.toggle('collapsed', now === 'true');
+    });
+}
+
+function jumpToSegment(item: HTMLElement): void {
+    const startAddress = Number(item.dataset.start);
+    if (Number.isFinite(startAddress)) { rerender.jumpTo(startAddress); }
+}
+
+function handleSegmentKeydown(event: KeyboardEvent, item: HTMLElement): void {
+    if (event.key !== 'Enter' && event.key !== ' ') { return; }
+    event.preventDefault();
+    jumpToSegment(item);
+}
+
+function wireSegmentNavigation(sec: HTMLElement): void {
+    sec.querySelectorAll<HTMLElement>('.segment-item').forEach(item => {
+        item.addEventListener('click', () => jumpToSegment(item));
+        item.addEventListener('keydown', event => handleSegmentKeydown(event, item));
+    });
+}
+
+export function renderSegments(): void {
+    const sec = document.getElementById('s-segments')!;
+    const segments = sortedSegments();
+    sec.innerHTML = `
+        <div class="sb-hdr">Segments ${segmentBadgeHtml(segments)}</div>
+        <div class="sb-body">${segmentItemsHtml(segments)}</div>`;
+    setupSegmentCollapse(sec);
+    wireSegmentNavigation(sec);
 }
 
 // ── Labels ────────────────────────────────────────────────────────

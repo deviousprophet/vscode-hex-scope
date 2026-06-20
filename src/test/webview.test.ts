@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { esc, fmtB, byteClass } from '../webview/utils';
 import { S, BPR } from '../webview/state';
 import { initFlatBytes, buildMemRows, getByte } from '../webview/data';
+import { rerender } from '../webview/render';
 import {
     calcRowOffset,
     calcScrollLayout,
@@ -31,6 +32,38 @@ function resetState(): void {
     S.activeStructAddr = null;
     S.structPins       = [];
     S.sidebarTab       = 'inspector';
+}
+
+function installWebviewDom(markup: string): JSDOM {
+    const dom = new JSDOM(markup);
+    const globals = globalThis as unknown as {
+        window: Window;
+        document: Document;
+        getComputedStyle: typeof getComputedStyle;
+        acquireVsCodeApi: () => unknown;
+    };
+    globals.window = dom.window as unknown as Window;
+    globals.document = dom.window.document as unknown as Document;
+    globals.getComputedStyle = dom.window.getComputedStyle.bind(dom.window) as typeof getComputedStyle;
+    globals.acquireVsCodeApi = () => ({
+        postMessage: (_msg: unknown) => {},
+        getState: () => ({}),
+        setState: (_state: unknown) => {},
+    });
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
+        value: () => {},
+        configurable: true,
+    });
+    return dom;
+}
+
+function cleanupWebviewDom(dom: JSDOM): void {
+    resetState();
+    dom.window.close();
+    delete (globalThis as unknown as { window?: Window }).window;
+    delete (globalThis as unknown as { document?: Document }).document;
+    delete (globalThis as unknown as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle;
+    delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
 }
 
 // ── HTML escaping ───────────────────────────────────────────────
@@ -323,39 +356,124 @@ suite('virtual scroll metrics', () => {
     });
 });
 
+suite('Memory View navigation', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        resetState();
+        dom = installWebviewDom(`<!doctype html><html><body>
+            <div id="mem-header"></div>
+            <div id="mem-scroll"><div id="mem-rows"></div></div>
+        </body></html>`);
+        Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
+            value: 600,
+            configurable: true,
+        });
+
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x08000000, data: new Array(128).fill(0) },
+                { startAddress: 0x080000C0, data: new Array(70).fill(0) },
+                { startAddress: 0x08000100, data: new Array(48).fill(0) },
+                { startAddress: 0x08010000, data: new Array(16).fill(0) },
+            ],
+            totalDataBytes: 262,
+            checksumErrors: 0,
+            malformedLines: 0,
+            format: 'ihex',
+        };
+        initFlatBytes();
+        buildMemRows();
+    });
+
+    teardown(() => {
+        cleanupWebviewDom(dom);
+    });
+
+    test('keeps all rows rendered when jumping in a viewport taller than the content', async () => {
+        const { renderMemBody, scrollTo } = await import('../webview/memoryView.js');
+        renderMemBody(() => {}, () => {});
+
+        scrollTo(0x08010000);
+
+        assert.strictEqual(document.getElementById('mem-scroll')!.scrollTop, 0);
+        assert.ok(document.querySelector('.data-row[data-row="134217728"]'), 'first row should remain rendered');
+        assert.ok(document.querySelector('.data-row[data-row="134283264"]'), 'target row should be rendered');
+    });
+});
+
+suite('Parsed Segment Navigator', () => {
+    let dom: JSDOM;
+    let originalJumpTo: typeof rerender.jumpTo;
+
+    setup(() => {
+        resetState();
+        dom = installWebviewDom('<!doctype html><html><body><div class="sb-section" id="s-segments"></div></body></html>');
+        originalJumpTo = rerender.jumpTo;
+    });
+
+    teardown(() => {
+        rerender.jumpTo = originalJumpTo;
+        cleanupWebviewDom(dom);
+    });
+
+    test('sorts segments, renders inclusive ranges and size, and jumps to start', async () => {
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x2000, data: [1, 2, 3, 4] },
+                { startAddress: 0x1000, data: [5, 6] },
+            ],
+            totalDataBytes: 6,
+            checksumErrors: 0,
+            malformedLines: 0,
+            format: 'ihex',
+        };
+        let jumpedTo: number | null = null;
+        rerender.jumpTo = address => { jumpedTo = address; };
+
+        const { renderSegments } = await import('../webview/sidebar.js');
+        renderSegments();
+
+        const items = document.querySelectorAll<HTMLElement>('.segment-item');
+        assert.strictEqual(items.length, 2);
+        assert.strictEqual(document.querySelector('.sb-badge')!.textContent, '2');
+        assert.strictEqual(items[0].querySelector('.segment-nm')!.textContent, 'Segment 1');
+        assert.strictEqual(items[0].querySelector('.segment-rng')!.textContent, '0x00001000–0x00001001 · 2 B');
+        assert.strictEqual(items[1].querySelector('.segment-rng')!.textContent, '0x00002000–0x00002003 · 4 B');
+
+        items[0].click();
+        assert.strictEqual(jumpedTo, 0x1000);
+    });
+
+    test('renders empty state and preserves collapsed state', async () => {
+        const { renderSegments } = await import('../webview/sidebar.js');
+        renderSegments();
+
+        const section = document.getElementById('s-segments')!;
+        assert.strictEqual(section.dataset.collapsed, 'false');
+        assert.strictEqual(section.querySelector('.sb-empty')?.textContent, 'No segments');
+        assert.strictEqual(section.querySelector('.sb-badge'), null);
+
+        section.querySelector<HTMLElement>('.sb-hdr')!.click();
+        assert.strictEqual(section.dataset.collapsed, 'true');
+        renderSegments();
+        assert.strictEqual(section.dataset.collapsed, 'true');
+        assert.ok(section.classList.contains('collapsed'));
+    });
+});
+
 suite('Record View rendering', () => {
     let dom: JSDOM;
 
     setup(() => {
         resetState();
-        dom = new JSDOM('<!doctype html><html><body><div id="record-view"></div></body></html>');
-        Object.defineProperty(globalThis, 'window', {
-            value: dom.window,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'document', {
-            value: dom.window.document,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'acquireVsCodeApi', {
-            value: () => ({
-                postMessage: (_msg: unknown) => {},
-                getState: () => ({}),
-                setState: (_state: unknown) => {},
-            }),
-            configurable: true,
-            writable: true,
-        });
+        dom = installWebviewDom('<!doctype html><html><body><div id="record-view"></div></body></html>');
     });
 
     teardown(() => {
-        resetState();
-        dom.window.close();
-        delete (globalThis as unknown as { window?: Window }).window;
-        delete (globalThis as unknown as { document?: Document }).document;
-        delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+        cleanupWebviewDom(dom);
     });
 
     test('renders records as table rows instead of escaped markup text', async () => {

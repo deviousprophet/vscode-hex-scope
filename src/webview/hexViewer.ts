@@ -6,7 +6,7 @@ import { vscode }                                     from './api';
 import { esc, fmtB }                                  from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
-import { renderInspector, renderBits, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
+import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
@@ -89,6 +89,7 @@ function handleSavedEditsMessage(msg: WebviewMessage): void {
     document.getElementById('edit-mode-group')!.style.display = 'none';
     updateDirtyBar();
     renderStats();
+    renderSegments();
     renderCurrentDataView();
 }
 
@@ -121,6 +122,7 @@ function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
         msg.errorCount as number,
         msg.canQuickRepair as boolean,
     );
+    renderSegments();
     renderCurrentDataView();
 }
 
@@ -135,6 +137,7 @@ function handleRepairCompleteMessage(msg: WebviewMessage): void {
     updateEditControls();
     updateDirtyBar();
     renderStats();
+    renderSegments();
     renderCurrentDataView();
 }
 
@@ -268,6 +271,7 @@ function render(): void {
                 <div class="${tabPanelClass('inspector')}" id="sbp-insp">
                     <div class="sb-section" id="s-insp"></div>
                     <div class="sb-section" id="s-bits"></div>
+                    <div class="sb-section" id="s-segments"></div>
                     <div class="sb-section" id="s-labels"></div>
                 </div>
                 <div class="${tabPanelClass('struct')}" id="sbp-struct">
@@ -503,6 +507,7 @@ function renderInitialViews(): void {
     renderInspector();
     renderBits();
     renderStructPins();
+    renderSegments();
     renderLabels();
     setupCtxMenu();
     renderCurrentDataView();
