@@ -1,5 +1,5 @@
 // ── Sidebar panels ────────────────────────────────────────────────
-// Inspector · Bit View · Multi-Byte interpreter · Segment Labels
+// Inspector · Bit View · Multi-Byte interpreter · Parsed Segments · Segment Labels
 
 import { S } from './state';
 import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from './utils';
@@ -394,6 +394,58 @@ function renderMultiInline(): void {
         `<div class="mi-group">${group}</div>`;
 
     wireMultiInlineControls(el);
+}
+
+// ── Parsed segments ───────────────────────────────────────────────
+
+function segmentAddress(address: number): string {
+    return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+export function renderSegments(): void {
+    const sec = document.getElementById('s-segments')!;
+    const segments = [...(S.parseResult?.segments ?? [])]
+        .sort((a, b) => a.startAddress - b.startAddress);
+    const badge = segments.length > 0 ? `<span class="sb-badge">${segments.length}</span>` : '';
+    const items = segments.length === 0
+        ? '<div class="sb-empty">No segments</div>'
+        : segments.map((segment, index) => {
+            const endAddress = segment.startAddress + segment.data.length - 1;
+            const start = segmentAddress(segment.startAddress);
+            return `
+                <div class="segment-item" data-start="${segment.startAddress}" role="button" tabindex="0"
+                     title="Jump to ${start}" aria-label="Jump to Segment ${index + 1} at ${start}">
+                    <div class="segment-nm">Segment ${index + 1}</div>
+                    <div class="segment-rng">${start}&ndash;${segmentAddress(endAddress)} &middot; ${fmtB(segment.data.length)}</div>
+                </div>`;
+        }).join('');
+
+    sec.innerHTML = `
+        <div class="sb-hdr">Segments ${badge}</div>
+        <div class="sb-body">${items}</div>`;
+
+    // Persist collapsed state on the section element; default expanded.
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
+    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
+
+    sec.querySelector<HTMLElement>('.sb-hdr')?.addEventListener('click', () => {
+        const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+        sec.dataset.collapsed = now;
+        sec.classList.toggle('collapsed', now === 'true');
+    });
+
+    const jumpToSegment = (item: HTMLElement): void => {
+        const startAddress = Number(item.dataset.start);
+        if (Number.isFinite(startAddress)) { rerender.jumpTo(startAddress); }
+    };
+    sec.querySelectorAll<HTMLElement>('.segment-item').forEach(item => {
+        item.addEventListener('click', () => jumpToSegment(item));
+        item.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') { return; }
+            event.preventDefault();
+            jumpToSegment(item);
+        });
+    });
 }
 
 // ── Labels ────────────────────────────────────────────────────────
