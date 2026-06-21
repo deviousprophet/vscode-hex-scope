@@ -16,6 +16,7 @@ import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
     notifyIntegrityEditsDiscarded,
+    notifyIntegrityEndianChanged,
     renderIntegrity,
     setIntegrityEditHandler,
     setIntegrityProfiles,
@@ -63,6 +64,7 @@ function handleInitMessage(msg: WebviewMessage): void {
     S.labels      = (msg.labels as typeof S.labels) ?? [];
     S.structs     = (msg.structs as typeof S.structs) ?? [];
     S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
+    S.endian      = msg.endian === 'be' ? 'be' : 'le';
     setIntegrityProfiles(msg.integrityProfiles);
     initFlatBytes();
     buildMemRows();
@@ -283,6 +285,13 @@ function render(): void {
             </div>
             <div id="sidebar-resizer" aria-label="Resize sidebar" title="Drag to resize sidebar"></div>
             <div id="sidebar">
+                <div id="sidebar-common-settings">
+                    <span>Byte order</span>
+                    <div class="endian-tabs sidebar-endian-tabs">
+                        <button id="sidebar-btn-le" class="${activeClass(S.endian === 'le')}" type="button">LE</button>
+                        <button id="sidebar-btn-be" class="${activeClass(S.endian === 'be')}" type="button">BE</button>
+                    </div>
+                </div>
                 <div class="${tabPanelClass('inspector')}" id="sbp-insp">
                     <div class="sb-section" id="s-insp"></div>
                     <div class="sb-section" id="s-bits"></div>
@@ -311,6 +320,7 @@ function setupRenderedUi(): void {
     setupToolbarButtons();
     setupLockInterception();
     setupSidebarResize();
+    setupEndianControl();
     setupEditButtons();
     setupSearchControls();
     setupRerenderCallbacks();
@@ -319,6 +329,22 @@ function setupRenderedUi(): void {
     setupMemoryDragSelection();
     setupSideTabs();
     renderInitialViews();
+}
+
+function setupEndianControl(): void {
+    document.getElementById('sidebar-btn-le')?.addEventListener('click', () => setFileEndian('le'));
+    document.getElementById('sidebar-btn-be')?.addEventListener('click', () => setFileEndian('be'));
+}
+
+function setFileEndian(endian: 'le' | 'be'): void {
+    if (S.endian === endian) { return; }
+    S.endian = endian;
+    document.getElementById('sidebar-btn-le')?.classList.toggle('active', endian === 'le');
+    document.getElementById('sidebar-btn-be')?.classList.toggle('active', endian === 'be');
+    vscode.postMessage({ type: 'saveEndian', endian });
+    renderInspector();
+    renderStructPins();
+    notifyIntegrityEndianChanged();
 }
 
 function setupToolbarButtons(): void {

@@ -339,16 +339,6 @@ function multiValueGroupHtml(width: number, values: MultiValues): string {
     );
 }
 
-function multiEndianControlsHtml(width: number, le: boolean): string {
-    if (width < 2) { return ''; }
-    return `<div class="mi-ctrl-row">` +
-        `<span class="mi-ctrl-lbl">Byte order</span>` +
-        `<div class="endian-tabs">` +
-        `<button id="btn-le" class="${le  ? 'active' : ''}">LE</button>` +
-        `<button id="btn-be" class="${!le ? 'active' : ''}">BE</button>` +
-        `</div></div>`;
-}
-
 function multiPadNoteHtml(selLen: number, width: number): string {
     return selLen < width
         ? `<div class="mi-pad-row"><span class="mi-pad-note">zero-padded to ${width * 8}-bit</span></div>`
@@ -356,9 +346,6 @@ function multiPadNoteHtml(selLen: number, width: number): string {
 }
 
 function wireMultiInlineControls(el: HTMLElement): void {
-    document.getElementById('btn-le')?.addEventListener('click', () => { S.endian = 'le'; renderMultiInline(); });
-    document.getElementById('btn-be')?.addEventListener('click', () => { S.endian = 'be'; renderMultiInline(); });
-
     el.querySelectorAll<HTMLElement>('.mi-dec[data-copy]').forEach(span => {
         span.addEventListener('click', e => {
             e.stopPropagation();
@@ -390,7 +377,6 @@ function renderMultiInline(): void {
     const group = multiValueGroupHtml(width, readMultiValues(raw, le));
 
     el.innerHTML =
-        multiEndianControlsHtml(width, le) +
         multiPadNoteHtml(selLen, width) +
         `<div class="mi-group">${group}</div>`;
 

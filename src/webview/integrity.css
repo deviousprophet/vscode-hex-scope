@@ -8,8 +8,6 @@
 }
 
 .integrity-hdr-row { margin-bottom: 7px; }
-.integrity-endian-tabs button { font-size: 9px; padding: 1px 5px; }
-
 .integrity-profiles {
     display: grid;
     gap: 5px;

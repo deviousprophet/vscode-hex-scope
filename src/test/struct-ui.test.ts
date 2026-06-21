@@ -644,14 +644,12 @@ suite('struct UI array header summary', () => {
 
         const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-group'))
             .map(el => el.getAttribute('title') ?? '');
-        assert.ok(toggleGroups.some(title => title.includes('Byte endianness')), 'byte endianness detail should be available on hover');
+        assert.ok(!toggleGroups.some(title => title.includes('Byte endianness')), 'Struct must use shared sidebar byte order');
         assert.ok(toggleGroups.some(title => title.includes('Bit-field allocation')), 'bit-field allocation detail should be available on hover');
         const toggleLabels = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-label'))
             .map(el => el.textContent ?? '');
-        assert.ok(toggleLabels.includes('Endian'), 'compact endian label should render above the byte endianness toggle');
+        assert.ok(!toggleLabels.includes('Endian'), 'Struct must not render a local endian toggle');
         assert.ok(toggleLabels.includes('Bit Layout'), 'compact bit layout label should render above the bit-field allocation toggle');
-        assert.strictEqual(document.getElementById('sa-btn-le')?.textContent, 'LE');
-        assert.strictEqual(document.getElementById('sa-btn-be')?.textContent, 'BE');
         assert.strictEqual(document.getElementById('sa-btn-bit-lsb')?.textContent, 'LSB');
         assert.strictEqual(document.getElementById('sa-btn-bit-msb')?.textContent, 'MSB');
         assert.ok(document.getElementById('sa-btn-bit-lsb')?.getAttribute('title')?.includes('least significant bit'), 'LSB button should explain allocation on hover');

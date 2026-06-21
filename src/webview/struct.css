@@ -353,7 +353,6 @@
 
 .sa-row { display: flex; align-items: center; gap: 4px; }
 .sa-btn-row { gap: 6px; }
-.sa-endian-tabs,
 .sa-bit-order-tabs { flex-shrink: 0; }
 
 /* Inline instance-edit form inside a card */

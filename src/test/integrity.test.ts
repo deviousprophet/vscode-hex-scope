@@ -134,7 +134,7 @@ suite('integrity profile normalization', () => {
         const profiles = normalizeIntegrityProfiles([validProfile]);
         assert.strictEqual(profiles.length, 1);
         assert.strictEqual(profiles[0].name, 'STM32 App');
-        assert.strictEqual(profiles[0].byteOrder, 'le');
+        assert.strictEqual('byteOrder' in profiles[0], false);
         assert.strictEqual(profiles[0].checks[0].storedAddress, 0x08000100);
         assert.strictEqual(profiles[0].checks[0].autoFixStoredValue, false);
     });
@@ -174,7 +174,7 @@ suite('integrity check-set normalization', () => {
     });
     test('accepts empty and configured per-file check sets', () => {
         assert.deepStrictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, byteOrder: 'be', checks: [] }), {
-            schemaVersion: 1, byteOrder: 'be', checks: [],
+            schemaVersion: 1, checks: [],
         });
         const normalized = normalizeIntegrityCheckSet({
             schemaVersion: 1,
@@ -187,7 +187,6 @@ suite('integrity check-set normalization', () => {
 
     test('rejects malformed per-file check sets', () => {
         assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 2, byteOrder: 'be', checks: [] }), null);
-        assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, byteOrder: 'mixed', checks: [] }), null);
         assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, byteOrder: 'be', checks: [{}] }), null);
         assert.strictEqual(normalizeIntegrityCheckSet({
             schemaVersion: 1,

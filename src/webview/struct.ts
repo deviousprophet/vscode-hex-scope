@@ -1018,13 +1018,6 @@ export function renderStructPins(): void {
         `<div class="si-main-panel">` +
         `<div class="si-hdr-row">` +
         `<span class="sb-hdr" style="margin:0">Struct Instances ${instBadge}</span>` +
-        `<div class="si-toggle-group" title="Byte endianness: how multi-byte scalar values are interpreted">` +
-        `<span class="si-toggle-label">Endian</span>` +
-        `<div class="endian-tabs sa-endian-tabs">` +
-        `<button id="sa-btn-le" class="${S.endian === 'le' ? 'active' : ''}" title="Interpret multi-byte scalar values as little-endian">LE</button>` +
-        `<button id="sa-btn-be" class="${S.endian === 'be' ? 'active' : ''}" title="Interpret multi-byte scalar values as big-endian">BE</button>` +
-        `</div>` +
-        `</div>` +
         `<div class="si-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
         `<span class="si-toggle-label">Bit Layout</span>` +
         `<div class="endian-tabs sa-bit-order-tabs">` +
@@ -1187,20 +1180,6 @@ export function renderStructPins(): void {
             renderStructPins();
         });
     }
-
-    // ── Byte endianness tabs ──
-    document.getElementById('sa-btn-le')?.addEventListener('click', () => {
-        S.endian = 'le';
-        document.getElementById('sa-btn-le')?.classList.add('active');
-        document.getElementById('sa-btn-be')?.classList.remove('active');
-        if (_expanded.size > 0) { renderStructPins(); }
-    });
-    document.getElementById('sa-btn-be')?.addEventListener('click', () => {
-        S.endian = 'be';
-        document.getElementById('sa-btn-be')?.classList.add('active');
-        document.getElementById('sa-btn-le')?.classList.remove('active');
-        if (_expanded.size > 0) { renderStructPins(); }
-    });
 
     // ── Bit-field allocation tabs ──
     document.getElementById('sa-btn-bit-lsb')?.addEventListener('click', () => {

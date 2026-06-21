@@ -28,13 +28,11 @@ export interface IntegrityProfile {
     schemaVersion: typeof INTEGRITY_PROFILE_SCHEMA_VERSION;
     id: string;
     name: string;
-    byteOrder: IntegrityByteOrder;
     checks: IntegrityCheckConfig[];
 }
 
 export interface IntegrityCheckSet {
     schemaVersion: typeof INTEGRITY_PROFILE_SCHEMA_VERSION;
-    byteOrder: IntegrityByteOrder;
     checks: IntegrityCheckConfig[];
 }
 
@@ -42,7 +40,6 @@ interface IntegrityProfileCandidate {
     schemaVersion?: unknown;
     id?: unknown;
     name?: unknown;
-    byteOrder?: unknown;
     checks?: unknown;
 }
 
@@ -95,10 +92,9 @@ export function normalizeIntegrityCheckSet(value: unknown): IntegrityCheckSet | 
 
 function normalizeIntegrityCheckSetCandidate(raw: Partial<IntegrityCheckSet>): IntegrityCheckSet | null {
     if (raw.schemaVersion !== INTEGRITY_PROFILE_SCHEMA_VERSION) { return null; }
-    if (!isIntegrityByteOrder(raw.byteOrder)) { return null; }
     const checks = normalizeIntegrityChecks(raw.checks);
     if (!checks) { return null; }
-    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, byteOrder: raw.byteOrder, checks };
+    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, checks };
 }
 
 function integrityCheckSetCandidate(value: unknown): Partial<IntegrityCheckSet> | null {
@@ -139,14 +135,9 @@ function normalizeCurrentIntegrityProfile(
     raw: IntegrityProfileCandidate,
     identity: Pick<IntegrityProfile, 'id' | 'name'>,
 ): IntegrityProfile | null {
-    if (!isIntegrityByteOrder(raw.byteOrder)) { return null; }
     const checks = normalizeIntegrityChecks(raw.checks);
     if (!checks || checks.length === 0) { return null; }
-    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, ...identity, byteOrder: raw.byteOrder, checks };
-}
-
-function isIntegrityByteOrder(value: unknown): value is IntegrityByteOrder {
-    return value === 'le' || value === 'be';
+    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, ...identity, checks };
 }
 
 function trimmedString(value: unknown): string {
@@ -307,6 +298,11 @@ export function integrityBytesEqual(left: Uint8Array, right: Uint8Array): boolea
 
 export function integrityBytesToHex(bytes: Uint8Array): string {
     return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+export function integrityBytesToValueHex(bytes: Uint8Array, byteOrder: IntegrityByteOrder): string {
+    const ordered = byteOrder === 'le' ? Uint8Array.from(bytes).reverse() : bytes;
+    return integrityBytesToHex(ordered);
 }
 
 export function mergeIntegrityEdits(groups: IntegrityEdit[][]): IntegrityValidation<IntegrityEdit[]> {

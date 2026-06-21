@@ -6,6 +6,7 @@ import {
     formatIntegrityAddress,
     integrityBytesEqual,
     integrityBytesToHex,
+    integrityBytesToValueHex,
     integrityValueToBytes,
     isChecksumAlgorithm,
     mergeIntegrityEdits,
@@ -35,7 +36,7 @@ const ALGORITHM_LABELS: ReadonlyArray<readonly [IntegrityAlgorithm, string]> = [
     ['sha-256', 'SHA-256'],
     ['sha-512', 'SHA-512'],
 ];
-const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, byteOrder: 'le', checks: [] };
+const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, checks: [] };
 const INTEGRITY_STATUS_SYMBOLS: Record<string, string> = {
     Match: '✓', Mismatch: '✕', Calculated: '∑', Calculating: '…', Error: '!', 'Not configured': '?',
 };
@@ -83,7 +84,6 @@ let highlightedCheckId: number | null = null;
 
 const integrityState = {
     initialized: false,
-    byteOrder: 'le' as 'be' | 'le',
     checks: [] as IntegrityCheckState[],
 };
 
@@ -165,7 +165,6 @@ function integrityInitPayload(value: unknown): { profiles: unknown; activeChecks
 export function setIntegrityChecks(value: unknown): void {
     const saved = normalizedIntegrityCheckSet(value);
     cancelIntegrityCalculations();
-    integrityState.byteOrder = saved.byteOrder;
     integrityState.checks = saved.checks.map(newCheck);
     addCheckDraft = null;
     editingCheckId = null;
@@ -200,7 +199,6 @@ function integrityShellHtml(): string {
         <div class="integrity-shell">
             <div class="si-hdr-row integrity-hdr-row">
                 <span class="sb-hdr" style="margin:0">Integrity Checks ${integrityBadgeHtml()}</span>
-                ${endianToggleHtml()}
                 <button id="integrity-fix-all" class="struct-btn struct-btn-apply" type="button"${fixAllDisabledAttr()}>Fix all</button>
                 <button id="integrity-add-btn" class="si-add-btn"${addCheckDisabledAttr()}>＋ Add</button>
             </div>
@@ -240,17 +238,6 @@ function checkCardsHtml(): string {
         return '<div class="sb-empty integrity-empty">No integrity checks configured.</div>';
     }
     return integrityState.checks.map(checkCardHtml).join('');
-}
-
-function endianToggleHtml(): string {
-    return `
-        <div class="si-toggle-group" title="Stored-value byte order for all integrity checks">
-            <span class="si-toggle-label">Endian</span>
-            <div class="endian-tabs integrity-endian-tabs">
-                <button id="integrity-btn-le" class="${integrityState.byteOrder === 'le' ? 'active' : ''}">LE</button>
-                <button id="integrity-btn-be" class="${integrityState.byteOrder === 'be' ? 'active' : ''}">BE</button>
-            </div>
-        </div>`;
 }
 
 function profileLibraryHtml(): string {
@@ -411,8 +398,6 @@ export function notifyIntegrityEditsDiscarded(): void {
 }
 
 function wireHeaderControls(): void {
-    document.getElementById('integrity-btn-le')?.addEventListener('click', () => setSharedEndian('le'));
-    document.getElementById('integrity-btn-be')?.addEventListener('click', () => setSharedEndian('be'));
     document.getElementById('integrity-fix-all')?.addEventListener('click', fixAllMismatches);
     document.getElementById('integrity-add-btn')?.addEventListener('click', () => {
         addCheckDraft = addDraft();
@@ -422,11 +407,8 @@ function wireHeaderControls(): void {
     });
 }
 
-function setSharedEndian(endian: 'le' | 'be'): void {
-    if (integrityState.byteOrder === endian) { return; }
-    integrityState.byteOrder = endian;
+export function notifyIntegrityEndianChanged(): void {
     integrityState.checks.forEach(clearAutoFixSuppression);
-    persistIntegrityChecks();
     renderIntegrity();
     integrityState.checks.forEach(check => scheduleIntegrityCalculation(check, true));
 }
@@ -459,7 +441,7 @@ function copyCalculatedValue(event: MouseEvent): void {
     if (!button) { return; }
     const check = integrityState.checks.find(item => item.id === Number(button.dataset.checkId));
     if (!check?.result) { return; }
-    const display = calculatedDisplay(check, check.result);
+    const display = calculatedDisplay(check.result);
     vscode.postMessage({
         type: 'copyText',
         text: `0x${display.value}`,
@@ -746,7 +728,7 @@ function applyCalculatedResultIfCurrent(
 ): void {
     if (token !== check.token) { return; }
     check.result = result;
-    check.expectedBytes = integrityValueToBytes(result.value, integrityState.byteOrder);
+    check.expectedBytes = integrityValueToBytes(result.value, S.endian);
     check.storedBytes = null;
     check.calculating = false;
     check.meta = formatByteCount(result.byteCount);
@@ -830,7 +812,7 @@ function pendingResultBodyHtml(check: IntegrityCheckState): string {
         <div class="integrity-comparison${singleComparisonClass(stored)}">
             <div class="integrity-value-pane calculated pending">
                 <div class="integrity-value-hdr">
-                    <span>${calculatedLabel(check)}</span>
+                    <span>Calculated</span>
                     <button class="integrity-copy-btn" type="button" title="Copy calculated value" aria-label="Copy calculated value" disabled>⧉</button>
                 </div>
                 <code>${formatHexHtml('0x—')}</code>
@@ -842,14 +824,14 @@ function pendingResultBodyHtml(check: IntegrityCheckState): string {
 
 function pendingStoredResultHtml(check: IntegrityCheckState): string {
     return `<div class="integrity-value-pane stored unverified pending">
-        <div class="integrity-value-hdr"><span>Stored</span>${autoFixToggleHtml(check)}</div>
+        <div class="integrity-value-hdr"><span>Stored (${S.endian.toUpperCase()})</span>${autoFixToggleHtml(check)}</div>
         <code>${formatHexHtml('0x—')}</code>
     </div>`;
 }
 
 function calculatedResultBodyHtml(check: IntegrityCheckState, result: IntegrityResult): string {
     const stored = storedResultHtml(check);
-    const display = calculatedDisplay(check, result);
+    const display = calculatedDisplay(result);
     return `
         <div class="integrity-comparison${singleComparisonClass(stored)}">
             <div class="integrity-value-pane calculated">
@@ -865,21 +847,9 @@ function calculatedResultBodyHtml(check: IntegrityCheckState, result: IntegrityR
 }
 
 function calculatedDisplay(
-    check: IntegrityCheckState,
     result: IntegrityResult,
 ): { label: string; value: string; title: string } {
-    if (!hasStoredChecksum(check) || !check.expectedBytes) {
-        return { label: 'Calculated', value: result.value, title: '' };
-    }
-    return {
-        label: calculatedLabel(check),
-        value: integrityBytesToHex(check.expectedBytes),
-        title: `Canonical checksum: 0x${result.value}`,
-    };
-}
-
-function calculatedLabel(check: IntegrityCheckState): string {
-    return hasStoredChecksum(check) ? `Calculated (${integrityState.byteOrder.toUpperCase()})` : 'Calculated';
+    return { label: 'Calculated', value: result.value, title: '' };
 }
 
 function hasStoredChecksum(check: IntegrityCheckState): boolean {
@@ -893,9 +863,11 @@ function singleComparisonClass(storedHtml: string): string {
 function storedResultHtml(check: IntegrityCheckState): string {
     if (!isChecksumAlgorithm(check.algorithm) || !check.storedBytes) { return ''; }
     const state = integrityHighlightStatus(check);
+    const raw = integrityBytesToHex(check.storedBytes);
+    const value = integrityBytesToValueHex(check.storedBytes, S.endian);
     return `<div class="integrity-value-pane stored ${state}">
-        <div class="integrity-value-hdr"><span>Stored</span>${autoFixToggleHtml(check)}</div>
-        <code>${formatHexHtml(`0x${integrityBytesToHex(check.storedBytes)}`)}</code>
+        <div class="integrity-value-hdr"><span>Stored (${S.endian.toUpperCase()})</span>${autoFixToggleHtml(check)}</div>
+        <code title="Raw bytes: 0x${raw}">${formatHexHtml(`0x${value}`)}</code>
     </div>`;
 }
 
@@ -939,7 +911,7 @@ function autoFixMismatchKey(check: IntegrityCheckState): string {
         check.startRaw,
         check.endRaw,
         check.storedRaw,
-        integrityState.byteOrder,
+        S.endian,
         integrityBytesToHex(check.expectedBytes),
         integrityBytesToHex(check.storedBytes),
     ].join('|');
@@ -1069,7 +1041,7 @@ function persistIntegrityChecks(): void {
     }
     vscode.postMessage({
         type: 'saveIntegrityChecks',
-        state: { schemaVersion: 1, byteOrder: integrityState.byteOrder, checks },
+        state: { schemaVersion: 1, checks },
     });
 }
 
@@ -1078,7 +1050,6 @@ function applySelectedProfile(): void {
     if (!profile) { return; }
     integrityState.checks.forEach(cancelPendingCalculation);
     integrityState.checks = profile.checks.map(newCheck);
-    integrityState.byteOrder = profile.byteOrder;
     addCheckDraft = null;
     editingCheckId = null;
     clearHighlightedCheck();
@@ -1095,14 +1066,14 @@ function saveProfileAs(): void {
     if (profileNameExists(name)) { setProfileError(`A profile named “${name}” already exists.`); return; }
     const id = `integrity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     selectedProfileId = id;
-    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, byteOrder: integrityState.byteOrder, checks } });
+    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
 }
 
 function updateSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     const checks = activeConfigs();
     if (!current || !checks) { return; }
-    vscode.postMessage({ type: 'updateIntegrityProfile', profile: { ...current, byteOrder: integrityState.byteOrder, checks } });
+    vscode.postMessage({ type: 'updateIntegrityProfile', profile: { ...current, checks } });
 }
 
 function renameSelectedProfile(): void {

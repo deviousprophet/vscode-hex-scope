@@ -79,6 +79,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const globalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
         const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
+        const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
 
         const normalizeStructDefs = (value: unknown): { defs: StructDef[]; changed: boolean } => {
             if (!Array.isArray(value)) { return { defs: [], changed: false }; }
@@ -157,13 +158,16 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
             const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
                 schemaVersion: 1,
-                byteOrder: 'le',
                 checks: [],
             };
             if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {
                 await this._context.workspaceState.update(integrityChecksKey, normalized);
             }
             return normalized;
+        };
+
+        const loadEndian = (): 'le' | 'be' => {
+            return this._context.workspaceState.get<unknown>(endianKey) === 'be' ? 'be' : 'le';
         };
 
         const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
@@ -196,6 +200,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 labels:      this._context.workspaceState.get(labelKey, []),
                 structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
+                endian: loadEndian(),
                 integrityProfiles: { profiles: integrityProfiles, activeChecks: integrityChecks },
             };
             
@@ -292,6 +297,11 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             saveIntegrityChecks: async msg => {
                 const state = normalizeIntegrityCheckSet(msg.state);
                 if (state) { await this._context.workspaceState.update(integrityChecksKey, state); }
+            },
+            saveEndian: async msg => {
+                if (msg.endian === 'le' || msg.endian === 'be') {
+                    await this._context.workspaceState.update(endianKey, msg.endian);
+                }
             },
             createIntegrityProfile: async msg => {
                 const profile = normalizeIntegrityProfiles([msg.profile])[0];
