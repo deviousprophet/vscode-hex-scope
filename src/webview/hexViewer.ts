@@ -15,6 +15,7 @@ import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
 import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
+    notifyIntegrityEditsDiscarded,
     renderIntegrity,
     setIntegrityEditHandler,
     setIntegrityProfiles,
@@ -161,11 +162,12 @@ function rebuildLabelsAndMemory(): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
-function clearEditState(): void {
+function clearEditState(reason: 'refresh' | 'discard' = 'refresh'): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.editMode = false;
-    notifyIntegrityBytesChanged();
+    if (reason === 'discard') { notifyIntegrityEditsDiscarded(); }
+    else { notifyIntegrityBytesChanged(); }
 }
 
 function renderCurrentDataView(): void {
@@ -380,7 +382,7 @@ function setupEditButtons(): void {
         if (S.currentView === 'memory') { memRerender(); }
     });
     document.getElementById('btn-cancel')!.addEventListener('click', () => {
-        clearEditState();
+        clearEditState('discard');
         updateEditControls();
         updateDirtyBar();
         if (S.currentView === 'memory') { memRerender(); }

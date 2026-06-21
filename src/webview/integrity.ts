@@ -10,6 +10,10 @@ const INTEGRITY_ALGORITHMS = [
 export type IntegrityAlgorithm = typeof INTEGRITY_ALGORITHMS[number];
 export type IntegrityByteOrder = 'be' | 'le';
 
+export function isChecksumAlgorithm(algorithm: IntegrityAlgorithm): boolean {
+    return algorithm === 'crc16-ccitt-false' || algorithm === 'crc32-iso-hdlc';
+}
+
 const INTEGRITY_PROFILE_SCHEMA_VERSION = 1 as const;
 
 export interface IntegrityCheckConfig {
@@ -164,13 +168,26 @@ function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
     const raw = integrityCheckCandidate(value);
     if (!raw) { return null; }
     if (!isIntegrityCheckCore(raw)) { return null; }
-    if (!isStoredAddressValid(raw.storedAddress)) { return null; }
+    const verification = normalizeVerificationSettings(raw);
+    if (!verification.ok) { return null; }
     return {
         algorithm: raw.algorithm,
         startAddress: raw.startAddress as number,
         endAddress: raw.endAddress as number,
-        autoFixStoredValue: raw.autoFixStoredValue,
-        ...normalizedStoredAddress(raw.storedAddress),
+        ...verification.value,
+    };
+}
+
+function normalizeVerificationSettings(raw: IntegrityCheckConfig):
+    | { ok: true; value: Pick<IntegrityCheckConfig, 'autoFixStoredValue' | 'storedAddress'> }
+    | { ok: false } {
+    if (!isChecksumAlgorithm(raw.algorithm)) {
+        return { ok: true, value: { autoFixStoredValue: false } };
+    }
+    if (!isStoredAddressValid(raw.storedAddress)) { return { ok: false }; }
+    return {
+        ok: true,
+        value: { autoFixStoredValue: raw.autoFixStoredValue, ...normalizedStoredAddress(raw.storedAddress) },
     };
 }
 

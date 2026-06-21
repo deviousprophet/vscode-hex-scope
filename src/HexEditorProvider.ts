@@ -157,7 +157,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
             const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
                 schemaVersion: 1,
-                byteOrder: 'be',
+                byteOrder: 'le',
                 checks: [],
             };
             if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {

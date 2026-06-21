@@ -528,6 +528,12 @@ async function waitForIntegrityCalculation(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 300));
 }
 
+async function assertIntegrityRecalculationCompletes(index: number): Promise<void> {
+    assert.strictEqual(integrityCard(index).querySelector('[data-check-status]')!.textContent, '…');
+    await waitForIntegrityCalculation();
+    assert.strictEqual(integrityCard(index).querySelector('[data-check-status]')!.textContent, '✓');
+}
+
 function integrityCard(index = 0): HTMLElement {
     return document.querySelectorAll<HTMLElement>('.integrity-card')[index];
 }
@@ -567,7 +573,8 @@ suite('Integrity Checks sidebar', () => {
 
     teardown(() => cleanupWebviewDom(dom));
 
-    test('uses struct-style cards, global endian, edit forms, and profiles', async () => {
+    test('uses struct-style cards, global endian, edit forms, and profiles', async function () {
+        this.timeout(5_000);
         const api = await import('../webview/api.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
@@ -576,11 +583,11 @@ suite('Integrity Checks sidebar', () => {
         try {
             const view = await import('../webview/integrityView.js');
             const { calculateIntegrity } = await import('../webview/integrity.js');
-            S.endian = 'le';
+            S.endian = 'be';
             view.renderIntegrity();
             view.activateIntegrity();
             assertEmptyIntegrityChecks();
-            assert.ok(document.getElementById('integrity-btn-be')!.classList.contains('active'), 'integrity has independent BE default');
+            assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'), 'integrity has independent LE default');
 
             document.getElementById('integrity-add-btn')!.click();
             let selectedAddForm = integrityForm('add');
@@ -589,7 +596,7 @@ suite('Integrity Checks sidebar', () => {
             assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
             S.selStart = 0x1001;
             S.selEnd = 0x1001;
-            document.getElementById('integrity-btn-le')!.click();
+            document.getElementById('integrity-btn-be')!.click();
             selectedAddForm = integrityForm('add');
             assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="start"]') as HTMLInputElement).value, '00001000');
             assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
@@ -610,6 +617,8 @@ suite('Integrity Checks sidebar', () => {
             document.getElementById('integrity-add-btn')!.click();
             integrityForm('add').querySelector<HTMLElement>('[data-form-action="save"]')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
+            assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '…');
+            assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, '0x—');
             assert.deepStrictEqual(posted.at(-1), {
                 type: 'saveIntegrityChecks',
                 state: {
@@ -648,9 +657,13 @@ suite('Integrity Checks sidebar', () => {
             setDraftValue(editForm, 'end', '1002');
             editForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
             assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'save restores visible comparison');
+            await waitForIntegrityCalculation();
+            const expectedBeforeEdit = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([2, 3]));
 
             S.edits.set(0x1001, 0xFF);
             view.notifyIntegrityBytesChanged();
+            assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '…');
+            assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${expectedBeforeEdit.value}`);
             await waitForIntegrityCalculation();
             const expectedEdited = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
             assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${expectedEdited.value}`);
@@ -666,9 +679,19 @@ suite('Integrity Checks sidebar', () => {
             const addForm = integrityForm('add');
             setDraftValue(addForm, 'start', '1000');
             setDraftValue(addForm, 'end', '1003');
+            setDraftValue(addForm, 'stored', '1000');
+            const hashAlgorithm = addForm.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!;
+            hashAlgorithm.value = 'sha-256';
+            hashAlgorithm.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            assert.ok(addForm.querySelector<HTMLElement>('[data-stored-field]')!.hidden);
             addForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
             assert.ok(!integrityCard(1).querySelector<HTMLElement>('[data-check-body]')!.hidden);
+            assert.strictEqual(integrityCard(1).querySelector('[data-auto-fix]'), null);
+            const hashConfig = (posted.at(-1) as { state: { checks: Array<{ storedAddress?: number; autoFixStoredValue: boolean }> } }).state.checks[1];
+            assert.deepStrictEqual(hashConfig, {
+                algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x1003, autoFixStoredValue: false,
+            });
             integrityCard(1).querySelector<HTMLElement>('.act-btn-edit')!.click();
             integrityForm('edit-2').querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();
             integrityCard(1).querySelector<HTMLElement>('.act-btn-del')!.click();
@@ -690,7 +713,10 @@ suite('Integrity Checks sidebar', () => {
             document.getElementById('integrity-profile-apply')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
             assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'));
-            assert.strictEqual(S.endian, 'le', 'integrity endian does not change Struct Overlay endian');
+            assert.strictEqual(S.endian, 'be', 'integrity endian does not change Struct Overlay endian');
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '…');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.textContent, '0x—');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent, '0x—');
             await waitForIntegrityCalculation();
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✕');
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Mismatch');
@@ -699,6 +725,13 @@ suite('Integrity Checks sidebar', () => {
             assert.ok(integrityCard(1).querySelector('.integrity-value-pane.stored')!.classList.contains('mismatch'));
             assert.ok(integrityCard(1).querySelector('.integrity-value-pane.stored [data-auto-fix]'));
             assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+            const canonicalStoredChecksum = await calculateIntegrity('crc16-ccitt-false', new Uint8Array([3, 4]));
+            const littleEndianChecksum = canonicalStoredChecksum.value.match(/../g)!.reverse().join('');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${littleEndianChecksum}`);
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.getAttribute('title'), `Canonical checksum: 0x${canonicalStoredChecksum.value}`);
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated (LE)');
+            integrityCard(1).querySelector<HTMLElement>('[data-copy-calculated]')!.click();
+            assert.strictEqual((posted.at(-1) as { text: string }).text, `0x${littleEndianChecksum}`);
 
             const stagedTransactions: Array<Array<[number, number]>> = [];
             view.setIntegrityEditHandler(edits => {
@@ -716,31 +749,48 @@ suite('Integrity Checks sidebar', () => {
             const autoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
             autoFix.checked = true;
             autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✓');
+            await assertIntegrityRecalculationCompletes(1);
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Match');
             assert.strictEqual(stagedTransactions.length, 1);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             assert.ok((posted.at(-1) as { state: { checks: Array<{ autoFixStoredValue: boolean }> } }).state.checks[1].autoFixStoredValue);
 
-            const disableAutoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
-            disableAutoFix.checked = false;
-            disableAutoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             S.edits.clear();
-            view.notifyIntegrityBytesChanged();
+            view.notifyIntegrityEditsDiscarded();
             await waitForIntegrityCalculation();
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✕');
+            assert.strictEqual(stagedTransactions.length, 1, 'Discard must not immediately re-stage Auto fix');
+            assert.ok(integrityCard(1).querySelector('.integrity-auto-fix')!.classList.contains('paused'));
+            assert.ok(integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!.checked);
+            view.notifyIntegrityBytesChanged();
+            await waitForIntegrityCalculation();
+            assert.strictEqual(stagedTransactions.length, 1, 'identical mismatch remains suppressed');
             assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             document.getElementById('integrity-fix-all')!.click();
             assert.strictEqual(stagedTransactions.length, 2);
-            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✓');
+            await assertIntegrityRecalculationCompletes(1);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
-            const persistedAutoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
-            persistedAutoFix.checked = true;
-            persistedAutoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+            S.edits.clear();
+            view.notifyIntegrityEditsDiscarded();
+            await waitForIntegrityCalculation();
+            const rearmAutoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
+            rearmAutoFix.checked = false;
+            rearmAutoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            rearmAutoFix.checked = true;
+            rearmAutoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            assert.strictEqual(stagedTransactions.length, 3, 'toggle off/on overrides suppression');
+            await assertIntegrityRecalculationCompletes(1);
 
             document.getElementById('integrity-btn-be')!.click();
             assert.ok(document.getElementById('integrity-btn-be')!.classList.contains('active'));
-            assert.strictEqual(S.endian, 'le', 'integrity toggle remains independent');
+            assert.strictEqual(S.endian, 'be', 'integrity toggle remains independent');
+            await waitForIntegrityCalculation();
+            await waitForIntegrityCalculation();
+            assert.strictEqual(stagedTransactions.length, 4, 'endian change re-arms Auto fix');
+            const beCalculated = integrityCard(1).querySelector('.integrity-value-pane.calculated code')!;
+            assert.strictEqual(beCalculated.textContent, integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent);
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated (BE)');
 
             document.getElementById('integrity-profile-update')!.click();
             const updatedProfile = (posted.at(-1) as { type: string; profile: { byteOrder: string; checks: Array<{ autoFixStoredValue: boolean }> } }).profile;

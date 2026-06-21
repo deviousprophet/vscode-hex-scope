@@ -101,15 +101,21 @@
 }
 
 .integrity-card-status {
+    align-items: center;
     border: 1px solid var(--border);
     border-radius: 8px;
+    box-sizing: border-box;
     color: var(--addr-fg);
-    flex-shrink: 0;
+    display: inline-flex;
+    flex: 0 0 16px;
     font-family: var(--font-ui);
-    font-size: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    height: 16px;
+    justify-content: center;
     line-height: 1;
-    padding: 2px 5px;
-    text-transform: uppercase;
+    padding: 0;
+    width: 16px;
 }
 
 .integrity-card-status.match {
@@ -189,6 +195,17 @@
     background: var(--high-color);
     transform: translateX(10px);
 }
+.integrity-auto-fix.paused { border-color: var(--vscode-editorWarning-foreground, #cca700); }
+.integrity-auto-fix.paused input:checked + .integrity-auto-fix-label {
+    color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.integrity-auto-fix.paused input:checked ~ .integrity-auto-fix-track {
+    background: rgba(204,167,0,.18);
+    border-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.integrity-auto-fix.paused input:checked ~ .integrity-auto-fix-track .integrity-auto-fix-knob {
+    background: var(--vscode-editorWarning-foreground, #cca700);
+}
 .integrity-auto-fix:focus-within {
     border-color: var(--vscode-focusBorder, #4f9de8);
     outline: 1px solid var(--vscode-focusBorder, #4f9de8);
@@ -256,6 +273,11 @@
 .integrity-copy-btn:hover,
 .integrity-copy-btn:focus-visible { color: var(--high-color); }
 
+.integrity-copy-btn:disabled {
+    cursor: default;
+    opacity: .35;
+}
+
 .integrity-value-pane code {
     color: var(--high-color);
     display: grid;
@@ -273,6 +295,8 @@
     overflow-wrap: anywhere;
     word-break: break-all;
 }
+
+.integrity-value-pane.pending code { color: var(--addr-fg); }
 
 .integrity-value-pane.stored.match { background: rgba(55,190,105,.12); border-color: rgba(55,190,105,.48); }
 .integrity-value-pane.stored.match code { color: var(--vscode-testing-iconPassed, #73c991); }
