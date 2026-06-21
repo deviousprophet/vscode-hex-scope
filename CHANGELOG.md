@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.9.0] - 2026-06-21
+
+### Added
+
+- Added an Integrity Checks sidebar for CRC16/CCITT-FALSE, CRC32/ISO-HDLC, MD5, SHA-1, SHA-256, and SHA-512 calculations
+- Added multiple independently configurable integrity checks per firmware image
+- Added comparison against values stored in firmware, with integrity-specific LE/BE byte order, overlap exclusion, match status, and highlighted calculation and stored-value ranges
+- Added Auto fix and Fix all actions that stage stored-value corrections through the normal Save and undo flow
+- Added reusable user-global integrity profiles with save, apply, update, rename, and delete controls
+- Added per-file persistence for integrity checks not saved as profiles
+- Added compact editable result cards with always-visible calculated and stored values and calculated-value copying
+
+### Fixed
+
+- Fixed Edit mode using original bytes instead of staged unsaved values when rendering memory, copying selections, applying subsequent patches, and calculating integrity results
+
 ## [2.8.0] - 2026-06-20
 
 ### Added
