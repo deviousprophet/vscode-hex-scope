@@ -620,7 +620,7 @@ suite('Integrity Checks sidebar', () => {
             });
             assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'comparison is always visible');
             assert.strictEqual(integrityCard().querySelector('.si-expand-btn'), null);
-            assert.ok(integrityCard().querySelector<HTMLInputElement>('[data-auto-fix]')!.disabled);
+            assert.strictEqual(integrityCard().querySelector('[data-auto-fix]'), null);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             await waitForIntegrityCalculation();
             assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '∑');
@@ -655,6 +655,12 @@ suite('Integrity Checks sidebar', () => {
             const expectedEdited = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
             assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${expectedEdited.value}`);
             assert.strictEqual(integrityCard().querySelector('[data-result-action="copy"]'), null);
+            integrityCard().querySelector<HTMLElement>('[data-copy-calculated]')!.click();
+            assert.deepStrictEqual(posted.at(-1), {
+                type: 'copyText',
+                text: `0x${expectedEdited.value}`,
+                label: 'CRC32/ISO-HDLC calculated value',
+            });
 
             document.getElementById('integrity-add-btn')!.click();
             const addForm = integrityForm('add');
@@ -691,6 +697,7 @@ suite('Integrity Checks sidebar', () => {
             assert.ok(integrityCard(1).querySelector('[data-check-toggle]')!.firstElementChild!.matches('[data-check-status]'));
             assert.match(integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent!, /^0x/);
             assert.ok(integrityCard(1).querySelector('.integrity-value-pane.stored')!.classList.contains('mismatch'));
+            assert.ok(integrityCard(1).querySelector('.integrity-value-pane.stored [data-auto-fix]'));
             assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
 
             const stagedTransactions: Array<Array<[number, number]>> = [];

@@ -274,7 +274,6 @@ function checkCardHtml(check: IntegrityCheckState): string {
                     <div class="integrity-card-title">${esc(algorithmLabel(check.algorithm))}</div>
                     <div class="integrity-card-meta">${esc(checkRangeSummary(check))}</div>
                 </div>
-                ${autoFixToggleHtml(check)}
                 ${actionBtnsHtml(`data-check-id="${check.id}"`, `data-check-id="${check.id}"`)}
             </div>
             ${checkCardBodyHtml(check)}
@@ -287,18 +286,13 @@ function checkCardClass(id: number): string {
 }
 
 function autoFixToggleHtml(check: IntegrityCheckState): string {
-    const disabled = !check.storedRaw;
-    const checked = !disabled && check.autoFixStoredValue;
-    return `<label class="integrity-auto-fix${disabledClass(disabled)}" title="Automatically stage mismatched stored values">
-        <input type="checkbox" data-auto-fix data-check-id="${check.id}"${checkedAttr(checked)}${disabledAttr(disabled)}>
+    const checked = check.autoFixStoredValue ? ' checked' : '';
+    return `<label class="integrity-auto-fix" title="Automatically stage mismatched stored values">
+        <input type="checkbox" data-auto-fix data-check-id="${check.id}"${checked}>
         <span class="integrity-auto-fix-label">Auto fix</span>
         <span class="integrity-auto-fix-track" aria-hidden="true"><span class="integrity-auto-fix-knob"></span></span>
     </label>`;
 }
-
-function disabledClass(disabled: boolean): string { return disabled ? ' disabled' : ''; }
-function checkedAttr(checked: boolean): string { return checked ? ' checked' : ''; }
-function disabledAttr(disabled: boolean): string { return disabled ? ' disabled' : ''; }
 
 function isMismatchedCheck(check: IntegrityCheckState): boolean {
     return hasComparableStoredValue(check) && !integrityBytesEqual(check.expectedBytes, check.storedBytes);
@@ -422,8 +416,9 @@ function wireCheckCards(panel: HTMLElement): void {
             toggleHighlightedCheck(Number(card.dataset.checkId));
         });
     });
-    panel.querySelectorAll<HTMLInputElement>('[data-auto-fix]').forEach(toggle => {
-        toggle.addEventListener('change', () => setAutoFix(Number(toggle.dataset.checkId), toggle.checked));
+    panel.addEventListener('change', event => {
+        const toggle = (event.target as HTMLElement).closest<HTMLInputElement>('[data-auto-fix]');
+        if (toggle) { setAutoFix(Number(toggle.dataset.checkId), toggle.checked); }
     });
     panel.querySelectorAll<HTMLElement>('.integrity-card .act-btn-edit').forEach(button => {
         button.addEventListener('click', () => editCheck(Number(button.dataset.checkId)));
@@ -431,7 +426,20 @@ function wireCheckCards(panel: HTMLElement): void {
     panel.querySelectorAll<HTMLElement>('.integrity-card .act-btn-del').forEach(button => {
         button.addEventListener('click', () => deleteCheck(Number(button.dataset.checkId)));
     });
+    panel.addEventListener('click', copyCalculatedValue);
     if (editingCheckId !== null) { wireCheckForm(`edit-${editingCheckId}`); }
+}
+
+function copyCalculatedValue(event: MouseEvent): void {
+    const button = (event.target as HTMLElement).closest<HTMLElement>('[data-copy-calculated]');
+    if (!button) { return; }
+    const check = integrityState.checks.find(item => item.id === Number(button.dataset.checkId));
+    if (!check?.result) { return; }
+    vscode.postMessage({
+        type: 'copyText',
+        text: `0x${check.result.value}`,
+        label: `${algorithmLabel(check.algorithm)} calculated value`,
+    });
 }
 
 function toggleHighlightedCheck(id: number): void {
@@ -777,7 +785,13 @@ function calculatedResultBodyHtml(check: IntegrityCheckState, result: IntegrityR
     const stored = storedResultHtml(check);
     return `
         <div class="integrity-comparison${singleComparisonClass(stored)}">
-            <div class="integrity-value-pane calculated"><span>Calculated</span><code>${formatHexHtml(`0x${result.value}`)}</code></div>
+            <div class="integrity-value-pane calculated">
+                <div class="integrity-value-hdr">
+                    <span>Calculated</span>
+                    <button class="integrity-copy-btn" type="button" data-copy-calculated data-check-id="${check.id}" title="Copy calculated value" aria-label="Copy calculated value">⧉</button>
+                </div>
+                <code>${formatHexHtml(`0x${result.value}`)}</code>
+            </div>
             ${stored}
         </div>
         <div class="integrity-result-meta">${esc(check.meta)}</div>`;
@@ -790,7 +804,10 @@ function singleComparisonClass(storedHtml: string): string {
 function storedResultHtml(check: IntegrityCheckState): string {
     if (!check.storedBytes) { return ''; }
     const state = integrityHighlightStatus(check);
-    return `<div class="integrity-value-pane stored ${state}"><span>Stored</span><code>${formatHexHtml(`0x${integrityBytesToHex(check.storedBytes)}`)}</code></div>`;
+    return `<div class="integrity-value-pane stored ${state}">
+        <div class="integrity-value-hdr"><span>Stored</span>${autoFixToggleHtml(check)}</div>
+        <code>${formatHexHtml(`0x${integrityBytesToHex(check.storedBytes)}`)}</code>
+    </div>`;
 }
 
 function updateStoredValue(check: IntegrityCheckState): void {

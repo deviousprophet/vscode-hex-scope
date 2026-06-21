@@ -147,7 +147,7 @@
     white-space: nowrap;
 }
 
-.integrity-auto-fix:hover:not(.disabled) {
+.integrity-auto-fix:hover {
     background: rgba(255,255,255,.06);
     border-color: var(--border);
     color: var(--fg);
@@ -194,7 +194,6 @@
     outline: 1px solid var(--vscode-focusBorder, #4f9de8);
     outline-offset: -1px;
 }
-.integrity-auto-fix.disabled { cursor: default; opacity: .45; }
 #integrity-action-error:empty { display: none; }
 
 .integrity-card-body {
@@ -226,14 +225,36 @@
     padding: 5px;
 }
 
-.integrity-value-pane > span {
+.integrity-value-pane > span,
+.integrity-value-hdr > span {
     display: block;
     color: var(--addr-fg);
     font-family: var(--font-ui);
     font-size: 9px;
-    margin-bottom: 3px;
     text-transform: uppercase;
 }
+
+.integrity-value-pane > span { margin-bottom: 3px; }
+
+.integrity-value-hdr {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 3px;
+}
+
+.integrity-copy-btn {
+    background: transparent;
+    border: 0;
+    color: var(--addr-fg);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    padding: 0 1px;
+}
+
+.integrity-copy-btn:hover,
+.integrity-copy-btn:focus-visible { color: var(--high-color); }
 
 .integrity-value-pane code {
     color: var(--high-color);
