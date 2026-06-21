@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { esc, fmtB, byteClass } from '../webview/utils';
 import { S, BPR } from '../webview/state';
 import { initFlatBytes, buildMemRows, getByte } from '../webview/data';
+import { integrityHighlightClass } from '../webview/memoryView';
 import { rerender } from '../webview/render';
 import {
     calcRowOffset,
@@ -31,6 +32,7 @@ function resetState(): void {
 
     S.activeStructAddr = null;
     S.structPins       = [];
+    S.integrityHighlight = null;
     S.sidebarTab       = 'inspector';
 }
 
@@ -184,6 +186,19 @@ suite('initFlatBytes() - segment index', () => {
         assert.strictEqual(getByte(0x1002), 0xBE);
         assert.strictEqual(getByte(0x1003), 0xEF);
         assert.strictEqual(getByte(0x1004), undefined);
+    });
+
+    test('getByte returns unsaved edits without changing original data', () => {
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD] }],
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.edits.set(0x1001, 0x42);
+
+        assert.strictEqual(getByte(0x1001), 0x42);
+        assert.strictEqual(S.parseResult.segments[0].data[1], 0xAD);
     });
 
     test('getByte works with two non-contiguous segments', () => {
@@ -509,73 +524,26 @@ suite('Record View rendering', () => {
     });
 });
 
-type IntegrityViewModule = typeof import('../webview/integrityView.js');
-type IntegrityCalculator = typeof import('../webview/integrity.js').calculateIntegrity;
-
-function integrityInputs(): { start: HTMLInputElement; end: HTMLInputElement } {
-    return {
-        start: document.getElementById('integrity-start') as HTMLInputElement,
-        end: document.getElementById('integrity-end') as HTMLInputElement,
-    };
-}
-
-function setIntegrityInput(input: HTMLInputElement, value: string, dom: JSDOM): void {
-    input.value = value;
-    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-}
-
 async function waitForIntegrityCalculation(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 300));
 }
 
-async function verifyInitialIntegrityResult(
-    view: IntegrityViewModule,
-    calculateIntegrity: IntegrityCalculator,
-): Promise<void> {
-    view.renderIntegrity();
-    view.activateIntegrity();
-    const { start, end } = integrityInputs();
-    assert.strictEqual(start.value, '0x00001000');
-    assert.strictEqual(end.value, '0x00001002');
-    await waitForIntegrityCalculation();
-    const expected = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([1, 2, 3]));
-    assert.strictEqual(document.getElementById('integrity-value')!.textContent, expected.value);
+function integrityCard(index = 0): HTMLElement {
+    return document.querySelectorAll<HTMLElement>('.integrity-card')[index];
 }
 
-async function verifyEditedIntegrityResult(
-    view: IntegrityViewModule,
-    calculateIntegrity: IntegrityCalculator,
-    dom: JSDOM,
-): Promise<string> {
-    const { start } = integrityInputs();
-    setIntegrityInput(start, '1001', dom);
-    view.activateIntegrity();
-    assert.strictEqual(start.value, '1001', 'later activation must preserve user range');
-    S.edits.set(0x1001, 0xFF);
-    view.notifyIntegrityBytesChanged();
-    await waitForIntegrityCalculation();
-    const expected = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
-    assert.strictEqual(document.getElementById('integrity-value')!.textContent, expected.value);
-    return expected.value;
+function integrityForm(id: string): HTMLElement {
+    return document.querySelector<HTMLElement>(`[data-integrity-form="${id}"]`)!;
 }
 
-function verifyInvalidIntegrityRange(dom: JSDOM): void {
-    const { end } = integrityInputs();
-    setIntegrityInput(end, 'not-hex', dom);
-    assert.strictEqual((document.getElementById('integrity-result') as HTMLElement).hidden, true);
-    assert.match(document.getElementById('integrity-error')!.textContent!, /hexadecimal/);
+function setDraftValue(form: HTMLElement, control: string, value: string): void {
+    (form.querySelector(`[data-draft-control="${control}"]`) as HTMLInputElement).value = value;
 }
 
-async function verifyIntegrityCopy(dom: JSDOM, expected: string, posted: unknown[]): Promise<void> {
-    const { end } = integrityInputs();
-    setIntegrityInput(end, '1002', dom);
-    await waitForIntegrityCalculation();
-    document.getElementById('integrity-copy')!.click();
-    assert.deepStrictEqual(posted.at(-1), {
-        type: 'copyText',
-        text: expected,
-        label: 'CRC32/ISO-HDLC',
-    });
+function assertEmptyIntegrityChecks(): void {
+    assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
+    assert.strictEqual(document.querySelector('.integrity-empty')!.textContent, 'No integrity checks configured.');
+    assert.ok((document.getElementById('integrity-profile-save') as HTMLButtonElement).disabled);
 }
 
 suite('Integrity Checks sidebar', () => {
@@ -599,7 +567,7 @@ suite('Integrity Checks sidebar', () => {
 
     teardown(() => cleanupWebviewDom(dom));
 
-    test('prefills once, recalculates visible bytes, clears invalid results, and copies', async () => {
+    test('uses struct-style cards, global endian, edit forms, and profiles', async () => {
         const api = await import('../webview/api.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
@@ -608,49 +576,193 @@ suite('Integrity Checks sidebar', () => {
         try {
             const view = await import('../webview/integrityView.js');
             const { calculateIntegrity } = await import('../webview/integrity.js');
-            await verifyInitialIntegrityResult(view, calculateIntegrity);
-            const expectedEdited = await verifyEditedIntegrityResult(view, calculateIntegrity, dom);
-            verifyInvalidIntegrityRange(dom);
-            await verifyIntegrityCopy(dom, expectedEdited, posted);
+            S.endian = 'le';
+            view.renderIntegrity();
+            view.activateIntegrity();
+            assertEmptyIntegrityChecks();
+            assert.ok(document.getElementById('integrity-btn-be')!.classList.contains('active'), 'integrity has independent BE default');
 
-            document.getElementById('integrity-add-check')!.click();
-            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 2);
-            document.querySelectorAll<HTMLElement>('[data-check-action="up"]')[1].click();
-            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 2);
-            document.querySelectorAll<HTMLElement>('[data-check-action="remove"]')[1].click();
-            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 1);
+            document.getElementById('integrity-add-btn')!.click();
+            let selectedAddForm = integrityForm('add');
+            assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="algorithm"]') as HTMLSelectElement).value, 'crc32-iso-hdlc');
+            assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="start"]') as HTMLInputElement).value, '00001000');
+            assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
+            S.selStart = 0x1001;
+            S.selEnd = 0x1001;
+            document.getElementById('integrity-btn-le')!.click();
+            selectedAddForm = integrityForm('add');
+            assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="start"]') as HTMLInputElement).value, '00001000');
+            assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
+            document.getElementById('integrity-btn-be')!.click();
+            integrityForm('add').querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();
+            assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
+
+            S.selStart = null;
+            S.selEnd = null;
+            document.getElementById('integrity-add-btn')!.click();
+            const blankAddForm = integrityForm('add');
+            assert.strictEqual((blankAddForm.querySelector('[data-draft-control="start"]') as HTMLInputElement).value, '');
+            assert.strictEqual((blankAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '');
+            blankAddForm.querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();
+
+            S.selStart = 0x1000;
+            S.selEnd = 0x1002;
+            document.getElementById('integrity-add-btn')!.click();
+            integrityForm('add').querySelector<HTMLElement>('[data-form-action="save"]')!.click();
+            assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
+            assert.deepStrictEqual(posted.at(-1), {
+                type: 'saveIntegrityChecks',
+                state: {
+                    schemaVersion: 1,
+                    byteOrder: 'be',
+                    checks: [{ algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
+                },
+            });
+            assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'comparison is always visible');
+            assert.strictEqual(integrityCard().querySelector('.si-expand-btn'), null);
+            assert.ok(integrityCard().querySelector<HTMLInputElement>('[data-auto-fix]')!.disabled);
+            assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+            await waitForIntegrityCalculation();
+            assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '∑');
+            assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Calculated');
+
+            integrityCard().querySelector<HTMLElement>('[data-check-toggle]')!.click();
+            assert.deepStrictEqual(S.integrityHighlight, {
+                rangeStart: 0x1000,
+                rangeEnd: 0x1002,
+                status: 'unverified',
+            });
+            assert.strictEqual(integrityHighlightClass(0x1001), ' integrity-range');
+            const expectedInitial = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([1, 2, 3]));
+            assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${expectedInitial.value}`);
+
+            integrityCard().querySelector<HTMLElement>('.act-btn-edit')!.click();
+            const editForm = integrityForm('edit-1');
+            setDraftValue(editForm, 'start', 'ABCD');
+            view.setIntegrityProfiles([]);
+            assert.strictEqual((integrityForm('edit-1').querySelector('[data-draft-control="start"]') as HTMLInputElement).value, 'ABCD');
+            setDraftValue(editForm, 'start', '1001');
+            setDraftValue(editForm, 'end', 'not-hex');
+            editForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
+            assert.match(editForm.querySelector('[data-form-error]')!.textContent!, /hexadecimal/);
+            setDraftValue(editForm, 'end', '1002');
+            editForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
+            assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'save restores visible comparison');
+
+            S.edits.set(0x1001, 0xFF);
+            view.notifyIntegrityBytesChanged();
+            await waitForIntegrityCalculation();
+            const expectedEdited = await calculateIntegrity('crc32-iso-hdlc', new Uint8Array([0xFF, 3]));
+            assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${expectedEdited.value}`);
+            assert.strictEqual(integrityCard().querySelector('[data-result-action="copy"]'), null);
+
+            document.getElementById('integrity-add-btn')!.click();
+            const addForm = integrityForm('add');
+            setDraftValue(addForm, 'start', '1000');
+            setDraftValue(addForm, 'end', '1003');
+            addForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
+            assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
+            assert.ok(!integrityCard(1).querySelector<HTMLElement>('[data-check-body]')!.hidden);
+            integrityCard(1).querySelector<HTMLElement>('.act-btn-edit')!.click();
+            integrityForm('edit-2').querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();
+            integrityCard(1).querySelector<HTMLElement>('.act-btn-del')!.click();
+            assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
 
             view.setIntegrityProfiles([{
                 schemaVersion: 1,
                 id: 'stm32-profile',
                 name: 'STM32 Layout',
+                byteOrder: 'le',
                 checks: [
-                    { algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1001, byteOrder: 'be' },
-                    { algorithm: 'crc16-ccitt-false', startAddress: 0x1002, endAddress: 0x1003, storedAddress: 0x1000, byteOrder: 'le' },
+                    { algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false },
+                    { algorithm: 'crc16-ccitt-false', startAddress: 0x1002, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false },
                 ],
             }]);
             const profileSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
             profileSelect.value = 'stm32-profile';
             profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             document.getElementById('integrity-profile-apply')!.click();
-            assert.strictEqual(document.querySelectorAll('.integrity-check').length, 2);
-            assert.strictEqual((document.getElementById('integrity-start') as HTMLInputElement).value, '0x00001000');
-            assert.strictEqual((document.querySelector('[data-control="stored"]') as HTMLInputElement).value, '');
-            assert.strictEqual((document.querySelectorAll('[data-control="stored"]')[1] as HTMLInputElement).value, '0x00001000');
+            assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
+            assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'));
+            assert.strictEqual(S.endian, 'le', 'integrity endian does not change Struct Overlay endian');
+            await waitForIntegrityCalculation();
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✕');
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Mismatch');
+            assert.ok(integrityCard(1).querySelector('[data-check-toggle]')!.firstElementChild!.matches('[data-check-status]'));
+            assert.match(integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent!, /^0x/);
+            assert.ok(integrityCard(1).querySelector('.integrity-value-pane.stored')!.classList.contains('mismatch'));
+            assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+
+            const stagedTransactions: Array<Array<[number, number]>> = [];
+            view.setIntegrityEditHandler(edits => {
+                stagedTransactions.push(edits);
+                edits.forEach(([address, value]) => S.edits.set(address, value));
+                view.notifyIntegrityBytesChanged();
+            });
+            integrityCard(1).querySelector<HTMLElement>('[data-check-toggle]')!.click();
+            assert.strictEqual(S.integrityHighlight?.status, 'mismatch');
+            assert.strictEqual(integrityHighlightClass(0x1000), ' integrity-stored-mismatch');
+            assert.strictEqual(integrityHighlightClass(0x1002), ' integrity-range');
+            integrityCard(1).querySelector<HTMLElement>('[data-check-toggle]')!.click();
+            assert.strictEqual(S.integrityHighlight, null);
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-fix]'), null);
+            const autoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
+            autoFix.checked = true;
+            autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✓');
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Match');
+            assert.strictEqual(stagedTransactions.length, 1);
+            assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+            assert.ok((posted.at(-1) as { state: { checks: Array<{ autoFixStoredValue: boolean }> } }).state.checks[1].autoFixStoredValue);
+
+            const disableAutoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
+            disableAutoFix.checked = false;
+            disableAutoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            S.edits.clear();
+            view.notifyIntegrityBytesChanged();
+            await waitForIntegrityCalculation();
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✕');
+            assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+            document.getElementById('integrity-fix-all')!.click();
+            assert.strictEqual(stagedTransactions.length, 2);
+            assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '✓');
+            assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+            const persistedAutoFix = integrityCard(1).querySelector<HTMLInputElement>('[data-auto-fix]')!;
+            persistedAutoFix.checked = true;
+            persistedAutoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+            document.getElementById('integrity-btn-be')!.click();
+            assert.ok(document.getElementById('integrity-btn-be')!.classList.contains('active'));
+            assert.strictEqual(S.endian, 'le', 'integrity toggle remains independent');
 
             document.getElementById('integrity-profile-update')!.click();
-            assert.strictEqual((posted.at(-1) as { type: string }).type, 'updateIntegrityProfile');
+            const updatedProfile = (posted.at(-1) as { type: string; profile: { byteOrder: string; checks: Array<{ autoFixStoredValue: boolean }> } }).profile;
+            assert.strictEqual(updatedProfile.byteOrder, 'be');
+            assert.strictEqual(updatedProfile.checks[1].autoFixStoredValue, true);
             dom.window.prompt = () => 'Renamed Layout';
             document.getElementById('integrity-profile-rename')!.click();
             assert.deepStrictEqual(posted.at(-1), {
                 type: 'renameIntegrityProfile', id: 'stm32-profile', name: 'Renamed Layout',
             });
-            dom.window.confirm = () => true;
             document.getElementById('integrity-profile-delete')!.click();
             assert.deepStrictEqual(posted.at(-1), { type: 'deleteIntegrityProfile', id: 'stm32-profile' });
             dom.window.prompt = () => 'New Layout';
             document.getElementById('integrity-profile-save')!.click();
             assert.strictEqual((posted.at(-1) as { type: string }).type, 'createIntegrityProfile');
+
+            integrityCard().querySelector<HTMLElement>('.act-btn-del')!.click();
+            integrityCard().querySelector<HTMLElement>('.act-btn-del')!.click();
+            assertEmptyIntegrityChecks();
+            assert.ok((document.getElementById('integrity-profile-update') as HTMLButtonElement).disabled);
+
+            view.setIntegrityChecks({
+                schemaVersion: 1,
+                byteOrder: 'le',
+                checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
+            });
+            view.renderIntegrity();
+            assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
+            assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'));
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }

@@ -17,14 +17,29 @@ export interface IntegrityCheckConfig {
     startAddress: number;
     endAddress: number;
     storedAddress?: number;
-    byteOrder: IntegrityByteOrder;
+    autoFixStoredValue: boolean;
 }
 
 export interface IntegrityProfile {
     schemaVersion: typeof INTEGRITY_PROFILE_SCHEMA_VERSION;
     id: string;
     name: string;
+    byteOrder: IntegrityByteOrder;
     checks: IntegrityCheckConfig[];
+}
+
+export interface IntegrityCheckSet {
+    schemaVersion: typeof INTEGRITY_PROFILE_SCHEMA_VERSION;
+    byteOrder: IntegrityByteOrder;
+    checks: IntegrityCheckConfig[];
+}
+
+interface IntegrityProfileCandidate {
+    schemaVersion?: unknown;
+    id?: unknown;
+    name?: unknown;
+    byteOrder?: unknown;
+    checks?: unknown;
 }
 
 export interface IntegrityRequest {
@@ -48,6 +63,8 @@ export type IntegrityValidation<T> =
     | { ok: true; value: T }
     | { ok: false; error: string };
 
+export type IntegrityEdit = [number, number];
+
 const MAX_ADDRESS = 0xFFFF_FFFF;
 
 function isIntegrityAlgorithm(value: unknown): value is IntegrityAlgorithm {
@@ -67,6 +84,23 @@ export function normalizeIntegrityProfiles(value: unknown): IntegrityProfile[] {
     return profiles;
 }
 
+export function normalizeIntegrityCheckSet(value: unknown): IntegrityCheckSet | null {
+    const raw = integrityCheckSetCandidate(value);
+    return raw ? normalizeIntegrityCheckSetCandidate(raw) : null;
+}
+
+function normalizeIntegrityCheckSetCandidate(raw: Partial<IntegrityCheckSet>): IntegrityCheckSet | null {
+    if (raw.schemaVersion !== INTEGRITY_PROFILE_SCHEMA_VERSION) { return null; }
+    if (!isIntegrityByteOrder(raw.byteOrder)) { return null; }
+    const checks = normalizeIntegrityChecks(raw.checks);
+    if (!checks) { return null; }
+    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, byteOrder: raw.byteOrder, checks };
+}
+
+function integrityCheckSetCandidate(value: unknown): Partial<IntegrityCheckSet> | null {
+    return value !== null && typeof value === 'object' ? value as Partial<IntegrityCheckSet> : null;
+}
+
 function appendNormalizedProfile(profiles: IntegrityProfile[], candidate: unknown): void {
     const profile = normalizeIntegrityProfile(candidate);
     if (!profile) { return; }
@@ -80,23 +114,35 @@ function normalizeIntegrityProfile(value: unknown): IntegrityProfile | null {
     if (!raw) { return null; }
     const identity = integrityProfileIdentity(raw);
     if (!identity) { return null; }
-    const checks = normalizeIntegrityChecks(raw.checks);
-    if (!checks) { return null; }
-    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, ...identity, checks };
+    if (raw.schemaVersion !== INTEGRITY_PROFILE_SCHEMA_VERSION) { return null; }
+    return normalizeCurrentIntegrityProfile(raw, identity);
 }
 
-function integrityProfileCandidate(value: unknown): Partial<IntegrityProfile> | null {
+function integrityProfileCandidate(value: unknown): IntegrityProfileCandidate | null {
     if (value === null) { return null; }
     if (typeof value !== 'object') { return null; }
-    return value as Partial<IntegrityProfile>;
+    return value as IntegrityProfileCandidate;
 }
 
-function integrityProfileIdentity(raw: Partial<IntegrityProfile>): Pick<IntegrityProfile, 'id' | 'name'> | null {
-    if (raw.schemaVersion !== INTEGRITY_PROFILE_SCHEMA_VERSION) { return null; }
+function integrityProfileIdentity(raw: IntegrityProfileCandidate): Pick<IntegrityProfile, 'id' | 'name'> | null {
     const id = trimmedString(raw.id);
     if (!id) { return null; }
     const name = trimmedString(raw.name);
     return name ? { id, name } : null;
+}
+
+function normalizeCurrentIntegrityProfile(
+    raw: IntegrityProfileCandidate,
+    identity: Pick<IntegrityProfile, 'id' | 'name'>,
+): IntegrityProfile | null {
+    if (!isIntegrityByteOrder(raw.byteOrder)) { return null; }
+    const checks = normalizeIntegrityChecks(raw.checks);
+    if (!checks || checks.length === 0) { return null; }
+    return { schemaVersion: INTEGRITY_PROFILE_SCHEMA_VERSION, ...identity, byteOrder: raw.byteOrder, checks };
+}
+
+function isIntegrityByteOrder(value: unknown): value is IntegrityByteOrder {
+    return value === 'le' || value === 'be';
 }
 
 function trimmedString(value: unknown): string {
@@ -105,9 +151,13 @@ function trimmedString(value: unknown): string {
 
 function normalizeIntegrityChecks(value: unknown): IntegrityCheckConfig[] | null {
     if (!Array.isArray(value)) { return null; }
-    const checks = value.map(normalizeIntegrityCheck).filter((check): check is IntegrityCheckConfig => !!check);
-    if (checks.length === 0) { return null; }
-    return checks.length === value.length ? checks : null;
+    const checks: IntegrityCheckConfig[] = [];
+    for (const item of value) {
+        const check = normalizeIntegrityCheck(item);
+        if (!check) { return null; }
+        checks.push(check);
+    }
+    return checks;
 }
 
 function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
@@ -119,8 +169,8 @@ function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
         algorithm: raw.algorithm,
         startAddress: raw.startAddress as number,
         endAddress: raw.endAddress as number,
+        autoFixStoredValue: raw.autoFixStoredValue,
         ...normalizedStoredAddress(raw.storedAddress),
-        byteOrder: raw.byteOrder,
     };
 }
 
@@ -135,8 +185,8 @@ function integrityCheckCandidate(value: unknown): Partial<IntegrityCheckConfig> 
 
 function isIntegrityCheckCore(raw: Partial<IntegrityCheckConfig>): raw is IntegrityCheckConfig {
     if (!isIntegrityAlgorithm(raw.algorithm)) { return false; }
-    if (!isIntegrityRange(raw.startAddress, raw.endAddress)) { return false; }
-    return raw.byteOrder === 'be' || raw.byteOrder === 'le';
+    if (typeof raw.autoFixStoredValue !== 'boolean') { return false; }
+    return isIntegrityRange(raw.startAddress, raw.endAddress);
 }
 
 function isIntegrityRange(start: unknown, end: unknown): start is number {
@@ -240,6 +290,22 @@ export function integrityBytesEqual(left: Uint8Array, right: Uint8Array): boolea
 
 export function integrityBytesToHex(bytes: Uint8Array): string {
     return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+export function mergeIntegrityEdits(groups: IntegrityEdit[][]): IntegrityValidation<IntegrityEdit[]> {
+    const merged = new Map<number, number>();
+    for (const [address, value] of groups.flat()) {
+        if (isConflictingIntegrityEdit(merged, address, value)) {
+            return { ok: false, error: `Fix all conflict at ${formatIntegrityAddress(address)}.` };
+        }
+        merged.set(address, value);
+    }
+    return { ok: true, value: Array.from(merged.entries()) };
+}
+
+function isConflictingIntegrityEdit(merged: Map<number, number>, address: number, value: number): boolean {
+    if (!merged.has(address)) { return false; }
+    return merged.get(address) !== value;
 }
 
 export async function calculateIntegrity(

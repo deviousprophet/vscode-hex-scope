@@ -5,7 +5,9 @@ import { computeSRecChecksum, parseSRec, SREC_ADDR_SIZES, srecIsData } from './p
 import type { ParseResult } from './parser/types';
 import type { StructDef } from './webview/types';
 import {
+    normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
+    type IntegrityCheckSet,
     type IntegrityProfile,
 } from './webview/integrity';
 
@@ -76,6 +78,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const structKey = `hexScope.structs.${document.uri.toString()}`;
         const globalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
+        const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
 
         const normalizeStructDefs = (value: unknown): { defs: StructDef[]; changed: boolean } => {
             if (!Array.isArray(value)) { return { defs: [], changed: false }; }
@@ -150,6 +153,19 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             return normalized;
         };
 
+        const loadIntegrityChecks = async (): Promise<IntegrityCheckSet> => {
+            const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
+            const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
+                schemaVersion: 1,
+                byteOrder: 'be',
+                checks: [],
+            };
+            if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {
+                await this._context.workspaceState.update(integrityChecksKey, normalized);
+            }
+            return normalized;
+        };
+
         const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
             const current = await loadIntegrityProfiles();
             for (const panel of this._panels) {
@@ -172,6 +188,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             const serialized = serializeParseResult(parseResult, format);
             const structs = await loadStructs();
             const integrityProfiles = await loadIntegrityProfiles();
+            const integrityChecks = await loadIntegrityChecks();
             
             const msg = {
                 type: 'init',
@@ -179,7 +196,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 labels:      this._context.workspaceState.get(labelKey, []),
                 structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
-                integrityProfiles,
+                integrityProfiles: { profiles: integrityProfiles, activeChecks: integrityChecks },
             };
             
             webviewPanel.webview.postMessage(msg);
@@ -271,6 +288,10 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             },
             saveStructPins: async msg => {
                 await this._context.workspaceState.update(structPinKey, msg.pins);
+            },
+            saveIntegrityChecks: async msg => {
+                const state = normalizeIntegrityCheckSet(msg.state);
+                if (state) { await this._context.workspaceState.update(integrityChecksKey, state); }
             },
             createIntegrityProfile: async msg => {
                 const profile = normalizeIntegrityProfiles([msg.profile])[0];

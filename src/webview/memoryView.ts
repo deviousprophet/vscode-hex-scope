@@ -359,9 +359,10 @@ function renderRow(base: number): string {
         } else {
             const hex   = val.toString(16).toUpperCase().padStart(2, '0');
             const dirty = S.edits.has(addr) ? ' dirty' : '';
-            hexCells.push(`<span class="data-cell ${byteClass(val)}${dirty}" data-col="${col}" data-addr="${ah}" data-val="${val}">${hex}</span>`);
+            const integrity = integrityHighlightClass(addr);
+            hexCells.push(`<span class="data-cell ${byteClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}" data-val="${val}">${hex}</span>`);
             const p = val >= 0x20 && val < 0x7F;
-            chrCells.push(`<span class="char-cell ${p ? 'cp' : 'cd'}${dirty}" data-col="${col}" data-addr="${ah}">${p ? esc(String.fromCharCode(val)) : ''}</span>`);
+            chrCells.push(`<span class="char-cell ${p ? 'cp' : 'cd'}${dirty}${integrity}" data-col="${col}" data-addr="${ah}">${p ? esc(String.fromCharCode(val)) : ''}</span>`);
         }
     }
 
@@ -370,6 +371,26 @@ function renderRow(base: number): string {
         <div class="cell-group">${hexCells.join('')}</div>
         <div class="cell-group">${chrCells.join('')}</div>
     </div>`;
+}
+
+export function integrityHighlightClass(address: number): string {
+    const highlight = S.integrityHighlight;
+    if (!highlight) { return ''; }
+    if (isStoredIntegrityAddress(highlight, address)) { return ` integrity-stored-${highlight.status}`; }
+    if (isIntegrityRangeAddress(highlight, address)) { return ' integrity-range'; }
+    return '';
+}
+
+type IntegrityHighlight = NonNullable<typeof S.integrityHighlight>;
+
+function isStoredIntegrityAddress(highlight: IntegrityHighlight, address: number): boolean {
+    if (highlight.storedStart === undefined) { return false; }
+    if (highlight.storedLength === undefined) { return false; }
+    return address >= highlight.storedStart && address < highlight.storedStart + highlight.storedLength;
+}
+
+function isIntegrityRangeAddress(highlight: IntegrityHighlight, address: number): boolean {
+    return address >= highlight.rangeStart && address <= highlight.rangeEnd;
 }
 
 //  Selection highlight 

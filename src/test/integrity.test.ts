@@ -5,6 +5,8 @@ import {
     collectIntegrityBytes,
     integrityBytesEqual,
     integrityValueToBytes,
+    mergeIntegrityEdits,
+    normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
     parseIntegrityAddress,
     readStoredIntegrityBytes,
@@ -117,12 +119,13 @@ suite('integrity profile normalization', () => {
         schemaVersion: 1,
         id: 'profile-1',
         name: ' STM32 App ',
+        byteOrder: 'le',
         checks: [{
             algorithm: 'crc32-iso-hdlc',
             startAddress: 0x08000000,
             endAddress: 0x080000FF,
             storedAddress: 0x08000100,
-            byteOrder: 'le',
+            autoFixStoredValue: false,
         }],
     };
 
@@ -130,7 +133,9 @@ suite('integrity profile normalization', () => {
         const profiles = normalizeIntegrityProfiles([validProfile]);
         assert.strictEqual(profiles.length, 1);
         assert.strictEqual(profiles[0].name, 'STM32 App');
+        assert.strictEqual(profiles[0].byteOrder, 'le');
         assert.strictEqual(profiles[0].checks[0].storedAddress, 0x08000100);
+        assert.strictEqual(profiles[0].checks[0].autoFixStoredValue, false);
     });
 
     test('drops malformed profiles and case-insensitive duplicate names', () => {
@@ -141,5 +146,48 @@ suite('integrity profile normalization', () => {
             { ...validProfile, id: 'bad-range', name: 'Bad', checks: [{ ...validProfile.checks[0], endAddress: 1 }] },
         ]);
         assert.deepStrictEqual(profiles.map(profile => profile.id), ['profile-1']);
+    });
+
+});
+
+suite('integrity check-set normalization', () => {
+    test('accepts empty and configured per-file check sets', () => {
+        assert.deepStrictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, byteOrder: 'be', checks: [] }), {
+            schemaVersion: 1, byteOrder: 'be', checks: [],
+        });
+        const normalized = normalizeIntegrityCheckSet({
+            schemaVersion: 1,
+            byteOrder: 'le',
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x10FF, autoFixStoredValue: true }],
+        });
+        assert.strictEqual(normalized?.checks.length, 1);
+        assert.strictEqual(normalized?.checks[0].autoFixStoredValue, true);
+    });
+
+    test('rejects malformed per-file check sets', () => {
+        assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 2, byteOrder: 'be', checks: [] }), null);
+        assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, byteOrder: 'mixed', checks: [] }), null);
+        assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, byteOrder: 'be', checks: [{}] }), null);
+        assert.strictEqual(normalizeIntegrityCheckSet({
+            schemaVersion: 1,
+            byteOrder: 'be',
+            checks: [{ algorithm: 'crc32-iso-hdlc', startAddress: 0, endAddress: 1 }],
+        }), null);
+    });
+});
+
+suite('integrity edit merging', () => {
+    test('deduplicates compatible overlapping fixes', () => {
+        assert.deepStrictEqual(mergeIntegrityEdits([
+            [[0x1000, 0xAA], [0x1001, 0xBB]],
+            [[0x1001, 0xBB], [0x1002, 0xCC]],
+        ]), { ok: true, value: [[0x1000, 0xAA], [0x1001, 0xBB], [0x1002, 0xCC]] });
+    });
+
+    test('rejects conflicting overlaps atomically', () => {
+        assert.deepStrictEqual(mergeIntegrityEdits([
+            [[0x1000, 0xAA]],
+            [[0x1000, 0xBB]],
+        ]), { ok: false, error: 'Fix all conflict at 0x00001000.' });
     });
 });

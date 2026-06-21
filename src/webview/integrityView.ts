@@ -7,12 +7,14 @@ import {
     integrityBytesEqual,
     integrityBytesToHex,
     integrityValueToBytes,
+    mergeIntegrityEdits,
+    normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
     parseIntegrityAddress,
     readStoredIntegrityBytes,
     type IntegrityAlgorithm,
-    type IntegrityByteOrder,
     type IntegrityCheckConfig,
+    type IntegrityCheckSet,
     type IntegrityProfile,
     type IntegrityRequest,
     type IntegrityResult,
@@ -20,7 +22,8 @@ import {
     validateIntegrityRange,
 } from './integrity';
 import { S } from './state';
-import { esc } from './utils';
+import { rerender } from './render';
+import { actionBtnsHtml, esc, formatHexHtml } from './utils';
 
 const DEBOUNCE_MS = 250;
 const ALGORITHM_LABELS: ReadonlyArray<readonly [IntegrityAlgorithm, string]> = [
@@ -31,6 +34,8 @@ const ALGORITHM_LABELS: ReadonlyArray<readonly [IntegrityAlgorithm, string]> = [
     ['sha-256', 'SHA-256'],
     ['sha-512', 'SHA-512'],
 ];
+const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, byteOrder: 'be', checks: [] };
+const INTEGRITY_STATUS_SYMBOLS: Record<string, string> = { Match: '✓', Mismatch: '✕', Calculated: '∑' };
 
 interface IntegrityCheckState {
     id: number;
@@ -38,57 +43,79 @@ interface IntegrityCheckState {
     startRaw: string;
     endRaw: string;
     storedRaw: string;
-    byteOrder: IntegrityByteOrder;
+    autoFixStoredValue: boolean;
     result: IntegrityResult | null;
     expectedBytes: Uint8Array | null;
     storedBytes: Uint8Array | null;
+    error: string;
+    meta: string;
+    calculating: boolean;
     timer: number | null;
     token: number;
 }
 
+interface IntegrityDraft {
+    algorithm: IntegrityAlgorithm;
+    startRaw: string;
+    endRaw: string;
+    storedRaw: string;
+}
+
 type PreparedCheck = { request: IntegrityRequest; storedField?: IntegrityStoredField };
 type IntegrityEditHandler = (edits: Array<[number, number]>) => void;
+type DraftValidation = { ok: true; value: IntegrityDraft } | { ok: false; error: string };
 
 let nextCheckId = 1;
 let editHandler: IntegrityEditHandler = () => {};
 let profiles: IntegrityProfile[] = [];
 let selectedProfileId = '';
 let profileError = '';
+let actionError = '';
+let addCheckDraft: IntegrityDraft | null = null;
+let editingCheckId: number | null = null;
+let highlightedCheckId: number | null = null;
 
 const integrityState = {
     initialized: false,
-    checks: [newCheck()],
+    byteOrder: 'be' as 'be' | 'le',
+    checks: [] as IntegrityCheckState[],
 };
 
 function newCheck(config?: IntegrityCheckConfig): IntegrityCheckState {
-    const persisted = config ? persistedCheckState(config) : blankCheckState();
+    const draft = config ? draftFromConfig(config) : blankDraft();
     return {
         id: nextCheckId++,
-        ...persisted,
+        ...draft,
+        autoFixStoredValue: config?.autoFixStoredValue ?? false,
         result: null,
         expectedBytes: null,
         storedBytes: null,
+        error: '',
+        meta: '',
+        calculating: false,
         timer: null,
         token: 0,
     };
 }
 
-function blankCheckState(): Pick<IntegrityCheckState, 'algorithm' | 'startRaw' | 'endRaw' | 'storedRaw' | 'byteOrder'> {
-    return { algorithm: 'crc32-iso-hdlc', startRaw: '', endRaw: '', storedRaw: '', byteOrder: 'be' };
+function blankDraft(): IntegrityDraft {
+    return { algorithm: 'crc32-iso-hdlc', startRaw: '', endRaw: '', storedRaw: '' };
 }
 
-function persistedCheckState(config: IntegrityCheckConfig): Pick<IntegrityCheckState, 'algorithm' | 'startRaw' | 'endRaw' | 'storedRaw' | 'byteOrder'> {
+function addDraft(): IntegrityDraft {
+    const draft = blankDraft();
+    if (S.selStart !== null) { draft.startRaw = formatIntegrityAddress(S.selStart); }
+    if (S.selEnd !== null) { draft.endRaw = formatIntegrityAddress(S.selEnd); }
+    return draft;
+}
+
+function draftFromConfig(config: IntegrityCheckConfig): IntegrityDraft {
     return {
         algorithm: config.algorithm,
         startRaw: formatIntegrityAddress(config.startAddress),
         endRaw: formatIntegrityAddress(config.endAddress),
-        storedRaw: formatOptionalAddress(config.storedAddress),
-        byteOrder: config.byteOrder,
+        storedRaw: config.storedAddress === undefined ? '' : formatIntegrityAddress(config.storedAddress),
     };
-}
-
-function formatOptionalAddress(address: number | undefined): string {
-    return address === undefined ? '' : formatIntegrityAddress(address);
 }
 
 export function setIntegrityEditHandler(handler: IntegrityEditHandler): void {
@@ -96,34 +123,126 @@ export function setIntegrityEditHandler(handler: IntegrityEditHandler): void {
 }
 
 export function setIntegrityProfiles(value: unknown, error = ''): void {
-    profiles = normalizeIntegrityProfiles(value);
+    const payload = integrityInitPayload(value);
+    profiles = normalizeIntegrityProfiles(integrityProfileValues(payload, value));
+    restoreIntegrityChecks(payload);
     profileError = error;
-    if (selectedProfileId && !profiles.some(profile => profile.id === selectedProfileId)) {
-        selectedProfileId = '';
-    }
-    if (document.getElementById('s-integrity')) { renderIntegrity(); }
+    clearMissingSelectedProfile();
+    refreshProfilesIfRendered();
+}
+
+function integrityProfileValues(payload: ReturnType<typeof integrityInitPayload>, fallback: unknown): unknown {
+    return payload ? payload.profiles : fallback;
+}
+
+function restoreIntegrityChecks(payload: ReturnType<typeof integrityInitPayload>): void {
+    if (payload) { setIntegrityChecks(payload.activeChecks); }
+}
+
+function clearMissingSelectedProfile(): void {
+    if (!selectedProfileId) { return; }
+    if (!profiles.some(profile => profile.id === selectedProfileId)) { selectedProfileId = ''; }
+}
+
+function refreshProfilesIfRendered(): void {
+    if (document.getElementById('s-integrity')) { refreshProfileLibrary(); }
+}
+
+function integrityInitPayload(value: unknown): { profiles: unknown; activeChecks: unknown } | null {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) { return null; }
+    const payload = value as { profiles?: unknown; activeChecks?: unknown };
+    return { profiles: payload.profiles, activeChecks: payload.activeChecks };
+}
+
+export function setIntegrityChecks(value: unknown): void {
+    const saved = normalizedIntegrityCheckSet(value);
+    cancelIntegrityCalculations();
+    integrityState.byteOrder = saved.byteOrder;
+    integrityState.checks = saved.checks.map(newCheck);
+    addCheckDraft = null;
+    editingCheckId = null;
+    highlightedCheckId = null;
+    clearIntegrityHighlight();
+}
+
+function normalizedIntegrityCheckSet(value: unknown): IntegrityCheckSet {
+    return normalizeIntegrityCheckSet(value) ?? EMPTY_INTEGRITY_CHECK_SET;
+}
+
+function cancelIntegrityCalculations(): void {
+    integrityState.checks.forEach(cancelPendingCalculation);
+}
+
+function refreshProfileLibrary(): void {
+    const current = document.querySelector<HTMLElement>('.integrity-profiles');
+    if (!current) { renderIntegrity(); return; }
+    current.outerHTML = profileLibraryHtml();
+    wireProfileControls();
 }
 
 export function renderIntegrity(): void {
     const panel = document.getElementById('s-integrity');
     if (!panel) { return; }
-    panel.innerHTML = `
+    panel.innerHTML = integrityShellHtml();
+    wireRenderedIntegrity(panel);
+}
+
+function integrityShellHtml(): string {
+    return `
         <div class="integrity-shell">
-            <div class="integrity-title">Integrity Checks</div>
-            <div class="integrity-help">Calculate and verify multiple inclusive mapped memory ranges.</div>
-            ${profileLibraryHtml()}
-            <div id="integrity-check-list">
-                ${integrityState.checks.map((check, index) => checkHtml(check, index)).join('')}
+            <div class="si-hdr-row integrity-hdr-row">
+                <span class="sb-hdr" style="margin:0">Integrity Checks ${integrityBadgeHtml()}</span>
+                ${endianToggleHtml()}
+                <button id="integrity-fix-all" class="struct-btn struct-btn-apply" type="button"${fixAllDisabledAttr()}>Fix all</button>
+                <button id="integrity-add-btn" class="si-add-btn"${addCheckDisabledAttr()}>＋ Add</button>
             </div>
-            <button id="integrity-add-check" class="integrity-add" type="button">+ Add check</button>
+            <div id="integrity-action-error" class="integrity-error" role="alert">${esc(actionError)}</div>
+            ${profileLibraryHtml()}
+            ${addCheckFormHtml()}
+            <div id="integrity-check-list">${checkCardsHtml()}</div>
         </div>`;
+}
+
+function fixAllDisabledAttr(): string {
+    return hasFixableMismatches() ? '' : ' disabled';
+}
+
+function addCheckDisabledAttr(): string {
+    return addCheckDraft ? ' disabled' : '';
+}
+
+function wireRenderedIntegrity(panel: HTMLElement): void {
+    wireHeaderControls();
     wireProfileControls();
-    integrityState.checks.forEach((check, index) => wireCheckControls(check, index));
-    document.getElementById('integrity-add-check')?.addEventListener('click', () => {
-        integrityState.checks.push(newCheck());
-        renderIntegrity();
-    });
-    if (integrityState.initialized) { integrityState.checks.forEach(scheduleIntegrityCalculation); }
+    if (addCheckDraft) { wireCheckForm('add'); }
+    wireCheckCards(panel);
+    integrityState.checks.forEach(updateCheckCard);
+}
+
+function integrityBadgeHtml(): string {
+    return integrityState.checks.length > 0 ? `<span class="sb-badge">${integrityState.checks.length}</span>` : '';
+}
+
+function addCheckFormHtml(): string {
+    return addCheckDraft ? checkFormHtml('add', addCheckDraft) : '';
+}
+
+function checkCardsHtml(): string {
+    if (integrityState.checks.length === 0) {
+        return '<div class="sb-empty integrity-empty">No integrity checks configured.</div>';
+    }
+    return integrityState.checks.map(checkCardHtml).join('');
+}
+
+function endianToggleHtml(): string {
+    return `
+        <div class="si-toggle-group" title="Stored-value byte order for all integrity checks">
+            <span class="si-toggle-label">Endian</span>
+            <div class="endian-tabs integrity-endian-tabs">
+                <button id="integrity-btn-le" class="${integrityState.byteOrder === 'le' ? 'active' : ''}">LE</button>
+                <button id="integrity-btn-be" class="${integrityState.byteOrder === 'be' ? 'active' : ''}">BE</button>
+            </div>
+        </div>`;
 }
 
 function profileLibraryHtml(): string {
@@ -132,75 +251,105 @@ function profileLibraryHtml(): string {
     ).join('');
     return `
         <div class="integrity-profiles">
-            <label class="integrity-field">
-                <span>Profile</span>
-                <select id="integrity-profile-select">
-                    <option value="">Select a saved profile…</option>${options}
-                </select>
-            </label>
+            <select id="integrity-profile-select" class="struct-sel" title="Saved integrity profile">
+                <option value="">Saved profiles…</option>${options}
+            </select>
             <div class="integrity-profile-actions">
-                <button id="integrity-profile-apply" type="button">Apply</button>
-                <button id="integrity-profile-save" type="button">Save as</button>
-                <button id="integrity-profile-update" type="button">Update</button>
-                <button id="integrity-profile-rename" type="button">Rename</button>
-                <button id="integrity-profile-delete" type="button">Delete</button>
+                <button id="integrity-profile-apply" class="struct-btn struct-btn-apply" type="button">Apply</button>
+                <button id="integrity-profile-save" class="struct-btn struct-btn-secondary" type="button">Save as</button>
+                <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" type="button">↻</button>
+                <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" type="button">✎</button>
+                <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" type="button">🗑︎</button>
             </div>
             <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(profileError)}</div>
         </div>`;
 }
 
-function checkHtml(check: IntegrityCheckState, index: number): string {
-    const suffix = checkControlSuffix(check, index);
-    const algorithmOptions = algorithmOptionsHtml(check.algorithm);
-    const byteOrderOptions = byteOrderOptionsHtml(check.byteOrder);
+function checkCardHtml(check: IntegrityCheckState): string {
     return `
-        <section class="integrity-check" data-check-id="${check.id}">
-            <div class="integrity-check-header">
-                <span>Check ${index + 1}</span>
-                <div class="integrity-check-actions">
-                    <button data-check-action="up" title="Move up"${disabledAttr(index === 0)}>↑</button>
-                    <button data-check-action="down" title="Move down"${disabledAttr(index === integrityState.checks.length - 1)}>↓</button>
-                    <button data-check-action="remove" title="Remove"${disabledAttr(integrityState.checks.length === 1)}>×</button>
+        <div class="${checkCardClass(check.id)}" data-check-id="${check.id}">
+            <div class="si-card-hdr" data-check-toggle>
+                <span class="integrity-card-status" data-check-status></span>
+                <div class="integrity-card-info">
+                    <div class="integrity-card-title">${esc(algorithmLabel(check.algorithm))}</div>
+                    <div class="integrity-card-meta">${esc(checkRangeSummary(check))}</div>
                 </div>
+                ${autoFixToggleHtml(check)}
+                ${actionBtnsHtml(`data-check-id="${check.id}"`, `data-check-id="${check.id}"`)}
             </div>
-            <label class="integrity-field"><span>Algorithm</span>
-                <select id="integrity-algorithm${suffix}" data-control="algorithm">
-                    ${algorithmOptions}
-                </select>
+            ${checkCardBodyHtml(check)}
+        </div>`;
+}
+
+function checkCardClass(id: number): string {
+    const selected = highlightedCheckId === id ? ' integrity-card-selected' : '';
+    return `si-card integrity-card si-expanded${selected}`;
+}
+
+function autoFixToggleHtml(check: IntegrityCheckState): string {
+    const disabled = !check.storedRaw;
+    const checked = !disabled && check.autoFixStoredValue;
+    return `<label class="integrity-auto-fix${disabledClass(disabled)}" title="Automatically stage mismatched stored values">
+        <input type="checkbox" data-auto-fix data-check-id="${check.id}"${checkedAttr(checked)}${disabledAttr(disabled)}>
+        <span class="integrity-auto-fix-label">Auto fix</span>
+        <span class="integrity-auto-fix-track" aria-hidden="true"><span class="integrity-auto-fix-knob"></span></span>
+    </label>`;
+}
+
+function disabledClass(disabled: boolean): string { return disabled ? ' disabled' : ''; }
+function checkedAttr(checked: boolean): string { return checked ? ' checked' : ''; }
+function disabledAttr(disabled: boolean): string { return disabled ? ' disabled' : ''; }
+
+function isMismatchedCheck(check: IntegrityCheckState): boolean {
+    return hasComparableStoredValue(check) && !integrityBytesEqual(check.expectedBytes, check.storedBytes);
+}
+
+function checkCardBodyHtml(check: IntegrityCheckState): string {
+    if (editingCheckId === check.id) { return checkFormHtml(`edit-${check.id}`, draftFromCheck(check)); }
+    return '<div class="integrity-card-body" data-check-body></div>';
+}
+
+function checkFormHtml(formId: string, draft: IntegrityDraft): string {
+    const presentation = checkFormPresentation(formId);
+    return `
+        <div class="integrity-check-form ${presentation.formClass}" data-integrity-form="${formId}">
+            <div class="sa-form-hdr ${presentation.headerClass}">${presentation.title}</div>
+            <label class="integrity-form-field"><span>Algorithm</span>
+                <select data-draft-control="algorithm" class="struct-sel">${algorithmOptionsHtml(draft.algorithm)}</select>
             </label>
-            <div class="integrity-address-grid">
-                <label class="integrity-field"><span>Start address</span>
-                    <input id="integrity-start${suffix}" data-control="start" type="text" spellcheck="false"
-                        placeholder="0x08000000" value="${esc(check.startRaw)}">
-                </label>
-                <label class="integrity-field"><span>End address <small>(inclusive)</small></span>
-                    <input id="integrity-end${suffix}" data-control="end" type="text" spellcheck="false"
-                        placeholder="0x080000FF" value="${esc(check.endRaw)}">
-                </label>
+            <div class="integrity-form-grid">
+                ${addressInputHtml('Start address', 'start', draft.startRaw, '08000000')}
+                ${addressInputHtml('End address (inclusive)', 'end', draft.endRaw, '080000FF')}
             </div>
-            <div class="integrity-address-grid stored">
-                <label class="integrity-field"><span>Stored value address <small>(optional)</small></span>
-                    <input id="integrity-stored${suffix}" data-control="stored" type="text" spellcheck="false"
-                        placeholder="0x08000100" value="${esc(check.storedRaw)}">
-                </label>
-                <label class="integrity-field"><span>Stored byte order</span>
-                    <select id="integrity-byte-order${suffix}" data-control="byte-order">
-                        ${byteOrderOptions}
-                    </select>
-                </label>
+            ${addressInputHtml('Stored value address (optional)', 'stored', draft.storedRaw, '08000100')}
+            <div class="integrity-form-error" data-form-error></div>
+            <div class="sa-row sa-btn-row">
+                <button class="struct-btn struct-btn-apply" data-form-action="save">${presentation.saveLabel}</button>
+                <button class="struct-btn struct-btn-cancel" data-form-action="cancel">Cancel</button>
             </div>
-            <div id="integrity-meta${suffix}" data-output="meta" class="integrity-meta"></div>
-            <div id="integrity-error${suffix}" data-output="error" class="integrity-error" role="alert"></div>
-            <div id="integrity-result${suffix}" data-output="result" class="integrity-result" hidden></div>
-        </section>`;
+        </div>`;
 }
 
-function checkControlSuffix(check: IntegrityCheckState, index: number): string {
-    return index === 0 ? '' : `-${check.id}`;
+function checkFormPresentation(formId: string): {
+    formClass: string;
+    headerClass: string;
+    title: string;
+    saveLabel: string;
+} {
+    if (formId === 'add') {
+        return { formClass: 'integrity-add-form', headerClass: 'sa-form-hdr-new', title: '＋ New Check', saveLabel: 'Add' };
+    }
+    return { formClass: 'integrity-edit-form', headerClass: 'sa-form-hdr-edit', title: '✎ Edit Check', saveLabel: 'Save' };
 }
 
-function disabledAttr(disabled: boolean): string {
-    return disabled ? ' disabled' : '';
+function addressInputHtml(label: string, control: string, value: string, placeholder: string): string {
+    return `
+        <label class="integrity-form-field"><span>${label}</span>
+            <div class="integrity-address-input"><span class="struct-addr-pfx">0x</span>
+                <input data-draft-control="${control}" class="struct-addr-inp" type="text" maxlength="8"
+                    placeholder="${placeholder}" value="${esc(stripHexPrefix(value))}" autocomplete="off" spellcheck="false">
+            </div>
+        </label>`;
 }
 
 function algorithmOptionsHtml(selected: IntegrityAlgorithm): string {
@@ -208,25 +357,28 @@ function algorithmOptionsHtml(selected: IntegrityAlgorithm): string {
         `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`).join('');
 }
 
-function byteOrderOptionsHtml(selected: IntegrityByteOrder): string {
-    return `<option value="be"${selected === 'be' ? ' selected' : ''}>Big-endian</option>` +
-        `<option value="le"${selected === 'le' ? ' selected' : ''}>Little-endian</option>`;
+function stripHexPrefix(value: string): string {
+    return value.replace(/^0x/i, '');
+}
+
+function draftFromCheck(check: IntegrityCheckState): IntegrityDraft {
+    return { algorithm: check.algorithm, startRaw: check.startRaw, endRaw: check.endRaw, storedRaw: check.storedRaw };
+}
+
+function algorithmLabel(algorithm: IntegrityAlgorithm): string {
+    return ALGORITHM_LABELS.find(([value]) => value === algorithm)?.[1] ?? algorithm;
+}
+
+function checkRangeSummary(check: IntegrityCheckState): string {
+    const range = check.startRaw && check.endRaw ? `${check.startRaw}–${check.endRaw}` : 'Not configured';
+    return check.storedRaw ? `${range} · stored ${check.storedRaw}` : range;
 }
 
 export function activateIntegrity(): void {
     if (integrityState.initialized) { return; }
     integrityState.initialized = true;
-    prefillFirstCheckFromSelection();
     renderIntegrity();
-}
-
-function prefillFirstCheckFromSelection(): void {
-    const first = integrityState.checks[0];
-    if (first.startRaw || first.endRaw) { return; }
-    const selection = selectedIntegrityRange();
-    if (!selection) { return; }
-    first.startRaw = formatIntegrityAddress(selection.start);
-    first.endRaw = formatIntegrityAddress(selection.end);
+    integrityState.checks.forEach(check => scheduleIntegrityCalculation(check));
 }
 
 function selectedIntegrityRange(): { start: number; end: number } | null {
@@ -236,48 +388,231 @@ function selectedIntegrityRange(): { start: number; end: number } | null {
 }
 
 export function notifyIntegrityBytesChanged(): void {
-    if (integrityState.initialized) { integrityState.checks.forEach(scheduleIntegrityCalculation); }
+    if (integrityState.initialized) {
+        integrityState.checks.forEach(check => scheduleIntegrityCalculation(check, true));
+    }
 }
 
-function wireCheckControls(check: IntegrityCheckState, index: number): void {
-    const card = cardFor(check);
-    if (!card) { return; }
-    const algorithm = card.querySelector<HTMLSelectElement>('[data-control="algorithm"]')!;
-    const start = card.querySelector<HTMLInputElement>('[data-control="start"]')!;
-    const end = card.querySelector<HTMLInputElement>('[data-control="end"]')!;
-    const stored = card.querySelector<HTMLInputElement>('[data-control="stored"]')!;
-    const byteOrder = card.querySelector<HTMLSelectElement>('[data-control="byte-order"]')!;
-    algorithm.addEventListener('change', () => { check.algorithm = algorithm.value as IntegrityAlgorithm; scheduleIntegrityCalculation(check); });
-    start.addEventListener('input', () => { check.startRaw = start.value; scheduleIntegrityCalculation(check); });
-    end.addEventListener('input', () => { check.endRaw = end.value; scheduleIntegrityCalculation(check); });
-    stored.addEventListener('input', () => { check.storedRaw = stored.value; scheduleIntegrityCalculation(check); });
-    byteOrder.addEventListener('change', () => { check.byteOrder = byteOrder.value as IntegrityByteOrder; scheduleIntegrityCalculation(check); });
-    card.querySelector('[data-check-action="up"]')?.addEventListener('click', () => moveCheck(index, -1));
-    card.querySelector('[data-check-action="down"]')?.addEventListener('click', () => moveCheck(index, 1));
-    card.querySelector('[data-check-action="remove"]')?.addEventListener('click', () => removeCheck(index));
+function wireHeaderControls(): void {
+    document.getElementById('integrity-btn-le')?.addEventListener('click', () => setSharedEndian('le'));
+    document.getElementById('integrity-btn-be')?.addEventListener('click', () => setSharedEndian('be'));
+    document.getElementById('integrity-fix-all')?.addEventListener('click', fixAllMismatches);
+    document.getElementById('integrity-add-btn')?.addEventListener('click', () => {
+        addCheckDraft = addDraft();
+        editingCheckId = null;
+        renderIntegrity();
+        document.querySelector<HTMLInputElement>('[data-integrity-form="add"] [data-draft-control="start"]')?.focus();
+    });
 }
 
-function moveCheck(index: number, direction: number): void {
-    const target = index + direction;
-    if (target < 0 || target >= integrityState.checks.length) { return; }
-    [integrityState.checks[index], integrityState.checks[target]] =
-        [integrityState.checks[target], integrityState.checks[index]];
+function setSharedEndian(endian: 'le' | 'be'): void {
+    if (integrityState.byteOrder === endian) { return; }
+    integrityState.byteOrder = endian;
+    persistIntegrityChecks();
+    renderIntegrity();
+    integrityState.checks.forEach(check => scheduleIntegrityCalculation(check));
+}
+
+function wireCheckCards(panel: HTMLElement): void {
+    panel.querySelectorAll<HTMLElement>('[data-check-toggle]').forEach(header => {
+        header.addEventListener('click', event => {
+            if ((event.target as HTMLElement).closest('.act-btn, .integrity-auto-fix')) { return; }
+            const card = header.closest<HTMLElement>('[data-check-id]');
+            if (!card || editingCheckId === Number(card.dataset.checkId)) { return; }
+            toggleHighlightedCheck(Number(card.dataset.checkId));
+        });
+    });
+    panel.querySelectorAll<HTMLInputElement>('[data-auto-fix]').forEach(toggle => {
+        toggle.addEventListener('change', () => setAutoFix(Number(toggle.dataset.checkId), toggle.checked));
+    });
+    panel.querySelectorAll<HTMLElement>('.integrity-card .act-btn-edit').forEach(button => {
+        button.addEventListener('click', () => editCheck(Number(button.dataset.checkId)));
+    });
+    panel.querySelectorAll<HTMLElement>('.integrity-card .act-btn-del').forEach(button => {
+        button.addEventListener('click', () => deleteCheck(Number(button.dataset.checkId)));
+    });
+    if (editingCheckId !== null) { wireCheckForm(`edit-${editingCheckId}`); }
+}
+
+function toggleHighlightedCheck(id: number): void {
+    if (highlightedCheckId === id) { clearHighlightedCheck(); }
+    else { highlightedCheckId = id; }
+    renderIntegrity();
+    syncIntegrityHighlight();
+}
+
+function editCheck(id: number): void {
+    addCheckDraft = null;
+    editingCheckId = id;
     renderIntegrity();
 }
 
-function removeCheck(index: number): void {
-    if (integrityState.checks.length === 1) { return; }
-    cancelPendingCalculation(integrityState.checks[index]);
-    integrityState.checks.splice(index, 1);
+function deleteCheck(id: number): void {
+    const check = integrityState.checks.find(item => item.id === id);
+    if (check) { cancelPendingCalculation(check); }
+    integrityState.checks = integrityState.checks.filter(item => item.id !== id);
+    if (editingCheckId === id) { editingCheckId = null; }
+    if (highlightedCheckId === id) { clearHighlightedCheck(); }
+    persistIntegrityChecks();
     renderIntegrity();
 }
 
-function scheduleIntegrityCalculation(check: IntegrityCheckState): void {
+function setAutoFix(id: number, enabled: boolean): void {
+    const check = integrityState.checks.find(item => item.id === id);
+    if (!check) { return; }
+    applyAutoFixSetting(check, enabled);
+}
+
+function applyAutoFixSetting(check: IntegrityCheckState, enabled: boolean): void {
+    if (!check.storedRaw) { return; }
+    check.autoFixStoredValue = enabled;
+    persistIntegrityChecks();
+    fixEnabledMismatch(check, enabled);
+}
+
+function fixEnabledMismatch(check: IntegrityCheckState, enabled: boolean): void {
+    if (!enabled) { return; }
+    if (isMismatchedCheck(check)) { updateStoredValue(check); }
+}
+
+type FixableIntegrityCheck = {
+    check: IntegrityCheckState;
+    update: { address: number; expected: Uint8Array };
+};
+
+function fixableIntegrityChecks(): FixableIntegrityCheck[] {
+    const fixable: FixableIntegrityCheck[] = [];
+    for (const check of integrityState.checks) {
+        if (!isMismatchedCheck(check)) { continue; }
+        const update = storedValueUpdate(check);
+        if (update) { fixable.push({ check, update }); }
+    }
+    return fixable;
+}
+
+function hasFixableMismatches(): boolean {
+    return integrityState.checks.some(isMismatchedCheck);
+}
+
+function fixAllMismatches(): void {
+    const fixable = fixableIntegrityChecks();
+    const edits = mergeIntegrityEdits(fixable.map(fixableCheckEdits));
+    if (!edits.ok) { setActionError(edits.error); return; }
+    if (edits.value.length === 0) { return; }
+    setActionError('');
+    editHandler(edits.value);
+    for (const item of fixable) {
+        item.check.storedBytes = Uint8Array.from(item.update.expected);
+        updateCheckCard(item.check);
+    }
+    syncIntegrityHighlight();
+}
+
+function fixableCheckEdits(item: FixableIntegrityCheck): Array<[number, number]> {
+    return Array.from(item.update.expected, (value, offset) => [item.update.address + offset, value]);
+}
+
+function setActionError(message: string): void {
+    actionError = message;
+    const error = document.getElementById('integrity-action-error');
+    if (error) { error.textContent = message; }
+}
+
+function wireCheckForm(formId: string): void {
+    const form = document.querySelector<HTMLElement>(`[data-integrity-form="${formId}"]`);
+    if (!form) { return; }
+    form.querySelector('[data-form-action="save"]')?.addEventListener('click', () => saveCheckForm(formId, form));
+    form.querySelector('[data-form-action="cancel"]')?.addEventListener('click', () => cancelCheckForm(formId));
+}
+
+function saveCheckForm(formId: string, form: HTMLElement): void {
+    const draft = readDraft(form);
+    if (!draft.ok) { showFormError(form, draft.error); return; }
+    if (formId === 'add') { saveNewCheck(draft.value); return; }
+    saveEditedCheck(Number(formId.replace('edit-', '')), draft.value);
+}
+
+function readDraft(form: HTMLElement): DraftValidation {
+    const algorithm = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value as IntegrityAlgorithm;
+    const startRaw = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!.value;
+    const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
+    const storedRaw = form.querySelector<HTMLInputElement>('[data-draft-control="stored"]')!.value;
+    const range = validateIntegrityRange(startRaw, endRaw, algorithm);
+    if (!range.ok) { return range; }
+    if (storedRaw.trim()) {
+        const stored = parseIntegrityAddress(storedRaw, 'Stored value');
+        if (!stored.ok) { return stored; }
+    }
+    return {
+        ok: true,
+        value: {
+            algorithm,
+            startRaw: formatIntegrityAddress(range.value.startAddress),
+            endRaw: formatIntegrityAddress(range.value.endAddress),
+            storedRaw: normalizedOptionalAddress(storedRaw),
+        },
+    };
+}
+
+function normalizedOptionalAddress(raw: string): string {
+    if (!raw.trim()) { return ''; }
+    const parsed = parseIntegrityAddress(raw, 'Stored value');
+    return parsed.ok ? formatIntegrityAddress(parsed.value) : '';
+}
+
+function showFormError(form: HTMLElement, message: string): void {
+    const error = form.querySelector<HTMLElement>('[data-form-error]');
+    if (error) { error.textContent = message; }
+}
+
+function saveNewCheck(draft: IntegrityDraft): void {
+    const check = newCheck();
+    applyDraft(check, draft);
+    integrityState.checks.push(check);
+    addCheckDraft = null;
+    persistIntegrityChecks();
+    renderIntegrity();
+    scheduleIntegrityCalculation(check);
+}
+
+function saveEditedCheck(id: number, draft: IntegrityDraft): void {
+    const check = integrityState.checks.find(item => item.id === id);
+    if (!check) { return; }
+    applyDraft(check, draft);
+    if (!check.storedRaw) { check.autoFixStoredValue = false; }
+    editingCheckId = null;
+    persistIntegrityChecks();
+    renderIntegrity();
+    syncIntegrityHighlight();
+    scheduleIntegrityCalculation(check);
+}
+
+function applyDraft(check: IntegrityCheckState, draft: IntegrityDraft): void {
+    check.algorithm = draft.algorithm;
+    check.startRaw = draft.startRaw;
+    check.endRaw = draft.endRaw;
+    check.storedRaw = draft.storedRaw;
+    clearCheckResult(check);
+}
+
+function cancelCheckForm(formId: string): void {
+    if (formId === 'add') { addCheckDraft = null; }
+    else {
+        editingCheckId = null;
+    }
+    renderIntegrity();
+}
+
+function scheduleIntegrityCalculation(check: IntegrityCheckState, preserveResult = false): void {
     const token = ++check.token;
     cancelPendingCalculation(check);
-    clearResult(check);
+    if (preserveResult) { check.error = ''; }
+    else { clearCheckResult(check); }
     const prepared = prepareIntegrityRequest(check);
-    if (!prepared) { return; }
+    if (!prepared) { updateCheckCard(check); return; }
+    check.calculating = true;
+    check.meta = `Calculating ${formatByteCount(preparedByteCount(prepared))}…`;
+    updateCheckCard(check);
     check.timer = window.setTimeout(() => {
         check.timer = null;
         void calculateAndRender(check, token, prepared);
@@ -289,45 +624,45 @@ function cancelPendingCalculation(check: IntegrityCheckState): void {
     check.timer = null;
 }
 
-function prepareIntegrityRequest(check: IntegrityCheckState): PreparedCheck | null {
-    if (isBlankIntegrityRange(check)) {
-        showMeta(check, 'Enter a start and end address.');
-        showError(check, '');
-        return null;
-    }
-    const validation = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
-    if (!validation.ok) { showMeta(check, ''); showError(check, validation.error); return null; }
-    const stored = parseStoredField(check);
-    if (!stored.ok) { showMeta(check, ''); showError(check, stored.error); return null; }
-    showPreparedMeta(check, validation.value, stored.value);
-    showError(check, '');
-    return { request: validation.value, storedField: stored.value };
+function clearCheckResult(check: IntegrityCheckState): void {
+    check.result = null;
+    check.expectedBytes = null;
+    check.storedBytes = null;
+    check.error = '';
+    check.meta = '';
+    check.calculating = false;
 }
 
-function isBlankIntegrityRange(check: IntegrityCheckState): boolean {
-    return check.startRaw.trim() === '' && check.endRaw.trim() === '';
+function prepareIntegrityRequest(check: IntegrityCheckState): PreparedCheck | null {
+    if (isUnconfiguredCheck(check)) {
+        check.meta = 'Not configured';
+        return null;
+    }
+    const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
+    if (!range.ok) { check.error = range.error; return null; }
+    const stored = parseStoredField(check);
+    if (!stored.ok) { check.error = stored.error; return null; }
+    return { request: range.value, storedField: stored.value };
+}
+
+function isUnconfiguredCheck(check: IntegrityCheckState): boolean {
+    return !check.startRaw && !check.endRaw;
 }
 
 function parseStoredField(check: IntegrityCheckState): { ok: true; value?: IntegrityStoredField } | { ok: false; error: string } {
-    if (check.storedRaw.trim() === '') { return { ok: true, value: undefined }; }
+    if (!check.storedRaw) { return { ok: true, value: undefined }; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return stored; }
     return { ok: true, value: { startAddress: stored.value, byteLength: integrityOutputByteLength(check.algorithm) } };
 }
 
-function showPreparedMeta(check: IntegrityCheckState, request: IntegrityRequest, storedField?: IntegrityStoredField): void {
-    const excluded = storedField ? overlapByteCount(request, storedField) : 0;
-    const byteCount = request.endAddress - request.startAddress + 1 - excluded;
-    showMeta(check, `${formatByteCount(byteCount)}${excludedBytesLabel(excluded)}`);
-}
-
-function excludedBytesLabel(excluded: number): string {
-    if (excluded === 0) { return ''; }
-    return ` · ${excluded} stored byte${excluded === 1 ? '' : 's'} excluded`;
-}
-
 function integrityOutputByteLength(algorithm: IntegrityAlgorithm): number {
     return { 'crc16-ccitt-false': 2, 'crc32-iso-hdlc': 4, md5: 16, 'sha-1': 20, 'sha-256': 32, 'sha-512': 64 }[algorithm];
+}
+
+function preparedByteCount(prepared: PreparedCheck): number {
+    const total = prepared.request.endAddress - prepared.request.startAddress + 1;
+    return total - (prepared.storedField ? overlapByteCount(prepared.request, prepared.storedField) : 0);
 }
 
 function overlapByteCount(request: IntegrityRequest, field: IntegrityStoredField): number {
@@ -337,19 +672,26 @@ function overlapByteCount(request: IntegrityRequest, field: IntegrityStoredField
 }
 
 async function calculateAndRender(check: IntegrityCheckState, token: number, prepared: PreparedCheck): Promise<void> {
-    const readByte = (address: number) => S.edits.get(address) ?? getByte(address);
+    const readByte = getByte;
     const bytes = collectIntegrityBytes(prepared.request, readByte, prepared.storedField);
-    if (!bytes.ok) { showCurrentError(check, token, bytes.error); return; }
-    showMeta(check, `Calculating ${formatByteCount(bytes.value.length)}…`);
+    if (!bytes.ok) { applyCurrentError(check, token, bytes.error); return; }
     try {
         const result = await calculateIntegrity(prepared.request.algorithm, bytes.value);
-        renderCalculatedIfCurrent(check, token, result, prepared.storedField, readByte);
+        applyCalculatedResultIfCurrent(check, token, result, prepared.storedField, readByte);
     } catch (error) {
-        showCurrentError(check, token, calculationErrorMessage(error));
+        applyCurrentError(check, token, error instanceof Error ? error.message : 'Integrity calculation failed.');
     }
 }
 
-function renderCalculatedIfCurrent(
+function applyCurrentError(check: IntegrityCheckState, token: number, error: string): void {
+    if (token !== check.token) { return; }
+    check.calculating = false;
+    check.error = error;
+    updateCheckCard(check);
+    syncIntegrityHighlight();
+}
+
+function applyCalculatedResultIfCurrent(
     check: IntegrityCheckState,
     token: number,
     result: IntegrityResult,
@@ -357,123 +699,169 @@ function renderCalculatedIfCurrent(
     readByte: (address: number) => number | undefined,
 ): void {
     if (token !== check.token) { return; }
-    const storedError = applyCalculatedResult(check, result, storedField, readByte);
-    if (storedError) { showError(check, storedError); return; }
-    showMeta(check, formatByteCount(result.byteCount));
-    showResult(check, storedField);
-}
-
-function showCurrentError(check: IntegrityCheckState, token: number, message: string): void {
-    if (token === check.token) { showError(check, message); }
-}
-
-function calculationErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Integrity calculation failed.';
-}
-
-function applyCalculatedResult(
-    check: IntegrityCheckState,
-    result: IntegrityResult,
-    storedField: IntegrityStoredField | undefined,
-    readByte: (address: number) => number | undefined,
-): string | null {
     check.result = result;
-    check.expectedBytes = integrityValueToBytes(result.value, check.byteOrder);
+    check.expectedBytes = integrityValueToBytes(result.value, integrityState.byteOrder);
     check.storedBytes = null;
-    if (!storedField) { return null; }
-    const stored = readStoredIntegrityBytes(storedField, readByte);
-    if (!stored.ok) { return stored.error; }
-    check.storedBytes = stored.value;
-    return null;
+    check.calculating = false;
+    check.meta = formatByteCount(result.byteCount);
+    if (storedField) {
+        const stored = readStoredIntegrityBytes(storedField, readByte);
+        if (!stored.ok) { check.error = stored.error; updateCheckCard(check); return; }
+        check.storedBytes = stored.value;
+    }
+    updateCheckCard(check);
+    maybeAutoFix(check);
+    syncIntegrityHighlight();
 }
 
-function showResult(check: IntegrityCheckState, storedField?: IntegrityStoredField): void {
-    const context = integrityResultContext(check);
-    if (!context) { return; }
-    const { result, calculated, expected } = context;
-    const matches = check.storedBytes ? integrityBytesEqual(expected, check.storedBytes) : null;
-    const suffix = resultControlSuffix(check);
-    result.innerHTML = `
-        ${comparisonStatusHtml(matches)}
-        <div class="integrity-result-label">Calculated</div>
-        <code id="integrity-value${suffix}" data-output="calculated">${esc(calculated.value)}</code>
-        ${storedValueHtml(check.storedBytes)}
-        <div class="integrity-result-actions">
-            <button id="integrity-copy${suffix}" data-result-action="copy" type="button">Copy</button>
-            ${updateStoredButtonHtml(matches, storedField)}
-        </div>`;
-    result.hidden = false;
-    result.querySelector('[data-result-action="copy"]')?.addEventListener('click', () => copyIntegrityResult(check));
-    result.querySelector('[data-result-action="update"]')?.addEventListener('click', () => updateStoredValue(check, storedField!));
+function updateCheckCard(check: IntegrityCheckState): void {
+    const card = document.querySelector<HTMLElement>(`.integrity-card[data-check-id="${check.id}"]`);
+    if (!card) { return; }
+    updateCheckCardStatus(card, check);
+    updateCheckCardBody(card, check);
+    updateFixAllControl();
 }
 
-function integrityResultContext(check: IntegrityCheckState): {
-    result: HTMLElement;
-    calculated: IntegrityResult;
-    expected: Uint8Array;
-} | null {
-    const result = cardFor(check)?.querySelector<HTMLElement>('[data-output="result"]');
-    if (!result) { return null; }
-    if (!check.result) { return null; }
+function updateCheckCardStatus(card: HTMLElement, check: IntegrityCheckState): void {
+    const status = card.querySelector<HTMLElement>('[data-check-status]');
+    if (!status) { return; }
+    const label = checkStatusLabel(check);
+    status.className = `integrity-card-status ${checkStatusClass(check)}`;
+    status.textContent = INTEGRITY_STATUS_SYMBOLS[label] ?? label;
+    status.title = label;
+    status.setAttribute('aria-label', label);
+}
+
+function updateCheckCardBody(card: HTMLElement, check: IntegrityCheckState): void {
+    const body = card.querySelector<HTMLElement>('[data-check-body]');
+    if (!body) { return; }
+    body.innerHTML = resultBodyHtml(check);
+}
+
+function updateFixAllControl(): void {
+    const button = document.getElementById('integrity-fix-all') as HTMLButtonElement | null;
+    if (button) { button.disabled = !hasFixableMismatches(); }
+}
+
+function checkStatusLabel(check: IntegrityCheckState): string {
+    if (check.error) { return 'Error'; }
+    if (check.result) { return completedCheckStatus(check); }
+    if (check.calculating) { return 'Calculating'; }
+    return completedCheckStatus(check);
+}
+
+function completedCheckStatus(check: IntegrityCheckState): string {
+    if (!check.result) { return 'Not configured'; }
+    if (!hasComparableStoredValue(check)) { return 'Calculated'; }
+    return integrityBytesEqual(check.expectedBytes, check.storedBytes) ? 'Match' : 'Mismatch';
+}
+
+function hasComparableStoredValue(check: IntegrityCheckState): check is IntegrityCheckState & {
+    expectedBytes: Uint8Array;
+    storedBytes: Uint8Array;
+} {
+    return !!check.storedBytes && !!check.expectedBytes;
+}
+
+function checkStatusClass(check: IntegrityCheckState): string {
+    return checkStatusLabel(check).toLocaleLowerCase().replace(' ', '-');
+}
+
+function resultBodyHtml(check: IntegrityCheckState): string {
+    if (check.error) { return `<div class="integrity-error">${esc(check.error)}</div>`; }
+    if (!check.result) { return `<div class="integrity-card-empty">${esc(check.meta || 'No result yet.')}</div>`; }
+    return calculatedResultBodyHtml(check, check.result);
+}
+
+function calculatedResultBodyHtml(check: IntegrityCheckState, result: IntegrityResult): string {
+    const stored = storedResultHtml(check);
+    return `
+        <div class="integrity-comparison${singleComparisonClass(stored)}">
+            <div class="integrity-value-pane calculated"><span>Calculated</span><code>${formatHexHtml(`0x${result.value}`)}</code></div>
+            ${stored}
+        </div>
+        <div class="integrity-result-meta">${esc(check.meta)}</div>`;
+}
+
+function singleComparisonClass(storedHtml: string): string {
+    return storedHtml ? '' : ' integrity-comparison-single';
+}
+
+function storedResultHtml(check: IntegrityCheckState): string {
+    if (!check.storedBytes) { return ''; }
+    const state = integrityHighlightStatus(check);
+    return `<div class="integrity-value-pane stored ${state}"><span>Stored</span><code>${formatHexHtml(`0x${integrityBytesToHex(check.storedBytes)}`)}</code></div>`;
+}
+
+function updateStoredValue(check: IntegrityCheckState): void {
+    const update = storedValueUpdate(check);
+    if (!update) { return; }
+    editHandler(Array.from(update.expected, (byte, offset) => [update.address + offset, byte]));
+    check.storedBytes = update.expected;
+    updateCheckCard(check);
+    syncIntegrityHighlight();
+}
+
+function maybeAutoFix(check: IntegrityCheckState): void {
+    if (check.autoFixStoredValue && isMismatchedCheck(check)) { updateStoredValue(check); }
+}
+
+function syncIntegrityHighlight(): void {
+    const check = integrityState.checks.find(item => item.id === highlightedCheckId);
+    if (!check) { clearIntegrityHighlight(); return; }
+    const highlight = integrityHighlightForCheck(check);
+    if (!highlight) { clearIntegrityHighlight(); return; }
+    S.integrityHighlight = highlight;
+    rerenderIntegrityMemory();
+}
+
+type IntegrityHighlight = NonNullable<typeof S.integrityHighlight>;
+
+function integrityHighlightForCheck(check: IntegrityCheckState): IntegrityHighlight | null {
+    const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
+    if (!range.ok) { return null; }
+    const highlight: IntegrityHighlight = {
+        rangeStart: range.value.startAddress,
+        rangeEnd: range.value.endAddress,
+        status: integrityHighlightStatus(check),
+    };
+    addStoredIntegrityHighlight(highlight, check);
+    return highlight;
+}
+
+function addStoredIntegrityHighlight(highlight: IntegrityHighlight, check: IntegrityCheckState): void {
+    if (!check.storedRaw) { return; }
+    const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
+    if (!stored.ok) { return; }
+    highlight.storedStart = stored.value;
+    highlight.storedLength = integrityOutputByteLength(check.algorithm);
+}
+
+function integrityHighlightStatus(check: IntegrityCheckState): 'match' | 'mismatch' | 'unverified' {
+    if (!hasComparableStoredValue(check)) { return 'unverified'; }
+    return integrityBytesEqual(check.expectedBytes, check.storedBytes) ? 'match' : 'mismatch';
+}
+
+function clearHighlightedCheck(): void {
+    highlightedCheckId = null;
+    clearIntegrityHighlight();
+}
+
+function clearIntegrityHighlight(): void {
+    S.integrityHighlight = null;
+    rerenderIntegrityMemory();
+}
+
+function rerenderIntegrityMemory(): void {
+    if (S.currentView === 'memory') { rerender.memory(); }
+}
+
+function storedValueUpdate(check: IntegrityCheckState): { address: number; expected: Uint8Array } | null {
     if (!check.expectedBytes) { return null; }
-    return { result, calculated: check.result, expected: check.expectedBytes };
-}
-
-function resultControlSuffix(check: IntegrityCheckState): string {
-    return check === integrityState.checks[0] ? '' : `-${check.id}`;
-}
-
-function comparisonStatusHtml(matches: boolean | null): string {
-    if (matches === null) { return ''; }
-    const state = matches ? 'match' : 'mismatch';
-    const label = matches ? 'Match' : 'Mismatch';
-    return `<div class="integrity-status ${state}">${label}</div>`;
-}
-
-function storedValueHtml(bytes: Uint8Array | null): string {
-    if (!bytes) { return ''; }
-    return `<div class="integrity-result-label stored-label">Stored</div><code>${integrityBytesToHex(bytes)}</code>`;
-}
-
-function updateStoredButtonHtml(matches: boolean | null, field?: IntegrityStoredField): string {
-    if (matches !== false) { return ''; }
-    return field ? '<button data-result-action="update" type="button">Update stored value</button>' : '';
-}
-
-function updateStoredValue(check: IntegrityCheckState, field: IntegrityStoredField): void {
-    if (!check.expectedBytes) { return; }
-    editHandler(Array.from(check.expectedBytes, (byte, offset) => [field.startAddress + offset, byte]));
-}
-
-function copyIntegrityResult(check: IntegrityCheckState): void {
-    if (!check.result) { return; }
-    vscode.postMessage({
-        type: 'copyText',
-        text: check.result.value,
-        label: ALGORITHM_LABELS.find(([value]) => value === check.result?.algorithm)?.[1] ?? 'integrity value',
-    });
-}
-
-function clearResult(check: IntegrityCheckState): void {
-    check.result = null;
-    check.expectedBytes = null;
-    check.storedBytes = null;
-    const result = cardFor(check)?.querySelector<HTMLElement>('[data-output="result"]');
-    if (result) { result.hidden = true; result.textContent = ''; }
-}
-
-function cardFor(check: IntegrityCheckState): HTMLElement | null {
-    return document.querySelector<HTMLElement>(`.integrity-check[data-check-id="${check.id}"]`);
-}
-
-function showMeta(check: IntegrityCheckState, message: string): void {
-    const meta = cardFor(check)?.querySelector<HTMLElement>('[data-output="meta"]');
-    if (meta) { meta.textContent = message; }
-}
-
-function showError(check: IntegrityCheckState, message: string): void {
-    const error = cardFor(check)?.querySelector<HTMLElement>('[data-output="error"]');
-    if (error) { error.textContent = message; }
+    if (!check.storedRaw) { return null; }
+    const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
+    if (!stored.ok) { return null; }
+    return { address: stored.value, expected: Uint8Array.from(check.expectedBytes) };
 }
 
 function formatByteCount(byteCount: number): string {
@@ -496,14 +884,20 @@ function wireProfileControls(): void {
 }
 
 function updateProfileButtonState(): void {
-    const disabled = !selectedProfileId;
-    ['apply', 'update', 'rename', 'delete'].forEach(action => {
+    const noProfile = !selectedProfileId;
+    ['apply', 'rename', 'delete'].forEach(action => {
         const button = document.getElementById(`integrity-profile-${action}`) as HTMLButtonElement | null;
-        if (button) { button.disabled = disabled; }
+        if (button) { button.disabled = noProfile; }
     });
+    const noChecks = integrityState.checks.length === 0;
+    const save = document.getElementById('integrity-profile-save') as HTMLButtonElement | null;
+    const update = document.getElementById('integrity-profile-update') as HTMLButtonElement | null;
+    if (save) { save.disabled = noChecks; }
+    if (update) { update.disabled = noProfile || noChecks; }
 }
 
 function activeConfigs(): IntegrityCheckConfig[] | null {
+    if (integrityState.checks.length === 0) { setProfileError('Add at least one integrity check.'); return null; }
     const configs: IntegrityCheckConfig[] = [];
     for (const check of integrityState.checks) {
         const config = activeConfig(check);
@@ -516,18 +910,23 @@ function activeConfigs(): IntegrityCheckConfig[] | null {
 function activeConfig(check: IntegrityCheckState): { ok: true; value: IntegrityCheckConfig } | { ok: false; error: string } {
     const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
     if (!range.ok) { return range; }
-    const stored = parseOptionalStoredAddress(check.storedRaw);
+    if (!check.storedRaw) { return { ok: true, value: { ...range.value, autoFixStoredValue: false } }; }
+    const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return stored; }
-    return { ok: true, value: { ...range.value, ...storedAddressProperty(stored.value), byteOrder: check.byteOrder } };
+    return { ok: true, value: { ...range.value, storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
 }
 
-function parseOptionalStoredAddress(raw: string): { ok: true; value?: number } | { ok: false; error: string } {
-    if (!raw.trim()) { return { ok: true, value: undefined }; }
-    return parseIntegrityAddress(raw, 'Stored value');
-}
-
-function storedAddressProperty(value: number | undefined): { storedAddress?: number } {
-    return value === undefined ? {} : { storedAddress: value };
+function persistIntegrityChecks(): void {
+    const checks: IntegrityCheckConfig[] = [];
+    for (const check of integrityState.checks) {
+        const config = activeConfig(check);
+        if (!config.ok) { return; }
+        checks.push(config.value);
+    }
+    vscode.postMessage({
+        type: 'saveIntegrityChecks',
+        state: { schemaVersion: 1, byteOrder: integrityState.byteOrder, checks },
+    });
 }
 
 function applySelectedProfile(): void {
@@ -535,7 +934,13 @@ function applySelectedProfile(): void {
     if (!profile) { return; }
     integrityState.checks.forEach(cancelPendingCalculation);
     integrityState.checks = profile.checks.map(newCheck);
+    integrityState.byteOrder = profile.byteOrder;
+    addCheckDraft = null;
+    editingCheckId = null;
+    clearHighlightedCheck();
+    persistIntegrityChecks();
     renderIntegrity();
+    integrityState.checks.forEach(check => scheduleIntegrityCalculation(check));
 }
 
 function saveProfileAs(): void {
@@ -546,14 +951,14 @@ function saveProfileAs(): void {
     if (profileNameExists(name)) { setProfileError(`A profile named “${name}” already exists.`); return; }
     const id = `integrity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     selectedProfileId = id;
-    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
+    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, byteOrder: integrityState.byteOrder, checks } });
 }
 
 function updateSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     const checks = activeConfigs();
     if (!current || !checks) { return; }
-    vscode.postMessage({ type: 'updateIntegrityProfile', profile: { ...current, checks } });
+    vscode.postMessage({ type: 'updateIntegrityProfile', profile: { ...current, byteOrder: integrityState.byteOrder, checks } });
 }
 
 function renameSelectedProfile(): void {
@@ -573,7 +978,7 @@ function promptedProfileName(currentName: string): string | null {
 
 function deleteSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
-    if (!current || !window.confirm(`Delete integrity profile “${current.name}”?`)) { return; }
+    if (!current) { return; }
     vscode.postMessage({ type: 'deleteIntegrityProfile', id: current.id });
 }
 
