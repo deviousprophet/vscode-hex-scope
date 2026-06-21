@@ -71,6 +71,19 @@
 /* Edited / dirty byte — amber underline */
 .data-cell.dirty, .char-cell.dirty { text-decoration: underline; text-decoration-color: #e5a800; text-underline-offset: 2px; color: #e5a800; }
 
+.data-cell.integrity-range, .char-cell.integrity-range {
+    background: rgba(70, 140, 255, .24) !important;
+}
+.data-cell.integrity-stored-match, .char-cell.integrity-stored-match {
+    background: rgba(55, 190, 105, .34) !important;
+}
+.data-cell.integrity-stored-mismatch, .char-cell.integrity-stored-mismatch {
+    background: rgba(235, 75, 85, .38) !important;
+}
+.data-cell.integrity-stored-unverified, .char-cell.integrity-stored-unverified {
+    background: rgba(225, 165, 45, .32) !important;
+}
+
 /* ── ASCII char cell (0.7× width, mirrors text cell) ─────────── */
 .char-cell {
     font-family: var(--font-editor); font-size: var(--font-size);
