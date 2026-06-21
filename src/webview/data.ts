@@ -25,7 +25,7 @@ function initSegmentIndex(): void {
 }
 
 /**
- * Get byte at address by binary-searching segment index and indexing into segment data.
+ * Get effective byte at address, including any unsaved edit staged over segment data.
  * Returns undefined if address is not in any segment.
  */
 export function getByte(addr: number): number | undefined {
@@ -37,7 +37,7 @@ export function getByte(addr: number): number | undefined {
         const seg = S.segmentIndex[mid];
         if (addr >= seg.startAddr && addr <= seg.endAddr) {
             const offset = addr - seg.startAddr;
-            return S.parseResult.segments[seg.offset].data[offset];
+            return S.edits.get(addr) ?? S.parseResult.segments[seg.offset].data[offset];
         } else if (addr < seg.startAddr) {
             hi = mid - 1;
         } else {
