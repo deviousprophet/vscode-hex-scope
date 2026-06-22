@@ -722,8 +722,8 @@ function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): str
     if (field.type !== 'struct') {
         return TYPE_TO_C[field.type];
     }
-    const child = field.refStructId ? defsById.get(field.refStructId) : null;
-    return child?.name ?? 'uint8_t';
+    const child = defsById.get(field.refStructId ?? '');
+    return child === undefined ? 'uint8_t' : child.name;
 }
 
 export interface ParseStructTextResult {
