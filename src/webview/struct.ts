@@ -1240,9 +1240,15 @@ function isBinaryDisplay(valType: ColType): boolean {
     return valType === 'bin' || valType === 'bin-sliced';
 }
 
+function bitFieldDisplaySource(r: DecodedField): { width: number; value: bigint } {
+    return {
+        width: r.bitWidth ?? 1,
+        value: BigInt(r.bitValueUnsigned ?? '0'),
+    };
+}
+
 function renderBitFieldValue(r: DecodedField, valType: ColType): string {
-    const width = r.bitWidth ?? 1;
-    const v = BigInt(r.bitValueUnsigned ?? '0');
+    const { width, value: v } = bitFieldDisplaySource(r);
     if (valType === 'hex') {
         return formatHexHtml(formatHex(v, Math.max(1, Math.ceil(width / 4))));
     }
@@ -1257,8 +1263,7 @@ function renderBitFieldValue(r: DecodedField, valType: ColType): string {
 }
 
 function copyBitFieldValue(r: DecodedField, valType: ColType): string {
-    const width = r.bitWidth ?? 1;
-    const v = BigInt(r.bitValueUnsigned ?? '0');
+    const { width, value: v } = bitFieldDisplaySource(r);
     if (valType === 'hex') {
         return `0x${v.toString(16).toUpperCase().padStart(Math.max(1, Math.ceil(width / 4)), '0')}`;
     }

@@ -683,9 +683,13 @@ function showLengthRange(start: number, editing: LabelState | undefined): void {
     const rangeEl = labelRangeEl();
     rangeEl.placeholder = '512';
     const end = parseInt(rangeEl.value.replace(/^0x/i, ''), 16);
-    rangeEl.value = (!isNaN(start) && !isNaN(end) && end >= start)
+    rangeEl.value = isValidLabelEnd(start, end)
         ? `${end - start + 1}`
         : (editing ? `${editing.length}` : '');
+}
+
+function isValidLabelEnd(start: number, end: number): boolean {
+    return !isNaN(start) && !isNaN(end) && end >= start;
 }
 
 function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLengthResult {
