@@ -319,16 +319,12 @@ function resolveStructPathParts(
     parts: string[],
     byId: Map<string, StructDef>,
 ): StructField | null {
-    let curDef: StructDef | null = def;
-    for (let i = 0; i < parts.length; i++) {
-        if (!curDef) { return null; }
-        const field = findStructField(curDef, parts[i]);
-        if (!field) { return null; }
-        if (i === parts.length - 1) { return field; }
-        curDef = resolveChildStructDef(field, byId);
-    }
-
-    return null;
+    const field = findStructField(def, parts[0]);
+    if (!field) { return null; }
+    if (parts.length === 1) { return field; }
+    const child = resolveChildStructDef(field, byId);
+    if (!child) { return null; }
+    return resolveStructPathParts(child, parts.slice(1), byId);
 }
 
 function findStructField(def: StructDef, fieldName: string): StructField | undefined {

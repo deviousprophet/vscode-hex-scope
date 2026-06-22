@@ -1887,20 +1887,22 @@ function groupRowsByArrayIndex(rows: DecodedField[], baseName: string): IndexedF
     for (const row of rows) {
         const idx = parseArrayIndex(row.fieldName, baseName);
         if (idx === null) { continue; }
-        const last = groups[groups.length - 1];
-        if (last && last.idx === idx) { last.rows.push(row); }
-        else { groups.push({ idx, rows: [row] }); }
+        appendIndexedFieldRow(groups, idx, row);
     }
     return groups;
+}
+
+function appendIndexedFieldRow(groups: IndexedFieldGroup[], idx: number, row: DecodedField): void {
+    const last = groups[groups.length - 1];
+    if (last && last.idx === idx) { last.rows.push(row); }
+    else { groups.push({ idx, rows: [row] }); }
 }
 
 function groupNestedRows(rows: DecodedField[], structBase: string): NestedFieldGroup[] {
     const structPrefix = `${structBase}.`;
     const groups: NestedFieldGroup[] = [];
     for (const row of rows) {
-        const relPath = row.fieldName.startsWith(structPrefix)
-            ? row.fieldName.slice(structPrefix.length)
-            : row.fieldName;
+        const relPath = relativeStructFieldPath(row.fieldName, structPrefix);
         const baseRel = arrayGroupBaseName(relPath);
         const fullBase = `${structBase}.${baseRel}`;
         const last = groups[groups.length - 1];
@@ -1908,6 +1910,10 @@ function groupNestedRows(rows: DecodedField[], structBase: string): NestedFieldG
         else { groups.push({ baseRel, fullBase, rows: [row] }); }
     }
     return groups;
+}
+
+function relativeStructFieldPath(fieldName: string, structPrefix: string): string {
+    return fieldName.startsWith(structPrefix) ? fieldName.slice(structPrefix.length) : fieldName;
 }
 
 function leafRowsHtml(rows: DecodedField[], baseAddr: number): string {
