@@ -20,4 +20,3 @@ jobs:
         uses: fallow-rs/fallow@v2
         with:
           format: sarif
-          config: .fallowrc.json
