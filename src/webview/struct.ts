@@ -1123,12 +1123,7 @@ export function renderStructPins(): void {
     if (_addingPin) {
         document.getElementById('sa-struct-sel')?.addEventListener('change', e => {
             _applyStructId = (e.target as HTMLSelectElement).value || null;
-            // Preserve any address the user already typed before re-render
-            const curAddrInp = document.getElementById('sa-addr') as HTMLInputElement | null;
-            if (curAddrInp?.value) {
-                const v = parseInt(curAddrInp.value, 16);
-                if (!isNaN(v)) { S.activeStructAddr = v; }
-            }
+            preservePendingStructAddress();
             renderStructPins();
         });
         document.getElementById('sa-new-type-btn')?.addEventListener('click', () => {
@@ -1822,6 +1817,13 @@ function structGroupSummaryLabel(rows: DecodedField[], isBitUnit: boolean, isArr
 
 function structGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: boolean, count: number): number {
     return isBitUnit && isArray ? decodedRowByteCount(rows[0]) * count : sumDecodedRowBytes(rows);
+}
+
+function preservePendingStructAddress(): void {
+    const curAddrInp = document.getElementById('sa-addr') as HTMLInputElement | null;
+    if (!curAddrInp?.value) { return; }
+    const value = parseInt(curAddrInp.value, 16);
+    if (!isNaN(value)) { S.activeStructAddr = value; }
 }
 
 function describeStructGroup(def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
