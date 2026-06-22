@@ -681,18 +681,26 @@ function scrollToMatch(): void {
 }
 
 function selectCurrentMatch(): void {
-    if (S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return; }
+    if (!hasCurrentMatch()) { return; }
 
     const start = S.matchAddrs[S.matchIdx];
     const span = _activeMatchSpan;
     const end = start + span - 1;
 
-    if (S.selStart === start && S.selEnd === end) { return; }
+    if (isCurrentSelection(start, end)) { return; }
 
     S.selStart = start;
     S.selEnd = end;
     applySel();
     import('./sidebar.js').then(m => m.updateInspector());
+}
+
+function hasCurrentMatch(): boolean {
+    return S.matchIdx >= 0 && S.matchIdx < S.matchAddrs.length;
+}
+
+function isCurrentSelection(start: number, end: number): boolean {
+    return S.selStart === start && S.selEnd === end;
 }
 
 function getMatchSpan(mode: SearchMode, raw: string, endianness: SearchEndianness): number {

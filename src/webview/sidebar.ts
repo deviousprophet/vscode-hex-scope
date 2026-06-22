@@ -723,7 +723,7 @@ function labelRangeWarning(startAddress: number, length: number, editId: string 
 }
 
 function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
-    const name = labelNameEl().value.trim() || nextLabelName();
+    const name = readLabelName();
     if (!name) { return { ok: false, error: 'Name is required.' }; }
 
     const startAddress = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
@@ -733,6 +733,10 @@ function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
     if (!parsedLength.ok) { return { ok: false, error: parsedLength.error }; }
 
     return { ok: true, name, startAddress, length: parsedLength.length };
+}
+
+function readLabelName(): string {
+    return labelNameEl().value.trim() || nextLabelName();
 }
 
 function applyLabel(editId: string | undefined, editing: LabelState | undefined, color: string, draft: Extract<LabelDraftResult, { ok: true }>): void {
