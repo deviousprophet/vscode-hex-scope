@@ -873,8 +873,12 @@ export function updateLabelFormSel(): void {
     if (!startEl) { return; }
     const fh = (n: number) => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
     startEl.value = fh(S.selStart);
+    updateLabelRangeFromSelection(S.selStart);
+}
+
+function updateLabelRangeFromSelection(startAddress: number): void {
     const rangeEl = document.getElementById('lf-range') as HTMLInputElement | null;
-    if (rangeEl && S.selEnd !== null && S.selEnd >= S.selStart) {
-        rangeEl.value = String(S.selEnd - S.selStart + 1);
+    if (rangeEl && S.selEnd !== null && S.selEnd >= startAddress) {
+        rangeEl.value = String(S.selEnd - startAddress + 1);
     }
 }

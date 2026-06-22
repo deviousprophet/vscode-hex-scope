@@ -378,10 +378,14 @@ function parseHexBytes(hex: string): number[] {
     const bytes: number[] = [];
     for (const tok of tokens) {
         const v = parseInt(tok, 16);
-        if (isNaN(v) || v < 0 || v > 255) { return []; }
+        if (!isParsedByte(v)) { return []; }
         bytes.push(v);
     }
     return bytes;
+}
+
+function isParsedByte(value: number): boolean {
+    return !isNaN(value) && value >= 0 && value <= 255;
 }
 
 function parseValuePattern(raw: string): number[] {

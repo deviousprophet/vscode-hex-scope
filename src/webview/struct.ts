@@ -333,14 +333,20 @@ function bitChildrenHtml(f: StructField, isBitContainer: boolean): string {
     const bitFields = f.bitFields ?? [];
     const childRows = bitFields.map((child, ci) => childFieldRowHtml(child, ci, bitFields.length)).join('');
     const remainingBits = availableBitsInContainer(f);
-    const addBtnDisabled = remainingBits > 0 ? '' : ' disabled';
-    const addBtnTitle = remainingBits > 0 ? 'Add bit-field child' : 'No bits remaining in parent';
+    const { addBtnDisabled, addBtnTitle } = bitChildButtonState(remainingBits);
     return (
         `<div class="sfe-bf-children"${f.bitFieldsCollapsed === true ? ' style="display:none"' : ''}>` +
         childRows +
         `<button class="sfe-bf-add-child" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
         `</div>`
     );
+}
+
+function bitChildButtonState(remainingBits: number): { addBtnDisabled: string; addBtnTitle: string } {
+    return {
+        addBtnDisabled: remainingBits > 0 ? '' : ' disabled',
+        addBtnTitle: remainingBits > 0 ? 'Add bit-field child' : 'No bits remaining in parent',
+    };
 }
 
 function deleteFieldCellHtml(isOnly: boolean): string {
