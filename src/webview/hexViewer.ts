@@ -1637,7 +1637,7 @@ function handleFillInputKeydown(ev: KeyboardEvent, fillInput: HTMLInputElement):
 function applyCustomFill(fillInput: HTMLInputElement | null): void {
     const raw = fillInput?.value.trim().replace(/^0x/i, '') ?? '';
     const val = parseInt(raw, 16);
-    if (isNaN(val) || val < 0 || val > 0xFF || raw === '') {
+    if (!isValidCustomFill(raw, val)) {
         fillInput?.classList.add('ctx-fill-invalid');
         fillInput?.focus();
         return;
@@ -1645,6 +1645,10 @@ function applyCustomFill(fillInput: HTMLInputElement | null): void {
     fillInput?.classList.remove('ctx-fill-invalid');
     handleCtxCommand(`fill-${hexByte(val)}`);
     hideCtx();
+}
+
+function isValidCustomFill(raw: string, value: number): boolean {
+    return raw !== '' && !isNaN(value) && value >= 0 && value <= 0xFF;
 }
 
 function positionCtxMenu(el: HTMLElement, x: number, y: number): void {

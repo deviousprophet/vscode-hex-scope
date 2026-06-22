@@ -29,6 +29,7 @@ const _expandedArrayElements = new Set<string>();
 
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
+const RAW_HTML_VALUE_TYPES: ReadonlySet<ColType> = new Set(['bin', 'bin-sliced', 'ieee', 'hex']);
 /** Default display type for value cells (per-field default). */
 let _defaultValType: ColType = 'hex';
 /** Per-value display override keyed by stable row identity. */
@@ -727,8 +728,7 @@ function wireEditorInSec(sec: HTMLElement): void {
                 f.bitFieldsCollapsed = undefined;
             }
             // Update preview without re-syncing (refreshEditorPreview would overwrite our changes)
-            const pre = sec.querySelector<HTMLElement>('#se-preview pre');
-            if (pre) { renderStructCPreview(pre, draft); }
+            renderBitFieldTogglePreview(sec, draft);
             renderStructPins();  // Re-render to show/hide child rows
         });
     });
@@ -1240,6 +1240,11 @@ function isBinaryDisplay(valType: ColType): boolean {
     return valType === 'bin' || valType === 'bin-sliced';
 }
 
+function renderBitFieldTogglePreview(sec: HTMLElement, draft: StructDef): void {
+    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    if (pre) { renderStructCPreview(pre, draft); }
+}
+
 function bitFieldDisplaySource(r: DecodedField): { width: number; value: bigint } {
     return {
         width: r.bitWidth ?? 1,
@@ -1531,9 +1536,12 @@ function bitFieldDataAttrs(r: DecodedField): string {
 
 function valueHtmlForRow(r: DecodedField, valType: ColType, ptr: boolean): string {
     const value = getValForType(r, valType);
-    return (valType === 'bin' || valType === 'bin-sliced' || valType === 'ieee' || valType === 'hex' || ptr)
-        ? value
-        : esc(value);
+    return valueIsRawHtml(valType, ptr) ? value : esc(value);
+}
+
+function valueIsRawHtml(valType: ColType, ptr: boolean): boolean {
+    if (ptr) { return true; }
+    return RAW_HTML_VALUE_TYPES.has(valType);
 }
 
 function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: string): string {
