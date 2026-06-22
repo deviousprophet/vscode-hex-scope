@@ -1826,14 +1826,19 @@ function structGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray:
 function describeStructGroup(def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
     const first = rows[0];
     const declared = resolveStructFieldByPath(def, baseName);
-    const declaredType = declared?.field.type ?? first.type;
-    const count = declared?.field.count ?? rows.length;
+    let declaredType: StructFieldType = first.type;
+    let count = rows.length;
+    let structName = 'struct';
+    if (declared) {
+        declaredType = declared.field.type;
+        count = declared.field.count;
+        structName = declared.structName ?? structName;
+    }
     const isArray = count > 1;
     const isStruct = declaredType === 'struct';
     const isString = declaredType === 'ascii';
     const isBitUnit = isBitUnitGroup(rows);
     const isComposite = isCompositeStructGroup(isBitUnit, isStruct, isArray, isString);
-    const structName = declared?.structName ?? 'struct';
     const summary = structGroupSummary(declaredType, isArray, count, structName);
     return {
         declaredType,
