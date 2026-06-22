@@ -392,6 +392,10 @@ function parseValuePattern(raw: string): number[] {
 
     if (!/^\d+$/.test(s)) { return []; }
 
+    return parseDecimalValueBytes(s);
+}
+
+function parseDecimalValueBytes(s: string): number[] {
     const value = parseDecimalBigInt(s);
     return value === null ? [] : bigIntToBigEndianBytes(value);
 }
