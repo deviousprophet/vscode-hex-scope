@@ -18,6 +18,14 @@ async function openNormalEditor(uri: vscode.Uri): Promise<void> {
     await vscode.window.showTextDocument(doc, { preview: false });
 }
 
+function commandTarget(uri?: vscode.Uri): vscode.Uri | undefined {
+    return uri ?? vscode.window.activeTextEditor?.document.uri;
+}
+
+function parseResultIsValid(parseResult: ParseResult): boolean {
+    return parseResult.checksumErrors === 0 && parseResult.malformedLines === 0;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         HexEditorProvider.register(context)
@@ -30,12 +38,12 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('hexScope.openInHexScope', (uri?: vscode.Uri) => {
+            vscode.commands.registerCommand('hexScope.openInHexScope', (uri?: vscode.Uri) => {
             void (async () => {
-                const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+                const target = commandTarget(uri);
                 if (!target) { return; }
                 const { parseResult } = await loadHexDocument(target);
-                if (parseResult.checksumErrors === 0 && parseResult.malformedLines === 0) {
+                if (parseResultIsValid(parseResult)) {
                     await vscode.commands.executeCommand('vscode.openWith', target, HexEditorProvider.viewType);
                     return;
                 }

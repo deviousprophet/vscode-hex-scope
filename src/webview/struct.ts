@@ -1551,7 +1551,6 @@ function valueIsRawHtml(valType: ColType, ptr: boolean): boolean {
 }
 
 function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: string): string {
-    const nd  = !r.hasData ? ' si-no-data' : '';
     const ptr = r.type === 'pointer';
     const valKey = fieldValueKey(r, bs);
     const t = valueTypeForRow(r, valKey);
@@ -1561,7 +1560,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
     const fullTypeLabel = fieldFullTypeLabel(r, byteCount);
     const offsetLabel = fieldOffsetLabel(r);
     return (
-        `<div class="si-field${nd}${ptr ? ' si-ptr-field' : ''}" ` +
+        `<div class="si-field${fieldRowClasses(r.hasData, ptr)}" ` +
         `data-byte-start="${bs}" data-byte-cnt="${bc}" data-val-key="${esc(valKey)}"` +
         bitFieldDataAttrs(r) +
         `>` +
@@ -1571,10 +1570,18 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(displayName ?? leafName(r.fieldName))}</span>` +
         `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${bs}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
+        `<span class="si-f-val si-f-pri${pointerValueClass(ptr)}" data-val-type="${t}" data-bs="${bs}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
         `</span>` +
         `</div>`
     );
+}
+
+function fieldRowClasses(hasData: boolean, pointer: boolean): string {
+    return `${hasData ? '' : ' si-no-data'}${pointer ? ' si-ptr-field' : ''}`;
+}
+
+function pointerValueClass(pointer: boolean): string {
+    return pointer ? ' si-f-ptr' : '';
 }
 
 function parseArrayIndex(fieldPath: string, baseName: string): number | null {
@@ -1636,7 +1643,7 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
     const usedWidth = rows.reduce((sum, row) => sum + bitRowWidth(row), 0);
     let slicedValue: string | undefined;
     const rawParts = byteHexParts(first.bytesHex);
-    if (usedWidth > 0 && !hasMissingByte(rawParts) && first.hasData) {
+    if (canDecodeBitUnit(usedWidth, rawParts, first.hasData)) {
         const raw = bytesFromHexParts(rawParts);
         const value = bytesToValue(raw, S.endian);
         const unitBits = raw.length * 8;
@@ -1658,6 +1665,10 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
         bitStorageByteSize: first.bitStorageByteSize,
         bitValueUnsigned: slicedValue,
     };
+}
+
+function canDecodeBitUnit(usedWidth: number, rawParts: string[], hasData: boolean): boolean {
+    return usedWidth > 0 && !hasMissingByte(rawParts) && hasData;
 }
 
 function activeBitRangeForHeader(start: number): { startBit: number; endBit: number } | null {
