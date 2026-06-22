@@ -574,13 +574,15 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
         {
             onProgressUpdate: (matches: number[]) => {
                 S.matchAddrs = matches;
-                if (S.matchIdx < 0 && matches.length > 0) {
-                    S.matchIdx = 0;
-                }
-                if (!_streamFirstJumpDone && matches.length > 0) {
-                    _streamFirstJumpDone = true;
-                    selectCurrentMatch();
-                    scrollToMatch();
+                if (matches.length > 0) {
+                    if (S.matchIdx < 0) {
+                        S.matchIdx = 0;
+                    }
+                    if (!_streamFirstJumpDone) {
+                        _streamFirstJumpDone = true;
+                        selectCurrentMatch();
+                        scrollToMatch();
+                    }
                 }
                 applyMatchHighlights();
                 updMC();
