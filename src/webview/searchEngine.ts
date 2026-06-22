@@ -439,10 +439,11 @@ function buildEndianNeedles(beBytes: number[], endianness: SearchEndianness): nu
         return [leBytes];
     }
 
-    if (arraysEqual(beBytes, leBytes)) {
-        return [beBytes];
-    }
-    return [beBytes, leBytes];
+    return buildAutoEndianNeedles(beBytes, leBytes);
+}
+
+function buildAutoEndianNeedles(beBytes: number[], leBytes: number[]): number[][] {
+    return arraysEqual(beBytes, leBytes) ? [beBytes] : [beBytes, leBytes];
 }
 
 function arraysEqual(a: number[], b: number[]): boolean {
