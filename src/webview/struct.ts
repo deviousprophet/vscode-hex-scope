@@ -28,6 +28,7 @@ const _expandedArrayFields = new Set<string>();
 const _expandedArrayElements = new Set<string>();
 
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
+const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
 /** Default display type for value cells (per-field default). */
 let _defaultValType: ColType = 'hex';
 /** Per-value display override keyed by stable row identity. */
@@ -1498,7 +1499,7 @@ function fieldValueKey(r: DecodedField, byteStart: number): string {
 
 function defaultValueTypeForRow(r: DecodedField): ColType {
     if (isBitFieldRow(r)) { return 'bin'; }
-    if (r.type === 'float32' || r.type === 'float64') { return 'dec'; }
+    if (FLOAT_FIELD_TYPES.has(r.type)) { return 'dec'; }
     if (r.type === 'ascii') { return 'ascii'; }
     return _defaultValType;
 }
