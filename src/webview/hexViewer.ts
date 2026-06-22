@@ -1460,7 +1460,7 @@ function handleFillCommand(cmd: string): void {
     if (!S.editMode) { return; }
 
     const val = parseInt(cmd.slice(5), 16);
-    if (!isNaN(val) && val >= 0 && val <= 0xFF) { applyFill(val); }
+    if (val >= 0 && val <= 0xFF) { applyFill(val); }
 }
 
 function hexValue(value: number, width = 2): string {
