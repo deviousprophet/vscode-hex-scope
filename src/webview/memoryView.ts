@@ -88,11 +88,12 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     if (!vscrollState) { return; }
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const containerHeight = scrollContainer.clientHeight;
-    if (
-        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01 &&
-        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01 &&
-        vscrollState.containerHeight === containerHeight
-    ) { return; }
+    const unchanged = [
+        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01,
+        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01,
+        vscrollState.containerHeight === containerHeight,
+    ].every(Boolean);
+    if (unchanged) { return; }
 
     vscrollState.rowHeight = rowHeight;
     vscrollState.gapHeight = gapHeight;
