@@ -120,7 +120,7 @@ function structAlignmentWithDefs(def: StructDef, map: Map<string, StructDef>, de
     let maxAlign = 1;
     for (const f of def.fields) {
         const align = fieldAlignWithDefs(f, map, depth);
-        if (align > maxAlign) { maxAlign = align; }
+        maxAlign = Math.max(maxAlign, align);
     }
     return maxAlign;
 }
@@ -132,7 +132,7 @@ function structByteSizeWithDefs(def: StructDef, map: Map<string, StructDef>, dep
     for (const f of def.fields) {
         const sz = fieldSizeWithDefs(f, map, depth);
         const align = def.packed ? 1 : fieldAlignWithDefs(f, map, depth);
-        if (align > maxAlign) { maxAlign = align; }
+        maxAlign = Math.max(maxAlign, align);
         offset = alignUp(offset, align);
         offset += sz * f.count;
     }
@@ -435,7 +435,7 @@ function decodeAsciiBytes(raw: number[]): string {
     const chars: string[] = [];
     for (const b of raw) {
         if (b === 0) { break; }
-        chars.push(b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.');
+        chars.push(isPrintableAsciiByte(b) ? String.fromCharCode(b) : '.');
     }
     return chars.join('');
 }
@@ -724,6 +724,10 @@ function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): str
     }
     const child = defsById.get(field.refStructId ?? '');
     return child === undefined ? 'uint8_t' : child.name;
+}
+
+function isPrintableAsciiByte(value: number): boolean {
+    return value >= 0x20 && value < 0x7F;
 }
 
 export interface ParseStructTextResult {
