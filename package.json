@@ -2,7 +2,7 @@
   "name": "vscode-hex-scope",
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
-  "description": "VS Code extension for viewing and analyzing firmware files (HEX, SREC) with hex grid, search, patching.",
+  "description": "Firmware memory explorer and editor for Intel HEX and Motorola SREC files.",
   "version": "2.9.0",
   "license": "MIT",
   "repository": {
