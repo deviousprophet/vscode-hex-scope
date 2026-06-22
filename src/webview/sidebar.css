@@ -135,10 +135,6 @@
 .endian-tabs button:hover:not(.active) { color: var(--fg); }
 
 /* two-row control area */
-.mi-ctrl-row   { display: flex; align-items: center; justify-content: space-between;
-                 margin-bottom: 6px; }
-.mi-ctrl-lbl   { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
-
 /* zero-pad note */
 .mi-pad-row  { margin-bottom: 5px; }
 .mi-pad-note { font-size: 9px; color: var(--non-graphic); font-style: italic; }
