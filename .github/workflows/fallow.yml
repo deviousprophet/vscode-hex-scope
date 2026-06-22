@@ -24,6 +24,7 @@ jobs:
         with:
           command: audit
           format: sarif
+          no-cache: true
 
       - name: Run Fallow Analysis
         if: github.event_name == 'push'
