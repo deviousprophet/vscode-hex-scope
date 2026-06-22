@@ -881,9 +881,11 @@ function formatRecordByte(value: number): string {
     return value.toString(16).toUpperCase().padStart(2, '0');
 }
 
+const SREC_DATA_RECORD_TYPES = new Set([1, 2, 3]);
+
 function recordHasDataAddress(r: SerializedRecord, isSrec: boolean): boolean {
     return !r.error && (isSrec
-        ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
+        ? SREC_DATA_RECORD_TYPES.has(r.recordType)
         : r.recordType === 0);
 }
 
