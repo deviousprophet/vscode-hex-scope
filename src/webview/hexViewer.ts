@@ -659,8 +659,7 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
     if (!isNaN(addr)) {
         // Keep existing multi-byte selection if right-click is inside it;
         // otherwise collapse to the clicked byte.
-        const inSel = S.selStart !== null && S.selEnd !== null
-            && addr >= S.selStart && addr <= S.selEnd;
+        const inSel = isAddressInSelection(addr);
         if (!inSel) {
             S.selStart = addr;
             S.selEnd   = addr;
@@ -671,6 +670,10 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
         }
     }
     showCtxMenu(e.clientX, e.clientY);
+}
+
+function isAddressInSelection(addr: number): boolean {
+    return S.selStart !== null && S.selEnd !== null && addr >= S.selStart && addr <= S.selEnd;
 }
 
 function selLen(): number {

@@ -710,9 +710,8 @@ function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLeng
 }
 
 function labelRangeWarning(startAddress: number, length: number, editId: string | undefined): string | null {
-    const segs = S.parseResult?.segments ?? [];
     const segEnd = startAddress + length - 1;
-    if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
+    if (isOutsideMappedData(startAddress, segEnd)) {
         return 'Range is outside mapped data. Click Save again to confirm.';
     }
 
@@ -724,6 +723,13 @@ function labelRangeWarning(startAddress: number, length: number, editId: string 
     return overlap.length > 0
         ? `Overlaps with: ${overlap.map(l => `"${esc(l.name)}"`).join(', ')}. Click Save again.`
         : null;
+}
+
+function isOutsideMappedData(startAddress: number, endAddress: number): boolean {
+    const segments = S.parseResult?.segments ?? [];
+    return segments.length > 0 && !segments.some(segment =>
+        startAddress <= segment.startAddress + segment.data.length - 1 && endAddress >= segment.startAddress
+    );
 }
 
 function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {

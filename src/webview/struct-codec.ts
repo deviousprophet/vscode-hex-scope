@@ -227,7 +227,7 @@ function validateNestedStructGraph(
     errors: string[],
 ): void {
     if (depth > maxDepth) {
-        const name = byId.get(defId)?.name ?? defId;
+        const name = nestedStructName(byId, defId);
         errors.push(`Nesting depth exceeds ${maxDepth} at struct "${name}".`);
         return;
     }
@@ -238,6 +238,10 @@ function validateNestedStructGraph(
     for (const field of def.fields) {
         validateNestedStructField(field, depth, stack, byId, maxDepth, errors);
     }
+}
+
+function nestedStructName(byId: Map<string, StructDef>, defId: string): string {
+    return byId.get(defId)?.name ?? defId;
 }
 
 function validateNestedStructField(
