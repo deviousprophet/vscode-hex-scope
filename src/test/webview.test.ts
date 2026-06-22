@@ -37,16 +37,18 @@ function resetState(): void {
 }
 
 function installWebviewDom(markup: string): JSDOM {
-    const dom = new JSDOM(markup);
+    const dom = new JSDOM(markup, { url: 'https://hexscope.test/' });
     const globals = globalThis as unknown as {
         window: Window;
         document: Document;
         getComputedStyle: typeof getComputedStyle;
+        localStorage: Storage;
         acquireVsCodeApi: () => unknown;
     };
     globals.window = dom.window as unknown as Window;
     globals.document = dom.window.document as unknown as Document;
     globals.getComputedStyle = dom.window.getComputedStyle.bind(dom.window) as typeof getComputedStyle;
+    globals.localStorage = dom.window.localStorage;
     globals.acquireVsCodeApi = () => ({
         postMessage: (_msg: unknown) => {},
         getState: () => ({}),
@@ -61,10 +63,15 @@ function installWebviewDom(markup: string): JSDOM {
 
 function cleanupWebviewDom(dom: JSDOM): void {
     resetState();
+    rerender.memory = () => {};
+    rerender.labels = () => {};
+    rerender.toMemory = () => {};
+    rerender.jumpTo = () => {};
     dom.window.close();
     delete (globalThis as unknown as { window?: Window }).window;
     delete (globalThis as unknown as { document?: Document }).document;
     delete (globalThis as unknown as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle;
+    delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
     delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
 }
 
@@ -521,6 +528,29 @@ suite('Record View rendering', () => {
         assert.strictEqual(rows.length, 1, 'record view should render a real table row');
         assert.strictEqual(document.querySelector('#record-view .raddr')?.textContent, '08000000');
         assert.ok(!(document.getElementById('record-view')?.textContent ?? '').includes('<tr'), 'record markup should not be escaped as text');
+
+        const api = await import('../webview/api.js');
+        const originalPostMessage = api.vscode.postMessage;
+        const posted: unknown[] = [];
+        api.vscode.postMessage = msg => { posted.push(msg); };
+        try {
+            document.body.innerHTML = '<div id="app"></div>';
+            window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
+                type: 'init', parseResult: S.parseResult, labels: [], structs: [], structPins: [], endian: 'le',
+                integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            } }));
+            assert.strictEqual(document.querySelectorAll('#sidebar-common-settings').length, 1);
+            assert.ok(document.getElementById('sidebar-btn-le')!.classList.contains('active'));
+            assert.strictEqual(document.getElementById('btn-le'), null);
+            assert.strictEqual(document.getElementById('sa-btn-le'), null);
+            assert.strictEqual(document.getElementById('integrity-btn-le'), null);
+            assert.ok(document.getElementById('search-btn-auto'), 'Value Search keeps its own endian control');
+            document.getElementById('sidebar-btn-be')!.click();
+            assert.strictEqual(S.endian, 'be');
+            assert.deepStrictEqual(posted.at(-1), { type: 'saveEndian', endian: 'be' });
+        } finally {
+            api.vscode.postMessage = originalPostMessage;
+        }
     });
 });
 
@@ -583,11 +613,13 @@ suite('Integrity Checks sidebar', () => {
         try {
             const view = await import('../webview/integrityView.js');
             const { calculateIntegrity } = await import('../webview/integrity.js');
-            S.endian = 'be';
+            S.edits.clear();
+            S.endian = 'le';
             view.renderIntegrity();
             view.activateIntegrity();
             assertEmptyIntegrityChecks();
-            assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'), 'integrity has independent LE default');
+            assert.strictEqual(document.getElementById('integrity-btn-le'), null);
+            assert.strictEqual(document.getElementById('integrity-btn-be'), null);
 
             document.getElementById('integrity-add-btn')!.click();
             let selectedAddForm = integrityForm('add');
@@ -596,11 +628,11 @@ suite('Integrity Checks sidebar', () => {
             assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
             S.selStart = 0x1001;
             S.selEnd = 0x1001;
-            document.getElementById('integrity-btn-be')!.click();
+            S.endian = 'be';
+            view.notifyIntegrityEndianChanged();
             selectedAddForm = integrityForm('add');
             assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="start"]') as HTMLInputElement).value, '00001000');
             assert.strictEqual((selectedAddForm.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
-            document.getElementById('integrity-btn-be')!.click();
             integrityForm('add').querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
 
@@ -623,7 +655,6 @@ suite('Integrity Checks sidebar', () => {
                 type: 'saveIntegrityChecks',
                 state: {
                     schemaVersion: 1,
-                    byteOrder: 'be',
                     checks: [{ algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
                 },
             });
@@ -632,7 +663,11 @@ suite('Integrity Checks sidebar', () => {
             assert.strictEqual(integrityCard().querySelector('[data-auto-fix]'), null);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             await waitForIntegrityCalculation();
-            assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '∑');
+            assert.strictEqual(
+                integrityCard().querySelector('[data-check-status]')!.textContent,
+                '∑',
+                integrityCard().textContent ?? '',
+            );
             assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Calculated');
 
             integrityCard().querySelector<HTMLElement>('[data-check-toggle]')!.click();
@@ -697,11 +732,14 @@ suite('Integrity Checks sidebar', () => {
             integrityCard(1).querySelector<HTMLElement>('.act-btn-del')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
 
+            S.edits.clear();
+            S.endian = 'le';
+            view.notifyIntegrityEndianChanged();
             view.setIntegrityProfiles([{
                 schemaVersion: 1,
                 id: 'stm32-profile',
                 name: 'STM32 Layout',
-                byteOrder: 'le',
+                byteOrder: 'be',
                 checks: [
                     { algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false },
                     { algorithm: 'crc16-ccitt-false', startAddress: 0x1002, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false },
@@ -712,8 +750,7 @@ suite('Integrity Checks sidebar', () => {
             profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             document.getElementById('integrity-profile-apply')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
-            assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'));
-            assert.strictEqual(S.endian, 'be', 'integrity endian does not change Struct Overlay endian');
+            assert.strictEqual(S.endian, 'le', 'applying a profile does not change shared endian');
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '…');
             assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.textContent, '0x—');
             assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent, '0x—');
@@ -726,12 +763,13 @@ suite('Integrity Checks sidebar', () => {
             assert.ok(integrityCard(1).querySelector('.integrity-value-pane.stored [data-auto-fix]'));
             assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             const canonicalStoredChecksum = await calculateIntegrity('crc16-ccitt-false', new Uint8Array([3, 4]));
-            const littleEndianChecksum = canonicalStoredChecksum.value.match(/../g)!.reverse().join('');
-            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${littleEndianChecksum}`);
-            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.getAttribute('title'), `Canonical checksum: 0x${canonicalStoredChecksum.value}`);
-            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated (LE)');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.textContent, `0x${canonicalStoredChecksum.value}`);
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent, '0x0201');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-pane.stored code')!.getAttribute('title'), 'Raw bytes: 0x0102');
+            assert.strictEqual(integrityCard(1).querySelectorAll('.integrity-value-hdr span')[1].textContent, 'Stored (LE)');
             integrityCard(1).querySelector<HTMLElement>('[data-copy-calculated]')!.click();
-            assert.strictEqual((posted.at(-1) as { text: string }).text, `0x${littleEndianChecksum}`);
+            assert.strictEqual((posted.at(-1) as { text: string }).text, `0x${canonicalStoredChecksum.value}`);
 
             const stagedTransactions: Array<Array<[number, number]>> = [];
             view.setIntegrityEditHandler(edits => {
@@ -751,6 +789,10 @@ suite('Integrity Checks sidebar', () => {
             autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             await assertIntegrityRecalculationCompletes(1);
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Match');
+            assert.strictEqual(
+                integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent,
+                integrityCard(1).querySelector('.integrity-value-pane.calculated code')!.textContent,
+            );
             assert.strictEqual(stagedTransactions.length, 1);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             assert.ok((posted.at(-1) as { state: { checks: Array<{ autoFixStoredValue: boolean }> } }).state.checks[1].autoFixStoredValue);
@@ -782,19 +824,19 @@ suite('Integrity Checks sidebar', () => {
             assert.strictEqual(stagedTransactions.length, 3, 'toggle off/on overrides suppression');
             await assertIntegrityRecalculationCompletes(1);
 
-            document.getElementById('integrity-btn-be')!.click();
-            assert.ok(document.getElementById('integrity-btn-be')!.classList.contains('active'));
-            assert.strictEqual(S.endian, 'be', 'integrity toggle remains independent');
+            S.endian = 'be';
+            view.notifyIntegrityEndianChanged();
             await waitForIntegrityCalculation();
             await waitForIntegrityCalculation();
             assert.strictEqual(stagedTransactions.length, 4, 'endian change re-arms Auto fix');
             const beCalculated = integrityCard(1).querySelector('.integrity-value-pane.calculated code')!;
             assert.strictEqual(beCalculated.textContent, integrityCard(1).querySelector('.integrity-value-pane.stored code')!.textContent);
-            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated (BE)');
+            assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated');
+            assert.strictEqual(integrityCard(1).querySelectorAll('.integrity-value-hdr span')[1].textContent, 'Stored (BE)');
 
             document.getElementById('integrity-profile-update')!.click();
-            const updatedProfile = (posted.at(-1) as { type: string; profile: { byteOrder: string; checks: Array<{ autoFixStoredValue: boolean }> } }).profile;
-            assert.strictEqual(updatedProfile.byteOrder, 'be');
+            const updatedProfile = (posted.at(-1) as { type: string; profile: { checks: Array<{ autoFixStoredValue: boolean }> } }).profile;
+            assert.strictEqual('byteOrder' in updatedProfile, false);
             assert.strictEqual(updatedProfile.checks[1].autoFixStoredValue, true);
             dom.window.prompt = () => 'Renamed Layout';
             document.getElementById('integrity-profile-rename')!.click();
@@ -814,12 +856,11 @@ suite('Integrity Checks sidebar', () => {
 
             view.setIntegrityChecks({
                 schemaVersion: 1,
-                byteOrder: 'le',
                 checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
             });
             view.renderIntegrity();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
-            assert.ok(document.getElementById('integrity-btn-le')!.classList.contains('active'));
+            assert.strictEqual(document.getElementById('integrity-btn-le'), null);
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }

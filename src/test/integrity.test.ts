@@ -4,6 +4,7 @@ import {
     calculateIntegrity,
     collectIntegrityBytes,
     integrityBytesEqual,
+    integrityBytesToValueHex,
     integrityValueToBytes,
     isChecksumAlgorithm,
     mergeIntegrityEdits,
@@ -99,6 +100,8 @@ suite('integrity range parsing', () => {
     test('encodes calculated values in selectable stored byte order', () => {
         assert.deepStrictEqual(integrityValueToBytes('1234ABCD', 'be'), new Uint8Array([0x12, 0x34, 0xAB, 0xCD]));
         assert.deepStrictEqual(integrityValueToBytes('1234ABCD', 'le'), new Uint8Array([0xCD, 0xAB, 0x34, 0x12]));
+        assert.strictEqual(integrityBytesToValueHex(new Uint8Array([0x12, 0x34, 0xAB, 0xCD]), 'be'), '1234ABCD');
+        assert.strictEqual(integrityBytesToValueHex(new Uint8Array([0xCD, 0xAB, 0x34, 0x12]), 'le'), '1234ABCD');
         assert.strictEqual(integrityBytesEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2])), true);
         assert.strictEqual(integrityBytesEqual(new Uint8Array([1, 2]), new Uint8Array([2, 1])), false);
     });
