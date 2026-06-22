@@ -605,14 +605,8 @@ function valueNeedleLen(query: string): number | null {
 }
 
 function decimalValueNeedleLen(value: bigint): number | null {
-    if (value === 0n) { return 1; }
-    let tmp = value;
-    let bytes = 0;
-    while (tmp > 0n && bytes < 8) {
-        bytes++;
-        tmp >>= 8n;
-    }
-    return bytes || null;
+    if (value < 0n) { return null; }
+    return Math.min(8, Math.ceil(value.toString(16).length / 2));
 }
 
 function asciiNeedleLen(query: string): number | null {

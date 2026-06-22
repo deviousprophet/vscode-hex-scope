@@ -1592,14 +1592,23 @@ function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
     if (!isBitUnitGroup(rows)) { return fallback; }
     const first = rows[0];
     if (!first) { return fallback; }
-    const rawParts = byteHexParts(first.bytesHex);
-    if (hasMissingByte(rawParts)) { return '??'; }
-    const raw = bytesFromHexParts(rawParts);
-    if (raw.some(v => !Number.isFinite(v) || v < 0 || v > 0xFF)) { return '??'; }
+    const raw = completeByteValues(first.bytesHex);
+    if (!raw) { return '??'; }
 
     const value = bytesToValue(raw, S.endian);
     const hex = value.toString(16).toUpperCase().padStart(raw.length * 2, '0');
     return `0x${hex} (${value.toString(10)})`;
+}
+
+function completeByteValues(bytesHex: string): number[] | null {
+    const rawParts = byteHexParts(bytesHex);
+    if (hasMissingByte(rawParts)) { return null; }
+    const raw = bytesFromHexParts(rawParts);
+    return raw.every(isByteValue) ? raw : null;
+}
+
+function isByteValue(value: number): boolean {
+    return Number.isFinite(value) && value >= 0 && value <= 0xFF;
 }
 
 function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
@@ -1633,13 +1642,12 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
 }
 
 function activeBitRangeForHeader(start: number): { startBit: number; endBit: number } | null {
-    if (_selectedBitRange && _selectedBitRange.parentByteStart === start) {
-        return { startBit: _selectedBitRange.startBit, endBit: _selectedBitRange.endBit };
-    }
-    if (_hoveredBitRange && _hoveredBitRange.parentByteStart === start) {
-        return { startBit: _hoveredBitRange.startBit, endBit: _hoveredBitRange.endBit };
-    }
-    return null;
+    return matchingBitRange(_selectedBitRange, start) ?? matchingBitRange(_hoveredBitRange, start);
+}
+
+function matchingBitRange(range: typeof _selectedBitRange, start: number): { startBit: number; endBit: number } | null {
+    if (!range || range.parentByteStart !== start) { return null; }
+    return { startBit: range.startBit, endBit: range.endBit };
 }
 
 function bitUnitHeaderClasses(kind: 'group' | 'element'): { headerClass: string; buttonClass: string } {
