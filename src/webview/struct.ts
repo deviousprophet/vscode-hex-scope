@@ -589,7 +589,7 @@ function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
                 const childWidth = parseInt(childWidthRaw, 10);
                 return {
                     name: childName,
-                    bitWidth: Number.isInteger(childWidth) && childWidth > 0 ? Math.min(childWidth, 64) : 1,
+                    bitWidth: childWidth > 0 ? Math.min(childWidth, 64) : 1,
                 };
             });
             if (childArray.length === 0) {
