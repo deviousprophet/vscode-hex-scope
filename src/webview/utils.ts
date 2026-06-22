@@ -15,9 +15,13 @@ export function fmtB(b: number): string {
 }
 
 /** CSS class for a hex byte cell based on its value. */
+function isPrintableByte(v: number): boolean {
+    return v >= 0x20 && v < 0x7F;
+}
+
 export function byteClass(v: number): string {
     if (v === 0)              { return 'bz'; }  // zero  → dim
-    if (v >= 0x20 && v < 0x7F){ return 'bp'; }  // print → warm
+    if (isPrintableByte(v))   { return 'bp'; }  // print → warm
     if (v >= 0x80)            { return 'bh'; }  // high  → cool
     return 'bn';                                 // control → default
 }
