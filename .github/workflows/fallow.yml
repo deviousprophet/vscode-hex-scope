@@ -24,7 +24,8 @@ jobs:
         with:
           command: audit
           format: sarif
-          no-cache: true
+          auto-changed-since: false
+          args: --base ${{ github.event.pull_request.base.sha }}
 
       - name: Run Fallow Analysis
         if: github.event_name == 'push'
