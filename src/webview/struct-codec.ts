@@ -813,6 +813,10 @@ function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
     const parts = parseStructDeclarationParts(stripped);
     if (!parts) { return { kind: 'error', message: `Cannot parse: "${stripped}"` }; }
 
+    return parseResolvedStructDeclaration(parts);
+}
+
+function parseResolvedStructDeclaration(parts: StructDeclarationParts): ParsedStructLine {
     const mapped = mapStructDeclarationType(parts.rawType);
     if (!mapped) {
         return { kind: 'error', message: `Unknown type "${parts.rawType}" for field "${parts.fieldName}"` };
