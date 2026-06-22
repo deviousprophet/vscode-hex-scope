@@ -61,16 +61,24 @@ window.addEventListener('message', (e: MessageEvent) => {
 
 function handleInitMessage(msg: WebviewMessage): void {
     S.parseResult = msg.parseResult as typeof S.parseResult;
-    S.labels      = (msg.labels as typeof S.labels) ?? [];
-    S.structs     = (msg.structs as typeof S.structs) ?? [];
-    S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
-    S.endian      = msg.endian === 'be' ? 'be' : 'le';
+    S.labels      = messageArray<typeof S.labels[number]>(msg.labels);
+    S.structs     = messageArray<typeof S.structs[number]>(msg.structs);
+    S.structPins  = messageArray<typeof S.structPins[number]>(msg.structPins);
+    S.endian      = messageEndian(msg.endian);
     setIntegrityProfiles(msg.integrityProfiles);
     initFlatBytes();
     buildMemRows();
 
     S.currentView = 'memory';
     render();
+}
+
+function messageArray<T>(value: unknown): T[] {
+    return Array.isArray(value) ? value as T[] : [];
+}
+
+function messageEndian(value: unknown): 'le' | 'be' {
+    return value === 'be' ? 'be' : 'le';
 }
 
 function handleIntegrityProfilesMessage(msg: WebviewMessage): void {

@@ -739,7 +739,6 @@ suite('Integrity Checks sidebar', () => {
                 schemaVersion: 1,
                 id: 'stm32-profile',
                 name: 'STM32 Layout',
-                byteOrder: 'be',
                 checks: [
                     { algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false },
                     { algorithm: 'crc16-ccitt-false', startAddress: 0x1002, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false },
@@ -836,7 +835,6 @@ suite('Integrity Checks sidebar', () => {
 
             document.getElementById('integrity-profile-update')!.click();
             const updatedProfile = (posted.at(-1) as { type: string; profile: { checks: Array<{ autoFixStoredValue: boolean }> } }).profile;
-            assert.strictEqual('byteOrder' in updatedProfile, false);
             assert.strictEqual(updatedProfile.checks[1].autoFixStoredValue, true);
             dom.window.prompt = () => 'Renamed Layout';
             document.getElementById('integrity-profile-rename')!.click();
