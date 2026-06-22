@@ -13,6 +13,10 @@ import {
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
+function hasParseErrors(result: ParseResult): boolean {
+    return result.checksumErrors > 0 || result.malformedLines > 0;
+}
+
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     public static readonly viewType = 'hexScope.hexEditor';
@@ -233,7 +237,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     const newResult = format === 'srec' ? parseSRec(newRaw) : parseIntelHex(newRaw);
                     
                     // Validate the externally-changed file
-                    if (newResult.checksumErrors > 0 || newResult.malformedLines > 0) {
+                    if (hasParseErrors(newResult)) {
                         // Update provider-side state with the new content so repair works on actual file
                         raw = newRaw;
                         parseResult = newResult;
