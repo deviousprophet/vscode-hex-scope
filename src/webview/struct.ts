@@ -2844,6 +2844,25 @@ function addFieldValMenuClickAway(): void {
     }, 0);
 }
 
+function structPinAtAddress(addr: number, pinIdx: number | undefined, allDefs: StructDef[]): StructPin | undefined {
+    if (typeof pinIdx === 'number' && pinIdx >= 0) { return S.structPins[pinIdx]; }
+    return S.structPins.find(pin => {
+        const def = allDefs.find(candidate => candidate.id === pin.structId);
+        if (!def) { return false; }
+        const size = structByteSize(def);
+        return addr >= pin.addr && addr < pin.addr + size;
+    });
+}
+
+function structRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: StructDef[]): DecodedField[] {
+    const pin = structPinAtAddress(addr, pinIdx, allDefs);
+    if (!pin) { return []; }
+    const def = allDefs.find(candidate => candidate.id === pin.structId);
+    if (!def) { return []; }
+    const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
+    return rows.filter(row => pin.addr + row.byteOffset === addr);
+}
+
 function showFieldValMenu(
     x: number,
     y: number,
@@ -2862,23 +2881,7 @@ function showFieldValMenu(
     // Determine candidate display types based on the field's native type.
     const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
     const allDefs = allStructs();
-    const findRowsAt = (addr: number): DecodedField[] => {
-        let pin: StructPin | undefined;
-        if (typeof pinIdx === 'number' && pinIdx >= 0) { pin = S.structPins[pinIdx]; }
-        else {
-            pin = S.structPins.find(p => {
-                const def = allDefs.find(d => d.id === p.structId);
-                if (!def) { return false; }
-                const size = structByteSize(def);
-                return addr >= p.addr && addr < p.addr + size;
-            });
-        }
-        if (!pin) { return []; }
-        const def = allDefs.find(d => d.id === pin.structId);
-        if (!def) { return []; }
-        const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
-        return rows.filter(rr => pin!.addr + rr.byteOffset === addr);
-    };
+    const findRowsAt = (addr: number): DecodedField[] => structRowsAtAddress(addr, pinIdx, allDefs);
     const findFieldAt = (addr: number): DecodedField | null => {
         return findRowsAt(addr)[0] ?? null;
     };

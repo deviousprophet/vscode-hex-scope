@@ -457,7 +457,7 @@ export function renderSegments(): void {
 
 export function renderLabels(): void {
     const sec   = document.getElementById('s-labels')!;
-    const badge = S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
+    const badge = labelBadgeHtml();
     const items = S.labels.length === 0
         ? '<div class="sb-empty">No labels defined</div>'
         : S.labels.map((l, i) => `
@@ -563,6 +563,10 @@ export function renderLabels(): void {
 
     // Add — open inline form
     document.getElementById('btn-add-lbl')?.addEventListener('click', () => renderLabelForm());
+}
+
+function labelBadgeHtml(): string {
+    return S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
 }
 
 // ── Label inline form ─────────────────────────────────────────────

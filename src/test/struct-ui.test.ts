@@ -16,6 +16,10 @@ function resetStructState(): void {
     S.sidebarTab = 'struct';
 }
 
+function elementText(element: Element | null): string {
+    return element?.textContent ?? '';
+}
+
 suite('struct UI array header summary', () => {
     let dom: JSDOM;
 
@@ -559,15 +563,15 @@ suite('struct UI array header summary', () => {
 
         const topField0 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(1) > .si-arr-grp-hdr .si-f-name');
         assert.ok(topField0, 'array bit-field group should render a top-level header');
-        assert.strictEqual(topField0!.textContent ?? '', 'field0', 'array bit-field group should display the declared field name');
+        assert.strictEqual(elementText(topField0), 'field0', 'array bit-field group should display the declared field name');
 
         const topField1 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2) > .si-arr-grp-hdr .si-f-name');
         assert.ok(topField1, 'second bit-field group should render a top-level header');
-        assert.strictEqual(topField1!.textContent ?? '', 'field1', 'single bit-field group should display the declared field name');
+        assert.strictEqual(elementText(topField1), 'field1', 'single bit-field group should display the declared field name');
 
         const unitType = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-type');
         assert.ok(unitType, 'bit-field header should show scalar-like type');
-        assert.strictEqual(unitType!.textContent ?? '', 'u8', 'bit-field header should use base scalar type');
+        assert.strictEqual(elementText(unitType), 'u8', 'bit-field header should use base scalar type');
 
         const unitOffset = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-off');
         assert.ok(unitOffset, 'bit-field header should show scalar-like offset');
@@ -581,13 +585,13 @@ suite('struct UI array header summary', () => {
         unitExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field .si-f-name'))
-            .map(el => el.textContent ?? '');
+            .map(elementText);
         assert.ok(childNames.includes('mode'), 'bit-field child row should contain mode');
         assert.ok(childNames.includes('flags'), 'bit-field child row should contain flags');
 
         const firstElementHeader = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-name');
         assert.ok(firstElementHeader, 'bit-field array element should render a scalar-like header');
-        assert.strictEqual(firstElementHeader!.textContent ?? '', '[0]', 'bit-field array element header should show its index');
+        assert.strictEqual(elementText(firstElementHeader), '[0]', 'bit-field array element header should show its index');
 
         const firstElementValue = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-val');
         assert.ok(firstElementValue, 'bit-field array element should show a scalar-like value cell');
