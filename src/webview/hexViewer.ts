@@ -10,7 +10,7 @@ import { renderInspector, renderBits, renderSegments, renderLabels, updateInspec
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
-import type { SerializedRecord, SidebarTab } from './types';
+import type { SerializedParseResult, SerializedRecord, SidebarTab } from './types';
 import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
 import {
     activateIntegrity,
@@ -747,10 +747,11 @@ function getRecordRowHeight(el: HTMLElement): number {
 }
 
 export function renderRecordView(): void {
-    const el = document.getElementById('record-view');
-    if (!el || !S.parseResult) { return; }
+    const view = availableRecordView();
+    if (!view) { return; }
+    const { el, parseResult } = view;
 
-    if (S.parseResult.records.length === 0) {
+    if (parseResult.records.length === 0) {
         el.replaceChildren(recordViewUnavailableNode());
         return;
     }
@@ -764,6 +765,12 @@ export function renderRecordView(): void {
 
     recordRenderSignature = '';
     renderRecordViewImpl(el);
+}
+
+function availableRecordView(): { el: HTMLElement; parseResult: SerializedParseResult } | null {
+    const el = document.getElementById('record-view');
+    if (!el || !S.parseResult) { return null; }
+    return { el, parseResult: S.parseResult };
 }
 
 function renderRecordViewImpl(el: HTMLElement): void {
@@ -1221,7 +1228,7 @@ function getOriginalByte(addr: number): number | undefined {
     if (!S.parseResult) { return undefined; }
     for (const seg of S.parseResult.segments) {
         const off = addr - seg.startAddress;
-        if (off >= 0 && off < seg.data.length) { return seg.data[off]; }
+        if (isSegmentOffset(off, seg.data.length)) { return seg.data[off]; }
     }
     return undefined;
 }
@@ -1324,6 +1331,10 @@ function updateDirtyBar(): void {
     if (!dirtySpan || !saveBtn) { return; }
     dirtySpan.textContent  = dirtyEditText(count);
     saveBtn.disabled       = count === 0;
+}
+
+function isSegmentOffset(offset: number, length: number): boolean {
+    return offset >= 0 && offset < length;
 }
 
 function dirtyEditText(count: number): string {
@@ -1436,10 +1447,11 @@ function handleCtxCommand(cmd: string): void {
     }
     // Analyze
     if (handleAnalyzeCommand(cmd, bytes)) { return; }
-    // Fill / Patch — edit bytes in place (edit mode) or noop
-    if (cmd.startsWith('fill-')) {
-        handleFillCommand(cmd);
-    }
+    handlePossibleFillCommand(cmd);
+}
+
+function handlePossibleFillCommand(cmd: string): void {
+    if (cmd.startsWith('fill-')) { handleFillCommand(cmd); }
 }
 
 function handleAnalyzeCommand(cmd: string, bytes: number[]): boolean {
