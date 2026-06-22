@@ -309,7 +309,7 @@
     line-height: 1;
     white-space: nowrap;
 }
-.si-toggle-group .endian-tabs button { font-size: 9px; padding: 1px 5px; }
+.si-toggle-group .compact-tabs button { font-size: 9px; padding: 1px 5px; }
 
 .si-add-btn {
     flex-shrink: 0;

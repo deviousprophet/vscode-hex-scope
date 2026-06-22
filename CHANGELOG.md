@@ -14,7 +14,7 @@
 
 ### Changed
 
-- Consolidated Inspector, Struct Overlay, and Integrity Checks byte order into one per-file sidebar setting; Struct field overrides and Value Search byte order remain independent
+- Consolidated Inspector, Struct Overlay, and Integrity Checks byte order into one per-file sidebar setting; all Struct fields use this setting, while Value Search byte order remains independent
 
 ### Fixed
 

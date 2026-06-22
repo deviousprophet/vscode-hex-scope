@@ -1,7 +1,14 @@
 import * as assert from 'assert';
-import { detectFormatFromParts, buildSRecDataRecord, serializeSRec, repairChecksums } from '../HexEditorProvider';
+import {
+    buildSRecDataRecord,
+    detectFormatFromParts,
+    migrateStructDefinitions,
+    repairChecksums,
+    serializeSRec,
+} from '../HexEditorProvider';
 import { parseSRec } from '../parser/SRecParser';
 import { parseIntelHex } from '../parser/IntelHexParser';
+import type { StructDef } from '../webview/types';
 
 // ── detectFormatFromParts ─────────────────────────────────────────────────────
 
@@ -76,6 +83,33 @@ suite('detectFormatFromParts()', () => {
     // Extension takes priority over content
     test('SREC extension overrides IHEX content', () => {
         assert.strictEqual(detectFormatFromParts('srec', ':020000040800F2\n'), 'srec');
+    });
+});
+
+suite('migrateStructDefinitions()', () => {
+    test('writes old definitions in the shared-byte-order shape', () => {
+        const stored = [{
+            id: 'saved',
+            name: 'Saved',
+            fields: [
+                { name: 'word', type: 'uint16', count: 1, endian: 'be' },
+                { name: 'data', type: 'uint8', count: 4 },
+            ],
+        }];
+
+        const migrated = migrateStructDefinitions(stored) as StructDef[];
+
+        assert.deepStrictEqual(migrated[0].fields, [
+            { name: 'word', type: 'uint16', count: 1 },
+            { name: 'data', type: 'uint8', count: 4 },
+        ]);
+    });
+
+    test('copies clean definitions into the new storage shape', () => {
+        const clean: StructDef = {
+            id: 'clean', name: 'Clean', fields: [{ name: 'word', type: 'uint16', count: 1 }],
+        };
+        assert.deepStrictEqual(migrateStructDefinitions([clean]), [clean]);
     });
 });
 

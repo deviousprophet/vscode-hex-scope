@@ -76,7 +76,8 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
 
         const structKey = `hexScope.structs.${document.uri.toString()}`;
-        const globalStructKey = 'hexScope.structs.global.v1';
+        const globalStructKey = 'hexScope.structs.global.v2';
+        const previousGlobalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
         const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
         const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
@@ -107,13 +108,18 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         };
 
         const loadStructs = async () => {
-            const globalStructs = this._context.globalState.get<unknown>(globalStructKey, []);
-            const legacyStructs = this._context.workspaceState.get<unknown>(structKey, []);
+            const currentGlobalStructs = this._context.globalState.get<unknown>(globalStructKey);
+            const previousGlobalStructs = this._context.globalState.get<unknown>(previousGlobalStructKey);
+            const globalStructs = currentGlobalStructs ?? migrateStructDefinitions(previousGlobalStructs ?? []);
+            const legacyStructs = migrateStructDefinitions(this._context.workspaceState.get<unknown>(structKey, []));
             let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
             const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
 
-            if (!Array.isArray(globalStructs) || globalChanged) {
+            if (currentGlobalStructs === undefined || !Array.isArray(globalStructs) || globalChanged) {
                 await this._context.globalState.update(globalStructKey, globalArr);
+            }
+            if (previousGlobalStructs !== undefined) {
+                await this._context.globalState.update(previousGlobalStructKey, undefined);
             }
 
             if (legacyArr.length > 0) {
@@ -461,6 +467,24 @@ ${cssLinks}
 
 function sameProfileName(left: string, right: string): boolean {
     return left.toLocaleLowerCase() === right.toLocaleLowerCase();
+}
+
+export function migrateStructDefinitions(value: unknown): unknown {
+    if (!Array.isArray(value)) { return value; }
+    return value.map(item => {
+        if (item === null || typeof item !== 'object') { return item; }
+        const def = item as { fields?: unknown };
+        if (!Array.isArray(def.fields)) { return item; }
+        return {
+            ...def,
+            fields: def.fields.map(field => {
+                if (field === null || typeof field !== 'object') { return field; }
+                const clean = { ...field } as Record<string, unknown>;
+                delete clean.endian;
+                return clean;
+            }),
+        };
+    });
 }
 
 function renameIntegrityProfiles(

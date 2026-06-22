@@ -262,7 +262,7 @@ function render(): void {
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
             <div id="search-box">
-                <div id="search-endian-toggle" class="endian-tabs search-endian-toggle" style="display:none">
+                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:none">
                     <button id="search-btn-auto" class="${activeClass(S.searchEndianness === 'auto')}" type="button">Auto</button>
                     <button id="search-btn-le" class="${activeClass(S.searchEndianness === 'le')}" type="button">LE</button>
                     <button id="search-btn-be" class="${activeClass(S.searchEndianness === 'be')}" type="button">BE</button>
@@ -295,7 +295,7 @@ function render(): void {
             <div id="sidebar">
                 <div id="sidebar-common-settings">
                     <span>Byte order</span>
-                    <div class="endian-tabs sidebar-endian-tabs">
+                    <div class="compact-tabs sidebar-endian-tabs">
                         <button id="sidebar-btn-le" class="${activeClass(S.endian === 'le')}" type="button">LE</button>
                         <button id="sidebar-btn-be" class="${activeClass(S.endian === 'be')}" type="button">BE</button>
                     </div>

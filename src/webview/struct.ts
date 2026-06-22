@@ -253,7 +253,7 @@ function renderBinaryFromBitRows(
     const missing = hasMissingByte(rawParts) || !first.hasData;
     if (!missing) {
         const raw = bytesFromHexParts(rawParts);
-        const value = bytesToValue(raw, first.endian);
+        const value = bytesToValue(raw, S.endian);
         const unitBits = raw.length * 8;
         const mask = (1n << BigInt(usedWidth)) - 1n;
         const slicedValue = S.bitFieldAllocation === 'lsb'
@@ -294,7 +294,7 @@ function renderBinaryStorageUnit(
 
     const bytes = bytesFromHexParts(rawParts);
     const bitCount = bytes.length * 8;
-    const bits = binaryBitsForValue(bytes, r.endian);
+    const bits = binaryBitsForValue(bytes, S.endian);
     const spans = [...bits].map((bit, displayIdx) => {
         const numericBitIdx = bitCount - displayIdx - 1;
         const storageBitIdx = S.bitFieldAllocation === 'lsb' ? numericBitIdx : displayIdx;
@@ -610,7 +610,6 @@ function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
             type,
             refStructId,
             count,
-            endian: 'inherit',
         };
         if (bitFields && bitFields.length > 0) {
             result.bitFields = bitFields;
@@ -641,7 +640,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     sec.querySelector('#se-add')!.addEventListener('click', () => {
         syncEditorDraft(sec, draft);
         _editorError = null;
-        draft.fields.push({ name: `field${draft.fields.length}`, type: 'uint8', count: 1, endian: 'inherit' });
+        draft.fields.push({ name: `field${draft.fields.length}`, type: 'uint8', count: 1 });
         renderStructPins();
     });
 
@@ -1020,7 +1019,7 @@ export function renderStructPins(): void {
         `<span class="sb-hdr" style="margin:0">Struct Instances ${instBadge}</span>` +
         `<div class="si-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
         `<span class="si-toggle-label">Bit Layout</span>` +
-        `<div class="endian-tabs sa-bit-order-tabs">` +
+        `<div class="compact-tabs sa-bit-order-tabs">` +
         `<button id="sa-btn-bit-lsb" class="${S.bitFieldAllocation === 'lsb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the least significant bit">LSB</button>` +
         `<button id="sa-btn-bit-msb" class="${S.bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
         `</div>` +
@@ -1075,7 +1074,7 @@ export function renderStructPins(): void {
         _editorError = null;
         const draftId = `user_${Date.now()}`;
         _editingType = {
-            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1, endian: 'inherit' }] },
+            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
             existing: null,
             fromAdd: false,
             fromManage: true,
@@ -1136,7 +1135,7 @@ export function renderStructPins(): void {
             _addingPin = false;
             const draftId = `user_${Date.now()}`;
             _editingType = {
-                draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1, endian: 'inherit' }] },
+                draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
                 existing: null,
                 fromAdd: true,
                 fromManage: false,
@@ -1225,7 +1224,7 @@ function getValForType(r: DecodedField, valType: ColType): string {
     if (isBitFieldRow(r)) { return renderBitFieldValue(r, valType); }
 
     const bytes = fieldBytes(r);
-    const endian = r.endian ?? S.endian;
+    const endian = S.endian;
     const dv = dataViewForBytes(bytes);
     return renderScalarValue(r, valType, bytes, dv, endian);
 }
@@ -1416,7 +1415,7 @@ function getCopyText(r: DecodedField, valType: ColType): string {
 
 function copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
     const bytes = fieldBytes(r);
-    const endian = r.endian ?? S.endian;
+    const endian = S.endian;
     const le = endian === 'le';
     if (r.type === 'pointer') {
         const dv = dataViewForBytes(bytes);
@@ -1602,7 +1601,7 @@ function groupSummaryLabel(rows: DecodedField[], fallback: string): string {
     const raw = bytesFromHexParts(rawParts);
     if (raw.some(v => !Number.isFinite(v) || v < 0 || v > 0xFF)) { return '??'; }
 
-    const value = bytesToValue(raw, first.endian);
+    const value = bytesToValue(raw, S.endian);
     const hex = value.toString(16).toUpperCase().padStart(raw.length * 2, '0');
     return `0x${hex} (${value.toString(10)})`;
 }
@@ -1615,7 +1614,7 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
     const rawParts = byteHexParts(first.bytesHex);
     if (usedWidth > 0 && !hasMissingByte(rawParts) && first.hasData) {
         const raw = bytesFromHexParts(rawParts);
-        const value = bytesToValue(raw, first.endian);
+        const value = bytesToValue(raw, S.endian);
         const unitBits = raw.length * 8;
         const mask = (1n << BigInt(usedWidth)) - 1n;
         const sliced = S.bitFieldAllocation === 'lsb'
@@ -1631,7 +1630,6 @@ function buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
         bytesHex: first.bytesHex,
         decoded: first.decoded,
         hasData: first.hasData,
-        endian: first.endian,
         bitWidth: usedWidth,
         bitStorageByteSize: first.bitStorageByteSize,
         bitValueUnsigned: slicedValue,
