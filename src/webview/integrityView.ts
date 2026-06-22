@@ -78,6 +78,7 @@ let profiles: IntegrityProfile[] = [];
 let selectedProfileId = '';
 let profileError = '';
 let actionError = '';
+let profileNameMode: 'create' | 'rename' | null = null;
 let addCheckDraft: IntegrityDraft | null = null;
 let editingCheckId: number | null = null;
 let highlightedCheckId: number | null = null;
@@ -256,8 +257,28 @@ function profileLibraryHtml(): string {
                 <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" type="button">✎</button>
                 <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" type="button">🗑︎</button>
             </div>
+            ${profileNameFormHtml()}
             <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(profileError)}</div>
         </div>`;
+}
+
+function profileNameFormHtml(): string {
+    if (!profileNameMode) { return ''; }
+    return `<div class="integrity-profile-name-form">
+        <input id="integrity-profile-name" class="struct-addr-inp" type="text" maxlength="80"
+            value="${esc(profileNameValue())}" placeholder="Profile name" autocomplete="off" spellcheck="false">
+        <button id="integrity-profile-name-save" class="struct-btn struct-btn-apply" type="button">${profileNameAction()}</button>
+        <button id="integrity-profile-name-cancel" class="struct-btn struct-btn-cancel" type="button">Cancel</button>
+    </div>`;
+}
+
+function profileNameValue(): string {
+    if (profileNameMode !== 'rename') { return ''; }
+    return profiles.find(profile => profile.id === selectedProfileId)?.name ?? '';
+}
+
+function profileNameAction(): string {
+    return profileNameMode === 'rename' ? 'Rename' : 'Save';
 }
 
 function checkCardHtml(check: IntegrityCheckState): string {
@@ -996,7 +1017,19 @@ function wireProfileControls(): void {
     document.getElementById('integrity-profile-update')?.addEventListener('click', updateSelectedProfile);
     document.getElementById('integrity-profile-rename')?.addEventListener('click', renameSelectedProfile);
     document.getElementById('integrity-profile-delete')?.addEventListener('click', deleteSelectedProfile);
+    wireProfileNameForm();
     updateProfileButtonState();
+}
+
+function wireProfileNameForm(): void {
+    const input = document.getElementById('integrity-profile-name') as HTMLInputElement | null;
+    if (!input) { return; }
+    document.getElementById('integrity-profile-name-save')?.addEventListener('click', submitProfileName);
+    document.getElementById('integrity-profile-name-cancel')?.addEventListener('click', closeProfileNameForm);
+    input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { submitProfileName(); }
+        if (event.key === 'Escape') { closeProfileNameForm(); }
+    });
 }
 
 function updateProfileButtonState(): void {
@@ -1059,14 +1092,8 @@ function applySelectedProfile(): void {
 }
 
 function saveProfileAs(): void {
-    const checks = activeConfigs();
-    if (!checks) { return; }
-    const name = window.prompt('Profile name')?.trim();
-    if (!name) { return; }
-    if (profileNameExists(name)) { setProfileError(`A profile named “${name}” already exists.`); return; }
-    const id = `integrity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    selectedProfileId = id;
-    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
+    if (!activeConfigs()) { return; }
+    openProfileNameForm('create');
 }
 
 function updateSelectedProfile(): void {
@@ -1079,16 +1106,51 @@ function updateSelectedProfile(): void {
 function renameSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     if (!current) { return; }
-    const name = promptedProfileName(current.name);
-    if (!name) { return; }
-    if (profileNameExists(name, current.id)) { setProfileError(`A profile named “${name}” already exists.`); return; }
-    vscode.postMessage({ type: 'renameIntegrityProfile', id: current.id, name });
+    openProfileNameForm('rename');
 }
 
-function promptedProfileName(currentName: string): string | null {
-    const name = window.prompt('Rename profile', currentName)?.trim();
-    if (!name) { return null; }
-    return name === currentName ? null : name;
+function openProfileNameForm(mode: 'create' | 'rename'): void {
+    profileNameMode = mode;
+    setProfileError('');
+    refreshProfileLibrary();
+    document.getElementById('integrity-profile-name')?.focus();
+}
+
+function closeProfileNameForm(): void {
+    profileNameMode = null;
+    setProfileError('');
+    refreshProfileLibrary();
+}
+
+function submitProfileName(): void {
+    const input = document.getElementById('integrity-profile-name') as HTMLInputElement | null;
+    if (!input) { return; }
+    const name = input.value.trim();
+    if (!name) { setProfileError('Profile name is required.'); return; }
+    submitValidProfileName(name);
+}
+
+function submitValidProfileName(name: string): void {
+    if (profileNameMode === 'create') { createNamedProfile(name); return; }
+    if (profileNameMode === 'rename') { renameProfileTo(name); }
+}
+
+function createNamedProfile(name: string): void {
+    const checks = activeConfigs();
+    if (!checks) { return; }
+    if (profileNameExists(name)) { setProfileError(`A profile named “${name}” already exists.`); return; }
+    const id = `integrity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    selectedProfileId = id;
+    profileNameMode = null;
+    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
+}
+
+function renameProfileTo(name: string): void {
+    const current = profiles.find(profile => profile.id === selectedProfileId);
+    if (!current || name === current.name) { closeProfileNameForm(); return; }
+    if (profileNameExists(name, current.id)) { setProfileError(`A profile named “${name}” already exists.`); return; }
+    profileNameMode = null;
+    vscode.postMessage({ type: 'renameIntegrityProfile', id: current.id, name });
 }
 
 function deleteSelectedProfile(): void {

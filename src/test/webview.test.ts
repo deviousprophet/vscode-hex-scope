@@ -836,16 +836,24 @@ suite('Integrity Checks sidebar', () => {
             document.getElementById('integrity-profile-update')!.click();
             const updatedProfile = (posted.at(-1) as { type: string; profile: { checks: Array<{ autoFixStoredValue: boolean }> } }).profile;
             assert.strictEqual(updatedProfile.checks[1].autoFixStoredValue, true);
-            dom.window.prompt = () => 'Renamed Layout';
             document.getElementById('integrity-profile-rename')!.click();
+            const renameInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
+            assert.strictEqual(renameInput.value, 'STM32 Layout');
+            renameInput.value = 'Renamed Layout';
+            document.getElementById('integrity-profile-name-save')!.click();
             assert.deepStrictEqual(posted.at(-1), {
                 type: 'renameIntegrityProfile', id: 'stm32-profile', name: 'Renamed Layout',
             });
             document.getElementById('integrity-profile-delete')!.click();
             assert.deepStrictEqual(posted.at(-1), { type: 'deleteIntegrityProfile', id: 'stm32-profile' });
-            dom.window.prompt = () => 'New Layout';
             document.getElementById('integrity-profile-save')!.click();
-            assert.strictEqual((posted.at(-1) as { type: string }).type, 'createIntegrityProfile');
+            const saveInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
+            saveInput.value = 'New Layout';
+            saveInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            const created = posted.at(-1) as { type: string; profile: { name: string; checks: unknown[] } };
+            assert.strictEqual(created.type, 'createIntegrityProfile');
+            assert.strictEqual(created.profile.name, 'New Layout');
+            assert.strictEqual(created.profile.checks.length, 2);
 
             integrityCard().querySelector<HTMLElement>('.act-btn-del')!.click();
             integrityCard().querySelector<HTMLElement>('.act-btn-del')!.click();

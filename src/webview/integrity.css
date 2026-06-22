@@ -59,6 +59,20 @@
 
 #integrity-profile-error:empty { display: none; }
 
+.integrity-profile-name-form {
+    display: grid;
+    gap: 4px;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.integrity-profile-name-form .struct-addr-inp { min-width: 0; }
+
+.integrity-profile-name-form .struct-btn {
+    font-size: 9px;
+    padding: 2px 7px;
+}
+
 .integrity-empty { padding: 10px 4px; }
 
 .integrity-card {
