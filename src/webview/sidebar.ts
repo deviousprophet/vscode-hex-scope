@@ -747,6 +747,10 @@ function applyLabel(editId: string | undefined, editing: LabelState | undefined,
     vscode.postMessage({ type: 'saveLabels', labels: S.labels });
     buildMemRows();
     rerender.labels();
+    rerenderMemoryIfVisible();
+}
+
+function rerenderMemoryIfVisible(): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
