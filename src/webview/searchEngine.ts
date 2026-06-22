@@ -321,7 +321,11 @@ function reportSearchProgress(
     complete: boolean,
 ): number {
     const now = performance.now();
-    if (total <= 0 || (now - lastProgressUpdateTime < SEARCH_PROGRESS_THROTTLE_MS && !complete)) {
+    const throttled = [
+        now - lastProgressUpdateTime < SEARCH_PROGRESS_THROTTLE_MS,
+        !complete,
+    ].every(Boolean);
+    if (total <= 0 || throttled) {
         return lastProgressUpdateTime;
     }
 
