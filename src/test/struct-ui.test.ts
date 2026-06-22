@@ -2,8 +2,8 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
 import { S } from '../webview/state';
-import { initFlatBytes } from '../webview/data';
 import type { StructDef, StructPin } from '../webview/types';
+import { setBytesInSegment } from './struct-test-helpers';
 
 function resetStructState(): void {
     S.structs = [];
@@ -14,18 +14,6 @@ function resetStructState(): void {
     S.endian = 'le';
     S.bitFieldAllocation = 'msb';
     S.sidebarTab = 'struct';
-}
-
-function setBytesInSegment(baseAddr: number, bytes: number[]): void {
-    S.parseResult = {
-        records: [],
-        segments: [{ startAddress: baseAddr, data: bytes }],
-        totalDataBytes: bytes.length,
-        checksumErrors: 0,
-        malformedLines: 0,
-        format: 'ihex',
-    };
-    initFlatBytes();
 }
 
 suite('struct UI array header summary', () => {
@@ -101,15 +89,15 @@ suite('struct UI array header summary', () => {
             id: 'child',
             name: 'ChildNode',
             fields: [
-                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
+                { name: 'a', type: 'uint8', count: 1 },
+                { name: 'b', type: 'uint16', count: 1 },
             ],
         };
         const parent: StructDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'child', count: 3, endian: 'inherit' },
+                { name: 'nodes', type: 'struct', refStructId: 'child', count: 3 },
             ],
         };
         const pin: StructPin = {
@@ -142,16 +130,16 @@ suite('struct UI array header summary', () => {
             id: 'child',
             name: 'ChildNode',
             fields: [
-                { name: 'field0', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'field1', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'field2', type: 'uint8', count: 2, endian: 'inherit' },
+                { name: 'field0', type: 'uint8', count: 1 },
+                { name: 'field1', type: 'uint8', count: 1 },
+                { name: 'field2', type: 'uint8', count: 2 },
             ],
         };
         const parent: StructDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'child', count: 2, endian: 'inherit' },
+                { name: 'nodes', type: 'struct', refStructId: 'child', count: 2 },
             ],
         };
         const pin: StructPin = {
@@ -222,16 +210,16 @@ suite('struct UI array header summary', () => {
             id: 'child',
             name: 'MyStruct',
             fields: [
-                { name: 'field0', type: 'uint32', count: 1, endian: 'inherit' },
-                { name: 'field1', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'field2', type: 'uint8', count: 2, endian: 'inherit' },
+                { name: 'field0', type: 'uint32', count: 1 },
+                { name: 'field1', type: 'uint8', count: 1 },
+                { name: 'field2', type: 'uint8', count: 2 },
             ],
         };
         const parent: StructDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'field3', type: 'struct', refStructId: 'child', count: 1, endian: 'inherit' },
+                { name: 'field3', type: 'struct', refStructId: 'child', count: 1 },
             ],
         };
         const pin: StructPin = {
@@ -272,15 +260,15 @@ suite('struct UI array header summary', () => {
             id: 'child_collapse',
             name: 'ChildCollapse',
             fields: [
-                { name: 'field0', type: 'uint32', count: 1, endian: 'inherit' },
-                { name: 'field1', type: 'uint8', count: 2, endian: 'inherit' },
+                { name: 'field0', type: 'uint32', count: 1 },
+                { name: 'field1', type: 'uint8', count: 2 },
             ],
         };
         const parent: StructDef = {
             id: 'parent_collapse',
             name: 'ParentCollapse',
             fields: [
-                { name: 'field3', type: 'struct', refStructId: 'child_collapse', count: 1, endian: 'inherit' },
+                { name: 'field3', type: 'struct', refStructId: 'child_collapse', count: 1 },
             ],
         };
 
@@ -311,14 +299,14 @@ suite('struct UI array header summary', () => {
             id: 'single_leaf_child',
             name: 'SingleLeafChild',
             fields: [
-                { name: 'only', type: 'uint16', count: 1, endian: 'inherit' },
+                { name: 'only', type: 'uint16', count: 1 },
             ],
         };
         const parent: StructDef = {
             id: 'single_leaf_parent',
             name: 'SingleLeafParent',
             fields: [
-                { name: 'wrap', type: 'struct', refStructId: 'single_leaf_child', count: 1, endian: 'inherit' },
+                { name: 'wrap', type: 'struct', refStructId: 'single_leaf_child', count: 1 },
             ],
         };
 
@@ -341,21 +329,21 @@ suite('struct UI array header summary', () => {
             id: 'depth_l3',
             name: 'DepthL3',
             fields: [
-                { name: 'bytes', type: 'uint8', count: 2, endian: 'inherit' },
+                { name: 'bytes', type: 'uint8', count: 2 },
             ],
         };
         const level2: StructDef = {
             id: 'depth_l2',
             name: 'DepthL2',
             fields: [
-                { name: 'inner', type: 'struct', refStructId: 'depth_l3', count: 1, endian: 'inherit' },
+                { name: 'inner', type: 'struct', refStructId: 'depth_l3', count: 1 },
             ],
         };
         const level1: StructDef = {
             id: 'depth_l1',
             name: 'DepthL1',
             fields: [
-                { name: 'outer', type: 'struct', refStructId: 'depth_l2', count: 1, endian: 'inherit' },
+                { name: 'outer', type: 'struct', refStructId: 'depth_l2', count: 1 },
             ],
         };
 
@@ -390,8 +378,8 @@ suite('struct UI array header summary', () => {
             id: 'array_offset',
             name: 'ArrayOffset',
             fields: [
-                { name: 'prefix', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'values', type: 'uint16', count: 2, endian: 'inherit' },
+                { name: 'prefix', type: 'uint8', count: 1 },
+                { name: 'values', type: 'uint16', count: 2 },
             ],
         };
 
@@ -423,16 +411,16 @@ suite('struct UI array header summary', () => {
             id: 'nested_offset_child',
             name: 'NestedOffsetChild',
             fields: [
-                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
+                { name: 'a', type: 'uint8', count: 1 },
+                { name: 'b', type: 'uint16', count: 1 },
             ],
         };
         const parent: StructDef = {
             id: 'nested_offset_parent',
             name: 'NestedOffsetParent',
             fields: [
-                { name: 'prefix', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'node', type: 'struct', refStructId: 'nested_offset_child', count: 1, endian: 'inherit' },
+                { name: 'prefix', type: 'uint8', count: 1 },
+                { name: 'node', type: 'struct', refStructId: 'nested_offset_child', count: 1 },
             ],
         };
 
@@ -464,7 +452,7 @@ suite('struct UI array header summary', () => {
             id: 'str_leaf',
             name: 'StrLeaf',
             fields: [
-                { name: 'name', type: 'ascii', count: 8, endian: 'inherit' },
+                { name: 'name', type: 'ascii', count: 8 },
             ],
         };
         const pin: StructPin = {
@@ -493,21 +481,21 @@ suite('struct UI array header summary', () => {
             id: 'leaf_suffix',
             name: 'LeafSuffix',
             fields: [
-                { name: 'field0', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'field0', type: 'uint8', count: 1 },
             ],
         };
         const mid: StructDef = {
             id: 'mid_suffix',
             name: 'MidSuffix',
             fields: [
-                { name: 'children', type: 'struct', refStructId: 'leaf_suffix', count: 2, endian: 'inherit' },
+                { name: 'children', type: 'struct', refStructId: 'leaf_suffix', count: 2 },
             ],
         };
         const top: StructDef = {
             id: 'top_suffix',
             name: 'TopSuffix',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'mid_suffix', count: 2, endian: 'inherit' },
+                { name: 'nodes', type: 'struct', refStructId: 'mid_suffix', count: 2 },
             ],
         };
         const pin: StructPin = {
@@ -547,7 +535,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 2,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'flags', bitWidth: 5 },
@@ -557,7 +544,6 @@ suite('struct UI array header summary', () => {
                     name: 'field1',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'bit0', bitWidth: 1 },
                         { name: 'bit1', bitWidth: 1 },
@@ -618,7 +604,7 @@ suite('struct UI array header summary', () => {
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
     });
 
-    test('shows independent byte endianness and bit-field allocation toggles', async () => {
+    test('uses shared byte order with a local bit-layout toggle', async () => {
         const def: StructDef = {
             id: 'bit_alloc_toggle',
             name: 'BitAllocToggle',
@@ -627,7 +613,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'a', bitWidth: 3 },
                         { name: 'b', bitWidth: 5 },
@@ -644,14 +629,12 @@ suite('struct UI array header summary', () => {
 
         const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-group'))
             .map(el => el.getAttribute('title') ?? '');
-        assert.ok(toggleGroups.some(title => title.includes('Byte endianness')), 'byte endianness detail should be available on hover');
+        assert.ok(!toggleGroups.some(title => title.includes('Byte endianness')), 'Struct must use shared sidebar byte order');
         assert.ok(toggleGroups.some(title => title.includes('Bit-field allocation')), 'bit-field allocation detail should be available on hover');
         const toggleLabels = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-label'))
             .map(el => el.textContent ?? '');
-        assert.ok(toggleLabels.includes('Endian'), 'compact endian label should render above the byte endianness toggle');
+        assert.ok(!toggleLabels.includes('Endian'), 'Struct must not render a local endian toggle');
         assert.ok(toggleLabels.includes('Bit Layout'), 'compact bit layout label should render above the bit-field allocation toggle');
-        assert.strictEqual(document.getElementById('sa-btn-le')?.textContent, 'LE');
-        assert.strictEqual(document.getElementById('sa-btn-be')?.textContent, 'BE');
         assert.strictEqual(document.getElementById('sa-btn-bit-lsb')?.textContent, 'LSB');
         assert.strictEqual(document.getElementById('sa-btn-bit-msb')?.textContent, 'MSB');
         assert.ok(document.getElementById('sa-btn-bit-lsb')?.getAttribute('title')?.includes('least significant bit'), 'LSB button should explain allocation on hover');
@@ -672,18 +655,18 @@ suite('struct UI array header summary', () => {
         assert.deepStrictEqual(childValuesLsb, ['001', '1 0110'], 'LSB-first should allocate from low bits independently of byte endianness');
     });
 
-    test('renders scalar values with each field effective endian instead of the global toggle', async () => {
+    test('renders scalar values using shared byte order', async () => {
         const fields: StructDef['fields'] = [
-            { name: 'u16', type: 'uint16', count: 1, endian: 'inherit' },
-            { name: 'i16', type: 'int16', count: 1, endian: 'inherit' },
-            { name: 'u32', type: 'uint32', count: 1, endian: 'inherit' },
-            { name: 'i32', type: 'int32', count: 1, endian: 'inherit' },
-            { name: 'u64', type: 'uint64', count: 1, endian: 'inherit' },
-            { name: 'i64', type: 'int64', count: 1, endian: 'inherit' },
-            { name: 'f32', type: 'float32', count: 1, endian: 'inherit' },
-            { name: 'f64', type: 'float64', count: 1, endian: 'inherit' },
-            { name: 'ptr', type: 'pointer', count: 1, endian: 'inherit' },
-            { name: 'arr', type: 'uint16', count: 2, endian: 'inherit' },
+            { name: 'u16', type: 'uint16', count: 1 },
+            { name: 'i16', type: 'int16', count: 1 },
+            { name: 'u32', type: 'uint32', count: 1 },
+            { name: 'i32', type: 'int32', count: 1 },
+            { name: 'u64', type: 'uint64', count: 1 },
+            { name: 'i64', type: 'int64', count: 1 },
+            { name: 'f32', type: 'float32', count: 1 },
+            { name: 'f64', type: 'float64', count: 1 },
+            { name: 'ptr', type: 'pointer', count: 1 },
+            { name: 'arr', type: 'uint16', count: 2 },
         ];
         const leBytes = [
             0x34, 0x12, 0xFE, 0xFF, 0x78, 0x56, 0x34, 0x12,
@@ -700,24 +683,24 @@ suite('struct UI array header summary', () => {
             0x12, 0x34, 0x56, 0x78,
         ];
 
-        const renderValues = async (fieldEndian: 'le' | 'be', globalEndian: 'le' | 'be', bytes: number[]) => {
+        const renderValues = async (endian: 'le' | 'be', bytes: number[]) => {
             resetStructState();
-            S.endian = globalEndian;
+            S.endian = endian;
             const def: StructDef = {
-                id: `scalar_${fieldEndian}`,
-                name: `Scalar${fieldEndian.toUpperCase()}`,
+                id: `scalar_${endian}`,
+                name: `Scalar${endian.toUpperCase()}`,
                 packed: true,
-                fields: fields.map(f => ({ ...f, endian: fieldEndian })),
+                fields,
             };
             S.structs = [def];
-            S.structPins = [{ id: `pin_${fieldEndian}`, structId: def.id, addr: 0, name: 'inst' }];
+            S.structPins = [{ id: `pin_${endian}`, structId: def.id, addr: 0, name: 'inst' }];
             setBytesInSegment(0, bytes);
             await renderPinsAndExpandCard();
             return Array.from(document.querySelectorAll<HTMLElement>('.si-field > .si-f-body > .si-f-val'))
                 .map(el => el.textContent?.replace(/\s+/g, ' ').trim() ?? '');
         };
 
-        const leValues = await renderValues('le', 'be', leBytes);
+        const leValues = await renderValues('le', leBytes);
         assert.ok(leValues[0].includes('0x1234'), `u16 LE display: ${leValues[0]}`);
         assert.ok(leValues[1].includes('0xFFFE'), `i16 LE display: ${leValues[1]}`);
         assert.ok(leValues[2].includes('0x12345678'), `u32 LE display: ${leValues[2]}`);
@@ -741,7 +724,7 @@ suite('struct UI array header summary', () => {
         assert.ok(hexItem, 'hex view menu item should render');
         hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const beValues = await renderValues('be', 'le', beBytes);
+        const beValues = await renderValues('be', beBytes);
         assert.ok(beValues[0].includes('0x1234'), `u16 BE display: ${beValues[0]}`);
         assert.ok(beValues[1].includes('0xFFFE'), `i16 BE display: ${beValues[1]}`);
         assert.ok(beValues[2].includes('0x12345678'), `u32 BE display: ${beValues[2]}`);
@@ -770,7 +753,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'bit0', bitWidth: 1 },
                         { name: 'bit1', bitWidth: 1 },
@@ -844,7 +826,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'lo', bitWidth: 4 },
                         { name: 'hi', bitWidth: 4 },
@@ -880,7 +861,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'a', bitWidth: 2 },
                         { name: 'b', bitWidth: 3 },
@@ -923,14 +903,13 @@ suite('struct UI array header summary', () => {
             id: 'single_line_copy',
             name: 'SingleLineCopy',
             fields: [
-                { name: 'wide', type: 'uint64', count: 1, endian: 'inherit' },
-                { name: 'flt', type: 'float32', count: 1, endian: 'inherit' },
-                { name: 'text', type: 'ascii', count: 4, endian: 'inherit' },
+                { name: 'wide', type: 'uint64', count: 1 },
+                { name: 'flt', type: 'float32', count: 1 },
+                { name: 'text', type: 'ascii', count: 4 },
                 {
                     name: 'flags',
                     type: 'uint32',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'top', bitWidth: 5 },
                         { name: 'mid', bitWidth: 7 },
@@ -1002,7 +981,6 @@ suite('struct UI array header summary', () => {
                     name: 'flags',
                     type: 'uint32',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'lo', bitWidth: 4 },
                         { name: 'hi', bitWidth: 4 },
@@ -1020,7 +998,7 @@ suite('struct UI array header summary', () => {
         const parentValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"]');
         assert.ok(parentValue, 'wide bit-field parent should render full binary by default');
         assert.strictEqual(parentValue!.querySelectorAll('br').length, 1, 'uint32 bit-field parent binary should wrap after 16 bits');
-        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '01111000010101100011010000010010', 'wide bit-field parent binary should show full storage bits in effective endian order');
+        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '01111000010101100011010000010010', 'wide bit-field parent binary should follow shared byte order');
 
         const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
         assert.ok(expandBits, 'wide bit-field parent should be expandable');
@@ -1048,7 +1026,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'wide', bitWidth: 5 },
                     ],
@@ -1080,7 +1057,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 2,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'flags', bitWidth: 5 },
@@ -1129,7 +1105,6 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 2,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'flags', bitWidth: 5 },
@@ -1175,20 +1150,19 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 2,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'flags', bitWidth: 5 },
                     ],
                 },
-                { name: 'payload', type: 'uint8', count: 2, endian: 'inherit' },
+                { name: 'payload', type: 'uint8', count: 2 },
             ],
         };
         const parent: StructDef = {
             id: 'parent_bits',
             name: 'ParentBits',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'child_bits', count: 2, endian: 'inherit' },
+                { name: 'nodes', type: 'struct', refStructId: 'child_bits', count: 2 },
             ],
         };
 
@@ -1234,7 +1208,6 @@ suite('struct UI array header summary', () => {
                     name: 'control',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'enabled', bitWidth: 1 },
@@ -1246,7 +1219,7 @@ suite('struct UI array header summary', () => {
             id: 'parent_single_bits',
             name: 'ParentSingleBits',
             fields: [
-                { name: 'node', type: 'struct', refStructId: 'child_single_bits', count: 1, endian: 'inherit' },
+                { name: 'node', type: 'struct', refStructId: 'child_single_bits', count: 1 },
             ],
         };
 
@@ -1290,18 +1263,16 @@ suite('struct UI array header summary', () => {
                     name: 'field0',
                     type: 'uint8',
                     count: 2,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'flags', bitWidth: 5 },
                     ],
                 },
-                { name: 'data', type: 'uint8', count: 3, endian: 'inherit' },
+                { name: 'data', type: 'uint8', count: 3 },
                 {
                     name: 'field1',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'bit0', bitWidth: 1 },
                         { name: 'bit1', bitWidth: 1 },

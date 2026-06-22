@@ -12,7 +12,15 @@ import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './sear
 import { initFlatBytes, buildMemRows, getByte }      from './data';
 import type { SerializedRecord, SidebarTab } from './types';
 import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
-import { activateIntegrity, notifyIntegrityBytesChanged, renderIntegrity } from './integrityView';
+import {
+    activateIntegrity,
+    notifyIntegrityBytesChanged,
+    notifyIntegrityEditsDiscarded,
+    notifyIntegrityEndianChanged,
+    renderIntegrity,
+    setIntegrityEditHandler,
+    setIntegrityProfiles,
+} from './integrityView';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -42,6 +50,7 @@ const MESSAGE_HANDLERS: ReadonlyArray<readonly [string, WebviewMessageHandler]> 
     ['externalChange', handleExternalChangeMessage],
     ['externalChangeError', handleExternalChangeErrorMessage],
     ['repairComplete', handleRepairCompleteMessage],
+    ['integrityProfiles', handleIntegrityProfilesMessage],
 ];
 
 window.addEventListener('message', (e: MessageEvent) => {
@@ -52,14 +61,28 @@ window.addEventListener('message', (e: MessageEvent) => {
 
 function handleInitMessage(msg: WebviewMessage): void {
     S.parseResult = msg.parseResult as typeof S.parseResult;
-    S.labels      = (msg.labels as typeof S.labels) ?? [];
-    S.structs     = (msg.structs as typeof S.structs) ?? [];
-    S.structPins  = (msg.structPins as typeof S.structPins) ?? [];
+    S.labels      = messageArray<typeof S.labels[number]>(msg.labels);
+    S.structs     = messageArray<typeof S.structs[number]>(msg.structs);
+    S.structPins  = messageArray<typeof S.structPins[number]>(msg.structPins);
+    S.endian      = messageEndian(msg.endian);
+    setIntegrityProfiles(msg.integrityProfiles);
     initFlatBytes();
     buildMemRows();
 
     S.currentView = 'memory';
     render();
+}
+
+function messageArray<T>(value: unknown): T[] {
+    return Array.isArray(value) ? value as T[] : [];
+}
+
+function messageEndian(value: unknown): 'le' | 'be' {
+    return value === 'be' ? 'be' : 'le';
+}
+
+function handleIntegrityProfilesMessage(msg: WebviewMessage): void {
+    setIntegrityProfiles(msg.profiles, typeof msg.error === 'string' ? msg.error : '');
 }
 
 function handleLoadErrorMessage(msg: WebviewMessage): void {
@@ -149,11 +172,12 @@ function rebuildLabelsAndMemory(): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
-function clearEditState(): void {
+function clearEditState(reason: 'refresh' | 'discard' = 'refresh'): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.editMode = false;
-    notifyIntegrityBytesChanged();
+    if (reason === 'discard') { notifyIntegrityEditsDiscarded(); }
+    else { notifyIntegrityBytesChanged(); }
 }
 
 function renderCurrentDataView(): void {
@@ -238,7 +262,7 @@ function render(): void {
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
             <div id="search-box">
-                <div id="search-endian-toggle" class="endian-tabs search-endian-toggle" style="display:none">
+                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:none">
                     <button id="search-btn-auto" class="${activeClass(S.searchEndianness === 'auto')}" type="button">Auto</button>
                     <button id="search-btn-le" class="${activeClass(S.searchEndianness === 'le')}" type="button">LE</button>
                     <button id="search-btn-be" class="${activeClass(S.searchEndianness === 'be')}" type="button">BE</button>
@@ -269,6 +293,13 @@ function render(): void {
             </div>
             <div id="sidebar-resizer" aria-label="Resize sidebar" title="Drag to resize sidebar"></div>
             <div id="sidebar">
+                <div id="sidebar-common-settings">
+                    <span>Byte order</span>
+                    <div class="compact-tabs sidebar-endian-tabs">
+                        <button id="sidebar-btn-le" class="${activeClass(S.endian === 'le')}" type="button">LE</button>
+                        <button id="sidebar-btn-be" class="${activeClass(S.endian === 'be')}" type="button">BE</button>
+                    </div>
+                </div>
                 <div class="${tabPanelClass('inspector')}" id="sbp-insp">
                     <div class="sb-section" id="s-insp"></div>
                     <div class="sb-section" id="s-bits"></div>
@@ -297,13 +328,31 @@ function setupRenderedUi(): void {
     setupToolbarButtons();
     setupLockInterception();
     setupSidebarResize();
+    setupEndianControl();
     setupEditButtons();
     setupSearchControls();
     setupRerenderCallbacks();
+    setIntegrityEditHandler(stageIntegrityEdits);
     initSearch(() => switchView('memory'));
     setupMemoryDragSelection();
     setupSideTabs();
     renderInitialViews();
+}
+
+function setupEndianControl(): void {
+    document.getElementById('sidebar-btn-le')?.addEventListener('click', () => setFileEndian('le'));
+    document.getElementById('sidebar-btn-be')?.addEventListener('click', () => setFileEndian('be'));
+}
+
+function setFileEndian(endian: 'le' | 'be'): void {
+    if (S.endian === endian) { return; }
+    S.endian = endian;
+    document.getElementById('sidebar-btn-le')?.classList.toggle('active', endian === 'le');
+    document.getElementById('sidebar-btn-be')?.classList.toggle('active', endian === 'be');
+    vscode.postMessage({ type: 'saveEndian', endian });
+    renderInspector();
+    renderStructPins();
+    notifyIntegrityEndianChanged();
 }
 
 function setupToolbarButtons(): void {
@@ -367,7 +416,7 @@ function setupEditButtons(): void {
         if (S.currentView === 'memory') { memRerender(); }
     });
     document.getElementById('btn-cancel')!.addEventListener('click', () => {
-        clearEditState();
+        clearEditState('discard');
         updateEditControls();
         updateDirtyBar();
         if (S.currentView === 'memory') { memRerender(); }
@@ -1169,6 +1218,40 @@ function getOriginalByte(addr: number): number | undefined {
         if (off >= 0 && off < seg.data.length) { return seg.data[off]; }
     }
     return undefined;
+}
+
+function stageIntegrityEdits(edits: Array<[number, number]>): void {
+    const previous: Array<[number, number]> = [];
+    for (const [address, value] of edits) {
+        const prior = stageIntegrityEdit(address, value);
+        if (prior) { previous.push(prior); }
+    }
+    if (previous.length === 0) { return; }
+    S.undoStack.push(previous);
+    S.editMode = true;
+    refreshAfterIntegrityEdits();
+}
+
+function refreshAfterIntegrityEdits(): void {
+    updateEditControls();
+    updateDirtyBar();
+    if (S.currentView === 'memory') { memRerender(); }
+    updateInspector();
+    notifyIntegrityBytesChanged();
+}
+
+function stageIntegrityEdit(address: number, value: number): [number, number] | null {
+    const original = getOriginalByte(address);
+    if (original === undefined) { return null; }
+    const current = currentIntegrityByte(address, original);
+    if (current === value) { return null; }
+    if (value === original) { S.edits.delete(address); }
+    else { S.edits.set(address, value); }
+    return [address, current];
+}
+
+function currentIntegrityByte(address: number, original: number): number {
+    return S.edits.has(address) ? S.edits.get(address)! : original;
 }
 
 // ── Edit helpers ──────────────────────────────────────────────────

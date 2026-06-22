@@ -25,6 +25,21 @@
     background: var(--panel-bg); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden;
 }
+
+#sidebar-common-settings {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    color: var(--addr-fg);
+    display: flex;
+    flex-shrink: 0;
+    font-family: var(--font-ui);
+    font-size: 9px;
+    justify-content: space-between;
+    padding: 5px 12px;
+    text-transform: uppercase;
+}
+
+.sidebar-endian-tabs button { font-size: 9px; padding: 1px 6px; }
 .sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 
 .sb-hdr {

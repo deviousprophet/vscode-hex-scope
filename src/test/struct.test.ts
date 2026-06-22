@@ -5,8 +5,9 @@ import {
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
 } from '../webview/struct-codec';
 import { S } from '../webview/state';
-import { initFlatBytes, getByte } from '../webview/data';
+import { getByte } from '../webview/data';
 import type { StructDef, StructField } from '../webview/types';
+import { setBytesInSegment } from './struct-test-helpers';
 
 function resetStructState(): void {
     S.structs           = [];
@@ -15,17 +16,21 @@ function resetStructState(): void {
     S.segmentIndex      = [];
 }
 
-/** Helper: set up parseResult with bytes at the given addresses. */
-function setBytesInSegment(baseAddr: number, bytes: number[]): void {
-    S.parseResult = {
-        records: [],
-        segments: [{ startAddress: baseAddr, data: bytes }],
-        totalDataBytes: bytes.length,
-        checksumErrors: 0,
-        malformedLines: 0,
-        format: 'ihex',
+function layoutFields(): StructField[] {
+    return [
+        { name: 'a', type: 'uint8', count: 1 },
+        { name: 'b', type: 'uint32', count: 1 },
+        { name: 'c', type: 'uint16', count: 1 },
+    ];
+}
+
+function bitFieldStruct(): StructDef {
+    return {
+        id: 'x', name: 'Bits', packed: true, fields: [{
+            name: 'bits', type: 'uint8', count: 1,
+            bitFields: [{ name: 'a', bitWidth: 3 }, { name: 'b', bitWidth: 5 }],
+        }],
     };
-    initFlatBytes();
 }
 
 // ── fieldByteSize ─────────────────────────────────────────────────
@@ -54,25 +59,25 @@ suite('structByteSize()', () => {
 
     test('single uint32 field is 4 bytes', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint32', count: 1 },
         ]};
         assert.strictEqual(structByteSize(def), 4);
     });
 
     test('mixed field types packed: no padding (7 bytes)', () => {
         const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
-            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // 1
-            { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },  // 2
-            { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },  // 4
+            { name: 'a', type: 'uint8',  count: 1 },  // 1
+            { name: 'b', type: 'uint16', count: 1 },  // 2
+            { name: 'c', type: 'uint32', count: 1 },  // 4
         ]};
         assert.strictEqual(structByteSize(def), 7);
     });
 
     test('mixed field types aligned: uint8+uint16+uint32 = 8 bytes', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // +0
-            { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },  // +2 (1B pad)
-            { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },  // +4
+            { name: 'a', type: 'uint8',  count: 1 },  // +0
+            { name: 'b', type: 'uint16', count: 1 },  // +2 (1B pad)
+            { name: 'c', type: 'uint32', count: 1 },  // +4
         ]};
         assert.strictEqual(structByteSize(def), 8);
     });
@@ -80,31 +85,31 @@ suite('structByteSize()', () => {
     test('aligned struct has trailing padding to max alignment', () => {
         // uint32 then uint8: size = 4+1 padded to 8 (align=4)
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },  // +0
-            { name: 'b', type: 'uint8',  count: 1, endian: 'inherit' },  // +4
+            { name: 'a', type: 'uint32', count: 1 },  // +0
+            { name: 'b', type: 'uint8',  count: 1 },  // +4
         ]};
         assert.strictEqual(structByteSize(def), 8);
     });
 
     test('array field multiplies by count', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'v', type: 'uint32', count: 4, endian: 'inherit' },  // 4 × 4 = 16
+            { name: 'v', type: 'uint32', count: 4 },  // 4 × 4 = 16
         ]};
         assert.strictEqual(structByteSize(def), 16);
     });
 
     test('uint64 alignment (not packed): uint32 then uint64 → 16', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint32', count: 1 },
+            { name: 'b', type: 'uint64', count: 1 },
         ]};
         assert.strictEqual(structByteSize(def), 16);
     });
 
     test('uint64 alignment (packed): uint32 then uint64 → 12', () => {
         const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
-            { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint64', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint32', count: 1 },
+            { name: 'b', type: 'uint64', count: 1 },
         ]};
         assert.strictEqual(structByteSize(def), 12);
     });
@@ -115,7 +120,6 @@ suite('structByteSize()', () => {
                 name: 'bits',
                 type: 'uint16',
                 count: 1,
-                endian: 'inherit',
                 bitFields: [
                     { name: 'a', bitWidth: 3 },
                     { name: 'b', bitWidth: 5 },
@@ -132,13 +136,12 @@ suite('structByteSize()', () => {
                 name: 'bits',
                 type: 'uint16',
                 count: 1,
-                endian: 'inherit',
                 bitFields: [
                     { name: 'a', bitWidth: 3 },
                     { name: 'b', bitWidth: 5 },
                 ],
             },
-            { name: 'c', type: 'uint32', count: 1, endian: 'inherit' },
+            { name: 'c', type: 'uint32', count: 1 },
         ]};
         assert.strictEqual(structByteSize(def), 8);
     });
@@ -149,7 +152,6 @@ suite('structByteSize()', () => {
                 name: 'flags',
                 type: 'uint8',
                 count: 2,
-                endian: 'inherit',
                 bitFields: [
                     { name: 'enabled', bitWidth: 1 },
                     { name: 'mode', bitWidth: 7 },
@@ -174,16 +176,16 @@ suite('structByteSize()', () => {
             id: 'child',
             name: 'Child',
             fields: [
-                { name: 'x', type: 'uint16', count: 1, endian: 'inherit' },
-                { name: 'y', type: 'uint16', count: 1, endian: 'inherit' },
+                { name: 'x', type: 'uint16', count: 1 },
+                { name: 'y', type: 'uint16', count: 1 },
             ],
         };
         const parent: StructDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'head', type: 'uint32', count: 1, endian: 'inherit' },
-                { name: 'c', type: 'struct', refStructId: 'child', count: 1, endian: 'inherit' },
+                { name: 'head', type: 'uint32', count: 1 },
+                { name: 'c', type: 'struct', refStructId: 'child', count: 1 },
             ],
         };
         S.structs = [child, parent];
@@ -303,8 +305,8 @@ suite('decodeStruct()', () => {
 
     test('produces one row per scalar field', () => {
         const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
-            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint8',  count: 1 },
+            { name: 'b', type: 'uint16', count: 1 },
         ]};
         // populate parseResult at base 0x100
         setBytesInSegment(0x100, [0x01, 0x02, 0x03]);
@@ -319,8 +321,8 @@ suite('decodeStruct()', () => {
 
     test('aligned struct: uint8 then uint16 at offset 2', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },
-            { name: 'b', type: 'uint16', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint8',  count: 1 },
+            { name: 'b', type: 'uint16', count: 1 },
         ]};
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows[0].byteOffset, 0);
@@ -329,7 +331,7 @@ suite('decodeStruct()', () => {
 
     test('array field expands to count rows named field[0], field[1]...', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'v', type: 'uint8', count: 3, endian: 'inherit' },
+            { name: 'v', type: 'uint8', count: 3 },
         ]};
         setBytesInSegment(0, [0x0A, 0x0B, 0x0C]);
 
@@ -342,7 +344,7 @@ suite('decodeStruct()', () => {
 
     test('hasData is false when byte is absent from segments', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint8', count: 1 },
         ]};
         // Do NOT populate parseResult; getBy te will return undefined
         S.parseResult = null;
@@ -352,34 +354,32 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[0].decoded, '??');
     });
 
-    test('field-level endian "le" overrides global "be"', () => {
+    test('shared big-endian setting applies to scalar fields', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint16', count: 1, endian: 'le' },
+            { name: 'a', type: 'uint16', count: 1 },
         ]};
         setBytesInSegment(0, [0x01, 0x00]);
-        // LE: 0x0001 = 1, even though global endian is BE
         const rows = decodeStruct(def, 0, getByte, 'be');
-        assert.ok(rows[0].decoded.startsWith('1'), rows[0].decoded);
+        assert.ok(rows[0].decoded.startsWith('256'), rows[0].decoded);
     });
 
-    test('field-level endian "be" overrides global "le"', () => {
+    test('shared little-endian setting applies to scalar fields', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint16', count: 1, endian: 'be' },
+            { name: 'a', type: 'uint16', count: 1 },
         ]};
         setBytesInSegment(0, [0x00, 0x01]);
-        // BE read of 00 01 = 1
         const rows = decodeStruct(def, 0, getByte, 'le');
-        assert.ok(rows[0].decoded.startsWith('1'), rows[0].decoded);
+        assert.ok(rows[0].decoded.startsWith('256'), rows[0].decoded);
     });
 
-    test('decoded rows keep effective endian for arrays and nested structs', () => {
+    test('shared byte order applies to arrays and nested structs', () => {
         const child: StructDef = {
             id: 'endian_child',
             name: 'EndianChild',
             fields: [
-                { name: 'word', type: 'uint16', count: 2, endian: 'inherit' },
-                { name: 'flt', type: 'float32', count: 1, endian: 'inherit' },
-                { name: 'ptr', type: 'pointer', count: 1, endian: 'inherit' },
+                { name: 'word', type: 'uint16', count: 2 },
+                { name: 'flt', type: 'float32', count: 1 },
+                { name: 'ptr', type: 'pointer', count: 1 },
             ],
         };
         const parent: StructDef = {
@@ -387,8 +387,8 @@ suite('decodeStruct()', () => {
             name: 'EndianParent',
             packed: true,
             fields: [
-                { name: 'leWord', type: 'uint16', count: 1, endian: 'le' },
-                { name: 'beNode', type: 'struct', refStructId: 'endian_child', count: 1, endian: 'be' },
+                { name: 'word', type: 'uint16', count: 1 },
+                { name: 'node', type: 'struct', refStructId: 'endian_child', count: 1 },
             ],
         };
         S.structs = [child, parent];
@@ -400,11 +400,9 @@ suite('decodeStruct()', () => {
             0x12, 0x34, 0x56, 0x78,
         ]);
 
-        const rows = decodeStruct(parent, 0, getByte, 'le');
-        assert.strictEqual(rows[0].fieldName, 'leWord');
-        assert.strictEqual(rows[0].endian, 'le');
-        assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);
-        assert.deepStrictEqual(rows.slice(1).map(r => r.endian), ['be', 'be', 'be', 'be']);
+        const rows = decodeStruct(parent, 0, getByte, 'be');
+        assert.strictEqual(rows[0].fieldName, 'word');
+        assert.ok(rows[0].decoded.startsWith('13330'), rows[0].decoded);
         assert.ok(rows[1].decoded.startsWith('4660'), rows[1].decoded);
         assert.ok(rows[2].decoded.startsWith('22136'), rows[2].decoded);
         assert.strictEqual(parseFloat(rows[3].decoded), 1);
@@ -412,11 +410,7 @@ suite('decodeStruct()', () => {
     });
 
     test('byte offsets accumulate correctly (packed)', () => {
-        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: [
-            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // +0, 1 B
-            { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },  // +1, 4 B
-            { name: 'c', type: 'uint16', count: 1, endian: 'inherit' },  // +5, 2 B
-        ]};
+        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: layoutFields() };
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].byteOffset, 1);
@@ -424,11 +418,7 @@ suite('decodeStruct()', () => {
     });
 
     test('byte offsets with alignment (not packed)', () => {
-        const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint8',  count: 1, endian: 'inherit' },  // +0
-            { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },  // +4 (3B pad)
-            { name: 'c', type: 'uint16', count: 1, endian: 'inherit' },  // +8
-        ]};
+        const def: StructDef = { id: 'x', name: 'S', fields: layoutFields() };
         const rows = decodeStruct(def, 0, getByte, 'le');
         assert.strictEqual(rows[0].byteOffset, 0);
         assert.strictEqual(rows[1].byteOffset, 4);
@@ -436,18 +426,7 @@ suite('decodeStruct()', () => {
     });
 
     test('decodes bit fields MSB-first by default as unsigned values', () => {
-        const def: StructDef = { id: 'x', name: 'Bits', packed: true, fields: [
-            {
-                name: 'bits',
-                type: 'uint8',
-                count: 1,
-                endian: 'inherit',
-                bitFields: [
-                    { name: 'a', bitWidth: 3 },
-                    { name: 'b', bitWidth: 5 },
-                ],
-            },
-        ]};
+        const def = bitFieldStruct();
         // 0xB1 => a=0b101=5, b=0b10001=17 in MSB-first allocation.
         setBytesInSegment(0, [0xB1]);
         const rows = decodeStruct(def, 0, getByte, 'le');
@@ -460,18 +439,7 @@ suite('decodeStruct()', () => {
     });
 
     test('decodes bit fields LSB-first when allocation is LSB', () => {
-        const def: StructDef = { id: 'x', name: 'Bits', packed: true, fields: [
-            {
-                name: 'bits',
-                type: 'uint8',
-                count: 1,
-                endian: 'inherit',
-                bitFields: [
-                    { name: 'a', bitWidth: 3 },
-                    { name: 'b', bitWidth: 5 },
-                ],
-            },
-        ]};
+        const def = bitFieldStruct();
         // 0b10110001 => a=0b001=1, b=0b10110=22 in LSB-first allocation.
         setBytesInSegment(0, [0xB1]);
         const rows = decodeStruct(def, 0, getByte, 'le', 'lsb');
@@ -485,7 +453,6 @@ suite('decodeStruct()', () => {
                 name: 'word',
                 type: 'uint16',
                 count: 1,
-                endian: 'inherit',
                 bitFields: [
                     { name: 'a', bitWidth: 4 },
                     { name: 'b', bitWidth: 4 },
@@ -513,7 +480,7 @@ suite('decodeStruct()', () => {
 
     test('bytesHex shows ?? for missing bytes', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint16', count: 1, endian: 'inherit' },
+            { name: 'a', type: 'uint16', count: 1 },
         ]};
         setBytesInSegment(0, [0xAB]); // only first byte present
         const rows = decodeStruct(def, 0, getByte, 'le');
@@ -524,12 +491,12 @@ suite('decodeStruct()', () => {
         const child: StructDef = {
             id: 'child',
             name: 'Child',
-            fields: [{ name: 'v', type: 'uint8', count: 1, endian: 'inherit' }],
+            fields: [{ name: 'v', type: 'uint8', count: 1 }],
         };
         const parent: StructDef = {
             id: 'parent',
             name: 'Parent',
-            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3, endian: 'inherit' }],
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3 }],
         };
         S.structs = [child, parent];
         setBytesInSegment(0, [0x11, 0x22, 0x33]);
@@ -549,12 +516,12 @@ suite('resolveStructFieldByPath()', () => {
         const child: StructDef = {
             id: 'child',
             name: 'ChildNode',
-            fields: [{ name: 'v', type: 'uint8', count: 1, endian: 'inherit' }],
+            fields: [{ name: 'v', type: 'uint8', count: 1 }],
         };
         const parent: StructDef = {
             id: 'parent',
             name: 'Parent',
-            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3, endian: 'inherit' }],
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3 }],
         };
 
         S.structs = [child, parent];
@@ -570,17 +537,17 @@ suite('resolveStructFieldByPath()', () => {
         const leaf: StructDef = {
             id: 'leaf',
             name: 'Leaf',
-            fields: [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }],
+            fields: [{ name: 'x', type: 'uint8', count: 1 }],
         };
         const mid: StructDef = {
             id: 'mid',
             name: 'Mid',
-            fields: [{ name: 'nodes', type: 'struct', refStructId: 'leaf', count: 4, endian: 'inherit' }],
+            fields: [{ name: 'nodes', type: 'struct', refStructId: 'leaf', count: 4 }],
         };
         const top: StructDef = {
             id: 'top',
             name: 'Top',
-            fields: [{ name: 'wrappers', type: 'struct', refStructId: 'mid', count: 2, endian: 'inherit' }],
+            fields: [{ name: 'wrappers', type: 'struct', refStructId: 'mid', count: 2 }],
         };
 
         S.structs = [leaf, mid, top];
@@ -600,12 +567,12 @@ suite('validateStructs()', () => {
         const a: StructDef = {
             id: 'a',
             name: 'A',
-            fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1, endian: 'inherit' }],
+            fields: [{ name: 'b', type: 'struct', refStructId: 'b', count: 1 }],
         };
         const b: StructDef = {
             id: 'b',
             name: 'B',
-            fields: [{ name: 'a', type: 'struct', refStructId: 'a', count: 1, endian: 'inherit' }],
+            fields: [{ name: 'a', type: 'struct', refStructId: 'a', count: 1 }],
         };
         const errs = validateStructs([a, b], 3);
         assert.ok(errs.some(e => e.includes('cycle')), `errors: ${errs.join(' | ')}`);
@@ -619,8 +586,8 @@ suite('validateStructs()', () => {
                 id: `s${i}`,
                 name: `S${i}`,
                 fields: i === depth
-                    ? [{ name: 'x', type: 'uint8', count: 1, endian: 'inherit' }]
-                    : [{ name: `s${i + 1}`, type: 'struct', refStructId: `s${i + 1}`, count: 1, endian: 'inherit' }],
+                    ? [{ name: 'x', type: 'uint8', count: 1 }]
+                    : [{ name: `s${i + 1}`, type: 'struct', refStructId: `s${i + 1}`, count: 1 }],
             });
         }
         const errs = validateStructs(defs, 32);
@@ -636,7 +603,6 @@ suite('validateStructs()', () => {
                     name: 'flags',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'a', bitWidth: 9 },
                         { name: 'b', bitWidth: 1 },
@@ -682,13 +648,13 @@ suite('allStructs()', () => {
 suite('parseStructText()', () => {
     test('parses uint32_t scalar field', () => {
         const { fields, errors } = parseStructText('uint32_t handler;');
-        assert.deepStrictEqual(fields, [{ name: 'handler', type: 'uint32', count: 1, endian: 'inherit' }]);
+        assert.deepStrictEqual(fields, [{ name: 'handler', type: 'uint32', count: 1 }]);
         assert.strictEqual(errors.length, 0);
     });
 
     test('parses uint8_t array field', () => {
         const { fields, errors } = parseStructText('uint8_t data[16];');
-        assert.deepStrictEqual(fields, [{ name: 'data', type: 'uint8', count: 16, endian: 'inherit' }]);
+        assert.deepStrictEqual(fields, [{ name: 'data', type: 'uint8', count: 16 }]);
         assert.strictEqual(errors.length, 0);
     });
 
@@ -739,24 +705,12 @@ suite('parseStructText()', () => {
         assert.strictEqual(fields[0].type, 'uint32');
     });
 
-    test('endian hint /* be */ sets endian to be', () => {
-        const { fields } = parseStructText('uint32_t reg; /* be */');
-        assert.strictEqual(fields[0].endian, 'be');
-    });
-
-    test('endian hint // le sets endian to le', () => {
-        const { fields } = parseStructText('uint32_t reg; // le');
-        assert.strictEqual(fields[0].endian, 'le');
-    });
-
-    test('endian hint // be sets endian to be', () => {
-        const { fields } = parseStructText('uint32_t reg; // be');
-        assert.strictEqual(fields[0].endian, 'be');
-    });
-
-    test('inherit endian when no hint present', () => {
-        const { fields } = parseStructText('uint32_t reg;');
-        assert.strictEqual(fields[0].endian, 'inherit');
+    test('treats old endian annotations as ordinary comments', () => {
+        for (const text of ['uint32_t reg; /* be */', 'uint32_t reg; // le', 'uint32_t reg; // be']) {
+            const { fields, errors } = parseStructText(text);
+            assert.deepStrictEqual(errors, []);
+            assert.deepStrictEqual(fields, [{ name: 'reg', type: 'uint32', count: 1 }]);
+        }
     });
 
     test('extracts structName from struct wrapper', () => {
@@ -824,38 +778,28 @@ suite('fieldsToText()', () => {
     });
 
     test('uint32_t field emits uint32_t keyword', () => {
-        const f: StructField[] = [{ name: 'handler', type: 'uint32', count: 1, endian: 'inherit' }];
+        const f: StructField[] = [{ name: 'handler', type: 'uint32', count: 1 }];
         assert.ok(fieldsToText(f).includes('uint32_t'));
         assert.ok(fieldsToText(f).includes('handler;'));
     });
 
     test('array field has [N] suffix', () => {
-        const f: StructField[] = [{ name: 'data', type: 'uint8', count: 8, endian: 'inherit' }];
+        const f: StructField[] = [{ name: 'data', type: 'uint8', count: 8 }];
         assert.ok(fieldsToText(f).includes('[8]'));
     });
 
-    test('be endian adds // be comment', () => {
-        const f: StructField[] = [{ name: 'reg', type: 'uint32', count: 1, endian: 'be' }];
-        assert.ok(fieldsToText(f).includes('// be'));
-    });
-
-    test('le endian adds // le comment', () => {
-        const f: StructField[] = [{ name: 'reg', type: 'uint16', count: 1, endian: 'le' }];
-        assert.ok(fieldsToText(f).includes('// le'));
-    });
-
-    test('inherit endian emits no comment', () => {
-        const f: StructField[] = [{ name: 'reg', type: 'uint32', count: 1, endian: 'inherit' }];
-        assert.ok(!fieldsToText(f).includes('/*'));
+    test('emits no field byte-order annotation', () => {
+        const f: StructField[] = [{ name: 'reg', type: 'uint32', count: 1 }];
+        assert.strictEqual(fieldsToText(f), 'uint32_t reg;');
     });
 
     test('float32 maps to float keyword', () => {
-        const f: StructField[] = [{ name: 'temp', type: 'float32', count: 1, endian: 'inherit' }];
+        const f: StructField[] = [{ name: 'temp', type: 'float32', count: 1 }];
         assert.ok(fieldsToText(f).startsWith('float '));
     });
 
     test('float64 maps to double keyword', () => {
-        const f: StructField[] = [{ name: 'val', type: 'float64', count: 1, endian: 'inherit' }];
+        const f: StructField[] = [{ name: 'val', type: 'float64', count: 1 }];
         assert.ok(fieldsToText(f).startsWith('double '));
     });
 
@@ -864,7 +808,6 @@ suite('fieldsToText()', () => {
             name: 'mode',
             type: 'uint16',
             count: 1,
-            endian: 'inherit',
             bitFields: [{ name: 'mode', bitWidth: 3 }],
         }];
         assert.ok(fieldsToText(f).includes('mode:3;'));
@@ -876,17 +819,16 @@ suite('fieldsToText()', () => {
 suite('parseStructText() round-trip', () => {
     test('fields → text → parse produces identical fields', () => {
         const original: StructField[] = [
-            { name: 'sp',   type: 'uint32',  count: 1,  endian: 'inherit' },
+            { name: 'sp',   type: 'uint32',  count: 1 },
             {
                 name: 'mode',
                 type: 'uint16',
                 count: 1,
-                endian: 'inherit',
                 bitFields: [{ name: 'mode', bitWidth: 3 }],
             },
-            { name: 'data', type: 'uint8',   count: 16, endian: 'inherit' },
-            { name: 'temp', type: 'float32', count: 1,  endian: 'be' },
-            { name: 'val',  type: 'int16',   count: 2,  endian: 'le' },
+            { name: 'data', type: 'uint8',   count: 16 },
+            { name: 'temp', type: 'float32', count: 1 },
+            { name: 'val',  type: 'int16',   count: 2 },
         ];
         const text = fieldsToText(original);
         const { fields, errors } = parseStructText(text);
@@ -903,8 +845,8 @@ suite('structToC()', () => {
             id: 'x',
             name: 'S',
             fields: [
-                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },
+                { name: 'a', type: 'uint8', count: 1 },
+                { name: 'b', type: 'uint32', count: 1 },
             ],
         };
         const text = structToC(def, [def]);
@@ -918,8 +860,8 @@ suite('structToC()', () => {
             name: 'S',
             packed: true,
             fields: [
-                { name: 'a', type: 'uint8', count: 1, endian: 'inherit' },
-                { name: 'b', type: 'uint32', count: 1, endian: 'inherit' },
+                { name: 'a', type: 'uint8', count: 1 },
+                { name: 'b', type: 'uint32', count: 1 },
             ],
         };
         const text = structToC(def, [def]);
@@ -933,8 +875,8 @@ suite('structToC()', () => {
             id: 'x',
             name: 'S',
             fields: [
-                { name: 'a', type: 'uint32', count: 1, endian: 'inherit' },
-                { name: 'b', type: 'uint8', count: 1, endian: 'inherit' },
+                { name: 'a', type: 'uint32', count: 1 },
+                { name: 'b', type: 'uint8', count: 1 },
             ],
         };
         const text = structToC(def, [def]);
@@ -951,7 +893,6 @@ suite('structToC()', () => {
                     name: 'flags',
                     type: 'uint16',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'mode', bitWidth: 3 },
                         { name: 'flags', bitWidth: 5 },
@@ -973,7 +914,6 @@ suite('structToC()', () => {
                     name: 'flags',
                     type: 'uint8',
                     count: 1,
-                    endian: 'inherit',
                     bitFields: [
                         { name: 'enabled', bitWidth: 1 },
                         { name: 'error', bitWidth: 1 },

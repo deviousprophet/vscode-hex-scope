@@ -26,6 +26,13 @@ export const S = {
     structs:      [] as StructDef[],           // user-defined struct definitions
     activeStructAddr: null as number | null,   // base address for struct decode
     structPins:   [] as StructPin[],           // saved (structId, addr) overlay instances
+    integrityHighlight: null as null | {
+        rangeStart: number;
+        rangeEnd: number;
+        storedStart?: number;
+        storedLength?: number;
+        status: 'match' | 'mismatch' | 'unverified';
+    },
     sidebarTab:     'inspector' as SidebarTab,  // active sidebar tab
     lockedDueToExternalChange: false as boolean,  // view is locked pending external change action
 };

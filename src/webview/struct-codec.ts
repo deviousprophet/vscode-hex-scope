@@ -8,7 +8,6 @@ import type {
     StructDef,
     StructField,
     StructFieldType,
-    StructFieldEndian,
     StructScalarFieldType,
 } from './types';
 
@@ -267,8 +266,6 @@ function formatStructCycle(stack: string[], byId: Map<string, StructDef>): strin
 export interface DecodedField {
     fieldName: string;
     type: StructScalarFieldType;
-    /** Effective byte endianness used to decode this row. */
-    endian: 'le' | 'be';
     /** Index within the array (0 for scalars). */
     arrayIdx: number;
     byteOffset: number;
@@ -513,7 +510,6 @@ function decodeBitFieldChildren(
             bytesHex,
             decoded: hasData ? bitFieldValueText(unsignedValue, width) : '??',
             hasData,
-            endian,
             isBitField: true,
             bitWidth: width,
             bitOffset: bitPos,
@@ -543,7 +539,6 @@ function decodeAsciiField(
         bytesHex: bytesToHex(raw),
         decoded: hasData ? decodeAsciiBytes(raw) : '??',
         hasData,
-        endian,
     });
     return offset + totalBytes;
 }
@@ -568,7 +563,6 @@ function decodeScalarFieldElement(
         bytesHex: bytesToHex(raw),
         decoded: hasData ? decodeField(raw, field.type, endian) : '??',
         hasData,
-        endian,
     });
 }
 
@@ -635,22 +629,20 @@ function decodeStructRecursive(
     for (const field of def.fields) {
         const align = def.packed ? 1 : fieldAlignWithDefs(field, map, depth);
         const elemSize = fieldSizeWithDefs(field, map, depth);
-        const endian = field.endian === 'inherit' ? globalEndian : field.endian;
-
-        // ── New: named BitField container (uint8/16/32/64 with bitFields[]) ──────
+        // Named BitField container (uint8/16/32/64 with bitFields[])
         if (isBitFieldContainer(field)) {
-            offset = decodeBitFieldContainer(ctx, field, offset, align, endian);
+            offset = decodeBitFieldContainer(ctx, field, offset, align, globalEndian);
             continue;
         }
 
         offset = alignUp(offset, align);
 
         if (field.type === 'ascii') {
-            offset = decodeAsciiField(ctx, field, offset, elemSize, endian);
+            offset = decodeAsciiField(ctx, field, offset, elemSize, globalEndian);
             continue;
         }
 
-        offset = decodeFieldElements(ctx, field, offset, elemSize, endian);
+        offset = decodeFieldElements(ctx, field, offset, elemSize, globalEndian);
     }
 
     if (!def.packed) {
@@ -751,7 +743,7 @@ function appendParsedBitField(
     const unitBits = fieldByteSize(type) * 8;
     const last = fields[fields.length - 1];
     const lastUsedBits = last?.bitFields?.reduce((sum, child) => sum + child.bitWidth, 0) ?? 0;
-    if (last && last.type === type && last.count === 1 && last.endian === 'inherit' &&
+    if (last && last.type === type && last.count === 1 &&
         Array.isArray(last.bitFields) && lastUsedBits + bitWidth <= unitBits) {
         last.bitFields.push({ name, bitWidth });
         return;
@@ -761,7 +753,6 @@ function appendParsedBitField(
         name,
         type,
         count: 1,
-        endian: 'inherit',
         bitFields: [{ name, bitWidth }],
     });
 }
@@ -786,20 +777,11 @@ function preserveMultilineCommentSpacing(text: string): string {
     });
 }
 
-function stripStructLine(rawLine: string): { stripped: string; comment: string } {
-    const blockComMatch = rawLine.match(/\/\*([^*\n]*)\*\//);
-    const blockComment = blockComMatch ? blockComMatch[1].trim() : '';
+function stripStructLine(rawLine: string): string {
     const noBlock = rawLine.replace(/\/\*[^*\n]*\*\//g, '');
     const slashIdx = noBlock.indexOf('//');
-    const lineComment = slashIdx >= 0 ? noBlock.slice(slashIdx + 2).trim() : '';
     const line = (slashIdx >= 0 ? noBlock.slice(0, slashIdx) : noBlock).trim();
-    return { stripped: line.replace(/;$/, '').trim(), comment: lineComment || blockComment };
-}
-
-function endianFromComment(comment: string): StructFieldEndian {
-    if (/\bbe\b/i.test(comment)) { return 'be'; }
-    if (/\ble\b/i.test(comment)) { return 'le'; }
-    return 'inherit';
+    return line.replace(/;$/, '').trim();
 }
 
 function parseBitFieldDeclaration(
@@ -825,7 +807,7 @@ function parseBitFieldDeclaration(
 }
 
 function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
-    const { stripped, comment } = stripStructLine(rawLine);
+    const stripped = stripStructLine(rawLine);
     if (shouldSkipStructDeclaration(stripped)) { return { kind: 'skip' }; }
 
     const parts = parseStructDeclarationParts(stripped);
@@ -842,7 +824,7 @@ function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
 
     return {
         kind: 'field',
-        field: { name: parts.fieldName, type: mapped, count: parts.count, endian: endianFromComment(comment) },
+        field: { name: parts.fieldName, type: mapped, count: parts.count },
     };
 }
 
@@ -918,8 +900,7 @@ export function fieldsToText(fields: StructField[], defs: StructDef[] = allStruc
         }
         const cType = typeNames[i].padEnd(maxTypeLen);
         const arr = f.count > 1 ? `[${f.count}]` : '';
-        const hint = f.endian !== 'inherit' ? `  // ${f.endian}` : '';
-        return `${cType} ${f.name}${arr};${hint}`;
+        return `${cType} ${f.name}${arr};`;
     }).join('\n');
 }
 
@@ -978,11 +959,9 @@ function emitScalarStructFieldC(f: StructField, fieldIndex: number, state: Struc
     const displayFieldName = f.name || `field${fieldIndex}`;
     const arr = f.count > 1 ? `[${f.count}]` : '';
     const fieldBytes = fieldSize * f.count;
-    const endianHint = f.endian !== 'inherit' ? `  /* ${f.endian} */` : '';
-
     state.lines.push(
         `    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
-        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B${endianHint} */`
+        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B */`
     );
     state.offset += fieldBytes;
 }

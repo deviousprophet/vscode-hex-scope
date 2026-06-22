@@ -4,12 +4,21 @@ import { parseIntelHex } from './parser/IntelHexParser';
 import { computeSRecChecksum, parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
 import type { ParseResult } from './parser/types';
 import type { StructDef } from './webview/types';
+import {
+    normalizeIntegrityCheckSet,
+    normalizeIntegrityProfiles,
+    type IntegrityCheckSet,
+    type IntegrityProfile,
+} from './webview/integrity';
+
+const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     public static readonly viewType = 'hexScope.hexEditor';
 
     private static _activePanel: vscode.WebviewPanel | undefined;
+    private readonly _panels = new Set<vscode.WebviewPanel>();
 
     /** Post a message to the currently active HexScope webview, if any. */
     public static postToActive(msg: unknown): void {
@@ -62,12 +71,16 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
+        this._panels.add(webviewPanel);
 
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
 
         const structKey = `hexScope.structs.${document.uri.toString()}`;
-        const globalStructKey = 'hexScope.structs.global.v1';
+        const globalStructKey = 'hexScope.structs.global.v2';
+        const previousGlobalStructKey = 'hexScope.structs.global.v1';
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
+        const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
+        const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
 
         const normalizeStructDefs = (value: unknown): { defs: StructDef[]; changed: boolean } => {
             if (!Array.isArray(value)) { return { defs: [], changed: false }; }
@@ -95,13 +108,18 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         };
 
         const loadStructs = async () => {
-            const globalStructs = this._context.globalState.get<unknown>(globalStructKey, []);
-            const legacyStructs = this._context.workspaceState.get<unknown>(structKey, []);
+            const currentGlobalStructs = this._context.globalState.get<unknown>(globalStructKey);
+            const previousGlobalStructs = this._context.globalState.get<unknown>(previousGlobalStructKey);
+            const globalStructs = currentGlobalStructs ?? migrateStructDefinitions(previousGlobalStructs ?? []);
+            const legacyStructs = migrateStructDefinitions(this._context.workspaceState.get<unknown>(structKey, []));
             let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
             const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
 
-            if (!Array.isArray(globalStructs) || globalChanged) {
+            if (currentGlobalStructs === undefined || !Array.isArray(globalStructs) || globalChanged) {
                 await this._context.globalState.update(globalStructKey, globalArr);
+            }
+            if (previousGlobalStructs !== undefined) {
+                await this._context.globalState.update(previousGlobalStructKey, undefined);
             }
 
             if (legacyArr.length > 0) {
@@ -133,10 +151,54 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             return globalArr;
         };
 
+        const loadIntegrityProfiles = async (): Promise<IntegrityProfile[]> => {
+            const rawProfiles = this._context.globalState.get<unknown>(GLOBAL_INTEGRITY_PROFILES_KEY, []);
+            const normalized = normalizeIntegrityProfiles(rawProfiles);
+            if (JSON.stringify(rawProfiles) !== JSON.stringify(normalized)) {
+                await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, normalized);
+            }
+            return normalized;
+        };
+
+        const loadIntegrityChecks = async (): Promise<IntegrityCheckSet> => {
+            const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
+            const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
+                schemaVersion: 1,
+                checks: [],
+            };
+            if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {
+                await this._context.workspaceState.update(integrityChecksKey, normalized);
+            }
+            return normalized;
+        };
+
+        const loadEndian = (): 'le' | 'be' => {
+            return this._context.workspaceState.get<unknown>(endianKey) === 'be' ? 'be' : 'le';
+        };
+
+        const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
+            const current = await loadIntegrityProfiles();
+            for (const panel of this._panels) {
+                void panel.webview.postMessage({ type: 'integrityProfiles', profiles: current, error });
+            }
+        };
+
+        const sendIntegrityProfileError = async (error: string): Promise<void> => {
+            const current = await loadIntegrityProfiles();
+            await webviewPanel.webview.postMessage({ type: 'integrityProfiles', profiles: current, error });
+        };
+
+        const saveIntegrityProfiles = async (next: IntegrityProfile[]): Promise<void> => {
+            await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, next);
+            await broadcastIntegrityProfiles();
+        };
+
         const postInit = async () => {
             if (!webviewReady || !parseResult) { return; }
             const serialized = serializeParseResult(parseResult, format);
             const structs = await loadStructs();
+            const integrityProfiles = await loadIntegrityProfiles();
+            const integrityChecks = await loadIntegrityChecks();
             
             const msg = {
                 type: 'init',
@@ -144,6 +206,8 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 labels:      this._context.workspaceState.get(labelKey, []),
                 structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
+                endian: loadEndian(),
+                integrityProfiles: { profiles: integrityProfiles, activeChecks: integrityChecks },
             };
             
             webviewPanel.webview.postMessage(msg);
@@ -236,6 +300,54 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             saveStructPins: async msg => {
                 await this._context.workspaceState.update(structPinKey, msg.pins);
             },
+            saveIntegrityChecks: async msg => {
+                const state = normalizeIntegrityCheckSet(msg.state);
+                if (state) { await this._context.workspaceState.update(integrityChecksKey, state); }
+            },
+            saveEndian: async msg => {
+                if (msg.endian === 'le' || msg.endian === 'be') {
+                    await this._context.workspaceState.update(endianKey, msg.endian);
+                }
+            },
+            createIntegrityProfile: async msg => {
+                const profile = normalizeIntegrityProfiles([msg.profile])[0];
+                if (!profile) { await sendIntegrityProfileError('Profile is invalid.'); return; }
+                const current = await loadIntegrityProfiles();
+                if (current.some(item => item.id === profile.id || sameProfileName(item.name, profile.name))) {
+                    await sendIntegrityProfileError(`A profile named “${profile.name}” already exists.`);
+                    return;
+                }
+                await saveIntegrityProfiles([...current, profile]);
+            },
+            updateIntegrityProfile: async msg => {
+                const profile = normalizeIntegrityProfiles([msg.profile])[0];
+                if (!profile) { await sendIntegrityProfileError('Profile is invalid.'); return; }
+                const current = await loadIntegrityProfiles();
+                if (!current.some(item => item.id === profile.id)) {
+                    await sendIntegrityProfileError('Profile no longer exists.');
+                    return;
+                }
+                if (current.some(item => item.id !== profile.id && sameProfileName(item.name, profile.name))) {
+                    await sendIntegrityProfileError(`A profile named “${profile.name}” already exists.`);
+                    return;
+                }
+                await saveIntegrityProfiles(current.map(item => item.id === profile.id ? profile : item));
+            },
+            renameIntegrityProfile: async msg => {
+                const current = await loadIntegrityProfiles();
+                const renamed = renameIntegrityProfiles(current, msg.id, msg.name);
+                if (!renamed.ok) { await sendIntegrityProfileError(renamed.error); return; }
+                await saveIntegrityProfiles(renamed.value);
+            },
+            deleteIntegrityProfile: async msg => {
+                const id = typeof msg.id === 'string' ? msg.id : '';
+                const current = await loadIntegrityProfiles();
+                if (!current.some(item => item.id === id)) {
+                    await sendIntegrityProfileError('Profile no longer exists.');
+                    return;
+                }
+                await saveIntegrityProfiles(current.filter(item => item.id !== id));
+            },
             updateLabelVisibility: async msg => {
                 const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
                 const next = current.map(l =>
@@ -302,6 +414,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         webviewPanel.onDidDispose(() => {
             watcher.dispose();
             clearTimeout(reloadTimer);
+            this._panels.delete(webviewPanel);
             if (HexEditorProvider._activePanel === webviewPanel) {
                 HexEditorProvider._activePanel = undefined;
             }
@@ -350,6 +463,51 @@ ${cssLinks}
 </body>
 </html>`;
     }
+}
+
+function sameProfileName(left: string, right: string): boolean {
+    return left.toLocaleLowerCase() === right.toLocaleLowerCase();
+}
+
+export function migrateStructDefinitions(value: unknown): unknown {
+    if (!Array.isArray(value)) { return value; }
+    return value.map(item => {
+        if (item === null || typeof item !== 'object') { return item; }
+        const def = item as { fields?: unknown };
+        if (!Array.isArray(def.fields)) { return item; }
+        return {
+            ...def,
+            fields: def.fields.map(field => {
+                if (field === null || typeof field !== 'object') { return field; }
+                const clean = { ...field } as Record<string, unknown>;
+                delete clean.endian;
+                return clean;
+            }),
+        };
+    });
+}
+
+function renameIntegrityProfiles(
+    profiles: IntegrityProfile[],
+    rawId: unknown,
+    rawName: unknown,
+): { ok: true; value: IntegrityProfile[] } | { ok: false; error: string } {
+    const id = messageString(rawId);
+    const name = messageString(rawName).trim();
+    if (!validProfileRename(id, name)) { return { ok: false, error: 'Profile name is invalid.' }; }
+    if (!profiles.some(item => item.id === id)) { return { ok: false, error: 'Profile no longer exists.' }; }
+    if (profiles.some(item => item.id !== id && sameProfileName(item.name, name))) {
+        return { ok: false, error: `A profile named “${name}” already exists.` };
+    }
+    return { ok: true, value: profiles.map(item => item.id === id ? { ...item, name } : item) };
+}
+
+function validProfileRename(id: string, name: string): boolean {
+    return id.length > 0 && name.length > 0;
+}
+
+function messageString(value: unknown): string {
+    return typeof value === 'string' ? value : '';
 }
 
 interface SegmentLabel {

@@ -122,23 +122,19 @@
 }
 
 /* ── Multi-byte interpreter ──────────────────────────────────── */
-.endian-tabs {
+.compact-tabs {
     display: flex; gap: 2px;
     background: rgba(0,0,0,.2); border-radius: 3px; padding: 2px;
 }
-.endian-tabs button {
+.compact-tabs button {
     flex: 1; background: transparent; color: var(--addr-fg);
     border: none; border-radius: 2px; padding: 1px 8px; cursor: pointer;
     font-size: 11px; font-family: var(--font-ui); transition: background .1s, color .1s;
 }
-.endian-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
-.endian-tabs button:hover:not(.active) { color: var(--fg); }
+.compact-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
+.compact-tabs button:hover:not(.active) { color: var(--fg); }
 
 /* two-row control area */
-.mi-ctrl-row   { display: flex; align-items: center; justify-content: space-between;
-                 margin-bottom: 6px; }
-.mi-ctrl-lbl   { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
-
 /* zero-pad note */
 .mi-pad-row  { margin-bottom: 5px; }
 .mi-pad-note { font-size: 9px; color: var(--non-graphic); font-style: italic; }

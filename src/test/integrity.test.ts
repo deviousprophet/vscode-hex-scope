@@ -3,7 +3,15 @@ import * as assert from 'assert';
 import {
     calculateIntegrity,
     collectIntegrityBytes,
+    integrityBytesEqual,
+    integrityBytesToValueHex,
+    integrityValueToBytes,
+    isChecksumAlgorithm,
+    mergeIntegrityEdits,
+    normalizeIntegrityCheckSet,
+    normalizeIntegrityProfiles,
     parseIntegrityAddress,
+    readStoredIntegrityBytes,
     type IntegrityAlgorithm,
     validateIntegrityRange,
 } from '../webview/integrity';
@@ -75,5 +83,130 @@ suite('integrity range parsing', () => {
         const edits = new Map([[0x2001, 0xFF]]);
         const bytes = collectIntegrityBytes(request.value, address => edits.get(address) ?? source.get(address));
         assert.deepStrictEqual(bytes, { ok: true, value: new Uint8Array([1, 0xFF, 3]) });
+    });
+
+    test('excludes an overlapping stored field from calculation bytes', () => {
+        const request = validateIntegrityRange('1000', '1005', 'crc32-iso-hdlc');
+        assert.strictEqual(request.ok, true);
+        if (!request.ok) { return; }
+        const bytes = collectIntegrityBytes(
+            request.value,
+            address => address - 0x1000,
+            { startAddress: 0x1002, byteLength: 2 },
+        );
+        assert.deepStrictEqual(bytes, { ok: true, value: new Uint8Array([0, 1, 4, 5]) });
+    });
+
+    test('encodes calculated values in selectable stored byte order', () => {
+        assert.deepStrictEqual(integrityValueToBytes('1234ABCD', 'be'), new Uint8Array([0x12, 0x34, 0xAB, 0xCD]));
+        assert.deepStrictEqual(integrityValueToBytes('1234ABCD', 'le'), new Uint8Array([0xCD, 0xAB, 0x34, 0x12]));
+        assert.strictEqual(integrityBytesToValueHex(new Uint8Array([0x12, 0x34, 0xAB, 0xCD]), 'be'), '1234ABCD');
+        assert.strictEqual(integrityBytesToValueHex(new Uint8Array([0xCD, 0xAB, 0x34, 0x12]), 'le'), '1234ABCD');
+        assert.strictEqual(integrityBytesEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2])), true);
+        assert.strictEqual(integrityBytesEqual(new Uint8Array([1, 2]), new Uint8Array([2, 1])), false);
+    });
+
+    test('reads stored bytes and reports an unmapped stored address', () => {
+        assert.deepStrictEqual(readStoredIntegrityBytes(
+            { startAddress: 0x2000, byteLength: 2 },
+            address => address === 0x2000 ? 0xAA : 0xBB,
+        ), { ok: true, value: new Uint8Array([0xAA, 0xBB]) });
+        assert.deepStrictEqual(readStoredIntegrityBytes(
+            { startAddress: 0x2000, byteLength: 2 },
+            address => address === 0x2000 ? 0xAA : undefined,
+        ), { ok: false, error: 'No mapped stored byte at 0x00002001.' });
+    });
+});
+
+suite('integrity profile normalization', () => {
+    const validProfile = {
+        schemaVersion: 1,
+        id: 'profile-1',
+        name: ' STM32 App ',
+        checks: [{
+            algorithm: 'crc32-iso-hdlc',
+            startAddress: 0x08000000,
+            endAddress: 0x080000FF,
+            storedAddress: 0x08000100,
+            autoFixStoredValue: false,
+        }],
+    };
+
+    test('normalizes valid versioned profiles', () => {
+        const profiles = normalizeIntegrityProfiles([validProfile]);
+        assert.strictEqual(profiles.length, 1);
+        assert.strictEqual(profiles[0].name, 'STM32 App');
+        assert.strictEqual(profiles[0].checks[0].storedAddress, 0x08000100);
+        assert.strictEqual(profiles[0].checks[0].autoFixStoredValue, false);
+    });
+
+    test('drops malformed profiles and case-insensitive duplicate names', () => {
+        const profiles = normalizeIntegrityProfiles([
+            validProfile,
+            { ...validProfile, id: 'profile-2', name: 'stm32 app' },
+            { ...validProfile, id: 'bad-version', schemaVersion: 2 },
+            { ...validProfile, id: 'bad-range', name: 'Bad', checks: [{ ...validProfile.checks[0], endAddress: 1 }] },
+        ]);
+        assert.deepStrictEqual(profiles.map(profile => profile.id), ['profile-1']);
+    });
+
+    test('strips stored verification settings from hash profiles', () => {
+        const profiles = normalizeIntegrityProfiles([{
+            ...validProfile,
+            checks: [{
+                algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x10FF,
+                storedAddress: 0x1100, autoFixStoredValue: true,
+            }],
+        }]);
+        assert.deepStrictEqual(profiles[0].checks[0], {
+            algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x10FF,
+            autoFixStoredValue: false,
+        });
+    });
+
+});
+
+suite('integrity check-set normalization', () => {
+    test('recognizes only CRC algorithms as stored checksums', () => {
+        assert.strictEqual(isChecksumAlgorithm('crc16-ccitt-false'), true);
+        assert.strictEqual(isChecksumAlgorithm('crc32-iso-hdlc'), true);
+        assert.strictEqual(isChecksumAlgorithm('md5'), false);
+        assert.strictEqual(isChecksumAlgorithm('sha-512'), false);
+    });
+    test('accepts empty and configured per-file check sets', () => {
+        assert.deepStrictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, checks: [] }), {
+            schemaVersion: 1, checks: [],
+        });
+        const normalized = normalizeIntegrityCheckSet({
+            schemaVersion: 1,
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x10FF, autoFixStoredValue: true }],
+        });
+        assert.strictEqual(normalized?.checks.length, 1);
+        assert.strictEqual(normalized?.checks[0].autoFixStoredValue, true);
+    });
+
+    test('rejects malformed per-file check sets', () => {
+        assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 2, checks: [] }), null);
+        assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, checks: [{}] }), null);
+        assert.strictEqual(normalizeIntegrityCheckSet({
+            schemaVersion: 1,
+            checks: [{ algorithm: 'crc32-iso-hdlc', startAddress: 0, endAddress: 1 }],
+        }), null);
+    });
+});
+
+suite('integrity edit merging', () => {
+    test('deduplicates compatible overlapping fixes', () => {
+        assert.deepStrictEqual(mergeIntegrityEdits([
+            [[0x1000, 0xAA], [0x1001, 0xBB]],
+            [[0x1001, 0xBB], [0x1002, 0xCC]],
+        ]), { ok: true, value: [[0x1000, 0xAA], [0x1001, 0xBB], [0x1002, 0xCC]] });
+    });
+
+    test('rejects conflicting overlaps atomically', () => {
+        assert.deepStrictEqual(mergeIntegrityEdits([
+            [[0x1000, 0xAA]],
+            [[0x1000, 0xBB]],
+        ]), { ok: false, error: 'Fix all conflict at 0x00001000.' });
     });
 });
