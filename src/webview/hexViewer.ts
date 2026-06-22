@@ -592,7 +592,7 @@ function renderStats(): void {
     const el = document.getElementById('stats-bar');
     if (!el || !S.parseResult) { return; }
     const p = S.parseResult;
-    const fmtLabel = p.format === 'srec' ? 'SREC' : 'IHEX';
+    const fmtLabel = formatLabel(p.format);
 
     const addItem = (label: string | null, value: string, extraClass = ''): void => {
         const item = document.createElement('span');
@@ -618,6 +618,10 @@ function renderStats(): void {
     addItem('Bytes', fmtB(p.totalDataBytes));
     addItem('Records', String(p.recordCount ?? p.records.length));
     addItem('Segments', String(p.segments.length));
+}
+
+function formatLabel(format: 'ihex' | 'srec'): string {
+    return format === 'srec' ? 'SREC' : 'IHEX';
 }
 
 // ── Memory view ───────────────────────────────────────────────────
@@ -1318,15 +1322,20 @@ function updateDirtyBar(): void {
     const dirtySpan = document.getElementById('edit-dirty-count');
     const saveBtn   = document.getElementById('btn-save') as HTMLButtonElement | null;
     if (!dirtySpan || !saveBtn) { return; }
-    dirtySpan.textContent  = count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
+    dirtySpan.textContent  = dirtyEditText(count);
     saveBtn.disabled       = count === 0;
+}
+
+function dirtyEditText(count: number): string {
+    return count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────
 function getSelBytes(): number[] {
-    if (S.selStart === null || S.selEnd === null) { return []; }
+    const range = currentSelectionRange();
+    if (!range) { return []; }
     const out: number[] = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) {
+    for (let a = range.start; a <= range.end; a++) {
         out.push(getByte(a) ?? 0);
     }
     return out;
