@@ -11,7 +11,7 @@ import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } fr
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
 import type { SerializedParseResult, SerializedRecord, SidebarTab } from './types';
-import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './virtualScroll';
 import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
@@ -722,11 +722,7 @@ function calcRecordScrollLayout(recordCount: number, containerHeight: number, ro
 }
 
 function recordPhysicalToLogicalScroll(physicalScrollTop: number, layout: RecordScrollLayout): number {
-    if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
-        return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
-    }
-    const ratio = Math.max(0, Math.min(physicalScrollTop, layout.physicalScrollable)) / layout.physicalScrollable;
-    return ratio * layout.logicalScrollable;
+    return physicalToLogicalScrollForLayout(physicalScrollTop, layout);
 }
 
 function getRecordRowHeight(el: HTMLElement): number {
@@ -1097,11 +1093,8 @@ function updateLockState(): void {
 
 /** Disable all buttons, inputs, and clickable elements when locked. */
 function disableAllInteractiveElements(): void {
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    
-    if (mainArea) {
-        const elements = mainArea.querySelectorAll('button, input, [role="button"]');
+    forEachLockableRoot(root => {
+        const elements = root.querySelectorAll('button, input, [role="button"]');
         elements.forEach(el => {
             const elem = el as HTMLElement;
             elem.setAttribute('data-was-enabled', 'true');
@@ -1109,27 +1102,13 @@ function disableAllInteractiveElements(): void {
                 elem.disabled = true;
             }
         });
-    }
-    
-    if (toolbar) {
-        const elements = toolbar.querySelectorAll('button, input, [role="button"]');
-        elements.forEach(el => {
-            const elem = el as HTMLElement;
-            elem.setAttribute('data-was-enabled', 'true');
-            if (elem instanceof HTMLButtonElement || elem instanceof HTMLInputElement) {
-                elem.disabled = true;
-            }
-        });
-    }
+    });
 }
 
 /** Re-enable all interactive elements that were disabled by lock. */
 function enableAllInteractiveElements(): void {
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    
-    if (mainArea) {
-        const elements = mainArea.querySelectorAll('[data-was-enabled="true"]');
+    forEachLockableRoot(root => {
+        const elements = root.querySelectorAll('[data-was-enabled="true"]');
         elements.forEach(el => {
             const elem = el as HTMLElement;
             elem.removeAttribute('data-was-enabled');
@@ -1137,17 +1116,13 @@ function enableAllInteractiveElements(): void {
                 elem.disabled = false;
             }
         });
-    }
-    
-    if (toolbar) {
-        const elements = toolbar.querySelectorAll('[data-was-enabled="true"]');
-        elements.forEach(el => {
-            const elem = el as HTMLElement;
-            elem.removeAttribute('data-was-enabled');
-            if (elem instanceof HTMLButtonElement || elem instanceof HTMLInputElement) {
-                elem.disabled = false;
-            }
-        });
+    });
+}
+
+function forEachLockableRoot(callback: (root: HTMLElement) => void): void {
+    for (const id of ['main-area', 'toolbar']) {
+        const root = document.getElementById(id);
+        if (root) { callback(root); }
     }
 }
 

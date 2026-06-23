@@ -123,6 +123,10 @@ export function calcScrollLayout(state: VirtualScrollState, maxPhysicalHeight = 
 
 export function physicalToLogicalScroll(physicalScrollTop: number, state: VirtualScrollState): number {
     const layout = calcScrollLayout(state);
+    return physicalToLogicalScrollForLayout(physicalScrollTop, layout);
+}
+
+export function physicalToLogicalScrollForLayout(physicalScrollTop: number, layout: VirtualScrollLayout): number {
     if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
         return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
     }
