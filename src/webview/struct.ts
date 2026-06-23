@@ -1316,8 +1316,7 @@ function renderAsciiValue(r: DecodedField, valType: ColType, bytes: number[]): s
 }
 
 function renderIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
-    if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
-    const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
+    const parts = getFloatPartsForField(r, bytes, endian);
     if (!parts) { return '??'; }
     return (
         `<pre class="si-ieee">` +
@@ -1454,10 +1453,14 @@ function hexPadBig(v: bigint, pad: number): string {
 }
 
 function copyIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
-    if (r.type !== 'float32' && r.type !== 'float64') { return r.decoded; }
-    const parts = getFloatParts(bytes, r.type as 'float32' | 'float64', endian);
+    const parts = getFloatPartsForField(r, bytes, endian);
     if (!parts) { return '??'; }
     return `sign: ${parts.sign}; exponent: ${parts.exponentHex}; mantissa: ${parts.mantissaHex}; class: ${parts.className}`;
+}
+
+function getFloatPartsForField(r: DecodedField, bytes: number[], endian: 'le' | 'be'): ReturnType<typeof getFloatParts> {
+    if (r.type !== 'float32' && r.type !== 'float64') { return null; }
+    return getFloatParts(bytes, r.type, endian);
 }
 
 const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
@@ -2999,26 +3002,14 @@ function showFieldValMenu(
             sep +
             sub('View as', 'disp', dispMenu);
         document.body.appendChild(el);
-        const mw = el.offsetWidth || 200; const mh = el.offsetHeight || 80;
-        el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
-        el.style.top  = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+        positionContextMenu(el, x, y);
         el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row => {
             row.addEventListener('click', ev => {
                 ev.stopPropagation();
                 const cmd = row.dataset.cmd!;
                 if (cmd === 'copy-addr') {
                     const addrStr = `0x${bs.toString(16).toUpperCase().padStart(8, '0')}`;
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(addrStr).catch(() => {
-                            const ta = document.createElement('textarea');
-                            ta.value = addrStr; document.body.appendChild(ta); ta.select();
-                            document.execCommand('copy'); ta.remove();
-                        });
-                    } else {
-                        const ta = document.createElement('textarea');
-                        ta.value = addrStr; document.body.appendChild(ta); ta.select();
-                        document.execCommand('copy'); ta.remove();
-                    }
+                    copyTextToClipboard(addrStr);
                     hideFieldValMenu();
                     return;
                 }
@@ -3051,42 +3042,20 @@ function showFieldValMenu(
         el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
         el.innerHTML = item('copy-hex', 'Copy value');
         document.body.appendChild(el);
-        const mw = el.offsetWidth || 180; const mh = el.offsetHeight || 60;
-        el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
-        el.style.top  = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+        positionContextMenu(el, x, y);
         el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row => {
             row.addEventListener('click', ev => {
                 ev.stopPropagation();
                 // Always copy as hex address
-                let pin: StructPin | undefined;
                 const all = allStructs();
-                if (typeof pinIdx === 'number' && pinIdx >= 0) {
-                    pin = S.structPins[pinIdx];
-                } else {
-                    pin = S.structPins.find(p => {
-                        const def = all.find(d => d.id === p.structId);
-                        if (!def) { return false; }
-                        const size = structByteSize(def);
-                        return bs >= p.addr && bs < p.addr + size;
-                    });
-                }
+                const pin = findCopySourcePin(bs, pinIdx, all);
                 if (!pin) { hideFieldValMenu(); return; }
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
                 const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
                 const r = findFieldForKey(rows, bs - pin.addr, opts?.valKey);
                 const toCopy = r ? singleLineCopyText(getCopyText(r, 'hex')) : '??';
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(toCopy).catch(() => {
-                        const ta = document.createElement('textarea');
-                        ta.value = toCopy; document.body.appendChild(ta); ta.select();
-                        document.execCommand('copy'); ta.remove();
-                    });
-                } else {
-                    const ta = document.createElement('textarea');
-                    ta.value = toCopy; document.body.appendChild(ta); ta.select();
-                    document.execCommand('copy'); ta.remove();
-                }
+                copyTextToClipboard(toCopy);
                 hideFieldValMenu();
                 return;
             });
@@ -3128,18 +3097,8 @@ function showFieldValMenu(
             // Copy actions
             if (cmd.startsWith('copy-')) {
                 const t = cmd.replace('copy-', '') as ColType;
-                let pin: StructPin | undefined;
                 const all = allStructs();
-                if (typeof pinIdx === 'number' && pinIdx >= 0) {
-                    pin = S.structPins[pinIdx];
-                } else {
-                    pin = S.structPins.find(p => {
-                        const def = all.find(d => d.id === p.structId);
-                        if (!def) { return false; }
-                        const size = structByteSize(def);
-                        return bs >= p.addr && bs < p.addr + size;
-                    });
-                }
+                const pin = findCopySourcePin(bs, pinIdx, all);
                 if (!pin) { hideFieldValMenu(); return; }
                 const def = all.find(d => d.id === pin!.structId);
                 if (!def) { hideFieldValMenu(); return; }
@@ -3154,17 +3113,7 @@ function showFieldValMenu(
                         const r = findFieldForKey(rows, bs - pin!.addr, opts?.valKey);
                         return r ? singleLineCopyText(getCopyText(r, t)) : '??';
                       })();
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(toCopy).catch(() => {
-                        const ta = document.createElement('textarea');
-                        ta.value = toCopy; document.body.appendChild(ta); ta.select();
-                        document.execCommand('copy'); ta.remove();
-                    });
-                } else {
-                    const ta = document.createElement('textarea');
-                    ta.value = toCopy; document.body.appendChild(ta); ta.select();
-                    document.execCommand('copy'); ta.remove();
-                }
+                copyTextToClipboard(toCopy);
                 hideFieldValMenu();
                 return;
             }
@@ -3194,6 +3143,35 @@ function showFieldValMenu(
 }
 function wireStructSubmenus(menuEl: HTMLElement): void {
     wireHoverSubmenus(menuEl);
+}
+
+function findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructDef[]): StructPin | undefined {
+    if (typeof pinIdx === 'number' && pinIdx >= 0) {
+        return S.structPins[pinIdx];
+    }
+    return S.structPins.find(p => {
+        const def = defs.find(d => d.id === p.structId);
+        if (!def) { return false; }
+        const size = structByteSize(def);
+        return bs >= p.addr && bs < p.addr + size;
+    });
+}
+
+function copyTextToClipboard(text: string): void {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+    } else {
+        fallbackCopyText(text);
+    }
+}
+
+function fallbackCopyText(text: string): void {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
 }
 
 // ── Selection sync ────────────────────────────────────────────────
