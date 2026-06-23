@@ -14,6 +14,56 @@ export function fmtB(b: number): string {
     return `${(b / 1_048_576).toFixed(1)} MB`;
 }
 
+export function positionContextMenu(el: HTMLElement, x: number, y: number): void {
+    el.style.display = 'block';
+    const mw = el.offsetWidth || 220;
+    const mh = el.offsetHeight || 120;
+    el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
+    el.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+}
+
+export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = false): void {
+    let closeTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSub: HTMLElement | null = null;
+
+    const openSub = (sub: HTMLElement, row: HTMLElement) => {
+        if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+        if (activeSub && activeSub !== sub) { activeSub.style.display = 'none'; }
+        activeSub = sub;
+        sub.style.display = 'block';
+        const rr = row.getBoundingClientRect();
+        const sw = sub.offsetWidth || 220;
+        if (rr.right + sw > window.innerWidth - 8) {
+            sub.style.left = 'auto'; sub.style.right = '100%';
+        } else {
+            sub.style.left = '100%'; sub.style.right = 'auto';
+        }
+    };
+
+    const scheduledClose = (sub: HTMLElement) => {
+        closeTimer = setTimeout(() => {
+            if (keepOpenWhenFocused && sub.contains(document.activeElement)) { return; }
+            sub.style.display = 'none';
+            if (activeSub === sub) { activeSub = null; }
+        }, 100);
+    };
+
+    menuEl.querySelectorAll<HTMLElement>('.ctx-has-sub').forEach(row => {
+        const sub = row.querySelector<HTMLElement>('.ctx-submenu');
+        if (!sub) { return; }
+        row.addEventListener('mouseenter', () => openSub(sub, row));
+        row.addEventListener('mouseleave', e => {
+            if (!sub.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
+        });
+        sub.addEventListener('mouseenter', () => {
+            if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+        });
+        sub.addEventListener('mouseleave', e => {
+            if (!row.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
+        });
+    });
+}
+
 /** CSS class for a hex byte cell based on its value. */
 function isPrintableByte(v: number): boolean {
     return v >= 0x20 && v < 0x7F;
