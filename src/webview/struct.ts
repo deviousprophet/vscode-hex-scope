@@ -1463,6 +1463,14 @@ function getFloatPartsForField(r: DecodedField, bytes: number[], endian: 'le' | 
     return getFloatParts(bytes, r.type, endian);
 }
 
+function implicitDisplayType(field: DecodedField | null | undefined, forceBinary = false): ColType {
+    if (forceBinary || (field && isBitFieldRow(field))) { return 'bin'; }
+    const fieldType = field?.type ?? null;
+    if (fieldType === 'float32' || fieldType === 'float64') { return 'dec'; }
+    if (fieldType === 'ascii') { return 'ascii'; }
+    return _defaultValType;
+}
+
 const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
     uint8:  (valType, dv)     => { const v = dv.getUint8(0);            return valType === 'hex' ? hexPad(v, 2) : String(v); },
     int8:   (valType, dv)     => { const v = dv.getInt8(0);             return valType === 'hex' ? hexPad(dv.getUint8(0), 2) : String(v); },
@@ -2452,46 +2460,15 @@ function wireInstanceCards(sec: HTMLElement): void {
 
         expBtn.addEventListener('click', e => {
             e.stopPropagation();
-            const grp  = hdr.closest<HTMLElement>('.si-arr-grp')!;
-            const key  = grp.dataset.arrKey!;
-            const body = grp.querySelector<HTMLElement>('.si-arr-grp-body')!;
-            const isOpen = _expandedArrayFields.has(key);
-            if (isOpen) {
-                _expandedArrayFields.delete(key);
-                grp.classList.remove('open');
-                body.style.display = 'none';
-                expBtn.textContent = '▸';
-                syncCompositeHeaderOffset(hdr, false);
-            } else {
-                _expandedArrayFields.add(key);
-                grp.classList.add('open');
-                body.style.display = '';
-                expBtn.textContent = '▾';
-                syncCompositeHeaderOffset(hdr, true);
-            }
+            toggleCompositeGroup(hdr, expBtn, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', _expandedArrayFields);
         });
 
-        hdr.addEventListener('mouseenter', () => {
-            for (let i = 0; i < cnt; i++) {
-                const ah = (start + i).toString(16).toUpperCase().padStart(8, '0');
-                document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
-                    .forEach(el => el.classList.add('struct-h'));
-            }
-        });
-        hdr.addEventListener('mouseleave', () => {
-            document.querySelectorAll<HTMLElement>('.struct-h')
-                .forEach(el => el.classList.remove('struct-h'));
-        });
+        wireStructHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
             if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
             if (isBitUnitHdr) { return; }
-            clearArrSep();
-            clearSelRow();
-            _selectedBitRange = null;
-            _hoveredBitRange = null;
-            _selectedBitRowKey = null;
-            _hoveredBitRowKey = null;
+            clearStructSelectionVisuals();
             if (isNaN(start) || isNaN(cnt)) { return; }
             const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
             _selectedArrKey    = grp.dataset.arrKey!;
@@ -2500,31 +2477,11 @@ function wireInstanceCards(sec: HTMLElement): void {
             // Mark each nested element's first byte (except element 0) for visual separation.
             const elementHeaders = grp.querySelectorAll<HTMLElement>('.si-arr-el-hdr');
             if (elementHeaders.length > 0) {
-                Array.from(elementHeaders).forEach((elHdr, i) => {
-                    if (i === 0) { return; }
-                    const bs = parseInt(elHdr.dataset.byteStart!);
-                    if (isNaN(bs)) { return; }
-                    _arrSepAddrs.push(bs);
-                    const ah = bs.toString(16).toUpperCase().padStart(8, '0');
-                    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
-                        .forEach(el => el.classList.add('struct-arr-sep'));
-                });
+                markArraySeparators(Array.from(elementHeaders));
             } else {
-                grp.querySelectorAll<HTMLElement>('.si-field').forEach((row, i) => {
-                    if (i === 0) { return; }
-                    const bs = parseInt(row.dataset.byteStart!);
-                    if (isNaN(bs)) { return; }
-                    _arrSepAddrs.push(bs);
-                    const ah = bs.toString(16).toUpperCase().padStart(8, '0');
-                    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
-                        .forEach(el => el.classList.add('struct-arr-sep'));
-                });
+                markArraySeparators(Array.from(grp.querySelectorAll<HTMLElement>('.si-field')));
             }
-            S.selStart = start;
-            S.selEnd   = start + cnt - 1;
-            hdr.classList.add('si-selected');
-            import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-            import('./sidebar.js').then(m => m.updateInspector());
+            selectStructRange(hdr, start, cnt);
         });
     });
 
@@ -2536,54 +2493,19 @@ function wireInstanceCards(sec: HTMLElement): void {
 
         expBtn.addEventListener('click', e => {
             e.stopPropagation();
-            const grp = hdr.closest<HTMLElement>('.si-arr-el-grp')!;
-            const key = grp.dataset.arrElKey!;
-            const body = grp.querySelector<HTMLElement>('.si-arr-el-body')!;
-            const isOpen = _expandedArrayElements.has(key);
-            if (isOpen) {
-                _expandedArrayElements.delete(key);
-                grp.classList.remove('open');
-                body.style.display = 'none';
-                expBtn.textContent = '▸';
-                syncCompositeHeaderOffset(hdr, false);
-            } else {
-                _expandedArrayElements.add(key);
-                grp.classList.add('open');
-                body.style.display = '';
-                expBtn.textContent = '▾';
-                syncCompositeHeaderOffset(hdr, true);
-            }
+            toggleCompositeGroup(hdr, expBtn, '.si-arr-el-grp', '.si-arr-el-body', 'arrElKey', _expandedArrayElements);
         });
 
-        hdr.addEventListener('mouseenter', () => {
-            for (let i = 0; i < cnt; i++) {
-                const ah = (start + i).toString(16).toUpperCase().padStart(8, '0');
-                document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
-                    .forEach(el => el.classList.add('struct-h'));
-            }
-        });
-        hdr.addEventListener('mouseleave', () => {
-            document.querySelectorAll<HTMLElement>('.struct-h')
-                .forEach(el => el.classList.remove('struct-h'));
-        });
+        wireStructHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
             if ((e.target as HTMLElement).closest('.si-arr-el-exp-btn')) { return; }
-            clearArrSep();
-            clearSelRow();
-            _selectedBitRange = null;
-            _hoveredBitRange = null;
-            _selectedBitRowKey = null;
-            _hoveredBitRowKey = null;
+            clearStructSelectionVisuals();
             if (isNaN(start) || isNaN(cnt)) { return; }
             _selectedArrElemKey = hdr.dataset.arrElKey!;
             _selectedArrKey = null;
             _selectedFieldAddr = null;
-            S.selStart = start;
-            S.selEnd   = start + cnt - 1;
-            hdr.classList.add('si-selected');
-            import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-            import('./sidebar.js').then(m => m.updateInspector());
+            selectStructRange(hdr, start, cnt);
         });
     });
 
@@ -2962,10 +2884,7 @@ function showFieldValMenu(
         const vals = bsList.map((b, idx) => {
             const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
             const field = findFieldAt(b);
-            const ft = field?.type ?? null;
-            const implicit = (listKey.startsWith('bitunit:') || (field && isBitFieldRow(field)))
-                ? 'bin'
-                : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
+            const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
             return _fieldValTypes.get(listKey) ?? implicit;
         });
         const allSame = vals.every(v => v === vals[0]);
@@ -3018,10 +2937,7 @@ function showFieldValMenu(
                     bsList.forEach((b, idx) => {
                         const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
                         const field = findFieldAt(b);
-                        const ft = field?.type ?? null;
-                        const implicit = (listKey.startsWith('bitunit:') || (field && isBitFieldRow(field)))
-                            ? 'bin'
-                            : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
+                        const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
                         if (t === implicit) { _fieldValTypes.delete(listKey); }
                         else { _fieldValTypes.set(listKey, t); }
                     });
@@ -3121,10 +3037,7 @@ function showFieldValMenu(
             if (cmd.startsWith('disp-')) {
                 const t = cmd.replace('disp-', '') as ColType;
                 const field = findFieldAt(bs);
-                const ft = field?.type ?? null;
-                const implicit = opts?.isBitUnitHeader || (field && isBitFieldRow(field))
-                    ? 'bin'
-                    : (ft === 'float32' || ft === 'float64') ? 'dec' : (ft === 'ascii' ? 'ascii' : _defaultValType);
+                const implicit = implicitDisplayType(field, !!opts?.isBitUnitHeader);
                 if (t === implicit) { _fieldValTypes.delete(key); }
                 else { _fieldValTypes.set(key, t); }
                 hideFieldValMenu();
@@ -3163,6 +3076,78 @@ function copyTextToClipboard(text: string): void {
     } else {
         fallbackCopyText(text);
     }
+}
+
+function toggleCompositeGroup(
+    hdr: HTMLElement,
+    expBtn: HTMLElement,
+    groupSelector: string,
+    bodySelector: string,
+    keyName: string,
+    expandedKeys: Set<string>,
+): void {
+    const grp = hdr.closest<HTMLElement>(groupSelector)!;
+    const key = grp.dataset[keyName]!;
+    const body = grp.querySelector<HTMLElement>(bodySelector)!;
+    const isOpen = expandedKeys.has(key);
+    if (isOpen) {
+        expandedKeys.delete(key);
+        grp.classList.remove('open');
+        body.style.display = 'none';
+        expBtn.textContent = '▸';
+        syncCompositeHeaderOffset(hdr, false);
+        return;
+    }
+    expandedKeys.add(key);
+    grp.classList.add('open');
+    body.style.display = '';
+    expBtn.textContent = '▾';
+    syncCompositeHeaderOffset(hdr, true);
+}
+
+function wireStructHoverRange(el: HTMLElement, start: number, count: number): void {
+    el.addEventListener('mouseenter', () => {
+        for (let i = 0; i < count; i++) {
+            highlightAddress(start + i, 'struct-h');
+        }
+    });
+    el.addEventListener('mouseleave', () => {
+        document.querySelectorAll<HTMLElement>('.struct-h')
+            .forEach(node => node.classList.remove('struct-h'));
+    });
+}
+
+function highlightAddress(addr: number, className: string): void {
+    const ah = addr.toString(16).toUpperCase().padStart(8, '0');
+    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`)
+        .forEach(el => el.classList.add(className));
+}
+
+function clearStructSelectionVisuals(): void {
+    clearArrSep();
+    clearSelRow();
+    _selectedBitRange = null;
+    _hoveredBitRange = null;
+    _selectedBitRowKey = null;
+    _hoveredBitRowKey = null;
+}
+
+function markArraySeparators(rows: HTMLElement[]): void {
+    rows.forEach((row, i) => {
+        if (i === 0) { return; }
+        const bs = parseInt(row.dataset.byteStart!);
+        if (isNaN(bs)) { return; }
+        _arrSepAddrs.push(bs);
+        highlightAddress(bs, 'struct-arr-sep');
+    });
+}
+
+function selectStructRange(el: HTMLElement, start: number, count: number): void {
+    S.selStart = start;
+    S.selEnd = start + count - 1;
+    el.classList.add('si-selected');
+    import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    import('./sidebar.js').then(m => m.updateInspector());
 }
 
 function fallbackCopyText(text: string): void {
