@@ -20,19 +20,20 @@ export function renderInspector(): void {
            <div id="insp-multi"></div>
          </div>`;
 
-    // Collapsible: expanded by default
-    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
+    applyCollapsibleSection(sec, false);
+}
+
+function applyCollapsibleSection(sec: HTMLElement, defaultCollapsed: boolean): void {
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = String(defaultCollapsed); }
     sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
 
-    // Header toggles collapse state
     const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-    if (hdr) {
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
-    }
+    if (!hdr) { return; }
+    hdr.addEventListener('click', () => {
+        const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+        sec.dataset.collapsed = now;
+        sec.classList.toggle('collapsed', now === 'true');
+    });
 }
 
 function inspectorSelectionLength(): number {
@@ -163,19 +164,7 @@ export function renderBits(val?: number): void {
             `<span class="bit-pc">${pc}/8 bits set</span></div>`;
     }
 
-    // Persist collapsed state on the section element; default collapsed
-    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
-    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
-
-    // Header toggles collapse state
-    const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-    if (hdr) {
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
-    }
+    applyCollapsibleSection(sec, true);
 
     wireBitColHover();
 }

@@ -25,6 +25,12 @@ function getTopStructFieldHeaders(): string[] {
         .map(el => el.textContent ?? '');
 }
 
+function openValueMenuLabels(target: HTMLElement, dom: JSDOM): string[] {
+    target.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+    return Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
+        .map(el => el.textContent ?? '');
+}
+
 suite('struct UI array header summary', () => {
     let dom: JSDOM;
 
@@ -785,9 +791,7 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(parentValue!.dataset.valType, 'bin', 'bit-field parent should default to full binary');
         assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00110011', 'full binary should show the complete u8 storage range');
 
-        bitHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
-            .map(el => el.textContent ?? '');
+        const labels = openValueMenuLabels(bitHeader!, dom);
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
         assert.ok(labels.includes('Binary (bit fields only)'), 'View as should include bit-fields-only binary');
 
@@ -850,10 +854,7 @@ suite('struct UI array header summary', () => {
 
         const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
         assert.ok(bitHeader, 'bit-field parent header should render');
-        bitHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-
-        const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
-            .map(el => el.textContent ?? '');
+        const labels = openValueMenuLabels(bitHeader!, dom);
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
         assert.ok(!labels.includes('Binary (bit fields only)'), 'View as should omit bit-fields-only binary when it matches full range');
     });

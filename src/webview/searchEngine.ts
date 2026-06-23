@@ -85,16 +85,9 @@ class SearchEngine {
 
         const cursor: SearchCursor = { segmentIndex: 0, offset: 0 };
         const progress = createSearchProgress(segments);
-
-        const step = (): void => {
-            if (token !== this.token) { return; }
-
-            progress.scanned += scanByteSearchChunk(segments, needles, needleLen, cursor, matches);
-            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segments.length);
-            this.continueOrCompleteSearch(token, cursor, segments.length, step, handlers, matches);
-        };
-
-        step();
+        this.runChunkedSearch(token, segments.length, cursor, progress, handlers, matches, () =>
+            scanByteSearchChunk(segments, needles, needleLen, cursor, matches)
+        );
     }
 
     /**
@@ -115,13 +108,26 @@ class SearchEngine {
         const progress = createSearchProgress(segments);
 
         const bounds = buildAddressSearchBounds(query);
+        this.runChunkedSearch(token, segments.length, cursor, progress, handlers, matches, () =>
+            scanAddressSearchChunk(segments, bounds, cursor, matches)
+        );
+    }
 
+    private runChunkedSearch(
+        token: number,
+        segmentCount: number,
+        cursor: SearchCursor,
+        progress: SearchProgressState,
+        handlers: SearchHandlers,
+        matches: number[],
+        scanNextChunk: () => number,
+    ): void {
         const step = (): void => {
             if (token !== this.token) { return; }
 
-            progress.scanned += scanAddressSearchChunk(segments, bounds, cursor, matches);
-            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segments.length);
-            this.continueOrCompleteSearch(token, cursor, segments.length, step, handlers, matches);
+            progress.scanned += scanNextChunk();
+            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segmentCount);
+            this.continueOrCompleteSearch(token, cursor, segmentCount, step, handlers, matches);
         };
 
         step();
