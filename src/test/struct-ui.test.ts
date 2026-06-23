@@ -20,6 +20,11 @@ function elementText(element: Element | null): string {
     return element?.textContent ?? '';
 }
 
+function getTopStructFieldHeaders(): string[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
+        .map(el => el.textContent ?? '');
+}
+
 suite('struct UI array header summary', () => {
     let dom: JSDOM;
 
@@ -319,8 +324,7 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
-            .map(el => el.textContent ?? '');
+        const topHeaders = getTopStructFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['wrap'], 'struct field should render as a composite node header even with one leaf child');
 
         const leafAtTop = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field .si-f-name'))
@@ -1290,8 +1294,7 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
-            .map(el => el.textContent ?? '');
+        const topHeaders = getTopStructFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['field0', 'data', 'field1'], 'mixed sibling groups should keep their declared order and names');
 
         const dataGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2)');
