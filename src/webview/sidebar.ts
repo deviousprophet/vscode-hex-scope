@@ -502,10 +502,7 @@ export function renderLabels(): void {
             const id     = el.dataset.id!;
             const hidden = el.dataset.hidden === '1' ? false : true;
             S.labels = S.labels.map(l => l.id === id ? { ...l, hidden } : l);
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -517,10 +514,7 @@ export function renderLabels(): void {
             const next = [...S.labels];
             [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
             S.labels = next;
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -532,10 +526,7 @@ export function renderLabels(): void {
             const next = [...S.labels];
             [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
             S.labels = next;
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -556,6 +547,13 @@ export function renderLabels(): void {
 
 function labelBadgeHtml(): string {
     return S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
+}
+
+function persistLabelsAndRender(): void {
+    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
 }
 
 // ── Label inline form ─────────────────────────────────────────────
