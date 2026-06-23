@@ -645,6 +645,24 @@ function wireEditorInSec(sec: HTMLElement): void {
         if (pre) { renderStructCPreview(pre, d); }
     }
 
+    function syncedFieldForButton(btn: HTMLElement): { row: HTMLElement; idx: number; field: StructField | undefined } {
+        const row = btn.closest<HTMLElement>('.struct-field-row')!;
+        syncEditorDraft(sec, draft);
+        const idx = parseInt(row.dataset.idx!);
+        return { row, idx, field: draft.fields[idx] };
+    }
+
+    type StructFieldWithBits = StructField & { bitFields: NonNullable<StructField['bitFields']> };
+    function syncedBitFieldChild(btn: HTMLElement): { childRow: HTMLElement; field: StructFieldWithBits; childIdx: number } | null {
+        const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
+        const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
+        syncEditorDraft(sec, draft);
+        const idx = parseInt(parentRow.dataset.idx!);
+        const field = draft.fields[idx];
+        if (!field?.bitFields) { return null; }
+        return { childRow, field: field as StructFieldWithBits, childIdx: parseInt(childRow.dataset.childIdx!) };
+    }
+
     sec.querySelector('#se-add')!.addEventListener('click', () => {
         syncEditorDraft(sec, draft);
         _editorError = null;
@@ -664,9 +682,8 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLElement>('.sfe-move-up').forEach(btn => {
         btn.addEventListener('click', () => {
-            syncEditorDraft(sec, draft);
+            const { idx } = syncedFieldForButton(btn);
             _editorError = null;
-            const idx = parseInt(btn.closest<HTMLElement>('.struct-field-row')!.dataset.idx!);
             if (idx > 0) {
                 [draft.fields[idx - 1], draft.fields[idx]] = [draft.fields[idx], draft.fields[idx - 1]];
                 renderStructPins();
@@ -676,9 +693,8 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLElement>('.sfe-move-dn').forEach(btn => {
         btn.addEventListener('click', () => {
-            syncEditorDraft(sec, draft);
+            const { idx } = syncedFieldForButton(btn);
             _editorError = null;
-            const idx = parseInt(btn.closest<HTMLElement>('.struct-field-row')!.dataset.idx!);
             if (idx < draft.fields.length - 1) {
                 [draft.fields[idx], draft.fields[idx + 1]] = [draft.fields[idx + 1], draft.fields[idx]];
                 renderStructPins();
@@ -712,10 +728,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     // ── Bit-field :N toggle button ─────────────────────────────────
     sec.querySelectorAll<HTMLElement>('.sfe-bit-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const row = btn.closest<HTMLElement>('.struct-field-row')!;
-            syncEditorDraft(sec, draft);
-            const idx = parseInt(row.dataset.idx!);
-            const f = draft.fields[idx];
+            const { row, field: f } = syncedFieldForButton(btn);
             if (!f) { return; }
             const isOn = btn.classList.contains('sfe-bit-btn-on');
             if (isOn) {
@@ -742,10 +755,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     // ── Bit-field child: add ────────────────────────────────────
     sec.querySelectorAll<HTMLElement>('.sfe-bf-add-child').forEach(btn => {
         btn.addEventListener('click', () => {
-            const row = btn.closest<HTMLElement>('.struct-field-row')!;
-            syncEditorDraft(sec, draft);
-            const idx = parseInt(row.dataset.idx!);
-            const f = draft.fields[idx];
+            const { field: f } = syncedFieldForButton(btn);
             if (!f) { return; }
             if (!f.bitFields) { f.bitFields = []; }
             const nextIdx = f.bitFields.length;
@@ -757,13 +767,9 @@ function wireEditorInSec(sec: HTMLElement): void {
     // ── Bit-field child: delete ─────────────────────────────────
     sec.querySelectorAll<HTMLElement>('.sfe-bf-del-child').forEach(btn => {
         btn.addEventListener('click', () => {
-            const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
-            const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
-            syncEditorDraft(sec, draft);
-            const idx = parseInt(parentRow.dataset.idx!);
-            const f = draft.fields[idx];
-            if (!f?.bitFields) { return; }
-            const ci = parseInt(childRow.dataset.childIdx!);
+            const child = syncedBitFieldChild(btn);
+            if (!child) { return; }
+            const { field: f, childIdx: ci } = child;
             f.bitFields.splice(ci, 1);
             if (f.bitFields.length === 0) {
                 // Empty containers auto-recover with a 1-bit child.
@@ -776,13 +782,9 @@ function wireEditorInSec(sec: HTMLElement): void {
     // ── Bit-field child: reorder up ─────────────────────────────
     sec.querySelectorAll<HTMLElement>('.sfe-bf-child-row .sfe-move-up').forEach(btn => {
         btn.addEventListener('click', () => {
-            const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
-            const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
-            syncEditorDraft(sec, draft);
-            const idx = parseInt(parentRow.dataset.idx!);
-            const f = draft.fields[idx];
-            if (!f?.bitFields) { return; }
-            const ci = parseInt(childRow.dataset.childIdx!);
+            const child = syncedBitFieldChild(btn);
+            if (!child) { return; }
+            const { field: f, childIdx: ci } = child;
             if (ci > 0) {
                 [f.bitFields[ci - 1], f.bitFields[ci]] = [f.bitFields[ci], f.bitFields[ci - 1]];
                 renderStructPins();
@@ -793,13 +795,9 @@ function wireEditorInSec(sec: HTMLElement): void {
     // ── Bit-field child: reorder down ───────────────────────────
     sec.querySelectorAll<HTMLElement>('.sfe-bf-child-row .sfe-move-dn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
-            const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
-            syncEditorDraft(sec, draft);
-            const idx = parseInt(parentRow.dataset.idx!);
-            const f = draft.fields[idx];
-            if (!f?.bitFields) { return; }
-            const ci = parseInt(childRow.dataset.childIdx!);
+            const child = syncedBitFieldChild(btn);
+            if (!child) { return; }
+            const { field: f, childIdx: ci } = child;
             if (ci < f.bitFields.length - 1) {
                 [f.bitFields[ci], f.bitFields[ci + 1]] = [f.bitFields[ci + 1], f.bitFields[ci]];
                 renderStructPins();

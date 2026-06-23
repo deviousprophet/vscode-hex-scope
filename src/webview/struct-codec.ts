@@ -470,8 +470,7 @@ function decodeBitFieldContainer(
     const alignedOffset = alignUp(offset, align);
 
     for (let idx = 0; idx < field.count; idx++) {
-        const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
-        const fieldPath = joinFieldPath(ctx.pathPrefix, elementName);
+        const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + alignedOffset + idx * unitBytes;
         decodeBitFieldChildren(ctx, field, fieldPath, idx, absOffset, unitBytes, unitBits, endian);
     }
@@ -598,8 +597,7 @@ function decodeFieldElements(
 ): number {
     let nextOffset = offset;
     for (let idx = 0; idx < field.count; idx++) {
-        const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
-        const fieldPath = joinFieldPath(ctx.pathPrefix, elementName);
+        const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + nextOffset;
         if (field.type === 'struct') {
             decodeNestedStructField(ctx, field, fieldPath, absOffset, endian);
@@ -609,6 +607,11 @@ function decodeFieldElements(
         nextOffset += elemSize;
     }
     return nextOffset;
+}
+
+function fieldElementPath(ctx: DecodeContext, field: StructField, idx: number): string {
+    const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
+    return joinFieldPath(ctx.pathPrefix, elementName);
 }
 
 function decodeStructRecursive(
