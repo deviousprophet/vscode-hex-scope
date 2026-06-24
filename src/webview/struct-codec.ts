@@ -120,7 +120,7 @@ function structAlignmentWithDefs(def: StructDef, map: Map<string, StructDef>, de
     let maxAlign = 1;
     for (const f of def.fields) {
         const align = fieldAlignWithDefs(f, map, depth);
-        if (align > maxAlign) { maxAlign = align; }
+        maxAlign = Math.max(maxAlign, align);
     }
     return maxAlign;
 }
@@ -132,7 +132,7 @@ function structByteSizeWithDefs(def: StructDef, map: Map<string, StructDef>, dep
     for (const f of def.fields) {
         const sz = fieldSizeWithDefs(f, map, depth);
         const align = def.packed ? 1 : fieldAlignWithDefs(f, map, depth);
-        if (align > maxAlign) { maxAlign = align; }
+        maxAlign = Math.max(maxAlign, align);
         offset = alignUp(offset, align);
         offset += sz * f.count;
     }
@@ -227,7 +227,7 @@ function validateNestedStructGraph(
     errors: string[],
 ): void {
     if (depth > maxDepth) {
-        const name = byId.get(defId)?.name ?? defId;
+        const name = nestedStructName(byId, defId);
         errors.push(`Nesting depth exceeds ${maxDepth} at struct "${name}".`);
         return;
     }
@@ -238,6 +238,10 @@ function validateNestedStructGraph(
     for (const field of def.fields) {
         validateNestedStructField(field, depth, stack, byId, maxDepth, errors);
     }
+}
+
+function nestedStructName(byId: Map<string, StructDef>, defId: string): string {
+    return byId.get(defId)?.name ?? defId;
 }
 
 function validateNestedStructField(
@@ -319,16 +323,12 @@ function resolveStructPathParts(
     parts: string[],
     byId: Map<string, StructDef>,
 ): StructField | null {
-    let curDef: StructDef | null = def;
-    for (let i = 0; i < parts.length; i++) {
-        if (!curDef) { return null; }
-        const field = findStructField(curDef, parts[i]);
-        if (!field) { return null; }
-        if (i === parts.length - 1) { return field; }
-        curDef = resolveChildStructDef(field, byId);
-    }
-
-    return null;
+    const field = findStructField(def, parts[0]);
+    if (!field) { return null; }
+    if (parts.length === 1) { return field; }
+    const child = resolveChildStructDef(field, byId);
+    if (!child) { return null; }
+    return resolveStructPathParts(child, parts.slice(1), byId);
 }
 
 function findStructField(def: StructDef, fieldName: string): StructField | undefined {
@@ -435,7 +435,7 @@ function decodeAsciiBytes(raw: number[]): string {
     const chars: string[] = [];
     for (const b of raw) {
         if (b === 0) { break; }
-        chars.push(b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.');
+        chars.push(isPrintableAsciiByte(b) ? String.fromCharCode(b) : '.');
     }
     return chars.join('');
 }
@@ -470,8 +470,7 @@ function decodeBitFieldContainer(
     const alignedOffset = alignUp(offset, align);
 
     for (let idx = 0; idx < field.count; idx++) {
-        const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
-        const fieldPath = joinFieldPath(ctx.pathPrefix, elementName);
+        const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + alignedOffset + idx * unitBytes;
         decodeBitFieldChildren(ctx, field, fieldPath, idx, absOffset, unitBytes, unitBits, endian);
     }
@@ -598,8 +597,7 @@ function decodeFieldElements(
 ): number {
     let nextOffset = offset;
     for (let idx = 0; idx < field.count; idx++) {
-        const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
-        const fieldPath = joinFieldPath(ctx.pathPrefix, elementName);
+        const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + nextOffset;
         if (field.type === 'struct') {
             decodeNestedStructField(ctx, field, fieldPath, absOffset, endian);
@@ -609,6 +607,11 @@ function decodeFieldElements(
         nextOffset += elemSize;
     }
     return nextOffset;
+}
+
+function fieldElementPath(ctx: DecodeContext, field: StructField, idx: number): string {
+    const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
+    return joinFieldPath(ctx.pathPrefix, elementName);
 }
 
 function decodeStructRecursive(
@@ -722,8 +725,12 @@ function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): str
     if (field.type !== 'struct') {
         return TYPE_TO_C[field.type];
     }
-    const child = field.refStructId ? defsById.get(field.refStructId) : null;
-    return child?.name ?? 'uint8_t';
+    const child = defsById.get(field.refStructId ?? '');
+    return child === undefined ? 'uint8_t' : child.name;
+}
+
+function isPrintableAsciiByte(value: number): boolean {
+    return value >= 0x20 && value < 0x7F;
 }
 
 export interface ParseStructTextResult {
@@ -813,6 +820,10 @@ function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
     const parts = parseStructDeclarationParts(stripped);
     if (!parts) { return { kind: 'error', message: `Cannot parse: "${stripped}"` }; }
 
+    return parseResolvedStructDeclaration(parts);
+}
+
+function parseResolvedStructDeclaration(parts: StructDeclarationParts): ParsedStructLine {
     const mapped = mapStructDeclarationType(parts.rawType);
     if (!mapped) {
         return { kind: 'error', message: `Unknown type "${parts.rawType}" for field "${parts.fieldName}"` };

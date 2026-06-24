@@ -88,11 +88,12 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     if (!vscrollState) { return; }
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const containerHeight = scrollContainer.clientHeight;
-    if (
-        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01 &&
-        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01 &&
-        vscrollState.containerHeight === containerHeight
-    ) { return; }
+    const unchanged = [
+        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01,
+        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01,
+        vscrollState.containerHeight === containerHeight,
+    ].every(Boolean);
+    if (unchanged) { return; }
 
     vscrollState.rowHeight = rowHeight;
     vscrollState.gapHeight = gapHeight;
@@ -604,14 +605,8 @@ function valueNeedleLen(query: string): number | null {
 }
 
 function decimalValueNeedleLen(value: bigint): number | null {
-    if (value === 0n) { return 1; }
-    let tmp = value;
-    let bytes = 0;
-    while (tmp > 0n && bytes < 8) {
-        bytes++;
-        tmp >>= 8n;
-    }
-    return bytes || null;
+    if (value < 0n) { return null; }
+    return Math.min(8, Math.ceil(value.toString(16).length / 2));
 }
 
 function asciiNeedleLen(query: string): number | null {

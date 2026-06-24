@@ -16,6 +16,21 @@ function resetStructState(): void {
     S.sidebarTab = 'struct';
 }
 
+function elementText(element: Element | null): string {
+    return element?.textContent ?? '';
+}
+
+function getTopStructFieldHeaders(): string[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
+        .map(el => el.textContent ?? '');
+}
+
+function openValueMenuLabels(target: HTMLElement, dom: JSDOM): string[] {
+    target.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+    return Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
+        .map(el => el.textContent ?? '');
+}
+
 suite('struct UI array header summary', () => {
     let dom: JSDOM;
 
@@ -315,8 +330,7 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
-            .map(el => el.textContent ?? '');
+        const topHeaders = getTopStructFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['wrap'], 'struct field should render as a composite node header even with one leaf child');
 
         const leafAtTop = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field .si-f-name'))
@@ -559,15 +573,15 @@ suite('struct UI array header summary', () => {
 
         const topField0 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(1) > .si-arr-grp-hdr .si-f-name');
         assert.ok(topField0, 'array bit-field group should render a top-level header');
-        assert.strictEqual(topField0!.textContent ?? '', 'field0', 'array bit-field group should display the declared field name');
+        assert.strictEqual(elementText(topField0), 'field0', 'array bit-field group should display the declared field name');
 
         const topField1 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2) > .si-arr-grp-hdr .si-f-name');
         assert.ok(topField1, 'second bit-field group should render a top-level header');
-        assert.strictEqual(topField1!.textContent ?? '', 'field1', 'single bit-field group should display the declared field name');
+        assert.strictEqual(elementText(topField1), 'field1', 'single bit-field group should display the declared field name');
 
         const unitType = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-type');
         assert.ok(unitType, 'bit-field header should show scalar-like type');
-        assert.strictEqual(unitType!.textContent ?? '', 'u8', 'bit-field header should use base scalar type');
+        assert.strictEqual(elementText(unitType), 'u8', 'bit-field header should use base scalar type');
 
         const unitOffset = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-off');
         assert.ok(unitOffset, 'bit-field header should show scalar-like offset');
@@ -581,13 +595,13 @@ suite('struct UI array header summary', () => {
         unitExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field .si-f-name'))
-            .map(el => el.textContent ?? '');
+            .map(elementText);
         assert.ok(childNames.includes('mode'), 'bit-field child row should contain mode');
         assert.ok(childNames.includes('flags'), 'bit-field child row should contain flags');
 
         const firstElementHeader = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-name');
         assert.ok(firstElementHeader, 'bit-field array element should render a scalar-like header');
-        assert.strictEqual(firstElementHeader!.textContent ?? '', '[0]', 'bit-field array element header should show its index');
+        assert.strictEqual(elementText(firstElementHeader), '[0]', 'bit-field array element header should show its index');
 
         const firstElementValue = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-val');
         assert.ok(firstElementValue, 'bit-field array element should show a scalar-like value cell');
@@ -777,9 +791,7 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(parentValue!.dataset.valType, 'bin', 'bit-field parent should default to full binary');
         assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00110011', 'full binary should show the complete u8 storage range');
 
-        bitHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
-            .map(el => el.textContent ?? '');
+        const labels = openValueMenuLabels(bitHeader!, dom);
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
         assert.ok(labels.includes('Binary (bit fields only)'), 'View as should include bit-fields-only binary');
 
@@ -842,10 +854,7 @@ suite('struct UI array header summary', () => {
 
         const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
         assert.ok(bitHeader, 'bit-field parent header should render');
-        bitHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-
-        const labels = Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
-            .map(el => el.textContent ?? '');
+        const labels = openValueMenuLabels(bitHeader!, dom);
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
         assert.ok(!labels.includes('Binary (bit fields only)'), 'View as should omit bit-fields-only binary when it matches full range');
     });
@@ -1286,8 +1295,7 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
-            .map(el => el.textContent ?? '');
+        const topHeaders = getTopStructFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['field0', 'data', 'field1'], 'mixed sibling groups should keep their declared order and names');
 
         const dataGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2)');

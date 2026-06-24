@@ -144,13 +144,15 @@
                                 color: var(--high-color); background: rgba(79,195,247,.1); }
 .sfe-arr-toggle.active:hover { border-color: var(--err); color: var(--err);
                                 background: rgba(255,80,80,.08); }
-.sfe-count-inp {
-    display: none; width: 32px; text-align: center;
+.sfe-count-inp,
+.sfe-bf-child-width {
+    width: 32px; text-align: center;
     background: rgba(0,0,0,.25); border: 1px solid var(--border);
     border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
     font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
     appearance: textfield;
 }
+.sfe-count-inp { display: none; }
 .sfe-count-inp::-webkit-outer-spin-button,
 .sfe-count-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .sfe-count-inp:focus { border-color: var(--focus-bdr); }
@@ -205,13 +207,6 @@
     box-sizing: border-box;
 }
 .sfe-bf-child-name:focus { border-color: var(--focus-bdr); }
-.sfe-bf-child-width {
-    width: 32px; text-align: center;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
-    appearance: textfield;
-}
 .sfe-bf-child-width::-webkit-outer-spin-button,
 .sfe-bf-child-width::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .sfe-bf-child-width:focus { border-color: var(--focus-bdr); }
@@ -660,16 +655,19 @@
 .si-val-row.active { font-weight: 700; color: var(--high-color); }
 .si-arr-grp-hdr:hover      { background: var(--hover-bg); }
 .si-arr-grp-hdr.si-selected { background: rgba(79,195,247,.12) !important; }
-.si-arr-exp-btn {
+.si-arr-exp-btn,
+.si-arr-el-exp-btn {
     width: 100%;
     height: 18px;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: none; padding: 0;
     color: var(--addr-fg); font-size: 12px; cursor: pointer; line-height: 1;
-    border-radius: 3px;
-    transition: background .12s ease, color .12s ease;
     position: relative;
     z-index: 2;
+}
+.si-arr-exp-btn {
+    border-radius: 3px;
+    transition: background .12s ease, color .12s ease;
 }
 .si-arr-exp-btn:hover,
 .si-arr-el-exp-btn:hover {
@@ -721,23 +719,6 @@
 }
 .si-arr-el-hdr:hover { background: var(--hover-bg); }
 .si-arr-el-hdr.si-selected { background: rgba(79,195,247,.12) !important; }
-.si-arr-el-exp-btn {
-    width: 100%;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: var(--addr-fg);
-    font-size: 12px;
-    cursor: pointer;
-    line-height: 1;
-    position: relative;
-    z-index: 2;
-}
-
 .si-field .si-f-body,
 .si-arr-grp-hdr .si-f-body,
 .si-arr-el-hdr .si-f-body {

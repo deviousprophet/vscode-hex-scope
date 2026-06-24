@@ -3,15 +3,15 @@
 
 import { S }                                          from './state';
 import { vscode }                                     from './api';
-import { esc, fmtB }                                  from './utils';
+import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
-import type { SerializedRecord, SidebarTab } from './types';
-import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
+import type { SerializedParseResult, SerializedRecord, SidebarTab } from './types';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './virtualScroll';
 import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
@@ -592,7 +592,7 @@ function renderStats(): void {
     const el = document.getElementById('stats-bar');
     if (!el || !S.parseResult) { return; }
     const p = S.parseResult;
-    const fmtLabel = p.format === 'srec' ? 'SREC' : 'IHEX';
+    const fmtLabel = formatLabel(p.format);
 
     const addItem = (label: string | null, value: string, extraClass = ''): void => {
         const item = document.createElement('span');
@@ -618,6 +618,10 @@ function renderStats(): void {
     addItem('Bytes', fmtB(p.totalDataBytes));
     addItem('Records', String(p.recordCount ?? p.records.length));
     addItem('Segments', String(p.segments.length));
+}
+
+function formatLabel(format: 'ihex' | 'srec'): string {
+    return format === 'srec' ? 'SREC' : 'IHEX';
 }
 
 // ── Memory view ───────────────────────────────────────────────────
@@ -655,8 +659,7 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
     if (!isNaN(addr)) {
         // Keep existing multi-byte selection if right-click is inside it;
         // otherwise collapse to the clicked byte.
-        const inSel = S.selStart !== null && S.selEnd !== null
-            && addr >= S.selStart && addr <= S.selEnd;
+        const inSel = isAddressInSelection(addr);
         if (!inSel) {
             S.selStart = addr;
             S.selEnd   = addr;
@@ -667,6 +670,10 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
         }
     }
     showCtxMenu(e.clientX, e.clientY);
+}
+
+function isAddressInSelection(addr: number): boolean {
+    return S.selStart !== null && S.selEnd !== null && addr >= S.selStart && addr <= S.selEnd;
 }
 
 function selLen(): number {
@@ -715,11 +722,7 @@ function calcRecordScrollLayout(recordCount: number, containerHeight: number, ro
 }
 
 function recordPhysicalToLogicalScroll(physicalScrollTop: number, layout: RecordScrollLayout): number {
-    if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
-        return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
-    }
-    const ratio = Math.max(0, Math.min(physicalScrollTop, layout.physicalScrollable)) / layout.physicalScrollable;
-    return ratio * layout.logicalScrollable;
+    return physicalToLogicalScrollForLayout(physicalScrollTop, layout);
 }
 
 function getRecordRowHeight(el: HTMLElement): number {
@@ -743,10 +746,11 @@ function getRecordRowHeight(el: HTMLElement): number {
 }
 
 export function renderRecordView(): void {
-    const el = document.getElementById('record-view');
-    if (!el || !S.parseResult) { return; }
+    const view = availableRecordView();
+    if (!view) { return; }
+    const { el, parseResult } = view;
 
-    if (S.parseResult.records.length === 0) {
+    if (parseResult.records.length === 0) {
         el.replaceChildren(recordViewUnavailableNode());
         return;
     }
@@ -760,6 +764,12 @@ export function renderRecordView(): void {
 
     recordRenderSignature = '';
     renderRecordViewImpl(el);
+}
+
+function availableRecordView(): { el: HTMLElement; parseResult: SerializedParseResult } | null {
+    const el = document.getElementById('record-view');
+    if (!el || !S.parseResult) { return null; }
+    return { el, parseResult: S.parseResult };
 }
 
 function renderRecordViewImpl(el: HTMLElement): void {
@@ -881,9 +891,11 @@ function formatRecordByte(value: number): string {
     return value.toString(16).toUpperCase().padStart(2, '0');
 }
 
+const SREC_DATA_RECORD_TYPES = new Set([1, 2, 3]);
+
 function recordHasDataAddress(r: SerializedRecord, isSrec: boolean): boolean {
     return !r.error && (isSrec
-        ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
+        ? SREC_DATA_RECORD_TYPES.has(r.recordType)
         : r.recordType === 0);
 }
 
@@ -1081,11 +1093,8 @@ function updateLockState(): void {
 
 /** Disable all buttons, inputs, and clickable elements when locked. */
 function disableAllInteractiveElements(): void {
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    
-    if (mainArea) {
-        const elements = mainArea.querySelectorAll('button, input, [role="button"]');
+    forEachLockableRoot(root => {
+        const elements = root.querySelectorAll('button, input, [role="button"]');
         elements.forEach(el => {
             const elem = el as HTMLElement;
             elem.setAttribute('data-was-enabled', 'true');
@@ -1093,27 +1102,13 @@ function disableAllInteractiveElements(): void {
                 elem.disabled = true;
             }
         });
-    }
-    
-    if (toolbar) {
-        const elements = toolbar.querySelectorAll('button, input, [role="button"]');
-        elements.forEach(el => {
-            const elem = el as HTMLElement;
-            elem.setAttribute('data-was-enabled', 'true');
-            if (elem instanceof HTMLButtonElement || elem instanceof HTMLInputElement) {
-                elem.disabled = true;
-            }
-        });
-    }
+    });
 }
 
 /** Re-enable all interactive elements that were disabled by lock. */
 function enableAllInteractiveElements(): void {
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    
-    if (mainArea) {
-        const elements = mainArea.querySelectorAll('[data-was-enabled="true"]');
+    forEachLockableRoot(root => {
+        const elements = root.querySelectorAll('[data-was-enabled="true"]');
         elements.forEach(el => {
             const elem = el as HTMLElement;
             elem.removeAttribute('data-was-enabled');
@@ -1121,17 +1116,13 @@ function enableAllInteractiveElements(): void {
                 elem.disabled = false;
             }
         });
-    }
-    
-    if (toolbar) {
-        const elements = toolbar.querySelectorAll('[data-was-enabled="true"]');
-        elements.forEach(el => {
-            const elem = el as HTMLElement;
-            elem.removeAttribute('data-was-enabled');
-            if (elem instanceof HTMLButtonElement || elem instanceof HTMLInputElement) {
-                elem.disabled = false;
-            }
-        });
+    });
+}
+
+function forEachLockableRoot(callback: (root: HTMLElement) => void): void {
+    for (const id of ['main-area', 'toolbar']) {
+        const root = document.getElementById(id);
+        if (root) { callback(root); }
     }
 }
 
@@ -1215,7 +1206,7 @@ function getOriginalByte(addr: number): number | undefined {
     if (!S.parseResult) { return undefined; }
     for (const seg of S.parseResult.segments) {
         const off = addr - seg.startAddress;
-        if (off >= 0 && off < seg.data.length) { return seg.data[off]; }
+        if (isSegmentOffset(off, seg.data.length)) { return seg.data[off]; }
     }
     return undefined;
 }
@@ -1316,15 +1307,24 @@ function updateDirtyBar(): void {
     const dirtySpan = document.getElementById('edit-dirty-count');
     const saveBtn   = document.getElementById('btn-save') as HTMLButtonElement | null;
     if (!dirtySpan || !saveBtn) { return; }
-    dirtySpan.textContent  = count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
+    dirtySpan.textContent  = dirtyEditText(count);
     saveBtn.disabled       = count === 0;
+}
+
+function isSegmentOffset(offset: number, length: number): boolean {
+    return offset >= 0 && offset < length;
+}
+
+function dirtyEditText(count: number): string {
+    return count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────
 function getSelBytes(): number[] {
-    if (S.selStart === null || S.selEnd === null) { return []; }
+    const range = currentSelectionRange();
+    if (!range) { return []; }
     const out: number[] = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) {
+    for (let a = range.start; a <= range.end; a++) {
         out.push(getByte(a) ?? 0);
     }
     return out;
@@ -1425,10 +1425,11 @@ function handleCtxCommand(cmd: string): void {
     }
     // Analyze
     if (handleAnalyzeCommand(cmd, bytes)) { return; }
-    // Fill / Patch — edit bytes in place (edit mode) or noop
-    if (cmd.startsWith('fill-')) {
-        handleFillCommand(cmd);
-    }
+    handlePossibleFillCommand(cmd);
+}
+
+function handlePossibleFillCommand(cmd: string): void {
+    if (cmd.startsWith('fill-')) { handleFillCommand(cmd); }
 }
 
 function handleAnalyzeCommand(cmd: string, bytes: number[]): boolean {
@@ -1458,7 +1459,7 @@ function handleFillCommand(cmd: string): void {
     if (!S.editMode) { return; }
 
     const val = parseInt(cmd.slice(5), 16);
-    if (!isNaN(val) && val >= 0 && val <= 0xFF) { applyFill(val); }
+    if (val >= 0 && val <= 0xFF) { applyFill(val); }
 }
 
 function hexValue(value: number, width = 2): string {
@@ -1614,7 +1615,7 @@ function handleFillInputKeydown(ev: KeyboardEvent, fillInput: HTMLInputElement):
 function applyCustomFill(fillInput: HTMLInputElement | null): void {
     const raw = fillInput?.value.trim().replace(/^0x/i, '') ?? '';
     const val = parseInt(raw, 16);
-    if (isNaN(val) || val < 0 || val > 0xFF || raw === '') {
+    if (!isValidCustomFill(raw, val)) {
         fillInput?.classList.add('ctx-fill-invalid');
         fillInput?.focus();
         return;
@@ -1624,55 +1625,16 @@ function applyCustomFill(fillInput: HTMLInputElement | null): void {
     hideCtx();
 }
 
+function isValidCustomFill(raw: string, value: number): boolean {
+    return raw !== '' && !isNaN(value) && value >= 0 && value <= 0xFF;
+}
+
 function positionCtxMenu(el: HTMLElement, x: number, y: number): void {
-    el.style.display = 'block';
-    const mw = el.offsetWidth || 220;
-    const mh = el.offsetHeight || 120;
-    el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
-    el.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+    positionContextMenu(el, x, y);
 }
 
 function wireSubmenus(menuEl: HTMLElement): void {
-    let closeTimer: ReturnType<typeof setTimeout> | null = null;
-    let activeSub: HTMLElement | null = null;
-
-    const openSub = (sub: HTMLElement, row: HTMLElement) => {
-        if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-        if (activeSub && activeSub !== sub) { activeSub.style.display = 'none'; }
-        activeSub = sub;
-        sub.style.display = 'block';
-        // Viewport edge: flip left if no room on right
-        const rr = row.getBoundingClientRect();
-        const sw = sub.offsetWidth || 220;
-        if (rr.right + sw > window.innerWidth - 8) {
-            sub.style.left = 'auto'; sub.style.right = '100%';
-        } else {
-            sub.style.left = '100%'; sub.style.right = 'auto';
-        }
-    };
-    const scheduledClose = (sub: HTMLElement) => {
-        closeTimer = setTimeout(() => {
-            // Don't close if the custom fill input inside this submenu has focus
-            if (sub.contains(document.activeElement)) { return; }
-            sub.style.display = 'none';
-            if (activeSub === sub) { activeSub = null; }
-        }, 100);
-    };
-
-    menuEl.querySelectorAll<HTMLElement>('.ctx-has-sub').forEach(row => {
-        const sub = row.querySelector<HTMLElement>('.ctx-submenu');
-        if (!sub) { return; }
-        row.addEventListener('mouseenter', () => openSub(sub, row));
-        row.addEventListener('mouseleave', e => {
-            if (!sub.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
-        });
-        sub.addEventListener('mouseenter', () => {
-            if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-        });
-        sub.addEventListener('mouseleave', e => {
-            if (!row.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
-        });
-    });
+    wireHoverSubmenus(menuEl, true);
 }
 
 function hideCtx(): void {

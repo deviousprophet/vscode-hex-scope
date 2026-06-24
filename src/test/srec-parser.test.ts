@@ -10,57 +10,36 @@ suite('SRecParser', () => {
      * Build a valid S1 (2-byte address) data record.
      */
     function s1Rec(addr: number, bytes: number[]): string {
-        const asz = 2;
-        const byteCount = asz + bytes.length + 1;
-        let sum = byteCount;
-        sum += (addr >> 8) & 0xFF;
-        sum += addr & 0xFF;
-        for (const b of bytes) { sum += b; }
-        const chk = (~sum) & 0xFF;
-        const addrHex = addr.toString(16).toUpperCase().padStart(4, '0');
-        const dataHex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
-        const bcHex = byteCount.toString(16).toUpperCase().padStart(2, '0');
-        const chkHex = chk.toString(16).toUpperCase().padStart(2, '0');
-        return `S1${bcHex}${addrHex}${dataHex}${chkHex}`;
+        return dataRec(1, 2, addr, bytes);
     }
 
     /**
      * Build a valid S2 (3-byte address) data record.
      */
     function s2Rec(addr: number, bytes: number[]): string {
-        const asz = 3;
-        const byteCount = asz + bytes.length + 1;
-        let sum = byteCount;
-        sum += (addr >> 16) & 0xFF;
-        sum += (addr >> 8) & 0xFF;
-        sum += addr & 0xFF;
-        for (const b of bytes) { sum += b; }
-        const chk = (~sum) & 0xFF;
-        const addrHex = addr.toString(16).toUpperCase().padStart(6, '0');
-        const dataHex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
-        const bcHex = byteCount.toString(16).toUpperCase().padStart(2, '0');
-        const chkHex = chk.toString(16).toUpperCase().padStart(2, '0');
-        return `S2${bcHex}${addrHex}${dataHex}${chkHex}`;
+        return dataRec(2, 3, addr, bytes);
     }
 
     /**
      * Build a valid S3 (4-byte address) data record.
      */
     function s3Rec(addr: number, bytes: number[]): string {
-        const asz = 4;
+        return dataRec(3, 4, addr, bytes);
+    }
+
+    function dataRec(type: number, asz: number, addr: number, bytes: number[]): string {
         const byteCount = asz + bytes.length + 1;
         let sum = byteCount;
-        sum += (addr >>> 24) & 0xFF;
-        sum += (addr >> 16) & 0xFF;
-        sum += (addr >> 8) & 0xFF;
-        sum += addr & 0xFF;
+        for (let shift = (asz - 1) * 8; shift >= 0; shift -= 8) {
+            sum += (addr >>> shift) & 0xFF;
+        }
         for (const b of bytes) { sum += b; }
         const chk = (~sum) & 0xFF;
-        const addrHex = (addr >>> 0).toString(16).toUpperCase().padStart(8, '0');
+        const addrHex = (addr >>> 0).toString(16).toUpperCase().padStart(asz * 2, '0');
         const dataHex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
         const bcHex = byteCount.toString(16).toUpperCase().padStart(2, '0');
         const chkHex = chk.toString(16).toUpperCase().padStart(2, '0');
-        return `S3${bcHex}${addrHex}${dataHex}${chkHex}`;
+        return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
     }
 
     /** Build a valid S9 end-of-file record (2-byte start address). */

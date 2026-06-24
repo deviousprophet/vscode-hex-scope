@@ -85,16 +85,9 @@ class SearchEngine {
 
         const cursor: SearchCursor = { segmentIndex: 0, offset: 0 };
         const progress = createSearchProgress(segments);
-
-        const step = (): void => {
-            if (token !== this.token) { return; }
-
-            progress.scanned += scanByteSearchChunk(segments, needles, needleLen, cursor, matches);
-            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segments.length);
-            this.continueOrCompleteSearch(token, cursor, segments.length, step, handlers, matches);
-        };
-
-        step();
+        this.runChunkedSearch(token, segments.length, cursor, progress, handlers, matches, () =>
+            scanByteSearchChunk(segments, needles, needleLen, cursor, matches)
+        );
     }
 
     /**
@@ -115,13 +108,26 @@ class SearchEngine {
         const progress = createSearchProgress(segments);
 
         const bounds = buildAddressSearchBounds(query);
+        this.runChunkedSearch(token, segments.length, cursor, progress, handlers, matches, () =>
+            scanAddressSearchChunk(segments, bounds, cursor, matches)
+        );
+    }
 
+    private runChunkedSearch(
+        token: number,
+        segmentCount: number,
+        cursor: SearchCursor,
+        progress: SearchProgressState,
+        handlers: SearchHandlers,
+        matches: number[],
+        scanNextChunk: () => number,
+    ): void {
         const step = (): void => {
             if (token !== this.token) { return; }
 
-            progress.scanned += scanAddressSearchChunk(segments, bounds, cursor, matches);
-            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segments.length);
-            this.continueOrCompleteSearch(token, cursor, segments.length, step, handlers, matches);
+            progress.scanned += scanNextChunk();
+            updateSearchProgress(handlers, matches, progress, cursor.segmentIndex >= segmentCount);
+            this.continueOrCompleteSearch(token, cursor, segmentCount, step, handlers, matches);
         };
 
         step();
@@ -321,7 +327,11 @@ function reportSearchProgress(
     complete: boolean,
 ): number {
     const now = performance.now();
-    if (total <= 0 || (now - lastProgressUpdateTime < SEARCH_PROGRESS_THROTTLE_MS && !complete)) {
+    const throttled = [
+        now - lastProgressUpdateTime < SEARCH_PROGRESS_THROTTLE_MS,
+        !complete,
+    ].every(Boolean);
+    if (total <= 0 || throttled) {
         return lastProgressUpdateTime;
     }
 
@@ -374,10 +384,14 @@ function parseHexBytes(hex: string): number[] {
     const bytes: number[] = [];
     for (const tok of tokens) {
         const v = parseInt(tok, 16);
-        if (isNaN(v) || v < 0 || v > 255) { return []; }
+        if (!isParsedByte(v)) { return []; }
         bytes.push(v);
     }
     return bytes;
+}
+
+function isParsedByte(value: number): boolean {
+    return !isNaN(value) && value >= 0 && value <= 255;
 }
 
 function parseValuePattern(raw: string): number[] {
@@ -388,6 +402,10 @@ function parseValuePattern(raw: string): number[] {
 
     if (!/^\d+$/.test(s)) { return []; }
 
+    return parseDecimalValueBytes(s);
+}
+
+function parseDecimalValueBytes(s: string): number[] {
     const value = parseDecimalBigInt(s);
     return value === null ? [] : bigIntToBigEndianBytes(value);
 }
@@ -431,10 +449,11 @@ function buildEndianNeedles(beBytes: number[], endianness: SearchEndianness): nu
         return [leBytes];
     }
 
-    if (arraysEqual(beBytes, leBytes)) {
-        return [beBytes];
-    }
-    return [beBytes, leBytes];
+    return buildAutoEndianNeedles(beBytes, leBytes);
+}
+
+function buildAutoEndianNeedles(beBytes: number[], leBytes: number[]): number[][] {
+    return arraysEqual(beBytes, leBytes) ? [beBytes] : [beBytes, leBytes];
 }
 
 function arraysEqual(a: number[], b: number[]): boolean {
@@ -565,13 +584,15 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
         {
             onProgressUpdate: (matches: number[]) => {
                 S.matchAddrs = matches;
-                if (S.matchIdx < 0 && matches.length > 0) {
-                    S.matchIdx = 0;
-                }
-                if (!_streamFirstJumpDone && matches.length > 0) {
-                    _streamFirstJumpDone = true;
-                    selectCurrentMatch();
-                    scrollToMatch();
+                if (matches.length > 0) {
+                    if (S.matchIdx < 0) {
+                        S.matchIdx = 0;
+                    }
+                    if (!_streamFirstJumpDone) {
+                        _streamFirstJumpDone = true;
+                        selectCurrentMatch();
+                        scrollToMatch();
+                    }
                 }
                 applyMatchHighlights();
                 updMC();
@@ -670,18 +691,26 @@ function scrollToMatch(): void {
 }
 
 function selectCurrentMatch(): void {
-    if (S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return; }
+    if (!hasCurrentMatch()) { return; }
 
     const start = S.matchAddrs[S.matchIdx];
     const span = _activeMatchSpan;
     const end = start + span - 1;
 
-    if (S.selStart === start && S.selEnd === end) { return; }
+    if (isCurrentSelection(start, end)) { return; }
 
     S.selStart = start;
     S.selEnd = end;
     applySel();
     import('./sidebar.js').then(m => m.updateInspector());
+}
+
+function hasCurrentMatch(): boolean {
+    return S.matchIdx >= 0 && S.matchIdx < S.matchAddrs.length;
+}
+
+function isCurrentSelection(start: number, end: number): boolean {
+    return S.selStart === start && S.selEnd === end;
 }
 
 function getMatchSpan(mode: SearchMode, raw: string, endianness: SearchEndianness): number {

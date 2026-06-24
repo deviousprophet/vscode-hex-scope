@@ -20,19 +20,20 @@ export function renderInspector(): void {
            <div id="insp-multi"></div>
          </div>`;
 
-    // Collapsible: expanded by default
-    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
+    applyCollapsibleSection(sec, false);
+}
+
+function applyCollapsibleSection(sec: HTMLElement, defaultCollapsed: boolean): void {
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = String(defaultCollapsed); }
     sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
 
-    // Header toggles collapse state
     const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-    if (hdr) {
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
-    }
+    if (!hdr) { return; }
+    hdr.addEventListener('click', () => {
+        const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+        sec.dataset.collapsed = now;
+        sec.classList.toggle('collapsed', now === 'true');
+    });
 }
 
 function inspectorSelectionLength(): number {
@@ -163,19 +164,7 @@ export function renderBits(val?: number): void {
             `<span class="bit-pc">${pc}/8 bits set</span></div>`;
     }
 
-    // Persist collapsed state on the section element; default collapsed
-    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
-    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
-
-    // Header toggles collapse state
-    const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-    if (hdr) {
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
-    }
+    applyCollapsibleSection(sec, true);
 
     wireBitColHover();
 }
@@ -457,7 +446,7 @@ export function renderSegments(): void {
 
 export function renderLabels(): void {
     const sec   = document.getElementById('s-labels')!;
-    const badge = S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
+    const badge = labelBadgeHtml();
     const items = S.labels.length === 0
         ? '<div class="sb-empty">No labels defined</div>'
         : S.labels.map((l, i) => `
@@ -513,10 +502,7 @@ export function renderLabels(): void {
             const id     = el.dataset.id!;
             const hidden = el.dataset.hidden === '1' ? false : true;
             S.labels = S.labels.map(l => l.id === id ? { ...l, hidden } : l);
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -528,10 +514,7 @@ export function renderLabels(): void {
             const next = [...S.labels];
             [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
             S.labels = next;
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -543,10 +526,7 @@ export function renderLabels(): void {
             const next = [...S.labels];
             [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
             S.labels = next;
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -563,6 +543,17 @@ export function renderLabels(): void {
 
     // Add — open inline form
     document.getElementById('btn-add-lbl')?.addEventListener('click', () => renderLabelForm());
+}
+
+function labelBadgeHtml(): string {
+    return S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
+}
+
+function persistLabelsAndRender(): void {
+    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
 }
 
 // ── Label inline form ─────────────────────────────────────────────
@@ -683,9 +674,13 @@ function showLengthRange(start: number, editing: LabelState | undefined): void {
     const rangeEl = labelRangeEl();
     rangeEl.placeholder = '512';
     const end = parseInt(rangeEl.value.replace(/^0x/i, ''), 16);
-    rangeEl.value = (!isNaN(start) && !isNaN(end) && end >= start)
+    rangeEl.value = isValidLabelEnd(start, end)
         ? `${end - start + 1}`
         : (editing ? `${editing.length}` : '');
+}
+
+function isValidLabelEnd(start: number, end: number): boolean {
+    return !isNaN(start) && !isNaN(end) && end >= start;
 }
 
 function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLengthResult {
@@ -702,9 +697,8 @@ function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLeng
 }
 
 function labelRangeWarning(startAddress: number, length: number, editId: string | undefined): string | null {
-    const segs = S.parseResult?.segments ?? [];
     const segEnd = startAddress + length - 1;
-    if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
+    if (isOutsideMappedData(startAddress, segEnd)) {
         return 'Range is outside mapped data. Click Save again to confirm.';
     }
 
@@ -718,8 +712,15 @@ function labelRangeWarning(startAddress: number, length: number, editId: string 
         : null;
 }
 
+function isOutsideMappedData(startAddress: number, endAddress: number): boolean {
+    const segments = S.parseResult?.segments ?? [];
+    return segments.length > 0 && !segments.some(segment =>
+        startAddress <= segment.startAddress + segment.data.length - 1 && endAddress >= segment.startAddress
+    );
+}
+
 function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
-    const name = labelNameEl().value.trim() || nextLabelName();
+    const name = readLabelName();
     if (!name) { return { ok: false, error: 'Name is required.' }; }
 
     const startAddress = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
@@ -729,6 +730,10 @@ function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
     if (!parsedLength.ok) { return { ok: false, error: parsedLength.error }; }
 
     return { ok: true, name, startAddress, length: parsedLength.length };
+}
+
+function readLabelName(): string {
+    return labelNameEl().value.trim() || nextLabelName();
 }
 
 function applyLabel(editId: string | undefined, editing: LabelState | undefined, color: string, draft: Extract<LabelDraftResult, { ok: true }>): void {
@@ -747,6 +752,10 @@ function applyLabel(editId: string | undefined, editing: LabelState | undefined,
     vscode.postMessage({ type: 'saveLabels', labels: S.labels });
     buildMemRows();
     rerender.labels();
+    rerenderMemoryIfVisible();
+}
+
+function rerenderMemoryIfVisible(): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
@@ -851,8 +860,12 @@ export function updateLabelFormSel(): void {
     if (!startEl) { return; }
     const fh = (n: number) => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
     startEl.value = fh(S.selStart);
+    updateLabelRangeFromSelection(S.selStart);
+}
+
+function updateLabelRangeFromSelection(startAddress: number): void {
     const rangeEl = document.getElementById('lf-range') as HTMLInputElement | null;
-    if (rangeEl && S.selEnd !== null && S.selEnd >= S.selStart) {
-        rangeEl.value = String(S.selEnd - S.selStart + 1);
+    if (rangeEl && S.selEnd !== null && S.selEnd >= startAddress) {
+        rangeEl.value = String(S.selEnd - startAddress + 1);
     }
 }
