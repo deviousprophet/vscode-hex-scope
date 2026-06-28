@@ -521,31 +521,60 @@ function buildStructCPreviewNodes(def: StructDef): DocumentFragment {
 
     const lines = structToC(def).split('\n');
     lines.forEach((line, i) => {
-        const ci = line.indexOf('/*');
-        const code = ci >= 0 ? line.slice(0, ci) : line;
-        const cmt = ci >= 0 ? line.slice(ci) : '';
-        const isPad = /\b_pad\w+/.test(code);
-        if (isPad) {
-            const n = code.match(/_pad\w+\[(\d+)\]/)?.[1] ?? '?';
-            const indent = line.slice(0, line.length - line.trimStart().length);
-            appendText(out, indent);
-            const span = document.createElement('span');
-            span.className = 'sc-cmt';
-            span.textContent = `/* ${n} byte${n === '1' ? '' : 's'} padding */`;
-            out.appendChild(span);
-        } else {
-            appendTokenizedCode(out, code);
-            if (cmt) {
-                const span = document.createElement('span');
-                span.className = 'sc-cmt';
-                span.textContent = cmt;
-                out.appendChild(span);
-            }
-        }
-        if (i < lines.length - 1) { appendText(out, '\n'); }
+        appendStructPreviewLine(out, line, i, lines.length, appendTokenizedCode);
     });
 
     return out;
+}
+
+function appendStructPreviewLine(
+    out: DocumentFragment,
+    line: string,
+    idx: number,
+    lineCount: number,
+    appendTokenizedCode: (parent: DocumentFragment | HTMLElement, code: string) => void,
+): void {
+    const parts = structPreviewLineParts(line);
+    if (isPaddingPreviewLine(parts.code)) {
+        appendPaddingPreviewLine(out, line, parts.code);
+    } else {
+        appendTokenizedCode(out, parts.code);
+        appendPreviewComment(out, parts.cmt);
+    }
+    appendPreviewLineBreak(out, idx, lineCount);
+}
+
+function structPreviewLineParts(line: string): { code: string; cmt: string } {
+    const ci = line.indexOf('/*');
+    if (ci < 0) { return { code: line, cmt: '' }; }
+    return { code: line.slice(0, ci), cmt: line.slice(ci) };
+}
+
+function isPaddingPreviewLine(code: string): boolean {
+    return /\b_pad\w+/.test(code);
+}
+
+function appendPreviewLineBreak(out: DocumentFragment, idx: number, lineCount: number): void {
+    if (idx < lineCount - 1) { appendPreviewText(out, '\n'); }
+}
+
+function appendPaddingPreviewLine(out: DocumentFragment, line: string, code: string): void {
+    const n = code.match(/_pad\w+\[(\d+)\]/)?.[1] ?? '?';
+    const indent = line.slice(0, line.length - line.trimStart().length);
+    appendPreviewText(out, indent);
+    appendPreviewComment(out, `/* ${n} byte${n === '1' ? '' : 's'} padding */`);
+}
+
+function appendPreviewComment(out: DocumentFragment, cmt: string): void {
+    if (!cmt) { return; }
+    const span = document.createElement('span');
+    span.className = 'sc-cmt';
+    span.textContent = cmt;
+    out.appendChild(span);
+}
+
+function appendPreviewText(parent: DocumentFragment | HTMLElement, text: string): void {
+    parent.appendChild(document.createTextNode(text));
 }
 
 function structCodeTokenClass(tok: string): string {
@@ -603,54 +632,65 @@ function syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
     draft.packed = sec.querySelector('#se-packed')?.classList.contains('active') ?? false;
     const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
     draft.fields = Array.from(rows).map(row => {
-        const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
-        const isStruct = rawType.startsWith('struct:');
-        const refStructId = isStruct ? rawType.slice('struct:'.length) : undefined;
-        const type = (isStruct ? 'struct' : rawType) as StructFieldType;
-        const bitBtnOn = row.querySelector('.sfe-bit-btn')?.classList.contains('sfe-bit-btn-on') ?? false;
-        const isUnsigned = !isStruct && (type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64');
-        const childrenContainer = row.querySelector<HTMLElement>('.sfe-bf-children');
-
-        // Parse child bit-field rows if toggled on and unsigned
-        let bitFields: import('./types').BitFieldChild[] | undefined;
-        if (bitBtnOn && isUnsigned && childrenContainer) {
-            const childRows = childrenContainer.querySelectorAll<HTMLElement>('.sfe-bf-child-row');
-            const childArray: import('./types').BitFieldChild[] = Array.from(childRows).map(childRow => {
-                const childName = sanitizeCIdent(
-                    (childRow.querySelector('.sfe-bf-child-name') as HTMLInputElement).value
-                ) || `bit${childRow.dataset.childIdx || '0'}`;
-                const childWidthRaw = (childRow.querySelector('.sfe-bf-child-width') as HTMLInputElement).value;
-                const childWidth = parseInt(childWidthRaw, 10);
-                return {
-                    name: childName,
-                    bitWidth: childWidth > 0 ? Math.min(childWidth, 64) : 1,
-                };
-            });
-            if (childArray.length === 0) {
-                childArray.push({ name: 'bit0', bitWidth: 1 });
-            }
-            bitFields = childArray;
-        }
-
-        const count = (() => {
-            const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
-            if (!cell.classList.contains('is-array')) { return 1; }
-            const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
-            return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
-        })();
-
-        const result: import('./types').StructField = {
-            name: sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value),
-            type,
-            refStructId,
-            count,
-        };
-        if (bitFields && bitFields.length > 0) {
-            result.bitFields = bitFields;
-            if (childrenContainer?.style.display === 'none') { result.bitFieldsCollapsed = true; }
-        }
-        return result;
+        return readEditorFieldRow(row);
     });
+}
+
+function readEditorFieldRow(row: HTMLElement): StructField {
+    const typeInfo = readEditorFieldType(row);
+    const childrenContainer = row.querySelector<HTMLElement>('.sfe-bf-children');
+    const result: StructField = {
+        name: sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value),
+        type: typeInfo.type,
+        refStructId: typeInfo.refStructId,
+        count: readEditorArrayCount(row),
+    };
+    applyEditorBitFields(result, readEditorBitFields(row, typeInfo.isUnsigned, childrenContainer), childrenContainer);
+    return result;
+}
+
+function readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isUnsigned: boolean } {
+    const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
+    const isStruct = rawType.startsWith('struct:');
+    const type = (isStruct ? 'struct' : rawType) as StructFieldType;
+    return {
+        type,
+        refStructId: isStruct ? rawType.slice('struct:'.length) : undefined,
+        isUnsigned: !isStruct && isUnsignedScalarType(type),
+    };
+}
+
+function readEditorBitFields(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): BitFieldChild[] | undefined {
+    const bitBtnOn = row.querySelector('.sfe-bit-btn')?.classList.contains('sfe-bit-btn-on') ?? false;
+    if (!bitBtnOn || !isUnsigned || !childrenContainer) { return undefined; }
+    const childRows = childrenContainer.querySelectorAll<HTMLElement>('.sfe-bf-child-row');
+    const childArray = Array.from(childRows).map(readEditorBitFieldChild);
+    return childArray.length > 0 ? childArray : [{ name: 'bit0', bitWidth: 1 }];
+}
+
+function readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
+    const childName = sanitizeCIdent(
+        (childRow.querySelector('.sfe-bf-child-name') as HTMLInputElement).value
+    ) || `bit${childRow.dataset.childIdx || '0'}`;
+    const childWidthRaw = (childRow.querySelector('.sfe-bf-child-width') as HTMLInputElement).value;
+    const childWidth = parseInt(childWidthRaw, 10);
+    return {
+        name: childName,
+        bitWidth: childWidth > 0 ? Math.min(childWidth, 64) : 1,
+    };
+}
+
+function readEditorArrayCount(row: HTMLElement): number {
+    const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
+    if (!cell.classList.contains('is-array')) { return 1; }
+    const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
+    return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
+}
+
+function applyEditorBitFields(result: StructField, bitFields: BitFieldChild[] | undefined, childrenContainer: HTMLElement | null): void {
+    if (!bitFields || bitFields.length === 0) { return; }
+    result.bitFields = bitFields;
+    if (childrenContainer?.style.display === 'none') { result.bitFieldsCollapsed = true; }
 }
 
 function wireEditorInSec(sec: HTMLElement): void {
@@ -842,26 +882,7 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
         sel.addEventListener('change', () => {
-            const row = sel.closest<HTMLElement>('.struct-field-row');
-            if (row) {
-                const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
-                const rawType = sel.value;
-                const isStruct = rawType.startsWith('struct:');
-                const isUnsigned = !isStruct && (rawType === 'uint8' || rawType === 'uint16' || rawType === 'uint32' || rawType === 'uint64');
-                const bitToggled = bitBtn?.classList.contains('sfe-bit-btn-on') ?? false;
-                if (bitBtn) { (bitBtn as HTMLButtonElement).disabled = !isUnsigned; }
-                // If bit-mode was on and type changed to non-unsigned, turn off bit-mode
-                if (bitToggled && !isUnsigned) {
-                    bitBtn?.classList.remove('sfe-bit-btn-on');
-                    row.classList.remove('has-bit-children');
-                    const children = row.querySelector<HTMLElement>('.sfe-bf-children');
-                    if (children) { children.remove(); }
-                    syncEditorDraft(sec, draft);
-                    const idx = parseInt(row.dataset.idx!);
-                    const f = draft.fields[idx];
-                    if (f) { delete f.bitFields; delete f.bitFieldsCollapsed; }
-                }
-            }
+            handleFieldTypeChange(sec, draft, sel);
             refreshEditorPreview(sec, draft);
         });
     });
@@ -950,6 +971,42 @@ function wireEditorInSec(sec: HTMLElement): void {
         }
         renderStructPins();
     });
+}
+
+function handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
+    const row = sel.closest<HTMLElement>('.struct-field-row');
+    if (!row) { return; }
+    const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
+    const isUnsigned = isUnsignedEditorType(sel.value);
+    if (bitBtn) { (bitBtn as HTMLButtonElement).disabled = !isUnsigned; }
+    if (shouldClearBitChildren(bitBtn, isUnsigned)) {
+        clearBitFieldChildren(sec, draft, row, bitBtn);
+    }
+}
+
+function isUnsignedEditorType(rawType: string): boolean {
+    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('./types').StructFieldType);
+}
+
+function shouldClearBitChildren(bitBtn: HTMLElement | null, isUnsigned: boolean): boolean {
+    return !isUnsigned && Boolean(bitBtn?.classList.contains('sfe-bit-btn-on'));
+}
+
+function clearBitFieldChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement, bitBtn: HTMLElement | null): void {
+    bitBtn?.classList.remove('sfe-bit-btn-on');
+    row.classList.remove('has-bit-children');
+    row.querySelector<HTMLElement>('.sfe-bf-children')?.remove();
+    syncEditorDraft(sec, draft);
+    clearDraftBitFields(draft, row);
+}
+
+function clearDraftBitFields(draft: StructDef, row: HTMLElement): void {
+    const idx = parseInt(row.dataset.idx!);
+    const field = draft.fields[idx];
+    if (field) {
+        delete field.bitFields;
+        delete field.bitFieldsCollapsed;
+    }
 }
 
 // ── Main render function ───────────────────────────────────────────
@@ -1454,43 +1511,74 @@ function asciiFromBytes(bytes: number[]): string {
 
 /** Parse IEEE754 parts from raw bytes for float32/float64. Returns null on missing/invalid bytes. */
 function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le' | 'be') {
-    const size = type === 'float32' ? 4 : 8;
-    if (bytes.length < size || bytes.some(b => b < 0)) { return null; }
+    const size = FLOAT_BYTE_SIZE[type];
+    if (!hasFloatBytes(bytes, size)) { return null; }
+    const dv = floatDataView(bytes, size);
+    const le = endian === 'le';
+    return FLOAT_PART_READERS[type](dv, le);
+}
+
+const FLOAT_BYTE_SIZE: Record<'float32' | 'float64', number> = { float32: 4, float64: 8 };
+const FLOAT_PART_READERS = { float32: getFloat32Parts, float64: getFloat64Parts };
+
+function hasFloatBytes(bytes: number[], size: number): boolean {
+    return bytes.length >= size && bytes.every(isPresentByte);
+}
+
+function isPresentByte(byte: number): boolean {
+    return byte >= 0;
+}
+
+function floatDataView(bytes: number[], size: number): DataView {
     const buf = new ArrayBuffer(size);
     const dv = new DataView(buf);
     bytes.forEach((b, i) => dv.setUint8(i, b));
-    const le = endian === 'le';
-        if (type === 'float32') { 
-        const raw = dv.getUint32(0, le) >>> 0;
-        const sign = (raw >>> 31) & 1;
-        const exp = (raw >>> 23) & 0xFF;
-        const mant = raw & 0x7FFFFF;
-        const exponentBits = exp.toString(2).padStart(8, '0');
-        const mantissaBits = mant.toString(2).padStart(23, '0');
-        const exponentHex = `0x${exp.toString(16).toUpperCase().padStart(2, '0')}`;
-        const mantissaHex = `0x${mant.toString(16).toUpperCase().padStart(6, '0')}`;
-        const rawHex = `0x${raw.toString(16).toUpperCase().padStart(8, '0')}`;
-        let className = 'normal';
-        if (exp === 0) { className = mant === 0 ? 'zero' : 'subnormal'; }
-        else if (exp === 0xFF) { className = mant === 0 ? 'infinity' : 'NaN'; }
-        const binStr = `${sign} | ${exponentBits} | ${mantissaBits}`;
-        return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
-    } else {
-        const raw = dv.getBigUint64(0, le);
-        const sign = Number((raw >> 63n) & 1n);
-        const exp = Number((raw >> 52n) & 0x7FFn);
-        const mant = raw & ((1n << 52n) - 1n);
-        const exponentBits = exp.toString(2).padStart(11, '0');
-        const mantissaBits = mant.toString(2).padStart(52, '0');
-        const exponentHex = `0x${exp.toString(16).toUpperCase().padStart(3, '0')}`;
-        const mantissaHex = `0x${mant.toString(16).toUpperCase().padStart(13, '0')}`;
-        const rawHex = `0x${raw.toString(16).toUpperCase().padStart(16, '0')}`;
-        let className = 'normal';
-        if (exp === 0) { className = mant === 0n ? 'zero' : 'subnormal'; }
-        else if (exp === 0x7FF) { className = mant === 0n ? 'infinity' : 'NaN'; }
-        const binStr = `${sign} | ${exponentBits} | ${mantissaBits}`;
-        return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
-    }
+    return dv;
+}
+
+function getFloat32Parts(dv: DataView, le: boolean) {
+    const raw = dv.getUint32(0, le) >>> 0;
+    const sign = (raw >>> 31) & 1;
+    const exp = (raw >>> 23) & 0xFF;
+    const mant = raw & 0x7FFFFF;
+    const exponentBits = exp.toString(2).padStart(8, '0');
+    const mantissaBits = mant.toString(2).padStart(23, '0');
+    const exponentHex = `0x${exp.toString(16).toUpperCase().padStart(2, '0')}`;
+    const mantissaHex = `0x${mant.toString(16).toUpperCase().padStart(6, '0')}`;
+    const rawHex = `0x${raw.toString(16).toUpperCase().padStart(8, '0')}`;
+    const className = float32ClassName(exp, mant);
+    const binStr = `${sign} | ${exponentBits} | ${mantissaBits}`;
+    return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
+}
+
+function float32ClassName(exp: number, mant: number): string {
+    return floatClassName(exp, mant === 0, 0xFF);
+}
+
+function getFloat64Parts(dv: DataView, le: boolean) {
+    const raw = dv.getBigUint64(0, le);
+    const sign = Number((raw >> 63n) & 1n);
+    const exp = Number((raw >> 52n) & 0x7FFn);
+    const mant = raw & ((1n << 52n) - 1n);
+    const exponentBits = exp.toString(2).padStart(11, '0');
+    const mantissaBits = mant.toString(2).padStart(52, '0');
+    const exponentHex = `0x${exp.toString(16).toUpperCase().padStart(3, '0')}`;
+    const mantissaHex = `0x${mant.toString(16).toUpperCase().padStart(13, '0')}`;
+    const rawHex = `0x${raw.toString(16).toUpperCase().padStart(16, '0')}`;
+    const className = float64ClassName(exp, mant);
+    const binStr = `${sign} | ${exponentBits} | ${mantissaBits}`;
+    return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
+}
+
+function float64ClassName(exp: number, mant: bigint): string {
+    return floatClassName(exp, mant === 0n, 0x7FF);
+}
+
+function floatClassName(exp: number, isZeroMant: boolean, infinityExp: number): string {
+    return ({
+        0: isZeroMant ? 'zero' : 'subnormal',
+        [infinityExp]: isZeroMant ? 'infinity' : 'NaN',
+    })[exp] ?? 'normal';
 }
 
 /** Get a plain-text representation suitable for copying. */
@@ -3490,26 +3578,40 @@ function fallbackCopyText(text: string): void {
 /** Called when the user's byte selection changes. Fills the add-form address if open. */
 export function onSelectionChangeForStruct(): void {
     if (typeof document === 'undefined') { return; }
+    clearStructSelectionState();
+    if (S.selStart === null) { return; }
+    S.activeStructAddr = S.selStart;
+    updateStructAddressInputs(S.selStart);
+}
+
+function clearStructSelectionState(): void {
     clearArrSep();
     clearSelRow();
     _selectedFieldAddr = null;
     _selectedArrKey    = null;
     _selectedArrElemKey = null;
     _selectedPinId     = null;
-    if (S.selStart === null) { return; }
-    S.activeStructAddr = S.selStart;
-    if (S.sidebarTab === 'struct') {
-        const addrHex = S.selStart.toString(16).toUpperCase().padStart(8, '0');
-        if (_addingPin) {
-            const inp = document.getElementById('sa-addr') as HTMLInputElement | null;
-            if (inp) {
-                inp.value = addrHex;
-                const confirmBtn = document.getElementById('sa-confirm') as HTMLButtonElement | null;
-                if (confirmBtn) { confirmBtn.disabled = !_applyStructId; }
-            }
-        } else if (_editingPinId) {
-            const inp = document.querySelector<HTMLInputElement>('.si-pe-addr');
-            if (inp) { inp.value = addrHex; }
-        }
+}
+
+function updateStructAddressInputs(addr: number): void {
+    if (S.sidebarTab !== 'struct') { return; }
+    const addrHex = addr.toString(16).toUpperCase().padStart(8, '0');
+    if (_addingPin) {
+        updateAddPinAddressInput(addrHex);
+        return;
     }
+    if (_editingPinId) { updateEditPinAddressInput(addrHex); }
+}
+
+function updateAddPinAddressInput(addrHex: string): void {
+    const inp = document.getElementById('sa-addr') as HTMLInputElement | null;
+    if (!inp) { return; }
+    inp.value = addrHex;
+    const confirmBtn = document.getElementById('sa-confirm') as HTMLButtonElement | null;
+    if (confirmBtn) { confirmBtn.disabled = !_applyStructId; }
+}
+
+function updateEditPinAddressInput(addrHex: string): void {
+    const inp = document.querySelector<HTMLInputElement>('.si-pe-addr');
+    if (inp) { inp.value = addrHex; }
 }
