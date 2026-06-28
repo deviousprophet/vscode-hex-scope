@@ -488,35 +488,70 @@ function decodeBitFieldChildren(
     unitBits: number,
     endian: 'le' | 'be',
 ): void {
-    const raw = readFieldBytes(ctx, absOffset, unitBytes);
-    const hasData = raw.every(v => v >= 0);
-    const bytesHex = bytesToHex(raw);
-    const unitValue = hasData ? bytesToBigUint(raw.filter(v => v >= 0), endian) : 0n;
+    const unit = readBitFieldUnit(ctx, absOffset, unitBytes, endian);
     let bitPos = 0;
 
     for (const child of field.bitFields!) {
         const width = child.bitWidth;
-        if (width <= 0) { bitPos += width; continue; }
-
-        const unsignedValue = hasData
-            ? extractBitFieldValue(unitValue, unitBits, bitPos, width, ctx.bitFieldAllocation)
-            : 0n;
-        ctx.rows.push({
-            fieldName: `${fieldPath}.${child.name || `bit${bitPos}`}`,
-            type: field.type as UnsignedScalarType,
-            arrayIdx,
-            byteOffset: absOffset,
-            bytesHex,
-            decoded: hasData ? bitFieldValueText(unsignedValue, width) : '??',
-            hasData,
-            isBitField: true,
-            bitWidth: width,
-            bitOffset: bitPos,
-            bitStorageByteSize: unitBytes,
-            bitValueUnsigned: hasData ? unsignedValue.toString(10) : undefined,
-        });
+        if (width > 0) {
+            ctx.rows.push(bitFieldChildRow(ctx, field, child, fieldPath, arrayIdx, absOffset, unitBytes, unitBits, bitPos, unit));
+        }
         bitPos += width;
     }
+}
+
+function readBitFieldUnit(ctx: DecodeContext, absOffset: number, unitBytes: number, endian: 'le' | 'be'): {
+    hasData: boolean;
+    bytesHex: string;
+    value: bigint;
+} {
+    const raw = readFieldBytes(ctx, absOffset, unitBytes);
+    const hasData = raw.every(v => v >= 0);
+    return {
+        hasData,
+        bytesHex: bytesToHex(raw),
+        value: hasData ? bytesToBigUint(raw.filter(v => v >= 0), endian) : 0n,
+    };
+}
+
+function bitFieldChildRow(
+    ctx: DecodeContext,
+    field: StructField,
+    child: BitFieldChild,
+    fieldPath: string,
+    arrayIdx: number,
+    absOffset: number,
+    unitBytes: number,
+    unitBits: number,
+    bitPos: number,
+    unit: { hasData: boolean; bytesHex: string; value: bigint },
+): DecodedField {
+    const unsignedValue = unit.hasData
+        ? extractBitFieldValue(unit.value, unitBits, bitPos, child.bitWidth, ctx.bitFieldAllocation)
+        : 0n;
+    const valueText = bitFieldDecodedText(unit.hasData, unsignedValue, child.bitWidth);
+    return {
+        fieldName: `${fieldPath}.${child.name || `bit${bitPos}`}`,
+        type: field.type as UnsignedScalarType,
+        arrayIdx,
+        byteOffset: absOffset,
+        bytesHex: unit.bytesHex,
+        decoded: valueText,
+        hasData: unit.hasData,
+        isBitField: true,
+        bitWidth: child.bitWidth,
+        bitOffset: bitPos,
+        bitStorageByteSize: unitBytes,
+        bitValueUnsigned: bitFieldUnsignedText(unit.hasData, unsignedValue),
+    };
+}
+
+function bitFieldDecodedText(hasData: boolean, unsignedValue: bigint, width: number): string {
+    return hasData ? bitFieldValueText(unsignedValue, width) : '??';
+}
+
+function bitFieldUnsignedText(hasData: boolean, unsignedValue: bigint): string | undefined {
+    return hasData ? unsignedValue.toString(10) : undefined;
 }
 
 function decodeAsciiField(
@@ -630,22 +665,7 @@ function decodeStructRecursive(
     const ctx: DecodeContext = { baseAddr, getByte, bitFieldAllocation, map, rows, depth, pathPrefix, baseOffset };
 
     for (const field of def.fields) {
-        const align = def.packed ? 1 : fieldAlignWithDefs(field, map, depth);
-        const elemSize = fieldSizeWithDefs(field, map, depth);
-        // Named BitField container (uint8/16/32/64 with bitFields[])
-        if (isBitFieldContainer(field)) {
-            offset = decodeBitFieldContainer(ctx, field, offset, align, globalEndian);
-            continue;
-        }
-
-        offset = alignUp(offset, align);
-
-        if (field.type === 'ascii') {
-            offset = decodeAsciiField(ctx, field, offset, elemSize, globalEndian);
-            continue;
-        }
-
-        offset = decodeFieldElements(ctx, field, offset, elemSize, globalEndian);
+        offset = decodeStructField(ctx, def, field, offset, globalEndian);
     }
 
     if (!def.packed) {
@@ -654,6 +674,26 @@ function decodeStructRecursive(
     }
 
     return offset;
+}
+
+function decodeStructField(
+    ctx: DecodeContext,
+    def: StructDef,
+    field: StructField,
+    offset: number,
+    globalEndian: 'le' | 'be',
+): number {
+    const align = def.packed ? 1 : fieldAlignWithDefs(field, ctx.map, ctx.depth);
+    const elemSize = fieldSizeWithDefs(field, ctx.map, ctx.depth);
+    if (isBitFieldContainer(field)) {
+        return decodeBitFieldContainer(ctx, field, offset, align, globalEndian);
+    }
+
+    const alignedOffset = alignUp(offset, align);
+    if (field.type === 'ascii') {
+        return decodeAsciiField(ctx, field, alignedOffset, elemSize, globalEndian);
+    }
+    return decodeFieldElements(ctx, field, alignedOffset, elemSize, globalEndian);
 }
 
 export function decodeStruct(
@@ -750,8 +790,7 @@ function appendParsedBitField(
     const unitBits = fieldByteSize(type) * 8;
     const last = fields[fields.length - 1];
     const lastUsedBits = last?.bitFields?.reduce((sum, child) => sum + child.bitWidth, 0) ?? 0;
-    if (last && last.type === type && last.count === 1 &&
-        Array.isArray(last.bitFields) && lastUsedBits + bitWidth <= unitBits) {
+    if (canAppendBitField(last, type, lastUsedBits, bitWidth, unitBits)) {
         last.bitFields.push({ name, bitWidth });
         return;
     }
@@ -762,6 +801,27 @@ function appendParsedBitField(
         count: 1,
         bitFields: [{ name, bitWidth }],
     });
+}
+
+function canAppendBitField(
+    last: StructField | undefined,
+    type: UnsignedScalarType,
+    lastUsedBits: number,
+    bitWidth: number,
+    unitBits: number,
+): last is StructField & { bitFields: BitFieldChild[] } {
+    if (!isMatchingBitFieldContainer(last, type)) { return false; }
+    return lastUsedBits + bitWidth <= unitBits;
+}
+
+function isMatchingBitFieldContainer(
+    field: StructField | undefined,
+    type: UnsignedScalarType,
+): field is StructField & { bitFields: BitFieldChild[] } {
+    return Boolean(field) &&
+        field!.type === type &&
+        field!.count === 1 &&
+        Array.isArray(field!.bitFields);
 }
 
 type ParsedStructLine =
@@ -797,20 +857,56 @@ function parseBitFieldDeclaration(
     bitWidth: number,
     count: number,
 ): ParsedStructLine {
-    if (!isUnsignedScalarType(mapped)) {
-        return { kind: 'error', message: `Bit-field "${fieldName}" must use an unsigned integer base type.` };
-    }
-    if (!Number.isInteger(bitWidth) || bitWidth <= 0) {
-        return { kind: 'error', message: `Bit-field "${fieldName}" has invalid width "${bitWidth}".` };
-    }
+    const error = bitFieldDeclarationError(fieldName, mapped, bitWidth, count);
+    if (error) { return { kind: 'error', message: error }; }
+    return { kind: 'bitField', type: mapped as UnsignedScalarType, name: fieldName, bitWidth };
+}
+
+function bitFieldDeclarationError(
+    fieldName: string,
+    mapped: StructScalarFieldType,
+    bitWidth: number,
+    count: number,
+): string | null {
+    return bitFieldBaseTypeDeclarationError(fieldName, mapped) ??
+        bitFieldWidthDeclarationError(fieldName, mapped, bitWidth) ??
+        bitFieldCountDeclarationError(fieldName, count);
+}
+
+function bitFieldBaseTypeDeclarationError(fieldName: string, mapped: StructScalarFieldType): string | null {
+    return isUnsignedScalarType(mapped) ? null : bitFieldBaseTypeError(fieldName);
+}
+
+function bitFieldWidthDeclarationError(fieldName: string, mapped: StructScalarFieldType, bitWidth: number): string | null {
+    if (hasInvalidBitWidth(bitWidth)) { return bitFieldWidthError(fieldName, bitWidth); }
+    if (!isUnsignedScalarType(mapped)) { return null; }
     const maxBits = fieldByteSize(mapped) * 8;
-    if (bitWidth > maxBits) {
-        return { kind: 'error', message: `Bit-field "${fieldName}" width ${bitWidth} exceeds ${maxBits}.` };
-    }
-    if (count !== 1) {
-        return { kind: 'error', message: `Bit-field "${fieldName}" cannot be declared as an array.` };
-    }
-    return { kind: 'bitField', type: mapped, name: fieldName, bitWidth };
+    return bitWidth > maxBits ? bitFieldMaxWidthError(fieldName, bitWidth, maxBits) : null;
+}
+
+function hasInvalidBitWidth(bitWidth: number): boolean {
+    return !Number.isInteger(bitWidth) || bitWidth <= 0;
+}
+
+function bitFieldCountDeclarationError(fieldName: string, count: number): string | null {
+    if (count !== 1) { return bitFieldArrayError(fieldName); }
+    return null;
+}
+
+function bitFieldBaseTypeError(fieldName: string): string {
+    return `Bit-field "${fieldName}" must use an unsigned integer base type.`;
+}
+
+function bitFieldWidthError(fieldName: string, bitWidth: number): string {
+    return `Bit-field "${fieldName}" has invalid width "${bitWidth}".`;
+}
+
+function bitFieldMaxWidthError(fieldName: string, bitWidth: number, maxBits: number): string {
+    return `Bit-field "${fieldName}" width ${bitWidth} exceeds ${maxBits}.`;
+}
+
+function bitFieldArrayError(fieldName: string): string {
+    return `Bit-field "${fieldName}" cannot be declared as an array.`;
 }
 
 function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
@@ -879,20 +975,24 @@ export function parseStructText(text: string): ParseStructTextResult {
     const body = bodyMatch ? bodyMatch[1] : cleaned;
 
     for (const rawLine of body.split('\n')) {
-        const parsed = parseStructDeclarationLine(rawLine);
-        if (parsed.kind === 'skip') { continue; }
-        if (parsed.kind === 'error') {
-            errors.push(parsed.message);
-            continue;
-        }
-        if (parsed.kind === 'bitField') {
-            appendParsedBitField(fields, parsed.type, parsed.name, parsed.bitWidth);
-            continue;
-        }
-        fields.push(parsed.field);
+        appendParsedStructLine(rawLine, fields, errors);
     }
 
     return { structName, fields, errors };
+}
+
+function appendParsedStructLine(rawLine: string, fields: StructField[], errors: string[]): void {
+    const parsed = parseStructDeclarationLine(rawLine);
+    if (parsed.kind === 'skip') { return; }
+    if (parsed.kind === 'error') {
+        errors.push(parsed.message);
+        return;
+    }
+    if (parsed.kind === 'bitField') {
+        appendParsedBitField(fields, parsed.type, parsed.name, parsed.bitWidth);
+        return;
+    }
+    fields.push(parsed.field);
 }
 
 /** Serialize StructField[] back to C-style declarations. */
