@@ -2798,6 +2798,24 @@ function addFieldValMenuClickAway(): void {
     }, 0);
 }
 
+function createFieldValMenu(innerHtml: string, x: number, y: number): HTMLElement {
+    const el = document.createElement('div');
+    el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
+    el.innerHTML = innerHtml;
+    document.body.appendChild(el);
+    positionContextMenu(el, x, y);
+    return el;
+}
+
+function wireFieldValMenuCommands(el: HTMLElement, onCommand: (cmd: string) => void): void {
+    el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row => {
+        row.addEventListener('click', ev => {
+            ev.stopPropagation();
+            onCommand(row.dataset.cmd!);
+        });
+    });
+}
+
 function structPinAtAddress(addr: number, pinIdx: number | undefined, allDefs: StructDef[]): StructPin | undefined {
     if (typeof pinIdx === 'number' && pinIdx >= 0) { return S.structPins[pinIdx]; }
     return S.structPins.find(pin => {
@@ -2914,37 +2932,32 @@ function showFieldValMenu(
             `<span class="ctx-label">${TYPE_LABELS_FULL[t]}</span>` +
             `</div>`
         ).join('');
-        const el = document.createElement('div');
-        el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
-        el.innerHTML =
+        const el = createFieldValMenu(
             item('copy-addr', 'Copy address') +
             sep +
-            sub('View as', 'disp', dispMenu);
-        document.body.appendChild(el);
-        positionContextMenu(el, x, y);
-        el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row => {
-            row.addEventListener('click', ev => {
-                ev.stopPropagation();
-                const cmd = row.dataset.cmd!;
-                if (cmd === 'copy-addr') {
-                    const addrStr = `0x${bs.toString(16).toUpperCase().padStart(8, '0')}`;
-                    copyTextToClipboard(addrStr);
-                    hideFieldValMenu();
-                    return;
-                }
-                if (cmd.startsWith('disp-') && bsList && bsList.length > 0) {
-                    const t = cmd.replace('disp-', '') as ColType;
-                    bsList.forEach((b, idx) => {
-                        const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
-                        const field = findFieldAt(b);
-                        const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
-                        if (t === implicit) { _fieldValTypes.delete(listKey); }
-                        else { _fieldValTypes.set(listKey, t); }
-                    });
-                    hideFieldValMenu();
-                    renderStructPins();
-                }
-            });
+            sub('View as', 'disp', dispMenu),
+            x,
+            y,
+        );
+        wireFieldValMenuCommands(el, cmd => {
+            if (cmd === 'copy-addr') {
+                const addrStr = `0x${bs.toString(16).toUpperCase().padStart(8, '0')}`;
+                copyTextToClipboard(addrStr);
+                hideFieldValMenu();
+                return;
+            }
+            if (cmd.startsWith('disp-') && bsList && bsList.length > 0) {
+                const t = cmd.replace('disp-', '') as ColType;
+                bsList.forEach((b, idx) => {
+                    const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
+                    const field = findFieldAt(b);
+                    const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
+                    if (t === implicit) { _fieldValTypes.delete(listKey); }
+                    else { _fieldValTypes.set(listKey, t); }
+                });
+                hideFieldValMenu();
+                renderStructPins();
+            }
         });
         wireStructSubmenus(el);
         addFieldValMenuClickAway();
@@ -2954,27 +2967,16 @@ function showFieldValMenu(
 
     // Pointer: only allow copy address value
     if (opts?.isPointer) {
-        const el = document.createElement('div');
-        el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
-        el.innerHTML = item('copy-hex', 'Copy value');
-        document.body.appendChild(el);
-        positionContextMenu(el, x, y);
-        el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row => {
-            row.addEventListener('click', ev => {
-                ev.stopPropagation();
-                // Always copy as hex address
-                const all = allStructs();
-                const pin = findCopySourcePin(bs, pinIdx, all);
-                if (!pin) { hideFieldValMenu(); return; }
-                const def = all.find(d => d.id === pin!.structId);
-                if (!def) { hideFieldValMenu(); return; }
-                const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
-                const r = findFieldForKey(rows, bs - pin.addr, opts?.valKey);
-                const toCopy = r ? singleLineCopyText(getCopyText(r, 'hex')) : '??';
-                copyTextToClipboard(toCopy);
-                hideFieldValMenu();
-                return;
-            });
+        const el = createFieldValMenu(item('copy-hex', 'Copy value'), x, y);
+        wireFieldValMenuCommands(el, () => {
+            // Always copy as hex address
+            const source = findCopySourceRows(bs, pinIdx);
+            if (!source) { hideFieldValMenu(); return; }
+            const r = findFieldForKey(source.rows, bs - source.pin.addr, opts?.valKey);
+            const toCopy = r ? singleLineCopyText(getCopyText(r, 'hex')) : '??';
+            copyTextToClipboard(toCopy);
+            hideFieldValMenu();
+            return;
         });
         addFieldValMenuClickAway();
         _valMenuEl = el;
@@ -2995,56 +2997,46 @@ function showFieldValMenu(
         `</div>`
     ).join('');
     // Compose menu
-    const el = document.createElement('div');
-    el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
-    el.innerHTML =
+    const el = createFieldValMenu(
         sub('Copy as', 'copy', copyMenu) +
         sep +
-        sub('View as', 'disp', dispMenu);
-
-    document.body.appendChild(el);
-    positionContextMenu(el, x, y);
+        sub('View as', 'disp', dispMenu),
+        x,
+        y,
+    );
 
     // Wire leaf-item clicks
-    el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]').forEach(row => {
-        row.addEventListener('click', ev => {
-            ev.stopPropagation();
-            const cmd = row.dataset.cmd!;
-            // Copy actions
-            if (cmd.startsWith('copy-')) {
-                const t = cmd.replace('copy-', '') as ColType;
-                const all = allStructs();
-                const pin = findCopySourcePin(bs, pinIdx, all);
-                if (!pin) { hideFieldValMenu(); return; }
-                const def = all.find(d => d.id === pin!.structId);
-                if (!def) { hideFieldValMenu(); return; }
-                const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
-                const toCopy = (bsList && bsList.length > 0)
-                    ? bsList.map((b, idx) => {
-                        const listKey = opts?.keyList?.[idx];
-                        const r = findFieldForKey(rows, b - pin!.addr, listKey);
-                        return r ? singleLineCopyText(getCopyText(r, t)) : '??';
-                      }).join('; ')
-                    : (() => {
-                        const r = findFieldForKey(rows, bs - pin!.addr, opts?.valKey);
-                        return r ? singleLineCopyText(getCopyText(r, t)) : '??';
-                      })();
-                copyTextToClipboard(toCopy);
-                hideFieldValMenu();
-                return;
-            }
-            // Display type actions
-            if (cmd.startsWith('disp-')) {
-                const t = cmd.replace('disp-', '') as ColType;
-                const field = findFieldAt(bs);
-                const implicit = implicitDisplayType(field, !!opts?.isBitUnitHeader);
-                if (t === implicit) { _fieldValTypes.delete(key); }
-                else { _fieldValTypes.set(key, t); }
-                hideFieldValMenu();
-                renderStructPins();
-                return;
-            }
-        });
+    wireFieldValMenuCommands(el, cmd => {
+        // Copy actions
+        if (cmd.startsWith('copy-')) {
+            const t = cmd.replace('copy-', '') as ColType;
+            const source = findCopySourceRows(bs, pinIdx);
+            if (!source) { hideFieldValMenu(); return; }
+            const toCopy = (bsList && bsList.length > 0)
+                ? bsList.map((b, idx) => {
+                    const listKey = opts?.keyList?.[idx];
+                    const r = findFieldForKey(source.rows, b - source.pin.addr, listKey);
+                    return r ? singleLineCopyText(getCopyText(r, t)) : '??';
+                  }).join('; ')
+                : (() => {
+                    const r = findFieldForKey(source.rows, bs - source.pin.addr, opts?.valKey);
+                    return r ? singleLineCopyText(getCopyText(r, t)) : '??';
+                  })();
+            copyTextToClipboard(toCopy);
+            hideFieldValMenu();
+            return;
+        }
+        // Display type actions
+        if (cmd.startsWith('disp-')) {
+            const t = cmd.replace('disp-', '') as ColType;
+            const field = findFieldAt(bs);
+            const implicit = implicitDisplayType(field, !!opts?.isBitUnitHeader);
+            if (t === implicit) { _fieldValTypes.delete(key); }
+            else { _fieldValTypes.set(key, t); }
+            hideFieldValMenu();
+            renderStructPins();
+            return;
+        }
     });
 
     // Wire submenus (hover logic)
@@ -3068,6 +3060,15 @@ function findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructD
         const size = structByteSize(def);
         return bs >= p.addr && bs < p.addr + size;
     });
+}
+
+function findCopySourceRows(bs: number, pinIdx: number | undefined): { pin: StructPin; rows: DecodedField[] } | undefined {
+    const all = allStructs();
+    const pin = findCopySourcePin(bs, pinIdx, all);
+    if (!pin) { return undefined; }
+    const def = all.find(d => d.id === pin.structId);
+    if (!def) { return undefined; }
+    return { pin, rows: decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation) };
 }
 
 function copyTextToClipboard(text: string): void {
