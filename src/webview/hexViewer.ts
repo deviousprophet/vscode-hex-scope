@@ -772,19 +772,80 @@ function availableRecordView(): { el: HTMLElement; parseResult: SerializedParseR
     return { el, parseResult: S.parseResult };
 }
 
-function renderRecordViewImpl(el: HTMLElement): void {
-    if (!S.parseResult) { return; }
+type RecordRenderWindow = {
+    firstVisibleIdx: number;
+    lastVisibleIdx: number;
+    physicalScrollTop: number;
+    scrollTop: number;
+    rowHeight: number;
+    layout: RecordScrollLayout;
+};
 
-    const recordCount = S.parseResult.records.length;
+function calcRecordRenderWindow(el: HTMLElement, recordCount: number): RecordRenderWindow {
     const containerHeight = el.clientHeight;
     const rowHeight = getRecordRowHeight(el);
     const layout = calcRecordScrollLayout(recordCount, containerHeight, rowHeight);
     const physicalScrollTop = el.scrollTop;
     const scrollTop = recordPhysicalToLogicalScroll(physicalScrollTop, layout);
+    return {
+        firstVisibleIdx: Math.max(0, Math.floor(scrollTop / rowHeight) - RECORD_BUFFER_ROWS),
+        lastVisibleIdx: Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / rowHeight) + RECORD_BUFFER_ROWS),
+        physicalScrollTop,
+        scrollTop,
+        rowHeight,
+        layout,
+    };
+}
 
-    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - RECORD_BUFFER_ROWS);
-    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / rowHeight) + RECORD_BUFFER_ROWS);
-    const signature = `${recordCount}:${firstVisibleIdx}:${lastVisibleIdx}:${layout.isCompressed ? Math.floor(physicalScrollTop) : ''}`;
+function recordWindowSignature(recordCount: number, win: RecordRenderWindow): string {
+    const physicalPart = win.layout.isCompressed ? Math.floor(win.physicalScrollTop) : '';
+    return `${recordCount}:${win.firstVisibleIdx}:${win.lastVisibleIdx}:${physicalPart}`;
+}
+
+function appendRecordTopSpacer(rows: HTMLTableRowElement[], win: RecordRenderWindow): void {
+    if (win.firstVisibleIdx <= 0 || win.layout.isCompressed) { return; }
+    appendRecordSpacerRows(rows, win.firstVisibleIdx * win.rowHeight);
+}
+
+function appendVisibleRecordRows(
+    rows: HTMLTableRowElement[],
+    records: SerializedRecord[],
+    win: RecordRenderWindow,
+    isSrec: boolean,
+    typeLabels: Record<number, string>,
+): void {
+    for (let i = Math.max(0, win.firstVisibleIdx); i <= win.lastVisibleIdx && i < records.length; i++) {
+        rows.push(recordRow(records[i], isSrec, typeLabels));
+    }
+}
+
+function appendRecordBottomSpacer(rows: HTMLTableRowElement[], recordCount: number, win: RecordRenderWindow): void {
+    if (win.lastVisibleIdx >= recordCount - 1 || win.layout.isCompressed) { return; }
+    appendRecordSpacerRows(rows, (recordCount - 1 - win.lastVisibleIdx) * win.rowHeight);
+}
+
+function replaceRecordViewContent(el: HTMLElement, table: HTMLTableElement, win: RecordRenderWindow): void {
+    if (!win.layout.isCompressed) {
+        el.replaceChildren(table);
+        return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+    wrapper.style.height = `${win.layout.physicalHeight}px`;
+    const topOffset = win.firstVisibleIdx * win.rowHeight;
+    table.style.position = 'absolute';
+    table.style.top = `${win.physicalScrollTop + topOffset - win.scrollTop}px`;
+    table.style.left = '0';
+    wrapper.appendChild(table);
+    el.replaceChildren(wrapper);
+}
+
+function renderRecordViewImpl(el: HTMLElement): void {
+    if (!S.parseResult) { return; }
+
+    const recordCount = S.parseResult.records.length;
+    const win = calcRecordRenderWindow(el, recordCount);
+    const signature = recordWindowSignature(recordCount, win);
     if (signature === recordRenderSignature) { return; }
     recordRenderSignature = signature;
 
@@ -793,41 +854,15 @@ function renderRecordViewImpl(el: HTMLElement): void {
     const table = recordTableElement();
     const rows: HTMLTableRowElement[] = [];
 
-    if (firstVisibleIdx > 0) {
-        const topOffset = firstVisibleIdx * rowHeight;
-        if (!layout.isCompressed) {
-            appendRecordSpacerRows(rows, topOffset);
-        }
-    }
-
-    for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
-        rows.push(recordRow(S.parseResult.records[i], isSrec, TYPE_LABELS));
-    }
-
-    if (lastVisibleIdx < recordCount - 1) {
-        const bottomOffset = (recordCount - 1 - lastVisibleIdx) * rowHeight;
-        if (!layout.isCompressed) {
-            appendRecordSpacerRows(rows, bottomOffset);
-        }
-    }
+    appendRecordTopSpacer(rows, win);
+    appendVisibleRecordRows(rows, S.parseResult.records, win, isSrec, TYPE_LABELS);
+    appendRecordBottomSpacer(rows, recordCount, win);
 
     const tbody = document.createElement('tbody');
     tbody.append(...rows);
     table.appendChild(tbody);
 
-    if (layout.isCompressed) {
-        const wrapper = document.createElement('div');
-        wrapper.style.position = 'relative';
-        wrapper.style.height = `${layout.physicalHeight}px`;
-        const topOffset = firstVisibleIdx * rowHeight;
-        table.style.position = 'absolute';
-        table.style.top = `${physicalScrollTop + topOffset - scrollTop}px`;
-        table.style.left = '0';
-        wrapper.appendChild(table);
-        el.replaceChildren(wrapper);
-    } else {
-        el.replaceChildren(table);
-    }
+    replaceRecordViewContent(el, table, win);
 }
 
 function recordTableElement(): HTMLTableElement {
@@ -1002,19 +1037,41 @@ function recordViewUnavailableNode(): HTMLElement {
 
 // ── View switching ────────────────────────────────────────────────
 
-function switchView(v: 'memory' | 'record'): void {
+type ViewName = 'memory' | 'record';
+
+function toggleClassById(id: string, className: string, active: boolean): void {
+    document.getElementById(id)?.classList.toggle(className, active);
+}
+
+function setDisplayById(id: string, visible: boolean): void {
+    document.getElementById(id)!.style.display = visible ? '' : 'none';
+}
+
+function updateViewVisibility(v: ViewName): void {
+    toggleClassById('record-view', 'visible', v === 'record');
+    toggleClassById('memory-view', 'visible', v === 'memory');
+    toggleClassById('btn-mem', 'active', v === 'memory');
+    toggleClassById('btn-rec', 'active', v === 'record');
+}
+
+function updateMemoryOnlyControls(visible: boolean): void {
+    setDisplayById('btn-edit-mode', visible);
+    setDisplayById('edit-mode-group', visible && S.editMode);
+    setDisplayById('sidebar', visible);
+    setDisplayById('side-tabs', visible);
+    setDisplayById('search-box', visible);
+}
+
+function renderCurrentView(v: ViewName): void {
+    if (v === 'memory') { memRerender(); return; }
+    renderRecordView();
+}
+
+function switchView(v: ViewName): void {
     S.currentView = v;
-    document.getElementById('record-view') ?.classList.toggle('visible', v === 'record');
-    document.getElementById('memory-view') ?.classList.toggle('visible', v === 'memory');
-    document.getElementById('btn-mem')     ?.classList.toggle('active',  v === 'memory');
-    document.getElementById('btn-rec')     ?.classList.toggle('active',  v === 'record');
-    document.getElementById('btn-edit-mode')!.style.display = v === 'memory' ? '' : 'none';
-    document.getElementById('edit-mode-group')!.style.display = v === 'memory' && S.editMode ? '' : 'none';
-    document.getElementById('sidebar')!.style.display = v === 'memory' ? '' : 'none';
-    document.getElementById('side-tabs')!.style.display = v === 'memory' ? '' : 'none';
-    document.getElementById('search-box')!.style.display = v === 'memory' ? '' : 'none';
-    if (v === 'memory')      { memRerender(); }
-    else if (v === 'record') { renderRecordView(); }
+    updateViewVisibility(v);
+    updateMemoryOnlyControls(v === 'memory');
+    renderCurrentView(v);
 }
 
 // ── External file-change helpers ──────────────────────────────────

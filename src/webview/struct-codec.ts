@@ -993,35 +993,58 @@ function appendStructCPadding(lines: string[], offset: number, padBytes: number)
     );
 }
 
+function maxStructCTypeLength(fields: StructField[], byId: Map<string, StructDef>): number {
+    const typeLens = fields.map(f => fieldTypeToC(f, byId).length);
+    return typeLens.length > 0 ? Math.max(...typeLens) : 8;
+}
+
+function createStructCEmitState(def: StructDef, lines: string[], byId: Map<string, StructDef>): StructCEmitState {
+    return { byId, lines, maxTypeLen: maxStructCTypeLength(def.fields, byId), offset: 0, maxAlign: 1, packed: !!def.packed };
+}
+
+function appendStructCFooter(def: StructDef, lines: string[], totalBytes: number, alignNote: string): void {
+    const displayName = def.name || 'MyStruct';
+    lines.push(`} ${displayName};`.padEnd(44) + `/* ${totalBytes}B, ${alignNote} */`);
+}
+
+function emitStructCFields(def: StructDef, state: StructCEmitState): void {
+    for (let fieldIndex = 0; fieldIndex < def.fields.length; fieldIndex++) {
+        emitStructCField(def.fields[fieldIndex], fieldIndex, state);
+    }
+}
+
+function appendTrailingStructCPadding(def: StructDef, lines: string[], offset: number, totalPadded: number): void {
+    if (def.packed || totalPadded <= offset) { return; }
+    appendStructCPadding(lines, offset, totalPadded - offset);
+}
+
+function structCTotalBytes(def: StructDef, totalUnpadded: number, totalPadded: number): number {
+    return def.packed ? totalUnpadded : totalPadded;
+}
+
+function structCAlignNote(def: StructDef, maxAlign: number): string {
+    return def.packed ? 'packed' : `align=${maxAlign}`;
+}
+
 /** Render a StructDef as a C typedef with per-field offset comments. */
 export function structToC(def: StructDef, defs: StructDef[] = allStructs()): string {
-    const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
-    byId.set(def.id, def);
+    const byId = createStructDefMap(def, defs);
 
     const attr = def.packed ? ' __attribute__((packed))' : '';
     const lines: string[] = [];
     lines.push(`typedef struct${attr} {`);
 
-    const typeLens = def.fields.map(f => fieldTypeToC(f, byId).length);
-    const maxTypeLen = typeLens.length > 0 ? Math.max(...typeLens) : 8;
+    const state = createStructCEmitState(def, lines, byId);
 
-    const state: StructCEmitState = { byId, lines, maxTypeLen, offset: 0, maxAlign: 1, packed: !!def.packed };
-
-    for (let fieldIndex = 0; fieldIndex < def.fields.length; fieldIndex++) {
-        emitStructCField(def.fields[fieldIndex], fieldIndex, state);
-    }
+    emitStructCFields(def, state);
 
     const totalUnpadded = state.offset;
     const totalPadded = alignUp(state.offset, state.maxAlign);
-    if (!def.packed && totalPadded > totalUnpadded) {
-        const padBytes = totalPadded - totalUnpadded;
-        appendStructCPadding(lines, state.offset, padBytes);
-    }
+    appendTrailingStructCPadding(def, lines, state.offset, totalPadded);
 
-    const totalBytes = def.packed ? totalUnpadded : totalPadded;
-    const alignNote = def.packed ? 'packed' : `align=${state.maxAlign}`;
-    const displayName = def.name || 'MyStruct';
-    lines.push(`} ${displayName};`.padEnd(44) + `/* ${totalBytes}B, ${alignNote} */`);
+    const totalBytes = structCTotalBytes(def, totalUnpadded, totalPadded);
+    const alignNote = structCAlignNote(def, state.maxAlign);
+    appendStructCFooter(def, lines, totalBytes, alignNote);
 
     return lines.join('\n');
 }
