@@ -2284,22 +2284,25 @@ function renderNestedStructGroup(ctx: StructRenderContext, ng: NestedFieldGroup,
         info,
     });
 
-    return (
-        `<div class="si-arr-grp${nestedOpen ? ' open' : ''}" data-arr-key="${esc(nestedKey)}">` +
-        (info.isBitUnit && !info.isArray
-            ? bitUnitHeaderHtml(ng.rows, nestedStart, info.byteCount, nestedOpen, groupHeaderName(ng.baseRel))
-            : `<div class="si-arr-grp-hdr" data-byte-start="${nestedStart}" data-byte-cnt="${info.byteCount}" data-offset-label="${offsetLabel(ng.rows[0].byteOffset)}">` +
-              compositeHeaderPrefixHtml(nestedOpen, ng.rows[0].byteOffset) +
-              `<button class="si-arr-exp-btn">${nestedOpen ? '▾' : '▸'}</button>` +
-              `<span class="si-f-body">` +
-              `<span class="si-f-name">${esc(groupHeaderName(ng.baseRel))}</span>` +
-              `<span class="si-f-lead"></span>` +
-              `<span class="si-arr-addr">${esc(info.summaryLabel)}</span>` +
-              `</span>` +
-              `</div>`
-        ) +
-        `<div class="si-arr-grp-body"${nestedOpen ? '' : ' style=\"display:none\"'}>${nestedBodyHtml}</div>` +
-        `</div>`
+    return compositeGroupHtml(
+        nestedKey,
+        nestedOpen,
+        nestedStructHeaderHtml(ng, info, nestedStart, nestedOpen),
+        nestedBodyHtml,
+    );
+}
+
+function nestedStructHeaderHtml(ng: NestedFieldGroup, info: StructGroupInfo, nestedStart: number, nestedOpen: boolean): string {
+    if (info.isBitUnit && !info.isArray) {
+        return bitUnitHeaderHtml(ng.rows, nestedStart, info.byteCount, nestedOpen, groupHeaderName(ng.baseRel));
+    }
+    return compositeHeaderHtml(
+        nestedOpen,
+        nestedStart,
+        info.byteCount,
+        ng.rows[0].byteOffset,
+        groupHeaderName(ng.baseRel),
+        info.summaryLabel,
     );
 }
 
@@ -2360,22 +2363,57 @@ function renderStructFieldGroup(ctx: StructRenderContext, g: FieldGroup): string
         info,
     });
 
+    return compositeGroupHtml(
+        key,
+        isOpen,
+        structFieldHeaderHtml(g, info, byteStart, isOpen),
+        elHtml,
+    );
+}
+
+function structFieldHeaderHtml(g: FieldGroup, info: StructGroupInfo, byteStart: number, isOpen: boolean): string {
+    if (info.isBitUnit && !info.isArray) {
+        return bitUnitHeaderHtml(g.rows, byteStart, info.byteCount, isOpen);
+    }
+    return compositeHeaderHtml(
+        isOpen,
+        byteStart,
+        info.byteCount,
+        g.rows[0].byteOffset,
+        groupHeaderName(g.baseName),
+        info.summaryLabel,
+        true,
+    );
+}
+
+function compositeGroupHtml(key: string, isOpen: boolean, headerHtml: string, bodyHtml: string): string {
     return (
         `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
-        (info.isBitUnit && !info.isArray
-            ? bitUnitHeaderHtml(g.rows, byteStart, info.byteCount, isOpen)
-            : `<div class="si-arr-grp-hdr" ` +
-              `data-byte-start="${byteStart}" data-byte-cnt="${info.byteCount}" data-offset-label="${offsetLabel(r0.byteOffset)}">` +
-              compositeHeaderPrefixHtml(isOpen, r0.byteOffset) +
-              `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
-              `<span class="si-f-body">` +
-              `<span class="si-f-name">${esc(groupHeaderName(g.baseName))}</span>` +
-              `<span class="si-f-lead"></span>` +
-              `<span class="si-arr-addr" title="${esc(info.summaryLabel)}">${esc(info.summaryLabel)}</span>` +
-              `</span>` +
-              `</div>`
-        ) +
-        `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${elHtml}</div>` +
+        headerHtml +
+        `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${bodyHtml}</div>` +
+        `</div>`
+    );
+}
+
+function compositeHeaderHtml(
+    isOpen: boolean,
+    byteStart: number,
+    byteCount: number,
+    byteOffset: number,
+    name: string,
+    summaryLabel: string,
+    includeTitle = false,
+): string {
+    const title = includeTitle ? ` title="${esc(summaryLabel)}"` : '';
+    return (
+        `<div class="si-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}" data-offset-label="${offsetLabel(byteOffset)}">` +
+        compositeHeaderPrefixHtml(isOpen, byteOffset) +
+        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        `<span class="si-f-body">` +
+        `<span class="si-f-name">${esc(name)}</span>` +
+        `<span class="si-f-lead"></span>` +
+        `<span class="si-arr-addr"${title}>${esc(summaryLabel)}</span>` +
+        `</span>` +
         `</div>`
     );
 }
@@ -2530,55 +2568,38 @@ function firstDirectChildByClass(parent: HTMLElement, cls: string): HTMLElement 
 }
 
 function applyTreeDepthStyles(sec: HTMLElement): void {
-    const annotateBody = (body: HTMLElement, level: number) => {
-        setTreeLevel(body, level);
-        for (const child of Array.from(body.children)) {
-            const htmlChild = asHtml(child);
-            if (!htmlChild) { continue; }
-            if (htmlChild.classList.contains('si-field')) {
-                setTreeLevel(htmlChild, level);
-                continue;
-            }
-            if (htmlChild.classList.contains('si-arr-grp')) {
-                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-grp-hdr');
-                if (hdr) { setTreeLevel(hdr, level); }
-                const childBody = firstDirectChildByClass(htmlChild, 'si-arr-grp-body');
-                if (childBody) { annotateBody(childBody, level + 1); }
-                continue;
-            }
-            if (htmlChild.classList.contains('si-arr-el-grp')) {
-                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-el-hdr');
-                if (hdr) { setTreeLevel(hdr, level); }
-                const childBody = firstDirectChildByClass(htmlChild, 'si-arr-el-body');
-                if (childBody) { annotateBody(childBody, level + 1); }
-            }
-        }
-    };
-
     sec.querySelectorAll<HTMLElement>('.si-fields').forEach(fields => {
-        setTreeLevel(fields, 0);
-        for (const child of Array.from(fields.children)) {
-            const htmlChild = asHtml(child);
-            if (!htmlChild) { continue; }
-            if (htmlChild.classList.contains('si-field')) {
-                setTreeLevel(htmlChild, 0);
-                continue;
-            }
-            if (htmlChild.classList.contains('si-arr-grp')) {
-                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-grp-hdr');
-                if (hdr) { setTreeLevel(hdr, 0); }
-                const body = firstDirectChildByClass(htmlChild, 'si-arr-grp-body');
-                if (body) { annotateBody(body, 1); }
-                continue;
-            }
-            if (htmlChild.classList.contains('si-arr-el-grp')) {
-                const hdr = firstDirectChildByClass(htmlChild, 'si-arr-el-hdr');
-                if (hdr) { setTreeLevel(hdr, 0); }
-                const body = firstDirectChildByClass(htmlChild, 'si-arr-el-body');
-                if (body) { annotateBody(body, 1); }
-            }
-        }
+        annotateTreeBody(fields, 0);
     });
+}
+
+function annotateTreeBody(body: HTMLElement, level: number): void {
+    setTreeLevel(body, level);
+    for (const child of Array.from(body.children)) {
+        const htmlChild = asHtml(child);
+        if (htmlChild) { annotateTreeChild(htmlChild, level); }
+    }
+}
+
+function annotateTreeChild(child: HTMLElement, level: number): void {
+    if (child.classList.contains('si-field')) {
+        setTreeLevel(child, level);
+        return;
+    }
+    if (child.classList.contains('si-arr-grp')) {
+        annotateCompositeTreeChild(child, level, 'si-arr-grp-hdr', 'si-arr-grp-body');
+        return;
+    }
+    if (child.classList.contains('si-arr-el-grp')) {
+        annotateCompositeTreeChild(child, level, 'si-arr-el-hdr', 'si-arr-el-body');
+    }
+}
+
+function annotateCompositeTreeChild(child: HTMLElement, level: number, headerClass: string, bodyClass: string): void {
+    const hdr = firstDirectChildByClass(child, headerClass);
+    if (hdr) { setTreeLevel(hdr, level); }
+    const body = firstDirectChildByClass(child, bodyClass);
+    if (body) { annotateTreeBody(body, level + 1); }
 }
 
 function wireInstanceCards(sec: HTMLElement): void {
