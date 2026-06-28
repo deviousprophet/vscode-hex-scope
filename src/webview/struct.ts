@@ -1876,12 +1876,21 @@ function bitUnitHeaderHtml(
     kind: 'group' | 'element' = 'group',
 ): string {
     const agg = buildBitUnitAggregateRow(rows);
-    const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''));
+    const headerName = bitUnitHeaderName(rows, headerNameOverride);
     const { headerClass, buttonClass } = bitUnitHeaderClasses(kind);
     const valKey = bitUnitValKey(start);
     if (!agg) { return emptyBitUnitHeaderHtml(headerClass, buttonClass, headerName, valKey, start, cnt, isOpen); }
 
     return populatedBitUnitHeaderHtml(rows, agg, headerClass, buttonClass, headerName, valKey, start, cnt, isOpen);
+}
+
+function bitUnitHeaderName(rows: DecodedField[], headerNameOverride?: string): string {
+    if (headerNameOverride !== undefined) { return headerNameOverride; }
+    return groupHeaderName(arrayGroupBaseName(firstBitUnitFieldName(rows)));
+}
+
+function firstBitUnitFieldName(rows: DecodedField[]): string {
+    return rows[0]?.fieldName ?? '';
 }
 
 function populatedBitUnitHeaderHtml(
@@ -2577,22 +2586,7 @@ function wireInstanceCards(sec: HTMLElement): void {
 
     // Keep bit hover highlight strictly tied to the current pointer target.
     sec.onmousemove = (ev: MouseEvent) => {
-        const target = ev.target as HTMLElement | null;
-        const bitRow = target?.closest<HTMLElement>('.si-field[data-bit-start][data-bit-width]') ?? null;
-        let next: { parentByteStart: number; startBit: number; endBit: number } | null = null;
-        let nextKey: string | null = null;
-        if (bitRow) {
-            const meta = parseBitRowMeta(bitRow);
-            if (meta) {
-                next = { parentByteStart: meta.byteStart, startBit: meta.bitStart, endBit: meta.bitStart + meta.bitWidth - 1 };
-                nextKey = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
-            }
-        }
-        if (_hoveredBitRowKey !== nextKey) {
-            _hoveredBitRange = next;
-            _hoveredBitRowKey = nextKey;
-            applyBitHighlightsInPlace(sec);
-        }
+        updateHoveredBitRow(ev, sec);
     };
     sec.onmouseleave = () => {
         if (_hoveredBitRange !== null || _hoveredBitRowKey !== null) {
@@ -2750,39 +2744,10 @@ function wireInstanceCards(sec: HTMLElement): void {
         row.addEventListener('click', () => {
             if (isNaN(start) || isNaN(cnt)) { return; }
             if (isBitRow) {
-                const meta = parseBitRowMeta(row);
-                if (meta) {
-                    _selectedBitRange = { parentByteStart: meta.byteStart, startBit: meta.bitStart, endBit: meta.bitStart + meta.bitWidth - 1 };
-                    _selectedBitRowKey = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
-                } else {
-                    _selectedBitRange = null;
-                    _selectedBitRowKey = null;
-                }
-                _hoveredBitRange = null;
-                _hoveredBitRowKey = null;
-                _selectedFieldAddr = null;
-                _selectedArrKey = null;
-                _selectedArrElemKey = null;
-                clearSelRow();
-                row.classList.add('si-selected');
-                applyBitHighlightsInPlace(sec);
+                selectBitRow(row, sec);
                 return;
             }
-            clearArrSep();
-            clearSelRow();
-            _selectedBitRange = null;
-            _hoveredBitRange = null;
-            _selectedBitRowKey = null;
-            _hoveredBitRowKey = null;
-            S.selStart = start;
-            S.selEnd   = start + cnt - 1;
-            row.classList.add('si-selected');
-            _selectedFieldAddr = start;
-            _selectedArrKey    = null;
-            _selectedArrElemKey = null;
-            import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-            import('./sidebar.js').then(m => m.updateInspector());
-            renderStructPins();
+            selectStructFieldRow(row, start, cnt);
         });
     });
 
@@ -3043,6 +3008,79 @@ const VALUE_KEY_FIELD: Record<ValueKeyKind, (rows: DecodedField[], valKey?: stri
 function findFieldForValueKey(rows: DecodedField[], addr: number, valKey?: string): DecodedField | null {
     const atAddr = rows.filter(row => row.byteOffset === addr);
     return VALUE_KEY_FIELD[valueKeyKind(valKey)](atAddr, valKey);
+}
+
+function updateHoveredBitRow(ev: MouseEvent, sec: HTMLElement): void {
+    const target = ev.target as HTMLElement | null;
+    const bitRow = target?.closest<HTMLElement>('.si-field[data-bit-start][data-bit-width]') ?? null;
+    const hover = bitRowHoverState(bitRow);
+    if (_hoveredBitRowKey === hover.key) { return; }
+    _hoveredBitRange = hover.range;
+    _hoveredBitRowKey = hover.key;
+    applyBitHighlightsInPlace(sec);
+}
+
+function bitRowHoverState(bitRow: HTMLElement | null): { range: { parentByteStart: number; startBit: number; endBit: number } | null; key: string | null } {
+    if (!bitRow) { return { range: null, key: null }; }
+    const meta = parseBitRowMeta(bitRow);
+    if (!meta) { return { range: null, key: null }; }
+    return bitSelectionState(meta);
+}
+
+function bitSelectionState(meta: { byteStart: number; bitStart: number; bitWidth: number }): { range: { parentByteStart: number; startBit: number; endBit: number }; key: string } {
+    return {
+        range: { parentByteStart: meta.byteStart, startBit: meta.bitStart, endBit: meta.bitStart + meta.bitWidth - 1 },
+        key: makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth),
+    };
+}
+
+function selectBitRow(row: HTMLElement, sec: HTMLElement): void {
+    applyBitRowSelection(parseBitRowMeta(row));
+    clearFieldSelectionState();
+    clearSelRow();
+    row.classList.add('si-selected');
+    applyBitHighlightsInPlace(sec);
+}
+
+function applyBitRowSelection(meta: ReturnType<typeof parseBitRowMeta>): void {
+    if (!meta) {
+        _selectedBitRange = null;
+        _selectedBitRowKey = null;
+        return;
+    }
+    const state = bitSelectionState(meta);
+    _selectedBitRange = state.range;
+    _selectedBitRowKey = state.key;
+}
+
+function clearFieldSelectionState(): void {
+    _hoveredBitRange = null;
+    _hoveredBitRowKey = null;
+    _selectedFieldAddr = null;
+    _selectedArrKey = null;
+    _selectedArrElemKey = null;
+}
+
+function selectStructFieldRow(row: HTMLElement, start: number, cnt: number): void {
+    clearArrSep();
+    clearSelRow();
+    clearBitSelectionState();
+    S.selStart = start;
+    S.selEnd = start + cnt - 1;
+    row.classList.add('si-selected');
+    _selectedFieldAddr = start;
+    _selectedArrKey = null;
+    _selectedArrElemKey = null;
+    import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    import('./sidebar.js').then(m => m.updateInspector());
+    renderStructPins();
+}
+
+function clearBitSelectionState(): void {
+    _selectedBitRange = null;
+    _hoveredBitRange = null;
+    _selectedBitRowKey = null;
+    _hoveredBitRowKey = null;
 }
 
 function showFieldValMenu(
