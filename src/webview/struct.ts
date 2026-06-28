@@ -207,13 +207,23 @@ function singleLineCopyText(text: string): string {
     return text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function parseDatasetInt(value: string | undefined): number | null {
+    const parsed = parseInt(value ?? '', 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePositiveDatasetInt(value: string | undefined): number | null {
+    const parsed = parseDatasetInt(value);
+    return parsed !== null && parsed > 0 ? parsed : null;
+}
+
 function parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null {
-    const byteStart = parseInt(row.dataset.byteStart ?? '', 10);
-    const bitStart = parseInt(row.dataset.bitStart ?? '', 10);
-    const bitWidth = parseInt(row.dataset.bitWidth ?? '', 10);
-    if (!Number.isFinite(byteStart) || !Number.isFinite(bitStart) || !Number.isFinite(bitWidth) || bitWidth <= 0) {
-        return null;
-    }
+    const byteStart = parseDatasetInt(row.dataset.byteStart);
+    if (byteStart === null) { return null; }
+    const bitStart = parseDatasetInt(row.dataset.bitStart);
+    if (bitStart === null) { return null; }
+    const bitWidth = parsePositiveDatasetInt(row.dataset.bitWidth);
+    if (bitWidth === null) { return null; }
     return { byteStart, bitStart, bitWidth };
 }
 
@@ -1463,12 +1473,20 @@ function getFloatPartsForField(r: DecodedField, bytes: number[], endian: 'le' | 
     return getFloatParts(bytes, r.type, endian);
 }
 
+const IMPLICIT_DISPLAY_BY_TYPE: Partial<Record<DecodedField['type'], ColType>> = {
+    float32: 'dec',
+    float64: 'dec',
+    ascii: 'ascii',
+};
+
+function fieldImplicitDisplayType(field: DecodedField | null | undefined): ColType {
+    if (!field) { return _defaultValType; }
+    if (isBitFieldRow(field)) { return 'bin'; }
+    return IMPLICIT_DISPLAY_BY_TYPE[field.type] ?? _defaultValType;
+}
+
 function implicitDisplayType(field: DecodedField | null | undefined, forceBinary = false): ColType {
-    if (forceBinary || (field && isBitFieldRow(field))) { return 'bin'; }
-    const fieldType = field?.type ?? null;
-    if (fieldType === 'float32' || fieldType === 'float64') { return 'dec'; }
-    if (fieldType === 'ascii') { return 'ascii'; }
-    return _defaultValType;
+    return forceBinary ? 'bin' : fieldImplicitDisplayType(field);
 }
 
 const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
@@ -2835,6 +2853,57 @@ function structRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: 
     return rows.filter(row => pin.addr + row.byteOffset === addr);
 }
 
+function parseBitValueKey(valKey: string): { bitStart: number; bitWidth: number } | null {
+    const parts = valKey.split(':');
+    const bitStart = parseDatasetInt(parts[2]);
+    if (bitStart === null) { return null; }
+    const bitWidth = parseDatasetInt(parts[3]);
+    if (bitWidth === null) { return null; }
+    return { bitStart, bitWidth };
+}
+
+function matchesBitValueKey(row: DecodedField, key: { bitStart: number; bitWidth: number }): boolean {
+    if (!isBitFieldRow(row)) { return false; }
+    if (row.bitOffset !== key.bitStart) { return false; }
+    return row.bitWidth === key.bitWidth;
+}
+
+function findBitFieldForValueKey(rows: DecodedField[], valKey: string): DecodedField | undefined {
+    const key = parseBitValueKey(valKey);
+    return key ? rows.find(row => matchesBitValueKey(row, key)) : undefined;
+}
+
+type ValueKeyKind = 'default' | 'bit' | 'bitunit';
+
+function valueKeyKind(valKey?: string): ValueKeyKind {
+    if (valKey?.startsWith('bitunit:')) { return 'bitunit'; }
+    if (valKey?.startsWith('bit:')) { return 'bit'; }
+    return 'default';
+}
+
+function firstValueKeyField(rows: DecodedField[]): DecodedField | null {
+    return rows[0] ?? null;
+}
+
+function bitUnitValueKeyField(rows: DecodedField[]): DecodedField | null {
+    return buildBitUnitAggregateRow(rows.filter(isBitFieldRow));
+}
+
+function bitValueKeyField(rows: DecodedField[], valKey?: string): DecodedField | null {
+    return valKey ? (findBitFieldForValueKey(rows, valKey) ?? firstValueKeyField(rows)) : firstValueKeyField(rows);
+}
+
+const VALUE_KEY_FIELD: Record<ValueKeyKind, (rows: DecodedField[], valKey?: string) => DecodedField | null> = {
+    default: firstValueKeyField,
+    bit: bitValueKeyField,
+    bitunit: bitUnitValueKeyField,
+};
+
+function findFieldForValueKey(rows: DecodedField[], addr: number, valKey?: string): DecodedField | null {
+    const atAddr = rows.filter(row => row.byteOffset === addr);
+    return VALUE_KEY_FIELD[valueKeyKind(valKey)](atAddr, valKey);
+}
+
 function showFieldValMenu(
     x: number,
     y: number,
@@ -2856,24 +2925,6 @@ function showFieldValMenu(
     const findRowsAt = (addr: number): DecodedField[] => structRowsAtAddress(addr, pinIdx, allDefs);
     const findFieldAt = (addr: number): DecodedField | null => {
         return findRowsAt(addr)[0] ?? null;
-    };
-    const findFieldForKey = (rows: DecodedField[], addr: number, valKey?: string): DecodedField | null => {
-        const atAddr = rows.filter(rr => rr.byteOffset === addr);
-        if (!valKey) { return atAddr[0] ?? null; }
-        if (valKey.startsWith('bit:')) {
-            const parts = valKey.split(':');
-            const bitStart = parseInt(parts[2] ?? '', 10);
-            const bitWidth = parseInt(parts[3] ?? '', 10);
-            return atAddr.find(rr =>
-                isBitFieldRow(rr) &&
-                rr.bitOffset === bitStart &&
-                rr.bitWidth === bitWidth
-            ) ?? atAddr[0] ?? null;
-        }
-        if (valKey.startsWith('bitunit:')) {
-            return buildBitUnitAggregateRow(atAddr.filter(isBitFieldRow));
-        }
-        return atAddr[0] ?? null;
     };
     const sampleField = findFieldAt(sampleAddr);
     const sampleType = sampleField?.type ?? null;
@@ -2972,7 +3023,7 @@ function showFieldValMenu(
             // Always copy as hex address
             const source = findCopySourceRows(bs, pinIdx);
             if (!source) { hideFieldValMenu(); return; }
-            const r = findFieldForKey(source.rows, bs - source.pin.addr, opts?.valKey);
+            const r = findFieldForValueKey(source.rows, bs - source.pin.addr, opts?.valKey);
             const toCopy = r ? singleLineCopyText(getCopyText(r, 'hex')) : '??';
             copyTextToClipboard(toCopy);
             hideFieldValMenu();
@@ -3015,11 +3066,11 @@ function showFieldValMenu(
             const toCopy = (bsList && bsList.length > 0)
                 ? bsList.map((b, idx) => {
                     const listKey = opts?.keyList?.[idx];
-                    const r = findFieldForKey(source.rows, b - source.pin.addr, listKey);
+                    const r = findFieldForValueKey(source.rows, b - source.pin.addr, listKey);
                     return r ? singleLineCopyText(getCopyText(r, t)) : '??';
                   }).join('; ')
                 : (() => {
-                    const r = findFieldForKey(source.rows, bs - source.pin.addr, opts?.valKey);
+                    const r = findFieldForValueKey(source.rows, bs - source.pin.addr, opts?.valKey);
                     return r ? singleLineCopyText(getCopyText(r, t)) : '??';
                   })();
             copyTextToClipboard(toCopy);
