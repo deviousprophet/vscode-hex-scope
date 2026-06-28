@@ -26,14 +26,29 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
     let closeTimer: ReturnType<typeof setTimeout> | null = null;
     let activeSub: HTMLElement | null = null;
 
-    const openSub = (sub: HTMLElement, row: HTMLElement) => {
-        if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-        if (activeSub && activeSub !== sub) { activeSub.style.display = 'none'; }
-        activeSub = sub;
-        sub.style.display = 'block';
+    const clearCloseTimer = () => {
+        if (!closeTimer) { return; }
+        clearTimeout(closeTimer);
+        closeTimer = null;
+    };
+
+    const hidePreviousSub = (sub: HTMLElement) => {
+        if (!activeSub || activeSub === sub) { return; }
+        activeSub.style.display = 'none';
+    };
+
+    const shouldOpenLeft = (sub: HTMLElement, row: HTMLElement): boolean => {
         const rr = row.getBoundingClientRect();
         const sw = sub.offsetWidth || 220;
-        if (rr.right + sw > window.innerWidth - 8) {
+        return rr.right + sw > window.innerWidth - 8;
+    };
+
+    const openSub = (sub: HTMLElement, row: HTMLElement) => {
+        clearCloseTimer();
+        hidePreviousSub(sub);
+        activeSub = sub;
+        sub.style.display = 'block';
+        if (shouldOpenLeft(sub, row)) {
             sub.style.left = 'auto'; sub.style.right = '100%';
         } else {
             sub.style.left = '100%'; sub.style.right = 'auto';
@@ -55,9 +70,7 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
         row.addEventListener('mouseleave', e => {
             if (!sub.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
         });
-        sub.addEventListener('mouseenter', () => {
-            if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-        });
+        sub.addEventListener('mouseenter', clearCloseTimer);
         sub.addEventListener('mouseleave', e => {
             if (!row.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
         });

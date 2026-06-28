@@ -484,13 +484,25 @@ function setSearchEndian(value: typeof S.searchEndianness, updateUi: () => void)
     updateUi();
 }
 
+function isSearchShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 'f';
+}
+
+function isUndoShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode;
+}
+
+function focusSearchInput(inputEl: HTMLInputElement): void {
+    inputEl.focus();
+    inputEl.select();
+}
+
 function handleGlobalKeydown(e: KeyboardEvent, inputEl: HTMLInputElement): void {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    if (isSearchShortcut(e)) {
         e.preventDefault();
-        inputEl.focus();
-        inputEl.select();
+        focusSearchInput(inputEl);
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
+    if (isUndoShortcut(e)) {
         e.preventDefault();
         undoLastEdit();
     }
@@ -518,20 +530,33 @@ function setupMemoryDragSelection(): void {
     document.addEventListener('mouseup', () => { dragAnchor = null; });
 }
 
-function updateDragSelection(e: MouseEvent, dragAnchor: number | null): number | null {
-    if (dragAnchor === null || !(e.buttons & 1)) { return null; }
+function dragSelectionAddressFromPoint(e: MouseEvent): number | null {
     const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-addr]');
-    if (!el) { return dragAnchor; }
+    if (!el) { return null; }
     const addr = parseInt(el.dataset.addr!, 16);
-    if (isNaN(addr)) { return dragAnchor; }
-    const newStart = Math.min(dragAnchor, addr);
-    const newEnd   = Math.max(dragAnchor, addr);
-    if (newStart === S.selStart && newEnd === S.selEnd) { return dragAnchor; }
-    S.selStart = newStart;
-    S.selEnd   = newEnd;
+    return isNaN(addr) ? null : addr;
+}
+
+function isSameSelection(start: number, end: number): boolean {
+    return start === S.selStart && end === S.selEnd;
+}
+
+function applyDragSelection(start: number, end: number): void {
+    S.selStart = start;
+    S.selEnd   = end;
     applySel();
     updateInspector();
     updateLabelFormSel();
+}
+
+function updateDragSelection(e: MouseEvent, dragAnchor: number | null): number | null {
+    if (dragAnchor === null || !(e.buttons & 1)) { return null; }
+    const addr = dragSelectionAddressFromPoint(e);
+    if (addr === null) { return dragAnchor; }
+    const newStart = Math.min(dragAnchor, addr);
+    const newEnd   = Math.max(dragAnchor, addr);
+    if (isSameSelection(newStart, newEnd)) { return dragAnchor; }
+    applyDragSelection(newStart, newEnd);
     return dragAnchor;
 }
 
