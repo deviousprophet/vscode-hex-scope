@@ -358,14 +358,11 @@ function normalizeAddrQuery(raw: string): string | null {
 
 function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndianness): number[][] {
     if (mode === 'bytes') {
-        const bytes = parseBytePattern(raw);
-        return bytes.length ? [bytes] : [];
+        return singleNeedle(parseBytePattern(raw));
     }
 
     if (mode === 'value') {
-        const beBytes = parseValuePattern(raw);
-        if (beBytes.length === 0) { return []; }
-        return buildEndianNeedles(beBytes, endianness);
+        return buildValueNeedles(raw, endianness);
     }
 
     if (mode === 'ascii') {
@@ -373,6 +370,16 @@ function buildNeedles(mode: SearchMode, raw: string, endianness: SearchEndiannes
     }
 
     return [];
+}
+
+function singleNeedle(bytes: number[]): number[][] {
+    return bytes.length ? [bytes] : [];
+}
+
+function buildValueNeedles(raw: string, endianness: SearchEndianness): number[][] {
+    const beBytes = parseValuePattern(raw);
+    if (beBytes.length === 0) { return []; }
+    return buildEndianNeedles(beBytes, endianness);
 }
 
 function parseBytePattern(raw: string): number[] {
@@ -492,13 +499,23 @@ export function initSearch(switchToMemory: () => void): void {
 export function runSearch(trigger: SearchTrigger = 'button'): void {
     if (S.currentView !== 'memory') { return; }
 
-    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
-    const q = raw.trim();
+    const q = currentSearchQuery();
     const searchKey = makeSearchKey(S.searchMode, q, S.searchEndianness);
 
-    if (handleRunningSearch(q, searchKey, trigger)) { return; }
-    if (handleCompletedSearchNavigation(q, searchKey, trigger)) { return; }
+    if (handleSearchNavigation(q, searchKey, trigger)) { return; }
+    startFreshSearch(q, searchKey);
+}
 
+function currentSearchQuery(): string {
+    return ((document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '').trim();
+}
+
+function handleSearchNavigation(q: string, searchKey: string, trigger: SearchTrigger): boolean {
+    return handleRunningSearch(q, searchKey, trigger) ||
+        handleCompletedSearchNavigation(q, searchKey, trigger);
+}
+
+function startFreshSearch(q: string, searchKey: string): void {
     S.matchAddrs = [];
     S.matchIdx = -1;
 
@@ -583,46 +600,57 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
         },
         {
             onProgressUpdate: (matches: number[]) => {
-                S.matchAddrs = matches;
-                if (matches.length > 0) {
-                    if (S.matchIdx < 0) {
-                        S.matchIdx = 0;
-                    }
-                    if (!_streamFirstJumpDone) {
-                        _streamFirstJumpDone = true;
-                        selectCurrentMatch();
-                        scrollToMatch();
-                    }
-                }
-                applyMatchHighlights();
-                updMC();
+                onSearchProgress(matches);
             },
             onComplete: (matches: number[]) => {
-                _lastCompletedSearchKey = req.searchKey;
-                const activeAddr =
-                    S.matchIdx >= 0 && S.matchIdx < S.matchAddrs.length
-                        ? S.matchAddrs[S.matchIdx]
-                        : null;
-                S.matchAddrs = matches;
-                if (matches.length === 0) {
-                    S.matchIdx = -1;
-                } else if (activeAddr !== null) {
-                    const idx = matches.indexOf(activeAddr);
-                    S.matchIdx = idx >= 0 ? idx : Math.min(Math.max(S.matchIdx, 0), matches.length - 1);
-                } else {
-                    S.matchIdx = 0;
-                }
-
-                _searchRunning = false;
-                _activeSearchKey = '';
-                setSearchBusy(false);
-                selectCurrentMatch();
-                applyMatchHighlights();
-                scrollToMatch();
-                updMC();
+                onSearchComplete(req.searchKey, matches);
             },
         }
     );
+}
+
+function onSearchProgress(matches: number[]): void {
+    S.matchAddrs = matches;
+    if (matches.length > 0) {
+        initStreamingMatchIndex();
+    }
+    applyMatchHighlights();
+    updMC();
+}
+
+function initStreamingMatchIndex(): void {
+    if (S.matchIdx < 0) { S.matchIdx = 0; }
+    if (_streamFirstJumpDone) { return; }
+    _streamFirstJumpDone = true;
+    selectCurrentMatch();
+    scrollToMatch();
+}
+
+function onSearchComplete(searchKey: string, matches: number[]): void {
+    _lastCompletedSearchKey = searchKey;
+    const activeAddr = activeMatchAddress();
+    S.matchAddrs = matches;
+    S.matchIdx = completedMatchIndex(matches, activeAddr);
+    _searchRunning = false;
+    _activeSearchKey = '';
+    setSearchBusy(false);
+    selectCurrentMatch();
+    applyMatchHighlights();
+    scrollToMatch();
+    updMC();
+}
+
+function activeMatchAddress(): number | null {
+    return S.matchIdx >= 0 && S.matchIdx < S.matchAddrs.length
+        ? S.matchAddrs[S.matchIdx]
+        : null;
+}
+
+function completedMatchIndex(matches: number[], activeAddr: number | null): number {
+    if (matches.length === 0) { return -1; }
+    if (activeAddr === null) { return 0; }
+    const idx = matches.indexOf(activeAddr);
+    return idx >= 0 ? idx : Math.min(Math.max(S.matchIdx, 0), matches.length - 1);
 }
 
 export function clearSearch(): void {
@@ -654,16 +682,13 @@ export function prevMatch(): void {
 function updMC(): void {
     const el = document.getElementById('match-count');
     if (!el) { return; }
-    const raw = (document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '';
-    if (raw.trim().length > 0 && S.matchAddrs.length === 0) {
-        el.textContent = '0 / 0';
-        return;
-    }
-    if (S.matchAddrs.length === 0) {
-        el.textContent = '';
-    } else {
-        el.textContent = `${S.matchIdx + 1} / ${S.matchAddrs.length}`;
-    }
+    el.textContent = matchCountText(currentSearchQuery(), S.matchAddrs.length, S.matchIdx);
+}
+
+function matchCountText(query: string, count: number, index: number): string {
+    if (query.length > 0 && count === 0) { return '0 / 0'; }
+    if (count === 0) { return ''; }
+    return `${index + 1} / ${count}`;
 }
 
 function setSearchBusy(isBusy: boolean): void {
@@ -727,25 +752,25 @@ function makeSearchKey(mode: SearchMode, raw: string, endianness: SearchEndianne
 }
 
 function canonicalizeQuery(mode: SearchMode, raw: string): string {
-    if (mode === 'bytes') {
-        const bytes = parseBytePattern(raw);
-        const canonical = canonicalizeBytes(bytes);
-        if (canonical) { return canonical; }
-        return raw.replace(/\s/g, '').toUpperCase();
-    }
+    const canonicalizers: Record<SearchMode, (value: string) => string> = {
+        bytes: canonicalizeByteQuery,
+        value: canonicalizeValueQuery,
+        addr: canonicalizeAddrQuery,
+        ascii: value => value,
+    };
+    return canonicalizers[mode](raw);
+}
 
-    if (mode === 'value') {
-        const bytes = parseValuePattern(raw);
-        const canonical = canonicalizeBytes(bytes);
-        if (canonical) { return canonical; }
-        return raw.replace(/_/g, '').toUpperCase();
-    }
+function canonicalizeByteQuery(raw: string): string {
+    return canonicalizeBytes(parseBytePattern(raw)) ?? raw.replace(/\s/g, '').toUpperCase();
+}
 
-    if (mode === 'addr') {
-        return normalizeAddrQuery(raw) ?? raw.replace(/^0x/i, '').toUpperCase();
-    }
+function canonicalizeValueQuery(raw: string): string {
+    return canonicalizeBytes(parseValuePattern(raw)) ?? raw.replace(/_/g, '').toUpperCase();
+}
 
-    return raw;
+function canonicalizeAddrQuery(raw: string): string {
+    return normalizeAddrQuery(raw) ?? raw.replace(/^0x/i, '').toUpperCase();
 }
 
 function canonicalizeBytes(bytes: number[]): string | null {
