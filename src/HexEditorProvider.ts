@@ -713,6 +713,23 @@ export function buildSRecDataRecord(type: number, address: number, data: number[
     return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
 }
 
+function shouldRepairRecordChecksum(rec: ParsedRecord): boolean {
+    return !rec.error && !rec.checksumValid;
+}
+
+function repairedChecksumLine(line: string, rec: ParsedRecord): string {
+    const correctChk = computeCorrectChecksum(rec);
+    return line.slice(0, -2) + correctChk.toString(16).toUpperCase().padStart(2, '0');
+}
+
+function repairChecksumLine(lines: string[], rec: ParsedRecord): void {
+    if (!shouldRepairRecordChecksum(rec)) { return; }
+    const line = lines[rec.lineNumber - 1];
+    if (!line) { return; }
+    // Replace the last two characters (the checksum hex byte)
+    lines[rec.lineNumber - 1] = repairedChecksumLine(line, rec);
+}
+
 /**
  * Rewrite every checksum-invalid (but structurally parseable) record in-place
  * by replacing its last two hex characters with the correctly computed checksum.
@@ -722,15 +739,37 @@ export function repairChecksums(raw: string, parseResult: ParseResult): string {
     const eol = raw.includes('\r\n') ? '\r\n' : '\n';
     const lines = raw.split(/\r?\n/);
     for (const rec of parseResult.records) {
-        if (rec.error || rec.checksumValid) { continue; }
-        const line = lines[rec.lineNumber - 1];
-        if (!line) { continue; }
-        // Replace the last two characters (the checksum hex byte)
-        const correctChk = computeCorrectChecksum(rec);
-        lines[rec.lineNumber - 1] = line.slice(0, -2) +
-            correctChk.toString(16).toUpperCase().padStart(2, '0');
+        repairChecksumLine(lines, rec);
     }
     return lines.join(eol);
+}
+
+function srecAddressByteCount(recordType: number): number {
+    const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
+    return aszMap[recordType] ?? 2;
+}
+
+function sumRecordData(data: ArrayLike<number>): number {
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) { sum += data[i]; }
+    return sum;
+}
+
+function sumAddressBytes(address: number, byteCount: number): number {
+    let sum = 0;
+    for (let i = byteCount - 1; i >= 0; i--) { sum += (address >>> (i * 8)) & 0xFF; }
+    return sum;
+}
+
+function computeCorrectSRecChecksum(rec: import('./parser/types').HexRecord): number {
+    const sum = rec.byteCount + sumAddressBytes(rec.address, srecAddressByteCount(rec.recordType)) + sumRecordData(rec.data);
+    return (~sum) & 0xFF;
+}
+
+function computeCorrectIntelHexChecksum(rec: import('./parser/types').HexRecord): number {
+    const addressSum = ((rec.address >> 8) & 0xFF) + (rec.address & 0xFF);
+    const sum = rec.byteCount + addressSum + rec.recordType + sumRecordData(rec.data);
+    return (~sum + 1) & 0xFF;
 }
 
 /** Compute the correct checksum for a parsed record (works for both IHEX and SREC). */
@@ -739,17 +778,7 @@ function computeCorrectChecksum(rec: import('./parser/types').HexRecord): number
     // SREC: one's-complement of (byteCount + addrBytes + data)
     // We detect by address byte count: SREC types have fixed addr sizes, IHEX always 2.
     // Both share the same shape — differentiate by checking if raw starts with ':' or 'S'.
-    if (rec.raw.startsWith('S')) {
-        const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
-        const asz = aszMap[rec.recordType] ?? 2;
-        let sum = rec.byteCount;
-        for (let i = asz - 1; i >= 0; i--) { sum += (rec.address >>> (i * 8)) & 0xFF; }
-        for (const b of rec.data) { sum += b; }
-        return (~sum) & 0xFF;
-    }
-    let sum = rec.byteCount + ((rec.address >> 8) & 0xFF) + (rec.address & 0xFF) + rec.recordType;
-    for (const b of rec.data) { sum += b; }
-    return (~sum + 1) & 0xFF;
+    return rec.raw.startsWith('S') ? computeCorrectSRecChecksum(rec) : computeCorrectIntelHexChecksum(rec);
 }
 
 function getNonce(): string {
