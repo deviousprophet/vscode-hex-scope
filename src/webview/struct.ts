@@ -511,13 +511,7 @@ function buildStructCPreviewNodes(def: StructDef): DocumentFragment {
             if (idx > lastIdx) { appendText(parent, code.slice(lastIdx, idx)); }
             const tok = m[0];
             const span = document.createElement('span');
-            if (tok === '__attribute__((packed))') {
-                span.className = 'sc-attr';
-            } else if (tok === 'typedef' || tok === 'struct') {
-                span.className = 'sc-kw';
-            } else {
-                span.className = 'sc-type';
-            }
+            span.className = structCodeTokenClass(tok);
             span.textContent = tok;
             parent.appendChild(span);
             lastIdx = idx + tok.length;
@@ -552,6 +546,12 @@ function buildStructCPreviewNodes(def: StructDef): DocumentFragment {
     });
 
     return out;
+}
+
+function structCodeTokenClass(tok: string): string {
+    if (tok === '__attribute__((packed))') { return 'sc-attr'; }
+    if (tok === 'typedef' || tok === 'struct') { return 'sc-kw'; }
+    return 'sc-type';
 }
 
 function renderStructCPreview(pre: HTMLElement, def: StructDef): void {
@@ -1176,29 +1176,7 @@ export function renderStructPins(): void {
             confirmBtn.disabled = !_applyStructId || !hasAddr;
         });
         document.getElementById('sa-confirm')?.addEventListener('click', () => {
-            if (!_applyStructId) { return; }
-            const addrInp = document.getElementById('sa-addr') as HTMLInputElement;
-            const nameInp = document.getElementById('sa-name') as HTMLInputElement;
-            const addr    = parseInt(addrInp.value.replace(/^0x/i, ''), 16);
-            if (isNaN(addr)) { addrInp.style.borderColor = 'var(--err)'; return; }
-            addrInp.style.borderColor = '';
-            let name = nameInp.value.trim();
-            if (!name) {
-                const applyDef = S.structs.find(d => d.id === _applyStructId);
-                const base = applyDef ? applyDef.name : 'inst';
-                const takenPinNames = new Set(S.structPins.map(p => p.name));
-                let candidate = `${base}_0`;
-                let n = 1;
-                while (takenPinNames.has(candidate)) { candidate = `${base}_${n++}`; }
-                name = candidate;
-            }
-            const pin: StructPin = { id: `pin_${Date.now()}`, structId: _applyStructId, addr, name };
-            S.structPins       = [...S.structPins, pin];
-            S.activeStructAddr = addr;
-            _expanded.add(pin.id);
-            _addingPin = false;
-            vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
-            renderStructPins();
+            confirmAddStructPin();
         });
         document.getElementById('sa-cancel')?.addEventListener('click', () => {
             _addingPin = false;
@@ -1227,6 +1205,47 @@ export function renderStructPins(): void {
         wireEditorInSec(sec);
         sec.querySelector<HTMLInputElement>('#se-name')?.focus();
     }
+}
+
+function confirmAddStructPin(): void {
+    if (!_applyStructId) { return; }
+    const addrInp = document.getElementById('sa-addr') as HTMLInputElement;
+    const nameInp = document.getElementById('sa-name') as HTMLInputElement;
+    const addr = parseStructApplyAddress(addrInp);
+    if (addr === null) { return; }
+    const name = structApplyName(nameInp);
+    const pin: StructPin = { id: `pin_${Date.now()}`, structId: _applyStructId, addr, name };
+    S.structPins       = [...S.structPins, pin];
+    S.activeStructAddr = addr;
+    _expanded.add(pin.id);
+    _addingPin = false;
+    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+    renderStructPins();
+}
+
+function parseStructApplyAddress(addrInp: HTMLInputElement): number | null {
+    const addr = parseInt(addrInp.value.replace(/^0x/i, ''), 16);
+    if (!isNaN(addr)) {
+        addrInp.style.borderColor = '';
+        return addr;
+    }
+    addrInp.style.borderColor = 'var(--err)';
+    return null;
+}
+
+function structApplyName(nameInp: HTMLInputElement): string {
+    const name = nameInp.value.trim();
+    return name || nextStructApplyName();
+}
+
+function nextStructApplyName(): string {
+    const applyDef = S.structs.find(d => d.id === _applyStructId);
+    const base = applyDef ? applyDef.name : 'inst';
+    const takenPinNames = new Set(S.structPins.map(p => p.name));
+    let candidate = `${base}_0`;
+    let n = 1;
+    while (takenPinNames.has(candidate)) { candidate = `${base}_${n++}`; }
+    return candidate;
 }
 
 /** Resets all transient view state for the struct panel and re-renders. Call when switching away and back. */
@@ -1316,12 +1335,46 @@ function renderScalarValue(
     endian: 'le' | 'be',
 ): string {
     const le = endian === 'le';
+    const special = renderSpecialScalarValue(r, valType, bytes, dv, endian, le);
+    if (special !== null) { return special; }
+    return renderNumericValue(r, valType, dv, le);
+}
+
+function renderSpecialScalarValue(
+    r: DecodedField,
+    valType: ColType,
+    bytes: number[],
+    dv: DataView,
+    endian: 'le' | 'be',
+    le: boolean,
+): string | null {
+    const byType = renderSpecialScalarByType(r, valType, bytes, dv, le);
+    if (byType !== null) { return byType; }
+    return renderSpecialScalarByValueType(r, valType, bytes, endian);
+}
+
+function renderSpecialScalarByType(
+    r: DecodedField,
+    valType: ColType,
+    bytes: number[],
+    dv: DataView,
+    le: boolean,
+): string | null {
     if (r.type === 'pointer') { return renderPointerValue(dv, le); }
     if (r.type === 'ascii') { return renderAsciiValue(r, valType, bytes); }
+    return null;
+}
+
+function renderSpecialScalarByValueType(
+    r: DecodedField,
+    valType: ColType,
+    bytes: number[],
+    endian: 'le' | 'be',
+): string | null {
     if (isBinaryDisplay(valType)) { return renderPlainBinaryBits(binaryBitsForValue(bytes, endian)); }
     if (valType === 'ieee') { return renderIeeeValue(r, bytes, endian); }
     if (valType === 'ascii') { return `'${asciiFromBytes(bytes)}'`; }
-    return renderNumericValue(r, valType, dv, le);
+    return null;
 }
 
 function renderPointerValue(dv: DataView, le: boolean): string {
@@ -1452,16 +1505,39 @@ function copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
     const bytes = fieldBytes(r);
     const endian = S.endian;
     const le = endian === 'le';
+    const special = copySpecialFieldValue(r, valType, bytes, endian, le);
+    if (special !== null) { return special; }
+    return copyNumericValue(r, valType, dataViewForBytes(bytes), le);
+}
+
+function copySpecialFieldValue(
+    r: DecodedField,
+    valType: ColType,
+    bytes: number[],
+    endian: 'le' | 'be',
+    le: boolean,
+): string | null {
+    const byType = copySpecialFieldByType(r, valType, bytes, le);
+    if (byType !== null) { return byType; }
+    return copySpecialFieldByValueType(r, valType, bytes, endian);
+}
+
+function copySpecialFieldByType(r: DecodedField, valType: ColType, bytes: number[], le: boolean): string | null {
     if (r.type === 'pointer') { return copyPointerValue(bytes, le); }
     if (hasSlicedBitCopyValue(r, valType)) { return copySlicedBitValue(r); }
-    if (isBinaryDisplay(valType)) {
-        return formatPlainBinaryBits(binaryBitsForValue(bytes, endian));
-    }
-    if (valType === 'ieee') {
-        return copyIeeeValue(r, bytes, endian);
-    }
+    return null;
+}
+
+function copySpecialFieldByValueType(
+    r: DecodedField,
+    valType: ColType,
+    bytes: number[],
+    endian: 'le' | 'be',
+): string | null {
+    if (isBinaryDisplay(valType)) { return formatPlainBinaryBits(binaryBitsForValue(bytes, endian)); }
+    if (valType === 'ieee') { return copyIeeeValue(r, bytes, endian); }
     if (valType === 'ascii') { return asciiFromBytes(bytes); }
-    return copyNumericValue(r, valType, dataViewForBytes(bytes), le);
+    return null;
 }
 
 function copyPointerValue(bytes: number[], le: boolean): string {
@@ -1803,10 +1879,22 @@ function bitUnitHeaderHtml(
     const headerName = headerNameOverride ?? groupHeaderName(arrayGroupBaseName(rows[0]?.fieldName ?? ''));
     const { headerClass, buttonClass } = bitUnitHeaderClasses(kind);
     const valKey = bitUnitValKey(start);
-    if (!agg) {
-        return emptyBitUnitHeaderHtml(headerClass, buttonClass, headerName, valKey, start, cnt, isOpen);
-    }
+    if (!agg) { return emptyBitUnitHeaderHtml(headerClass, buttonClass, headerName, valKey, start, cnt, isOpen); }
 
+    return populatedBitUnitHeaderHtml(rows, agg, headerClass, buttonClass, headerName, valKey, start, cnt, isOpen);
+}
+
+function populatedBitUnitHeaderHtml(
+    rows: DecodedField[],
+    agg: DecodedField,
+    headerClass: string,
+    buttonClass: string,
+    headerName: string,
+    valKey: string,
+    start: number,
+    cnt: number,
+    isOpen: boolean,
+): string {
     const t = bitUnitHeaderValueType(valKey);
     const ptrClass = bitUnitPointerClass(agg);
     const valHtml = bitUnitHeaderDisplayValue(rows, agg, t, start);
