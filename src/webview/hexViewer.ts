@@ -549,8 +549,12 @@ function applyDragSelection(start: number, end: number): void {
     updateLabelFormSel();
 }
 
+function hasActiveDragSelection(e: MouseEvent, dragAnchor: number | null): dragAnchor is number {
+    return dragAnchor !== null && Boolean(e.buttons & 1);
+}
+
 function updateDragSelection(e: MouseEvent, dragAnchor: number | null): number | null {
-    if (dragAnchor === null || !(e.buttons & 1)) { return null; }
+    if (!hasActiveDragSelection(e, dragAnchor)) { return null; }
     const addr = dragSelectionAddressFromPoint(e);
     if (addr === null) { return dragAnchor; }
     const newStart = Math.min(dragAnchor, addr);
@@ -655,28 +659,31 @@ function memRerender(): void {
     renderMemBody(onByteDown, onByteCtx);
 }
 
+function selectedRangeForClick(e: MouseEvent, addr: number): { start: number; end: number } {
+    if (e.shiftKey && S.selStart !== null) {
+        return addr < S.selStart
+            ? { start: addr, end: S.selStart }
+            : { start: S.selStart, end: addr };
+    }
+    return { start: addr, end: addr };
+}
+
+function updateByteSelection(start: number, end: number): void {
+    S.selStart = start;
+    S.selEnd   = end;
+    applySel();
+    updateInspector();
+    updateLabelFormSel();
+    onSelectionChangeForStruct();
+}
+
 function onByteDown(e: MouseEvent, el: HTMLElement): void {
     if (e.button !== 0) { return; }  // ignore right/middle-click
     const addr = parseInt(el.dataset.addr!, 16);
     if (isNaN(addr)) { return; }
 
-    if (e.shiftKey && S.selStart !== null) {
-        if (addr < S.selStart) {
-            S.selEnd   = S.selStart;
-            S.selStart = addr;
-        } else {
-            S.selEnd = addr;
-        }
-    } else {
-        S.selStart = addr;
-        S.selEnd   = addr;
-    }
-
-    applySel();
-    updateInspector();
-    updateLabelFormSel();
-    onSelectionChangeForStruct();
-
+    const range = selectedRangeForClick(e, addr);
+    updateByteSelection(range.start, range.end);
 }
 
 function onByteCtx(e: MouseEvent, el: HTMLElement): void {
