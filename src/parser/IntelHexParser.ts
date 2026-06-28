@@ -46,6 +46,12 @@ interface IntelHexFields {
     checksumValid: boolean;
 }
 
+interface IntelHexAddressState {
+    upperAddress: number;
+    addressMode: 'linear' | 'segment';
+    startAddress?: number;
+}
+
 // ── Public API ───────────────────────────────────────────────────
 
 /**
@@ -54,39 +60,55 @@ interface IntelHexFields {
  * segments, checksum error count, and optional execution start address.
  */
 export function parseIntelHex(source: string): ParseResult {
-    let upperAddress = 0; // holds upper 16 bits (type 04) or segment (type 02)
-    let addressMode: 'linear' | 'segment' = 'linear';
-    let startAddress: number | undefined;
+    const addressState: IntelHexAddressState = {
+        upperAddress: 0,
+        addressMode: 'linear',
+    };
 
     const { records, checksumErrors, malformedLines } = parseSourceRecords(source, parseLine, record => {
-        switch (record.recordType) {
-            case RecordType.ExtendedLinearAddress:
-                addressMode = 'linear';
-                upperAddress = (record.data[0] << 8 | record.data[1]) << 16;
-                break;
-            case RecordType.ExtendedSegmentAddress:
-                addressMode = 'segment';
-                upperAddress = (record.data[0] << 8 | record.data[1]) << 4;
-                break;
-            case RecordType.StartLinearAddress:
-                startAddress = (record.data[0] << 24) | (record.data[1] << 16) | (record.data[2] << 8) | record.data[3];
-                break;
-            case RecordType.StartSegmentAddress:
-                startAddress = ((record.data[0] << 8 | record.data[1]) << 4) + (record.data[2] << 8 | record.data[3]);
-                break;
-        }
-
-        if (record.recordType === RecordType.Data) {
-            record.resolvedAddress = addressMode === 'linear'
-                ? (upperAddress + record.address) >>> 0
-                : (upperAddress + record.address) & 0xFFFFF;
-        }
+        updateIntelHexAddressState(record, addressState);
     });
 
     const segments = buildSegments(records);
     const totalDataBytes = segments.reduce((sum, s) => sum + s.data.length, 0);
 
-    return { records, segments, totalDataBytes, checksumErrors, malformedLines, startAddress };
+    return { records, segments, totalDataBytes, checksumErrors, malformedLines, startAddress: addressState.startAddress };
+}
+
+function updateIntelHexAddressState(record: HexRecord, state: IntelHexAddressState): void {
+    INTEL_HEX_ADDRESS_HANDLERS[record.recordType]?.(record, state);
+}
+
+const INTEL_HEX_ADDRESS_HANDLERS: Partial<Record<number, (record: HexRecord, state: IntelHexAddressState) => void>> = {
+    [RecordType.ExtendedLinearAddress]: setLinearAddressState,
+    [RecordType.ExtendedSegmentAddress]: setSegmentAddressState,
+    [RecordType.StartLinearAddress]: (record, state) => { state.startAddress = linearStartAddress(record); },
+    [RecordType.StartSegmentAddress]: (record, state) => { state.startAddress = segmentStartAddress(record); },
+    [RecordType.Data]: (record, state) => { record.resolvedAddress = resolvedIntelHexAddress(record, state); },
+};
+
+function setLinearAddressState(record: HexRecord, state: IntelHexAddressState): void {
+    state.addressMode = 'linear';
+    state.upperAddress = (record.data[0] << 8 | record.data[1]) << 16;
+}
+
+function setSegmentAddressState(record: HexRecord, state: IntelHexAddressState): void {
+    state.addressMode = 'segment';
+    state.upperAddress = (record.data[0] << 8 | record.data[1]) << 4;
+}
+
+function linearStartAddress(record: HexRecord): number {
+    return (record.data[0] << 24) | (record.data[1] << 16) | (record.data[2] << 8) | record.data[3];
+}
+
+function segmentStartAddress(record: HexRecord): number {
+    return ((record.data[0] << 8 | record.data[1]) << 4) + (record.data[2] << 8 | record.data[3]);
+}
+
+function resolvedIntelHexAddress(record: HexRecord, state: IntelHexAddressState): number {
+    return state.addressMode === 'linear'
+        ? (state.upperAddress + record.address) >>> 0
+        : (state.upperAddress + record.address) & 0xFFFFF;
 }
 
 // ── Line parser ───────────────────────────────────────────────────

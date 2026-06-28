@@ -115,35 +115,48 @@ function wireInspectorCopies(valsEl: HTMLElement): void {
 }
 
 export function updateInspector(): void {
+    const state = readInspectorState();
+    if (!state) { return; }
+
+    renderInspectorAddress(state.addrEl, state.len);
+    if (renderInspectorMissingData(state.valsEl, state.val)) { return; }
+    renderInspectorSelection(state.valsEl, state.val, state.len);
+
+    wireInspectorCopies(state.valsEl);
+    renderMultiInline();
+}
+
+function readInspectorState(): { addrEl: HTMLElement; valsEl: HTMLElement; len: number; val: number | undefined } | null {
     const addrEl = document.getElementById('insp-addr');
     const valsEl = document.getElementById('insp-vals');
-    if (!addrEl || !valsEl) { return; }
-
+    if (!addrEl || !valsEl) { return null; }
     if (S.selStart === null) {
         renderInspectorNoSelection(addrEl, valsEl);
-        return;
+        return null;
     }
+    return {
+        addrEl,
+        valsEl,
+        len: inspectorSelectionLength(),
+        val: getByte(S.selStart),
+    };
+}
 
-    const len = inspectorSelectionLength();
-    const val = getByte(S.selStart);
-    renderInspectorAddress(addrEl, len);
+function renderInspectorMissingData(valsEl: HTMLElement, val: number | undefined): val is undefined {
+    if (val !== undefined) { return false; }
+    renderInspectorNoData(valsEl);
+    return true;
+}
 
-    if (val === undefined) {
-        renderInspectorNoData(valsEl);
-        return;
-    }
-
+function renderInspectorSelection(valsEl: HTMLElement, val: number, len: number): void {
     if (len === 1) {
         valsEl.innerHTML = singleByteInspectorHtml(val);
         renderBits(val);
-    } else {
-        const selBytes = selectedBytes(len);
-        valsEl.innerHTML = multiByteInspectorHtml(selBytes, len);
-        renderBitsMulti(selBytes.slice(0, Math.min(len, 8)));
+        return;
     }
-
-    wireInspectorCopies(valsEl);
-    renderMultiInline();
+    const selBytes = selectedBytes(len);
+    valsEl.innerHTML = multiByteInspectorHtml(selBytes, len);
+    renderBitsMulti(selBytes.slice(0, Math.min(len, 8)));
 }
 
 // ── Bit viewer ────────────────────────────────────────────────────
@@ -353,11 +366,11 @@ function wireMultiInlineControls(el: HTMLElement): void {
 function renderMultiInline(): void {
     const el = document.getElementById('insp-multi');
     if (!el) { return; }
-    if (S.selStart === null || getByte(S.selStart) === undefined) {
+    if (!hasMultiInlineStart()) {
         el.innerHTML = ''; return;
     }
 
-    const selLen = (S.selEnd !== null && S.selEnd >= S.selStart) ? S.selEnd - S.selStart + 1 : 1;
+    const selLen = multiInlineSelectionLength();
     if (selLen < 2) { el.innerHTML = ''; return; }
 
     const width = multiWidth(selLen);
@@ -370,6 +383,16 @@ function renderMultiInline(): void {
         `<div class="mi-group">${group}</div>`;
 
     wireMultiInlineControls(el);
+}
+
+function hasMultiInlineStart(): boolean {
+    return S.selStart !== null && getByte(S.selStart) !== undefined;
+}
+
+function multiInlineSelectionLength(): number {
+    return (S.selStart !== null && S.selEnd !== null && S.selEnd >= S.selStart)
+        ? S.selEnd - S.selStart + 1
+        : 1;
 }
 
 // ── Parsed segments ───────────────────────────────────────────────
@@ -826,37 +849,7 @@ function renderLabelForm(editId?: string): void {
     let chosenColor = editing?.color ?? LABEL_COLORS[S.labels.length % LABEL_COLORS.length].v;
     const swatchHtml = labelSwatchesHtml(chosenColor);
 
-    sec.innerHTML = `
-        <div class="sb-hdr">${editing ? 'Edit Label' : 'New Label'}</div>
-        <div class="lbl-form">
-            <div class="lf-field">
-                <span class="lf-lbl">Name</span>
-                <input id="lf-name" class="lf-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? '')}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultLabelStart(editing)}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Range</span>
-                <div class="lf-range-row">
-                    <div class="lf-mode-grp">
-                        <button class="lf-mode active" data-mode="len">Length</button>
-                        <button class="lf-mode" data-mode="end">End addr</button>
-                    </div>
-                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultLabelRange(editing)}">
-                </div>
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Color</span>
-                <div class="lf-swatches">${swatchHtml}</div>
-            </div>
-            <div class="lf-warn" id="lf-warn"></div>
-            <div class="lf-actions">
-                <button class="lf-btn lf-save" id="lf-save">${editing ? 'Update' : 'Add'}</button>
-                <button class="lf-btn lf-cancel" id="lf-cancel">Cancel</button>
-            </div>
-        </div>`;
+    sec.innerHTML = labelFormHtml(editing, swatchHtml);
 
     let rangeMode: LabelRangeMode = 'len';
     let pendingWarning = false;
@@ -887,6 +880,47 @@ function renderLabelForm(editId?: string): void {
     document.getElementById('lf-save')?.addEventListener('click', () => {
         pendingWarning = saveLabel(editId, editing, chosenColor, rangeMode, pendingWarning);
     });
+}
+
+function labelFormHtml(editing: LabelState | undefined, swatchHtml: string): string {
+    const mode = labelFormMode(editing);
+    return `
+        <div class="sb-hdr">${mode.title}</div>
+        <div class="lbl-form">
+            <div class="lf-field">
+                <span class="lf-lbl">Name</span>
+                <input id="lf-name" class="lf-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? '')}">
+            </div>
+            <div class="lf-field">
+                <span class="lf-lbl">Start address</span>
+                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultLabelStart(editing)}">
+            </div>
+            <div class="lf-field">
+                <span class="lf-lbl">Range</span>
+                <div class="lf-range-row">
+                    <div class="lf-mode-grp">
+                        <button class="lf-mode active" data-mode="len">Length</button>
+                        <button class="lf-mode" data-mode="end">End addr</button>
+                    </div>
+                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultLabelRange(editing)}">
+                </div>
+            </div>
+            <div class="lf-field">
+                <span class="lf-lbl">Color</span>
+                <div class="lf-swatches">${swatchHtml}</div>
+            </div>
+            <div class="lf-warn" id="lf-warn"></div>
+            <div class="lf-actions">
+                <button class="lf-btn lf-save" id="lf-save">${mode.saveLabel}</button>
+                <button class="lf-btn lf-cancel" id="lf-cancel">Cancel</button>
+            </div>
+        </div>`;
+}
+
+function labelFormMode(editing: LabelState | undefined): { title: string; saveLabel: string } {
+    return editing
+        ? { title: 'Edit Label', saveLabel: 'Update' }
+        : { title: 'New Label', saveLabel: 'Add' };
 }
 
 /**

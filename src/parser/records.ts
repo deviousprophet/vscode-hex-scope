@@ -20,16 +20,25 @@ export function parseSourceRecords(
         const trimmed = lines[i].trim();
         if (trimmed === '') { continue; }
 
-        const record = parseLine(trimmed, i + 1);
-        records.push(record);
-
-        if (record.error) {
-            malformedLines++;
-            continue;
-        }
-        if (!record.checksumValid) { checksumErrors++; }
-        onRecord?.(record);
+        const result = parseSourceRecordLine(trimmed, i + 1, parseLine, onRecord);
+        records.push(result.record);
+        checksumErrors += result.checksumErrorCount;
+        malformedLines += result.malformedLineCount;
     }
 
     return { records, checksumErrors, malformedLines };
+}
+
+function parseSourceRecordLine(
+    line: string,
+    lineNumber: number,
+    parseLine: (line: string, lineNumber: number) => HexRecord,
+    onRecord?: (record: HexRecord) => void,
+): { record: HexRecord; checksumErrorCount: number; malformedLineCount: number } {
+    const record = parseLine(line, lineNumber);
+    if (record.error) {
+        return { record, checksumErrorCount: 0, malformedLineCount: 1 };
+    }
+    onRecord?.(record);
+    return { record, checksumErrorCount: record.checksumValid ? 0 : 1, malformedLineCount: 0 };
 }

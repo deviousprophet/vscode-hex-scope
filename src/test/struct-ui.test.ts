@@ -1209,6 +1209,55 @@ suite('struct UI array header summary', () => {
     });
 
     test('renders nested single bit-field groups like top-level bit-field groups', async () => {
+        S.structs = nestedSingleBitFieldStructs();
+        S.structPins = [{ id: 'pin_nested_single_bits', structId: 'parent_single_bits', addr: 0x40, name: 'inst' }];
+        setBytesInSegment(0x40, [0x0B]);
+
+        await renderPinsAndExpandCard();
+
+        const expandNode = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        assert.ok(expandNode, 'nested struct node should be expandable');
+        expandNode!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const nestedBitHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body > .si-arr-grp > .si-bitunit-hdr');
+        assertNestedSingleBitFieldHeader(nestedBitHeader);
+
+        assertNestedSingleBitFieldValue(nestedBitHeader!);
+
+        const expandBits = nestedBitHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expandBits, 'nested bit-field group should be expandable');
+        expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        assertNestedSingleBitFieldChildren();
+    });
+
+    function assertNestedSingleBitFieldHeader(nestedBitHeader: HTMLElement | null): void {
+        assert.ok(nestedBitHeader, 'nested single bit-field group should use the scalar-like bit-field header');
+        const header = nestedBitHeader as HTMLElement;
+        assert.strictEqual(requiredText(header, '.si-f-name'), 'control', 'nested bit-field header should use declared field name');
+        assert.strictEqual(requiredText(header, '.si-f-off'), '+000', 'nested bit-field header should show its byte offset');
+        assert.strictEqual(requiredText(header, '.si-f-type'), 'u8', 'nested bit-field header should show the base scalar type');
+    }
+
+    function requiredText(root: HTMLElement, selector: string): string {
+        return root.querySelector<HTMLElement>(selector)?.textContent ?? '';
+    }
+
+    function assertNestedSingleBitFieldValue(nestedBitHeader: HTMLElement): void {
+        const parentValue = nestedBitHeader.querySelector<HTMLElement>('.si-f-val');
+        assert.ok(parentValue, 'nested bit-field parent should show an aggregate value');
+        assert.strictEqual(parentValue!.dataset.valType, 'bin', 'nested bit-field parent should default to full binary');
+        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00001011', 'nested bit-field parent should show full storage binary');
+    }
+
+    function assertNestedSingleBitFieldChildren(): void {
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-field[data-bit-start] .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.ok(childNames.includes('mode'), 'nested bit-field child row should contain mode');
+        assert.ok(childNames.includes('enabled'), 'nested bit-field child row should contain enabled');
+    }
+
+    function nestedSingleBitFieldStructs(): StructDef[] {
         const child: StructDef = {
             id: 'child_single_bits',
             name: 'ChildSingleBits',
@@ -1231,37 +1280,8 @@ suite('struct UI array header summary', () => {
                 { name: 'node', type: 'struct', refStructId: 'child_single_bits', count: 1 },
             ],
         };
-
-        S.structs = [child, parent];
-        S.structPins = [{ id: 'pin_nested_single_bits', structId: 'parent_single_bits', addr: 0x40, name: 'inst' }];
-        setBytesInSegment(0x40, [0x0B]);
-
-        await renderPinsAndExpandCard();
-
-        const expandNode = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
-        assert.ok(expandNode, 'nested struct node should be expandable');
-        expandNode!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-
-        const nestedBitHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body > .si-arr-grp > .si-bitunit-hdr');
-        assert.ok(nestedBitHeader, 'nested single bit-field group should use the scalar-like bit-field header');
-        assert.strictEqual(nestedBitHeader!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '', 'control', 'nested bit-field header should use declared field name');
-        assert.strictEqual(nestedBitHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+000', 'nested bit-field header should show its byte offset');
-        assert.strictEqual(nestedBitHeader!.querySelector<HTMLElement>('.si-f-type')?.textContent ?? '', 'u8', 'nested bit-field header should show the base scalar type');
-
-        const parentValue = nestedBitHeader!.querySelector<HTMLElement>('.si-f-val');
-        assert.ok(parentValue, 'nested bit-field parent should show an aggregate value');
-        assert.strictEqual(parentValue!.dataset.valType, 'bin', 'nested bit-field parent should default to full binary');
-        assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00001011', 'nested bit-field parent should show full storage binary');
-
-        const expandBits = nestedBitHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
-        assert.ok(expandBits, 'nested bit-field group should be expandable');
-        expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-
-        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-field[data-bit-start] .si-f-name'))
-            .map(el => el.textContent ?? '');
-        assert.ok(childNames.includes('mode'), 'nested bit-field child row should contain mode');
-        assert.ok(childNames.includes('enabled'), 'nested bit-field child row should contain enabled');
-    });
+        return [child, parent];
+    }
 
     test('keeps scalar arrays separate from bit-field groups', async () => {
         const def: StructDef = {

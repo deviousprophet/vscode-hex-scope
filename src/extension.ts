@@ -60,23 +60,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('hexScope.quickRepair', (uri?: vscode.Uri) => {
-            void (async () => {
-                const target = uri ?? vscode.window.activeTextEditor?.document.uri;
-                if (!target) { return; }
-                const { raw, parseResult } = await loadHexDocument(target);
-                if (parseResult.checksumErrors === 0) {
-                    vscode.window.showInformationMessage('HexScope: no checksum repairs were needed.');
-                    return;
-                }
-                const repairedRaw = repairChecksums(raw, parseResult);
-                if (repairedRaw === raw) {
-                    vscode.window.showInformationMessage('HexScope: no checksum repairs were applied.');
-                    return;
-                }
-                await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(repairedRaw));
-                vscode.window.showInformationMessage(`HexScope: repaired ${parseResult.checksumErrors} checksum${parseResult.checksumErrors === 1 ? '' : 's'} in ${target.fsPath.split(/[\\/]/).pop()}`);
-            })();
+        vscode.commands.registerCommand('hexScope.quickRepair', uri => {
+            void runQuickRepair(uri);
         })
     );
 
@@ -94,6 +79,37 @@ export function activate(context: vscode.ExtensionContext) {
             })
         );
     }
+}
+
+async function runQuickRepair(uri?: vscode.Uri): Promise<void> {
+    const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+    if (!target) { return; }
+    await repairTargetChecksums(target);
+}
+
+async function repairTargetChecksums(target: vscode.Uri): Promise<void> {
+    const { raw, parseResult } = await loadHexDocument(target);
+    if (showNoChecksumErrors(parseResult.checksumErrors)) { return; }
+    const repairedRaw = repairChecksums(raw, parseResult);
+    if (showNoChecksumRepair(raw, repairedRaw)) { return; }
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(repairedRaw));
+    vscode.window.showInformationMessage(repairCompleteMessage(parseResult.checksumErrors, target));
+}
+
+function showNoChecksumErrors(checksumErrors: number): boolean {
+    if (checksumErrors !== 0) { return false; }
+    vscode.window.showInformationMessage('HexScope: no checksum repairs were needed.');
+    return true;
+}
+
+function showNoChecksumRepair(raw: string, repairedRaw: string): boolean {
+    if (repairedRaw !== raw) { return false; }
+    vscode.window.showInformationMessage('HexScope: no checksum repairs were applied.');
+    return true;
+}
+
+function repairCompleteMessage(checksumErrors: number, target: vscode.Uri): string {
+    return `HexScope: repaired ${checksumErrors} checksum${checksumErrors === 1 ? '' : 's'} in ${target.fsPath.split(/[\\/]/).pop()}`;
 }
 
 export function deactivate() {}
