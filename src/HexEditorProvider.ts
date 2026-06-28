@@ -17,6 +17,70 @@ function hasParseErrors(result: ParseResult): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
 }
 
+type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
+type StructDefIdentity = { id: string; name: string };
+
+function stringProperty(value: unknown, key: 'id' | 'name'): string | null {
+    const prop = (value as { id?: unknown; name?: unknown })?.[key];
+    return typeof prop === 'string' ? prop : null;
+}
+
+function structDefIdentity(value: unknown): StructDefIdentity | null {
+    const id = stringProperty(value, 'id');
+    if (!id) { return null; }
+    const name = stringProperty(value, 'name');
+    return name ? { id, name } : null;
+}
+
+function rememberStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): void {
+    seenIds.add(identity.id);
+    seenNames.add(identity.name);
+}
+
+function hasSeenStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): boolean {
+    return seenIds.has(identity.id) || seenNames.has(identity.name);
+}
+
+function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
+    const identity = structDefIdentity(item);
+    if (!identity || hasSeenStructDefIdentity(identity, seenIds, seenNames)) { return false; }
+    rememberStructDefIdentity(identity, seenIds, seenNames);
+    out.push(item as StructDef);
+    return true;
+}
+
+function normalizeStructDefsValue(value: unknown): StructDefsNormalization {
+    if (!Array.isArray(value)) { return { defs: [], changed: false }; }
+    const out: StructDef[] = [];
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    let changed = false;
+
+    for (const item of value) {
+        changed = !appendUniqueStructDef(item, out, seenIds, seenNames) || changed;
+    }
+    return { defs: out, changed };
+}
+
+function createStructDefIdentitySets(defs: StructDef[]): { usedIds: Set<string>; usedNames: Set<string> } {
+    return {
+        usedIds: new Set(defs.map(s => structDefIdentity(s)?.id).filter((id): id is string => typeof id === 'string')),
+        usedNames: new Set(defs.map(s => structDefIdentity(s)?.name).filter((name): name is string => typeof name === 'string')),
+    };
+}
+
+function mergeLegacyStructDefs(globalArr: StructDef[], legacyArr: StructDef[]): { defs: StructDef[]; changed: boolean } {
+    if (legacyArr.length === 0) { return { defs: globalArr, changed: false }; }
+    const { usedIds, usedNames } = createStructDefIdentitySets(globalArr);
+    const migrated = legacyArr.filter(s => {
+        const identity = structDefIdentity(s);
+        if (!identity || hasSeenStructDefIdentity(identity, usedIds, usedNames)) { return false; }
+        rememberStructDefIdentity(identity, usedIds, usedNames);
+        return true;
+    });
+    return migrated.length > 0 ? { defs: [...globalArr, ...migrated], changed: true } : { defs: globalArr, changed: false };
+}
+
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     public static readonly viewType = 'hexScope.hexEditor';
@@ -86,29 +150,26 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
         const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
 
-        const normalizeStructDefs = (value: unknown): { defs: StructDef[]; changed: boolean } => {
-            if (!Array.isArray(value)) { return { defs: [], changed: false }; }
-            const out: StructDef[] = [];
-            const seenIds = new Set<string>();
-            const seenNames = new Set<string>();
-            let changed = false;
+        const normalizeStructDefs = normalizeStructDefsValue;
 
-            for (const item of value) {
-                const id = (item as { id?: unknown })?.id;
-                const name = (item as { name?: unknown })?.name;
-                if (typeof id !== 'string' || typeof name !== 'string') {
-                    changed = true;
-                    continue;
-                }
-                if (seenIds.has(id) || seenNames.has(name)) {
-                    changed = true;
-                    continue;
-                }
-                seenIds.add(id);
-                seenNames.add(name);
-                out.push(item as StructDef);
+        const syncGlobalStructs = async (rawGlobal: unknown, normalizedGlobal: unknown, defs: StructDef[], changed: boolean): Promise<void> => {
+            if (rawGlobal === undefined || !Array.isArray(normalizedGlobal) || changed) {
+                await this._context.globalState.update(globalStructKey, defs);
             }
-            return { defs: out, changed };
+        };
+
+        const clearPreviousGlobalStructs = async (previousGlobalStructs: unknown): Promise<void> => {
+            if (previousGlobalStructs !== undefined) {
+                await this._context.globalState.update(previousGlobalStructKey, undefined);
+            }
+        };
+
+        const persistMergedLegacyStructs = async (globalArr: StructDef[], legacyArr: StructDef[]): Promise<StructDef[]> => {
+            const merged = mergeLegacyStructDefs(globalArr, legacyArr);
+            if (merged.changed) {
+                await this._context.globalState.update(globalStructKey, merged.defs);
+            }
+            return merged.defs;
         };
 
         const loadStructs = async () => {
@@ -119,36 +180,9 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
             const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
 
-            if (currentGlobalStructs === undefined || !Array.isArray(globalStructs) || globalChanged) {
-                await this._context.globalState.update(globalStructKey, globalArr);
-            }
-            if (previousGlobalStructs !== undefined) {
-                await this._context.globalState.update(previousGlobalStructKey, undefined);
-            }
-
-            if (legacyArr.length > 0) {
-                const usedIds = new Set(globalArr
-                    .map(s => (s as { id?: unknown })?.id)
-                    .filter((id): id is string => typeof id === 'string'));
-                const usedNames = new Set(globalArr
-                    .map(s => (s as { name?: unknown })?.name)
-                    .filter((name): name is string => typeof name === 'string'));
-
-                const migrated = legacyArr.filter(s => {
-                    const id = (s as { id?: unknown })?.id;
-                    const name = (s as { name?: unknown })?.name;
-                    if (typeof id !== 'string' || typeof name !== 'string') { return false; }
-                    if (usedIds.has(id) || usedNames.has(name)) { return false; }
-                    usedIds.add(id);
-                    usedNames.add(name);
-                    return true;
-                });
-
-                if (migrated.length > 0) {
-                    globalArr = [...globalArr, ...migrated];
-                    await this._context.globalState.update(globalStructKey, globalArr);
-                }
-            }
+            await syncGlobalStructs(currentGlobalStructs, globalStructs, globalArr, globalChanged);
+            await clearPreviousGlobalStructs(previousGlobalStructs);
+            globalArr = await persistMergedLegacyStructs(globalArr, legacyArr);
 
             await this._context.workspaceState.update(structKey, undefined);
 
