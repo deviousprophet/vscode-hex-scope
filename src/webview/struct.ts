@@ -2619,22 +2619,7 @@ function wireInstanceCards(sec: HTMLElement): void {
         wireStructHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
-            if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
-            if (isBitUnitHdr) { return; }
-            clearStructSelectionVisuals();
-            if (isNaN(start) || isNaN(cnt)) { return; }
-            const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
-            _selectedArrKey    = grp.dataset.arrKey!;
-            _selectedArrElemKey = null;
-            _selectedFieldAddr = null;
-            // Mark each nested element's first byte (except element 0) for visual separation.
-            const elementHeaders = grp.querySelectorAll<HTMLElement>('.si-arr-el-hdr');
-            if (elementHeaders.length > 0) {
-                markArraySeparators(Array.from(elementHeaders));
-            } else {
-                markArraySeparators(Array.from(grp.querySelectorAll<HTMLElement>('.si-field')));
-            }
-            selectStructRange(hdr, start, cnt);
+            selectArrayGroupHeader(e, hdr, start, cnt, isBitUnitHdr);
         });
     });
 
@@ -2773,33 +2758,7 @@ function wireInstanceCards(sec: HTMLElement): void {
     // entire group (child elements).
     sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
         hdr.addEventListener('contextmenu', ev => {
-            if (hdr.classList.contains('si-bitunit-hdr')) { return; }
-            ev.preventDefault(); ev.stopPropagation();
-            const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
-            const body = Array.from(grp.children).find(child =>
-                child.classList.contains('si-arr-grp-body')
-            ) as HTMLElement | undefined;
-            const directValueRows = body
-                ? Array.from(body.children).flatMap(child => {
-                    const childEl = child as HTMLElement;
-                    if (childEl.classList.contains('si-field')) { return [childEl]; }
-                    if (childEl.classList.contains('si-arr-el-grp')) {
-                        const hdr = Array.from(child.children).find(grandchild =>
-                            grandchild.classList.contains('si-arr-el-hdr') &&
-                            grandchild.classList.contains('si-field')
-                        ) as HTMLElement | undefined;
-                        return hdr ? [hdr] : [];
-                    }
-                    return [];
-                })
-                : [];
-            const bsList = directValueRows.map(r => parseInt(r.dataset.byteStart!));
-            const keyList = directValueRows.map(r => r.dataset.valKey ?? scalarValKey(parseInt(r.dataset.byteStart!)));
-            const card = hdr.closest<HTMLElement>('.si-card');
-            const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
-            const start = bsList[0];
-            if (start === undefined) { return; }
-            showFieldValMenu(ev.clientX, ev.clientY, start, bsList, pinIdx, { isArrayHeader: true, keyList });
+            openArrayHeaderValueMenu(ev, hdr);
         });
     });
 
@@ -3010,6 +2969,57 @@ function findFieldForValueKey(rows: DecodedField[], addr: number, valKey?: strin
     return VALUE_KEY_FIELD[valueKeyKind(valKey)](atAddr, valKey);
 }
 
+function handleArrayHeaderMenuCommand(
+    cmd: string,
+    bs: number,
+    bsList: number[] | undefined,
+    keyList: string[] | undefined,
+    findFieldAt: (addr: number) => DecodedField | null,
+): void {
+    if (cmd === 'copy-addr') {
+        copyAddressToClipboard(bs);
+        return;
+    }
+    if (!cmd.startsWith('disp-')) { return; }
+    if (!hasValueRows(bsList)) { return; }
+    applyArrayHeaderDisplayType(cmd.replace('disp-', '') as ColType, bsList, keyList, findFieldAt);
+    hideFieldValMenu();
+    renderStructPins();
+}
+
+function copyAddressToClipboard(bs: number): void {
+    copyTextToClipboard(`0x${bs.toString(16).toUpperCase().padStart(8, '0')}`);
+    hideFieldValMenu();
+}
+
+function hasValueRows(bsList: number[] | undefined): bsList is number[] {
+    return Boolean(bsList && bsList.length > 0);
+}
+
+function applyArrayHeaderDisplayType(
+    t: ColType,
+    bsList: number[],
+    keyList: string[] | undefined,
+    findFieldAt: (addr: number) => DecodedField | null,
+): void {
+    bsList.forEach((b, idx) => {
+        setArrayHeaderDisplayType(t, b, keyList?.[idx], findFieldAt);
+    });
+}
+
+function setArrayHeaderDisplayType(
+    t: ColType,
+    byteStart: number,
+    keyOverride: string | undefined,
+    findFieldAt: (addr: number) => DecodedField | null,
+): void {
+    const listKey = keyOverride ?? scalarValKey(byteStart);
+    const field = findFieldAt(byteStart);
+    const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
+    if (t === implicit) { _fieldValTypes.delete(listKey); }
+    else { _fieldValTypes.set(listKey, t); }
+}
+
 function updateHoveredBitRow(ev: MouseEvent, sec: HTMLElement): void {
     const target = ev.target as HTMLElement | null;
     const bitRow = target?.closest<HTMLElement>('.si-field[data-bit-start][data-bit-width]') ?? null;
@@ -3081,6 +3091,87 @@ function clearBitSelectionState(): void {
     _hoveredBitRange = null;
     _selectedBitRowKey = null;
     _hoveredBitRowKey = null;
+}
+
+function selectArrayGroupHeader(e: MouseEvent, hdr: HTMLElement, start: number, cnt: number, isBitUnitHdr: boolean): void {
+    if (shouldSkipArrayGroupClick(e, isBitUnitHdr)) { return; }
+    clearStructSelectionVisuals();
+    if (hasInvalidRange(start, cnt)) { return; }
+    const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
+    _selectedArrKey = grp.dataset.arrKey!;
+    _selectedArrElemKey = null;
+    _selectedFieldAddr = null;
+    markArraySeparators(arrayGroupSeparatorRows(grp));
+    selectStructRange(hdr, start, cnt);
+}
+
+function shouldSkipArrayGroupClick(e: MouseEvent, isBitUnitHdr: boolean): boolean {
+    return isBitUnitHdr || Boolean((e.target as HTMLElement).closest('.si-arr-exp-btn'));
+}
+
+function hasInvalidRange(start: number, cnt: number): boolean {
+    return isNaN(start) || isNaN(cnt);
+}
+
+function arrayGroupSeparatorRows(grp: HTMLElement): HTMLElement[] {
+    const elementHeaders = Array.from(grp.querySelectorAll<HTMLElement>('.si-arr-el-hdr'));
+    return elementHeaders.length > 0 ? elementHeaders : Array.from(grp.querySelectorAll<HTMLElement>('.si-field'));
+}
+
+function openArrayHeaderValueMenu(ev: MouseEvent, hdr: HTMLElement): void {
+    if (hdr.classList.contains('si-bitunit-hdr')) { return; }
+    ev.preventDefault();
+    ev.stopPropagation();
+    const directValueRows = directArrayHeaderValueRows(hdr);
+    const bsList = directValueRows.map(rowByteStart);
+    const start = bsList[0];
+    if (start === undefined) { return; }
+    const keyList = directValueRows.map(rowValueKey);
+    const pinIdx = pinIndexFromHeader(hdr);
+    showFieldValMenu(ev.clientX, ev.clientY, start, bsList, pinIdx, { isArrayHeader: true, keyList });
+}
+
+function directArrayHeaderValueRows(hdr: HTMLElement): HTMLElement[] {
+    const body = arrayGroupBody(hdr);
+    return body ? Array.from(body.children).flatMap(directValueRowsFromChild) : [];
+}
+
+function arrayGroupBody(hdr: HTMLElement): HTMLElement | undefined {
+    const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
+    return Array.from(grp.children).find(isArrayGroupBody) as HTMLElement | undefined;
+}
+
+function isArrayGroupBody(child: Element): boolean {
+    return child.classList.contains('si-arr-grp-body');
+}
+
+function directValueRowsFromChild(child: Element): HTMLElement[] {
+    const childEl = child as HTMLElement;
+    if (childEl.classList.contains('si-field')) { return [childEl]; }
+    if (childEl.classList.contains('si-arr-el-grp')) { return nestedValueHeaderRows(childEl); }
+    return [];
+}
+
+function nestedValueHeaderRows(child: HTMLElement): HTMLElement[] {
+    const hdr = Array.from(child.children).find(isNestedValueHeader) as HTMLElement | undefined;
+    return hdr ? [hdr] : [];
+}
+
+function isNestedValueHeader(child: Element): boolean {
+    return child.classList.contains('si-arr-el-hdr') && child.classList.contains('si-field');
+}
+
+function rowByteStart(row: HTMLElement): number {
+    return parseInt(row.dataset.byteStart!);
+}
+
+function rowValueKey(row: HTMLElement): string {
+    return row.dataset.valKey ?? scalarValKey(rowByteStart(row));
+}
+
+function pinIndexFromHeader(hdr: HTMLElement): number {
+    const card = hdr.closest<HTMLElement>('.si-card');
+    return card ? parseInt(card.dataset.idx!) : -1;
 }
 
 function showFieldValMenu(
@@ -3170,24 +3261,7 @@ function showFieldValMenu(
             y,
         );
         wireFieldValMenuCommands(el, cmd => {
-            if (cmd === 'copy-addr') {
-                const addrStr = `0x${bs.toString(16).toUpperCase().padStart(8, '0')}`;
-                copyTextToClipboard(addrStr);
-                hideFieldValMenu();
-                return;
-            }
-            if (cmd.startsWith('disp-') && bsList && bsList.length > 0) {
-                const t = cmd.replace('disp-', '') as ColType;
-                bsList.forEach((b, idx) => {
-                    const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
-                    const field = findFieldAt(b);
-                    const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
-                    if (t === implicit) { _fieldValTypes.delete(listKey); }
-                    else { _fieldValTypes.set(listKey, t); }
-                });
-                hideFieldValMenu();
-                renderStructPins();
-            }
+            handleArrayHeaderMenuCommand(cmd, bs, bsList, opts?.keyList, findFieldAt);
         });
         wireStructSubmenus(el);
         addFieldValMenuClickAway();
