@@ -262,30 +262,46 @@ function renderBinaryFromBitRows(
         return '<span class="si-bin-wrap"></span>';
     }
     const rawParts = byteHexParts(first.bytesHex);
-    const missing = hasMissingByte(rawParts) || !first.hasData;
-    if (!missing) {
-        const raw = bytesFromHexParts(rawParts);
-        const value = bytesToValue(raw, S.endian);
-        const unitBits = raw.length * 8;
-        const mask = (1n << BigInt(usedWidth)) - 1n;
-        const slicedValue = S.bitFieldAllocation === 'lsb'
-            ? value & mask
-            : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
-        const bits = slicedValue.toString(2).padStart(usedWidth, '0');
-        const spans = [...bits].map((bit, displayIdx) => {
-            const bitIdx = S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
-            return renderBitSpan(bit, bitIdx, isBitSelected(bitIdx, selectedRange));
-        });
-        return renderBinarySpanLines(spans);
+    if (hasBitRowData(first, rawParts)) {
+        return renderKnownBitRowBits(rawParts, usedWidth, selectedRange);
     }
+    return renderUnknownBitRowBits(usedWidth, selectedRange);
+}
 
-    const spans: string[] = [];
-    for (let displayIdx = 0; displayIdx < usedWidth; displayIdx++) {
-        const bitIdx = S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
-        spans.push(renderUnknownBitSpan(bitIdx, isBitSelected(bitIdx, selectedRange)));
-    }
+function hasBitRowData(first: DecodedField, rawParts: string[]): boolean {
+    return first.hasData && !hasMissingByte(rawParts);
+}
 
+function renderKnownBitRowBits(rawParts: string[], usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null): string {
+    const bits = slicedBitRowBits(rawParts, usedWidth);
+    const spans = [...bits].map((bit, displayIdx) => {
+        const bitIdx = displayBitIndex(displayIdx, usedWidth);
+        return renderBitSpan(bit, bitIdx, isBitSelected(bitIdx, selectedRange));
+    });
     return renderBinarySpanLines(spans);
+}
+
+function slicedBitRowBits(rawParts: string[], usedWidth: number): string {
+    const raw = bytesFromHexParts(rawParts);
+    const value = bytesToValue(raw, S.endian);
+    const unitBits = raw.length * 8;
+    const mask = (1n << BigInt(usedWidth)) - 1n;
+    const slicedValue = S.bitFieldAllocation === 'lsb'
+        ? value & mask
+        : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
+    return slicedValue.toString(2).padStart(usedWidth, '0');
+}
+
+function renderUnknownBitRowBits(usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null): string {
+    const spans = Array.from({ length: usedWidth }, (_, displayIdx) => {
+        const bitIdx = displayBitIndex(displayIdx, usedWidth);
+        return renderUnknownBitSpan(bitIdx, isBitSelected(bitIdx, selectedRange));
+    });
+    return renderBinarySpanLines(spans);
+}
+
+function displayBitIndex(displayIdx: number, usedWidth: number): number {
+    return S.bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
 }
 
 function renderBinaryStorageUnit(
@@ -1436,14 +1452,8 @@ function copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
     const bytes = fieldBytes(r);
     const endian = S.endian;
     const le = endian === 'le';
-    if (r.type === 'pointer') {
-        const dv = dataViewForBytes(bytes);
-        const v = dv.getUint32(0, le) >>> 0;
-        return hexPad(v, 8);
-    }
-    if (valType === 'bin-sliced' && typeof r.bitWidth === 'number' && r.bitValueUnsigned !== undefined) {
-        return formatPlainBinaryBits(BigInt(r.bitValueUnsigned).toString(2).padStart(r.bitWidth, '0'));
-    }
+    if (r.type === 'pointer') { return copyPointerValue(bytes, le); }
+    if (hasSlicedBitCopyValue(r, valType)) { return copySlicedBitValue(r); }
     if (isBinaryDisplay(valType)) {
         return formatPlainBinaryBits(binaryBitsForValue(bytes, endian));
     }
@@ -1452,6 +1462,19 @@ function copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
     }
     if (valType === 'ascii') { return asciiFromBytes(bytes); }
     return copyNumericValue(r, valType, dataViewForBytes(bytes), le);
+}
+
+function copyPointerValue(bytes: number[], le: boolean): string {
+    const v = dataViewForBytes(bytes).getUint32(0, le) >>> 0;
+    return hexPad(v, 8);
+}
+
+function hasSlicedBitCopyValue(r: DecodedField, valType: ColType): boolean {
+    return valType === 'bin-sliced' && typeof r.bitWidth === 'number' && r.bitValueUnsigned !== undefined;
+}
+
+function copySlicedBitValue(r: DecodedField): string {
+    return formatPlainBinaryBits(BigInt(r.bitValueUnsigned!).toString(2).padStart(r.bitWidth!, '0'));
 }
 
 function hexPad(v: number, pad: number): string {
@@ -1784,8 +1807,8 @@ function bitUnitHeaderHtml(
         return emptyBitUnitHeaderHtml(headerClass, buttonClass, headerName, valKey, start, cnt, isOpen);
     }
 
-    const t = _fieldValTypes.get(valKey) ?? 'bin';
-    const ptr = agg.type === 'pointer';
+    const t = bitUnitHeaderValueType(valKey);
+    const ptrClass = bitUnitPointerClass(agg);
     const valHtml = bitUnitHeaderDisplayValue(rows, agg, t, start);
     const byteCount = bitUnitByteCount(agg, cnt);
     const abbrev = fieldTypeAbbrev(agg, byteCount);
@@ -1800,10 +1823,18 @@ function bitUnitHeaderHtml(
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri${ptr ? ' si-f-ptr' : ''}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
+        `<span class="si-f-val si-f-pri${ptrClass}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
         `</span>` +
         `</div>`
     );
+}
+
+function bitUnitHeaderValueType(valKey: string): ColType {
+    return _fieldValTypes.get(valKey) ?? 'bin';
+}
+
+function bitUnitPointerClass(agg: DecodedField): string {
+    return agg.type === 'pointer' ? ' si-f-ptr' : '';
 }
 
 function disambiguateLeafNames(names: string[]): string[] {
@@ -1820,17 +1851,23 @@ function arrayGroupBaseName(fieldPath: string): string {
     // This keeps nested fields under their owning parent node.
     const matches = [...fieldPath.matchAll(/\[\d+\]/g)];
     if (matches.length === 0) {
-        const dot = fieldPath.indexOf('.');
-        return dot >= 0 ? fieldPath.slice(0, dot) : fieldPath;
+        return baseNameBeforeDot(fieldPath);
     }
     const first = matches[0];
     if (first.index === undefined) { return fieldPath; }
     const firstArrayIdx = first.index;
     const firstDot = fieldPath.indexOf('.');
-    if (firstDot >= 0 && firstDot < firstArrayIdx) {
-        return fieldPath.slice(0, firstDot);
-    }
+    if (dotPrecedesArray(firstDot, firstArrayIdx)) { return fieldPath.slice(0, firstDot); }
     return fieldPath.slice(0, first.index);
+}
+
+function baseNameBeforeDot(fieldPath: string): string {
+    const dot = fieldPath.indexOf('.');
+    return dot >= 0 ? fieldPath.slice(0, dot) : fieldPath;
+}
+
+function dotPrecedesArray(dot: number, arrayIdx: number): boolean {
+    return dot >= 0 && dot < arrayIdx;
 }
 
 function bitUnitArrayBaseName(fieldPath: string): string {
@@ -2032,14 +2069,30 @@ function syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void {
     const existingPad = hdr.querySelector<HTMLElement>(':scope > .si-node-pad');
     const typePad = hdr.querySelector<HTMLElement>(':scope > .si-node-type-pad');
     if (isOpen) {
-        existingOffset?.remove();
-        if (!existingPad && typePad) {
-            typePad.insertAdjacentHTML('beforebegin', '<span class="si-node-pad" aria-hidden="true"></span>');
-        }
+        syncOpenCompositeHeaderOffset(existingOffset, existingPad, typePad);
         return;
     }
 
-    const label = hdr.dataset.offsetLabel;
+    syncClosedCompositeHeaderOffset(hdr.dataset.offsetLabel, existingOffset, existingPad, typePad);
+}
+
+function syncOpenCompositeHeaderOffset(
+    existingOffset: HTMLElement | null,
+    existingPad: HTMLElement | null,
+    typePad: HTMLElement | null,
+): void {
+    existingOffset?.remove();
+    if (!existingPad && typePad) {
+        typePad.insertAdjacentHTML('beforebegin', '<span class="si-node-pad" aria-hidden="true"></span>');
+    }
+}
+
+function syncClosedCompositeHeaderOffset(
+    label: string | undefined,
+    existingOffset: HTMLElement | null,
+    existingPad: HTMLElement | null,
+    typePad: HTMLElement | null,
+): void {
     if (!label) { return; }
     existingPad?.remove();
     if (!existingOffset && typePad) {
