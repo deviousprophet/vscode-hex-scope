@@ -4,17 +4,66 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, without v'
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name }}-${{ github.ref }}-${{ inputs.version || '' }}
   cancel-in-progress: true
 
 jobs:
+  Preflight:
+    name: Validate Release Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Version and Notes
+        id: release
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v${VERSION}"
+            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::Release tag ${TAG} already exists."
+              exit 1
+            fi
+          else
+            TAG="$GITHUB_REF_NAME"
+            VERSION="${TAG#v}"
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release version must be semver without a leading v; got ${VERSION}"
+            exit 1
+          fi
+
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Release version ${VERSION} does not match package.json version ${PACKAGE_VERSION}"
+            exit 1
+          fi
+
+          node .github/scripts/extract-release-notes.mjs "$VERSION" >/tmp/release-notes.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   Test:
     name: Test Before Release
+    needs: Preflight
     uses: ./.github/workflows/ct.yml
     permissions:
       contents: read
@@ -31,21 +80,28 @@ jobs:
 
   Release:
     name: Publish Release
-    needs: Package
+    needs:
+      - Preflight
+      - Package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Create Release Tag
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.Preflight.outputs.tag }}"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+
       - name: Prepare Release Notes
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
-            echo "::error::Tag version $VERSION does not match package.json version $PACKAGE_VERSION"
-            exit 1
-          fi
+          VERSION="${{ needs.Preflight.outputs.version }}"
           node .github/scripts/extract-release-notes.mjs "$VERSION" > notes.md
           echo "----- release notes -----"
           cat notes.md
@@ -61,10 +117,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="$GITHUB_REF_NAME"
+          TAG="${{ needs.Preflight.outputs.tag }}"
           VSIX="${{ needs.Package.outputs.vsix_name }}.vsix"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$VSIX" --clobber
           else
-            gh release create "$TAG" "$VSIX" --title "$TAG" --notes-file notes.md
+            gh release create "$TAG" "$VSIX" --title "$TAG" --notes-file notes.md --verify-tag
           fi
