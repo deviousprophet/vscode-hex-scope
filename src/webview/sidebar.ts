@@ -6,7 +6,7 @@ import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } f
 import { vscode } from './api';
 import { rerender } from './render';
 import { buildMemRows, getByte } from './data';
-import type { SerializedSegment } from './types';
+import type { SerializedSegment } from '../core/types';
 
 // ── Inspector ────────────────────────────────────────────────────
 

@@ -612,7 +612,7 @@ suite('Integrity Checks sidebar', () => {
 
         try {
             const view = await import('../webview/integrityView.js');
-            const { calculateIntegrity } = await import('../webview/integrity.js');
+            const { calculateIntegrity } = await import('../core/integrity.js');
             S.edits.clear();
             S.endian = 'le';
             view.renderIntegrity();

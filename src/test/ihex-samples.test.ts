@@ -1,5 +1,5 @@
-import * as assert from 'assert';
-import { parseIntelHex } from '../parser/IntelHexParser';
+﻿import * as assert from 'assert';
+import { parseIntelHex } from '../core/parser/IntelHexParser';
 import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
 import { loadIntelHexFixture as loadHex } from './parser-fixtures';
 

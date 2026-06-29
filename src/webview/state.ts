@@ -1,7 +1,9 @@
 // ── Shared mutable state ─────────────────────────────────────────
 // All modules import this object and mutate it directly.
 
-import type { SerializedParseResult, SegmentLabel, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin, SidebarTab } from './types';
+import type { SerializedParseResult, SegmentLabel, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from '../core/types';
+import type { SegmentIndexEntry } from '../core/memory';
+import type { SidebarTab } from './types';
 
 export const BPR = 16; // bytes per memory row
 
@@ -9,7 +11,7 @@ export const S = {
     parseResult:  null   as SerializedParseResult | null,
     labels:       []     as SegmentLabel[],
     /** Segment index for O(log n) byte access (built on parseResult change) */
-    segmentIndex: [] as Array<{ startAddr: number; endAddr: number; offset: number }>,
+    segmentIndex: [] as SegmentIndexEntry[],
     currentView: 'memory' as 'record' | 'memory',
     selStart:     null   as number | null,
     selEnd:       null   as number | null,

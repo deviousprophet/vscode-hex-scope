@@ -1,15 +1,16 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { parseIntelHex } from './parser/IntelHexParser';
-import { computeSRecChecksum, parseSRec, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
-import type { ParseResult } from './parser/types';
-import type { StructDef } from './webview/types';
+import { parseIntelHex } from './core/parser/IntelHexParser';
+import { parseSRec } from './core/parser/SRecParser';
+import type { ParseResult } from './core/parser/types';
+import type { StructDef } from './core/types';
+import { detectFormatFromParts, repairChecksums, serializeIntelHex, serializeSRec } from './core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
     type IntegrityCheckSet,
     type IntegrityProfile,
-} from './webview/integrity';
+} from './core/integrity';
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
@@ -614,171 +615,9 @@ interface SerializedParseResult {
     format: 'ihex' | 'srec';
 }
 
-/** Rebuild an Intel HEX file from original parse + a map of addr→newValue overrides. */
-function serializeIntelHex(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
-    return serializeEditedRecords(
-        originalRaw,
-        parseResult,
-        edits,
-        rec => rec.recordType === 0 /* Data */,
-        (rec, data) => buildDataRecord(rec.address, data),
-    );
-}
-
-type ParsedRecord = ParseResult['records'][number];
-
-function serializeEditedRecords(
-    originalRaw: string,
-    parseResult: ParseResult,
-    edits: Map<number, number>,
-    canEditRecord: (rec: ParsedRecord) => boolean,
-    rebuildRecord: (rec: ParsedRecord, data: number[]) => string,
-): string {
-    if (edits.size === 0) { return originalRaw; }
-
-    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const lines = parseResult.records.map(rec => {
-        if (rec.error || !canEditRecord(rec)) { return rec.raw; }
-        const edited = applyRecordEdits(rec, edits);
-        return edited ? rebuildRecord(rec, edited) : rec.raw;
-    });
-    return lines.join(eol);
-}
-
-function applyRecordEdits(rec: ParsedRecord, edits: Map<number, number>): number[] | null {
-    const data = Array.from(rec.data);
-    let changed = false;
-    for (let i = 0; i < data.length; i++) {
-        const addr = rec.resolvedAddress + i;
-        if (edits.has(addr)) {
-            data[i] = edits.get(addr)!;
-            changed = true;
-        }
-    }
-    return changed ? data : null;
-}
-
-function buildDataRecord(addr16: number, data: number[]): string {
-    const bc = data.length;
-    const ah = (addr16 >> 8) & 0xFF;
-    const al = addr16 & 0xFF;
-    let sum = bc + ah + al + 0 /* type=Data */;
-    for (const b of data) { sum += b; }
-    const chk = ((~sum + 1) & 0xFF);
-    const body =
-        bc.toString(16).toUpperCase().padStart(2, '0') +
-        addr16.toString(16).toUpperCase().padStart(4, '0') +
-        '00' +
-        data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('') +
-        chk.toString(16).toUpperCase().padStart(2, '0');
-    return ':' + body;
-}
-
-/**
- * Pure format-detection logic, exposed for testing.
- * Decides format from file extension and raw content.
- */
-export function detectFormatFromParts(ext: string, raw: string): 'ihex' | 'srec' {
-    if (['srec', 'mot', 's19', 's28', 's37'].includes(ext)) { return 'srec'; }
-    // Content sniff: first non-empty line starts with 'S' followed by a digit
-    const firstLine = raw.trimStart().slice(0, 4);
-    if (/^S[0-9]/i.test(firstLine)) { return 'srec'; }
-    return 'ihex';
-}
-
 /** Detect whether raw content is Intel HEX or Motorola SREC. */
 function detectFormat(uri: vscode.Uri, raw: string): 'ihex' | 'srec' {
     return detectFormatFromParts(uri.path.split('.').pop()?.toLowerCase() ?? '', raw);
-}
-
-/** Rebuild a Motorola SREC file from original parse + a map of addr→newValue overrides. */
-export function serializeSRec(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
-    return serializeEditedRecords(
-        originalRaw,
-        parseResult,
-        edits,
-        rec => srecIsData(rec.recordType),
-        (rec, data) => buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data),
-    );
-}
-
-export function buildSRecDataRecord(type: number, address: number, data: number[]): string {
-    const asz = SREC_ADDR_SIZES[type] ?? 2;
-    const byteCount = asz + data.length + 1; // addrBytes + dataBytes + checksumByte
-    const chk = computeSRecChecksum(byteCount, address, asz, data);
-    const bcHex   = byteCount.toString(16).toUpperCase().padStart(2, '0');
-    const addrHex = address.toString(16).toUpperCase().padStart(asz * 2, '0');
-    const dataHex = data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
-    const chkHex  = chk.toString(16).toUpperCase().padStart(2, '0');
-    return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
-}
-
-function shouldRepairRecordChecksum(rec: ParsedRecord): boolean {
-    return !rec.error && !rec.checksumValid;
-}
-
-function repairedChecksumLine(line: string, rec: ParsedRecord): string {
-    const correctChk = computeCorrectChecksum(rec);
-    return line.slice(0, -2) + correctChk.toString(16).toUpperCase().padStart(2, '0');
-}
-
-function repairChecksumLine(lines: string[], rec: ParsedRecord): void {
-    if (!shouldRepairRecordChecksum(rec)) { return; }
-    const line = lines[rec.lineNumber - 1];
-    if (!line) { return; }
-    // Replace the last two characters (the checksum hex byte)
-    lines[rec.lineNumber - 1] = repairedChecksumLine(line, rec);
-}
-
-/**
- * Rewrite every checksum-invalid (but structurally parseable) record in-place
- * by replacing its last two hex characters with the correctly computed checksum.
- * Lines with a parse error are left untouched because their structure is unknown.
- */
-export function repairChecksums(raw: string, parseResult: ParseResult): string {
-    const eol = raw.includes('\r\n') ? '\r\n' : '\n';
-    const lines = raw.split(/\r?\n/);
-    for (const rec of parseResult.records) {
-        repairChecksumLine(lines, rec);
-    }
-    return lines.join(eol);
-}
-
-function srecAddressByteCount(recordType: number): number {
-    const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
-    return aszMap[recordType] ?? 2;
-}
-
-function sumRecordData(data: ArrayLike<number>): number {
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) { sum += data[i]; }
-    return sum;
-}
-
-function sumAddressBytes(address: number, byteCount: number): number {
-    let sum = 0;
-    for (let i = byteCount - 1; i >= 0; i--) { sum += (address >>> (i * 8)) & 0xFF; }
-    return sum;
-}
-
-function computeCorrectSRecChecksum(rec: import('./parser/types').HexRecord): number {
-    const sum = rec.byteCount + sumAddressBytes(rec.address, srecAddressByteCount(rec.recordType)) + sumRecordData(rec.data);
-    return (~sum) & 0xFF;
-}
-
-function computeCorrectIntelHexChecksum(rec: import('./parser/types').HexRecord): number {
-    const addressSum = ((rec.address >> 8) & 0xFF) + (rec.address & 0xFF);
-    const sum = rec.byteCount + addressSum + rec.recordType + sumRecordData(rec.data);
-    return (~sum + 1) & 0xFF;
-}
-
-/** Compute the correct checksum for a parsed record (works for both IHEX and SREC). */
-function computeCorrectChecksum(rec: import('./parser/types').HexRecord): number {
-    // IHEX: two's-complement of (byteCount + addrHi + addrLo + recordType + data)
-    // SREC: one's-complement of (byteCount + addrBytes + data)
-    // We detect by address byte count: SREC types have fixed addr sizes, IHEX always 2.
-    // Both share the same shape — differentiate by checking if raw starts with ':' or 'S'.
-    return rec.raw.startsWith('S') ? computeCorrectSRecChecksum(rec) : computeCorrectIntelHexChecksum(rec);
 }
 
 function getNonce(): string {
