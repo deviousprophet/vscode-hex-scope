@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Added manual release automation that bumps package versions, promotes `[Unreleased]` changelog notes, creates the release tag from the prepared commit, and publishes draft or official GitHub releases.
+
 ## [2.10.0] - 2026-06-29
 
 ### Changed
