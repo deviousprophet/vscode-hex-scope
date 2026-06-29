@@ -6,15 +6,18 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { nextReleaseVersion } from './next-release-version.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, '..', '..');
 
 checkSyntax('extract-release-notes.mjs');
+checkSyntax('next-release-version.mjs');
 checkSyntax('prepare-release.mjs');
 checkSyntax('strip-unreleased-changelog.mjs');
 checkSyntax('summarize-tests.mjs');
 checkReleaseNotes();
+checkNextReleaseVersion();
 checkPrepareRelease();
 checkStripUnreleasedChangelog();
 checkTestSummary();
@@ -70,6 +73,18 @@ function checkReleaseNotes() {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function checkNextReleaseVersion() {
+  assert.equal(nextReleaseVersion('2.10.3', 'major'), '3.0.0');
+  assert.equal(nextReleaseVersion('2.10.3', 'minor'), '2.11.0');
+  assert.equal(nextReleaseVersion('2.10.3', 'bugfix'), '2.10.4');
+
+  const invalidType = runNode([join(scriptDir, 'next-release-version.mjs'), '2.10.3', 'feature'], { cwd: repoRoot });
+  assert.notEqual(invalidType.status, 0, 'invalid release type should fail');
+
+  const prerelease = runNode([join(scriptDir, 'next-release-version.mjs'), '2.10.3-beta.1', 'bugfix'], { cwd: repoRoot });
+  assert.notEqual(prerelease.status, 0, 'prerelease source version should fail');
 }
 
 function checkPrepareRelease() {
