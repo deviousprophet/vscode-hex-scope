@@ -30,6 +30,19 @@ const _expandedArrayElements = new Set<string>();
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
 const RAW_HTML_VALUE_TYPES: ReadonlySet<ColType> = new Set(['bin', 'bin-sliced', 'ieee', 'hex']);
+const TYPE_LABELS: Record<ColType, string> = {
+    hex: 'Hex',
+    dec: 'Decimal',
+    bin: 'Binary',
+    'bin-sliced': 'Binary (bit fields only)',
+    ascii: 'ASCII',
+    ieee: 'IEEE754',
+};
+const SAMPLE_TYPE_MENUS: Partial<Record<StructFieldType, ColType[]>> = {
+    float32: ['hex', 'dec', 'ieee', 'bin'],
+    float64: ['hex', 'dec', 'ieee', 'bin'],
+    ascii: ['ascii', 'hex', 'bin'],
+};
 /** Default display type for value cells (per-field default). */
 let _defaultValType: ColType = 'hex';
 /** Per-value display override keyed by stable row identity. */
@@ -661,11 +674,15 @@ function readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStru
 }
 
 function readEditorBitFields(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): BitFieldChild[] | undefined {
-    const bitBtnOn = row.querySelector('.sfe-bit-btn')?.classList.contains('sfe-bit-btn-on') ?? false;
-    if (!bitBtnOn || !isUnsigned || !childrenContainer) { return undefined; }
+    if (!isEditorBitFieldEnabled(row, isUnsigned, childrenContainer)) { return undefined; }
     const childRows = childrenContainer.querySelectorAll<HTMLElement>('.sfe-bf-child-row');
     const childArray = Array.from(childRows).map(readEditorBitFieldChild);
     return childArray.length > 0 ? childArray : [{ name: 'bit0', bitWidth: 1 }];
+}
+
+function isEditorBitFieldEnabled(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): childrenContainer is HTMLElement {
+    if (!isUnsigned || !childrenContainer) { return false; }
+    return row.querySelector('.sfe-bit-btn')?.classList.contains('sfe-bit-btn-on') ?? false;
 }
 
 function readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
@@ -905,60 +922,7 @@ function wireEditorInSec(sec: HTMLElement): void {
     });
 
     sec.querySelector('#se-save')!.addEventListener('click', () => {
-        syncEditorDraft(sec, draft);
-        if (draft.fields.length === 0) { return; }
-
-        // Auto-fill struct name if empty, ensuring uniqueness across existing structs
-        const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
-        let name = sanitizeCIdent(nameInp.value.trim());
-        if (!name) {
-            const otherNames = new Set(S.structs.filter(d => d.id !== draft.id).map(d => d.name));
-            let candidate = 'MyStruct';
-            let n = 1;
-            while (otherNames.has(candidate)) { candidate = `MyStruct${n++}`; }
-            name = candidate;
-        }
-
-        // Auto-fill empty field names, ensuring uniqueness within the field list
-        const takenNames = new Set(draft.fields.map(f => f.name).filter(Boolean));
-        const savedFields = draft.fields.map((f, fi) => {
-            if (f.name) { return { ...f }; }
-            let candidate = `field${fi}`;
-            let n = 0;
-            while (takenNames.has(candidate)) { candidate = `field${fi}_${n++}`; }
-            takenNames.add(candidate);
-            return { ...f, name: candidate };
-        });
-
-        const def: StructDef = { id: draft.id, name, packed: draft.packed ?? false, fields: savedFields };
-        const nextStructs = (() => {
-            const idx = S.structs.findIndex(d => d.id === def.id);
-            if (idx >= 0) {
-                const clone = [...S.structs];
-                clone[idx] = def;
-                return clone;
-            }
-            return [...S.structs, def];
-        })();
-        const validationErrors = validateStructs(nextStructs, MAX_NESTED_DEPTH);
-        if (validationErrors.length > 0) {
-            _editorError = validationErrors[0];
-            renderStructPins();
-            return;
-        }
-        _editorError = null;
-        const idx = S.structs.findIndex(d => d.id === def.id);
-        if (idx >= 0) { S.structs[idx] = def; } else { S.structs.push(def); }
-        vscode.postMessage({ type: 'saveStructs', structs: S.structs });
-        const { fromAdd } = _editingType!;
-        _editingType = null;
-        if (fromAdd) {
-            _applyStructId = def.id;
-            _addingPin = true;
-            _managingTypes = false;
-        }
-        // fromManage: _managingTypes stays true → re-render shows updated type list
-        renderStructPins();
+        saveEditorDraft(sec, draft);
     });
 
     sec.querySelector('#se-cancel')!.addEventListener('click', () => {
@@ -971,6 +935,74 @@ function wireEditorInSec(sec: HTMLElement): void {
         }
         renderStructPins();
     });
+}
+
+function saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
+    syncEditorDraft(sec, draft);
+    if (draft.fields.length === 0) { return; }
+
+    const def = editorDraftToStructDef(sec, draft);
+    const validationErrors = validateStructs(upsertStructList(S.structs, def), MAX_NESTED_DEPTH);
+    if (validationErrors.length > 0) {
+        _editorError = validationErrors[0];
+        renderStructPins();
+        return;
+    }
+
+    _editorError = null;
+    S.structs = upsertStructList(S.structs, def);
+    vscode.postMessage({ type: 'saveStructs', structs: S.structs });
+    closeEditorAfterSave(def.id);
+    renderStructPins();
+}
+
+function editorDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
+    return {
+        id: draft.id,
+        name: readEditorStructName(sec, draft.id),
+        packed: draft.packed ?? false,
+        fields: draft.fields.map((field, idx) => withSavedFieldName(field, idx, draft.fields)),
+    };
+}
+
+function readEditorStructName(sec: HTMLElement, draftId: string): string {
+    const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
+    const name = sanitizeCIdent(nameInp.value.trim());
+    return name || nextStructName(draftId);
+}
+
+function nextStructName(draftId: string): string {
+    const otherNames = new Set(S.structs.filter(d => d.id !== draftId).map(d => d.name));
+    let candidate = 'MyStruct';
+    let n = 1;
+    while (otherNames.has(candidate)) { candidate = `MyStruct${n++}`; }
+    return candidate;
+}
+
+function withSavedFieldName(field: StructField, idx: number, fields: StructField[]): StructField {
+    if (field.name) { return { ...field }; }
+    const takenNames = new Set(fields.map(f => f.name).filter(Boolean));
+    let candidate = `field${idx}`;
+    let n = 0;
+    while (takenNames.has(candidate)) { candidate = `field${idx}_${n++}`; }
+    return { ...field, name: candidate };
+}
+
+function upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
+    const idx = structs.findIndex(d => d.id === def.id);
+    if (idx < 0) { return [...structs, def]; }
+    const clone = [...structs];
+    clone[idx] = def;
+    return clone;
+}
+
+function closeEditorAfterSave(defId: string): void {
+    const { fromAdd } = _editingType!;
+    _editingType = null;
+    if (!fromAdd) { return; }
+    _applyStructId = defId;
+    _addingPin = true;
+    _managingTypes = false;
 }
 
 function handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
@@ -1015,132 +1047,191 @@ export function renderStructPins(): void {
     if (!sec) { return; }
 
     const all = allStructs();
+    prepareStructPanelState(all);
+    sec.innerHTML = structPinsPanelHtml(all);
 
-    // Keep _applyStructId valid
-    if (_applyStructId && !all.some(d => d.id === _applyStructId)) {
-        _applyStructId = all[0]?.id ?? null;
-    } else if (!_applyStructId && all.length > 0) {
-        _applyStructId = all[0].id;
+    hydrateStructPreviews(sec);
+    wireStructPinsPanel(sec);
+
+    wireInstanceCards(sec);
+
+    if (_editingType) {
+        wireEditorInSec(sec);
+        sec.querySelector<HTMLInputElement>('#se-name')?.focus();
     }
+}
 
-    // When editing a type, ensure the types panel is visible
-    if (_editingType) { _managingTypes = true; }
+function prepareStructPanelState(all: StructDef[]): void {
+    _applyStructId = nextApplyStructId(all);
+    _managingTypes = _editingType ? true : _managingTypes;
+}
 
-    // ── Build types panel ──
-    const typeRows = all.length === 0
-        ? `<div class="sb-empty">No types defined yet.</div>`
-        : all.map(d => {
-            const fieldCount = d.fields.length;
-            const meta = `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
-            return (
-                `<div class="sd-row">` +
-                `<span class="sd-name">${esc(d.name)}</span>` +
-                `<span class="sd-meta">${meta}</span>` +
-                actionBtnsHtml(`data-struct-id="${esc(d.id)}"`, `data-struct-id="${esc(d.id)}"`) +
-                `</div>`
-            );
-        }).join('');
+function nextApplyStructId(all: StructDef[]): string | null {
+    const fallbackId = all.length > 0 ? all[0].id : null;
+    if (!_applyStructId) { return fallbackId; }
+    return all.some(d => d.id === _applyStructId) ? _applyStructId : fallbackId;
+}
 
+function structPinsPanelHtml(all: StructDef[]): string {
+    const typeRows = typeRowsHtml(all);
+    const addFormHtml = _addingPin ? addStructPinFormHtml(all) : '';
+    const instHtml = instanceCardsHtml();
     const instBadge = S.structPins.length > 0 ? `<span class="sb-badge">${S.structPins.length}</span>` : '';
 
-    // ── Inline add form ──
-    let addFormHtml = '';
-    if (_addingPin) {
-        const applyDef = all.find(d => d.id === _applyStructId) ?? null;
-        const addrVal  = S.activeStructAddr !== null
-            ? S.activeStructAddr.toString(16).toUpperCase().padStart(8, '0') : '';
-
-        let typeRowHtml: string;
-        if (all.length === 0) {
-            typeRowHtml =
-                `<div class="sa-row sa-no-types-row">` +
-                `<span class="sa-no-types-msg">No struct types yet — create one first.</span>` +
-                `<button id="sa-new-type-btn" class="struct-btn struct-btn-secondary">New type</button>` +
-                `</div>`;
-        } else {
-            const structOpts = all.map(d =>
-                `<option value="${esc(d.id)}"${d.id === _applyStructId ? ' selected' : ''}>${esc(d.name)}</option>`
-            ).join('');
-            const previewHtml = applyDef
-                ? `<pre class="si-c-preview" data-struct-preview-id="${esc(applyDef.id)}"></pre>`
-                : '';
-            typeRowHtml =
-                `<div class="sa-row">` +
-                `<select id="sa-struct-sel" class="struct-sel">${structOpts}</select>` +
-                `<button id="sa-new-type-btn" class="si-add-type-btn" title="New type">\uff0b</button>` +
-                `</div>` +
-                previewHtml;
-        }
-
-        addFormHtml =
-            `<div id="si-add-form" class="si-add-form">` +
-            `<div class="sa-form-hdr sa-form-hdr-new">\uff0b New Instance</div>` +
-            `<div class="sa-row">` +
-            `<input id="sa-name" class="sa-name-inp" type="text" maxlength="40" ` +
-                   `placeholder="instance name" spellcheck="false" autocomplete="off">` +
-            `</div>` +
-            `<div class="sa-row">` +
-            `<span class="struct-addr-pfx">0x</span>` +
-            `<input id="sa-addr" class="struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
-                   `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(addrVal)}">` +
-            `</div>` +
-            typeRowHtml +
-            `<div class="sa-row sa-btn-row">` +
-            `<button id="sa-confirm" class="struct-btn struct-btn-apply"${!_applyStructId ? ' disabled' : ''}>Confirm</button>` +
-            `<button id="sa-cancel" class="struct-btn struct-btn-cancel">Cancel</button>` +
-            `</div>` +
-            `</div>`;
-    }
-
-    const instHtml = S.structPins.length === 0
-        ? `<div class="sb-empty">No instances yet. Click [\uff0b Add] to create one.</div>`
-        : S.structPins.map((pin, i) => buildInstanceCard(pin, i)).join('');
-
-    // ── Both panels rendered side-by-side; CSS slides between them ──
-    sec.innerHTML =
+    return (
         `<div class="si-panel-clip">` +
         `<div class="si-panel-track${_managingTypes ? ' si-showing-types' : ''}" id="si-track">` +
+        structInstancesPanelHtml(instBadge, addFormHtml, instHtml) +
+        structTypesPanelHtml(typeRows) +
+        `</div>` +
+        `</div>`
+    );
+}
 
-        // ── Main panel (instances) ──
+function typeRowsHtml(all: StructDef[]): string {
+    if (all.length === 0) { return `<div class="sb-empty">No types defined yet.</div>`; }
+    return all.map(structTypeRowHtml).join('');
+}
+
+function structTypeRowHtml(def: StructDef): string {
+    const fieldCount = def.fields.length;
+    const meta = `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
+    return (
+        `<div class="sd-row">` +
+        `<span class="sd-name">${esc(def.name)}</span>` +
+        `<span class="sd-meta">${meta}</span>` +
+        actionBtnsHtml(`data-struct-id="${esc(def.id)}"`, `data-struct-id="${esc(def.id)}"`) +
+        `</div>`
+    );
+}
+
+function addStructPinFormHtml(all: StructDef[]): string {
+    const addrVal = S.activeStructAddr !== null
+        ? S.activeStructAddr.toString(16).toUpperCase().padStart(8, '0')
+        : '';
+    return (
+        `<div id="si-add-form" class="si-add-form">` +
+        `<div class="sa-form-hdr sa-form-hdr-new">\uff0b New Instance</div>` +
+        `<div class="sa-row">` +
+        `<input id="sa-name" class="sa-name-inp" type="text" maxlength="40" ` +
+               `placeholder="instance name" spellcheck="false" autocomplete="off">` +
+        `</div>` +
+        `<div class="sa-row">` +
+        `<span class="struct-addr-pfx">0x</span>` +
+        `<input id="sa-addr" class="struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
+               `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(addrVal)}">` +
+        `</div>` +
+        addStructPinTypeRowHtml(all) +
+        `<div class="sa-row sa-btn-row">` +
+        `<button id="sa-confirm" class="struct-btn struct-btn-apply"${!_applyStructId ? ' disabled' : ''}>Confirm</button>` +
+        `<button id="sa-cancel" class="struct-btn struct-btn-cancel">Cancel</button>` +
+        `</div>` +
+        `</div>`
+    );
+}
+
+function addStructPinTypeRowHtml(all: StructDef[]): string {
+    if (all.length === 0) {
+        return (
+            `<div class="sa-row sa-no-types-row">` +
+            `<span class="sa-no-types-msg">No struct types yet — create one first.</span>` +
+            `<button id="sa-new-type-btn" class="struct-btn struct-btn-secondary">New type</button>` +
+            `</div>`
+        );
+    }
+
+    const structOpts = all.map(d =>
+        `<option value="${esc(d.id)}"${d.id === _applyStructId ? ' selected' : ''}>${esc(d.name)}</option>`
+    ).join('');
+    const applyDef = all.find(d => d.id === _applyStructId);
+    const previewHtml = applyDef
+        ? `<pre class="si-c-preview" data-struct-preview-id="${esc(applyDef.id)}"></pre>`
+        : '';
+    return (
+        `<div class="sa-row">` +
+        `<select id="sa-struct-sel" class="struct-sel">${structOpts}</select>` +
+        `<button id="sa-new-type-btn" class="si-add-type-btn" title="New type">\uff0b</button>` +
+        `</div>` +
+        previewHtml
+    );
+}
+
+function instanceCardsHtml(): string {
+    return S.structPins.length === 0
+        ? `<div class="sb-empty">No instances yet. Click [\uff0b Add] to create one.</div>`
+        : S.structPins.map((pin, i) => buildInstanceCard(pin, i)).join('');
+}
+
+function structInstancesPanelHtml(instBadge: string, addFormHtml: string, instHtml: string): string {
+    return (
         `<div class="si-main-panel">` +
         `<div class="si-hdr-row">` +
         `<span class="sb-hdr" style="margin:0">Struct Instances ${instBadge}</span>` +
+        bitLayoutToggleHtml() +
+        `<button id="si-add-btn" class="si-add-btn"${_addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
+        `<button id="si-types-btn" class="si-icon-btn" title="Manage types">&#9776;</button>` +
+        `</div>` +
+        addFormHtml +
+        `<div id="si-list">${instHtml}</div>` +
+        `</div>`
+    );
+}
+
+function bitLayoutToggleHtml(): string {
+    return (
         `<div class="si-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
         `<span class="si-toggle-label">Bit Layout</span>` +
         `<div class="compact-tabs sa-bit-order-tabs">` +
         `<button id="sa-btn-bit-lsb" class="${S.bitFieldAllocation === 'lsb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the least significant bit">LSB</button>` +
         `<button id="sa-btn-bit-msb" class="${S.bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
         `</div>` +
-        `</div>` +
-        `<button id="si-add-btn" class="si-add-btn"${_addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
-        `<button id="si-types-btn" class="si-icon-btn" title="Manage types">&#9776;</button>` +
-        `</div>` +
-        addFormHtml +
-        `<div id="si-list">${instHtml}</div>` +
-        `</div>` +
+        `</div>`
+    );
+}
 
-        // ── Types panel ──
+function structTypesPanelHtml(typeRows: string): string {
+    return (
         `<div class="si-types-panel">` +
         `<div class="si-hdr-row">` +
-        `<button id="sm-close-btn" class="si-icon-btn" title="${_editingType ? 'Cancel' : 'Back'}">&#8592;</button>` +
-        `<span class="sb-hdr" style="margin:0">${_editingType ? (_editingType.existing ? 'Edit Type' : 'New Type') : 'Struct Types'}</span>` +
-        (!_editingType ? `<button id="sm-new-btn" class="struct-btn struct-btn-secondary">New type</button>` : '') +
+        `<button id="sm-close-btn" class="si-icon-btn" title="${typePanelCloseTitle()}">&#8592;</button>` +
+        `<span class="sb-hdr" style="margin:0">${typePanelTitle()}</span>` +
+        typePanelNewButtonHtml() +
         `</div>` +
-        (_editingType ? editorHtml(_editingType.draft, _editingType.existing) : `<div id="sm-list">${typeRows}</div>`) +
-        `</div>` +
+        typePanelBodyHtml(typeRows) +
+        `</div>`
+    );
+}
 
-        `</div>` + // si-panel-track
-        `</div>`; // si-panel-clip
+function typePanelCloseTitle(): string {
+    return _editingType ? 'Cancel' : 'Back';
+}
 
-    hydrateStructPreviews(sec);
+function typePanelTitle(): string {
+    if (!_editingType) { return 'Struct Types'; }
+    return _editingType.existing ? 'Edit Type' : 'New Type';
+}
 
-    // ── Types button: slide in (no re-render) ──
+function typePanelNewButtonHtml(): string {
+    return _editingType ? '' : `<button id="sm-new-btn" class="struct-btn struct-btn-secondary">New type</button>`;
+}
+
+function typePanelBodyHtml(typeRows: string): string {
+    if (!_editingType) { return `<div id="sm-list">${typeRows}</div>`; }
+    return editorHtml(_editingType.draft, _editingType.existing);
+}
+
+function wireStructPinsPanel(sec: HTMLElement): void {
+    wireTypesPanelControls(sec);
+    wireAddStructPinControls();
+    wireBitLayoutTabs();
+}
+
+function wireTypesPanelControls(sec: HTMLElement): void {
     document.getElementById('si-types-btn')?.addEventListener('click', () => {
         _managingTypes = true;
         document.getElementById('si-track')?.classList.add('si-showing-types');
     });
 
-    // ── Close/cancel: if editing a type cancel it; otherwise slide back ──
     document.getElementById('sm-close-btn')?.addEventListener('click', () => {
         if (_editingType) {
             const { fromAdd } = _editingType;
@@ -1157,7 +1248,6 @@ export function renderStructPins(): void {
         }
     });
 
-    // ── New type (from types panel) ──
     document.getElementById('sm-new-btn')?.addEventListener('click', () => {
         _editorError = null;
         const draftId = `user_${Date.now()}`;
@@ -1170,7 +1260,6 @@ export function renderStructPins(): void {
         renderStructPins();
     });
 
-    // ── Edit / delete type actions ──
     const typesPanel = sec.querySelector<HTMLElement>('.si-types-panel')!;
     wireActionBtns(
         typesPanel,
@@ -1198,50 +1287,51 @@ export function renderStructPins(): void {
             renderStructPins();
         },
     );
+}
 
-    // ── ＋ Add button ──
+function wireAddStructPinControls(): void {
     document.getElementById('si-add-btn')?.addEventListener('click', () => {
         _addingPin = true;
         renderStructPins();
         document.getElementById('sa-name')?.focus();
     });
 
-    // ── Add-form wiring ──
-    if (_addingPin) {
-        document.getElementById('sa-struct-sel')?.addEventListener('change', e => {
-            _applyStructId = (e.target as HTMLSelectElement).value || null;
-            preservePendingStructAddress();
-            renderStructPins();
-        });
-        document.getElementById('sa-new-type-btn')?.addEventListener('click', () => {
-            _editorError = null;
-            _addingPin = false;
-            const draftId = `user_${Date.now()}`;
-            _editingType = {
-                draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
-                existing: null,
-                fromAdd: true,
-                fromManage: false,
-            };
-            renderStructPins();
-        });
-        document.getElementById('sa-addr')?.addEventListener('input', () => {
-            const addrInp = document.getElementById('sa-addr') as HTMLInputElement | null;
-            const confirmBtn = document.getElementById('sa-confirm') as HTMLButtonElement | null;
-            if (!addrInp || !confirmBtn) { return; }
-            const hasAddr = addrInp.value.trim().length > 0;
-            confirmBtn.disabled = !_applyStructId || !hasAddr;
-        });
-        document.getElementById('sa-confirm')?.addEventListener('click', () => {
-            confirmAddStructPin();
-        });
-        document.getElementById('sa-cancel')?.addEventListener('click', () => {
-            _addingPin = false;
-            renderStructPins();
-        });
-    }
+    if (!_addingPin) { return; }
 
-    // ── Bit-field allocation tabs ──
+    document.getElementById('sa-struct-sel')?.addEventListener('change', e => {
+        _applyStructId = (e.target as HTMLSelectElement).value || null;
+        preservePendingStructAddress();
+        renderStructPins();
+    });
+    document.getElementById('sa-new-type-btn')?.addEventListener('click', () => {
+        _editorError = null;
+        _addingPin = false;
+        const draftId = `user_${Date.now()}`;
+        _editingType = {
+            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
+            existing: null,
+            fromAdd: true,
+            fromManage: false,
+        };
+        renderStructPins();
+    });
+    document.getElementById('sa-addr')?.addEventListener('input', () => {
+        const addrInp = document.getElementById('sa-addr') as HTMLInputElement | null;
+        const confirmBtn = document.getElementById('sa-confirm') as HTMLButtonElement | null;
+        if (!addrInp || !confirmBtn) { return; }
+        const hasAddr = addrInp.value.trim().length > 0;
+        confirmBtn.disabled = !_applyStructId || !hasAddr;
+    });
+    document.getElementById('sa-confirm')?.addEventListener('click', () => {
+        confirmAddStructPin();
+    });
+    document.getElementById('sa-cancel')?.addEventListener('click', () => {
+        _addingPin = false;
+        renderStructPins();
+    });
+}
+
+function wireBitLayoutTabs(): void {
     document.getElementById('sa-btn-bit-lsb')?.addEventListener('click', () => {
         S.bitFieldAllocation = 'lsb';
         document.getElementById('sa-btn-bit-lsb')?.classList.add('active');
@@ -1254,14 +1344,6 @@ export function renderStructPins(): void {
         document.getElementById('sa-btn-bit-lsb')?.classList.remove('active');
         if (_expanded.size > 0) { renderStructPins(); }
     });
-
-    wireInstanceCards(sec);
-
-    // ── If a type is being edited, wire up the editor inside the types panel ──
-    if (_editingType) {
-        wireEditorInSec(sec);
-        sec.querySelector<HTMLInputElement>('#se-name')?.focus();
-    }
 }
 
 function confirmAddStructPin(): void {
@@ -2871,108 +2953,151 @@ function wireInstanceCards(sec: HTMLElement): void {
         });
     });
 
-    // Type-definition preview toggle inside card header
+    wireTypePreviewButtons(sec);
+    wirePinEditForm(sec);
+
+    applyBitHighlightsInPlace(sec);
+    restoreStructSelection(sec);
+}
+
+function wireTypePreviewButtons(sec: HTMLElement): void {
     sec.querySelectorAll<HTMLElement>('.si-type-btn').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
-            const id = btn.dataset.pinId!;
-            const card = btn.closest<HTMLElement>('.si-card')!;
-            const preview = card.querySelector<HTMLElement>('.si-type-preview');
-            if (_previewedPins.has(id)) {
-                _previewedPins.delete(id);
-                btn.classList.remove('active');
-                if (preview) { preview.style.display = 'none'; }
-            } else {
-                _previewedPins.add(id);
-                btn.classList.add('active');
-                if (preview) { preview.style.display = ''; }
-            }
+            toggleTypePreview(btn);
         });
     });
+}
 
-    // Inline pin-edit form wiring
-    if (_editingPinId) {
-        const editForm = sec.querySelector<HTMLElement>('.si-pin-edit-form');
-        if (editForm) {
-            const pinId = _editingPinId;
-            editForm.querySelector<HTMLSelectElement>('.si-pe-type')?.addEventListener('change', e => {
-                _editingPinDraftStructId = (e.target as HTMLSelectElement).value || null;
-                renderStructPins();
-            });
-            editForm.querySelector<HTMLElement>('.si-pe-save')!.addEventListener('click', e => {
-                e.stopPropagation();
-                const nameVal = (editForm.querySelector('.si-pe-name') as HTMLInputElement).value.trim();
-                const addrVal = (editForm.querySelector('.si-pe-addr') as HTMLInputElement).value.trim();
-                const typeVal = (editForm.querySelector('.si-pe-type') as HTMLSelectElement).value;
-                const addr = parseInt(addrVal.replace(/^0x/i, ''), 16);
-                if (isNaN(addr)) {
-                    (editForm.querySelector('.si-pe-addr') as HTMLInputElement).style.borderColor = 'var(--err)';
-                    return;
-                }
-                const idx = S.structPins.findIndex(p => p.id === pinId);
-                if (idx >= 0) {
-                    const pin = S.structPins[idx];
-                    S.structPins[idx] = {
-                        ...pin,
-                        name: nameVal || pin.name,
-                        addr,
-                        structId: typeVal,
-                    };
-                    S.activeStructAddr = addr;
-                    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
-                }
-                _editingPinId = null;
-                _editingPinDraftStructId = null;
-                renderStructPins();
-            });
-            editForm.querySelector<HTMLElement>('.si-pe-cancel')!.addEventListener('click', e => {
-                e.stopPropagation();
-                _editingPinId = null;
-                _editingPinDraftStructId = null;
-                renderStructPins();
-            });
+function toggleTypePreview(btn: HTMLElement): void {
+    const id = btn.dataset.pinId!;
+    const card = btn.closest<HTMLElement>('.si-card')!;
+    const preview = card.querySelector<HTMLElement>('.si-type-preview');
+    const isOpen = _previewedPins.has(id);
+    setTypePreviewOpen(id, btn, preview, !isOpen);
+}
+
+function setTypePreviewOpen(id: string, btn: HTMLElement, preview: HTMLElement | null, isOpen: boolean): void {
+    if (isOpen) { _previewedPins.add(id); }
+    else { _previewedPins.delete(id); }
+    btn.classList.toggle('active', isOpen);
+    if (preview) { preview.style.display = isOpen ? '' : 'none'; }
+}
+
+function wirePinEditForm(sec: HTMLElement): void {
+    if (!_editingPinId) { return; }
+    const editForm = sec.querySelector<HTMLElement>('.si-pin-edit-form');
+    if (!editForm) { return; }
+
+    const pinId = _editingPinId;
+    editForm.querySelector<HTMLSelectElement>('.si-pe-type')?.addEventListener('change', e => {
+        _editingPinDraftStructId = (e.target as HTMLSelectElement).value || null;
+        renderStructPins();
+    });
+    editForm.querySelector<HTMLElement>('.si-pe-save')!.addEventListener('click', e => {
+        e.stopPropagation();
+        savePinEditForm(editForm, pinId);
+    });
+    editForm.querySelector<HTMLElement>('.si-pe-cancel')!.addEventListener('click', e => {
+        e.stopPropagation();
+        closePinEditForm();
+        renderStructPins();
+    });
+}
+
+function savePinEditForm(editForm: HTMLElement, pinId: string): void {
+    const addr = readPinEditAddress(editForm);
+    if (addr === null) { return; }
+    const idx = S.structPins.findIndex(p => p.id === pinId);
+    if (idx >= 0) { applyPinEdit(editForm, idx, addr); }
+    closePinEditForm();
+    renderStructPins();
+}
+
+function readPinEditAddress(editForm: HTMLElement): number | null {
+    const addrInput = editForm.querySelector('.si-pe-addr') as HTMLInputElement;
+    const addr = parseInt(addrInput.value.trim().replace(/^0x/i, ''), 16);
+    if (!isNaN(addr)) { return addr; }
+    addrInput.style.borderColor = 'var(--err)';
+    return null;
+}
+
+function applyPinEdit(editForm: HTMLElement, idx: number, addr: number): void {
+    const pin = S.structPins[idx];
+    const nameVal = (editForm.querySelector('.si-pe-name') as HTMLInputElement).value.trim();
+    const typeVal = (editForm.querySelector('.si-pe-type') as HTMLSelectElement).value;
+    S.structPins[idx] = { ...pin, name: nameVal || pin.name, addr, structId: typeVal };
+    S.activeStructAddr = addr;
+    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+}
+
+function closePinEditForm(): void {
+    _editingPinId = null;
+    _editingPinDraftStructId = null;
+}
+
+function restoreStructSelection(sec: HTMLElement): void {
+    restoreSelectedPin(sec);
+    restoreSelectedValueRow(sec);
+}
+
+function restoreSelectedPin(sec: HTMLElement): void {
+    if (_selectedPinId === null) { return; }
+    sec.querySelectorAll<HTMLElement>('.si-card').forEach(card => {
+        if (card.dataset.pinId === _selectedPinId) {
+            card.classList.add('si-card-selected');
         }
-    }
+    });
+}
 
-    applyBitHighlightsInPlace(sec);
+function restoreSelectedValueRow(sec: HTMLElement): void {
+    if (restoreSelectedBitRow(sec)) { return; }
+    if (restoreSelectedFieldRow(sec)) { return; }
+    if (restoreSelectedArrayElement(sec)) { return; }
+    restoreSelectedArrayGroup(sec);
+}
 
-    // Re-apply selection highlight after DOM rebuild
-    if (_selectedPinId !== null) {
-        sec.querySelectorAll<HTMLElement>('.si-card').forEach(card => {
-            if (card.dataset.pinId === _selectedPinId) {
-                card.classList.add('si-card-selected');
-            }
-        });
-    }
-    if (_selectedBitRowKey !== null) {
-        sec.querySelectorAll<HTMLElement>('.si-field[data-bit-start][data-bit-width]').forEach(row => {
-            const meta = parseBitRowMeta(row);
-            if (!meta) { return; }
-            const key = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
-            if (key === _selectedBitRowKey) {
-                row.classList.add('si-selected');
-            }
-        });
-    } else if (_selectedFieldAddr !== null) {
-        sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
-            if (parseInt(row.dataset.byteStart!) === _selectedFieldAddr) {
-                row.classList.add('si-selected');
-            }
-        });
-    } else if (_selectedArrElemKey !== null) {
-        sec.querySelectorAll<HTMLElement>('.si-arr-el-hdr').forEach(hdr => {
-            if (hdr.dataset.arrElKey === _selectedArrElemKey) {
-                hdr.classList.add('si-selected');
-            }
-        });
-    } else if (_selectedArrKey !== null) {
-        sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
-            const grp = hdr.closest<HTMLElement>('.si-arr-grp');
-            if (grp?.dataset.arrKey === _selectedArrKey) {
-                hdr.classList.add('si-selected');
-            }
-        });
-    }
+function restoreSelectedBitRow(sec: HTMLElement): boolean {
+    if (_selectedBitRowKey === null) { return false; }
+    sec.querySelectorAll<HTMLElement>('.si-field[data-bit-start][data-bit-width]').forEach(row => {
+        const meta = parseBitRowMeta(row);
+        if (!meta) { return; }
+        const key = makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
+        if (key === _selectedBitRowKey) {
+            row.classList.add('si-selected');
+        }
+    });
+    return true;
+}
+
+function restoreSelectedFieldRow(sec: HTMLElement): boolean {
+    if (_selectedFieldAddr === null) { return false; }
+    sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
+        if (parseInt(row.dataset.byteStart!) === _selectedFieldAddr) {
+            row.classList.add('si-selected');
+        }
+    });
+    return true;
+}
+
+function restoreSelectedArrayElement(sec: HTMLElement): boolean {
+    if (_selectedArrElemKey === null) { return false; }
+    sec.querySelectorAll<HTMLElement>('.si-arr-el-hdr').forEach(hdr => {
+        if (hdr.dataset.arrElKey === _selectedArrElemKey) {
+            hdr.classList.add('si-selected');
+        }
+    });
+    return true;
+}
+
+function restoreSelectedArrayGroup(sec: HTMLElement): void {
+    if (_selectedArrKey === null) { return; }
+    sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
+        const grp = hdr.closest<HTMLElement>('.si-arr-grp');
+        if (grp?.dataset.arrKey === _selectedArrKey) {
+            hdr.classList.add('si-selected');
+        }
+    });
 }
 
 // Floating per-field value-type menu
@@ -3283,181 +3408,250 @@ function pinIndexFromHeader(hdr: HTMLElement): number {
     return card ? parseInt(card.dataset.idx!) : -1;
 }
 
+type FieldValMenuOptions = {
+    isPointer?: boolean;
+    isArrayHeader?: boolean;
+    isBitUnitHeader?: boolean;
+    valKey?: string;
+    keyList?: string[];
+};
+
+type FieldValMenuContext = {
+    bs: number;
+    bsList: number[] | undefined;
+    pinIdx: number | undefined;
+    opts: FieldValMenuOptions;
+    key: string;
+    types: ColType[];
+    cur: ColType | null;
+    findFieldAt: (addr: number) => DecodedField | null;
+};
+
 function showFieldValMenu(
     x: number,
     y: number,
     bs: number,
     bsList?: number[],
     pinIdx?: number,
-    opts?: {
-        isPointer?: boolean,
-        isArrayHeader?: boolean,
-        isBitUnitHeader?: boolean,
-        valKey?: string,
-        keyList?: string[],
-    },
+    opts: FieldValMenuOptions = {},
 ): void {
     hideFieldValMenu();
-    // Determine candidate display types based on the field's native type.
-    const sampleAddr = (bsList && bsList.length > 0) ? bsList[0] : bs;
+    const ctx = createFieldValMenuContext(bs, bsList, pinIdx, opts);
+
+    if (opts.isArrayHeader) {
+        showArrayHeaderFieldValMenu(ctx, x, y);
+        return;
+    }
+    if (opts.isPointer) {
+        showPointerFieldValMenu(ctx, x, y);
+        return;
+    }
+    showScalarFieldValMenu(ctx, x, y);
+}
+
+function createFieldValMenuContext(
+    bs: number,
+    bsList: number[] | undefined,
+    pinIdx: number | undefined,
+    opts: FieldValMenuOptions,
+): FieldValMenuContext {
     const allDefs = allStructs();
     const findRowsAt = (addr: number): DecodedField[] => structRowsAtAddress(addr, pinIdx, allDefs);
-    const findFieldAt = (addr: number): DecodedField | null => {
-        return findRowsAt(addr)[0] ?? null;
+    const findFieldAt = (addr: number): DecodedField | null => findRowsAt(addr)[0] ?? null;
+    const sampleField = findFieldAt(sampleAddress(bs, bsList));
+    const key = opts.valKey ?? scalarValKey(bs);
+    return {
+        bs,
+        bsList,
+        pinIdx,
+        opts,
+        key,
+        types: fieldValueMenuTypes(bs, bsList, opts, sampleField, findRowsAt),
+        cur: currentFieldValueType(bs, bsList, opts, key, sampleField, findFieldAt),
+        findFieldAt,
     };
-    const sampleField = findFieldAt(sampleAddr);
-    const sampleType = sampleField?.type ?? null;
-    const isBitSample = sampleField ? isBitFieldRow(sampleField) : false;
-    const isFloatSample = sampleType === 'float32' || sampleType === 'float64';
-    const isAsciiSample = sampleType === 'ascii';
-    const key = opts?.valKey ?? scalarValKey(bs);
-    const arrayHasBitUnits = opts?.isArrayHeader && opts.keyList?.some(k => k.startsWith('bitunit:'));
-    const bitUnitTypes = (addresses: number[]): ColType[] => {
-        const hasPartialUnit = addresses.some(addr => !bitUnitUsesFullStorage(findRowsAt(addr)));
-        return hasPartialUnit ? ['bin', 'bin-sliced', 'hex', 'dec'] : ['bin', 'hex', 'dec'];
-    };
-    const types: ColType[] = opts?.isBitUnitHeader
-        ? bitUnitTypes([bs])
-        : arrayHasBitUnits
-            ? bitUnitTypes(bsList ?? [bs])
-            : isFloatSample
-                ? ['hex', 'dec', 'ieee', 'bin']
-                : isAsciiSample
-                    ? ['ascii', 'hex', 'bin']
-                    : isBitSample
-                        ? ['bin', 'hex', 'dec']
-                        : ['hex', 'dec', 'bin', 'ascii'];
-    let cur: ColType | null = null;
-    if (bsList && bsList.length > 0) {
-        const vals = bsList.map((b, idx) => {
-            const listKey = opts?.keyList?.[idx] ?? scalarValKey(b);
-            const field = findFieldAt(b);
-            const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
-            return _fieldValTypes.get(listKey) ?? implicit;
-        });
-        const allSame = vals.every(v => v === vals[0]);
-        cur = allSame ? (vals[0] as ColType) : null;
-    } else {
-        cur = _fieldValTypes.get(key) ?? ((isBitSample || opts?.isBitUnitHeader) ? 'bin' : _defaultValType);
-    }
+}
 
-    // Helpers for menu
-    const item = (cmd: string, label: string, hint = '') =>
+function sampleAddress(bs: number, bsList: number[] | undefined): number {
+    return bsList && bsList.length > 0 ? bsList[0] : bs;
+}
+
+function fieldValueMenuTypes(
+    bs: number,
+    bsList: number[] | undefined,
+    opts: FieldValMenuOptions,
+    sampleField: DecodedField | null,
+    findRowsAt: (addr: number) => DecodedField[],
+): ColType[] {
+    if (opts.isBitUnitHeader) { return bitUnitMenuTypes([bs], findRowsAt); }
+    if (arrayHeaderHasBitUnits(opts)) { return bitUnitMenuTypes(bsList ?? [bs], findRowsAt); }
+    return sampleFieldValueTypes(sampleField);
+}
+
+function arrayHeaderHasBitUnits(opts: FieldValMenuOptions): boolean {
+    return !!opts.isArrayHeader && (opts.keyList?.some(k => k.startsWith('bitunit:')) ?? false);
+}
+
+function bitUnitMenuTypes(addresses: number[], findRowsAt: (addr: number) => DecodedField[]): ColType[] {
+    const hasPartialUnit = addresses.some(addr => !bitUnitUsesFullStorage(findRowsAt(addr)));
+    return hasPartialUnit ? ['bin', 'bin-sliced', 'hex', 'dec'] : ['bin', 'hex', 'dec'];
+}
+
+function sampleFieldValueTypes(sampleField: DecodedField | null): ColType[] {
+    if (!sampleField) { return ['hex', 'dec', 'bin', 'ascii']; }
+    const typeMenu = SAMPLE_TYPE_MENUS[sampleField.type];
+    if (typeMenu) { return typeMenu; }
+    if (isBitFieldRow(sampleField)) { return ['bin', 'hex', 'dec']; }
+    return ['hex', 'dec', 'bin', 'ascii'];
+}
+
+function currentFieldValueType(
+    bs: number,
+    bsList: number[] | undefined,
+    opts: FieldValMenuOptions,
+    key: string,
+    sampleField: DecodedField | null,
+    findFieldAt: (addr: number) => DecodedField | null,
+): ColType | null {
+    if (bsList && bsList.length > 0) {
+        return commonFieldValueType(bsList, opts.keyList, findFieldAt);
+    }
+    const implicit = implicitDisplayType(sampleField, !!opts.isBitUnitHeader);
+    return _fieldValTypes.get(key) ?? implicit;
+}
+
+function commonFieldValueType(
+    bsList: number[],
+    keyList: string[] | undefined,
+    findFieldAt: (addr: number) => DecodedField | null,
+): ColType | null {
+    const vals = bsList.map((b, idx) => {
+        const listKey = keyList?.[idx] ?? scalarValKey(b);
+        const field = findFieldAt(b);
+        const implicit = implicitDisplayType(field, listKey.startsWith('bitunit:'));
+        return _fieldValTypes.get(listKey) ?? implicit;
+    });
+    return vals.every(v => v === vals[0]) ? vals[0] : null;
+}
+
+function menuItemHtml(cmd: string, label: string, hint = ''): string {
+    return (
         `<div class="ctx-row" data-cmd="${cmd}">` +
         `<span class="ctx-label">${esc(label)}</span>` +
         (hint ? `<span class="ctx-hint">${esc(hint)}</span>` : '') +
-        `</div>`;
-    const sep = `<div class="ctx-sep"></div>`;
-    const sub = (label: string, id: string, body: string) =>
+        `</div>`
+    );
+}
+
+function menuSubHtml(label: string, id: string, body: string): string {
+    return (
         `<div class="ctx-row ctx-has-sub" data-sub="${id}">` +
         `<span class="ctx-label">${esc(label)}</span>` +
         `<div class="ctx-submenu">${body}</div>` +
-        `</div>`;
+        `</div>`
+    );
+}
 
-    // Array header: copy start address + view-as for all elements
-    if (opts?.isArrayHeader) {
-        const TYPE_LABELS_FULL: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit fields only)', ascii: 'ASCII', ieee: 'IEEE754' };
-        const dispMenu = types.map(t =>
-            `<div class="ctx-row${t === cur ? ' active' : ''}" data-cmd="disp-${t}">` +
-            `<span class="ctx-label">${TYPE_LABELS_FULL[t]}</span>` +
-            `</div>`
-        ).join('');
-        const el = createFieldValMenu(
-            item('copy-addr', 'Copy address') +
-            sep +
-            sub('View as', 'disp', dispMenu),
-            x,
-            y,
-        );
-        wireFieldValMenuCommands(el, cmd => {
-            handleArrayHeaderMenuCommand(cmd, bs, bsList, opts?.keyList, findFieldAt);
-        });
-        wireStructSubmenus(el);
-        addFieldValMenuClickAway();
-        _valMenuEl = el;
-        return;
-    }
+function menuSeparatorHtml(): string {
+    return `<div class="ctx-sep"></div>`;
+}
 
-    // Pointer: only allow copy address value
-    if (opts?.isPointer) {
-        const el = createFieldValMenu(item('copy-hex', 'Copy value'), x, y);
-        wireFieldValMenuCommands(el, () => {
-            // Always copy as hex address
-            const source = findCopySourceRows(bs, pinIdx);
-            if (!source) { hideFieldValMenu(); return; }
-            const r = findFieldForValueKey(source.rows, bs - source.pin.addr, opts?.valKey);
-            const toCopy = r ? singleLineCopyText(getCopyText(r, 'hex')) : '??';
-            copyTextToClipboard(toCopy);
-            hideFieldValMenu();
-            return;
-        });
-        addFieldValMenuClickAway();
-        _valMenuEl = el;
-        return;
-    }
-
-    const TYPE_LABELS: Record<ColType, string> = { hex: 'Hex', dec: 'Decimal', bin: 'Binary', 'bin-sliced': 'Binary (bit fields only)', ascii: 'ASCII', ieee: 'IEEE754' };
-
-    // Copy submenu
-    const copyMenu = types.map(t =>
-        item(`copy-${t}`, TYPE_LABELS[t], '')
-    ).join('');
-
-    // Display type submenu
-    const dispMenu = types.map(t =>
-        `<div class="ctx-row${t===cur ? ' active' : ''}" data-cmd="disp-${t}">` +
+function displayMenuHtml(types: ColType[], cur: ColType | null): string {
+    return types.map(t =>
+        `<div class="ctx-row${t === cur ? ' active' : ''}" data-cmd="disp-${t}">` +
         `<span class="ctx-label">${TYPE_LABELS[t]}</span>` +
         `</div>`
     ).join('');
-    // Compose menu
+}
+
+function showArrayHeaderFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
     const el = createFieldValMenu(
-        sub('Copy as', 'copy', copyMenu) +
-        sep +
-        sub('View as', 'disp', dispMenu),
+        menuItemHtml('copy-addr', 'Copy address') +
+        menuSeparatorHtml() +
+        menuSubHtml('View as', 'disp', displayMenuHtml(ctx.types, ctx.cur)),
         x,
         y,
     );
-
-    // Wire leaf-item clicks
     wireFieldValMenuCommands(el, cmd => {
-        // Copy actions
-        if (cmd.startsWith('copy-')) {
-            const t = cmd.replace('copy-', '') as ColType;
-            const source = findCopySourceRows(bs, pinIdx);
-            if (!source) { hideFieldValMenu(); return; }
-            const toCopy = (bsList && bsList.length > 0)
-                ? bsList.map((b, idx) => {
-                    const listKey = opts?.keyList?.[idx];
-                    const r = findFieldForValueKey(source.rows, b - source.pin.addr, listKey);
-                    return r ? singleLineCopyText(getCopyText(r, t)) : '??';
-                  }).join('; ')
-                : (() => {
-                    const r = findFieldForValueKey(source.rows, bs - source.pin.addr, opts?.valKey);
-                    return r ? singleLineCopyText(getCopyText(r, t)) : '??';
-                  })();
-            copyTextToClipboard(toCopy);
-            hideFieldValMenu();
-            return;
-        }
-        // Display type actions
-        if (cmd.startsWith('disp-')) {
-            const t = cmd.replace('disp-', '') as ColType;
-            const field = findFieldAt(bs);
-            const implicit = implicitDisplayType(field, !!opts?.isBitUnitHeader);
-            if (t === implicit) { _fieldValTypes.delete(key); }
-            else { _fieldValTypes.set(key, t); }
-            hideFieldValMenu();
-            renderStructPins();
-            return;
-        }
+        handleArrayHeaderMenuCommand(cmd, ctx.bs, ctx.bsList, ctx.opts.keyList, ctx.findFieldAt);
     });
+    finishFieldValMenu(el);
+}
 
-    // Wire submenus (hover logic)
+function showPointerFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
+    const el = createFieldValMenu(menuItemHtml('copy-hex', 'Copy value'), x, y);
+    wireFieldValMenuCommands(el, () => {
+        copyPointerFieldValue(ctx);
+    });
+    finishFieldValMenu(el);
+}
+
+function showScalarFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
+    const el = createFieldValMenu(
+        menuSubHtml('Copy as', 'copy', copyMenuHtml(ctx.types)) +
+        menuSeparatorHtml() +
+        menuSubHtml('View as', 'disp', displayMenuHtml(ctx.types, ctx.cur)),
+        x,
+        y,
+    );
+    wireFieldValMenuCommands(el, cmd => handleScalarValueMenuCommand(cmd, ctx));
+    finishFieldValMenu(el);
+}
+
+function copyMenuHtml(types: ColType[]): string {
+    return types.map(t => menuItemHtml(`copy-${t}`, TYPE_LABELS[t], '')).join('');
+}
+
+function finishFieldValMenu(el: HTMLElement): void {
     wireStructSubmenus(el);
-
-    // Hide when clicking outside
     addFieldValMenuClickAway();
     _valMenuEl = el;
+}
+
+function copyPointerFieldValue(ctx: FieldValMenuContext): void {
+    const source = findCopySourceRows(ctx.bs, ctx.pinIdx);
+    if (!source) { hideFieldValMenu(); return; }
+    const row = findFieldForValueKey(source.rows, ctx.bs - source.pin.addr, ctx.opts.valKey);
+    copyTextToClipboard(row ? singleLineCopyText(getCopyText(row, 'hex')) : '??');
+    hideFieldValMenu();
+}
+
+function handleScalarValueMenuCommand(cmd: string, ctx: FieldValMenuContext): void {
+    if (cmd.startsWith('copy-')) {
+        copyScalarFieldValue(cmd.replace('copy-', '') as ColType, ctx);
+        return;
+    }
+    if (cmd.startsWith('disp-')) {
+        setScalarDisplayType(cmd.replace('disp-', '') as ColType, ctx);
+    }
+}
+
+function copyScalarFieldValue(type: ColType, ctx: FieldValMenuContext): void {
+    const source = findCopySourceRows(ctx.bs, ctx.pinIdx);
+    if (!source) { hideFieldValMenu(); return; }
+    const text = ctx.bsList && ctx.bsList.length > 0
+        ? copyListText(ctx.bsList, ctx.opts.keyList, source.rows, source.pin.addr, type)
+        : copySingleText(ctx.bs, ctx.opts.valKey, source.rows, source.pin.addr, type);
+    copyTextToClipboard(text);
+    hideFieldValMenu();
+}
+
+function copyListText(bsList: number[], keyList: string[] | undefined, rows: DecodedField[], pinAddr: number, type: ColType): string {
+    return bsList.map((b, idx) => copySingleText(b, keyList?.[idx], rows, pinAddr, type)).join('; ');
+}
+
+function copySingleText(bs: number, key: string | undefined, rows: DecodedField[], pinAddr: number, type: ColType): string {
+    const row = findFieldForValueKey(rows, bs - pinAddr, key);
+    return row ? singleLineCopyText(getCopyText(row, type)) : '??';
+}
+
+function setScalarDisplayType(type: ColType, ctx: FieldValMenuContext): void {
+    const field = ctx.findFieldAt(ctx.bs);
+    const implicit = implicitDisplayType(field, !!ctx.opts.isBitUnitHeader);
+    if (type === implicit) { _fieldValTypes.delete(ctx.key); }
+    else { _fieldValTypes.set(ctx.key, type); }
+    hideFieldValMenu();
+    renderStructPins();
 }
 function wireStructSubmenus(menuEl: HTMLElement): void {
     wireHoverSubmenus(menuEl);
