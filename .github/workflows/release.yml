@@ -98,7 +98,9 @@ jobs:
 
   Package:
     name: Package VSIX
-    needs: Test
+    needs:
+      - Test
+      - Preflight
     if: ${{ needs.Test.result == 'success' }}
     uses: ./.github/workflows/package.yml
     with:
