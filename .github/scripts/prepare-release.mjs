@@ -24,11 +24,7 @@ if (unreleasedIndex === -1) {
 const unreleased = parsed.blocks[unreleasedIndex];
 
 if (!blockHasContent(unreleased.body)) {
-  if (versionIndex === -1) {
-    fail(`CHANGELOG.md has no release notes for [${version}] or [Unreleased]`);
-  }
-  console.log(`prepare-release: [Unreleased] empty; using existing [${version}] block`);
-  process.exit(0);
+  fail('CHANGELOG.md [Unreleased] block has no release notes');
 }
 
 if (versionIndex === -1) {

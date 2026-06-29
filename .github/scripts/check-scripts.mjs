@@ -116,6 +116,21 @@ function checkPrepareRelease() {
     assert.equal(notes.status, 0, notes.stderr || notes.stdout);
     assert.match(notes.stdout, /Fresh release note/);
     assert.doesNotMatch(notes.stdout, /Old release note/);
+
+    writeFileSync(join(dir, 'CHANGELOG.md'), `# Changelog
+
+## [Unreleased]
+
+## [1.2.2] - 2026-06-29
+
+### Fixed
+
+- Old release note
+`);
+
+    const emptyUnreleased = runNode([join(scriptDir, 'prepare-release.mjs'), '1.2.3'], { cwd: dir });
+    assert.notEqual(emptyUnreleased.status, 0, 'empty [Unreleased] should fail');
+    assert.match(emptyUnreleased.stderr, /\[Unreleased\] block has no release notes/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
