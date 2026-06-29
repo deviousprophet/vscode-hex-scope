@@ -209,17 +209,18 @@ suite('serializeSRec()', () => {
         return parseSRec(RAW_SREC);
     }
 
+    function parseEditedSRec(edits: Map<number, number>) {
+        return parseSRec(serializeSRec(RAW_SREC, makeParseResult(), edits));
+    }
+
     test('returns original raw when edits map is empty', () => {
         const result = makeParseResult();
         assert.strictEqual(serializeSRec(RAW_SREC, result, new Map()), RAW_SREC);
     });
 
     test('applies a single byte edit to an S1 record', () => {
-        const result = makeParseResult();
         const edits = new Map<number, number>([[0x0000, 0xFF]]);
-        const out = serializeSRec(RAW_SREC, result, edits);
-        // Re-parse the output and verify the edited byte
-        const reparsed = parseSRec(out);
+        const reparsed = parseEditedSRec(edits);
         assert.strictEqual(reparsed.checksumErrors, 0);
         assert.strictEqual(reparsed.segments[0].data[0], 0xFF);
         // Surrounding bytes must be unchanged
@@ -227,10 +228,8 @@ suite('serializeSRec()', () => {
     });
 
     test('applies edits across multiple records', () => {
-        const result = makeParseResult();
         const edits = new Map<number, number>([[0x0000, 0xAA], [0x000F, 0xBB]]);
-        const out = serializeSRec(RAW_SREC, result, edits);
-        const reparsed = parseSRec(out);
+        const reparsed = parseEditedSRec(edits);
         assert.strictEqual(reparsed.checksumErrors, 0);
         assert.strictEqual(reparsed.segments[0].data[0x00], 0xAA);
         assert.strictEqual(reparsed.segments[0].data[0x0F], 0xBB);

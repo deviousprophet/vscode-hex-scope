@@ -1,24 +1,41 @@
 import type { HexRecord, MemorySegment } from './types';
 
+type SegmentBlock = { address: number; data: number[] };
+
+function canUseSegmentRecord(rec: HexRecord, isDataRecord: (rec: HexRecord) => boolean): boolean {
+    return !rec.error && isDataRecord(rec) && rec.checksumValid;
+}
+
+function startsNewBlock(rec: HexRecord, current: SegmentBlock | null): boolean {
+    return !current || rec.resolvedAddress !== current.address + current.data.length;
+}
+
+function appendRecordData(block: SegmentBlock, data: ArrayLike<number>): void {
+    for (let i = 0; i < data.length; i++) { block.data.push(data[i]); }
+}
+
+function appendSegmentRecord(blocks: SegmentBlock[], current: SegmentBlock | null, rec: HexRecord): SegmentBlock {
+    const next = startsNewBlock(rec, current) ? { address: rec.resolvedAddress, data: [] } : current!;
+    if (next !== current) { blocks.push(next); }
+    appendRecordData(next, rec.data);
+    return next;
+}
+
+function blockToSegment(block: SegmentBlock): MemorySegment {
+    return { startAddress: block.address, data: new Uint8Array(block.data) };
+}
+
 export function buildContiguousSegments(
     records: HexRecord[],
     isDataRecord: (rec: HexRecord) => boolean,
 ): MemorySegment[] {
-    const blocks: { address: number; data: number[] }[] = [];
-    let current: { address: number; data: number[] } | null = null;
+    const blocks: SegmentBlock[] = [];
+    let current: SegmentBlock | null = null;
 
     for (const rec of records) {
-        if (rec.error || !isDataRecord(rec) || !rec.checksumValid) {
-            continue;
-        }
-
-        if (!current || rec.resolvedAddress !== current.address + current.data.length) {
-            current = { address: rec.resolvedAddress, data: [] };
-            blocks.push(current);
-        }
-
-        for (const b of rec.data) { current.data.push(b); }
+        if (!canUseSegmentRecord(rec, isDataRecord)) { continue; }
+        current = appendSegmentRecord(blocks, current, rec);
     }
 
-    return blocks.map(b => ({ startAddress: b.address, data: new Uint8Array(b.data) }));
+    return blocks.map(blockToSegment);
 }

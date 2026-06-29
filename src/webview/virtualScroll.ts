@@ -30,23 +30,34 @@ let cacheGapHeight = -1;
 let cumulativeHeights: number[] = [];
 let cachedTotalHeight = 0;
 
-function ensureHeightCache(state: VirtualScrollState): void {
-    if (
-        cacheLen === S.memRows.length &&
-        cacheRowHeight === state.rowHeight &&
-        cacheGapHeight === state.gapHeight &&
-        cumulativeHeights.length === S.memRows.length + 1
-    ) { return; }
+function heightCacheMatches(state: VirtualScrollState): boolean {
+    return [
+        cacheLen === S.memRows.length,
+        cacheRowHeight === state.rowHeight,
+        cacheGapHeight === state.gapHeight,
+        cumulativeHeights.length === S.memRows.length + 1,
+    ].every(Boolean);
+}
+
+function rowPixelHeight(rowIndex: number, state: VirtualScrollState): number {
+    return S.memRows[rowIndex].type === 'gap' ? state.gapHeight : state.rowHeight;
+}
+
+function rebuildHeightCache(state: VirtualScrollState): void {
     cumulativeHeights = new Array<number>(S.memRows.length + 1);
     cumulativeHeights[0] = 0;
     for (let i = 0; i < S.memRows.length; i++) {
-        const h = S.memRows[i].type === 'gap' ? state.gapHeight : state.rowHeight;
-        cumulativeHeights[i + 1] = cumulativeHeights[i] + h;
+        cumulativeHeights[i + 1] = cumulativeHeights[i] + rowPixelHeight(i, state);
     }
     cachedTotalHeight = cumulativeHeights[S.memRows.length] ?? 0;
     cacheLen = S.memRows.length;
     cacheRowHeight = state.rowHeight;
     cacheGapHeight = state.gapHeight;
+}
+
+function ensureHeightCache(state: VirtualScrollState): void {
+    if (heightCacheMatches(state)) { return; }
+    rebuildHeightCache(state);
 }
 
 function lowerBound(values: number[], target: number): number {
@@ -123,6 +134,10 @@ export function calcScrollLayout(state: VirtualScrollState, maxPhysicalHeight = 
 
 export function physicalToLogicalScroll(physicalScrollTop: number, state: VirtualScrollState): number {
     const layout = calcScrollLayout(state);
+    return physicalToLogicalScrollForLayout(physicalScrollTop, layout);
+}
+
+export function physicalToLogicalScrollForLayout(physicalScrollTop: number, layout: VirtualScrollLayout): number {
     if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
         return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
     }

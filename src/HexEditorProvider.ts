@@ -13,6 +13,74 @@ import {
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
+function hasParseErrors(result: ParseResult): boolean {
+    return result.checksumErrors > 0 || result.malformedLines > 0;
+}
+
+type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
+type StructDefIdentity = { id: string; name: string };
+
+function stringProperty(value: unknown, key: 'id' | 'name'): string | null {
+    const prop = (value as { id?: unknown; name?: unknown })?.[key];
+    return typeof prop === 'string' ? prop : null;
+}
+
+function structDefIdentity(value: unknown): StructDefIdentity | null {
+    const id = stringProperty(value, 'id');
+    if (!id) { return null; }
+    const name = stringProperty(value, 'name');
+    return name ? { id, name } : null;
+}
+
+function rememberStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): void {
+    seenIds.add(identity.id);
+    seenNames.add(identity.name);
+}
+
+function hasSeenStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): boolean {
+    return seenIds.has(identity.id) || seenNames.has(identity.name);
+}
+
+function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
+    const identity = structDefIdentity(item);
+    if (!identity || hasSeenStructDefIdentity(identity, seenIds, seenNames)) { return false; }
+    rememberStructDefIdentity(identity, seenIds, seenNames);
+    out.push(item as StructDef);
+    return true;
+}
+
+function normalizeStructDefsValue(value: unknown): StructDefsNormalization {
+    if (!Array.isArray(value)) { return { defs: [], changed: false }; }
+    const out: StructDef[] = [];
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    let changed = false;
+
+    for (const item of value) {
+        changed = !appendUniqueStructDef(item, out, seenIds, seenNames) || changed;
+    }
+    return { defs: out, changed };
+}
+
+function createStructDefIdentitySets(defs: StructDef[]): { usedIds: Set<string>; usedNames: Set<string> } {
+    return {
+        usedIds: new Set(defs.map(s => structDefIdentity(s)?.id).filter((id): id is string => typeof id === 'string')),
+        usedNames: new Set(defs.map(s => structDefIdentity(s)?.name).filter((name): name is string => typeof name === 'string')),
+    };
+}
+
+function mergeLegacyStructDefs(globalArr: StructDef[], legacyArr: StructDef[]): { defs: StructDef[]; changed: boolean } {
+    if (legacyArr.length === 0) { return { defs: globalArr, changed: false }; }
+    const { usedIds, usedNames } = createStructDefIdentitySets(globalArr);
+    const migrated = legacyArr.filter(s => {
+        const identity = structDefIdentity(s);
+        if (!identity || hasSeenStructDefIdentity(identity, usedIds, usedNames)) { return false; }
+        rememberStructDefIdentity(identity, usedIds, usedNames);
+        return true;
+    });
+    return migrated.length > 0 ? { defs: [...globalArr, ...migrated], changed: true } : { defs: globalArr, changed: false };
+}
+
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     public static readonly viewType = 'hexScope.hexEditor';
@@ -82,29 +150,26 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
         const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
 
-        const normalizeStructDefs = (value: unknown): { defs: StructDef[]; changed: boolean } => {
-            if (!Array.isArray(value)) { return { defs: [], changed: false }; }
-            const out: StructDef[] = [];
-            const seenIds = new Set<string>();
-            const seenNames = new Set<string>();
-            let changed = false;
+        const normalizeStructDefs = normalizeStructDefsValue;
 
-            for (const item of value) {
-                const id = (item as { id?: unknown })?.id;
-                const name = (item as { name?: unknown })?.name;
-                if (typeof id !== 'string' || typeof name !== 'string') {
-                    changed = true;
-                    continue;
-                }
-                if (seenIds.has(id) || seenNames.has(name)) {
-                    changed = true;
-                    continue;
-                }
-                seenIds.add(id);
-                seenNames.add(name);
-                out.push(item as StructDef);
+        const syncGlobalStructs = async (rawGlobal: unknown, normalizedGlobal: unknown, defs: StructDef[], changed: boolean): Promise<void> => {
+            if (rawGlobal === undefined || !Array.isArray(normalizedGlobal) || changed) {
+                await this._context.globalState.update(globalStructKey, defs);
             }
-            return { defs: out, changed };
+        };
+
+        const clearPreviousGlobalStructs = async (previousGlobalStructs: unknown): Promise<void> => {
+            if (previousGlobalStructs !== undefined) {
+                await this._context.globalState.update(previousGlobalStructKey, undefined);
+            }
+        };
+
+        const persistMergedLegacyStructs = async (globalArr: StructDef[], legacyArr: StructDef[]): Promise<StructDef[]> => {
+            const merged = mergeLegacyStructDefs(globalArr, legacyArr);
+            if (merged.changed) {
+                await this._context.globalState.update(globalStructKey, merged.defs);
+            }
+            return merged.defs;
         };
 
         const loadStructs = async () => {
@@ -115,36 +180,9 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
             let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
             const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
 
-            if (currentGlobalStructs === undefined || !Array.isArray(globalStructs) || globalChanged) {
-                await this._context.globalState.update(globalStructKey, globalArr);
-            }
-            if (previousGlobalStructs !== undefined) {
-                await this._context.globalState.update(previousGlobalStructKey, undefined);
-            }
-
-            if (legacyArr.length > 0) {
-                const usedIds = new Set(globalArr
-                    .map(s => (s as { id?: unknown })?.id)
-                    .filter((id): id is string => typeof id === 'string'));
-                const usedNames = new Set(globalArr
-                    .map(s => (s as { name?: unknown })?.name)
-                    .filter((name): name is string => typeof name === 'string'));
-
-                const migrated = legacyArr.filter(s => {
-                    const id = (s as { id?: unknown })?.id;
-                    const name = (s as { name?: unknown })?.name;
-                    if (typeof id !== 'string' || typeof name !== 'string') { return false; }
-                    if (usedIds.has(id) || usedNames.has(name)) { return false; }
-                    usedIds.add(id);
-                    usedNames.add(name);
-                    return true;
-                });
-
-                if (migrated.length > 0) {
-                    globalArr = [...globalArr, ...migrated];
-                    await this._context.globalState.update(globalStructKey, globalArr);
-                }
-            }
+            await syncGlobalStructs(currentGlobalStructs, globalStructs, globalArr, globalChanged);
+            await clearPreviousGlobalStructs(previousGlobalStructs);
+            globalArr = await persistMergedLegacyStructs(globalArr, legacyArr);
 
             await this._context.workspaceState.update(structKey, undefined);
 
@@ -233,7 +271,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     const newResult = format === 'srec' ? parseSRec(newRaw) : parseIntelHex(newRaw);
                     
                     // Validate the externally-changed file
-                    if (newResult.checksumErrors > 0 || newResult.malformedLines > 0) {
+                    if (hasParseErrors(newResult)) {
                         // Update provider-side state with the new content so repair works on actual file
                         raw = newRaw;
                         parseResult = newResult;
@@ -675,6 +713,23 @@ export function buildSRecDataRecord(type: number, address: number, data: number[
     return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
 }
 
+function shouldRepairRecordChecksum(rec: ParsedRecord): boolean {
+    return !rec.error && !rec.checksumValid;
+}
+
+function repairedChecksumLine(line: string, rec: ParsedRecord): string {
+    const correctChk = computeCorrectChecksum(rec);
+    return line.slice(0, -2) + correctChk.toString(16).toUpperCase().padStart(2, '0');
+}
+
+function repairChecksumLine(lines: string[], rec: ParsedRecord): void {
+    if (!shouldRepairRecordChecksum(rec)) { return; }
+    const line = lines[rec.lineNumber - 1];
+    if (!line) { return; }
+    // Replace the last two characters (the checksum hex byte)
+    lines[rec.lineNumber - 1] = repairedChecksumLine(line, rec);
+}
+
 /**
  * Rewrite every checksum-invalid (but structurally parseable) record in-place
  * by replacing its last two hex characters with the correctly computed checksum.
@@ -684,15 +739,37 @@ export function repairChecksums(raw: string, parseResult: ParseResult): string {
     const eol = raw.includes('\r\n') ? '\r\n' : '\n';
     const lines = raw.split(/\r?\n/);
     for (const rec of parseResult.records) {
-        if (rec.error || rec.checksumValid) { continue; }
-        const line = lines[rec.lineNumber - 1];
-        if (!line) { continue; }
-        // Replace the last two characters (the checksum hex byte)
-        const correctChk = computeCorrectChecksum(rec);
-        lines[rec.lineNumber - 1] = line.slice(0, -2) +
-            correctChk.toString(16).toUpperCase().padStart(2, '0');
+        repairChecksumLine(lines, rec);
     }
     return lines.join(eol);
+}
+
+function srecAddressByteCount(recordType: number): number {
+    const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
+    return aszMap[recordType] ?? 2;
+}
+
+function sumRecordData(data: ArrayLike<number>): number {
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) { sum += data[i]; }
+    return sum;
+}
+
+function sumAddressBytes(address: number, byteCount: number): number {
+    let sum = 0;
+    for (let i = byteCount - 1; i >= 0; i--) { sum += (address >>> (i * 8)) & 0xFF; }
+    return sum;
+}
+
+function computeCorrectSRecChecksum(rec: import('./parser/types').HexRecord): number {
+    const sum = rec.byteCount + sumAddressBytes(rec.address, srecAddressByteCount(rec.recordType)) + sumRecordData(rec.data);
+    return (~sum) & 0xFF;
+}
+
+function computeCorrectIntelHexChecksum(rec: import('./parser/types').HexRecord): number {
+    const addressSum = ((rec.address >> 8) & 0xFF) + (rec.address & 0xFF);
+    const sum = rec.byteCount + addressSum + rec.recordType + sumRecordData(rec.data);
+    return (~sum + 1) & 0xFF;
 }
 
 /** Compute the correct checksum for a parsed record (works for both IHEX and SREC). */
@@ -701,17 +778,7 @@ function computeCorrectChecksum(rec: import('./parser/types').HexRecord): number
     // SREC: one's-complement of (byteCount + addrBytes + data)
     // We detect by address byte count: SREC types have fixed addr sizes, IHEX always 2.
     // Both share the same shape — differentiate by checking if raw starts with ':' or 'S'.
-    if (rec.raw.startsWith('S')) {
-        const aszMap: Record<number, number> = {0:2,1:2,2:3,3:4,5:2,6:3,7:4,8:3,9:2};
-        const asz = aszMap[rec.recordType] ?? 2;
-        let sum = rec.byteCount;
-        for (let i = asz - 1; i >= 0; i--) { sum += (rec.address >>> (i * 8)) & 0xFF; }
-        for (const b of rec.data) { sum += b; }
-        return (~sum) & 0xFF;
-    }
-    let sum = rec.byteCount + ((rec.address >> 8) & 0xFF) + (rec.address & 0xFF) + rec.recordType;
-    for (const b of rec.data) { sum += b; }
-    return (~sum + 1) & 0xFF;
+    return rec.raw.startsWith('S') ? computeCorrectSRecChecksum(rec) : computeCorrectIntelHexChecksum(rec);
 }
 
 function getNonce(): string {

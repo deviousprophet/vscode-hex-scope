@@ -88,11 +88,12 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     if (!vscrollState) { return; }
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const containerHeight = scrollContainer.clientHeight;
-    if (
-        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01 &&
-        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01 &&
-        vscrollState.containerHeight === containerHeight
-    ) { return; }
+    const unchanged = [
+        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01,
+        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01,
+        vscrollState.containerHeight === containerHeight,
+    ].every(Boolean);
+    if (unchanged) { return; }
 
     vscrollState.rowHeight = rowHeight;
     vscrollState.gapHeight = gapHeight;
@@ -128,31 +129,38 @@ function renderVisibleRows(): void {
     const layout = calcScrollLayout(vscrollState);
 
     // No change in rendered range? Skip
-    if (!layout.isCompressed && startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1]) { return; }
+    if (shouldSkipVisibleRows(layout.isCompressed, startIdx, endIdx)) { return; }
     vscrollRenderedRange = [startIdx, endIdx];
 
     const labelMap = buildLabelMap();
     const topOffset = calcRowOffset(startIdx, vscrollState);
     const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState, !layout.isCompressed);
 
-    if (layout.isCompressed) {
-        container.style.position = 'relative';
-        container.style.height = `${layout.physicalHeight}px`;
-    } else {
-        container.style.position = '';
-        container.style.height = '';
-    }
-
-    if (layout.isCompressed) {
-        const physicalScrollTop = scrollContainer.scrollTop;
-        const windowTop = physicalScrollTop + topOffset - vscrollState.scrollTop;
-        container.innerHTML = `<div style="position:absolute;top:${windowTop}px;left:0;width:max-content;min-width:100%">${parts.join('')}</div>`;
-    } else {
-        container.innerHTML = parts.join('');
-    }
+    applyVisibleRowsContainerLayout(container, layout);
+    container.innerHTML = visibleRowsHtml(parts, layout.isCompressed, scrollContainer.scrollTop, topOffset, vscrollState.scrollTop);
 
     attachMemoryCellHandlers(container, getMemoryInteractionCallbacks(scrollContainer));
     refreshMemoryHighlights();
+}
+
+function shouldSkipVisibleRows(compressed: boolean, startIdx: number, endIdx: number): boolean {
+    return !compressed && startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1];
+}
+
+function applyVisibleRowsContainerLayout(container: HTMLElement, layout: ReturnType<typeof calcScrollLayout>): void {
+    if (layout.isCompressed) {
+        container.style.position = 'relative';
+        container.style.height = `${layout.physicalHeight}px`;
+        return;
+    }
+    container.style.position = '';
+    container.style.height = '';
+}
+
+function visibleRowsHtml(parts: string[], compressed: boolean, physicalScrollTop: number, topOffset: number, virtualScrollTop: number): string {
+    if (!compressed) { return parts.join(''); }
+    const windowTop = physicalScrollTop + topOffset - virtualScrollTop;
+    return `<div style="position:absolute;top:${windowTop}px;left:0;width:max-content;min-width:100%">${parts.join('')}</div>`;
 }
 
 function buildVisibleRowsHtml(
@@ -351,19 +359,9 @@ function renderRow(base: number): string {
     for (let col = 0; col < BPR; col++) {
         const addr = base + col;
         const val  = getByte(addr);
-        const ah   = addr.toString(16).toUpperCase().padStart(8, '0');
-
-        if (val === undefined) {
-            hexCells.push(`<span class="data-cell be" data-col="${col}" aria-hidden="true">  </span>`);
-            chrCells.push(`<span class="char-cell cd" data-col="${col}" aria-hidden="true"> </span>`);
-        } else {
-            const hex   = val.toString(16).toUpperCase().padStart(2, '0');
-            const dirty = S.edits.has(addr) ? ' dirty' : '';
-            const integrity = integrityHighlightClass(addr);
-            hexCells.push(`<span class="data-cell ${byteClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}" data-val="${val}">${hex}</span>`);
-            const p = val >= 0x20 && val < 0x7F;
-            chrCells.push(`<span class="char-cell ${p ? 'cp' : 'cd'}${dirty}${integrity}" data-col="${col}" data-addr="${ah}">${p ? esc(String.fromCharCode(val)) : ''}</span>`);
-        }
+        const cells = rowCellHtml(addr, col, val);
+        hexCells.push(cells.hex);
+        chrCells.push(cells.char);
     }
 
     return `<div class="data-row" data-row="${base}">
@@ -371,6 +369,39 @@ function renderRow(base: number): string {
         <div class="cell-group">${hexCells.join('')}</div>
         <div class="cell-group">${chrCells.join('')}</div>
     </div>`;
+}
+
+function rowCellHtml(addr: number, col: number, val: number | undefined): { hex: string; char: string } {
+    if (val === undefined) {
+        return {
+            hex: `<span class="data-cell be" data-col="${col}" aria-hidden="true">  </span>`,
+            char: `<span class="char-cell cd" data-col="${col}" aria-hidden="true"> </span>`,
+        };
+    }
+    return dataRowCellHtml(addr, col, val);
+}
+
+function dataRowCellHtml(addr: number, col: number, val: number): { hex: string; char: string } {
+    const ah   = addr.toString(16).toUpperCase().padStart(8, '0');
+    const hex  = val.toString(16).toUpperCase().padStart(2, '0');
+    const dirty = S.edits.has(addr) ? ' dirty' : '';
+    const integrity = integrityHighlightClass(addr);
+    return {
+        hex: `<span class="data-cell ${byteClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}" data-val="${val}">${hex}</span>`,
+        char: `<span class="char-cell ${charCellClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}">${charCellText(val)}</span>`,
+    };
+}
+
+function isPrintableMemoryByte(val: number): boolean {
+    return val >= 0x20 && val < 0x7F;
+}
+
+function charCellClass(val: number): string {
+    return isPrintableMemoryByte(val) ? 'cp' : 'cd';
+}
+
+function charCellText(val: number): string {
+    return isPrintableMemoryByte(val) ? esc(String.fromCharCode(val)) : '';
 }
 
 export function integrityHighlightClass(address: number): string {
@@ -434,27 +465,18 @@ function getSelectedColumns(selStart: number, selEnd: number): Set<number> {
     const startCol = selStart % BPR;
     const endCol = selEnd % BPR;
 
-    if (startRow === endRow) {
-        for (let c = startCol; c <= endCol; c++) {
-            cols.add(c);
-        }
-        return cols;
-    }
+    if (startRow === endRow) { return columnsInRange(cols, startCol, endCol); }
 
-    if (endRow - startRow > 1) {
-        for (let c = 0; c < BPR; c++) {
-            cols.add(c);
-        }
-        return cols;
-    }
+    if (endRow - startRow > 1) { return columnsInRange(cols, 0, BPR - 1); }
 
-    for (let c = startCol; c < BPR; c++) {
+    columnsInRange(cols, startCol, BPR - 1);
+    return columnsInRange(cols, 0, endCol);
+}
+
+function columnsInRange(cols: Set<number>, start: number, end: number): Set<number> {
+    for (let c = start; c <= end; c++) {
         cols.add(c);
     }
-    for (let c = 0; c <= endCol; c++) {
-        cols.add(c);
-    }
-
     return cols;
 }
 
@@ -604,14 +626,8 @@ function valueNeedleLen(query: string): number | null {
 }
 
 function decimalValueNeedleLen(value: bigint): number | null {
-    if (value === 0n) { return 1; }
-    let tmp = value;
-    let bytes = 0;
-    while (tmp > 0n && bytes < 8) {
-        bytes++;
-        tmp >>= 8n;
-    }
-    return bytes || null;
+    if (value < 0n) { return null; }
+    return Math.min(8, Math.ceil(value.toString(16).length / 2));
 }
 
 function asciiNeedleLen(query: string): number | null {

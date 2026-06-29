@@ -218,7 +218,8 @@
 }
 
 /* Edit mode toggle button (visible when NOT in edit mode) */
-.tb-edit-btn {
+.tb-edit-btn,
+.tb-cancel-btn {
     background: transparent; border: 1px solid var(--border); border-radius: 3px;
     color: var(--addr-fg); font-size: 11px; font-family: var(--font-ui);
     padding: 1px 8px; cursor: pointer; white-space: nowrap;
@@ -253,11 +254,4 @@
 .tb-save-btn:hover:not(:disabled) { background: rgba(79,195,247,.25); border-color: var(--high-color); }
 .tb-save-btn:disabled { opacity: .35; cursor: default; }
 
-/* Cancel button */
-.tb-cancel-btn {
-    background: transparent; border: 1px solid var(--border); border-radius: 3px;
-    color: var(--addr-fg); font-size: 11px; font-family: var(--font-ui);
-    padding: 1px 8px; cursor: pointer; white-space: nowrap;
-    transition: color .1s, border-color .1s, background .1s;
-}
 .tb-cancel-btn:hover { color: #f48771; border-color: #f48771; background: rgba(244,135,113,.08); }

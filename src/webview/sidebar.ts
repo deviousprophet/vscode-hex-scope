@@ -20,19 +20,20 @@ export function renderInspector(): void {
            <div id="insp-multi"></div>
          </div>`;
 
-    // Collapsible: expanded by default
-    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
+    applyCollapsibleSection(sec, false);
+}
+
+function applyCollapsibleSection(sec: HTMLElement, defaultCollapsed: boolean): void {
+    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = String(defaultCollapsed); }
     sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
 
-    // Header toggles collapse state
     const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-    if (hdr) {
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
-    }
+    if (!hdr) { return; }
+    hdr.addEventListener('click', () => {
+        const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
+        sec.dataset.collapsed = now;
+        sec.classList.toggle('collapsed', now === 'true');
+    });
 }
 
 function inspectorSelectionLength(): number {
@@ -114,35 +115,48 @@ function wireInspectorCopies(valsEl: HTMLElement): void {
 }
 
 export function updateInspector(): void {
+    const state = readInspectorState();
+    if (!state) { return; }
+
+    renderInspectorAddress(state.addrEl, state.len);
+    if (renderInspectorMissingData(state.valsEl, state.val)) { return; }
+    renderInspectorSelection(state.valsEl, state.val, state.len);
+
+    wireInspectorCopies(state.valsEl);
+    renderMultiInline();
+}
+
+function readInspectorState(): { addrEl: HTMLElement; valsEl: HTMLElement; len: number; val: number | undefined } | null {
     const addrEl = document.getElementById('insp-addr');
     const valsEl = document.getElementById('insp-vals');
-    if (!addrEl || !valsEl) { return; }
-
+    if (!addrEl || !valsEl) { return null; }
     if (S.selStart === null) {
         renderInspectorNoSelection(addrEl, valsEl);
-        return;
+        return null;
     }
+    return {
+        addrEl,
+        valsEl,
+        len: inspectorSelectionLength(),
+        val: getByte(S.selStart),
+    };
+}
 
-    const len = inspectorSelectionLength();
-    const val = getByte(S.selStart);
-    renderInspectorAddress(addrEl, len);
+function renderInspectorMissingData(valsEl: HTMLElement, val: number | undefined): val is undefined {
+    if (val !== undefined) { return false; }
+    renderInspectorNoData(valsEl);
+    return true;
+}
 
-    if (val === undefined) {
-        renderInspectorNoData(valsEl);
-        return;
-    }
-
+function renderInspectorSelection(valsEl: HTMLElement, val: number, len: number): void {
     if (len === 1) {
         valsEl.innerHTML = singleByteInspectorHtml(val);
         renderBits(val);
-    } else {
-        const selBytes = selectedBytes(len);
-        valsEl.innerHTML = multiByteInspectorHtml(selBytes, len);
-        renderBitsMulti(selBytes.slice(0, Math.min(len, 8)));
+        return;
     }
-
-    wireInspectorCopies(valsEl);
-    renderMultiInline();
+    const selBytes = selectedBytes(len);
+    valsEl.innerHTML = multiByteInspectorHtml(selBytes, len);
+    renderBitsMulti(selBytes.slice(0, Math.min(len, 8)));
 }
 
 // ── Bit viewer ────────────────────────────────────────────────────
@@ -163,19 +177,7 @@ export function renderBits(val?: number): void {
             `<span class="bit-pc">${pc}/8 bits set</span></div>`;
     }
 
-    // Persist collapsed state on the section element; default collapsed
-    if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
-    sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
-
-    // Header toggles collapse state
-    const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-    if (hdr) {
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
-    }
+    applyCollapsibleSection(sec, true);
 
     wireBitColHover();
 }
@@ -364,11 +366,11 @@ function wireMultiInlineControls(el: HTMLElement): void {
 function renderMultiInline(): void {
     const el = document.getElementById('insp-multi');
     if (!el) { return; }
-    if (S.selStart === null || getByte(S.selStart) === undefined) {
+    if (!hasMultiInlineStart()) {
         el.innerHTML = ''; return;
     }
 
-    const selLen = (S.selEnd !== null && S.selEnd >= S.selStart) ? S.selEnd - S.selStart + 1 : 1;
+    const selLen = multiInlineSelectionLength();
     if (selLen < 2) { el.innerHTML = ''; return; }
 
     const width = multiWidth(selLen);
@@ -381,6 +383,16 @@ function renderMultiInline(): void {
         `<div class="mi-group">${group}</div>`;
 
     wireMultiInlineControls(el);
+}
+
+function hasMultiInlineStart(): boolean {
+    return S.selStart !== null && getByte(S.selStart) !== undefined;
+}
+
+function multiInlineSelectionLength(): number {
+    return (S.selStart !== null && S.selEnd !== null && S.selEnd >= S.selStart)
+        ? S.selEnd - S.selStart + 1
+        : 1;
 }
 
 // ── Parsed segments ───────────────────────────────────────────────
@@ -457,21 +469,8 @@ export function renderSegments(): void {
 
 export function renderLabels(): void {
     const sec   = document.getElementById('s-labels')!;
-    const badge = S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
-    const items = S.labels.length === 0
-        ? '<div class="sb-empty">No labels defined</div>'
-        : S.labels.map((l, i) => `
-            <div class="label-item${l.hidden ? ' label-hidden' : ''}" data-id="${l.id}">
-                <div class="label-sw" style="background:${l.hidden ? 'transparent' : l.color};border:1px solid ${l.color}"></div>
-                <div class="label-inf">
-                    <div class="label-nm">${esc(l.name)}</div>
-                    <div class="label-rng">0x${l.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(l.length)}</div>
-                </div>
-                <span class="label-act label-vis" data-id="${l.id}" data-hidden="${l.hidden ? '1' : '0'}" title="${l.hidden ? 'Show' : 'Hide'}">${l.hidden ? '&#128065;&#xFE0E;' : '&#128065;'}</span>
-                <span class="label-act label-up"  data-id="${l.id}" title="Move up"   ${i === 0 ? 'style="opacity:.3;pointer-events:none"' : ''}>&#8593;</span>
-                <span class="label-act label-dn"  data-id="${l.id}" title="Move down" ${i === S.labels.length - 1 ? 'style="opacity:.3;pointer-events:none"' : ''}>&#8595;</span>
-                ${actionBtnsHtml(`data-id="${l.id}"`, `data-id="${l.id}"`)}
-            </div>`).join('');
+    const badge = labelBadgeHtml();
+    const items = labelItemsHtml(S.labels);
 
     sec.innerHTML = `
         <div class="sb-hdr">Labels ${badge}</div>
@@ -513,10 +512,7 @@ export function renderLabels(): void {
             const id     = el.dataset.id!;
             const hidden = el.dataset.hidden === '1' ? false : true;
             S.labels = S.labels.map(l => l.id === id ? { ...l, hidden } : l);
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -528,10 +524,7 @@ export function renderLabels(): void {
             const next = [...S.labels];
             [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
             S.labels = next;
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -543,10 +536,7 @@ export function renderLabels(): void {
             const next = [...S.labels];
             [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
             S.labels = next;
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
-            buildMemRows();
-            rerender.labels();
-            if (S.currentView === 'memory') { rerender.memory(); }
+            persistLabelsAndRender();
         });
     });
 
@@ -563,6 +553,62 @@ export function renderLabels(): void {
 
     // Add — open inline form
     document.getElementById('btn-add-lbl')?.addEventListener('click', () => renderLabelForm());
+}
+
+function labelItemsHtml(labels: LabelState[]): string {
+    return labels.length === 0
+        ? '<div class="sb-empty">No labels defined</div>'
+        : labels.map((label, index) => labelItemHtml(label, index, labels.length)).join('');
+}
+
+function labelVisibilityUi(label: LabelState): { itemClass: string; background: string; hiddenFlag: string; title: string; icon: string } {
+    if (label.hidden) {
+        return {
+            itemClass: ' label-hidden',
+            background: 'transparent',
+            hiddenFlag: '1',
+            title: 'Show',
+            icon: '&#128065;&#xFE0E;',
+        };
+    }
+    return {
+        itemClass: '',
+        background: label.color,
+        hiddenFlag: '0',
+        title: 'Hide',
+        icon: '&#128065;',
+    };
+}
+
+function disabledActionStyle(disabled: boolean): string {
+    return disabled ? 'style="opacity:.3;pointer-events:none"' : '';
+}
+
+function labelItemHtml(label: LabelState, index: number, count: number): string {
+    const visibility = labelVisibilityUi(label);
+    return `
+            <div class="label-item${visibility.itemClass}" data-id="${label.id}">
+                <div class="label-sw" style="background:${visibility.background};border:1px solid ${label.color}"></div>
+                <div class="label-inf">
+                    <div class="label-nm">${esc(label.name)}</div>
+                    <div class="label-rng">0x${label.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(label.length)}</div>
+                </div>
+                <span class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}">${visibility.icon}</span>
+                <span class="label-act label-up"  data-id="${label.id}" title="Move up"   ${disabledActionStyle(index === 0)}>&#8593;</span>
+                <span class="label-act label-dn"  data-id="${label.id}" title="Move down" ${disabledActionStyle(index === count - 1)}>&#8595;</span>
+                ${actionBtnsHtml(`data-id="${label.id}"`, `data-id="${label.id}"`)}
+            </div>`;
+}
+
+function labelBadgeHtml(): string {
+    return S.labels.length > 0 ? `<span class="sb-badge">${S.labels.length}</span>` : '';
+}
+
+function persistLabelsAndRender(): void {
+    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
 }
 
 // ── Label inline form ─────────────────────────────────────────────
@@ -683,28 +729,39 @@ function showLengthRange(start: number, editing: LabelState | undefined): void {
     const rangeEl = labelRangeEl();
     rangeEl.placeholder = '512';
     const end = parseInt(rangeEl.value.replace(/^0x/i, ''), 16);
-    rangeEl.value = (!isNaN(start) && !isNaN(end) && end >= start)
+    rangeEl.value = isValidLabelEnd(start, end)
         ? `${end - start + 1}`
         : (editing ? `${editing.length}` : '');
+}
+
+function isValidLabelEnd(start: number, end: number): boolean {
+    return !isNaN(start) && !isNaN(end) && end >= start;
 }
 
 function parseLabelLength(mode: LabelRangeMode, startAddress: number): LabelLengthResult {
     const raw = labelRangeEl().value;
     if (mode === 'end') {
-        const end = parseInt(raw.replace(/^0x/i, ''), 16);
-        if (isNaN(end) || end < startAddress) { return { ok: false, error: 'Invalid end address.' }; }
-        return { ok: true, length: end - startAddress + 1 };
+        return parseEndAddressLength(raw, startAddress);
     }
 
+    return parseExplicitLength(raw);
+}
+
+function parseEndAddressLength(raw: string, startAddress: number): LabelLengthResult {
+    const end = parseInt(raw.replace(/^0x/i, ''), 16);
+    if (isNaN(end) || end < startAddress) { return { ok: false, error: 'Invalid end address.' }; }
+    return { ok: true, length: end - startAddress + 1 };
+}
+
+function parseExplicitLength(raw: string): LabelLengthResult {
     const length = /^0x/i.test(raw) ? parseInt(raw, 16) : parseInt(raw, 10);
     if (isNaN(length) || length <= 0) { return { ok: false, error: 'Invalid length.' }; }
     return { ok: true, length };
 }
 
 function labelRangeWarning(startAddress: number, length: number, editId: string | undefined): string | null {
-    const segs = S.parseResult?.segments ?? [];
     const segEnd = startAddress + length - 1;
-    if (segs.length > 0 && !segs.some(s => startAddress <= s.startAddress + s.data.length - 1 && segEnd >= s.startAddress)) {
+    if (isOutsideMappedData(startAddress, segEnd)) {
         return 'Range is outside mapped data. Click Save again to confirm.';
     }
 
@@ -718,8 +775,15 @@ function labelRangeWarning(startAddress: number, length: number, editId: string 
         : null;
 }
 
+function isOutsideMappedData(startAddress: number, endAddress: number): boolean {
+    const segments = S.parseResult?.segments ?? [];
+    return segments.length > 0 && !segments.some(segment =>
+        startAddress <= segment.startAddress + segment.data.length - 1 && endAddress >= segment.startAddress
+    );
+}
+
 function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
-    const name = labelNameEl().value.trim() || nextLabelName();
+    const name = readLabelName();
     if (!name) { return { ok: false, error: 'Name is required.' }; }
 
     const startAddress = parseInt(labelStartEl().value.replace(/^0x/i, ''), 16);
@@ -729,6 +793,10 @@ function readLabelDraft(rangeMode: LabelRangeMode): LabelDraftResult {
     if (!parsedLength.ok) { return { ok: false, error: parsedLength.error }; }
 
     return { ok: true, name, startAddress, length: parsedLength.length };
+}
+
+function readLabelName(): string {
+    return labelNameEl().value.trim() || nextLabelName();
 }
 
 function applyLabel(editId: string | undefined, editing: LabelState | undefined, color: string, draft: Extract<LabelDraftResult, { ok: true }>): void {
@@ -747,6 +815,10 @@ function applyLabel(editId: string | undefined, editing: LabelState | undefined,
     vscode.postMessage({ type: 'saveLabels', labels: S.labels });
     buildMemRows();
     rerender.labels();
+    rerenderMemoryIfVisible();
+}
+
+function rerenderMemoryIfVisible(): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
@@ -777,37 +849,7 @@ function renderLabelForm(editId?: string): void {
     let chosenColor = editing?.color ?? LABEL_COLORS[S.labels.length % LABEL_COLORS.length].v;
     const swatchHtml = labelSwatchesHtml(chosenColor);
 
-    sec.innerHTML = `
-        <div class="sb-hdr">${editing ? 'Edit Label' : 'New Label'}</div>
-        <div class="lbl-form">
-            <div class="lf-field">
-                <span class="lf-lbl">Name</span>
-                <input id="lf-name" class="lf-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? '')}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultLabelStart(editing)}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Range</span>
-                <div class="lf-range-row">
-                    <div class="lf-mode-grp">
-                        <button class="lf-mode active" data-mode="len">Length</button>
-                        <button class="lf-mode" data-mode="end">End addr</button>
-                    </div>
-                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultLabelRange(editing)}">
-                </div>
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Color</span>
-                <div class="lf-swatches">${swatchHtml}</div>
-            </div>
-            <div class="lf-warn" id="lf-warn"></div>
-            <div class="lf-actions">
-                <button class="lf-btn lf-save" id="lf-save">${editing ? 'Update' : 'Add'}</button>
-                <button class="lf-btn lf-cancel" id="lf-cancel">Cancel</button>
-            </div>
-        </div>`;
+    sec.innerHTML = labelFormHtml(editing, swatchHtml);
 
     let rangeMode: LabelRangeMode = 'len';
     let pendingWarning = false;
@@ -840,6 +882,47 @@ function renderLabelForm(editId?: string): void {
     });
 }
 
+function labelFormHtml(editing: LabelState | undefined, swatchHtml: string): string {
+    const mode = labelFormMode(editing);
+    return `
+        <div class="sb-hdr">${mode.title}</div>
+        <div class="lbl-form">
+            <div class="lf-field">
+                <span class="lf-lbl">Name</span>
+                <input id="lf-name" class="lf-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? '')}">
+            </div>
+            <div class="lf-field">
+                <span class="lf-lbl">Start address</span>
+                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${defaultLabelStart(editing)}">
+            </div>
+            <div class="lf-field">
+                <span class="lf-lbl">Range</span>
+                <div class="lf-range-row">
+                    <div class="lf-mode-grp">
+                        <button class="lf-mode active" data-mode="len">Length</button>
+                        <button class="lf-mode" data-mode="end">End addr</button>
+                    </div>
+                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${defaultLabelRange(editing)}">
+                </div>
+            </div>
+            <div class="lf-field">
+                <span class="lf-lbl">Color</span>
+                <div class="lf-swatches">${swatchHtml}</div>
+            </div>
+            <div class="lf-warn" id="lf-warn"></div>
+            <div class="lf-actions">
+                <button class="lf-btn lf-save" id="lf-save">${mode.saveLabel}</button>
+                <button class="lf-btn lf-cancel" id="lf-cancel">Cancel</button>
+            </div>
+        </div>`;
+}
+
+function labelFormMode(editing: LabelState | undefined): { title: string; saveLabel: string } {
+    return editing
+        ? { title: 'Edit Label', saveLabel: 'Update' }
+        : { title: 'New Label', saveLabel: 'Add' };
+}
+
 /**
  * Called whenever the hex-view selection changes.
  * If the label form (#lf-start) is currently open, updates its address
@@ -851,8 +934,12 @@ export function updateLabelFormSel(): void {
     if (!startEl) { return; }
     const fh = (n: number) => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
     startEl.value = fh(S.selStart);
+    updateLabelRangeFromSelection(S.selStart);
+}
+
+function updateLabelRangeFromSelection(startAddress: number): void {
     const rangeEl = document.getElementById('lf-range') as HTMLInputElement | null;
-    if (rangeEl && S.selEnd !== null && S.selEnd >= S.selStart) {
-        rangeEl.value = String(S.selEnd - S.selStart + 1);
+    if (rangeEl && S.selEnd !== null && S.selEnd >= startAddress) {
+        rangeEl.value = String(S.selEnd - startAddress + 1);
     }
 }

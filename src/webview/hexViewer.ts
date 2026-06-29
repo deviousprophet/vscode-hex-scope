@@ -3,15 +3,15 @@
 
 import { S }                                          from './state';
 import { vscode }                                     from './api';
-import { esc, fmtB }                                  from './utils';
+import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
-import type { SerializedRecord, SidebarTab } from './types';
-import { MAX_VIRTUAL_SCROLL_HEIGHT }                 from './virtualScroll';
+import type { SerializedParseResult, SerializedRecord, SidebarTab } from './types';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './virtualScroll';
 import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
@@ -484,13 +484,25 @@ function setSearchEndian(value: typeof S.searchEndianness, updateUi: () => void)
     updateUi();
 }
 
+function isSearchShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 'f';
+}
+
+function isUndoShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode;
+}
+
+function focusSearchInput(inputEl: HTMLInputElement): void {
+    inputEl.focus();
+    inputEl.select();
+}
+
 function handleGlobalKeydown(e: KeyboardEvent, inputEl: HTMLInputElement): void {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    if (isSearchShortcut(e)) {
         e.preventDefault();
-        inputEl.focus();
-        inputEl.select();
+        focusSearchInput(inputEl);
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
+    if (isUndoShortcut(e)) {
         e.preventDefault();
         undoLastEdit();
     }
@@ -518,20 +530,37 @@ function setupMemoryDragSelection(): void {
     document.addEventListener('mouseup', () => { dragAnchor = null; });
 }
 
-function updateDragSelection(e: MouseEvent, dragAnchor: number | null): number | null {
-    if (dragAnchor === null || !(e.buttons & 1)) { return null; }
+function dragSelectionAddressFromPoint(e: MouseEvent): number | null {
     const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-addr]');
-    if (!el) { return dragAnchor; }
+    if (!el) { return null; }
     const addr = parseInt(el.dataset.addr!, 16);
-    if (isNaN(addr)) { return dragAnchor; }
-    const newStart = Math.min(dragAnchor, addr);
-    const newEnd   = Math.max(dragAnchor, addr);
-    if (newStart === S.selStart && newEnd === S.selEnd) { return dragAnchor; }
-    S.selStart = newStart;
-    S.selEnd   = newEnd;
+    return isNaN(addr) ? null : addr;
+}
+
+function isSameSelection(start: number, end: number): boolean {
+    return start === S.selStart && end === S.selEnd;
+}
+
+function applyDragSelection(start: number, end: number): void {
+    S.selStart = start;
+    S.selEnd   = end;
     applySel();
     updateInspector();
     updateLabelFormSel();
+}
+
+function hasActiveDragSelection(e: MouseEvent, dragAnchor: number | null): dragAnchor is number {
+    return dragAnchor !== null && Boolean(e.buttons & 1);
+}
+
+function updateDragSelection(e: MouseEvent, dragAnchor: number | null): number | null {
+    if (!hasActiveDragSelection(e, dragAnchor)) { return null; }
+    const addr = dragSelectionAddressFromPoint(e);
+    if (addr === null) { return dragAnchor; }
+    const newStart = Math.min(dragAnchor, addr);
+    const newEnd   = Math.max(dragAnchor, addr);
+    if (isSameSelection(newStart, newEnd)) { return dragAnchor; }
+    applyDragSelection(newStart, newEnd);
     return dragAnchor;
 }
 
@@ -592,7 +621,7 @@ function renderStats(): void {
     const el = document.getElementById('stats-bar');
     if (!el || !S.parseResult) { return; }
     const p = S.parseResult;
-    const fmtLabel = p.format === 'srec' ? 'SREC' : 'IHEX';
+    const fmtLabel = formatLabel(p.format);
 
     const addItem = (label: string | null, value: string, extraClass = ''): void => {
         const item = document.createElement('span');
@@ -620,10 +649,32 @@ function renderStats(): void {
     addItem('Segments', String(p.segments.length));
 }
 
+function formatLabel(format: 'ihex' | 'srec'): string {
+    return format === 'srec' ? 'SREC' : 'IHEX';
+}
+
 // ── Memory view ───────────────────────────────────────────────────
 
 function memRerender(): void {
     renderMemBody(onByteDown, onByteCtx);
+}
+
+function selectedRangeForClick(e: MouseEvent, addr: number): { start: number; end: number } {
+    if (e.shiftKey && S.selStart !== null) {
+        return addr < S.selStart
+            ? { start: addr, end: S.selStart }
+            : { start: S.selStart, end: addr };
+    }
+    return { start: addr, end: addr };
+}
+
+function updateByteSelection(start: number, end: number): void {
+    S.selStart = start;
+    S.selEnd   = end;
+    applySel();
+    updateInspector();
+    updateLabelFormSel();
+    onSelectionChangeForStruct();
 }
 
 function onByteDown(e: MouseEvent, el: HTMLElement): void {
@@ -631,23 +682,8 @@ function onByteDown(e: MouseEvent, el: HTMLElement): void {
     const addr = parseInt(el.dataset.addr!, 16);
     if (isNaN(addr)) { return; }
 
-    if (e.shiftKey && S.selStart !== null) {
-        if (addr < S.selStart) {
-            S.selEnd   = S.selStart;
-            S.selStart = addr;
-        } else {
-            S.selEnd = addr;
-        }
-    } else {
-        S.selStart = addr;
-        S.selEnd   = addr;
-    }
-
-    applySel();
-    updateInspector();
-    updateLabelFormSel();
-    onSelectionChangeForStruct();
-
+    const range = selectedRangeForClick(e, addr);
+    updateByteSelection(range.start, range.end);
 }
 
 function onByteCtx(e: MouseEvent, el: HTMLElement): void {
@@ -655,8 +691,7 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
     if (!isNaN(addr)) {
         // Keep existing multi-byte selection if right-click is inside it;
         // otherwise collapse to the clicked byte.
-        const inSel = S.selStart !== null && S.selEnd !== null
-            && addr >= S.selStart && addr <= S.selEnd;
+        const inSel = isAddressInSelection(addr);
         if (!inSel) {
             S.selStart = addr;
             S.selEnd   = addr;
@@ -667,6 +702,10 @@ function onByteCtx(e: MouseEvent, el: HTMLElement): void {
         }
     }
     showCtxMenu(e.clientX, e.clientY);
+}
+
+function isAddressInSelection(addr: number): boolean {
+    return S.selStart !== null && S.selEnd !== null && addr >= S.selStart && addr <= S.selEnd;
 }
 
 function selLen(): number {
@@ -715,11 +754,7 @@ function calcRecordScrollLayout(recordCount: number, containerHeight: number, ro
 }
 
 function recordPhysicalToLogicalScroll(physicalScrollTop: number, layout: RecordScrollLayout): number {
-    if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
-        return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
-    }
-    const ratio = Math.max(0, Math.min(physicalScrollTop, layout.physicalScrollable)) / layout.physicalScrollable;
-    return ratio * layout.logicalScrollable;
+    return physicalToLogicalScrollForLayout(physicalScrollTop, layout);
 }
 
 function getRecordRowHeight(el: HTMLElement): number {
@@ -743,10 +778,11 @@ function getRecordRowHeight(el: HTMLElement): number {
 }
 
 export function renderRecordView(): void {
-    const el = document.getElementById('record-view');
-    if (!el || !S.parseResult) { return; }
+    const view = availableRecordView();
+    if (!view) { return; }
+    const { el, parseResult } = view;
 
-    if (S.parseResult.records.length === 0) {
+    if (parseResult.records.length === 0) {
         el.replaceChildren(recordViewUnavailableNode());
         return;
     }
@@ -762,19 +798,86 @@ export function renderRecordView(): void {
     renderRecordViewImpl(el);
 }
 
-function renderRecordViewImpl(el: HTMLElement): void {
-    if (!S.parseResult) { return; }
+function availableRecordView(): { el: HTMLElement; parseResult: SerializedParseResult } | null {
+    const el = document.getElementById('record-view');
+    if (!el || !S.parseResult) { return null; }
+    return { el, parseResult: S.parseResult };
+}
 
-    const recordCount = S.parseResult.records.length;
+type RecordRenderWindow = {
+    firstVisibleIdx: number;
+    lastVisibleIdx: number;
+    physicalScrollTop: number;
+    scrollTop: number;
+    rowHeight: number;
+    layout: RecordScrollLayout;
+};
+
+function calcRecordRenderWindow(el: HTMLElement, recordCount: number): RecordRenderWindow {
     const containerHeight = el.clientHeight;
     const rowHeight = getRecordRowHeight(el);
     const layout = calcRecordScrollLayout(recordCount, containerHeight, rowHeight);
     const physicalScrollTop = el.scrollTop;
     const scrollTop = recordPhysicalToLogicalScroll(physicalScrollTop, layout);
+    return {
+        firstVisibleIdx: Math.max(0, Math.floor(scrollTop / rowHeight) - RECORD_BUFFER_ROWS),
+        lastVisibleIdx: Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / rowHeight) + RECORD_BUFFER_ROWS),
+        physicalScrollTop,
+        scrollTop,
+        rowHeight,
+        layout,
+    };
+}
 
-    const firstVisibleIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - RECORD_BUFFER_ROWS);
-    const lastVisibleIdx = Math.min(recordCount - 1, Math.ceil((scrollTop + containerHeight) / rowHeight) + RECORD_BUFFER_ROWS);
-    const signature = `${recordCount}:${firstVisibleIdx}:${lastVisibleIdx}:${layout.isCompressed ? Math.floor(physicalScrollTop) : ''}`;
+function recordWindowSignature(recordCount: number, win: RecordRenderWindow): string {
+    const physicalPart = win.layout.isCompressed ? Math.floor(win.physicalScrollTop) : '';
+    return `${recordCount}:${win.firstVisibleIdx}:${win.lastVisibleIdx}:${physicalPart}`;
+}
+
+function appendRecordTopSpacer(rows: HTMLTableRowElement[], win: RecordRenderWindow): void {
+    if (win.firstVisibleIdx <= 0 || win.layout.isCompressed) { return; }
+    appendRecordSpacerRows(rows, win.firstVisibleIdx * win.rowHeight);
+}
+
+function appendVisibleRecordRows(
+    rows: HTMLTableRowElement[],
+    records: SerializedRecord[],
+    win: RecordRenderWindow,
+    isSrec: boolean,
+    typeLabels: Record<number, string>,
+): void {
+    for (let i = Math.max(0, win.firstVisibleIdx); i <= win.lastVisibleIdx && i < records.length; i++) {
+        rows.push(recordRow(records[i], isSrec, typeLabels));
+    }
+}
+
+function appendRecordBottomSpacer(rows: HTMLTableRowElement[], recordCount: number, win: RecordRenderWindow): void {
+    if (win.lastVisibleIdx >= recordCount - 1 || win.layout.isCompressed) { return; }
+    appendRecordSpacerRows(rows, (recordCount - 1 - win.lastVisibleIdx) * win.rowHeight);
+}
+
+function replaceRecordViewContent(el: HTMLElement, table: HTMLTableElement, win: RecordRenderWindow): void {
+    if (!win.layout.isCompressed) {
+        el.replaceChildren(table);
+        return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+    wrapper.style.height = `${win.layout.physicalHeight}px`;
+    const topOffset = win.firstVisibleIdx * win.rowHeight;
+    table.style.position = 'absolute';
+    table.style.top = `${win.physicalScrollTop + topOffset - win.scrollTop}px`;
+    table.style.left = '0';
+    wrapper.appendChild(table);
+    el.replaceChildren(wrapper);
+}
+
+function renderRecordViewImpl(el: HTMLElement): void {
+    if (!S.parseResult) { return; }
+
+    const recordCount = S.parseResult.records.length;
+    const win = calcRecordRenderWindow(el, recordCount);
+    const signature = recordWindowSignature(recordCount, win);
     if (signature === recordRenderSignature) { return; }
     recordRenderSignature = signature;
 
@@ -783,41 +886,15 @@ function renderRecordViewImpl(el: HTMLElement): void {
     const table = recordTableElement();
     const rows: HTMLTableRowElement[] = [];
 
-    if (firstVisibleIdx > 0) {
-        const topOffset = firstVisibleIdx * rowHeight;
-        if (!layout.isCompressed) {
-            appendRecordSpacerRows(rows, topOffset);
-        }
-    }
-
-    for (let i = Math.max(0, firstVisibleIdx); i <= lastVisibleIdx && i < recordCount; i++) {
-        rows.push(recordRow(S.parseResult.records[i], isSrec, TYPE_LABELS));
-    }
-
-    if (lastVisibleIdx < recordCount - 1) {
-        const bottomOffset = (recordCount - 1 - lastVisibleIdx) * rowHeight;
-        if (!layout.isCompressed) {
-            appendRecordSpacerRows(rows, bottomOffset);
-        }
-    }
+    appendRecordTopSpacer(rows, win);
+    appendVisibleRecordRows(rows, S.parseResult.records, win, isSrec, TYPE_LABELS);
+    appendRecordBottomSpacer(rows, recordCount, win);
 
     const tbody = document.createElement('tbody');
     tbody.append(...rows);
     table.appendChild(tbody);
 
-    if (layout.isCompressed) {
-        const wrapper = document.createElement('div');
-        wrapper.style.position = 'relative';
-        wrapper.style.height = `${layout.physicalHeight}px`;
-        const topOffset = firstVisibleIdx * rowHeight;
-        table.style.position = 'absolute';
-        table.style.top = `${physicalScrollTop + topOffset - scrollTop}px`;
-        table.style.left = '0';
-        wrapper.appendChild(table);
-        el.replaceChildren(wrapper);
-    } else {
-        el.replaceChildren(table);
-    }
+    replaceRecordViewContent(el, table, win);
 }
 
 function recordTableElement(): HTMLTableElement {
@@ -881,9 +958,11 @@ function formatRecordByte(value: number): string {
     return value.toString(16).toUpperCase().padStart(2, '0');
 }
 
+const SREC_DATA_RECORD_TYPES = new Set([1, 2, 3]);
+
 function recordHasDataAddress(r: SerializedRecord, isSrec: boolean): boolean {
     return !r.error && (isSrec
-        ? (r.recordType === 1 || r.recordType === 2 || r.recordType === 3)
+        ? SREC_DATA_RECORD_TYPES.has(r.recordType)
         : r.recordType === 0);
 }
 
@@ -990,19 +1069,41 @@ function recordViewUnavailableNode(): HTMLElement {
 
 // ── View switching ────────────────────────────────────────────────
 
-function switchView(v: 'memory' | 'record'): void {
+type ViewName = 'memory' | 'record';
+
+function toggleClassById(id: string, className: string, active: boolean): void {
+    document.getElementById(id)?.classList.toggle(className, active);
+}
+
+function setDisplayById(id: string, visible: boolean): void {
+    document.getElementById(id)!.style.display = visible ? '' : 'none';
+}
+
+function updateViewVisibility(v: ViewName): void {
+    toggleClassById('record-view', 'visible', v === 'record');
+    toggleClassById('memory-view', 'visible', v === 'memory');
+    toggleClassById('btn-mem', 'active', v === 'memory');
+    toggleClassById('btn-rec', 'active', v === 'record');
+}
+
+function updateMemoryOnlyControls(visible: boolean): void {
+    setDisplayById('btn-edit-mode', visible);
+    setDisplayById('edit-mode-group', visible && S.editMode);
+    setDisplayById('sidebar', visible);
+    setDisplayById('side-tabs', visible);
+    setDisplayById('search-box', visible);
+}
+
+function renderCurrentView(v: ViewName): void {
+    if (v === 'memory') { memRerender(); return; }
+    renderRecordView();
+}
+
+function switchView(v: ViewName): void {
     S.currentView = v;
-    document.getElementById('record-view') ?.classList.toggle('visible', v === 'record');
-    document.getElementById('memory-view') ?.classList.toggle('visible', v === 'memory');
-    document.getElementById('btn-mem')     ?.classList.toggle('active',  v === 'memory');
-    document.getElementById('btn-rec')     ?.classList.toggle('active',  v === 'record');
-    document.getElementById('btn-edit-mode')!.style.display = v === 'memory' ? '' : 'none';
-    document.getElementById('edit-mode-group')!.style.display = v === 'memory' && S.editMode ? '' : 'none';
-    document.getElementById('sidebar')!.style.display = v === 'memory' ? '' : 'none';
-    document.getElementById('side-tabs')!.style.display = v === 'memory' ? '' : 'none';
-    document.getElementById('search-box')!.style.display = v === 'memory' ? '' : 'none';
-    if (v === 'memory')      { memRerender(); }
-    else if (v === 'record') { renderRecordView(); }
+    updateViewVisibility(v);
+    updateMemoryOnlyControls(v === 'memory');
+    renderCurrentView(v);
 }
 
 // ── External file-change helpers ──────────────────────────────────
@@ -1081,11 +1182,8 @@ function updateLockState(): void {
 
 /** Disable all buttons, inputs, and clickable elements when locked. */
 function disableAllInteractiveElements(): void {
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    
-    if (mainArea) {
-        const elements = mainArea.querySelectorAll('button, input, [role="button"]');
+    forEachLockableRoot(root => {
+        const elements = root.querySelectorAll('button, input, [role="button"]');
         elements.forEach(el => {
             const elem = el as HTMLElement;
             elem.setAttribute('data-was-enabled', 'true');
@@ -1093,27 +1191,13 @@ function disableAllInteractiveElements(): void {
                 elem.disabled = true;
             }
         });
-    }
-    
-    if (toolbar) {
-        const elements = toolbar.querySelectorAll('button, input, [role="button"]');
-        elements.forEach(el => {
-            const elem = el as HTMLElement;
-            elem.setAttribute('data-was-enabled', 'true');
-            if (elem instanceof HTMLButtonElement || elem instanceof HTMLInputElement) {
-                elem.disabled = true;
-            }
-        });
-    }
+    });
 }
 
 /** Re-enable all interactive elements that were disabled by lock. */
 function enableAllInteractiveElements(): void {
-    const mainArea = document.getElementById('main-area');
-    const toolbar = document.getElementById('toolbar');
-    
-    if (mainArea) {
-        const elements = mainArea.querySelectorAll('[data-was-enabled="true"]');
+    forEachLockableRoot(root => {
+        const elements = root.querySelectorAll('[data-was-enabled="true"]');
         elements.forEach(el => {
             const elem = el as HTMLElement;
             elem.removeAttribute('data-was-enabled');
@@ -1121,17 +1205,13 @@ function enableAllInteractiveElements(): void {
                 elem.disabled = false;
             }
         });
-    }
-    
-    if (toolbar) {
-        const elements = toolbar.querySelectorAll('[data-was-enabled="true"]');
-        elements.forEach(el => {
-            const elem = el as HTMLElement;
-            elem.removeAttribute('data-was-enabled');
-            if (elem instanceof HTMLButtonElement || elem instanceof HTMLInputElement) {
-                elem.disabled = false;
-            }
-        });
+    });
+}
+
+function forEachLockableRoot(callback: (root: HTMLElement) => void): void {
+    for (const id of ['main-area', 'toolbar']) {
+        const root = document.getElementById(id);
+        if (root) { callback(root); }
     }
 }
 
@@ -1215,7 +1295,7 @@ function getOriginalByte(addr: number): number | undefined {
     if (!S.parseResult) { return undefined; }
     for (const seg of S.parseResult.segments) {
         const off = addr - seg.startAddress;
-        if (off >= 0 && off < seg.data.length) { return seg.data[off]; }
+        if (isSegmentOffset(off, seg.data.length)) { return seg.data[off]; }
     }
     return undefined;
 }
@@ -1316,15 +1396,24 @@ function updateDirtyBar(): void {
     const dirtySpan = document.getElementById('edit-dirty-count');
     const saveBtn   = document.getElementById('btn-save') as HTMLButtonElement | null;
     if (!dirtySpan || !saveBtn) { return; }
-    dirtySpan.textContent  = count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
+    dirtySpan.textContent  = dirtyEditText(count);
     saveBtn.disabled       = count === 0;
+}
+
+function isSegmentOffset(offset: number, length: number): boolean {
+    return offset >= 0 && offset < length;
+}
+
+function dirtyEditText(count: number): string {
+    return count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────
 function getSelBytes(): number[] {
-    if (S.selStart === null || S.selEnd === null) { return []; }
+    const range = currentSelectionRange();
+    if (!range) { return []; }
     const out: number[] = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) {
+    for (let a = range.start; a <= range.end; a++) {
         out.push(getByte(a) ?? 0);
     }
     return out;
@@ -1425,10 +1514,11 @@ function handleCtxCommand(cmd: string): void {
     }
     // Analyze
     if (handleAnalyzeCommand(cmd, bytes)) { return; }
-    // Fill / Patch — edit bytes in place (edit mode) or noop
-    if (cmd.startsWith('fill-')) {
-        handleFillCommand(cmd);
-    }
+    handlePossibleFillCommand(cmd);
+}
+
+function handlePossibleFillCommand(cmd: string): void {
+    if (cmd.startsWith('fill-')) { handleFillCommand(cmd); }
 }
 
 function handleAnalyzeCommand(cmd: string, bytes: number[]): boolean {
@@ -1458,7 +1548,7 @@ function handleFillCommand(cmd: string): void {
     if (!S.editMode) { return; }
 
     const val = parseInt(cmd.slice(5), 16);
-    if (!isNaN(val) && val >= 0 && val <= 0xFF) { applyFill(val); }
+    if (val >= 0 && val <= 0xFF) { applyFill(val); }
 }
 
 function hexValue(value: number, width = 2): string {
@@ -1614,7 +1704,7 @@ function handleFillInputKeydown(ev: KeyboardEvent, fillInput: HTMLInputElement):
 function applyCustomFill(fillInput: HTMLInputElement | null): void {
     const raw = fillInput?.value.trim().replace(/^0x/i, '') ?? '';
     const val = parseInt(raw, 16);
-    if (isNaN(val) || val < 0 || val > 0xFF || raw === '') {
+    if (!isValidCustomFill(raw, val)) {
         fillInput?.classList.add('ctx-fill-invalid');
         fillInput?.focus();
         return;
@@ -1624,55 +1714,16 @@ function applyCustomFill(fillInput: HTMLInputElement | null): void {
     hideCtx();
 }
 
+function isValidCustomFill(raw: string, value: number): boolean {
+    return raw !== '' && !isNaN(value) && value >= 0 && value <= 0xFF;
+}
+
 function positionCtxMenu(el: HTMLElement, x: number, y: number): void {
-    el.style.display = 'block';
-    const mw = el.offsetWidth || 220;
-    const mh = el.offsetHeight || 120;
-    el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
-    el.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+    positionContextMenu(el, x, y);
 }
 
 function wireSubmenus(menuEl: HTMLElement): void {
-    let closeTimer: ReturnType<typeof setTimeout> | null = null;
-    let activeSub: HTMLElement | null = null;
-
-    const openSub = (sub: HTMLElement, row: HTMLElement) => {
-        if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-        if (activeSub && activeSub !== sub) { activeSub.style.display = 'none'; }
-        activeSub = sub;
-        sub.style.display = 'block';
-        // Viewport edge: flip left if no room on right
-        const rr = row.getBoundingClientRect();
-        const sw = sub.offsetWidth || 220;
-        if (rr.right + sw > window.innerWidth - 8) {
-            sub.style.left = 'auto'; sub.style.right = '100%';
-        } else {
-            sub.style.left = '100%'; sub.style.right = 'auto';
-        }
-    };
-    const scheduledClose = (sub: HTMLElement) => {
-        closeTimer = setTimeout(() => {
-            // Don't close if the custom fill input inside this submenu has focus
-            if (sub.contains(document.activeElement)) { return; }
-            sub.style.display = 'none';
-            if (activeSub === sub) { activeSub = null; }
-        }, 100);
-    };
-
-    menuEl.querySelectorAll<HTMLElement>('.ctx-has-sub').forEach(row => {
-        const sub = row.querySelector<HTMLElement>('.ctx-submenu');
-        if (!sub) { return; }
-        row.addEventListener('mouseenter', () => openSub(sub, row));
-        row.addEventListener('mouseleave', e => {
-            if (!sub.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
-        });
-        sub.addEventListener('mouseenter', () => {
-            if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-        });
-        sub.addEventListener('mouseleave', e => {
-            if (!row.contains(e.relatedTarget as Node)) { scheduledClose(sub); }
-        });
-    });
+    wireHoverSubmenus(menuEl, true);
 }
 
 function hideCtx(): void {
