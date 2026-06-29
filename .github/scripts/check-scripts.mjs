@@ -12,9 +12,11 @@ const repoRoot = join(scriptDir, '..', '..');
 
 checkSyntax('extract-release-notes.mjs');
 checkSyntax('prepare-release.mjs');
+checkSyntax('strip-unreleased-changelog.mjs');
 checkSyntax('summarize-tests.mjs');
 checkReleaseNotes();
 checkPrepareRelease();
+checkStripUnreleasedChangelog();
 checkTestSummary();
 
 console.log('github script checks passed');
@@ -99,6 +101,37 @@ function checkPrepareRelease() {
     assert.equal(notes.status, 0, notes.stderr || notes.stdout);
     assert.match(notes.stdout, /Fresh release note/);
     assert.doesNotMatch(notes.stdout, /Old release note/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function checkStripUnreleasedChangelog() {
+  const dir = makeTempDir();
+  try {
+    writeFileSync(join(dir, 'CHANGELOG.md'), `# Changelog
+
+## [Unreleased]
+
+### Added
+
+- Work in progress
+
+## [1.2.3] - 2026-06-30
+
+### Fixed
+
+- Release note
+`);
+
+    const stripped = runNode([join(scriptDir, 'strip-unreleased-changelog.mjs')], { cwd: dir });
+    assert.equal(stripped.status, 0, stripped.stderr || stripped.stdout);
+
+    const changelog = readFileSync(join(dir, 'CHANGELOG.md'), 'utf8');
+    assert.doesNotMatch(changelog, /\[Unreleased\]/);
+    assert.doesNotMatch(changelog, /Work in progress/);
+    assert.match(changelog, /## \[1\.2\.3\] - 2026-06-30/);
+    assert.match(changelog, /Release note/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
