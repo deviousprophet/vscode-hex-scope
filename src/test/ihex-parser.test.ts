@@ -1,5 +1,5 @@
 ﻿import * as assert from 'assert';
-import { parseIntelHex, RecordType } from '../parser/IntelHexParser';
+import { parseIntelHex, RecordType } from '../core/parser/IntelHexParser';
 import { assertParsedRecordPayload } from './helpers';
 
 suite('IntelHexParser', () => {

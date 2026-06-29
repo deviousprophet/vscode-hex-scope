@@ -12,9 +12,9 @@ import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
-} from './struct-codec.js';
-import type { DecodedField } from './struct-codec.js';
-import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from './types';
+} from '../core/struct-codec.js';
+import type { DecodedField } from '../core/struct-codec.js';
+import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../core/types';
 
 // ── Module state ──────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ function isBitFieldRow(r: DecodedField): boolean {
 }
 
 /** Calculate total bits used by all children in a bit-field container. */
-function usedBitsInContainer(f: import('./types').StructField): number {
+function usedBitsInContainer(f: import('../core/types').StructField): number {
     if (!Array.isArray(f.bitFields)) {
         return 0;
     }
@@ -104,7 +104,7 @@ function usedBitsInContainer(f: import('./types').StructField): number {
 }
 
 /** Calculate available bits remaining in a bit-field container. */
-function availableBitsInContainer(f: import('./types').StructField): number {
+function availableBitsInContainer(f: import('../core/types').StructField): number {
     if (!isUnsignedScalarType(f.type)) { return 0; }
     const typeBytes = fieldByteSize(f.type);
     const totalBits = typeBytes * 8;
@@ -349,7 +349,7 @@ function fieldTypeOptionsHtml(f: StructField, draftId: string): string {
     const scalarOptions = FIELD_TYPES.map(t =>
         `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`
     ).join('');
-    const structOptions = allStructs()
+    const structOptions = allStructs(S.structs)
         .filter(d => d.id !== draftId)
         .map(d => structOptionHtml(f, d))
         .join('');
@@ -479,12 +479,12 @@ function childFieldRowHtml(child: BitFieldChild, ci: number, total: number): str
 }
 
 /** Check if a field type is an unsigned scalar (eligible for bit-field container). */
-function isUnsignedScalarType(type: import('./types').StructFieldType): type is import('./types').StructScalarFieldType {
+function isUnsignedScalarType(type: import('../core/types').StructFieldType): type is import('../core/types').StructScalarFieldType {
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
 /** Get bit capacity for a parent field type. */
-function getParentBitCapacity(type: import('./types').StructFieldType): number {
+function getParentBitCapacity(type: import('../core/types').StructFieldType): number {
     return fieldByteSize(type as any) * 8;
 }
 
@@ -498,7 +498,7 @@ function buildStructCPreviewNodes(def: StructDef): DocumentFragment {
     const nameEscRe = (def.name || 'MyStruct').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const nestedTypeNames = def.fields
         .filter(f => f.type === 'struct' && f.refStructId)
-        .map(f => allStructs().find(d => d.id === f.refStructId)?.name)
+        .map(f => allStructs(S.structs).find(d => d.id === f.refStructId)?.name)
         .filter((n): n is string => typeof n === 'string')
         .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     const typeUnion = [
@@ -532,7 +532,7 @@ function buildStructCPreviewNodes(def: StructDef): DocumentFragment {
         if (lastIdx < code.length) { appendText(parent, code.slice(lastIdx)); }
     };
 
-    const lines = structToC(def).split('\n');
+    const lines = structToC(def, S.structs).split('\n');
     lines.forEach((line, i) => {
         appendStructPreviewLine(out, line, i, lines.length, appendTokenizedCode);
     });
@@ -606,7 +606,7 @@ function hydrateStructPreviews(root: HTMLElement): void {
         if (!id) { return; }
         const def = (_editingType?.draft.id === id)
             ? _editingType.draft
-            : allStructs().find(d => d.id === id);
+            : allStructs(S.structs).find(d => d.id === id);
         if (!def) {
             pre.textContent = '';
             return;
@@ -1017,7 +1017,7 @@ function handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSele
 }
 
 function isUnsignedEditorType(rawType: string): boolean {
-    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('./types').StructFieldType);
+    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('../core/types').StructFieldType);
 }
 
 function shouldClearBitChildren(bitBtn: HTMLElement | null, isUnsigned: boolean): boolean {
@@ -1046,7 +1046,7 @@ export function renderStructPins(): void {
     const sec = document.getElementById('s-struct-pins');
     if (!sec) { return; }
 
-    const all = allStructs();
+    const all = allStructs(S.structs);
     prepareStructPanelState(all);
     sec.innerHTML = structPinsPanelHtml(all);
 
@@ -2197,7 +2197,7 @@ function preservePendingStructAddress(): void {
 
 function describeStructGroup(def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
     const first = rows[0];
-    const declared = resolveStructFieldByPath(def, baseName);
+    const declared = resolveStructFieldByPath(def, baseName, S.structs);
     let declaredType: StructFieldType = first.type;
     let count = rows.length;
     let structName = 'struct';
@@ -2403,7 +2403,7 @@ const BODY_RULES: ReadonlyArray<BodyRule> = [
 ];
 
 function renderStructBody(def: StructDef, pin: StructPin): string {
-    const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
+    const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation, S.structs);
     return `<div class="si-fields">${renderStructFieldGroups({ def, pin }, rows)}</div>`;
 }
 
@@ -2609,10 +2609,10 @@ function instanceEditFormHtml(pin: StructPin): string {
 
     const draftStructId = _editingPinDraftStructId ?? pin.structId;
     const addrHex = pin.addr.toString(16).toUpperCase().padStart(8, '0');
-    const structOpts = allStructs().map(d =>
+    const structOpts = allStructs(S.structs).map(d =>
         `<option value="${esc(d.id)}"${d.id === draftStructId ? ' selected' : ''}>${esc(d.name)}</option>`
     ).join('');
-    const editDef = allStructs().find(d => d.id === draftStructId);
+    const editDef = allStructs(S.structs).find(d => d.id === draftStructId);
     const editPreviewHtml = editDef
         ? `<pre class="si-c-preview" data-struct-preview-id="${esc(editDef.id)}"></pre>`
         : '';
@@ -2685,9 +2685,9 @@ function instanceContentHtml(pin: StructPin, editFormHtml: string, typePreviewHt
 }
 
 function buildInstanceCard(pin: StructPin, i: number): string {
-    const def        = allStructs().find(d => d.id === pin.structId);
+    const def        = allStructs(S.structs).find(d => d.id === pin.structId);
     const defName    = def ? def.name : '?';
-    const totalBytes = def ? structByteSize(def) : 0;
+    const totalBytes = def ? structByteSize(def, S.structs) : 0;
     const addrHex    = pin.addr.toString(16).toUpperCase().padStart(8, '0');
     const expanded   = _expanded.has(pin.id);
 
@@ -2854,9 +2854,9 @@ function wireInstanceCards(sec: HTMLElement): void {
             const idx  = parseInt(card.dataset.idx!);
             const pin  = S.structPins[idx];
             if (!pin) { return; }
-            const def  = allStructs().find(d => d.id === pin.structId);
+            const def  = allStructs(S.structs).find(d => d.id === pin.structId);
             if (!def)  { return; }
-            const size = structByteSize(def);
+            const size = structByteSize(def, S.structs);
             S.selStart = pin.addr;
             S.selEnd   = pin.addr + size - 1;
             S.activeStructAddr = pin.addr;
@@ -3138,7 +3138,7 @@ function structPinAtAddress(addr: number, pinIdx: number | undefined, allDefs: S
     return S.structPins.find(pin => {
         const def = allDefs.find(candidate => candidate.id === pin.structId);
         if (!def) { return false; }
-        const size = structByteSize(def);
+        const size = structByteSize(def, S.structs);
         return addr >= pin.addr && addr < pin.addr + size;
     });
 }
@@ -3148,7 +3148,7 @@ function structRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: 
     if (!pin) { return []; }
     const def = allDefs.find(candidate => candidate.id === pin.structId);
     if (!def) { return []; }
-    const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation);
+    const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation, S.structs);
     return rows.filter(row => pin.addr + row.byteOffset === addr);
 }
 
@@ -3455,7 +3455,7 @@ function createFieldValMenuContext(
     pinIdx: number | undefined,
     opts: FieldValMenuOptions,
 ): FieldValMenuContext {
-    const allDefs = allStructs();
+    const allDefs = allStructs(S.structs);
     const findRowsAt = (addr: number): DecodedField[] => structRowsAtAddress(addr, pinIdx, allDefs);
     const findFieldAt = (addr: number): DecodedField | null => findRowsAt(addr)[0] ?? null;
     const sampleField = findFieldAt(sampleAddress(bs, bsList));
@@ -3664,18 +3664,18 @@ function findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructD
     return S.structPins.find(p => {
         const def = defs.find(d => d.id === p.structId);
         if (!def) { return false; }
-        const size = structByteSize(def);
+        const size = structByteSize(def, S.structs);
         return bs >= p.addr && bs < p.addr + size;
     });
 }
 
 function findCopySourceRows(bs: number, pinIdx: number | undefined): { pin: StructPin; rows: DecodedField[] } | undefined {
-    const all = allStructs();
+    const all = allStructs(S.structs);
     const pin = findCopySourcePin(bs, pinIdx, all);
     if (!pin) { return undefined; }
     const def = all.find(d => d.id === pin.structId);
     if (!def) { return undefined; }
-    return { pin, rows: decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation) };
+    return { pin, rows: decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation, S.structs) };
 }
 
 function copyTextToClipboard(text: string): void {

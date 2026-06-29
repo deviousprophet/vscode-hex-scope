@@ -2,13 +2,13 @@ import * as assert from 'assert';
 import {
     buildSRecDataRecord,
     detectFormatFromParts,
-    migrateStructDefinitions,
     repairChecksums,
     serializeSRec,
-} from '../HexEditorProvider';
-import { parseSRec } from '../parser/SRecParser';
-import { parseIntelHex } from '../parser/IntelHexParser';
-import type { StructDef } from '../webview/types';
+} from '../core/document';
+import { migrateStructDefinitions } from '../HexEditorProvider';
+import { parseSRec } from '../core/parser/SRecParser';
+import { parseIntelHex } from '../core/parser/IntelHexParser';
+import type { StructDef } from '../core/types';
 
 // ── detectFormatFromParts ─────────────────────────────────────────────────────
 

@@ -1,7 +1,6 @@
 // -- Struct Overlay - pure codec (no DOM / VS Code API dependencies) --
 // Contains field size helpers, decode logic, parser/serializer helpers, and struct validation.
 
-import { S } from './state';
 import type {
     BitFieldAllocation,
     BitFieldChild,
@@ -83,9 +82,9 @@ function alignUp(offset: number, align: number): number {
     return align <= 1 ? offset : (offset + align - 1) & ~(align - 1);
 }
 
-function defsMap(extra?: StructDef): Map<string, StructDef> {
+function defsMap(defs: readonly StructDef[] = [], extra?: StructDef): Map<string, StructDef> {
     const map = new Map<string, StructDef>();
-    allStructs().forEach(d => map.set(d.id, d));
+    defs.forEach(d => map.set(d.id, d));
     if (extra) { map.set(extra.id, extra); }
     return map;
 }
@@ -145,8 +144,8 @@ function structByteSizeWithDefs(def: StructDef, map: Map<string, StructDef>, dep
  * Compute byte size of a struct, respecting alignment padding unless packed.
  * Includes trailing padding so that arrays of the struct are correctly aligned.
  */
-export function structByteSize(def: StructDef): number {
-    const map = defsMap(def);
+export function structByteSize(def: StructDef, defs: readonly StructDef[] = []): number {
+    const map = defsMap(defs, def);
     return structByteSizeWithDefs(def, map, 1);
 }
 
@@ -296,7 +295,7 @@ export interface ResolvedStructFieldPath {
 export function resolveStructFieldByPath(
     def: StructDef,
     fieldPath: string,
-    defs: StructDef[] = allStructs(),
+    defs: readonly StructDef[] = [],
 ): ResolvedStructFieldPath | null {
     const parts = parseStructFieldPathParts(fieldPath);
     if (!parts) { return null; }
@@ -312,7 +311,7 @@ function parseStructFieldPathParts(fieldPath: string): string[] | null {
     return parts.length > 0 ? parts : null;
 }
 
-function createStructDefMap(def: StructDef, defs: StructDef[]): Map<string, StructDef> {
+function createStructDefMap(def: StructDef, defs: readonly StructDef[]): Map<string, StructDef> {
     const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
     byId.set(def.id, def);
     return byId;
@@ -702,17 +701,18 @@ export function decodeStruct(
     getByte: (addr: number) => number | undefined,
     globalEndian: 'le' | 'be',
     bitFieldAllocation: BitFieldAllocation = 'msb',
+    defs: readonly StructDef[] = [],
 ): DecodedField[] {
     const rows: DecodedField[] = [];
-    const map = defsMap(def);
+    const map = defsMap(defs, def);
     decodeStructRecursive(def, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0);
     return rows;
 }
 
 // -- All visible structs ------------------------------------------
 
-export function allStructs(): StructDef[] {
-    return [...S.structs];
+export function allStructs(defs: readonly StructDef[] = []): StructDef[] {
+    return [...defs];
 }
 
 // -- C struct text parser -----------------------------------------
@@ -996,7 +996,7 @@ function appendParsedStructLine(rawLine: string, fields: StructField[], errors: 
 }
 
 /** Serialize StructField[] back to C-style declarations. */
-export function fieldsToText(fields: StructField[], defs: StructDef[] = allStructs()): string {
+export function fieldsToText(fields: StructField[], defs: readonly StructDef[] = []): string {
     if (fields.length === 0) { return ''; }
     const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
     const typeNames = fields.map(f => fieldTypeToC(f, byId));
@@ -1127,7 +1127,7 @@ function structCAlignNote(def: StructDef, maxAlign: number): string {
 }
 
 /** Render a StructDef as a C typedef with per-field offset comments. */
-export function structToC(def: StructDef, defs: StructDef[] = allStructs()): string {
+export function structToC(def: StructDef, defs: readonly StructDef[] = []): string {
     const byId = createStructDefMap(def, defs);
 
     const attr = def.packed ? ' __attribute__((packed))' : '';

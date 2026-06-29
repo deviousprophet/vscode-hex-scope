@@ -22,7 +22,7 @@ import {
     type IntegrityResult,
     type IntegrityStoredField,
     validateIntegrityRange,
-} from './integrity';
+} from '../core/integrity';
 import { S } from './state';
 import { rerender } from './render';
 import { actionBtnsHtml, esc, formatHexHtml } from './utils';

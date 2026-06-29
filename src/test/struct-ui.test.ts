@@ -1,8 +1,8 @@
-import * as assert from 'assert';
+﻿import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
 import { S } from '../webview/state';
-import type { StructDef, StructPin } from '../webview/types';
+import type { StructDef, StructPin } from '../core/types';
 import { setBytesInSegment } from './struct-test-helpers';
 
 function resetStructState(): void {
