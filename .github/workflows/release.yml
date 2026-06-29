@@ -34,6 +34,22 @@ jobs:
     needs: Package
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Release Notes
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Tag version $VERSION does not match package.json version $PACKAGE_VERSION"
+            exit 1
+          fi
+          node .github/scripts/extract-release-notes.mjs "$VERSION" > notes.md
+          echo "----- release notes -----"
+          cat notes.md
+
       - name: Download VSIX Artifact
         uses: actions/download-artifact@v4
         with:
@@ -41,7 +57,14 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ needs.Package.outputs.vsix_name }}.vsix
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          VSIX="${{ needs.Package.outputs.vsix_name }}.vsix"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$VSIX" --clobber
+          else
+            gh release create "$TAG" "$VSIX" --title "$TAG" --notes-file notes.md
+          fi
