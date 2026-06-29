@@ -10,6 +10,10 @@ on:
         required: false
         type: boolean
         default: false
+      checkout_ref:
+        required: false
+        type: string
+        default: ''
     outputs:
       vsix_name:
         description: 'Produced VSIX name'
@@ -24,6 +28,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,6 +42,9 @@ jobs:
 
       - name: Compile Extension
         run: npm run compile
+
+      - name: Strip Unreleased Changelog
+        run: node .github/scripts/strip-unreleased-changelog.mjs
 
       - name: Determine Suffix
         id: suffix

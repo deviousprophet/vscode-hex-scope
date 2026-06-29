@@ -5,6 +5,11 @@ env:
 
 on:
   workflow_call:
+    inputs:
+      checkout_ref:
+        required: false
+        type: string
+        default: ''
 
 jobs:
   Test:
@@ -13,6 +18,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,7 +47,7 @@ jobs:
         env:
           RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
           LOG_FILE: test-output.log
-        run: bash .github/scripts/summarize-tests.sh
+        run: node .github/scripts/summarize-tests.mjs
 
       - name: Upload Test Results Artifact
         if: always()
