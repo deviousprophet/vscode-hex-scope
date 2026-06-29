@@ -1,5 +1,7 @@
 # Changelog
 
+## [Unreleased]
+
 ## [2.10.0] - 2026-06-29
 
 ### Changed
