@@ -2,20 +2,12 @@
 	"servers": {
 		"codegraph": {
 			"type": "stdio",
-			"command": "npx",
+			"command": "codegraph",
 			"args": [
-				"@colbymchenry/codegraph",
 				"serve",
 				"--mcp"
 			]
 		},
-		"fallow": {
-			"type": "stdio",
-			"command": "npx",
-			"args": [
-				"fallow-mcp"
-			]
-		}
 	},
 	"inputs": []
 }
