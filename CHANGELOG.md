@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.0] - 2026-06-29
+
+### Changed
+
+- Split reusable HexScope feature logic into `src/core` for future CLI reuse
+- Kept webview code focused on UI rendering, event wiring, state adapters, and virtual scrolling
+
 ## [2.9.0] - 2026-06-22
 
 ### Added
