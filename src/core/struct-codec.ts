@@ -13,7 +13,7 @@ import type {
 export type { StructDef, StructField };
 
 export const MAX_NESTED_DEPTH = 32;
-export const POINTER_BYTE_SIZE = 4;
+const POINTER_BYTE_SIZE = 4;
 
 // -- Constants -----------------------------------------------------
 
@@ -1049,10 +1049,9 @@ function parseResolvedStructDeclaration(parts: StructDeclarationParts, defsByNam
         return parseBitFieldDeclaration(parts.fieldName, mapped, parts.bitWidth, parts.count);
     }
 
-    return {
-        kind: 'field',
-        field: { name: parts.fieldName, type: mapped, isPointer: parts.isPointer || undefined, count: parts.count },
-    };
+    const field: StructField = { name: parts.fieldName, type: mapped, count: parts.count };
+    if (parts.isPointer) { field.isPointer = true; }
+    return { kind: 'field', field };
 }
 
 function resolvePointerStructType(rawType: string, isPointer: boolean, defsByName: Map<string, StructDef>): StructDef | undefined {
@@ -1062,15 +1061,16 @@ function resolvePointerStructType(rawType: string, isPointer: boolean, defsByNam
 }
 
 function parsedStructPointerOrField(parts: StructDeclarationParts, structDef: StructDef): ParsedStructLine {
+    const field: StructField = {
+        name: parts.fieldName,
+        type: 'struct',
+        refStructId: structDef.id,
+        count: parts.count,
+    };
+    if (parts.isPointer) { field.isPointer = true; }
     return {
         kind: 'field',
-        field: {
-            name: parts.fieldName,
-            type: 'struct',
-            isPointer: parts.isPointer || undefined,
-            refStructId: structDef.id,
-            count: parts.count,
-        },
+        field,
     };
 }
 

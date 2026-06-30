@@ -1415,10 +1415,14 @@ function structApplyName(nameInp: HTMLInputElement): string {
 function nextStructApplyName(): string {
     const applyDef = S.structs.find(d => d.id === _applyStructId);
     const base = applyDef ? applyDef.name : 'inst';
+    return uniqueStructPinName(`${base}_0`, n => `${base}_${n}`);
+}
+
+function uniqueStructPinName(initialName: string, nextName: (n: number) => string): string {
     const takenPinNames = new Set(S.structPins.map(p => p.name));
-    let candidate = `${base}_0`;
+    let candidate = initialName;
     let n = 1;
-    while (takenPinNames.has(candidate)) { candidate = `${base}_${n++}`; }
+    while (takenPinNames.has(candidate)) { candidate = nextName(n++); }
     return candidate;
 }
 
@@ -3733,11 +3737,7 @@ function followStructPointer(addr: number, structId: string): void {
 }
 
 function nextFollowPinName(base: string): string {
-    const takenPinNames = new Set(S.structPins.map(p => p.name));
-    let candidate = `${base}_ptr`;
-    let n = 1;
-    while (takenPinNames.has(candidate)) { candidate = `${base}_ptr${n++}`; }
-    return candidate;
+    return uniqueStructPinName(`${base}_ptr`, n => `${base}_ptr${n}`);
 }
 
 function selectPointerTarget(addr: number, byteCount: number): void {
