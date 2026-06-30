@@ -40,7 +40,7 @@ jobs:
         env:
           RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
           LOG_FILE: test-output.log
-        run: bash .github/scripts/summarize-tests.sh
+        run: node .github/scripts/summarize-tests.mjs
 
       - name: Upload Test Results Artifact
         if: always()

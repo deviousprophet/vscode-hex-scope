@@ -1,4 +1,4 @@
-# HexScope
+# Hex Scope
 
 [![Marketplace](https://img.shields.io/badge/VS_Code-Marketplace-blue?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=deviousprophet.vscode-hex-scope)
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-brightgreen?logo=github)](https://github.com/deviousprophet/vscode-hex-scope)
