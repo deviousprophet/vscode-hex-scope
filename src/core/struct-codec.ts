@@ -13,18 +13,19 @@ import type {
 export type { StructDef, StructField };
 
 export const MAX_NESTED_DEPTH = 32;
+export const POINTER_BYTE_SIZE = 4;
 
 // -- Constants -----------------------------------------------------
 
 export const FIELD_TYPES: StructScalarFieldType[] = [
-    'ascii',
+    'void', 'ascii',
     'uint8', 'uint16', 'uint32', 'uint64',
     'int8', 'int16', 'int32', 'int64',
     'float32', 'float64',
-    'pointer',
 ];
 
 const FIELD_BYTE_SIZE: Record<StructScalarFieldType, number> = {
+    void: 0,
     ascii: 1,
     uint8: 1,
     int8: 1,
@@ -33,7 +34,7 @@ const FIELD_BYTE_SIZE: Record<StructScalarFieldType, number> = {
     uint32: 4,
     int32: 4,
     float32: 4,
-    pointer: 4,
+    pointer: POINTER_BYTE_SIZE,
     uint64: 8,
     int64: 8,
     float64: 8,
@@ -45,7 +46,25 @@ function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
+export function normalizeStructField(field: StructField): StructField {
+    if (field.type === 'pointer') {
+        return { ...field, type: 'void', isPointer: true, refStructId: undefined, bitFields: undefined, bitFieldsCollapsed: undefined };
+    }
+    if (field.type === 'void' && !field.isPointer) {
+        return { ...field, isPointer: true, refStructId: undefined, bitFields: undefined, bitFieldsCollapsed: undefined };
+    }
+    if (field.isPointer) {
+        return { ...field, bitFields: undefined, bitFieldsCollapsed: undefined };
+    }
+    return field;
+}
+
+function isPointerField(field: StructField): boolean {
+    return normalizeStructField(field).isPointer === true;
+}
+
 function isBitFieldContainer(field: StructField): boolean {
+    if (isPointerField(field)) { return false; }
     return Array.isArray(field.bitFields) && field.bitFields.length > 0 &&
         isUnsignedScalarType(field.type);
 }
@@ -90,11 +109,14 @@ function defsMap(defs: readonly StructDef[] = [], extra?: StructDef): Map<string
 }
 
 function referencedStruct(field: StructField, map: Map<string, StructDef>): StructDef | null {
+    field = normalizeStructField(field);
     if (field.type !== 'struct' || !field.refStructId) { return null; }
     return map.get(field.refStructId) ?? null;
 }
 
 function fieldSizeWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
+    field = normalizeStructField(field);
+    if (field.isPointer) { return POINTER_BYTE_SIZE; }
     if (field.type !== 'struct') {
         return fieldByteSize(field.type);
     }
@@ -105,6 +127,8 @@ function fieldSizeWithDefs(field: StructField, map: Map<string, StructDef>, dept
 }
 
 function fieldAlignWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
+    field = normalizeStructField(field);
+    if (field.isPointer) { return POINTER_BYTE_SIZE; }
     if (field.type !== 'struct') {
         return fieldAlignment(field.type);
     }
@@ -177,6 +201,7 @@ function validateStructReference(
     byId: Map<string, StructDef>,
     errors: string[],
 ): void {
+    field = normalizeStructField(field);
     if (field.type !== 'struct') { return; }
 
     if (!field.refStructId) {
@@ -189,6 +214,10 @@ function validateStructReference(
 }
 
 function validateBitFieldContainer(def: StructDef, field: StructField, errors: string[]): void {
+    if (isPointerField(field)) {
+        errors.push(`Struct "${def.name}": field "${field.name}" cannot combine pointer and bit-field details.`);
+        return;
+    }
     if (!isUnsignedScalarType(field.type)) {
         errors.push(`Struct "${def.name}": field "${field.name}" bit-field container must be an unsigned type.`);
         return;
@@ -269,6 +298,13 @@ function formatStructCycle(stack: string[], byId: Map<string, StructDef>): strin
 export interface DecodedField {
     fieldName: string;
     type: StructScalarFieldType;
+    /** Declared target type for pointer rows. */
+    pointerTargetType?: StructFieldType;
+    pointerTargetStructId?: string;
+    pointerTargetStructName?: string;
+    pointerTargetByteSize?: number;
+    pointerValue?: number;
+    isPointer?: boolean;
     /** Index within the array (0 for scalars). */
     arrayIdx: number;
     byteOffset: number;
@@ -354,6 +390,7 @@ function decodeFloat(value: number, precision: number): string {
 }
 
 const FIELD_DECODERS: Record<StructScalarFieldType, FieldDecoder> = {
+    void: () => '',
     ascii: dv => {
         const b = dv.getUint8(0);
         if (b === 0) { return ''; }
@@ -561,9 +598,14 @@ function decodeAsciiField(
     endian: 'le' | 'be',
 ): number {
     const absOffset = ctx.baseOffset + offset;
-    const totalBytes = elemSize * field.count;
+    const normalized = normalizeStructField(field);
+    const totalBytes = normalized.isPointer ? POINTER_BYTE_SIZE * field.count : elemSize * field.count;
     const raw = readFieldBytes(ctx, absOffset, totalBytes);
     const hasData = raw.every(v => v >= 0);
+    if (normalized.isPointer) {
+        decodePointerElements(ctx, normalized, offset, endian);
+        return offset + totalBytes;
+    }
     ctx.rows.push({
         fieldName: joinFieldPath(ctx.pathPrefix, field.name),
         type: 'ascii',
@@ -576,6 +618,57 @@ function decodeAsciiField(
     return offset + totalBytes;
 }
 
+function decodePointerValue(raw: number[], endian: 'le' | 'be'): number | undefined {
+    if (raw.length < POINTER_BYTE_SIZE || raw.some(v => v < 0)) { return undefined; }
+    const buf = new ArrayBuffer(POINTER_BYTE_SIZE);
+    const dv = new DataView(buf);
+    raw.slice(0, POINTER_BYTE_SIZE).forEach((b, i) => dv.setUint8(i, b));
+    return dv.getUint32(0, endian === 'le') >>> 0;
+}
+
+function pointerTargetByteSize(field: StructField, map: Map<string, StructDef>, depth: number): number {
+    if (field.type === 'void') { return 1; }
+    if (field.type === 'struct') {
+        const child = referencedStruct(field, map);
+        return child ? structByteSizeWithDefs(child, map, depth + 1) : 1;
+    }
+    return fieldByteSize(field.type);
+}
+
+function pointerTargetStructName(field: StructField, map: Map<string, StructDef>): string | undefined {
+    if (field.type !== 'struct' || !field.refStructId) { return undefined; }
+    return map.get(field.refStructId)?.name;
+}
+
+function decodePointerElements(
+    ctx: DecodeContext,
+    field: StructField,
+    offset: number,
+    endian: 'le' | 'be',
+): void {
+    for (let idx = 0; idx < field.count; idx++) {
+        const fieldPath = fieldElementPath(ctx, field, idx);
+        const absOffset = ctx.baseOffset + offset + idx * POINTER_BYTE_SIZE;
+        const raw = readFieldBytes(ctx, absOffset, POINTER_BYTE_SIZE);
+        const hasData = raw.every(v => v >= 0);
+        ctx.rows.push({
+            fieldName: fieldPath,
+            type: field.type === 'struct' ? 'void' : field.type,
+            pointerTargetType: field.type,
+            pointerTargetStructId: field.refStructId,
+            pointerTargetStructName: pointerTargetStructName(field, ctx.map),
+            pointerTargetByteSize: pointerTargetByteSize(field, ctx.map, ctx.depth),
+            pointerValue: decodePointerValue(raw, endian),
+            isPointer: true,
+            arrayIdx: idx,
+            byteOffset: absOffset,
+            bytesHex: bytesToHex(raw),
+            decoded: hasData ? decodeField(raw, 'pointer', endian) : '??',
+            hasData,
+        });
+    }
+}
+
 function decodeScalarFieldElement(
     ctx: DecodeContext,
     field: StructField,
@@ -585,6 +678,7 @@ function decodeScalarFieldElement(
     elemSize: number,
     endian: 'le' | 'be',
 ): void {
+    field = normalizeStructField(field);
     if (field.type === 'struct') { return; }
     const raw = readFieldBytes(ctx, absOffset, elemSize);
     const hasData = raw.every(v => v >= 0);
@@ -606,6 +700,7 @@ function decodeNestedStructField(
     absOffset: number,
     endian: 'le' | 'be',
 ): void {
+    field = normalizeStructField(field);
     const child = referencedStruct(field, ctx.map);
     if (!child || ctx.depth >= MAX_NESTED_DEPTH) { return; }
     decodeStructRecursive(
@@ -629,6 +724,11 @@ function decodeFieldElements(
     elemSize: number,
     endian: 'le' | 'be',
 ): number {
+    field = normalizeStructField(field);
+    if (field.isPointer) {
+        decodePointerElements(ctx, field, offset, endian);
+        return offset + POINTER_BYTE_SIZE * field.count;
+    }
     let nextOffset = offset;
     for (let idx = 0; idx < field.count; idx++) {
         const fieldPath = fieldElementPath(ctx, field, idx);
@@ -644,6 +744,7 @@ function decodeFieldElements(
 }
 
 function fieldElementPath(ctx: DecodeContext, field: StructField, idx: number): string {
+    field = normalizeStructField(field);
     const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
     return joinFieldPath(ctx.pathPrefix, elementName);
 }
@@ -682,6 +783,7 @@ function decodeStructField(
     offset: number,
     globalEndian: 'le' | 'be',
 ): number {
+    field = normalizeStructField(field);
     const align = def.packed ? 1 : fieldAlignWithDefs(field, ctx.map, ctx.depth);
     const elemSize = fieldSizeWithDefs(field, ctx.map, ctx.depth);
     if (isBitFieldContainer(field)) {
@@ -722,6 +824,7 @@ export function allStructs(defs: readonly StructDef[] = []): StructDef[] {
  * Lookup is case-sensitive first, then case-folded as fallback.
  */
 const C_TYPE_MAP: Record<string, StructScalarFieldType> = {
+    'void': 'void',
     'char': 'ascii',
     'uint8_t': 'uint8', 'uint8': 'uint8', 'u8': 'uint8',
     'unsigned char': 'uint8', 'byte': 'uint8', 'BYTE': 'uint8',
@@ -759,9 +862,17 @@ const TYPE_TO_C: Record<StructScalarFieldType, string> = {
     int8: 'int8_t', int16: 'int16_t', int32: 'int32_t', int64: 'int64_t',
     float32: 'float', float64: 'double',
     pointer: 'void*',
+    void: 'void',
 };
 
 function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
+    field = normalizeStructField(field);
+    const base = fieldBaseTypeToC(field, defsById);
+    return field.isPointer ? `${base}*` : base;
+}
+
+function fieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
+    if (field.type === 'void') { return 'void'; }
     if (field.type !== 'struct') {
         return TYPE_TO_C[field.type];
     }
@@ -833,6 +944,7 @@ type ParsedStructLine =
 interface StructDeclarationParts {
     rawType: string;
     fieldName: string;
+    isPointer: boolean;
     bitWidth: number | null;
     count: number;
 }
@@ -909,19 +1021,27 @@ function bitFieldArrayError(fieldName: string): string {
     return `Bit-field "${fieldName}" cannot be declared as an array.`;
 }
 
-function parseStructDeclarationLine(rawLine: string): ParsedStructLine {
+function parseStructDeclarationLine(rawLine: string, defsByName: Map<string, StructDef> = new Map()): ParsedStructLine {
     const stripped = stripStructLine(rawLine);
     if (shouldSkipStructDeclaration(stripped)) { return { kind: 'skip' }; }
 
     const parts = parseStructDeclarationParts(stripped);
     if (!parts) { return { kind: 'error', message: `Cannot parse: "${stripped}"` }; }
 
-    return parseResolvedStructDeclaration(parts);
+    return parseResolvedStructDeclaration(parts, defsByName);
 }
 
-function parseResolvedStructDeclaration(parts: StructDeclarationParts): ParsedStructLine {
+function parseResolvedStructDeclaration(parts: StructDeclarationParts, defsByName: Map<string, StructDef>): ParsedStructLine {
+    const structDef = resolvePointerStructType(parts.rawType, parts.isPointer, defsByName);
+    if (structDef) {
+        return parsedStructPointerOrField(parts, structDef);
+    }
+
     const mapped = mapStructDeclarationType(parts.rawType);
     if (!mapped) {
+        if (parts.isPointer) {
+            return { kind: 'field', field: { name: parts.fieldName, type: 'void', isPointer: true, count: parts.count } };
+        }
         return { kind: 'error', message: `Unknown type "${parts.rawType}" for field "${parts.fieldName}"` };
     }
 
@@ -931,25 +1051,56 @@ function parseResolvedStructDeclaration(parts: StructDeclarationParts): ParsedSt
 
     return {
         kind: 'field',
-        field: { name: parts.fieldName, type: mapped, count: parts.count },
+        field: { name: parts.fieldName, type: mapped, isPointer: parts.isPointer || undefined, count: parts.count },
+    };
+}
+
+function resolvePointerStructType(rawType: string, isPointer: boolean, defsByName: Map<string, StructDef>): StructDef | undefined {
+    if (!isPointer) { return undefined; }
+    const normalized = rawType.replace(/^struct\s+/, '');
+    return defsByName.get(normalized);
+}
+
+function parsedStructPointerOrField(parts: StructDeclarationParts, structDef: StructDef): ParsedStructLine {
+    return {
+        kind: 'field',
+        field: {
+            name: parts.fieldName,
+            type: 'struct',
+            isPointer: parts.isPointer || undefined,
+            refStructId: structDef.id,
+            count: parts.count,
+        },
     };
 }
 
 function shouldSkipStructDeclaration(stripped: string): boolean {
-    return !stripped || stripped === '{' || stripped === '}' || /^(?:typedef|struct|union)\b/.test(stripped);
+    if (!stripped || stripped === '{' || stripped === '}') { return true; }
+    if (/^struct\s+\w+\s*\*/.test(stripped)) { return false; }
+    return /^(?:typedef|struct|union)\b/.test(stripped);
 }
 
 function parseStructDeclarationParts(stripped: string): StructDeclarationParts | null {
     const unqual = stripped.replace(/^(?:(?:const|volatile|static|register)\s+)+/, '');
-    const match = unqual.match(/^((?:unsigned|signed)\s+\w+|\w+)\s+(\w+)\s*(?::\s*(\d+))?\s*(?:\[(\d+)\])?$/);
+    const match = unqual.match(/^(.+?)\s+(\*?\s*\w+)\s*(?::\s*(\d+))?\s*(?:\[(\d+)\])?$/);
     if (!match) { return null; }
+    const typeAndPointer = normalizeCTypePointer(match[1], match[2]);
 
     return {
-        rawType: match[1].replace(/\s+/g, ' '),
-        fieldName: match[2],
+        rawType: typeAndPointer.rawType,
+        fieldName: typeAndPointer.fieldName,
+        isPointer: typeAndPointer.isPointer,
         bitWidth: match[3] ? parseInt(match[3], 10) : null,
         count: match[4] ? Math.max(1, parseInt(match[4], 10)) : 1,
     };
+}
+
+function normalizeCTypePointer(rawTypePart: string, fieldNamePart: string): { rawType: string; fieldName: string; isPointer: boolean } {
+    const starInType = rawTypePart.endsWith('*');
+    const starInName = fieldNamePart.trim().startsWith('*');
+    const rawType = rawTypePart.replace(/\s*\*+$/, '').replace(/\s+/g, ' ').trim();
+    const fieldName = fieldNamePart.replace(/^\s*\*/, '').trim();
+    return { rawType, fieldName, isPointer: starInType || starInName };
 }
 
 function mapStructDeclarationType(rawType: string): StructScalarFieldType | undefined {
@@ -961,10 +1112,11 @@ function mapStructDeclarationType(rawType: string): StructScalarFieldType | unde
  * Accepts bare field declarations OR a full `struct Name { ... }` / `typedef struct Name { ... }`.
  * Nested type references are not resolved here and must be chosen in the struct editor.
  */
-export function parseStructText(text: string): ParseStructTextResult {
+export function parseStructText(text: string, defs: readonly StructDef[] = []): ParseStructTextResult {
     const errors: string[] = [];
     const fields: StructField[] = [];
     let structName: string | null = null;
+    const defsByName = new Map(defs.map(def => [def.name, def]));
 
     const cleaned = preserveMultilineCommentSpacing(text);
 
@@ -975,14 +1127,14 @@ export function parseStructText(text: string): ParseStructTextResult {
     const body = bodyMatch ? bodyMatch[1] : cleaned;
 
     for (const rawLine of body.split('\n')) {
-        appendParsedStructLine(rawLine, fields, errors);
+        appendParsedStructLine(rawLine, fields, errors, defsByName);
     }
 
     return { structName, fields, errors };
 }
 
-function appendParsedStructLine(rawLine: string, fields: StructField[], errors: string[]): void {
-    const parsed = parseStructDeclarationLine(rawLine);
+function appendParsedStructLine(rawLine: string, fields: StructField[], errors: string[], defsByName: Map<string, StructDef>): void {
+    const parsed = parseStructDeclarationLine(rawLine, defsByName);
     if (parsed.kind === 'skip') { return; }
     if (parsed.kind === 'error') {
         errors.push(parsed.message);
