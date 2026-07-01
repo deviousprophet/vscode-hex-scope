@@ -372,6 +372,60 @@ suite('decodeStruct()', () => {
         assert.ok(rows[0].decoded.startsWith('256'), rows[0].decoded);
     });
 
+    test('pointer modifier consumes fixed 32-bit storage and carries scalar target metadata', () => {
+        const def: StructDef = { id: 'ptr_scalar', name: 'PtrScalar', packed: true, fields: [
+            { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            { name: 'after', type: 'uint8', count: 1 },
+        ]};
+        setBytesInSegment(0, [0x34, 0x12, 0x00, 0x20, 0xAA]);
+
+        const rows = decodeStruct(def, 0, getByte, 'le');
+
+        assert.strictEqual(rows[0].fieldName, 'next');
+        assert.strictEqual(rows[0].isPointer, true);
+        assert.strictEqual(rows[0].type, 'uint16');
+        assert.strictEqual(rows[0].pointerTargetType, 'uint16');
+        assert.strictEqual(rows[0].pointerTargetByteSize, 2);
+        assert.strictEqual(rows[0].pointerValue, 0x20001234);
+        assert.strictEqual(rows[1].byteOffset, 4);
+    });
+
+    test('legacy pointer fields decode as void pointers', () => {
+        const def: StructDef = { id: 'legacy_ptr', name: 'LegacyPtr', packed: true, fields: [
+            { name: 'raw', type: 'pointer', count: 1 },
+        ]};
+        setBytesInSegment(0, [0x78, 0x56, 0x34, 0x12]);
+
+        const rows = decodeStruct(def, 0, getByte, 'le');
+
+        assert.strictEqual(rows[0].isPointer, true);
+        assert.strictEqual(rows[0].type, 'void');
+        assert.strictEqual(rows[0].pointerTargetType, 'void');
+        assert.strictEqual(rows[0].pointerTargetByteSize, 1);
+        assert.strictEqual(rows[0].pointerValue, 0x12345678);
+    });
+
+    test('struct pointer arrays decode as independent pointer rows', () => {
+        const child: StructDef = { id: 'node', name: 'Node', fields: [
+            { name: 'tag', type: 'uint8', count: 1 },
+        ]};
+        const def: StructDef = { id: 'ptr_array', name: 'PtrArray', packed: true, fields: [
+            { name: 'nodes', type: 'struct', refStructId: 'node', isPointer: true, count: 2 },
+        ]};
+        setBytesInSegment(0, [0x00, 0x10, 0x00, 0x20, 0x04, 0x10, 0x00, 0x20]);
+
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb', [child, def]);
+
+        assert.strictEqual(rows.length, 2);
+        assert.strictEqual(rows[0].fieldName, 'nodes[0]');
+        assert.strictEqual(rows[1].fieldName, 'nodes[1]');
+        assert.strictEqual(rows[0].pointerTargetType, 'struct');
+        assert.strictEqual(rows[0].pointerTargetStructId, 'node');
+        assert.strictEqual(rows[0].pointerTargetStructName, 'Node');
+        assert.strictEqual(rows[0].pointerValue, 0x20001000);
+        assert.strictEqual(rows[1].pointerValue, 0x20001004);
+    });
+
     test('shared byte order applies to arrays and nested structs', () => {
         const child: StructDef = {
             id: 'endian_child',
@@ -578,6 +632,18 @@ suite('validateStructs()', () => {
         assert.ok(errs.some(e => e.includes('cycle')), `errors: ${errs.join(' | ')}`);
     });
 
+    test('allows self-referential struct pointer fields', () => {
+        const node: StructDef = {
+            id: 'node',
+            name: 'Node',
+            fields: [
+                { name: 'next', type: 'struct', refStructId: 'node', isPointer: true, count: 1 },
+            ],
+        };
+
+        assert.deepStrictEqual(validateStructs([node]), []);
+    });
+
     test('reports nesting depth overflow when depth exceeds configured limit', () => {
         const defs: StructDef[] = [];
         const depth = 34;
@@ -768,6 +834,25 @@ suite('parseStructText()', () => {
         assert.strictEqual(fields.length, 0);
         assert.ok(errors.some(e => e.includes('cannot be declared as an array')), errors.join(' | '));
     });
+
+    test('parses scalar and void pointer fields', () => {
+        const { fields, errors } = parseStructText('uint16_t* next;\nvoid* raw;');
+        assert.strictEqual(errors.length, 0, errors.join(' | '));
+        assert.deepStrictEqual(fields, [
+            { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            { name: 'raw', type: 'void', isPointer: true, count: 1 },
+        ]);
+    });
+
+    test('parses known struct pointer and downgrades unknown pointer to void pointer', () => {
+        const header: StructDef = { id: 'header', name: 'Header', fields: [] };
+        const { fields, errors } = parseStructText('Header* hdr;\nFoo* missing;', [header]);
+        assert.strictEqual(errors.length, 0, errors.join(' | '));
+        assert.deepStrictEqual(fields, [
+            { name: 'hdr', type: 'struct', isPointer: true, refStructId: 'header', count: 1 },
+            { name: 'missing', type: 'void', isPointer: true, count: 1 },
+        ]);
+    });
 });
 
 // ── fieldsToText() ────────────────────────────────────────────────
@@ -811,6 +896,16 @@ suite('fieldsToText()', () => {
             bitFields: [{ name: 'mode', bitWidth: 3 }],
         }];
         assert.ok(fieldsToText(f).includes('mode:3;'));
+    });
+
+    test('pointer fields emit C-style star syntax', () => {
+        const header: StructDef = { id: 'header', name: 'Header', fields: [] };
+        const f: StructField[] = [
+            { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            { name: 'hdr', type: 'struct', refStructId: 'header', isPointer: true, count: 1 },
+            { name: 'raw', type: 'pointer', count: 1 },
+        ];
+        assert.strictEqual(fieldsToText(f, [header]), 'uint16_t* next;\nHeader*   hdr;\nvoid*     raw;');
     });
 });
 

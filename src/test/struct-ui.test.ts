@@ -758,6 +758,98 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'BE binary should display the same numeric value bits for the same decoded value');
     });
 
+    test('renders typed pointer value and disables follow for unmapped target', async () => {
+        const def: StructDef = {
+            id: 'ptr_unmapped',
+            name: 'PtrUnmapped',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_unmapped', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x00, 0x00, 0x20]);
+
+        await renderPinsAndExpandCard();
+
+        const row = document.querySelector<HTMLElement>('.si-field.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*');
+        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
+        assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
+
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
+        assert.ok(disabledFollow?.textContent?.includes('Follow Pointer'), 'follow item should be visible but disabled');
+        assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled follow should explain unmapped target');
+    });
+
+    test('following scalar pointer selects target byte span', async () => {
+        const def: StructDef = {
+            id: 'ptr_scalar_follow',
+            name: 'PtrScalarFollow',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x34;
+        bytes[0x21] = 0x12;
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_scalar_follow', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const row = document.querySelector<HTMLElement>('.si-field.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render');
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const follow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="follow-ptr"]');
+        assert.ok(follow, 'follow pointer command should be enabled');
+        follow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        assert.strictEqual(S.selStart, 0x20);
+        assert.strictEqual(S.selEnd, 0x21);
+    });
+
+    test('following struct pointer creates or reuses destination pin', async () => {
+        const header: StructDef = {
+            id: 'header_follow',
+            name: 'HeaderFollow',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_follow',
+            name: 'ParentFollow',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_follow', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const value = document.querySelector<HTMLElement>('.si-field.si-ptr-field .si-f-val');
+        assert.ok(value, 'struct pointer value should render');
+        value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const targetPins = S.structPins.filter(pin => pin.structId === header.id && pin.addr === 0x20);
+        assert.strictEqual(targetPins.length, 1, 'follow should create target struct pin once');
+        assert.strictEqual(S.selStart, 0x20);
+        assert.strictEqual(S.selEnd, 0x20);
+
+        value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.structPins.filter(pin => pin.structId === header.id && pin.addr === 0x20).length, 1, 'follow should reuse existing target pin');
+    });
+
     test('defaults bit-field parent binary to full storage range', async () => {
         const def: StructDef = {
             id: 'bit_binary_modes',
