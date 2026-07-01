@@ -280,6 +280,8 @@ function validateNestedStructField(
     maxDepth: number,
     errors: string[],
 ): void {
+    field = normalizeStructField(field);
+    if (field.isPointer) { return; }
     if (field.type !== 'struct' || !field.refStructId) { return; }
     if (stack.includes(field.refStructId)) {
         errors.push(`Nested struct cycle detected: ${formatStructCycle([...stack, field.refStructId], byId)}`);

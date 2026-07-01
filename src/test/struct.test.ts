@@ -632,6 +632,18 @@ suite('validateStructs()', () => {
         assert.ok(errs.some(e => e.includes('cycle')), `errors: ${errs.join(' | ')}`);
     });
 
+    test('allows self-referential struct pointer fields', () => {
+        const node: StructDef = {
+            id: 'node',
+            name: 'Node',
+            fields: [
+                { name: 'next', type: 'struct', refStructId: 'node', isPointer: true, count: 1 },
+            ],
+        };
+
+        assert.deepStrictEqual(validateStructs([node]), []);
+    });
+
     test('reports nesting depth overflow when depth exceeds configured limit', () => {
         const defs: StructDef[] = [];
         const depth = 34;
