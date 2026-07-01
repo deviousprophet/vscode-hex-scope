@@ -679,15 +679,23 @@ function readEditorFieldRow(row: HTMLElement): StructField {
 
 function readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isUnsigned: boolean; isPointer: boolean } {
     const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
-    const isStruct = rawType.startsWith('struct:');
+    const parsed = parseEditorFieldType(rawType);
     const ptrActive = row.querySelector<HTMLElement>('.sfe-ptr-btn')?.classList.contains('active') ?? false;
-    const type = (isStruct ? 'struct' : rawType) as StructFieldType;
     return {
-        type,
-        refStructId: isStruct ? rawType.slice('struct:'.length) : undefined,
-        isUnsigned: !isStruct && isUnsignedScalarType(type),
-        isPointer: ptrActive || type === 'void',
+        ...parsed,
+        isUnsigned: isUnsignedEditorParsedType(parsed),
+        isPointer: ptrActive || parsed.type === 'void',
     };
+}
+
+function parseEditorFieldType(rawType: string): { type: StructFieldType; refStructId: string | undefined } {
+    return rawType.startsWith('struct:')
+        ? { type: 'struct', refStructId: rawType.slice('struct:'.length) }
+        : { type: rawType as StructFieldType, refStructId: undefined };
+}
+
+function isUnsignedEditorParsedType(parsed: { type: StructFieldType; refStructId: string | undefined }): boolean {
+    return parsed.type !== 'struct' && isUnsignedScalarType(parsed.type);
 }
 
 function readEditorBitFields(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): BitFieldChild[] | undefined {
@@ -820,16 +828,7 @@ function wireEditorInSec(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLElement>('.sfe-ptr-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const { row, field: f } = syncedFieldForButton(btn);
-            if (!f || btn.hasAttribute('disabled')) { return; }
-            _editorError = null;
-            const active = !btn.classList.contains('active');
-            btn.classList.toggle('active', active);
-            f.isPointer = active || f.type === 'void' ? true : undefined;
-            if (active) {
-                clearBitFieldChildren(sec, draft, row, row.querySelector<HTMLElement>('.sfe-bit-btn'));
-            }
-            renderStructPins();
+            handlePointerToggleClick(sec, draft, btn);
         });
     });
 
@@ -1042,13 +1041,49 @@ function handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSele
     if (!row) { return; }
     const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
     const ptrBtn = row.querySelector<HTMLElement>('.sfe-ptr-btn');
-    const isPointer = ptrBtn?.classList.contains('active') || sel.value === 'void';
-    if (sel.value === 'void') { ptrBtn?.classList.add('active'); }
+    const isPointer = fieldTypeSelectionIsPointer(sel, ptrBtn);
     const isUnsigned = isUnsignedEditorType(sel.value) && !isPointer;
+    setBitButtonEnabled(bitBtn, isUnsigned);
+    clearInvalidBitChildren(sec, draft, row, bitBtn, isUnsigned);
+}
+
+function handlePointerToggleClick(sec: HTMLElement, draft: StructDef, btn: HTMLElement): void {
+    const { row, field } = syncEditorFieldForButton(sec, draft, btn);
+    if (!canTogglePointerField(field, btn)) { return; }
+    _editorError = null;
+    const active = !btn.classList.contains('active');
+    btn.classList.toggle('active', active);
+    field.isPointer = active || field.type === 'void' ? true : undefined;
+    clearPointerBitChildren(sec, draft, row, active);
+    renderStructPins();
+}
+
+function canTogglePointerField(field: StructField | undefined, btn: HTMLElement): field is StructField {
+    return Boolean(field) && !btn.hasAttribute('disabled');
+}
+
+function syncEditorFieldForButton(sec: HTMLElement, draft: StructDef, btn: HTMLElement): { row: HTMLElement; field: StructField | undefined } {
+    const row = btn.closest<HTMLElement>('.struct-field-row')!;
+    syncEditorDraft(sec, draft);
+    return { row, field: draft.fields[parseInt(row.dataset.idx!)] };
+}
+
+function clearPointerBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement, active: boolean): void {
+    if (!active) { return; }
+    clearBitFieldChildren(sec, draft, row, row.querySelector<HTMLElement>('.sfe-bit-btn'));
+}
+
+function fieldTypeSelectionIsPointer(sel: HTMLSelectElement, ptrBtn: HTMLElement | null): boolean {
+    if (sel.value === 'void') { ptrBtn?.classList.add('active'); }
+    return ptrBtn?.classList.contains('active') || sel.value === 'void';
+}
+
+function setBitButtonEnabled(bitBtn: HTMLElement | null, isUnsigned: boolean): void {
     if (bitBtn) { (bitBtn as HTMLButtonElement).disabled = !isUnsigned; }
-    if (shouldClearBitChildren(bitBtn, isUnsigned)) {
-        clearBitFieldChildren(sec, draft, row, bitBtn);
-    }
+}
+
+function clearInvalidBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement, bitBtn: HTMLElement | null, isUnsigned: boolean): void {
+    if (shouldClearBitChildren(bitBtn, isUnsigned)) { clearBitFieldChildren(sec, draft, row, bitBtn); }
 }
 
 function isUnsignedEditorType(rawType: string): boolean {
@@ -1706,10 +1741,25 @@ function floatClassName(exp: number, isZeroMant: boolean, infinityExp: number): 
 /** Get a plain-text representation suitable for copying. */
 function getCopyText(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
-    if (isBitFieldRow(r)) { return copyBitFieldValue(r, valType); }
-    if (r.isPointer) { return r.pointerValue === undefined ? '??' : formatHex(r.pointerValue, 8); }
-    if (r.type === 'ascii') { return r.decoded; }
-    return copyNonAsciiFieldValue(r, valType);
+    return copySpecialRowText(r, valType) ?? copyNonAsciiFieldValue(r, valType);
+}
+
+function copySpecialRowText(r: DecodedField, valType: ColType): string | null {
+    const copier = SPECIAL_ROW_COPIERS.find(entry => entry.matches(r));
+    return copier ? copier.copy(r, valType) : null;
+}
+
+const SPECIAL_ROW_COPIERS: Array<{
+    matches: (row: DecodedField) => boolean;
+    copy: (row: DecodedField, valType: ColType) => string;
+}> = [
+    { matches: isBitFieldRow, copy: copyBitFieldValue },
+    { matches: row => row.isPointer === true, copy: copyPointerRowText },
+    { matches: row => row.type === 'ascii', copy: row => row.decoded },
+];
+
+function copyPointerRowText(r: DecodedField): string {
+    return r.pointerValue === undefined ? '??' : formatHex(r.pointerValue, 8);
 }
 
 function copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
@@ -1790,10 +1840,12 @@ const IMPLICIT_DISPLAY_BY_TYPE: Partial<Record<DecodedField['type'], ColType>> =
 };
 
 function fieldImplicitDisplayType(field: DecodedField | null | undefined): ColType {
-    if (!field) { return _defaultValType; }
+    return field ? definedFieldImplicitDisplayType(field) : _defaultValType;
+}
+
+function definedFieldImplicitDisplayType(field: DecodedField): ColType {
     if (isBitFieldRow(field)) { return 'bin'; }
-    if (field.isPointer) { return 'hex'; }
-    return IMPLICIT_DISPLAY_BY_TYPE[field.type] ?? _defaultValType;
+    return field.isPointer ? 'hex' : (IMPLICIT_DISPLAY_BY_TYPE[field.type] ?? _defaultValType);
 }
 
 function implicitDisplayType(field: DecodedField | null | undefined, forceBinary = false): ColType {
@@ -1858,23 +1910,35 @@ function valueTypeForRow(r: DecodedField, valKey: string): ColType {
 }
 
 function fieldTypeAbbrev(r: DecodedField, byteCount: number): string {
-    if (isBitFieldRow(r)) { return `bit:${r.bitWidth}`; }
-    if (r.isPointer) { return `${pointerTargetTypeLabel(r, true)}*`; }
+    const special = specialFieldTypeLabel(r, true);
+    if (special) { return special; }
     const abbrevBase = TYPE_ABBREV[r.type] ?? r.type;
     return r.type === 'ascii' ? `${abbrevBase}[${byteCount}]` : abbrevBase;
 }
 
 function fieldFullTypeLabel(r: DecodedField, byteCount: number): string {
-    if (isBitFieldRow(r)) { return `bit:${r.bitWidth}`; }
-    if (r.isPointer) { return `${pointerTargetTypeLabel(r, false)}*`; }
+    const special = specialFieldTypeLabel(r, false);
+    if (special) { return special; }
     return r.type === 'ascii' ? `ascii[${byteCount}]` : r.type;
 }
 
+function specialFieldTypeLabel(r: DecodedField, abbreviated: boolean): string | null {
+    if (isBitFieldRow(r)) { return `bit:${r.bitWidth}`; }
+    return r.isPointer ? `${pointerTargetTypeLabel(r, abbreviated)}*` : null;
+}
+
 function pointerTargetTypeLabel(r: DecodedField, abbreviated: boolean): string {
-    if (r.pointerTargetType === 'struct') { return r.pointerTargetStructName ?? 'struct'; }
-    if (r.pointerTargetType === 'ascii') { return abbreviated ? 'char' : 'char'; }
-    if (r.pointerTargetType === 'void') { return 'void'; }
     const target = r.pointerTargetType ?? r.type;
+    return POINTER_TARGET_LABELS[target]?.(r, abbreviated) ?? scalarPointerTargetLabel(target, abbreviated);
+}
+
+const POINTER_TARGET_LABELS: Partial<Record<StructFieldType, (row: DecodedField, abbreviated: boolean) => string>> = {
+    struct: row => row.pointerTargetStructName ?? 'struct',
+    ascii: () => 'char',
+    void: () => 'void',
+};
+
+function scalarPointerTargetLabel(target: StructFieldType, abbreviated: boolean): string {
     return abbreviated ? (TYPE_ABBREV[target] ?? target) : target;
 }
 
@@ -2211,6 +2275,13 @@ type StructGroupInfo = {
     byteCount: number;
 };
 
+type StructGroupDeclarationInfo = {
+    declaredType: StructFieldType;
+    count: number;
+    structName: string;
+    isPointer: boolean;
+};
+
 function decodedRowByteCount(r: DecodedField): number {
     if (isBitFieldRow(r)) { return r.bitStorageByteSize ?? 1; }
     return r.bytesHex.length > 0 ? r.bytesHex.split(' ').length : fieldByteSize(r.type);
@@ -2259,40 +2330,57 @@ function preservePendingStructAddress(): void {
 }
 
 function describeStructGroup(def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
-    const first = rows[0];
-    const declared = resolveStructFieldByPath(def, baseName, S.structs);
-    let declaredType: StructFieldType = first.type;
-    let count = rows.length;
-    let structName = 'struct';
-    let isPointer = first.isPointer === true;
-    if (declared) {
-        declaredType = declared.field.type;
-        count = declared.field.count;
-        structName = declared.structName ?? structName;
-        isPointer = normalizeStructField(declared.field).isPointer === true;
-    }
-    const isArray = count > 1;
-    const isStruct = declaredType === 'struct' && !isPointer;
-    const isString = declaredType === 'ascii' && !isPointer;
+    const declared = structGroupDeclarationInfo(def, rows, baseName);
+    const isArray = declared.count > 1;
+    const isStruct = declared.declaredType === 'struct' && !declared.isPointer;
+    const isString = declared.declaredType === 'ascii' && !declared.isPointer;
     const isBitUnit = isBitUnitGroup(rows);
     const isComposite = isCompositeStructGroup(isBitUnit, isStruct, isArray, isString);
-    const summary = isPointer
-        ? pointerGroupSummary(declaredType, isArray, count, structName)
-        : structGroupSummary(declaredType, isArray, count, structName);
+    const summary = groupSummaryForDeclaration(declared, isArray);
     return {
-        declaredType,
-        count,
-        isPointer,
+        declaredType: declared.declaredType,
+        count: declared.count,
+        isPointer: declared.isPointer,
         isArray,
         isStruct,
         isString,
         isBitUnit,
         isComposite,
-        structName,
+        structName: declared.structName,
         summary,
         summaryLabel: structGroupSummaryLabel(rows, isBitUnit, isArray, summary),
-        byteCount: structGroupByteCount(rows, isBitUnit, isArray, count),
+        byteCount: structGroupByteCount(rows, isBitUnit, isArray, declared.count),
     };
+}
+
+function structGroupDeclarationInfo(def: StructDef, rows: DecodedField[], baseName: string): StructGroupDeclarationInfo {
+    const declared = resolveStructFieldByPath(def, baseName, S.structs);
+    return declared ? resolvedStructGroupDeclarationInfo(declared) : inferredStructGroupDeclarationInfo(rows);
+}
+
+function resolvedStructGroupDeclarationInfo(declared: { field: StructField; structName?: string }): StructGroupDeclarationInfo {
+    return {
+        declaredType: declared.field.type,
+        count: declared.field.count,
+        structName: declared.structName ?? 'struct',
+        isPointer: normalizeStructField(declared.field).isPointer === true,
+    };
+}
+
+function inferredStructGroupDeclarationInfo(rows: DecodedField[]): StructGroupDeclarationInfo {
+    const first = rows[0];
+    return {
+        declaredType: first.type,
+        count: rows.length,
+        structName: 'struct',
+        isPointer: first.isPointer === true,
+    };
+}
+
+function groupSummaryForDeclaration(declared: StructGroupDeclarationInfo, isArray: boolean): string {
+    return declared.isPointer
+        ? pointerGroupSummary(declared.declaredType, isArray, declared.count, declared.structName)
+        : structGroupSummary(declared.declaredType, isArray, declared.count, declared.structName);
 }
 
 function groupRowsByBase(rows: DecodedField[]): FieldGroup[] {
@@ -3696,12 +3784,17 @@ function pointerMenuField(ctx: FieldValMenuContext): DecodedField | null {
 type PointerFollowState = { ok: true } | { ok: false; reason: string };
 
 function pointerFollowState(row: DecodedField | null): PointerFollowState {
-    if (!row?.isPointer) { return { ok: false, reason: 'not pointer' }; }
-    if (!row.hasData || row.pointerValue === undefined) { return { ok: false, reason: 'missing' }; }
-    if (row.pointerValue === 0) { return { ok: false, reason: 'null' }; }
-    if (getByte(row.pointerValue) === undefined) { return { ok: false, reason: 'unmapped' }; }
-    return { ok: true };
+    const reason = POINTER_FOLLOW_GUARDS.map(guard => guard(row)).find(Boolean);
+    return reason ? { ok: false, reason } : { ok: true };
 }
+
+type PointerFollowGuard = (row: DecodedField | null) => string | null;
+const POINTER_FOLLOW_GUARDS: PointerFollowGuard[] = [
+    row => row?.isPointer ? null : 'not pointer',
+    row => row?.hasData && row.pointerValue !== undefined ? null : 'missing',
+    row => row?.pointerValue === 0 ? 'null' : null,
+    row => row?.pointerValue !== undefined && getByte(row.pointerValue) === undefined ? 'unmapped' : null,
+];
 
 function followPointerAt(byteStart: number, pinIdx: number, valKey: string): void {
     const source = findCopySourceRows(byteStart, pinIdx);
@@ -3711,12 +3804,33 @@ function followPointerAt(byteStart: number, pinIdx: number, valKey: string): voi
 }
 
 function followPointerRow(row: DecodedField | null): void {
-    if (!pointerFollowState(row).ok || !row?.pointerValue) { return; }
-    if (row.pointerTargetType === 'struct' && row.pointerTargetStructId) {
-        followStructPointer(row.pointerValue, row.pointerTargetStructId);
+    const target = pointerFollowTarget(row);
+    if (!target) { return; }
+    if (target.structId) {
+        followStructPointer(target.addr, target.structId);
         return;
     }
-    selectPointerTarget(row.pointerValue, Math.max(1, row.pointerTargetByteSize ?? 1));
+    selectPointerTarget(target.addr, target.byteCount);
+}
+
+function pointerFollowTarget(row: DecodedField | null): { addr: number; byteCount: number; structId?: string } | null {
+    if (!pointerFollowState(row).ok) { return null; }
+    return buildPointerFollowTarget(row as DecodedField & { pointerValue: number });
+}
+
+function buildPointerFollowTarget(row: DecodedField & { pointerValue: number }): { addr: number; byteCount: number; structId?: string } {
+    const addr = row.pointerValue;
+    return structPointerFollowTarget(row, addr) ?? scalarPointerFollowTarget(row, addr);
+}
+
+function structPointerFollowTarget(row: DecodedField, addr: number): { addr: number; byteCount: number; structId: string } | null {
+    return row.pointerTargetType === 'struct' && row.pointerTargetStructId
+        ? { addr, byteCount: 1, structId: row.pointerTargetStructId }
+        : null;
+}
+
+function scalarPointerFollowTarget(row: DecodedField, addr: number): { addr: number; byteCount: number } {
+    return { addr, byteCount: Math.max(1, row.pointerTargetByteSize ?? 1) };
 }
 
 function followStructPointer(addr: number, structId: string): void {

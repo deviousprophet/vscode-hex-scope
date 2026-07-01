@@ -47,16 +47,16 @@ function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType
 }
 
 export function normalizeStructField(field: StructField): StructField {
-    if (field.type === 'pointer') {
-        return { ...field, type: 'void', isPointer: true, refStructId: undefined, bitFields: undefined, bitFieldsCollapsed: undefined };
-    }
-    if (field.type === 'void' && !field.isPointer) {
-        return { ...field, isPointer: true, refStructId: undefined, bitFields: undefined, bitFieldsCollapsed: undefined };
-    }
-    if (field.isPointer) {
-        return { ...field, bitFields: undefined, bitFieldsCollapsed: undefined };
-    }
-    return field;
+    return LEGACY_POINTER_NORMALIZERS[field.type]?.(field) ?? normalizePointerModifierField(field);
+}
+
+const LEGACY_POINTER_NORMALIZERS: Partial<Record<StructFieldType, (field: StructField) => StructField>> = {
+    pointer: field => ({ ...field, type: 'void', isPointer: true, refStructId: undefined, bitFields: undefined, bitFieldsCollapsed: undefined }),
+    void: field => ({ ...field, isPointer: true, refStructId: undefined, bitFields: undefined, bitFieldsCollapsed: undefined }),
+};
+
+function normalizePointerModifierField(field: StructField): StructField {
+    return field.isPointer ? { ...field, bitFields: undefined, bitFieldsCollapsed: undefined } : field;
 }
 
 function isPointerField(field: StructField): boolean {
@@ -116,26 +116,36 @@ function referencedStruct(field: StructField, map: Map<string, StructDef>): Stru
 
 function fieldSizeWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
     field = normalizeStructField(field);
+    const scalarSize = scalarOrPointerFieldSize(field);
+    return scalarSize ?? nestedStructFieldSize(field, map, depth);
+}
+
+function scalarOrPointerFieldSize(field: StructField): number | null {
     if (field.isPointer) { return POINTER_BYTE_SIZE; }
-    if (field.type !== 'struct') {
-        return fieldByteSize(field.type);
-    }
+    return field.type === 'struct' ? null : fieldByteSize(field.type);
+}
+
+function nestedStructFieldSize(field: StructField, map: Map<string, StructDef>, depth: number): number {
     if (depth >= MAX_NESTED_DEPTH) { return 0; }
     const child = referencedStruct(field, map);
-    if (!child) { return 0; }
-    return structByteSizeWithDefs(child, map, depth + 1);
+    return child ? structByteSizeWithDefs(child, map, depth + 1) : 0;
 }
 
 function fieldAlignWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
     field = normalizeStructField(field);
+    const scalarAlign = scalarOrPointerFieldAlign(field);
+    return scalarAlign ?? nestedStructFieldAlign(field, map, depth);
+}
+
+function scalarOrPointerFieldAlign(field: StructField): number | null {
     if (field.isPointer) { return POINTER_BYTE_SIZE; }
-    if (field.type !== 'struct') {
-        return fieldAlignment(field.type);
-    }
+    return field.type === 'struct' ? null : fieldAlignment(field.type);
+}
+
+function nestedStructFieldAlign(field: StructField, map: Map<string, StructDef>, depth: number): number {
     if (depth >= MAX_NESTED_DEPTH) { return 1; }
     const child = referencedStruct(field, map);
-    if (!child) { return 1; }
-    return structAlignmentWithDefs(child, map, depth + 1);
+    return child ? structAlignmentWithDefs(child, map, depth + 1) : 1;
 }
 
 function structAlignmentWithDefs(def: StructDef, map: Map<string, StructDef>, depth: number): number {
@@ -280,15 +290,20 @@ function validateNestedStructField(
     maxDepth: number,
     errors: string[],
 ): void {
-    field = normalizeStructField(field);
-    if (field.isPointer) { return; }
-    if (field.type !== 'struct' || !field.refStructId) { return; }
-    if (stack.includes(field.refStructId)) {
-        errors.push(`Nested struct cycle detected: ${formatStructCycle([...stack, field.refStructId], byId)}`);
+    const refId = nestedStructTraversalRef(field);
+    if (!refId) { return; }
+    if (stack.includes(refId)) {
+        errors.push(`Nested struct cycle detected: ${formatStructCycle([...stack, refId], byId)}`);
         return;
     }
 
-    validateNestedStructGraph(field.refStructId, depth + 1, [...stack, field.refStructId], byId, maxDepth, errors);
+    validateNestedStructGraph(refId, depth + 1, [...stack, refId], byId, maxDepth, errors);
+}
+
+function nestedStructTraversalRef(field: StructField): string | null {
+    field = normalizeStructField(field);
+    if (field.isPointer || field.type !== 'struct') { return null; }
+    return field.refStructId ?? null;
 }
 
 function formatStructCycle(stack: string[], byId: Map<string, StructDef>): string {
@@ -874,10 +889,10 @@ function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): str
 }
 
 function fieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
-    if (field.type === 'void') { return 'void'; }
-    if (field.type !== 'struct') {
-        return TYPE_TO_C[field.type];
-    }
+    return field.type === 'struct' ? structFieldBaseTypeToC(field, defsById) : TYPE_TO_C[field.type];
+}
+
+function structFieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
     const child = defsById.get(field.refStructId ?? '');
     return child === undefined ? 'uint8_t' : child.name;
 }
@@ -1035,25 +1050,25 @@ function parseStructDeclarationLine(rawLine: string, defsByName: Map<string, Str
 
 function parseResolvedStructDeclaration(parts: StructDeclarationParts, defsByName: Map<string, StructDef>): ParsedStructLine {
     const structDef = resolvePointerStructType(parts.rawType, parts.isPointer, defsByName);
-    if (structDef) {
-        return parsedStructPointerOrField(parts, structDef);
-    }
+    if (structDef) { return parsedStructPointerOrField(parts, structDef); }
 
     const mapped = mapStructDeclarationType(parts.rawType);
-    if (!mapped) {
-        if (parts.isPointer) {
-            return { kind: 'field', field: { name: parts.fieldName, type: 'void', isPointer: true, count: parts.count } };
-        }
-        return { kind: 'error', message: `Unknown type "${parts.rawType}" for field "${parts.fieldName}"` };
-    }
+    return mapped ? parseMappedStructDeclaration(parts, mapped) : parseUnknownStructDeclaration(parts);
+}
 
+function parseMappedStructDeclaration(parts: StructDeclarationParts, mapped: StructScalarFieldType): ParsedStructLine {
     if (parts.bitWidth !== null) {
         return parseBitFieldDeclaration(parts.fieldName, mapped, parts.bitWidth, parts.count);
     }
-
     const field: StructField = { name: parts.fieldName, type: mapped, count: parts.count };
     if (parts.isPointer) { field.isPointer = true; }
     return { kind: 'field', field };
+}
+
+function parseUnknownStructDeclaration(parts: StructDeclarationParts): ParsedStructLine {
+    return parts.isPointer
+        ? { kind: 'field', field: { name: parts.fieldName, type: 'void', isPointer: true, count: parts.count } }
+        : { kind: 'error', message: `Unknown type "${parts.rawType}" for field "${parts.fieldName}"` };
 }
 
 function resolvePointerStructType(rawType: string, isPointer: boolean, defsByName: Map<string, StructDef>): StructDef | undefined {
@@ -1077,9 +1092,16 @@ function parsedStructPointerOrField(parts: StructDeclarationParts, structDef: St
 }
 
 function shouldSkipStructDeclaration(stripped: string): boolean {
-    if (!stripped || stripped === '{' || stripped === '}') { return true; }
-    if (/^struct\s+\w+\s*\*/.test(stripped)) { return false; }
-    return /^(?:typedef|struct|union)\b/.test(stripped);
+    if (SKIP_STRUCT_LINES.has(stripped)) { return true; }
+    return isStructWrapperLine(stripped);
+}
+
+const SKIP_STRUCT_LINES = new Set(['', '{', '}']);
+const STRUCT_POINTER_DECL_RE = /^struct\s+\w+\s*\*/;
+const STRUCT_WRAPPER_RE = /^(?:typedef|struct|union)\b/;
+
+function isStructWrapperLine(stripped: string): boolean {
+    return !STRUCT_POINTER_DECL_RE.test(stripped) && STRUCT_WRAPPER_RE.test(stripped);
 }
 
 function parseStructDeclarationParts(stripped: string): StructDeclarationParts | null {
