@@ -3273,11 +3273,16 @@ function wireInstanceCards(sec: HTMLElement): void {
             toggleCompositeGroup(hdr, expBtn, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', _expandedArrayFields);
         });
 
+        hdr.querySelector<HTMLElement>('.si-f-ptr')?.addEventListener('click', e => {
+            e.stopPropagation();
+            followPointerHeaderValue(hdr);
+        });
+
         wireStructHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
             if (isPointerHdr) {
-                jumpPointerHeader(e, hdr);
+                selectPointerHeaderRange(e, hdr, start, cnt);
                 return;
             }
             selectArrayGroupHeader(e, hdr, start, cnt, isBitUnitHdr);
@@ -3846,8 +3851,14 @@ function hasInvalidRange(start: number, cnt: number): boolean {
     return isNaN(start) || isNaN(cnt);
 }
 
-function jumpPointerHeader(e: MouseEvent, hdr: HTMLElement): void {
+function selectPointerHeaderRange(e: MouseEvent, hdr: HTMLElement, start: number, cnt: number): void {
     if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
+    clearStructSelectionVisuals();
+    if (hasInvalidRange(start, cnt)) { return; }
+    selectStructRange(hdr, start, cnt);
+}
+
+function followPointerHeaderValue(hdr: HTMLElement): void {
     const storageStart = parseInt(hdr.dataset.pointerStorageStart ?? '');
     const pinIdx = pinIndexFromHeader(hdr);
     const valKey = hdr.dataset.valKey ?? scalarValKey(storageStart);

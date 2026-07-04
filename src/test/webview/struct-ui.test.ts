@@ -870,6 +870,10 @@ suite('struct UI array header summary', () => {
 
         const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
+        row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0);
+        assert.strictEqual(S.selEnd, 3);
+
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
         assert.ok(jump, 'jump pointer command should be enabled');
