@@ -128,6 +128,7 @@ function handleSavedEditsMessage(msg: WebviewMessage): void {
     updateDirtyBar();
     renderStats();
     renderSegments();
+    renderStructPins();
     renderCurrentDataView();
 }
 
@@ -161,6 +162,7 @@ function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
         msg.canQuickRepair as boolean,
     );
     renderSegments();
+    renderStructPins();
     renderCurrentDataView();
     notifyIntegrityBytesChanged();
 }
@@ -177,6 +179,7 @@ function handleRepairCompleteMessage(msg: WebviewMessage): void {
     updateDirtyBar();
     renderStats();
     renderSegments();
+    renderStructPins();
     renderCurrentDataView();
 }
 
@@ -1331,6 +1334,7 @@ function refreshAfterIntegrityEdits(): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    renderStructPins();
     notifyIntegrityBytesChanged();
 }
 
@@ -1356,6 +1360,7 @@ function applyFill(fillVal: number): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    renderStructPins();
     notifyIntegrityBytesChanged();
 }
 
@@ -1387,6 +1392,7 @@ function undoLastEdit(): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    renderStructPins();
     notifyIntegrityBytesChanged();
 }
 
