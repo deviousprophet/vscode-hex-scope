@@ -998,6 +998,56 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+001', 'expanded pointer header should keep its offset visible');
     });
 
+    test('renders struct pointer arrays with parent and pointer element rows', async () => {
+        const node: StructDef = {
+            id: 'ptr_array_node',
+            name: 'Node',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'ptr_array_parent',
+            name: 'PtrArrayParent',
+            packed: true,
+            fields: [{ name: 'nodes', type: 'struct', refStructId: node.id, isPointer: true, count: 2 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[4] = 0x30;
+        bytes[0x20] = 0xAA;
+        bytes[0x30] = 0xBB;
+        S.structs = [node, parent];
+        S.structPins = [{ id: 'pin_ptr_array_parent', structId: parent.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const parentHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(parentHeader, 'pointer array parent header should render');
+        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'nodes');
+        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, 'Node*[2]');
+
+        parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const pointerHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
+        assert.strictEqual(pointerHeaders.length, 2, 'expanded pointer array should render pointer element rows');
+        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.si-f-name')?.textContent), ['[0]', '[1]']);
+        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.si-f-type')?.textContent), ['Node*', 'Node*']);
+        assert.deepStrictEqual(pointerHeaders.map(h => h.dataset.byteStart), ['0', '4']);
+
+        pointerHeaders[0].querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const childHeader = pointerHeaders[0]
+            .closest<HTMLElement>('.si-arr-grp')!
+            .querySelector<HTMLElement>('.si-ptr-child-hdr');
+        assert.ok(childHeader, 'pointer element should render target preview header');
+        assert.ok(childHeader!.querySelector<HTMLElement>('.si-arr-addr')?.textContent?.includes('Node @ 0x00000020'));
+        const child = pointerHeaders[0]
+            .closest<HTMLElement>('.si-arr-grp')!
+            .querySelector<HTMLElement>('.si-arr-grp-body .si-field');
+        assert.strictEqual(child?.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000');
+    });
+
     test('nested inline struct pointer uses inline source for jump and create', async () => {
         const leaf: StructDef = {
             id: 'leaf_inline_ptr',

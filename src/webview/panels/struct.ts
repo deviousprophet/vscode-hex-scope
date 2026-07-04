@@ -2645,7 +2645,7 @@ function renderStructChildren(ctx: StructRenderContext, structRows: DecodedField
 function renderNestedStructGroup(ctx: StructRenderContext, ng: NestedFieldGroup, parentKey: string): string {
     const info = describeStructGroup(ctx.def, ng.rows, ng.fullBase);
     if (isStructPointerRows(ng.rows)) {
-        return renderStructPointerRows(ctx, ng.rows, parentKey, ng.baseRel);
+        return renderStructPointerRows(ctx, ng.rows, parentKey, ng.baseRel, info);
     }
     if (!info.isComposite) {
         return leafRowsHtml(ng.rows, ctx);
@@ -2729,7 +2729,7 @@ function renderStructFieldGroup(ctx: StructRenderContext, g: FieldGroup): string
     const r0 = g.rows[0];
     const info = describeStructGroup(ctx.def, g.rows, g.baseName);
     if (isStructPointerRows(g.rows)) {
-        return renderStructPointerRows(ctx, g.rows, ctx.keyPrefix, g.baseName);
+        return renderStructPointerRows(ctx, g.rows, ctx.keyPrefix, g.baseName, info);
     }
     if (!info.isComposite) {
         return leafRowsHtml(g.rows, ctx);
@@ -2811,11 +2811,36 @@ function renderStructPointerRows(
     rows: DecodedField[],
     parentKey: string,
     baseName: string,
+    info: StructGroupInfo,
 ): string {
+    if (info.isArray) {
+        return renderStructPointerArrayRows(ctx, rows, parentKey, baseName, info);
+    }
     return rows.map(row => {
-        const name = rows.length === 1 ? groupHeaderName(baseName) : indexOnlyName(row.fieldName, baseName);
-        return renderStructPointerGroup(ctx, row, `${parentKey}::ptr::${row.fieldName}`, name);
+        return renderStructPointerGroup(ctx, row, `${parentKey}::ptr::${row.fieldName}`, groupHeaderName(baseName));
     }).join('');
+}
+
+function renderStructPointerArrayRows(
+    ctx: StructRenderContext,
+    rows: DecodedField[],
+    parentKey: string,
+    baseName: string,
+    info: StructGroupInfo,
+): string {
+    const key = `${parentKey}::${baseName}`;
+    const isOpen = _expandedArrayFields.has(key);
+    const first = rows[0];
+    const byteStart = ctx.baseAddr + first.byteOffset;
+    const bodyHtml = rows.map(row =>
+        renderStructPointerGroup(ctx, row, `${key}::ptr::${row.fieldName}`, indexOnlyName(row.fieldName, baseName))
+    ).join('');
+    return compositeGroupHtml(
+        key,
+        isOpen,
+        compositeHeaderHtml(isOpen, byteStart, info.byteCount, first.byteOffset, groupHeaderName(baseName), info.summary, ctx.hideOffsets, true),
+        bodyHtml,
+    );
 }
 
 function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, key: string, name: string): string {
