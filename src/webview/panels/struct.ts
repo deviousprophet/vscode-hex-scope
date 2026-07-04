@@ -2860,7 +2860,8 @@ function pointerChildBodyHtml(
     canExpand: boolean,
 ): string {
     if (!canExpand || !target.ok || !target.def) { return ''; }
-    return renderStructPointerBody(ctx, key, target);
+    const resolvedTarget = { ...target, def: target.def };
+    return renderStructPointerBody(ctx, key, resolvedTarget);
 }
 
 function pointerChildSummary(row: DecodedField, target: PointerDerefTarget, expandable: { ok: boolean; reason: string }): string {
@@ -3006,7 +3007,7 @@ function pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, chi
 function renderStructPointerBody(
     ctx: StructRenderContext,
     key: string,
-    target: Extract<PointerDerefTarget, { ok: true; def: StructDef }>,
+    target: { ok: true; addr: number; byteCount: number; def: StructDef },
 ): string {
     const rows = decodeStruct(target.def, target.addr, getByte, S.endian, S.bitFieldAllocation, S.structs);
     return renderStructFieldGroups({
