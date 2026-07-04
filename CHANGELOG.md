@@ -5,14 +5,15 @@
 ### Added
 
 - Struct Overlay pointer support, including typed pointers (`u8*`, `u16*`, `u32*`, `u64*`, `i8*`, `i16*`, `i32*`, `i64*`, `f32*`, `f64*`) and `void*`
-- Inline pointer dereference rows for struct pointers, so pointed data can be inspected directly from Struct Overlay
+- Inline pointer dereference with a direct `{ }` child row per pointer, so pointed struct data can be inspected directly from Struct Overlay
 - `Jump to Address` action for pointer fields to quickly navigate to pointer targets in Memory view
-- Explicit `Create Struct Instance` action on struct pointer rows, with source metadata shown on created cards
+- Explicit `Create Struct Instance` action on struct pointer `{ }` child rows, with source metadata shown on created cards
 
 ### Changed
 
 - Pointer navigation now selects target bytes without automatically creating a saved struct instance
-- Struct pointer targets now support inline inspection first, while instance creation is kept as an intentional context-menu action
+- Struct pointer targets now support inline inspection first, while instance creation is kept as an intentional context-menu action on the `{ }` child row
+- Descendants under expanded pointer `{ }` rows now hide per-row offsets for cleaner nested layout
 
 ### Fixed
 
