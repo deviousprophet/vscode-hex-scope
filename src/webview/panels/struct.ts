@@ -2517,6 +2517,7 @@ function compositeHeaderPrefixHtml(isOpen: boolean, byteOffset: number, hideOffs
 
 function syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void {
     if (hdr.classList.contains('si-bitunit-hdr')) { return; }
+    if (hdr.classList.contains('si-ptr-hdr')) { return; }
 
     const existingOffset = hdr.querySelector<HTMLElement>(':scope > .si-f-off');
     const existingPad = hdr.querySelector<HTMLElement>(':scope > .si-node-pad');
