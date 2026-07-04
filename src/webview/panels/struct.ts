@@ -1892,6 +1892,7 @@ const TYPE_ABBREV: Record<string, string> = {
     int8:  'i8',  int16:  'i16', int32:  'i32', int64:  'i64',
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
+const TYPE_CELL_MAX_CHARS = 8;
 
 function fieldValueKey(r: DecodedField, byteStart: number): string {
     return isBitFieldRow(r)
@@ -1943,6 +1944,21 @@ function scalarPointerTargetLabel(target: StructFieldType, abbreviated: boolean)
     return abbreviated ? (TYPE_ABBREV[target] ?? target) : target;
 }
 
+function typeCellHtml(abbrev: string, fullTypeLabel: string): string {
+    const compact = compactTypeCellLabel(abbrev);
+    const escapedFullType = esc(fullTypeLabel);
+    return `<span class="si-f-type" title="${escapedFullType}" aria-label="${escapedFullType}">${esc(compact)}</span>`;
+}
+
+function compactTypeCellLabel(label: string): string {
+    if (label.length <= TYPE_CELL_MAX_CHARS) { return label; }
+    if (label.endsWith('*')) {
+        const prefixLen = Math.max(1, TYPE_CELL_MAX_CHARS - 4);
+        return `${label.slice(0, prefixLen)}...*`;
+    }
+    return `${label.slice(0, TYPE_CELL_MAX_CHARS - 3)}...`;
+}
+
 function fieldOffsetLabel(r: DecodedField): string {
     if (isBitFieldRow(r)) { return `.${String(r.bitOffset ?? 0)}`; }
     return `+${r.byteOffset.toString(16).toUpperCase().padStart(3, '0')}`;
@@ -1982,7 +1998,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, ctx: StructRenderCo
         bitFieldDataAttrs(r) +
         `>` +
         offsetHtml +
-        `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
+        typeCellHtml(abbrev, fullTypeLabel) +
         `<span class="si-toggle-pad" aria-hidden="true"></span>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(displayName ?? leafName(r.fieldName))}</span>` +
@@ -2116,7 +2132,7 @@ function emptyBitUnitHeaderHtml(
     return (
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         `<span class="si-f-off">+000</span>` +
-        `<span class="si-f-type">u8</span>` +
+        typeCellHtml('u8', 'uint8') +
         `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
@@ -2211,7 +2227,7 @@ function populatedBitUnitHeaderHtml(
     return (
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         offsetHtml +
-        `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>` +
+        typeCellHtml(abbrev, fullTypeLabel) +
         `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
@@ -2994,7 +3010,7 @@ function structPointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): 
     const offsetHtml = hideOffset
         ? '<span class="si-node-pad" aria-hidden="true"></span>'
         : `<span class="si-f-off">${offsetLabel(row.byteOffset)}</span>`;
-    return offsetHtml + `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>`;
+    return offsetHtml + typeCellHtml(abbrev, fullTypeLabel);
 }
 
 function structPointerHeaderOpenTag(

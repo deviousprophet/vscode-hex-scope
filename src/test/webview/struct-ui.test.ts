@@ -1048,6 +1048,35 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(child?.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000');
     });
 
+    test('compacts long struct pointer type labels in the data type column', async () => {
+        const longName = 'VeryLongTelemetryHeaderStruct';
+        const header: StructDef = {
+            id: 'long_ptr_header',
+            name: longName,
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'long_ptr_parent',
+            name: 'LongPtrParent',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x30).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_long_ptr_parent', structId: parent.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const typeCell = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-type');
+        assert.ok(typeCell, 'struct pointer type cell should render');
+        assert.strictEqual(typeCell!.textContent, 'Very...*');
+        assert.strictEqual(typeCell!.getAttribute('title'), `${longName}*`);
+        assert.strictEqual(typeCell!.getAttribute('aria-label'), `${longName}*`);
+    });
+
     test('nested inline struct pointer uses inline source for jump and create', async () => {
         const leaf: StructDef = {
             id: 'leaf_inline_ptr',

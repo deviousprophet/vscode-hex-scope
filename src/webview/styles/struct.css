@@ -556,7 +556,7 @@
 /* Expanded field rows */
 .si-fields {
     --si-col-off: 30px;
-    --si-col-type: 20px;
+    --si-col-type: 42px;
     --si-col-toggle: 18px;
     --si-col-gap: 2px;
     --si-col-pad-left: 6px;
@@ -579,7 +579,19 @@
 .si-field.si-selected { background: rgba(79,195,247,.12) !important; }
 
 .si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
-.si-f-type { font-size: 8px; color: var(--addr-fg); opacity: .55; font-family: var(--font-editor); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.si-f-type {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 8px;
+    color: var(--addr-fg);
+    opacity: .55;
+    font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
 .si-toggle-pad { display: block; width: var(--si-col-toggle); height: 1px; }
 
 /* name + dotted leader + value */
