@@ -75,11 +75,11 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Pointer target preview header should show target identity (`Header @ 0x00000020` or equivalent).
 - Pointer target member rows should show offsets relative to the pointed target base, not relative to the pointer storage field.
 - Pointer storage offset and pointer target offsets must be visually separable so users do not confuse where the pointer is stored with where target data lives.
+- Pointer target preview rows should not use a generic visible name like `target`; the pointer row already establishes that context.
 - Scalar pointer target preview should be a compact target-value preview, not an empty expandable object:
 
         +001 | u16*   | ▾ next         | -> 0x00001000
-              |         | target        | u16 @ 0x00001000
-        +000 | u16    | *             | 0x002A
+              |         |               | 0x002A
 
 - Struct pointer target preview should use `{ }` as the target object root, then show struct member children:
 

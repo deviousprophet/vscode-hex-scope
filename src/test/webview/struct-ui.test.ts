@@ -843,6 +843,13 @@ suite('struct UI array header summary', () => {
         assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
         assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
 
+        row!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const child = document.querySelector<HTMLElement>('.si-ptr-child-hdr');
+        assert.ok(child, 'unmapped pointer should render a target status child row');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, '');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, '(unmapped)');
+
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
         assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
@@ -881,6 +888,39 @@ suite('struct UI array header summary', () => {
 
         assert.strictEqual(S.selStart, 0x20);
         assert.strictEqual(S.selEnd, 0x21);
+    });
+
+    test('scalar pointer target preview omits target label and uses scalar value display', async () => {
+        const def: StructDef = {
+            id: 'ptr_scalar_preview',
+            name: 'PtrScalarPreview',
+            packed: true,
+            fields: [
+                { name: 'value', type: 'uint32', isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x30;
+        bytes[0x21] = 0x33;
+        bytes[0x22] = 0x43;
+        bytes[0x23] = 0x38;
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_scalar_preview', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'scalar pointer row should render');
+        row!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const child = document.querySelector<HTMLElement>('.si-ptr-child-hdr');
+        assert.ok(child, 'scalar pointer target preview should render');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, '');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, '0x38433330');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-arr-addr')?.getAttribute('title'), 'uint32 @ 0x00000020');
     });
 
     test('struct pointer click jumps without creating destination pin', async () => {
