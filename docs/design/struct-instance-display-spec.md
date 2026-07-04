@@ -125,7 +125,8 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
   - Bit-field child rows display bit offsets as `.N`, relative to the containing storage unit.
 - Data type column:
   - Abbreviated type label is shown (examples: `u16`, `i32`, `f32`, `char`, `bit:3`, `Header*`).
-  - Long type labels must stay inside the type column. Compact the visible label (for example `Very...*`) and clip with ellipsis if needed.
+  - The type column should be adaptively wide enough for common struct names before yielding space to name/value.
+  - Long type labels must stay inside the type column. Compact the visible label with middle ellipsis (for example `VeryLong...erStruct*`) and clip with CSS ellipsis if needed.
   - Full type appears as tooltip on the type cell.
 - Value column:
   - Missing bytes or undecodable direct field data display as `??`.

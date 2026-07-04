@@ -1892,7 +1892,8 @@ const TYPE_ABBREV: Record<string, string> = {
     int8:  'i8',  int16:  'i16', int32:  'i32', int64:  'i64',
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
-const TYPE_CELL_MAX_CHARS = 8;
+const TYPE_CELL_MAX_CHARS = 20;
+const TYPE_CELL_ELLIPSIS = '...';
 
 function fieldValueKey(r: DecodedField, byteStart: number): string {
     return isBitFieldRow(r)
@@ -1952,11 +1953,13 @@ function typeCellHtml(abbrev: string, fullTypeLabel: string): string {
 
 function compactTypeCellLabel(label: string): string {
     if (label.length <= TYPE_CELL_MAX_CHARS) { return label; }
-    if (label.endsWith('*')) {
-        const prefixLen = Math.max(1, TYPE_CELL_MAX_CHARS - 4);
-        return `${label.slice(0, prefixLen)}...*`;
-    }
-    return `${label.slice(0, TYPE_CELL_MAX_CHARS - 3)}...`;
+    const pointerSuffix = label.endsWith('*') ? '*' : '';
+    const body = pointerSuffix ? label.slice(0, -1) : label;
+    const availableBodyChars = TYPE_CELL_MAX_CHARS - TYPE_CELL_ELLIPSIS.length - pointerSuffix.length;
+    if (availableBodyChars <= 1) { return label.slice(0, TYPE_CELL_MAX_CHARS); }
+    const headChars = Math.ceil(availableBodyChars / 2);
+    const tailChars = availableBodyChars - headChars;
+    return `${body.slice(0, headChars)}${TYPE_CELL_ELLIPSIS}${body.slice(-tailChars)}${pointerSuffix}`;
 }
 
 function fieldOffsetLabel(r: DecodedField): string {

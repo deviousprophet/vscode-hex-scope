@@ -556,7 +556,7 @@
 /* Expanded field rows */
 .si-fields {
     --si-col-off: 30px;
-    --si-col-type: 42px;
+    --si-col-type: clamp(72px, 22%, 112px);
     --si-col-toggle: 18px;
     --si-col-gap: 2px;
     --si-col-pad-left: 6px;

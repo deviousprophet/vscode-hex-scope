@@ -1072,7 +1072,7 @@ suite('struct UI array header summary', () => {
 
         const typeCell = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-type');
         assert.ok(typeCell, 'struct pointer type cell should render');
-        assert.strictEqual(typeCell!.textContent, 'Very...*');
+        assert.strictEqual(typeCell!.textContent, 'VeryLong...erStruct*');
         assert.strictEqual(typeCell!.getAttribute('title'), `${longName}*`);
         assert.strictEqual(typeCell!.getAttribute('aria-label'), `${longName}*`);
     });
