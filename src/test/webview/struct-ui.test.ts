@@ -121,9 +121,14 @@ suite('struct UI array header summary', () => {
     }
 
     function triggerCreateStructInstance(dom: JSDOM, message: string): void {
-        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
-        assert.ok(headerRow, message);
-        headerRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const parentHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(parentHeader, message);
+        const expand = parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer header should have expand button');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const childHeader = document.querySelector<HTMLElement>('.si-ptr-child-hdr[data-pointer-allow-create="true"]');
+        assert.ok(childHeader, 'struct pointer child header should render create-enabled menu source');
+        childHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
         assert.ok(create, 'create struct instance command should be enabled');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -777,7 +782,8 @@ suite('struct UI array header summary', () => {
         assert.ok(leValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 LE display: ${leValues[5]}`);
         assert.ok(leValues[6].startsWith('1.000000e+0'), `f32 LE display: ${leValues[6]}`);
         assert.ok(leValues[7].startsWith('1.0000000000000000e+0'), `f64 LE display: ${leValues[7]}`);
-        assert.ok(leValues[8].includes('0x12345678'), `ptr LE display: ${leValues[8]}`);
+        const ptrValueLe = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.ok(ptrValueLe.includes('0x12345678'), `ptr LE display: ${ptrValueLe}`);
         let firstRow = document.querySelector<HTMLElement>('.si-field');
         assert.ok(firstRow, 'first scalar row should render');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
@@ -801,7 +807,8 @@ suite('struct UI array header summary', () => {
         assert.ok(beValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 BE display: ${beValues[5]}`);
         assert.ok(beValues[6].startsWith('1.000000e+0'), `f32 BE display: ${beValues[6]}`);
         assert.ok(beValues[7].startsWith('1.0000000000000000e+0'), `f64 BE display: ${beValues[7]}`);
-        assert.ok(beValues[8].includes('0x12345678'), `ptr BE display: ${beValues[8]}`);
+        const ptrValueBe = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.ok(ptrValueBe.includes('0x12345678'), `ptr BE display: ${ptrValueBe}`);
         firstRow = document.querySelector<HTMLElement>('.si-field');
         assert.ok(firstRow, 'first scalar row should render after BE rerender');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
@@ -827,9 +834,11 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const row = document.querySelector<HTMLElement>('.si-field.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*');
+        const label = row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '';
+        assert.ok(label.includes('next'), `typed pointer row should include field name, got: ${label}`);
+        assert.ok(label.includes('(uint16)'), `typed pointer row should include target type, got: ${label}`);
         const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
         assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
@@ -859,7 +868,7 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const row = document.querySelector<HTMLElement>('.si-field.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
@@ -986,7 +995,11 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(S.selStart, 0x30);
         assert.strictEqual(S.selEnd, 0x30);
 
-        nested!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const nestedChild = nested!
+            .closest<HTMLElement>('.si-arr-grp')!
+            .querySelector<HTMLElement>('.si-arr-grp-body .si-ptr-child-hdr[data-pointer-allow-create="true"]');
+        assert.ok(nestedChild, 'nested struct pointer should expose create-enabled child row');
+        nestedChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
         assert.ok(create, 'nested struct pointer should enable create');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
