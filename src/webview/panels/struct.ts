@@ -2838,8 +2838,10 @@ function pointerChildState(ctx: StructRenderContext, row: DecodedField, target: 
     return {
         key,
         storageStart,
+        byteStart: target.addr ?? storageStart,
+        byteCount: target.ok ? target.byteCount : decodedRowByteCount(row),
         valKey: fieldValueKey(row, storageStart),
-        name: '{ }',
+        name: target.ok && target.def ? '{ }' : 'target',
         summary: pointerChildSummary(row, target, expandable),
         canExpand: expandable.ok,
         expandTitle: expandable.ok ? 'Expand' : expandable.reason,
@@ -2874,7 +2876,7 @@ function pointerChildSummaryForResolvedTarget(
     target: Extract<PointerDerefTarget, { ok: true }>,
     expandable: { ok: boolean; reason: string },
 ): string {
-    if (target.def) { return row.pointerTargetStructName ?? target.def.name; }
+    if (target.def) { return `${row.pointerTargetStructName ?? target.def.name} @ ${formatHex(target.addr, 8)}`; }
     const scalarSummary = scalarPointerTargetSummary(row, target.addr);
     if (scalarSummary !== null) { return scalarSummary; }
     return expandable.ok ? pointerTargetTypeLabel(row, false) : expandable.reason;
@@ -2883,15 +2885,17 @@ function pointerChildSummaryForResolvedTarget(
 function scalarPointerTargetSummary(row: DecodedField, addr: number): string | null {
     const targetType = row.pointerTargetType;
     if (targetType === undefined || targetType === 'struct') { return null; }
+    const targetLabel = pointerTargetTypeLabel(row, true);
     const size = fieldByteSize(targetType);
     const bytes: number[] = [];
     for (let offset = 0; offset < size; offset++) {
         const value = getByte(addr + offset);
-        if (value === undefined) { return '??'; }
+        if (value === undefined) { return `${targetLabel} @ ${formatHex(addr, 8)} = ??`; }
         bytes.push(value);
     }
     const decoded = decodeField(bytes, targetType, S.endian);
-    return decoded === '' ? pointerTargetTypeLabel(row, false) : decoded;
+    const value = decoded === '' ? pointerTargetTypeLabel(row, false) : decoded;
+    return `${targetLabel} @ ${formatHex(addr, 8)} = ${value}`;
 }
 
 type PointerDerefTarget =
@@ -2901,6 +2905,8 @@ type PointerDerefTarget =
 type PointerChildState = {
     key: string;
     storageStart: number;
+    byteStart: number;
+    byteCount: number;
     valKey: string;
     name: string;
     summary: string;
@@ -2948,11 +2954,21 @@ function structPointerHeaderHtml(
     const valKey = fieldValueKey(row, storageStart);
     return (
         structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
-        compositeHeaderPrefixHtml(false, row.byteOffset, ctx.hideOffsets) +
+        structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
         `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
         structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
+}
+
+function structPointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): string {
+    const byteCount = decodedRowByteCount(row);
+    const abbrev = fieldTypeAbbrev(row, byteCount);
+    const fullTypeLabel = fieldFullTypeLabel(row, byteCount);
+    const offsetHtml = hideOffset
+        ? '<span class="si-node-pad" aria-hidden="true"></span>'
+        : `<span class="si-f-off">${offsetLabel(row.byteOffset)}</span>`;
+    return offsetHtml + `<span class="si-f-type" title="${esc(fullTypeLabel)}">${abbrev}</span>`;
 }
 
 function structPointerHeaderOpenTag(
@@ -2963,10 +2979,11 @@ function structPointerHeaderOpenTag(
     storageStart: number,
     valKey: string,
 ): string {
-    const byteStart = target.addr ?? storageStart;
-    const byteCount = target.ok ? target.byteCount : decodedRowByteCount(row);
-    return `<div class="si-arr-grp-hdr si-ptr-hdr si-ptr-field" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}" ` +
+    const targetStart = target.addr ?? storageStart;
+    const byteCount = decodedRowByteCount(row);
+    return `<div class="si-arr-grp-hdr si-ptr-hdr si-ptr-field" data-byte-start="${storageStart}" data-byte-cnt="${byteCount}" ` +
         `data-offset-label="${offsetLabel(row.byteOffset)}" data-pointer-storage-start="${storageStart}" data-val-key="${esc(valKey)}"` +
+        ` data-pointer-target-start="${targetStart}" data-pointer-target-cnt="${target.ok ? target.byteCount : 0}"` +
         ` data-pointer-allow-create="false"` +
         sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(key)}">`;
@@ -2979,9 +2996,8 @@ function structPointerHeaderBodyHtml(
     storageStart: number,
     valKey: string,
 ): string {
-    const label = `${name} (${pointerTargetTypeLabel(row, false)})`;
     return `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(label)}</span>` +
+        `<span class="si-f-name">${esc(name)}</span>` +
         `<span class="si-f-lead"></span>` +
         `<span class="si-f-val si-f-pri si-f-ptr" data-val-type="hex" data-bs="${storageStart}" data-val-key="${esc(valKey)}">${pointerValueDisplayHtml(row, target)}</span>` +
         `</span>`;
@@ -3004,9 +3020,8 @@ function structPointerBodyHtml(ctx: StructRenderContext, row: DecodedField, chil
 
 function pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, child: PointerChildState): string {
     const storageStart = child.storageStart;
-    const byteCount = decodedRowByteCount(row);
     const disabled = child.canExpand ? '' : ' disabled';
-    return `<div class="si-arr-grp-hdr si-ptr-child-hdr si-ptr-field" data-byte-start="${storageStart}" data-byte-cnt="${byteCount}" ` +
+    return `<div class="si-arr-grp-hdr si-ptr-child-hdr si-ptr-field" data-byte-start="${child.byteStart}" data-byte-cnt="${child.byteCount}" ` +
         `data-pointer-storage-start="${storageStart}" data-val-key="${esc(child.valKey)}" data-pointer-allow-create="${child.allowCreate ? 'true' : 'false'}"` +
         sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(child.key)}">` +
@@ -3032,7 +3047,7 @@ function renderStructPointerBody(
         baseAddr: target.addr,
         keyPrefix: key,
         pointerDepth: ctx.pointerDepth + 1,
-        hideOffsets: true,
+        hideOffsets: false,
     }, rows);
 }
 

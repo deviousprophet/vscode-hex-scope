@@ -837,8 +837,8 @@ suite('struct UI array header summary', () => {
         const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
         const label = row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '';
-        assert.ok(label.includes('next'), `typed pointer row should include field name, got: ${label}`);
-        assert.ok(label.includes('(uint16)'), `typed pointer row should include target type, got: ${label}`);
+        assert.strictEqual(label, 'next', 'typed pointer name should not repeat target type');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
         const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
         assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
@@ -953,6 +953,7 @@ suite('struct UI array header summary', () => {
         const child = document.querySelector<HTMLElement>('.si-ptr-hdr + .si-arr-grp-body .si-field');
         assert.ok(child, 'expanded pointer should render target child rows inline');
         assert.strictEqual(child!.dataset.byteStart, '32', 'inline child byte start should use target address');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000', 'inline child offset should be relative to target base');
         assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
     });
 
