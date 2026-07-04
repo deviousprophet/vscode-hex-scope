@@ -4065,8 +4065,17 @@ const POINTER_FOLLOW_GUARDS: PointerFollowGuard[] = [
     row => row?.isPointer ? null : 'not pointer',
     row => row?.hasData && row.pointerValue !== undefined ? null : 'missing',
     row => row?.pointerValue === 0 ? 'null' : null,
-    row => row?.pointerValue !== undefined && getByte(row.pointerValue) === undefined ? 'unmapped' : null,
+    row => pointerTargetFullyMapped(row) ? null : 'unmapped',
 ];
+
+function pointerTargetFullyMapped(row: DecodedField | null): boolean {
+    if (!row?.isPointer || row.pointerValue === undefined) { return true; }
+    const byteCount = Math.max(1, row.pointerTargetByteSize ?? 1);
+    for (let offset = 0; offset < byteCount; offset++) {
+        if (getByte(row.pointerValue + offset) === undefined) { return false; }
+    }
+    return true;
+}
 
 function followPointerAt(byteStart: number, pinIdx: number, valKey: string, opts: FieldValMenuOptions = {}): void {
     const source = findCopySourceRows(byteStart, pinIdx, opts);
