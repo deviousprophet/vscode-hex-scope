@@ -1,4 +1,4 @@
-﻿import * as assert from 'assert';
+import * as assert from 'assert';
 
 import {
     calculateIntegrity,
@@ -14,7 +14,7 @@ import {
     readStoredIntegrityBytes,
     type IntegrityAlgorithm,
     validateIntegrityRange,
-} from '../core/integrity';
+} from '../../core/integrity';
 
 const VECTOR = new TextEncoder().encode('123456789');
 const EXPECTED: Record<IntegrityAlgorithm, string> = {

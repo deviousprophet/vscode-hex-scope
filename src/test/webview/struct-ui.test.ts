@@ -1,9 +1,9 @@
-﻿import * as assert from 'assert';
+import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
-import { S } from '../webview/state';
-import type { StructDef, StructPin } from '../core/types';
-import { setBytesInSegment } from './struct-test-helpers';
+import { S } from '../../webview/state';
+import type { StructDef, StructPin } from '../../core/types';
+import { setBytesInSegment } from '../shared/struct-test-helpers';
 
 function resetStructState(): void {
     S.structs = [];
@@ -77,7 +77,7 @@ suite('struct UI array header summary', () => {
     });
 
     async function renderPinsAndExpandCard(): Promise<HTMLElement> {
-        const { renderStructPins } = await import('../webview/struct.js');
+        const { renderStructPins } = await import('../../webview/panels/struct.js');
         renderStructPins();
 
         const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
@@ -945,6 +945,61 @@ suite('struct UI array header summary', () => {
         assert.ok(child, 'expanded pointer should render target child rows inline');
         assert.strictEqual(child!.dataset.byteStart, '32', 'inline child byte start should use target address');
         assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
+    });
+
+    test('nested inline struct pointer uses inline source for jump and create', async () => {
+        const leaf: StructDef = {
+            id: 'leaf_inline_ptr',
+            name: 'LeafInlinePtr',
+            fields: [{ name: 'flag', type: 'uint8', count: 1 }],
+        };
+        const inner: StructDef = {
+            id: 'inner_inline_ptr',
+            name: 'InnerInlinePtr',
+            packed: true,
+            fields: [{ name: 'next', type: 'struct', refStructId: leaf.id, isPointer: true, count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_inline_ptr',
+            name: 'ParentInlinePtr',
+            packed: true,
+            fields: [{ name: 'inner', type: 'struct', refStructId: inner.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x60).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x30;
+        bytes[0x30] = 0x7F;
+        S.structs = [leaf, inner, parent];
+        S.structPins = [{ id: 'pin_parent_inline_ptr', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
+        assert.ok(expand, 'parent struct pointer should render expandable row');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const headers = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
+        assert.strictEqual(headers.length, 2, 'expanded pointer should render nested pointer header');
+        const nested = headers[1];
+        nested!.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0x30);
+        assert.strictEqual(S.selEnd, 0x30);
+
+        nested!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
+        assert.ok(create, 'nested struct pointer should enable create');
+        create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const targetPins = pinsForTarget(leaf.id, 0x30);
+        assert.strictEqual(targetPins.length, 1, 'nested create should add leaf target pin once');
+        const source = targetPins[0].pointerSources?.[0];
+        assert.ok(source, 'nested create should store source metadata');
+        assert.strictEqual(source!.sourcePinId, 'pin_parent_inline_ptr');
+        assert.strictEqual(source!.sourceStructId, inner.id);
+        assert.strictEqual(source!.sourceFieldPath, 'next');
+        assert.strictEqual(source!.pointerStorageAddress, 0x20);
+        assert.strictEqual(source!.targetAddress, 0x30);
     });
 
     test('defaults bit-field parent binary to full storage range', async () => {

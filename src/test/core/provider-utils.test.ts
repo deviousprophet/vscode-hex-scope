@@ -4,11 +4,11 @@ import {
     detectFormatFromParts,
     repairChecksums,
     serializeSRec,
-} from '../core/document';
-import { migrateStructDefinitions } from '../HexEditorProvider';
-import { parseSRec } from '../core/parser/SRecParser';
-import { parseIntelHex } from '../core/parser/IntelHexParser';
-import type { StructDef } from '../core/types';
+} from '../../core/document';
+import { migrateStructDefinitions } from '../../HexEditorProvider';
+import { parseSRec } from '../../core/parser/SRecParser';
+import { parseIntelHex } from '../../core/parser/IntelHexParser';
+import type { StructDef } from '../../core/types';
 
 // ── detectFormatFromParts ─────────────────────────────────────────────────────
 

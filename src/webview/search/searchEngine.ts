@@ -1,8 +1,8 @@
 // Search UI glue
-import { S } from './state';
-import { applyMatchHighlights, applySel, scrollTo } from './memoryView';
-import { SearchEngine, buildNeedles, canonicalizeQuery } from '../core/search';
-import type { SearchEndianness, SearchMode } from '../core/types';
+import { S } from '../state';
+import { applyMatchHighlights, applySel, scrollTo } from '../memory/memoryView';
+import { SearchEngine, buildNeedles, canonicalizeQuery } from '../../core/search';
+import type { SearchEndianness, SearchMode } from '../../core/types';
 
 // -------------------- UI glue (previously in search.ts) --------------------
 
@@ -251,7 +251,7 @@ function selectCurrentMatch(): void {
     S.selStart = start;
     S.selEnd = end;
     applySel();
-    import('./sidebar.js').then(m => m.updateInspector());
+    import('../panels/sidebar.js').then(m => m.updateInspector());
 }
 
 function hasCurrentMatch(): boolean {

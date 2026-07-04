@@ -3,11 +3,11 @@ import * as assert from 'assert';
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
-} from '../core/struct-codec';
-import { S } from '../webview/state';
-import { getByte } from '../webview/data';
-import type { StructDef, StructField } from '../core/types';
-import { setBytesInSegment } from './struct-test-helpers';
+} from '../../core/struct-codec';
+import { S } from '../../webview/state';
+import { getByte } from '../../webview/data';
+import type { StructDef, StructField } from '../../core/types';
+import { setBytesInSegment } from '../shared/struct-test-helpers';
 
 function resetStructState(): void {
     S.structs           = [];

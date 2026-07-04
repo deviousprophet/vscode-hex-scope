@@ -471,7 +471,7 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
         ];
         const cssLinks = cssFiles.map(name => {
             const uri = webview.asWebviewUri(
-                vscode.Uri.joinPath(this._context.extensionUri, 'src', 'webview', `${name}.css`)
+                vscode.Uri.joinPath(this._context.extensionUri, 'src', 'webview', 'styles', `${name}.css`)
             );
             return `    <link rel="stylesheet" href="${uri}">`;
         }).join('\n');

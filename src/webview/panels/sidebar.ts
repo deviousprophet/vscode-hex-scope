@@ -1,12 +1,12 @@
 // ── Sidebar panels ────────────────────────────────────────────────
 // Inspector · Bit View · Multi-Byte interpreter · Parsed Segments · Segment Labels
 
-import { S } from './state';
-import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from './utils';
-import { vscode } from './api';
-import { rerender } from './render';
-import { buildMemRows, getByte } from './data';
-import type { SerializedSegment } from '../core/types';
+import { S } from '../state';
+import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from '../utils';
+import { vscode } from '../api';
+import { rerender } from '../render';
+import { buildMemRows, getByte } from '../data';
+import type { SerializedSegment } from '../../core/types';
 
 // ── Inspector ────────────────────────────────────────────────────
 

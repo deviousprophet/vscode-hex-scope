@@ -3,19 +3,19 @@ Single section rendered into #s-struct-pins.
 Type management (create / edit / delete) is inline within that section.
 Pure codec logic lives in struct-codec.ts. */
 
-import { S }        from './state';
-import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from './utils';
-import { vscode }   from './api';
-import { rerender } from './render';
-import { getByte }  from './data';
+import { S }        from '../state';
+import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../utils';
+import { vscode }   from '../api';
+import { rerender } from '../render';
+import { getByte }  from '../data';
 import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
     normalizeStructField,
-} from '../core/struct-codec.js';
-import type { DecodedField } from '../core/struct-codec.js';
-import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin, StructPointerSource } from '../core/types';
+} from '../../core/struct-codec.js';
+import type { DecodedField } from '../../core/struct-codec.js';
+import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin, StructPointerSource } from '../../core/types';
 
 // ── Module state ──────────────────────────────────────────────────
 
@@ -98,7 +98,7 @@ function isBitFieldRow(r: DecodedField): boolean {
 }
 
 /** Calculate total bits used by all children in a bit-field container. */
-function usedBitsInContainer(f: import('../core/types').StructField): number {
+function usedBitsInContainer(f: import('../../core/types').StructField): number {
     if (!Array.isArray(f.bitFields)) {
         return 0;
     }
@@ -106,7 +106,7 @@ function usedBitsInContainer(f: import('../core/types').StructField): number {
 }
 
 /** Calculate available bits remaining in a bit-field container. */
-function availableBitsInContainer(f: import('../core/types').StructField): number {
+function availableBitsInContainer(f: import('../../core/types').StructField): number {
     if (!isUnsignedScalarType(f.type)) { return 0; }
     const typeBytes = fieldByteSize(f.type);
     const totalBits = typeBytes * 8;
@@ -494,12 +494,12 @@ function childFieldRowHtml(child: BitFieldChild, ci: number, total: number): str
 }
 
 /** Check if a field type is an unsigned scalar (eligible for bit-field container). */
-function isUnsignedScalarType(type: import('../core/types').StructFieldType): type is import('../core/types').StructScalarFieldType {
+function isUnsignedScalarType(type: import('../../core/types').StructFieldType): type is import('../../core/types').StructScalarFieldType {
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
 /** Get bit capacity for a parent field type. */
-function getParentBitCapacity(type: import('../core/types').StructFieldType): number {
+function getParentBitCapacity(type: import('../../core/types').StructFieldType): number {
     return fieldByteSize(type as any) * 8;
 }
 
@@ -1088,7 +1088,7 @@ function clearInvalidBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLEl
 }
 
 function isUnsignedEditorType(rawType: string): boolean {
-    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('../core/types').StructFieldType);
+    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('../../core/types').StructFieldType);
 }
 
 function shouldClearBitChildren(bitBtn: HTMLElement | null, isUnsigned: boolean): boolean {
@@ -1963,7 +1963,7 @@ function valueIsRawHtml(valType: ColType, ptr: boolean): boolean {
     return RAW_HTML_VALUE_TYPES.has(valType);
 }
 
-function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: string): string {
+function mkFieldRow(r: DecodedField, bs: number, bc: number, ctx: StructRenderContext, displayName?: string): string {
     const ptr = r.isPointer === true;
     const valKey = fieldValueKey(r, bs);
     const t = valueTypeForRow(r, valKey);
@@ -1975,6 +1975,7 @@ function mkFieldRow(r: DecodedField, bs: number, bc: number, displayName?: strin
     return (
         `<div class="si-field${fieldRowClasses(r.hasData, ptr)}" ` +
         `data-byte-start="${bs}" data-byte-cnt="${bc}" data-val-key="${esc(valKey)}"` +
+        sourceContextDataAttrs(ctx) +
         bitFieldDataAttrs(r) +
         `>` +
         `<span class="si-f-off">${offsetLabel}</span>` +
@@ -2432,13 +2433,13 @@ function relativeStructFieldPath(fieldName: string, structPrefix: string): strin
 function leafRowsHtml(rows: DecodedField[], ctx: StructRenderContext): string {
     const labels = disambiguateLeafNames(rows.map(r => leafName(r.fieldName)));
     return rows.map((row, idx) =>
-        mkFieldRow(row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), labels[idx])
+        mkFieldRow(row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), ctx, labels[idx])
     ).join('');
 }
 
 function indexedRowsHtml(rows: DecodedField[], ctx: StructRenderContext, baseName: string): string {
     return rows.map(row =>
-        mkFieldRow(row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), indexOnlyName(row.fieldName, baseName))
+        mkFieldRow(row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), ctx, indexOnlyName(row.fieldName, baseName))
     ).join('');
 }
 
@@ -2531,6 +2532,10 @@ type StructRenderContext = {
     keyPrefix: string;
     pointerDepth: number;
 };
+
+function sourceContextDataAttrs(ctx: StructRenderContext): string {
+    return ` data-source-struct-id="${esc(ctx.def.id)}" data-source-base-addr="${ctx.baseAddr}"`;
+}
 type RenderBodyGroup = {
     rows: DecodedField[];
     baseName: string;
@@ -2829,7 +2834,7 @@ function structPointerHeaderHtml(
     const storageStart = ctx.baseAddr + row.byteOffset;
     const valKey = fieldValueKey(row, storageStart);
     return (
-        structPointerHeaderOpenTag(row, target, key, storageStart, valKey) +
+        structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         compositeHeaderPrefixHtml(isOpen, row.byteOffset) +
         structPointerExpandButtonHtml(target, isOpen, canExpand) +
         structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
@@ -2838,6 +2843,7 @@ function structPointerHeaderHtml(
 }
 
 function structPointerHeaderOpenTag(
+    ctx: StructRenderContext,
     row: DecodedField,
     target: StructPointerDerefTarget,
     key: string,
@@ -2847,7 +2853,9 @@ function structPointerHeaderOpenTag(
     const byteStart = target.addr ?? storageStart;
     const byteCount = target.ok ? target.byteCount : decodedRowByteCount(row);
     return `<div class="si-arr-grp-hdr si-ptr-hdr si-ptr-field" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}" ` +
-        `data-offset-label="${offsetLabel(row.byteOffset)}" data-pointer-storage-start="${storageStart}" data-val-key="${esc(valKey)}" data-arr-key="${esc(key)}">`;
+        `data-offset-label="${offsetLabel(row.byteOffset)}" data-pointer-storage-start="${storageStart}" data-val-key="${esc(valKey)}"` +
+        sourceContextDataAttrs(ctx) +
+        ` data-arr-key="${esc(key)}">`;
 }
 
 function structPointerExpandButtonHtml(target: StructPointerDerefTarget, isOpen: boolean, canExpand: boolean): string {
@@ -3183,7 +3191,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
             card.classList.add('si-card-selected');
             rerender.toMemory();
-            import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(pin.addr); });
+            import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(pin.addr); });
             import('./sidebar.js').then(m => m.updateInspector());
         });
     });
@@ -3250,7 +3258,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             const card = row.closest<HTMLElement>('.si-card');
             const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
             const valKey = row.dataset.valKey ?? scalarValKey(start);
-            followPointerAt(start, pinIdx, valKey);
+            followPointerAt(start, pinIdx, valKey, sourceContextOptions(row));
         });
     });
 
@@ -3268,7 +3276,12 @@ function wireInstanceCards(sec: HTMLElement): void {
             const isBitUnitHeader = row.classList.contains('si-bitunit-hdr');
             // Only allow per-element change, not group, for array elements
             const valKey = row.dataset.valKey ?? scalarValKey(start);
-            showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, { isPointer, isBitUnitHeader, valKey });
+            showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, {
+                isPointer,
+                isBitUnitHeader,
+                valKey,
+                ...sourceContextOptions(row),
+            });
         });
     });
 
@@ -3483,6 +3496,18 @@ function structRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: 
     return rows.filter(row => pin.addr + row.byteOffset === addr);
 }
 
+function sourceRowsAtAddress(
+    addr: number,
+    pinIdx: number | undefined,
+    opts: FieldValMenuOptions,
+    allDefs: StructDef[],
+): DecodedField[] {
+    const source = findCopySourceRows(addr, pinIdx, opts);
+    return source
+        ? source.rows.filter(row => source.baseAddr + row.byteOffset === addr)
+        : structRowsAtAddress(addr, pinIdx, allDefs);
+}
+
 function parseBitValueKey(valKey: string): { bitStart: number; bitWidth: number } | null {
     const parts = valKey.split(':');
     const bitStart = parseDatasetInt(parts[2]);
@@ -3646,7 +3671,7 @@ function selectStructFieldRow(row: HTMLElement, start: number, cnt: number): voi
     _selectedFieldAddr = start;
     _selectedArrKey = null;
     _selectedArrElemKey = null;
-    import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
     import('./sidebar.js').then(m => m.updateInspector());
     renderStructPins();
 }
@@ -3683,7 +3708,7 @@ function jumpPointerHeader(e: MouseEvent, hdr: HTMLElement): void {
     const storageStart = parseInt(hdr.dataset.pointerStorageStart ?? '');
     const pinIdx = pinIndexFromHeader(hdr);
     const valKey = hdr.dataset.valKey ?? scalarValKey(storageStart);
-    followPointerAt(storageStart, pinIdx, valKey);
+    followPointerAt(storageStart, pinIdx, valKey, sourceContextOptions(hdr));
 }
 
 function arrayGroupSeparatorRows(grp: HTMLElement): HTMLElement[] {
@@ -3711,7 +3736,11 @@ function openPointerHeaderValueMenu(ev: MouseEvent, hdr: HTMLElement): void {
     if (isNaN(storageStart)) { return; }
     const pinIdx = pinIndexFromHeader(hdr);
     const valKey = hdr.dataset.valKey ?? scalarValKey(storageStart);
-    showFieldValMenu(ev.clientX, ev.clientY, storageStart, undefined, pinIdx, { isPointer: true, valKey });
+    showFieldValMenu(ev.clientX, ev.clientY, storageStart, undefined, pinIdx, {
+        isPointer: true,
+        valKey,
+        ...sourceContextOptions(hdr),
+    });
 }
 
 function directArrayHeaderValueRows(hdr: HTMLElement): HTMLElement[] {
@@ -3757,12 +3786,26 @@ function pinIndexFromHeader(hdr: HTMLElement): number {
     return card ? parseInt(card.dataset.idx!) : -1;
 }
 
+function sourceContextOptions(el: HTMLElement): Pick<FieldValMenuOptions, 'sourceStructId' | 'sourceBaseAddr'> {
+    const sourceStructId = el.dataset.sourceStructId;
+    const sourceBaseAddr = parseOptionalInt(el.dataset.sourceBaseAddr);
+    return sourceStructId && sourceBaseAddr !== undefined ? { sourceStructId, sourceBaseAddr } : {};
+}
+
+function parseOptionalInt(raw: string | undefined): number | undefined {
+    if (raw === undefined) { return undefined; }
+    const parsed = parseInt(raw);
+    return isNaN(parsed) ? undefined : parsed;
+}
+
 type FieldValMenuOptions = {
     isPointer?: boolean;
     isArrayHeader?: boolean;
     isBitUnitHeader?: boolean;
     valKey?: string;
     keyList?: string[];
+    sourceStructId?: string;
+    sourceBaseAddr?: number;
 };
 
 type FieldValMenuContext = {
@@ -3805,7 +3848,7 @@ function createFieldValMenuContext(
     opts: FieldValMenuOptions,
 ): FieldValMenuContext {
     const allDefs = allStructs(S.structs);
-    const findRowsAt = (addr: number): DecodedField[] => structRowsAtAddress(addr, pinIdx, allDefs);
+    const findRowsAt = (addr: number): DecodedField[] => sourceRowsAtAddress(addr, pinIdx, opts, allDefs);
     const findFieldAt = (addr: number): DecodedField | null => findRowsAt(addr)[0] ?? null;
     const sampleField = findFieldAt(sampleAddress(bs, bsList));
     const key = opts.valKey ?? scalarValKey(bs);
@@ -3996,13 +4039,14 @@ function handlePointerMenuCommand(
     copyPointerFieldValue(ctx);
 }
 
-type PointerMenuSource = { pin: StructPin; row: DecodedField };
+type CopySourceRows = { pin: StructPin; rows: DecodedField[]; structId: string; baseAddr: number };
+type PointerMenuSource = { pin: StructPin; row: DecodedField; sourceStructId: string; sourceBaseAddr: number };
 
 function pointerMenuSource(ctx: FieldValMenuContext): PointerMenuSource | null {
-    const source = findCopySourceRows(ctx.bs, ctx.pinIdx);
+    const source = findCopySourceRows(ctx.bs, ctx.pinIdx, ctx.opts);
     if (!source) { return null; }
-    const row = findFieldForValueKey(source.rows, ctx.bs - source.pin.addr, ctx.opts.valKey);
-    return row ? { pin: source.pin, row } : null;
+    const row = findFieldForValueKey(source.rows, ctx.bs - source.baseAddr, ctx.opts.valKey);
+    return row ? { pin: source.pin, row, sourceStructId: source.structId, sourceBaseAddr: source.baseAddr } : null;
 }
 
 function pointerMenuField(ctx: FieldValMenuContext): DecodedField | null {
@@ -4024,10 +4068,10 @@ const POINTER_FOLLOW_GUARDS: PointerFollowGuard[] = [
     row => row?.pointerValue !== undefined && getByte(row.pointerValue) === undefined ? 'unmapped' : null,
 ];
 
-function followPointerAt(byteStart: number, pinIdx: number, valKey: string): void {
-    const source = findCopySourceRows(byteStart, pinIdx);
+function followPointerAt(byteStart: number, pinIdx: number, valKey: string, opts: FieldValMenuOptions = {}): void {
+    const source = findCopySourceRows(byteStart, pinIdx, opts);
     if (!source) { return; }
-    const row = findFieldForValueKey(source.rows, byteStart - source.pin.addr, valKey);
+    const row = findFieldForValueKey(source.rows, byteStart - source.baseAddr, valKey);
     followPointerRow(row);
 }
 
@@ -4153,9 +4197,9 @@ function makeStructPointerSource(source: PointerMenuSource, targetAddress: numbe
     return {
         sourcePinId: source.pin.id,
         sourcePinName: source.pin.name,
-        sourceStructId: source.pin.structId,
+        sourceStructId: source.sourceStructId,
         sourceFieldPath: source.row.fieldName,
-        pointerStorageAddress: source.pin.addr + source.row.byteOffset,
+        pointerStorageAddress: source.sourceBaseAddr + source.row.byteOffset,
         targetAddress,
     };
 }
@@ -4183,7 +4227,7 @@ function selectPointerTarget(addr: number, byteCount: number): void {
     S.selStart = addr;
     S.selEnd = addr + Math.max(1, byteCount) - 1;
     rerender.toMemory();
-    import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(addr); });
+    import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(addr); });
     import('./sidebar.js').then(m => m.updateInspector());
 }
 
@@ -4227,11 +4271,11 @@ function handleScalarValueMenuCommand(cmd: string, ctx: FieldValMenuContext): vo
 }
 
 function copyScalarFieldValue(type: ColType, ctx: FieldValMenuContext): void {
-    const source = findCopySourceRows(ctx.bs, ctx.pinIdx);
+    const source = findCopySourceRows(ctx.bs, ctx.pinIdx, ctx.opts);
     if (!source) { hideFieldValMenu(); return; }
     const text = ctx.bsList && ctx.bsList.length > 0
-        ? copyListText(ctx.bsList, ctx.opts.keyList, source.rows, source.pin.addr, type)
-        : copySingleText(ctx.bs, ctx.opts.valKey, source.rows, source.pin.addr, type);
+        ? copyListText(ctx.bsList, ctx.opts.keyList, source.rows, source.baseAddr, type)
+        : copySingleText(ctx.bs, ctx.opts.valKey, source.rows, source.baseAddr, type);
     copyTextToClipboard(text);
     hideFieldValMenu();
 }
@@ -4269,13 +4313,48 @@ function findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructD
     });
 }
 
-function findCopySourceRows(bs: number, pinIdx: number | undefined): { pin: StructPin; rows: DecodedField[] } | undefined {
+function findCopySourceRows(bs: number, pinIdx: number | undefined, opts: FieldValMenuOptions = {}): CopySourceRows | undefined {
+    const explicit = findExplicitCopySourceRows(pinIdx, opts);
+    if (explicit) { return explicit; }
     const all = allStructs(S.structs);
     const pin = findCopySourcePin(bs, pinIdx, all);
     if (!pin) { return undefined; }
     const def = all.find(d => d.id === pin.structId);
     if (!def) { return undefined; }
-    return { pin, rows: decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation, S.structs) };
+    return {
+        pin,
+        rows: decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation, S.structs),
+        structId: def.id,
+        baseAddr: pin.addr,
+    };
+}
+
+function findExplicitCopySourceRows(pinIdx: number | undefined, opts: FieldValMenuOptions): CopySourceRows | undefined {
+    const context = explicitSourceContext(opts);
+    if (!context) { return undefined; }
+    const pin = copySourcePinFromIndex(pinIdx);
+    const def = structDefById(context.structId);
+    if (!pin || !def) { return undefined; }
+    return {
+        pin,
+        rows: decodeStruct(def, context.baseAddr, getByte, S.endian, S.bitFieldAllocation, S.structs),
+        structId: def.id,
+        baseAddr: context.baseAddr,
+    };
+}
+
+function explicitSourceContext(opts: FieldValMenuOptions): { structId: string; baseAddr: number } | undefined {
+    return opts.sourceStructId && typeof opts.sourceBaseAddr === 'number'
+        ? { structId: opts.sourceStructId, baseAddr: opts.sourceBaseAddr }
+        : undefined;
+}
+
+function copySourcePinFromIndex(pinIdx: number | undefined): StructPin | undefined {
+    return typeof pinIdx === 'number' && pinIdx >= 0 ? S.structPins[pinIdx] : undefined;
+}
+
+function structDefById(structId: string): StructDef | undefined {
+    return allStructs(S.structs).find(d => d.id === structId);
 }
 
 function copyTextToClipboard(text: string): void {
@@ -4354,7 +4433,7 @@ function selectStructRange(el: HTMLElement, start: number, count: number): void 
     S.selStart = start;
     S.selEnd = start + count - 1;
     el.classList.add('si-selected');
-    import('./memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
     import('./sidebar.js').then(m => m.updateInspector());
 }
 

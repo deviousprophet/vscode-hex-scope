@@ -1,5 +1,5 @@
-import { initFlatBytes } from '../webview/data';
-import { S } from '../webview/state';
+import { initFlatBytes } from '../../webview/data';
+import { S } from '../../webview/state';
 
 export function setBytesInSegment(baseAddr: number, bytes: number[]): void {
     S.parseResult = {
