@@ -10,7 +10,7 @@ import { rerender } from '../render';
 import { getByte }  from '../data';
 import {
     FIELD_TYPES,
-    fieldByteSize, structByteSize, decodeStruct, allStructs, resolveStructFieldByPath,
+    fieldByteSize, structByteSize, decodeField, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
     normalizeStructField,
 } from '../../core/struct-codec.js';
@@ -2875,7 +2875,23 @@ function pointerChildSummaryForResolvedTarget(
     expandable: { ok: boolean; reason: string },
 ): string {
     if (target.def) { return row.pointerTargetStructName ?? target.def.name; }
+    const scalarSummary = scalarPointerTargetSummary(row, target.addr);
+    if (scalarSummary !== null) { return scalarSummary; }
     return expandable.ok ? pointerTargetTypeLabel(row, false) : expandable.reason;
+}
+
+function scalarPointerTargetSummary(row: DecodedField, addr: number): string | null {
+    const targetType = row.pointerTargetType;
+    if (targetType === undefined || targetType === 'struct') { return null; }
+    const size = fieldByteSize(targetType);
+    const bytes: number[] = [];
+    for (let offset = 0; offset < size; offset++) {
+        const value = getByte(addr + offset);
+        if (value === undefined) { return '??'; }
+        bytes.push(value);
+    }
+    const decoded = decodeField(bytes, targetType, S.endian);
+    return decoded === '' ? pointerTargetTypeLabel(row, false) : decoded;
 }
 
 type PointerDerefTarget =
@@ -2932,7 +2948,7 @@ function structPointerHeaderHtml(
     const valKey = fieldValueKey(row, storageStart);
     return (
         structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
-        compositeHeaderPrefixHtml(isOpen, row.byteOffset, ctx.hideOffsets) +
+        compositeHeaderPrefixHtml(false, row.byteOffset, ctx.hideOffsets) +
         `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
         structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`

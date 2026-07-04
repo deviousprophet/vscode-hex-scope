@@ -956,6 +956,43 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
     });
 
+    test('expanded struct pointer header keeps its offset visible', async () => {
+        const header: StructDef = {
+            id: 'header_offset_visible',
+            name: 'HeaderOffsetVisible',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_offset_visible',
+            name: 'ParentOffsetVisible',
+            packed: true,
+            fields: [
+                { name: 'prefix', type: 'uint8', count: 1 },
+                { name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[1] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_offset_visible', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(headerRow, 'struct pointer header should render');
+        assert.strictEqual(headerRow!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+001', 'collapsed pointer header should show storage offset');
+
+        const expand = headerRow!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer expand button should render');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandedHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(expandedHeader, 'expanded pointer header should render');
+        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+001', 'expanded pointer header should keep its offset visible');
+    });
+
     test('nested inline struct pointer uses inline source for jump and create', async () => {
         const leaf: StructDef = {
             id: 'leaf_inline_ptr',
