@@ -90,9 +90,19 @@ export interface StructDef {
 }
 
 /** A saved struct overlay instance: one struct definition applied to one address with a user label. */
+export interface StructPointerSource {
+    sourcePinId: string;
+    sourcePinName: string;
+    sourceStructId: string;
+    sourceFieldPath: string;
+    pointerStorageAddress: number;
+    targetAddress: number;
+}
+
 export interface StructPin {
     id: string;
     structId: string;  // references StructDef.id
     addr: number;      // base address
     name: string;      // user-provided label
+    pointerSources?: StructPointerSource[];
 }

@@ -99,6 +99,60 @@ suite('struct UI array header summary', () => {
         return writes;
     }
 
+    function setupStructPointerFixture(ids: { header: string; parent: string; pin: string }): StructDef {
+        const header: StructDef = {
+            id: ids.header,
+            name: 'HeaderCreate',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: ids.parent,
+            name: 'ParentCreate',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: ids.pin, structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+        return header;
+    }
+
+    function triggerCreateStructInstance(dom: JSDOM, message: string): void {
+        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(headerRow, message);
+        headerRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
+        assert.ok(create, 'create struct instance command should be enabled');
+        create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    }
+
+    function pinsForTarget(structId: string, addr: number): StructPin[] {
+        const matches: StructPin[] = [];
+        for (const pin of S.structPins) {
+            if (pin.structId === structId && pin.addr === addr) { matches.push(pin); }
+        }
+        return matches;
+    }
+
+    function assertPointerCreateMetadata(pin: StructPin): void {
+        assert.strictEqual(pin.name, 'parentInst.hdr @00000020');
+        const source = pin.pointerSources?.[0];
+        assert.ok(source, 'created pin should store pointer source metadata');
+        assert.strictEqual(source!.sourcePinId, 'pin_parent_create');
+        assert.strictEqual(source!.sourceFieldPath, 'hdr');
+        assert.strictEqual(source!.pointerStorageAddress, 0);
+        assert.strictEqual(elementText(document.querySelector('.si-csource')), 'from parentInst.hdr @0x00000000');
+    }
+
+    function assertSinglePointerTarget(structId: string): StructPin {
+        const targetPins = pinsForTarget(structId, 0x20);
+        assert.strictEqual(targetPins.length, 1, 'create should add target struct pin once');
+        return targetPins[0];
+    }
+
     test('uses declared struct type and element count for nested struct array header', async () => {
         const child: StructDef = {
             id: 'child',
@@ -782,8 +836,8 @@ suite('struct UI array header summary', () => {
 
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
-        assert.ok(disabledFollow?.textContent?.includes('Follow Pointer'), 'follow item should be visible but disabled');
-        assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled follow should explain unmapped target');
+        assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
+        assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
     });
 
     test('following scalar pointer selects target byte span', async () => {
@@ -808,15 +862,15 @@ suite('struct UI array header summary', () => {
         const row = document.querySelector<HTMLElement>('.si-field.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const follow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="follow-ptr"]');
-        assert.ok(follow, 'follow pointer command should be enabled');
-        follow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
+        assert.ok(jump, 'jump pointer command should be enabled');
+        jump!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         assert.strictEqual(S.selStart, 0x20);
         assert.strictEqual(S.selEnd, 0x21);
     });
 
-    test('following struct pointer creates or reuses destination pin', async () => {
+    test('struct pointer click jumps without creating destination pin', async () => {
         const header: StructDef = {
             id: 'header_follow',
             name: 'HeaderFollow',
@@ -837,17 +891,60 @@ suite('struct UI array header summary', () => {
 
         await renderPinsAndExpandCard();
 
-        const value = document.querySelector<HTMLElement>('.si-field.si-ptr-field .si-f-val');
+        const value = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-ptr');
         assert.ok(value, 'struct pointer value should render');
         value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const targetPins = S.structPins.filter(pin => pin.structId === header.id && pin.addr === 0x20);
-        assert.strictEqual(targetPins.length, 1, 'follow should create target struct pin once');
+        assert.strictEqual(targetPins.length, 0, 'jump should not create target struct pin');
         assert.strictEqual(S.selStart, 0x20);
         assert.strictEqual(S.selEnd, 0x20);
+    });
 
-        value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        assert.strictEqual(S.structPins.filter(pin => pin.structId === header.id && pin.addr === 0x20).length, 1, 'follow should reuse existing target pin');
+    test('struct pointer menu creates or reuses destination pin with source metadata', async () => {
+        const header = setupStructPointerFixture({ header: 'header_create', parent: 'parent_create', pin: 'pin_parent_create' });
+
+        await renderPinsAndExpandCard();
+
+        triggerCreateStructInstance(dom, 'struct pointer header should render');
+
+        const targetPin = assertSinglePointerTarget(header.id);
+        assertPointerCreateMetadata(targetPin);
+
+        triggerCreateStructInstance(dom, 'struct pointer header should render after create');
+        assert.strictEqual(pinsForTarget(header.id, 0x20).length, 1, 'create should reuse existing target pin');
+        assert.strictEqual(targetPin.pointerSources?.length, 1, 'duplicate source metadata should not be added');
+    });
+
+    test('expanding struct pointer decodes target fields inline', async () => {
+        const header: StructDef = {
+            id: 'header_inline',
+            name: 'HeaderInline',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_inline',
+            name: 'ParentInline',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_inline', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer should render expandable row');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const child = document.querySelector<HTMLElement>('.si-ptr-hdr + .si-arr-grp-body .si-field');
+        assert.ok(child, 'expanded pointer should render target child rows inline');
+        assert.strictEqual(child!.dataset.byteStart, '32', 'inline child byte start should use target address');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
     });
 
     test('defaults bit-field parent binary to full storage range', async () => {

@@ -463,6 +463,11 @@
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
+.si-csource {
+    font-size: 9px; color: var(--muted-fg);
+    font-family: var(--font-editor); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
 .si-del-btn { display: none; } /* superseded by .act-btn — kept to avoid selector errors */
 
 /* Action buttons group (edit + delete) at top-right of card */

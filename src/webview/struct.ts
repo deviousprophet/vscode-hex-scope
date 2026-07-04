@@ -15,7 +15,7 @@ import {
     normalizeStructField,
 } from '../core/struct-codec.js';
 import type { DecodedField } from '../core/struct-codec.js';
-import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../core/types';
+import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin, StructPointerSource } from '../core/types';
 
 // ── Module state ──────────────────────────────────────────────────
 
@@ -27,6 +27,7 @@ const _expanded = new Set<string>();
 const _expandedArrayFields = new Set<string>();
 /** Nested element groups that are expanded. Key: `${pinId}::${baseName}::${idx}`. Collapsed by default. */
 const _expandedArrayElements = new Set<string>();
+const MAX_INLINE_POINTER_HOPS = 2;
 
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
@@ -2428,16 +2429,16 @@ function relativeStructFieldPath(fieldName: string, structPrefix: string): strin
     return fieldName.startsWith(structPrefix) ? fieldName.slice(structPrefix.length) : fieldName;
 }
 
-function leafRowsHtml(rows: DecodedField[], baseAddr: number): string {
+function leafRowsHtml(rows: DecodedField[], ctx: StructRenderContext): string {
     const labels = disambiguateLeafNames(rows.map(r => leafName(r.fieldName)));
     return rows.map((row, idx) =>
-        mkFieldRow(row, baseAddr + row.byteOffset, decodedRowByteCount(row), labels[idx])
+        mkFieldRow(row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), labels[idx])
     ).join('');
 }
 
-function indexedRowsHtml(rows: DecodedField[], baseAddr: number, baseName: string): string {
+function indexedRowsHtml(rows: DecodedField[], ctx: StructRenderContext, baseName: string): string {
     return rows.map(row =>
-        mkFieldRow(row, baseAddr + row.byteOffset, decodedRowByteCount(row), indexOnlyName(row.fieldName, baseName))
+        mkFieldRow(row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), indexOnlyName(row.fieldName, baseName))
     ).join('');
 }
 
@@ -2523,7 +2524,13 @@ function syncClosedCompositeHeaderOffset(
     }
 }
 
-type StructRenderContext = { def: StructDef; pin: StructPin };
+type StructRenderContext = {
+    def: StructDef;
+    pin: StructPin;
+    baseAddr: number;
+    keyPrefix: string;
+    pointerDepth: number;
+};
 type RenderBodyGroup = {
     rows: DecodedField[];
     baseName: string;
@@ -2554,17 +2561,23 @@ const BODY_RULES: ReadonlyArray<BodyRule> = [
     ],
     [
         group => !group.info.isStruct && group.info.isArray && !group.info.isString,
-        (ctx, group) => indexedRowsHtml(group.rows, ctx.pin.addr, group.baseName),
+        (ctx, group) => indexedRowsHtml(group.rows, ctx, group.baseName),
     ],
 ];
 
 function renderStructBody(def: StructDef, pin: StructPin): string {
     const rows = decodeStruct(def, pin.addr, getByte, S.endian, S.bitFieldAllocation, S.structs);
-    return `<div class="si-fields">${renderStructFieldGroups({ def, pin }, rows)}</div>`;
+    return `<div class="si-fields">${renderStructFieldGroups({
+        def,
+        pin,
+        baseAddr: pin.addr,
+        keyPrefix: pin.id,
+        pointerDepth: 0,
+    }, rows)}</div>`;
 }
 
 function renderBitUnitLeafRows(unitRows: DecodedField[], ctx: StructRenderContext): string {
-    return leafRowsHtml(unitRows, ctx.pin.addr);
+    return leafRowsHtml(unitRows, ctx);
 }
 
 function renderBitUnitArrayElements(
@@ -2576,7 +2589,7 @@ function renderBitUnitArrayElements(
     const arrayBase = bitUnitArrayBaseName(baseName);
     return groupRowsByArrayIndex(unitRows, arrayBase).map(element => {
         const first = element.rows[0];
-        const elementByteStart = ctx.pin.addr + first.byteOffset;
+        const elementByteStart = ctx.baseAddr + first.byteOffset;
         const elementByteCnt = decodedRowByteCount(first);
         const elementKey = `${parentKey}::${element.idx}`;
         const isElementOpen = _expandedArrayElements.has(elementKey);
@@ -2596,13 +2609,16 @@ function renderStructChildren(ctx: StructRenderContext, structRows: DecodedField
 
 function renderNestedStructGroup(ctx: StructRenderContext, ng: NestedFieldGroup, parentKey: string): string {
     const info = describeStructGroup(ctx.def, ng.rows, ng.fullBase);
+    if (isStructPointerRows(ng.rows)) {
+        return renderStructPointerRows(ctx, ng.rows, parentKey, ng.baseRel);
+    }
     if (!info.isComposite) {
-        return leafRowsHtml(ng.rows, ctx.pin.addr);
+        return leafRowsHtml(ng.rows, ctx);
     }
 
     const nestedKey = `${parentKey}::${ng.baseRel}`;
     const nestedOpen = _expandedArrayFields.has(nestedKey);
-    const nestedStart = ctx.pin.addr + ng.rows[0].byteOffset;
+    const nestedStart = ctx.baseAddr + ng.rows[0].byteOffset;
     const nestedBodyHtml = renderNestedStructBody(ctx, {
         rows: ng.rows,
         baseName: ng.fullBase,
@@ -2637,7 +2653,7 @@ function renderNestedStructBody(
     group: RenderBodyGroup,
 ): string {
     const rule = BODY_RULES.find(([matches]) => matches(group));
-    return rule ? rule[1](ctx, group) : leafRowsHtml(group.rows, ctx.pin.addr);
+    return rule ? rule[1](ctx, group) : leafRowsHtml(group.rows, ctx);
 }
 
 function renderStructArrayElements(
@@ -2659,7 +2675,7 @@ function renderStructArrayElements(
         return structArrayElementHtml(
             element,
             elementKey,
-            ctx.pin.addr,
+            ctx.baseAddr,
             sumDecodedRowBytes(element.rows),
             isElementOpen,
             structName,
@@ -2675,13 +2691,16 @@ function renderStructFieldGroups(ctx: StructRenderContext, rows: DecodedField[])
 function renderStructFieldGroup(ctx: StructRenderContext, g: FieldGroup): string {
     const r0 = g.rows[0];
     const info = describeStructGroup(ctx.def, g.rows, g.baseName);
+    if (isStructPointerRows(g.rows)) {
+        return renderStructPointerRows(ctx, g.rows, ctx.keyPrefix, g.baseName);
+    }
     if (!info.isComposite) {
-        return leafRowsHtml(g.rows, ctx.pin.addr);
+        return leafRowsHtml(g.rows, ctx);
     }
 
-    const key = `${ctx.pin.id}::${g.baseName}`;
+    const key = `${ctx.keyPrefix}::${g.baseName}`;
     const isOpen = _expandedArrayFields.has(key);
-    const byteStart = ctx.pin.addr + r0.byteOffset;
+    const byteStart = ctx.baseAddr + r0.byteOffset;
     const elHtml = renderStructFieldBody(ctx, {
         rows: g.rows,
         baseName: g.baseName,
@@ -2742,6 +2761,143 @@ function compositeHeaderHtml(
         `</span>` +
         `</div>`
     );
+}
+
+function isStructPointerRows(rows: DecodedField[]): boolean {
+    return rows.length > 0 && rows.every(row => row.isPointer === true && row.pointerTargetType === 'struct');
+}
+
+function renderStructPointerRows(
+    ctx: StructRenderContext,
+    rows: DecodedField[],
+    parentKey: string,
+    baseName: string,
+): string {
+    return rows.map(row => {
+        const name = rows.length === 1 ? groupHeaderName(baseName) : indexOnlyName(row.fieldName, baseName);
+        return renderStructPointerGroup(ctx, row, `${parentKey}::ptr::${row.fieldName}`, name);
+    }).join('');
+}
+
+function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, key: string, name: string): string {
+    const target = structPointerDerefTarget(row);
+    const canExpand = canExpandStructPointer(ctx, target);
+    const isOpen = canExpand && _expandedArrayFields.has(key);
+    return compositeGroupHtml(
+        key,
+        isOpen,
+        structPointerHeaderHtml(ctx, row, key, name, target, isOpen, canExpand),
+        structPointerBodyHtml(ctx, key, target, canExpand),
+    );
+}
+
+function canExpandStructPointer(ctx: StructRenderContext, target: StructPointerDerefTarget): boolean {
+    return target.ok && ctx.pointerDepth < MAX_INLINE_POINTER_HOPS;
+}
+
+function structPointerBodyHtml(
+    ctx: StructRenderContext,
+    key: string,
+    target: StructPointerDerefTarget,
+    canExpand: boolean,
+): string {
+    return canExpand && target.ok ? renderStructPointerBody(ctx, key, target) : '';
+}
+
+type StructPointerDerefTarget =
+    | { ok: true; addr: number; byteCount: number; def: StructDef }
+    | { ok: false; reason: string; addr: number | null; byteCount: number };
+
+function structPointerDerefTarget(row: DecodedField): StructPointerDerefTarget {
+    const follow = pointerFollowState(row);
+    const addr = typeof row.pointerValue === 'number' ? row.pointerValue : null;
+    if (!follow.ok) { return { ok: false, reason: follow.reason, addr, byteCount: 1 }; }
+    const def = allStructs(S.structs).find(candidate => candidate.id === row.pointerTargetStructId);
+    if (!def) { return { ok: false, reason: 'unknown target', addr, byteCount: 1 }; }
+    return { ok: true, addr: addr!, byteCount: structByteSize(def, S.structs), def };
+}
+
+function structPointerHeaderHtml(
+    ctx: StructRenderContext,
+    row: DecodedField,
+    key: string,
+    name: string,
+    target: StructPointerDerefTarget,
+    isOpen: boolean,
+    canExpand: boolean,
+): string {
+    const storageStart = ctx.baseAddr + row.byteOffset;
+    const valKey = fieldValueKey(row, storageStart);
+    return (
+        structPointerHeaderOpenTag(row, target, key, storageStart, valKey) +
+        compositeHeaderPrefixHtml(isOpen, row.byteOffset) +
+        structPointerExpandButtonHtml(target, isOpen, canExpand) +
+        structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
+        `</div>`
+    );
+}
+
+function structPointerHeaderOpenTag(
+    row: DecodedField,
+    target: StructPointerDerefTarget,
+    key: string,
+    storageStart: number,
+    valKey: string,
+): string {
+    const byteStart = target.addr ?? storageStart;
+    const byteCount = target.ok ? target.byteCount : decodedRowByteCount(row);
+    return `<div class="si-arr-grp-hdr si-ptr-hdr si-ptr-field" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}" ` +
+        `data-offset-label="${offsetLabel(row.byteOffset)}" data-pointer-storage-start="${storageStart}" data-val-key="${esc(valKey)}" data-arr-key="${esc(key)}">`;
+}
+
+function structPointerExpandButtonHtml(target: StructPointerDerefTarget, isOpen: boolean, canExpand: boolean): string {
+    const disabled = canExpand ? '' : ' disabled';
+    return `<button class="si-arr-exp-btn"${disabled} title="${esc(structPointerExpandTitle(target, canExpand))}">${isOpen ? '▾' : '▸'}</button>`;
+}
+
+function structPointerExpandTitle(target: StructPointerDerefTarget, canExpand: boolean): string {
+    if (canExpand) { return 'Expand'; }
+    return target.ok ? 'max depth' : target.reason;
+}
+
+function structPointerHeaderBodyHtml(
+    row: DecodedField,
+    target: StructPointerDerefTarget,
+    name: string,
+    storageStart: number,
+    valKey: string,
+): string {
+    return `<span class="si-f-body">` +
+        `<span class="si-f-name">${esc(name)}</span>` +
+        `<span class="si-f-lead"></span>` +
+        `<span class="si-arr-addr si-f-ptr" data-val-type="hex" data-bs="${storageStart}" data-val-key="${esc(valKey)}">${pointerValueDisplayHtml(row, target)} ${esc(structPointerSummary(row, target))}</span>` +
+        `</span>`;
+}
+
+function structPointerSummary(row: DecodedField, target: StructPointerDerefTarget): string {
+    if (!target.ok) { return target.reason; }
+    return row.pointerTargetStructName ?? target.def.name;
+}
+
+function pointerValueDisplayHtml(row: DecodedField, target: StructPointerDerefTarget): string {
+    const addr = target.addr ?? 0;
+    const note = target.ok || target.reason === 'null' ? '' : ` <span class="si-f-ptr-note">(${esc(target.reason)})</span>`;
+    return `<span class="si-f-ptr-sym">→</span> ` + formatHexHtml(formatHex(addr, 8)) + note;
+}
+
+function renderStructPointerBody(
+    ctx: StructRenderContext,
+    key: string,
+    target: Extract<StructPointerDerefTarget, { ok: true }>,
+): string {
+    const rows = decodeStruct(target.def, target.addr, getByte, S.endian, S.bitFieldAllocation, S.structs);
+    return renderStructFieldGroups({
+        def: target.def,
+        pin: ctx.pin,
+        baseAddr: target.addr,
+        keyPrefix: key,
+        pointerDepth: ctx.pointerDepth + 1,
+    }, rows);
 }
 
 function renderStructFieldBody(
@@ -2828,6 +2984,7 @@ function instanceHeaderHtml(
         `data-pin-id="${esc(pin.id)}" title="View type definition">{&nbsp;}</button>` +
         `<span class="si-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>` +
         `</div>` +
+        pointerSourceSubtitleHtml(pin) +
         `</div>` +
         `<div class="si-card-actions">` +
         instanceActionsHtml(def, pin, index) +
@@ -2957,15 +3114,21 @@ function wireInstanceCards(sec: HTMLElement): void {
         const start  = parseInt(hdr.dataset.byteStart!);
         const cnt    = parseInt(hdr.dataset.byteCnt!);
         const isBitUnitHdr = hdr.classList.contains('si-bitunit-hdr');
+        const isPointerHdr = hdr.classList.contains('si-ptr-hdr');
 
         expBtn.addEventListener('click', e => {
             e.stopPropagation();
+            if ((expBtn as HTMLButtonElement).disabled) { return; }
             toggleCompositeGroup(hdr, expBtn, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', _expandedArrayFields);
         });
 
         wireStructHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
+            if (isPointerHdr) {
+                jumpPointerHeader(e, hdr);
+                return;
+            }
             selectArrayGroupHeader(e, hdr, start, cnt, isBitUnitHdr);
         });
     });
@@ -3113,6 +3276,10 @@ function wireInstanceCards(sec: HTMLElement): void {
     // entire group (child elements).
     sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
         hdr.addEventListener('contextmenu', ev => {
+            if (hdr.classList.contains('si-ptr-hdr')) {
+                openPointerHeaderValueMenu(ev, hdr);
+                return;
+            }
             openArrayHeaderValueMenu(ev, hdr);
         });
     });
@@ -3511,6 +3678,14 @@ function hasInvalidRange(start: number, cnt: number): boolean {
     return isNaN(start) || isNaN(cnt);
 }
 
+function jumpPointerHeader(e: MouseEvent, hdr: HTMLElement): void {
+    if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
+    const storageStart = parseInt(hdr.dataset.pointerStorageStart ?? '');
+    const pinIdx = pinIndexFromHeader(hdr);
+    const valKey = hdr.dataset.valKey ?? scalarValKey(storageStart);
+    followPointerAt(storageStart, pinIdx, valKey);
+}
+
 function arrayGroupSeparatorRows(grp: HTMLElement): HTMLElement[] {
     const elementHeaders = Array.from(grp.querySelectorAll<HTMLElement>('.si-arr-el-hdr'));
     return elementHeaders.length > 0 ? elementHeaders : Array.from(grp.querySelectorAll<HTMLElement>('.si-field'));
@@ -3527,6 +3702,16 @@ function openArrayHeaderValueMenu(ev: MouseEvent, hdr: HTMLElement): void {
     const keyList = directValueRows.map(rowValueKey);
     const pinIdx = pinIndexFromHeader(hdr);
     showFieldValMenu(ev.clientX, ev.clientY, start, bsList, pinIdx, { isArrayHeader: true, keyList });
+}
+
+function openPointerHeaderValueMenu(ev: MouseEvent, hdr: HTMLElement): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const storageStart = parseInt(hdr.dataset.pointerStorageStart ?? '');
+    if (isNaN(storageStart)) { return; }
+    const pinIdx = pinIndexFromHeader(hdr);
+    const valKey = hdr.dataset.valKey ?? scalarValKey(storageStart);
+    showFieldValMenu(ev.clientX, ev.clientY, storageStart, undefined, pinIdx, { isPointer: true, valKey });
 }
 
 function directArrayHeaderValueRows(hdr: HTMLElement): HTMLElement[] {
@@ -3716,6 +3901,13 @@ function disabledMenuItemHtml(label: string, hint: string): string {
     );
 }
 
+function pointerSourceSubtitleHtml(pin: StructPin): string {
+    const source = pin.pointerSources?.[0];
+    if (!source) { return ''; }
+    const addr = formatHex(source.pointerStorageAddress, 8);
+    return `<div class="si-csource">from ${esc(source.sourcePinName)}.${esc(source.sourceFieldPath)} @${esc(addr)}</div>`;
+}
+
 function menuSubHtml(label: string, id: string, body: string): string {
     return (
         `<div class="ctx-row ctx-has-sub" data-sub="${id}">` +
@@ -3752,33 +3944,69 @@ function showArrayHeaderFieldValMenu(ctx: FieldValMenuContext, x: number, y: num
 }
 
 function showPointerFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
-    const row = pointerMenuField(ctx);
-    const follow = pointerFollowState(row);
-    const followHtml = follow.ok
-        ? menuItemHtml('follow-ptr', 'Follow Pointer')
-        : disabledMenuItemHtml('Follow Pointer', follow.reason);
+    const source = pointerMenuSource(ctx);
+    const row = source?.row ?? null;
     const el = createFieldValMenu(
-        menuItemHtml('copy-hex', 'Copy value') +
-        menuSeparatorHtml() +
-        followHtml,
+        pointerMenuHtml(row, source),
         x,
         y,
     );
-    wireFieldValMenuCommands(el, cmd => {
-        if (cmd === 'follow-ptr') {
-            followPointerRow(row);
-            hideFieldValMenu();
-            return;
-        }
-        copyPointerFieldValue(ctx);
-    });
+    wireFieldValMenuCommands(el, cmd => handlePointerMenuCommand(cmd, ctx, row, source));
     finishFieldValMenu(el);
 }
 
-function pointerMenuField(ctx: FieldValMenuContext): DecodedField | null {
+function pointerMenuHtml(row: DecodedField | null, source: PointerMenuSource | null): string {
+    return menuItemHtml('copy-hex', 'Copy value') +
+        menuSeparatorHtml() +
+        pointerJumpMenuHtml(row) +
+        pointerCreateMenuHtml(source);
+}
+
+function pointerJumpMenuHtml(row: DecodedField | null): string {
+    const jump = pointerFollowState(row);
+    return jump.ok
+        ? menuItemHtml('jump-ptr', 'Jump to Address')
+        : disabledMenuItemHtml('Jump to Address', jump.reason);
+}
+
+function pointerCreateMenuHtml(source: PointerMenuSource | null): string {
+    const create = structPointerCreateState(source);
+    if (create === null) { return ''; }
+    return create.ok
+        ? menuItemHtml('create-struct-ptr', 'Create Struct Instance')
+        : disabledMenuItemHtml('Create Struct Instance', create.reason);
+}
+
+function handlePointerMenuCommand(
+    cmd: string,
+    ctx: FieldValMenuContext,
+    row: DecodedField | null,
+    source: PointerMenuSource | null,
+): void {
+    if (cmd === 'jump-ptr') {
+        followPointerRow(row);
+        hideFieldValMenu();
+        return;
+    }
+    if (cmd === 'create-struct-ptr') {
+        createStructInstanceFromPointer(source);
+        hideFieldValMenu();
+        return;
+    }
+    copyPointerFieldValue(ctx);
+}
+
+type PointerMenuSource = { pin: StructPin; row: DecodedField };
+
+function pointerMenuSource(ctx: FieldValMenuContext): PointerMenuSource | null {
     const source = findCopySourceRows(ctx.bs, ctx.pinIdx);
     if (!source) { return null; }
-    return findFieldForValueKey(source.rows, ctx.bs - source.pin.addr, ctx.opts.valKey);
+    const row = findFieldForValueKey(source.rows, ctx.bs - source.pin.addr, ctx.opts.valKey);
+    return row ? { pin: source.pin, row } : null;
+}
+
+function pointerMenuField(ctx: FieldValMenuContext): DecodedField | null {
+    return pointerMenuSource(ctx)?.row ?? null;
 }
 
 type PointerFollowState = { ok: true } | { ok: false; reason: string };
@@ -3806,10 +4034,6 @@ function followPointerAt(byteStart: number, pinIdx: number, valKey: string): voi
 function followPointerRow(row: DecodedField | null): void {
     const target = pointerFollowTarget(row);
     if (!target) { return; }
-    if (target.structId) {
-        followStructPointer(target.addr, target.structId);
-        return;
-    }
     selectPointerTarget(target.addr, target.byteCount);
 }
 
@@ -3824,34 +4048,135 @@ function buildPointerFollowTarget(row: DecodedField & { pointerValue: number }):
 }
 
 function structPointerFollowTarget(row: DecodedField, addr: number): { addr: number; byteCount: number; structId: string } | null {
-    return row.pointerTargetType === 'struct' && row.pointerTargetStructId
-        ? { addr, byteCount: 1, structId: row.pointerTargetStructId }
-        : null;
+    const def = pointerTargetStructDef(row);
+    if (!def || !row.pointerTargetStructId) { return null; }
+    return { addr, byteCount: structByteSize(def, S.structs), structId: row.pointerTargetStructId };
+}
+
+function pointerTargetStructDef(row: DecodedField): StructDef | undefined {
+    if (row.pointerTargetType !== 'struct' || !row.pointerTargetStructId) { return undefined; }
+    return allStructs(S.structs).find(candidate => candidate.id === row.pointerTargetStructId);
 }
 
 function scalarPointerFollowTarget(row: DecodedField, addr: number): { addr: number; byteCount: number } {
     return { addr, byteCount: Math.max(1, row.pointerTargetByteSize ?? 1) };
 }
 
-function followStructPointer(addr: number, structId: string): void {
-    let pin = S.structPins.find(candidate => candidate.addr === addr && candidate.structId === structId);
-    if (!pin) {
-        const def = allStructs(S.structs).find(candidate => candidate.id === structId);
-        if (!def) { return; }
-        pin = { id: `pin_${Date.now()}`, structId, addr, name: nextFollowPinName(def.name) };
-        S.structPins = [...S.structPins, pin];
-        vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
-    }
-    _expanded.add(pin.id);
-    _selectedPinId = pin.id;
-    S.activeStructAddr = addr;
-    const def = allStructs(S.structs).find(candidate => candidate.id === structId);
-    selectPointerTarget(addr, def ? structByteSize(def, S.structs) : 1);
+type StructPointerCreateState =
+    | { ok: true; def: StructDef; addr: number; structId: string }
+    | { ok: false; reason: string }
+    | null;
+
+function structPointerCreateState(source: PointerMenuSource | null): StructPointerCreateState {
+    const row = source?.row;
+    if (!isStructPointerMenuRow(row)) { return null; }
+    return validStructPointerCreateState(row);
+}
+
+function isStructPointerMenuRow(row: DecodedField | undefined): row is DecodedField {
+    return !!row && row.pointerTargetType === 'struct';
+}
+
+function validStructPointerCreateState(row: DecodedField): Exclude<StructPointerCreateState, null> {
+    const follow = pointerFollowState(row);
+    if (!follow.ok) { return { ok: false, reason: follow.reason }; }
+    return resolvedStructPointerCreateState(row);
+}
+
+function resolvedStructPointerCreateState(row: DecodedField): Exclude<StructPointerCreateState, null> {
+    const structId = row.pointerTargetStructId;
+    const def = pointerTargetStructDef(row);
+    if (!structId || !def || row.pointerValue === undefined) { return { ok: false, reason: 'unknown target' }; }
+    return { ok: true, def, addr: row.pointerValue, structId };
+}
+
+function createStructInstanceFromPointer(source: PointerMenuSource | null): void {
+    const state = structPointerCreateState(source);
+    if (!state?.ok || !source) { return; }
+    const pointerSource = makeStructPointerSource(source, state.addr);
+    const pin = ensurePointerStructPin(source, state, pointerSource);
+    selectCreatedPointerPin(pin, state);
+    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
     renderStructPins();
 }
 
-function nextFollowPinName(base: string): string {
-    return uniqueStructPinName(`${base}_ptr`, n => `${base}_ptr${n}`);
+function ensurePointerStructPin(
+    source: PointerMenuSource,
+    state: Extract<StructPointerCreateState, { ok: true }>,
+    pointerSource: StructPointerSource,
+): StructPin {
+    const pin = S.structPins.find(candidate => candidate.addr === state.addr && candidate.structId === state.structId);
+    if (pin) {
+        addPointerSourceToExistingPin(pin, pointerSource);
+        return pin;
+    }
+    return appendPointerStructPin(source, state, pointerSource);
+}
+
+function appendPointerStructPin(
+    source: PointerMenuSource,
+    state: Extract<StructPointerCreateState, { ok: true }>,
+    pointerSource: StructPointerSource,
+): StructPin {
+    const pin = createPointerStructPin(source, state, pointerSource);
+    S.structPins = [...S.structPins, pin];
+    return pin;
+}
+
+function selectCreatedPointerPin(pin: StructPin, state: Extract<StructPointerCreateState, { ok: true }>): void {
+    _expanded.add(pin.id);
+    _selectedPinId = pin.id;
+    S.activeStructAddr = state.addr;
+    selectPointerTarget(state.addr, structByteSize(state.def, S.structs));
+}
+
+function createPointerStructPin(
+    source: PointerMenuSource,
+    state: Extract<StructPointerCreateState, { ok: true }>,
+    pointerSource: StructPointerSource,
+): StructPin {
+    return {
+        id: `pin_${Date.now()}`,
+        structId: state.structId,
+        addr: state.addr,
+        name: nextPointerStructPinName(source.pin.name, source.row.fieldName, state.addr),
+        pointerSources: [pointerSource],
+    };
+}
+
+function nextPointerStructPinName(sourceName: string, fieldPath: string, targetAddr: number): string {
+    const base = `${sourceName}.${fieldPath} @${targetAddr.toString(16).toUpperCase().padStart(8, '0')}`;
+    return uniqueStructPinName(base, n => `${base}_${n}`);
+}
+
+function makeStructPointerSource(source: PointerMenuSource, targetAddress: number): StructPointerSource {
+    return {
+        sourcePinId: source.pin.id,
+        sourcePinName: source.pin.name,
+        sourceStructId: source.pin.structId,
+        sourceFieldPath: source.row.fieldName,
+        pointerStorageAddress: source.pin.addr + source.row.byteOffset,
+        targetAddress,
+    };
+}
+
+function addPointerSourceToExistingPin(pin: StructPin, source: StructPointerSource): void {
+    if (pin.pointerSources?.some(existing => samePointerSource(existing, source))) { return; }
+    pin.pointerSources = [...(pin.pointerSources ?? []), source];
+}
+
+function samePointerSource(a: StructPointerSource, b: StructPointerSource): boolean {
+    return pointerSourceIdentity(a).every((value, idx) => value === pointerSourceIdentity(b)[idx]);
+}
+
+function pointerSourceIdentity(source: StructPointerSource): Array<string | number> {
+    return [
+        source.sourcePinId,
+        source.sourceStructId,
+        source.sourceFieldPath,
+        source.pointerStorageAddress,
+        source.targetAddress,
+    ];
 }
 
 function selectPointerTarget(addr: number, byteCount: number): void {
@@ -3885,9 +4210,8 @@ function finishFieldValMenu(el: HTMLElement): void {
 }
 
 function copyPointerFieldValue(ctx: FieldValMenuContext): void {
-    const source = findCopySourceRows(ctx.bs, ctx.pinIdx);
-    if (!source) { hideFieldValMenu(); return; }
-    const row = findFieldForValueKey(source.rows, ctx.bs - source.pin.addr, ctx.opts.valKey);
+    const source = pointerMenuSource(ctx);
+    const row = source?.row ?? null;
     copyTextToClipboard(row ? singleLineCopyText(getCopyText(row, 'hex')) : '??');
     hideFieldValMenu();
 }
