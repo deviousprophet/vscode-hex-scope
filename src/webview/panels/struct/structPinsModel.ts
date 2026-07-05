@@ -1,4 +1,4 @@
-import type { StructDef, StructPin, StructPointerSource } from '../../core/types';
+import type { StructDef, StructPin, StructPointerSource } from '../../../core/types';
 
 export type PinIdFactory = () => string;
 
