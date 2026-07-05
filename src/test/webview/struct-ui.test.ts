@@ -134,6 +134,20 @@ suite('struct UI array header summary', () => {
         setBytesInSegment(0, [0x00, 0x00, 0x00, 0x20]);
     }
 
+    function setupNullPointerFixture(): void {
+        const def: StructDef = {
+            id: 'ptr_null',
+            name: 'PtrNull',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_null', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x00, 0x00, 0x00]);
+    }
+
     function assertUnmappedPointerRow(): void {
         const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
@@ -148,8 +162,15 @@ suite('struct UI array header summary', () => {
 
     function assertUnmappedPointerValue(row: HTMLElement): void {
         const value = row.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-        assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
-        assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
+        assert.strictEqual(value, '(unmapped) → 0x20000000', 'unmapped status should lead pointer address for right-edge alignment');
+    }
+
+    function assertNullPointerRow(): void {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'null pointer row should render');
+        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.strictEqual(value, '(null) → 0x00000000', 'null status should be explicit and lead pointer address');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'null pointer should not render an expand button');
     }
 
     function assertUnmappedPointerMenu(dom: JSDOM): void {
@@ -967,6 +988,12 @@ suite('struct UI array header summary', () => {
         await renderPinsAndExpandCard();
         assertUnmappedPointerRow();
         assertUnmappedPointerMenu(dom);
+    });
+
+    test('renders null pointer value with explicit leading status', async () => {
+        setupNullPointerFixture();
+        await renderPinsAndExpandCard();
+        assertNullPointerRow();
     });
 
     test('following scalar pointer selects target byte span', async () => {

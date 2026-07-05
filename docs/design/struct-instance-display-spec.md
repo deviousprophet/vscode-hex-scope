@@ -75,7 +75,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Pointer target preview header should show target identity (`Header @ 0x00000020` or equivalent).
 - Pointer target member rows should show offsets relative to the pointed target base, not relative to the pointer storage field.
 - Pointer storage offset and pointer target offsets must be visually separable so users do not confuse where the pointer is stored with where target data lives.
-- If a pointer target is unmapped, null, missing, or otherwise not followable, the pointer row should render like a normal scalar field row: no expand button, no composite connector, and no child preview. Show the stored address plus a status note on the pointer value instead.
+- If a pointer target is unmapped, null, missing, or otherwise not followable, the pointer row should render like a normal scalar field row: no expand button, no composite connector, and no child preview. Show the status note before the stored address, for example `(unmapped) -> 0x00800000` or `(null) -> 0x00000000`, so address text stays consistently aligned.
 - Pointer target preview rows should not use a generic visible name like `target`; the pointer row already establishes that context.
 - Scalar pointer target preview should be a compact target-value row, not an empty expandable object:
   - Parent row keeps the pointer type (`u32*`) and stored address value (`-> 0x...`).

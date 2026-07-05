@@ -3124,8 +3124,13 @@ function structPointerHeaderBodyHtml(
 
 function pointerValueDisplayHtml(row: DecodedField, target: PointerDerefTarget): string {
     const addr = target.addr ?? 0;
-    const note = target.ok || target.reason === 'null' ? '' : ` <span class="si-f-ptr-note">(${esc(target.reason)})</span>`;
-    return `<span class="si-f-ptr-sym">→</span> ` + formatHexHtml(formatHex(addr, 8)) + note;
+    return pointerStatusPrefixHtml(target) +
+        `<span class="si-f-ptr-sym">→</span> ` +
+        formatHexHtml(formatHex(addr, 8));
+}
+
+function pointerStatusPrefixHtml(target: PointerDerefTarget): string {
+    return target.ok ? '' : `<span class="si-f-ptr-note">(${esc(target.reason)})</span> `;
 }
 
 function structPointerBodyHtml(ctx: StructRenderContext, row: DecodedField, child: PointerChildState): string {
