@@ -120,6 +120,97 @@ suite('struct UI array header summary', () => {
         return header;
     }
 
+    function setupUnmappedPointerFixture(): void {
+        const def: StructDef = {
+            id: 'ptr_unmapped',
+            name: 'PtrUnmapped',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_unmapped', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x00, 0x00, 0x20]);
+    }
+
+    function assertUnmappedPointerRow(): void {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '', 'next', 'typed pointer name should not repeat target type');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
+        assertUnmappedPointerValue(row!);
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
+    }
+
+    function assertUnmappedPointerValue(row: HTMLElement): void {
+        const value = row.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
+        assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
+    }
+
+    function assertUnmappedPointerMenu(dom: JSDOM): void {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render before opening menu');
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
+        assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
+        assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
+    }
+
+    function setupOffsetVisiblePointerFixture(): void {
+        const header: StructDef = {
+            id: 'header_offset_visible',
+            name: 'HeaderOffsetVisible',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent = offsetVisiblePointerParent(header.id);
+        const bytes = new Array(0x40).fill(0);
+        bytes[1] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_offset_visible', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+    }
+
+    function offsetVisiblePointerParent(headerId: string): StructDef {
+        return {
+            id: 'parent_offset_visible',
+            name: 'ParentOffsetVisible',
+            packed: true,
+            fields: [
+                { name: 'prefix', type: 'uint8', count: 1 },
+                { name: 'hdr', type: 'struct', refStructId: headerId, isPointer: true, count: 1 },
+            ],
+        };
+    }
+
+    function assertPointerOffsetVisibleAfterExpand(dom: JSDOM): void {
+        const headerRow = requiredPointerHeader('struct pointer header should render');
+        assert.strictEqual(pointerHeaderOffset(headerRow), '+001', 'collapsed pointer header should show storage offset');
+        expandPointerHeader(headerRow, dom);
+        assert.strictEqual(pointerHeaderOffset(requiredPointerHeader('expanded pointer header should render')), '+001', 'expanded pointer header should keep its offset visible');
+    }
+
+    function requiredPointerHeader(message: string): HTMLElement {
+        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(headerRow, message);
+        return headerRow!;
+    }
+
+    function pointerHeaderOffset(headerRow: HTMLElement): string {
+        const offset = headerRow.querySelector<HTMLElement>('.si-f-off');
+        assert.ok(offset, 'pointer header offset should render');
+        return offset!.textContent ?? '';
+    }
+
+    function expandPointerHeader(headerRow: HTMLElement, dom: JSDOM): void {
+        const expand = headerRow.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer expand button should render');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    }
+
     function triggerCreateStructInstance(dom: JSDOM, message: string): void {
         const parentHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
         assert.ok(parentHeader, message);
@@ -820,36 +911,10 @@ suite('struct UI array header summary', () => {
     });
 
     test('renders typed pointer value and disables follow for unmapped target', async () => {
-        const def: StructDef = {
-            id: 'ptr_unmapped',
-            name: 'PtrUnmapped',
-            packed: true,
-            fields: [
-                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
-            ],
-        };
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ptr_unmapped', structId: def.id, addr: 0, name: 'inst' }];
-        setBytesInSegment(0, [0x00, 0x00, 0x00, 0x20]);
-
+        setupUnmappedPointerFixture();
         await renderPinsAndExpandCard();
-
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
-        assert.ok(row, 'typed pointer row should render');
-        const label = row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '';
-        assert.strictEqual(label, 'next', 'typed pointer name should not repeat target type');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
-        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-        assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
-        assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
-
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
-        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
-
-        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
-        assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
-        assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
+        assertUnmappedPointerRow();
+        assertUnmappedPointerMenu(dom);
     });
 
     test('following scalar pointer selects target byte span', async () => {
@@ -998,40 +1063,9 @@ suite('struct UI array header summary', () => {
     });
 
     test('expanded struct pointer header keeps its offset visible', async () => {
-        const header: StructDef = {
-            id: 'header_offset_visible',
-            name: 'HeaderOffsetVisible',
-            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
-        };
-        const parent: StructDef = {
-            id: 'parent_offset_visible',
-            name: 'ParentOffsetVisible',
-            packed: true,
-            fields: [
-                { name: 'prefix', type: 'uint8', count: 1 },
-                { name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 },
-            ],
-        };
-        const bytes = new Array(0x40).fill(0);
-        bytes[1] = 0x20;
-        bytes[0x20] = 0xAB;
-        S.structs = [header, parent];
-        S.structPins = [{ id: 'pin_parent_offset_visible', structId: parent.id, addr: 0, name: 'parentInst' }];
-        setBytesInSegment(0, bytes);
-
+        setupOffsetVisiblePointerFixture();
         await renderPinsAndExpandCard();
-
-        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
-        assert.ok(headerRow, 'struct pointer header should render');
-        assert.strictEqual(headerRow!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+001', 'collapsed pointer header should show storage offset');
-
-        const expand = headerRow!.querySelector<HTMLElement>('.si-arr-exp-btn');
-        assert.ok(expand, 'struct pointer expand button should render');
-        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-
-        const expandedHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
-        assert.ok(expandedHeader, 'expanded pointer header should render');
-        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+001', 'expanded pointer header should keep its offset visible');
+        assertPointerOffsetVisibleAfterExpand(dom);
     });
 
     test('renders struct pointer arrays with parent and pointer element rows', async () => {

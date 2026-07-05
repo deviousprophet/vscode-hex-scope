@@ -1952,14 +1952,20 @@ function typeCellHtml(abbrev: string, fullTypeLabel: string): string {
 }
 
 function compactTypeCellLabel(label: string): string {
-    if (label.length <= TYPE_CELL_MAX_CHARS) { return label; }
-    const pointerSuffix = label.endsWith('*') ? '*' : '';
-    const body = pointerSuffix ? label.slice(0, -1) : label;
+    return label.length <= TYPE_CELL_MAX_CHARS ? label : compactLongTypeCellLabel(label);
+}
+
+function compactLongTypeCellLabel(label: string): string {
+    const pointerSuffix = pointerLabelSuffix(label);
+    const body = label.slice(0, label.length - pointerSuffix.length);
     const availableBodyChars = TYPE_CELL_MAX_CHARS - TYPE_CELL_ELLIPSIS.length - pointerSuffix.length;
-    if (availableBodyChars <= 1) { return label.slice(0, TYPE_CELL_MAX_CHARS); }
     const headChars = Math.ceil(availableBodyChars / 2);
     const tailChars = availableBodyChars - headChars;
     return `${body.slice(0, headChars)}${TYPE_CELL_ELLIPSIS}${body.slice(-tailChars)}${pointerSuffix}`;
+}
+
+function pointerLabelSuffix(label: string): string {
+    return label.endsWith('*') ? '*' : '';
 }
 
 function fieldOffsetLabel(r: DecodedField): string {
@@ -2879,18 +2885,18 @@ function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, k
     );
 }
 
-function pointerChildState(ctx: StructRenderContext, row: DecodedField, target: PointerDerefTarget, key: string): PointerChildState {
+function pointerChildState(ctx: StructRenderContext, row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>, key: string): PointerChildState {
     const storageStart = ctx.baseAddr + row.byteOffset;
     const expandable = pointerChildExpandable(ctx, target);
     const isOpen = pointerChildIsOpen(key, expandable.ok);
     return {
         key,
         storageStart,
-        byteStart: target.addr ?? storageStart,
-        byteCount: target.ok ? target.byteCount : decodedRowByteCount(row),
+        byteStart: target.addr,
+        byteCount: target.byteCount,
         valKey: fieldValueKey(row, storageStart),
-        name: target.ok && target.def ? '{ }' : '',
-        summary: pointerChildSummary(row, target, expandable),
+        name: pointerChildName(target),
+        summary: pointerChildSummary(row, target),
         summaryTitle: pointerChildSummaryTitle(row, target),
         canExpand: expandable.ok,
         expandTitle: expandable.ok ? 'Expand' : expandable.reason,
@@ -2898,6 +2904,10 @@ function pointerChildState(ctx: StructRenderContext, row: DecodedField, target: 
         allowCreate: row.pointerTargetType === 'struct',
         bodyHtml: pointerChildBodyHtml(ctx, key, target, expandable.ok),
     };
+}
+
+function pointerChildName(target: Extract<PointerDerefTarget, { ok: true }>): string {
+    return target.def ? '{ }' : '';
 }
 
 function pointerChildIsOpen(key: string, canExpand: boolean): boolean {
@@ -2915,40 +2925,52 @@ function pointerChildBodyHtml(
     return renderStructPointerBody(ctx, key, resolvedTarget);
 }
 
-function pointerChildSummary(row: DecodedField, target: PointerDerefTarget, expandable: { ok: boolean; reason: string }): string {
-    if (!target.ok) { return `(${target.reason})`; }
-    return pointerChildSummaryForResolvedTarget(row, target, expandable);
+function pointerChildSummary(row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>): string {
+    return target.def ? structPointerTargetSummary(row, target.addr, target.def) : scalarPointerTargetSummary(row, target.addr);
 }
 
-function pointerChildSummaryTitle(row: DecodedField, target: PointerDerefTarget): string {
-    const addrSuffix = target.addr === null ? '' : ` @ ${formatHex(target.addr, 8)}`;
-    if (!target.ok) { return `${target.reason}${addrSuffix}`; }
-    if (target.def) { return `${row.pointerTargetStructName ?? target.def.name}${addrSuffix}`; }
-    return `${pointerTargetTypeLabel(row, false)}${addrSuffix}`;
+function pointerChildSummaryTitle(row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>): string {
+    const targetName = target.def ? row.pointerTargetStructName ?? target.def.name : pointerTargetTypeLabel(row, false);
+    return `${targetName} @ ${formatHex(target.addr, 8)}`;
 }
 
-function pointerChildSummaryForResolvedTarget(
+function structPointerTargetSummary(
     row: DecodedField,
-    target: Extract<PointerDerefTarget, { ok: true }>,
-    expandable: { ok: boolean; reason: string },
+    addr: number,
+    def: StructDef,
 ): string {
-    if (target.def) { return `${row.pointerTargetStructName ?? target.def.name} @ ${formatHex(target.addr, 8)}`; }
-    const scalarSummary = scalarPointerTargetSummary(row, target.addr);
-    if (scalarSummary !== null) { return scalarSummary; }
-    return expandable.ok ? pointerTargetTypeLabel(row, false) : expandable.reason;
+    return `${row.pointerTargetStructName ?? def.name} @ ${formatHex(addr, 8)}`;
 }
 
-function scalarPointerTargetSummary(row: DecodedField, addr: number): string | null {
-    const targetType = row.pointerTargetType;
-    if (targetType === undefined || targetType === 'struct') { return null; }
+function scalarPointerTargetSummary(row: DecodedField, addr: number): string {
+    const targetType = scalarPointerTargetType(row);
+    if (!targetType) { return pointerTargetTypeLabel(row, false); }
     if (targetType === 'void') { return 'void'; }
+    const bytes = readScalarPointerTargetBytes(row, targetType, addr);
+    return bytes ? scalarPointerTargetValue(row, targetType, bytes) : '??';
+}
+
+function scalarPointerTargetType(row: DecodedField): Exclude<StructFieldType, 'struct'> | null {
+    const targetType = row.pointerTargetType;
+    return targetType === undefined || targetType === 'struct' ? null : targetType;
+}
+
+function readScalarPointerTargetBytes(
+    row: DecodedField,
+    targetType: Exclude<StructFieldType, 'struct'>,
+    addr: number,
+): number[] | null {
     const size = Math.max(1, row.pointerTargetByteSize ?? fieldByteSize(targetType));
     const bytes: number[] = [];
     for (let offset = 0; offset < size; offset++) {
         const value = getByte(addr + offset);
-        if (value === undefined) { return '??'; }
+        if (value === undefined) { return null; }
         bytes.push(value);
     }
+    return bytes;
+}
+
+function scalarPointerTargetValue(row: DecodedField, targetType: Exclude<StructFieldType, 'struct'>, bytes: number[]): string {
     const targetRow = scalarPointerTargetRow(row, targetType, bytes);
     return getCopyText(targetRow, definedFieldImplicitDisplayType(targetRow));
 }
