@@ -12,16 +12,11 @@
 
 ### Changed
 
-- Pointer navigation now selects target bytes without automatically creating a saved struct instance
+- Pointer rows now separate pointer storage selection from pointer target navigation: row click selects storage bytes, while value click follows/selects target bytes
 - Scalar pointer expansion shows a typed dereference row (`target type`, `*`, scalar value) without a repeated visible `+000` offset
 - Struct pointer expansion shows a `{ }` target root with target-relative member offsets, while instance creation stays an intentional context-menu action
-- Pointer rows distinguish pointer storage bytes from pointed target bytes in row click, value click, hover, and selection behavior
+- Unmapped, null, missing, and unresolved pointer targets render as scalar-style pointer rows without expand buttons or child previews
 - Long data type labels use adaptive width, middle ellipsis, and full text in tooltip/accessibility labels
-
-### Fixed
-
-- Fixed Struct Overlay values not refreshing after byte mutations in edit-related flows (save, undo, fill, integrity edits, and external-change refresh paths)
-- Unmapped, null, missing, and unresolved pointer targets now render as normal scalar-style rows without expand buttons or child previews
 
 ## [2.10.0] - 2026-06-29
 
