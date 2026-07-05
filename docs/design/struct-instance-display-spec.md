@@ -53,6 +53,7 @@ Bitfield pointer variants are intentionally out of scope unless a future design 
 | Scalar | `u16 count` | `u16 data[3]` | `u16* next` | `u16* next[2]` |
 | Struct | `Header header` | `Header nodes[2]` | `Header* hdr` | `Header* hdrs[2]` |
 | Bitfield | `u8 control { bits }` | `u8 regs[2] { bits }` | Unsupported / future | Unsupported / future |
+| Void/unknown pointer | N/A | N/A | `void* raw` | `void* raw[2]` |
 
 ## Parent/Child Interaction Contract
 
@@ -85,6 +86,15 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 
         +001 | u16*   | ▾ next         | -> 0x00001000
               | u16    | *              | 0x002A
+
+### Void pointer
+
+- Classification: Scalar-like + Pointer for `void*` and unknown C pointer types.
+- Render only the pointer storage row (`void* raw`).
+- Do not render an expand button, child preview, or decoded target value.
+- Jump to Address is available only when the stored pointer is non-null and mapped.
+- Create Struct Instance is not available.
+- Unknown C pointer types degrade to `void*` until their target type is known.
 
 - Struct pointer target preview should use `{ }` as the target object root, then show struct member children:
 
@@ -131,7 +141,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Data type column:
   - Abbreviated type label is shown (examples: `u16`, `i32`, `f32`, `char`, `bit:3`, `Header*`).
   - The type column should be adaptively wide enough for common struct names before yielding space to name/value.
-  - Long type labels must stay inside the type column. Compact the visible label with middle ellipsis (for example `VeryLong...erStruct*`) and clip with CSS ellipsis if needed.
+  - Long type labels must stay inside the type column. Compact the visible label with middle ellipsis (for example `VeryL...truct*`) and clip with CSS ellipsis if needed.
   - Full type appears as tooltip on the type cell.
 - Value column:
   - Missing bytes or undecodable direct field data display as `??`.

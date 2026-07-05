@@ -148,6 +148,23 @@ suite('struct UI array header summary', () => {
         setBytesInSegment(0, [0x00, 0x00, 0x00, 0x00]);
     }
 
+    function setupVoidPointerFixture(type: 'void' | 'pointer' = 'void'): void {
+        const def: StructDef = {
+            id: `ptr_${type}`,
+            name: 'PtrVoid',
+            packed: true,
+            fields: [
+                { name: 'raw', type, isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x30).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [def];
+        S.structPins = [{ id: `pin_ptr_${type}`, structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+    }
+
     function assertUnmappedPointerRow(): void {
         const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render');
@@ -171,6 +188,18 @@ suite('struct UI array header summary', () => {
         const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.strictEqual(value, '(null) 0x00000000', 'null status should be explicit without pointer navigation arrow');
         assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'null pointer should not render an expand button');
+    }
+
+    function assertVoidPointerLeafRow(): HTMLElement {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'void pointer row should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'void*', 'void pointer type cell should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'raw', 'void pointer name should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'void pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'void pointer should not render a child preview row');
+        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.strictEqual(value, '→ 0x00000020', 'mapped void pointer should keep followable value display');
+        return row!;
     }
 
     function assertUnmappedPointerMenu(dom: JSDOM): void {
@@ -996,6 +1025,27 @@ suite('struct UI array header summary', () => {
         assertNullPointerRow();
     });
 
+    test('renders mapped void pointer as followable storage leaf', async () => {
+        setupVoidPointerFixture();
+        await renderPinsAndExpandCard();
+
+        const row = assertVoidPointerLeafRow();
+        row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
+        assert.ok(jump, 'jump pointer command should be enabled for mapped void pointer');
+        assert.strictEqual(document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]'), null, 'void pointer should not offer create struct instance');
+
+        row.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0x20);
+        assert.strictEqual(S.selEnd, 0x20);
+    });
+
+    test('renders legacy pointer type as void pointer storage leaf', async () => {
+        setupVoidPointerFixture('pointer');
+        await renderPinsAndExpandCard();
+        assertVoidPointerLeafRow();
+    });
+
     test('following scalar pointer selects target byte span', async () => {
         const def: StructDef = {
             id: 'ptr_scalar_follow',
@@ -1200,7 +1250,7 @@ suite('struct UI array header summary', () => {
 
         const typeCell = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-type');
         assert.ok(typeCell, 'struct pointer type cell should render');
-        assert.strictEqual(typeCell!.textContent, 'VeryLong...erStruct*');
+        assert.strictEqual(typeCell!.textContent, 'VeryL...truct*');
         assert.strictEqual(typeCell!.getAttribute('title'), `${longName}*`);
         assert.strictEqual(typeCell!.getAttribute('aria-label'), `${longName}*`);
     });

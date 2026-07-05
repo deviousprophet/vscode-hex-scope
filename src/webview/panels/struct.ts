@@ -1892,7 +1892,7 @@ const TYPE_ABBREV: Record<string, string> = {
     int8:  'i8',  int16:  'i16', int32:  'i32', int64:  'i64',
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
-const TYPE_CELL_MAX_CHARS = 20;
+const TYPE_CELL_MAX_CHARS = 14;
 const TYPE_CELL_ELLIPSIS = '...';
 
 function fieldValueKey(r: DecodedField, byteStart: number): string {
@@ -2871,7 +2871,7 @@ function renderStructPointerArrayRows(
 
 function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, key: string, name: string): string {
     const target = pointerDerefTarget(row);
-    if (!target.ok) {
+    if (!target.ok || !pointerHasInlinePreview(row, target)) {
         return structPointerLeafHtml(ctx, row, key, name, target);
     }
     const isOpen = _expandedArrayFields.has(key);
@@ -2882,6 +2882,12 @@ function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, k
         structPointerHeaderHtml(ctx, row, key, name, target, isOpen),
         structPointerTargetBodyHtml(ctx, row, target, childKey),
     );
+}
+
+function pointerHasInlinePreview(row: DecodedField, target: PointerDerefTarget): target is Extract<PointerDerefTarget, { ok: true }> {
+    if (!target.ok) { return false; }
+    if (target.def) { return true; }
+    return scalarPointerTargetType(row) !== 'void';
 }
 
 function structPointerLeafHtml(
