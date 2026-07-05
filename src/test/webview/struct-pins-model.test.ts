@@ -9,7 +9,7 @@ import {
     withEditedStructPin,
     withoutStructDefinition,
     withoutStructPin,
-} from '../../webview/panels/struct/structPinsModel';
+} from '../../webview/sidebar/struct/structPinsModel';
 
 suite('struct pin model', () => {
     test('creates pins with injected ids', () => {

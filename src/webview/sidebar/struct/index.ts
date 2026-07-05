@@ -3518,7 +3518,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             card.classList.add('si-card-selected');
             rerender.toMemory();
             import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(pin.addr); });
-            import('../sidebar/index.js').then(m => m.updateInspector());
+            import('../sidebar.js').then(m => m.updateInspector());
         });
     });
 
@@ -3998,7 +3998,7 @@ function selectStructFieldRow(row: HTMLElement, start: number, cnt: number): voi
     _selectedArrKey = null;
     _selectedArrElemKey = null;
     import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-    import('../sidebar/index.js').then(m => m.updateInspector());
+    import('../sidebar.js').then(m => m.updateInspector());
     renderStructPins();
 }
 
@@ -4523,7 +4523,7 @@ function selectPointerTarget(addr: number, byteCount: number): void {
     S.selEnd = addr + Math.max(1, byteCount) - 1;
     rerender.toMemory();
     import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(addr); });
-    import('../sidebar/index.js').then(m => m.updateInspector());
+    import('../sidebar.js').then(m => m.updateInspector());
 }
 
 function showScalarFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
@@ -4729,7 +4729,7 @@ function selectStructRange(el: HTMLElement, start: number, count: number): void 
     S.selEnd = start + count - 1;
     el.classList.add('si-selected');
     import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-    import('../sidebar/index.js').then(m => m.updateInspector());
+    import('../sidebar.js').then(m => m.updateInspector());
 }
 
 function fallbackCopyText(text: string): void {

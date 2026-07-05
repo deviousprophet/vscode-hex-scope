@@ -1,16 +1,16 @@
 // ── Sidebar panels ────────────────────────────────────────────────
 // Inspector · Bit View · Multi-Byte interpreter · Parsed Segments · Segment Labels
 
-import { S } from '../../state';
-import { esc, fmtB, actionBtnsHtml, wireActionBtns } from '../../utils';
-import { postProviderMessage } from '../../api';
-import { rerender } from '../../render';
-import { buildMemRows } from '../../data';
-import type { SerializedSegment } from '../../../core/types';
+import { S } from '../state';
+import { esc, fmtB, actionBtnsHtml, wireActionBtns } from '../utils';
+import { postProviderMessage } from '../api';
+import { rerender } from '../render';
+import { buildMemRows } from '../data';
+import type { SerializedSegment } from '../../core/types';
 
 // ── Inspector ────────────────────────────────────────────────────
 
-export { renderBits, renderInspector, updateInspector } from '../inspector/index';
+export { renderBits, renderInspector, updateInspector } from './inspector/index';
 
 function segmentAddress(address: number): string {
     return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;

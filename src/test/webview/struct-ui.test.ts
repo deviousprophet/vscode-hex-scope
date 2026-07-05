@@ -77,7 +77,7 @@ suite('struct UI array header summary', () => {
     });
 
     async function renderPinsAndExpandCard(): Promise<HTMLElement> {
-        const { renderStructPins } = await import('../../webview/panels/struct/index.js');
+        const { renderStructPins } = await import('../../webview/sidebar/struct/index.js');
         renderStructPins();
 
         const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');

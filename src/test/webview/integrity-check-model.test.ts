@@ -10,7 +10,7 @@ import {
     integrityCheckConfigsFromStates,
     integrityCheckSetFromStates,
     makeIntegrityCheck,
-} from '../../webview/panels/integrity/integrityCheckModel';
+} from '../../webview/sidebar/integrity/integrityCheckModel';
 
 suite('integrity check model', () => {
     test('creates blank checks with stable defaults', () => {
