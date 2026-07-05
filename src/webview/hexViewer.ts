@@ -5,10 +5,10 @@ import { S }                                          from './state';
 import { vscode }                                     from './api';
 import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
 import { rerender }                                   from './render';
-import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memoryView';
-import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar';
-import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './struct';
-import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './searchEngine';
+import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
+import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './panels/sidebar';
+import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './panels/struct';
+import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './search/searchEngine';
 import { initFlatBytes, buildMemRows, getByte }      from './data';
 import type { SerializedParseResult, SerializedRecord } from '../core/types';
 import type { SidebarTab } from './types';
@@ -25,7 +25,7 @@ import {
     isAnalyzeCommand,
     isCopyCommand,
 } from '../core/byte-tools';
-import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './virtualScroll';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './memory/virtualScroll';
 import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
@@ -34,7 +34,7 @@ import {
     renderIntegrity,
     setIntegrityEditHandler,
     setIntegrityProfiles,
-} from './integrityView';
+} from './panels/integrityView';
 
 vscode.postMessage({ type: 'ready' });
 
@@ -128,6 +128,7 @@ function handleSavedEditsMessage(msg: WebviewMessage): void {
     updateDirtyBar();
     renderStats();
     renderSegments();
+    renderStructPins();
     renderCurrentDataView();
 }
 
@@ -161,6 +162,7 @@ function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
         msg.canQuickRepair as boolean,
     );
     renderSegments();
+    renderStructPins();
     renderCurrentDataView();
     notifyIntegrityBytesChanged();
 }
@@ -177,6 +179,7 @@ function handleRepairCompleteMessage(msg: WebviewMessage): void {
     updateDirtyBar();
     renderStats();
     renderSegments();
+    renderStructPins();
     renderCurrentDataView();
 }
 
@@ -1331,6 +1334,7 @@ function refreshAfterIntegrityEdits(): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    renderStructPins();
     notifyIntegrityBytesChanged();
 }
 
@@ -1356,6 +1360,7 @@ function applyFill(fillVal: number): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    renderStructPins();
     notifyIntegrityBytesChanged();
 }
 
@@ -1387,6 +1392,7 @@ function undoLastEdit(): void {
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
+    renderStructPins();
     notifyIntegrityBytesChanged();
 }
 

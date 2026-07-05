@@ -1,9 +1,9 @@
-﻿import * as assert from 'assert';
+import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
-import { S } from '../webview/state';
-import type { StructDef, StructPin } from '../core/types';
-import { setBytesInSegment } from './struct-test-helpers';
+import { S } from '../../webview/state';
+import type { StructDef, StructPin } from '../../core/types';
+import { setBytesInSegment } from '../shared/struct-test-helpers';
 
 function resetStructState(): void {
     S.structs = [];
@@ -77,7 +77,7 @@ suite('struct UI array header summary', () => {
     });
 
     async function renderPinsAndExpandCard(): Promise<HTMLElement> {
-        const { renderStructPins } = await import('../webview/struct.js');
+        const { renderStructPins } = await import('../../webview/panels/struct.js');
         renderStructPins();
 
         const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
@@ -97,6 +97,258 @@ suite('struct UI array header summary', () => {
             configurable: true,
         });
         return writes;
+    }
+
+    function setupStructPointerFixture(ids: { header: string; parent: string; pin: string }): StructDef {
+        const header: StructDef = {
+            id: ids.header,
+            name: 'HeaderCreate',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: ids.parent,
+            name: 'ParentCreate',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: ids.pin, structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+        return header;
+    }
+
+    function setupUnmappedPointerFixture(): void {
+        const def: StructDef = {
+            id: 'ptr_unmapped',
+            name: 'PtrUnmapped',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_unmapped', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x00, 0x00, 0x20]);
+    }
+
+    function setupNullPointerFixture(): void {
+        const def: StructDef = {
+            id: 'ptr_null',
+            name: 'PtrNull',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_null', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x00, 0x00, 0x00]);
+    }
+
+    function setupVoidPointerFixture(type: 'void' | 'pointer' = 'void'): void {
+        const def: StructDef = {
+            id: `ptr_${type}`,
+            name: 'PtrVoid',
+            packed: true,
+            fields: [
+                { name: 'raw', type, isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x30).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [def];
+        S.structPins = [{ id: `pin_ptr_${type}`, structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+    }
+
+    function assertUnmappedPointerRow(): void {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '', 'next', 'typed pointer name should not repeat target type');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
+        assertUnmappedPointerValue(row!);
+        assert.ok(row!.classList.contains('si-field'), 'unmapped pointer should use scalar field row layout');
+        assert.ok(!row!.classList.contains('si-arr-grp-hdr'), 'unmapped pointer should not use composite header layout');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
+    }
+
+    function assertUnmappedPointerValue(row: HTMLElement): void {
+        const value = row.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.strictEqual(value, '(unmapped) 0x20000000', 'unmapped status should not imply followable pointer navigation');
+    }
+
+    function assertNullPointerRow(): void {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'null pointer row should render');
+        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.strictEqual(value, '(null) 0x00000000', 'null status should be explicit without pointer navigation arrow');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'null pointer should not render an expand button');
+    }
+
+    function assertVoidPointerLeafRow(): HTMLElement {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'void pointer row should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'void*', 'void pointer type cell should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'raw', 'void pointer name should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'void pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'void pointer should not render a child preview row');
+        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.strictEqual(value, '→ 0x00000020', 'mapped void pointer should keep followable value display');
+        return row!;
+    }
+
+    function assertUnmappedPointerMenu(dom: JSDOM): void {
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render before opening menu');
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
+        assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
+        assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
+    }
+
+    function setupScalarPointerPreviewFixture(): void {
+        const def: StructDef = {
+            id: 'ptr_scalar_preview',
+            name: 'PtrScalarPreview',
+            packed: true,
+            fields: [
+                { name: 'value', type: 'uint32', isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x30;
+        bytes[0x21] = 0x33;
+        bytes[0x22] = 0x43;
+        bytes[0x23] = 0x38;
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_scalar_preview', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+    }
+
+    function assertScalarPointerTargetPreview(row: HTMLElement): void {
+        const body = requiredPointerBody(row);
+        const child = body.querySelector<HTMLElement>(':scope > .si-field');
+        assert.ok(child, 'scalar pointer target preview should render');
+        assert.strictEqual(body.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'scalar target should not render an object child header');
+        assertScalarPointerTargetField(child!);
+    }
+
+    function assertScalarPointerTargetField(child: HTMLElement): void {
+        assert.strictEqual(child.querySelector<HTMLElement>('.si-f-off'), null, 'scalar pointer target should hide noisy +000 offset');
+        assert.ok(child.querySelector<HTMLElement>('.si-node-pad'), 'scalar pointer target should keep row alignment');
+        assert.strictEqual(requiredPointerTargetText(child, '.si-f-type'), 'u32');
+        assert.strictEqual(requiredPointerTargetText(child, '.si-f-name'), '*');
+        assert.strictEqual(requiredPointerTargetText(child, '.si-f-val'), '0x38433330');
+    }
+
+    function requiredPointerTargetText(row: HTMLElement, selector: string): string {
+        const el = row.querySelector<HTMLElement>(selector);
+        assert.ok(el, `${selector} should render`);
+        return el!.textContent ?? '';
+    }
+
+    function requiredPointerBody(row: HTMLElement): HTMLElement {
+        const group = row.closest<HTMLElement>('.si-arr-grp');
+        assert.ok(group, 'pointer group should render');
+        const body = group!.querySelector<HTMLElement>(':scope > .si-arr-grp-body');
+        assert.ok(body, 'pointer body should render after expand');
+        return body!;
+    }
+
+    function setupOffsetVisiblePointerFixture(): void {
+        const header: StructDef = {
+            id: 'header_offset_visible',
+            name: 'HeaderOffsetVisible',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent = offsetVisiblePointerParent(header.id);
+        const bytes = new Array(0x40).fill(0);
+        bytes[1] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_offset_visible', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+    }
+
+    function offsetVisiblePointerParent(headerId: string): StructDef {
+        return {
+            id: 'parent_offset_visible',
+            name: 'ParentOffsetVisible',
+            packed: true,
+            fields: [
+                { name: 'prefix', type: 'uint8', count: 1 },
+                { name: 'hdr', type: 'struct', refStructId: headerId, isPointer: true, count: 1 },
+            ],
+        };
+    }
+
+    function assertPointerOffsetVisibleAfterExpand(dom: JSDOM): void {
+        const headerRow = requiredPointerHeader('struct pointer header should render');
+        assert.strictEqual(pointerHeaderOffset(headerRow), '+001', 'collapsed pointer header should show storage offset');
+        expandPointerHeader(headerRow, dom);
+        assert.strictEqual(pointerHeaderOffset(requiredPointerHeader('expanded pointer header should render')), '+001', 'expanded pointer header should keep its offset visible');
+    }
+
+    function requiredPointerHeader(message: string): HTMLElement {
+        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(headerRow, message);
+        return headerRow!;
+    }
+
+    function pointerHeaderOffset(headerRow: HTMLElement): string {
+        const offset = headerRow.querySelector<HTMLElement>('.si-f-off');
+        assert.ok(offset, 'pointer header offset should render');
+        return offset!.textContent ?? '';
+    }
+
+    function expandPointerHeader(headerRow: HTMLElement, dom: JSDOM): void {
+        const expand = headerRow.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer expand button should render');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    }
+
+    function triggerCreateStructInstance(dom: JSDOM, message: string): void {
+        const parentHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        assert.ok(parentHeader, message);
+        const expand = parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer header should have expand button');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const childHeader = document.querySelector<HTMLElement>('.si-ptr-child-hdr[data-pointer-allow-create="true"]');
+        assert.ok(childHeader, 'struct pointer child header should render create-enabled menu source');
+        childHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
+        assert.ok(create, 'create struct instance command should be enabled');
+        create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    }
+
+    function pinsForTarget(structId: string, addr: number): StructPin[] {
+        const matches: StructPin[] = [];
+        for (const pin of S.structPins) {
+            if (pin.structId === structId && pin.addr === addr) { matches.push(pin); }
+        }
+        return matches;
+    }
+
+    function assertPointerCreateMetadata(pin: StructPin): void {
+        assert.strictEqual(pin.name, 'parentInst.hdr @00000020');
+        const source = pin.pointerSources?.[0];
+        assert.ok(source, 'created pin should store pointer source metadata');
+        assert.strictEqual(source!.sourcePinId, 'pin_parent_create');
+        assert.strictEqual(source!.sourceFieldPath, 'hdr');
+        assert.strictEqual(source!.pointerStorageAddress, 0);
+        assert.strictEqual(elementText(document.querySelector('.si-csource')), 'from parentInst.hdr @0x00000000');
+    }
+
+    function assertSinglePointerTarget(structId: string): StructPin {
+        const targetPins = pinsForTarget(structId, 0x20);
+        assert.strictEqual(targetPins.length, 1, 'create should add target struct pin once');
+        return targetPins[0];
     }
 
     test('uses declared struct type and element count for nested struct array header', async () => {
@@ -723,7 +975,8 @@ suite('struct UI array header summary', () => {
         assert.ok(leValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 LE display: ${leValues[5]}`);
         assert.ok(leValues[6].startsWith('1.000000e+0'), `f32 LE display: ${leValues[6]}`);
         assert.ok(leValues[7].startsWith('1.0000000000000000e+0'), `f64 LE display: ${leValues[7]}`);
-        assert.ok(leValues[8].includes('0x12345678'), `ptr LE display: ${leValues[8]}`);
+        const ptrValueLe = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.ok(ptrValueLe.includes('0x12345678'), `ptr LE display: ${ptrValueLe}`);
         let firstRow = document.querySelector<HTMLElement>('.si-field');
         assert.ok(firstRow, 'first scalar row should render');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
@@ -747,7 +1000,8 @@ suite('struct UI array header summary', () => {
         assert.ok(beValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 BE display: ${beValues[5]}`);
         assert.ok(beValues[6].startsWith('1.000000e+0'), `f32 BE display: ${beValues[6]}`);
         assert.ok(beValues[7].startsWith('1.0000000000000000e+0'), `f64 BE display: ${beValues[7]}`);
-        assert.ok(beValues[8].includes('0x12345678'), `ptr BE display: ${beValues[8]}`);
+        const ptrValueBe = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.ok(ptrValueBe.includes('0x12345678'), `ptr BE display: ${ptrValueBe}`);
         firstRow = document.querySelector<HTMLElement>('.si-field');
         assert.ok(firstRow, 'first scalar row should render after BE rerender');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
@@ -756,6 +1010,308 @@ suite('struct UI array header summary', () => {
         binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
         assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'BE binary should display the same numeric value bits for the same decoded value');
+    });
+
+    test('renders typed pointer value and disables follow for unmapped target', async () => {
+        setupUnmappedPointerFixture();
+        await renderPinsAndExpandCard();
+        assertUnmappedPointerRow();
+        assertUnmappedPointerMenu(dom);
+    });
+
+    test('renders null pointer value with explicit leading status', async () => {
+        setupNullPointerFixture();
+        await renderPinsAndExpandCard();
+        assertNullPointerRow();
+    });
+
+    test('renders mapped void pointer as followable storage leaf', async () => {
+        setupVoidPointerFixture();
+        await renderPinsAndExpandCard();
+
+        const row = assertVoidPointerLeafRow();
+        row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
+        assert.ok(jump, 'jump pointer command should be enabled for mapped void pointer');
+        assert.strictEqual(document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]'), null, 'void pointer should not offer create struct instance');
+
+        row.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0x20);
+        assert.strictEqual(S.selEnd, 0x20);
+    });
+
+    test('renders legacy pointer type as void pointer storage leaf', async () => {
+        setupVoidPointerFixture('pointer');
+        await renderPinsAndExpandCard();
+        assertVoidPointerLeafRow();
+    });
+
+    test('following scalar pointer selects target byte span', async () => {
+        const def: StructDef = {
+            id: 'ptr_scalar_follow',
+            name: 'PtrScalarFollow',
+            packed: true,
+            fields: [
+                { name: 'next', type: 'uint16', isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x34;
+        bytes[0x21] = 0x12;
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_scalar_follow', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'typed pointer row should render');
+        row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0);
+        assert.strictEqual(S.selEnd, 3);
+
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
+        assert.ok(jump, 'jump pointer command should be enabled');
+        jump!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        assert.strictEqual(S.selStart, 0x20);
+        assert.strictEqual(S.selEnd, 0x21);
+    });
+
+    test('scalar pointer target preview renders typed dereference row', async () => {
+        setupScalarPointerPreviewFixture();
+
+        await renderPinsAndExpandCard();
+
+        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        assert.ok(row, 'scalar pointer row should render');
+        row!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assertScalarPointerTargetPreview(row!);
+    });
+
+    test('struct pointer click jumps without creating destination pin', async () => {
+        const header: StructDef = {
+            id: 'header_follow',
+            name: 'HeaderFollow',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_follow',
+            name: 'ParentFollow',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_follow', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const value = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-ptr');
+        assert.ok(value, 'struct pointer value should render');
+        value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const targetPins = S.structPins.filter(pin => pin.structId === header.id && pin.addr === 0x20);
+        assert.strictEqual(targetPins.length, 0, 'jump should not create target struct pin');
+        assert.strictEqual(S.selStart, 0x20);
+        assert.strictEqual(S.selEnd, 0x20);
+    });
+
+    test('struct pointer menu creates or reuses destination pin with source metadata', async () => {
+        const header = setupStructPointerFixture({ header: 'header_create', parent: 'parent_create', pin: 'pin_parent_create' });
+
+        await renderPinsAndExpandCard();
+
+        triggerCreateStructInstance(dom, 'struct pointer header should render');
+
+        const targetPin = assertSinglePointerTarget(header.id);
+        assertPointerCreateMetadata(targetPin);
+
+        triggerCreateStructInstance(dom, 'struct pointer header should render after create');
+        assert.strictEqual(pinsForTarget(header.id, 0x20).length, 1, 'create should reuse existing target pin');
+        assert.strictEqual(targetPin.pointerSources?.length, 1, 'duplicate source metadata should not be added');
+    });
+
+    test('expanding struct pointer decodes target fields inline', async () => {
+        const header: StructDef = {
+            id: 'header_inline',
+            name: 'HeaderInline',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_inline',
+            name: 'ParentInline',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_parent_inline', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
+        assert.ok(expand, 'struct pointer should render expandable row');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const child = document.querySelector<HTMLElement>('.si-ptr-hdr + .si-arr-grp-body .si-field');
+        assert.ok(child, 'expanded pointer should render target child rows inline');
+        assert.strictEqual(child!.dataset.byteStart, '32', 'inline child byte start should use target address');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000', 'inline child offset should be relative to target base');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
+    });
+
+    test('expanded struct pointer header keeps its offset visible', async () => {
+        setupOffsetVisiblePointerFixture();
+        await renderPinsAndExpandCard();
+        assertPointerOffsetVisibleAfterExpand(dom);
+    });
+
+    test('renders struct pointer arrays with parent and pointer element rows', async () => {
+        const node: StructDef = {
+            id: 'ptr_array_node',
+            name: 'Node',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'ptr_array_parent',
+            name: 'PtrArrayParent',
+            packed: true,
+            fields: [{ name: 'nodes', type: 'struct', refStructId: node.id, isPointer: true, count: 2 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[4] = 0x30;
+        bytes[0x20] = 0xAA;
+        bytes[0x30] = 0xBB;
+        S.structs = [node, parent];
+        S.structPins = [{ id: 'pin_ptr_array_parent', structId: parent.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const parentHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(parentHeader, 'pointer array parent header should render');
+        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'nodes');
+        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, 'Node*[2]');
+
+        parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const pointerHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
+        assert.strictEqual(pointerHeaders.length, 2, 'expanded pointer array should render pointer element rows');
+        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.si-f-name')?.textContent), ['[0]', '[1]']);
+        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.si-f-type')?.textContent), ['Node*', 'Node*']);
+        assert.deepStrictEqual(pointerHeaders.map(h => h.dataset.byteStart), ['0', '4']);
+
+        pointerHeaders[0].querySelector<HTMLElement>('.si-arr-exp-btn')!
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const childHeader = pointerHeaders[0]
+            .closest<HTMLElement>('.si-arr-grp')!
+            .querySelector<HTMLElement>('.si-ptr-child-hdr');
+        assert.ok(childHeader, 'pointer element should render target preview header');
+        assert.ok(childHeader!.querySelector<HTMLElement>('.si-arr-addr')?.textContent?.includes('Node @ 0x00000020'));
+        const child = pointerHeaders[0]
+            .closest<HTMLElement>('.si-arr-grp')!
+            .querySelector<HTMLElement>('.si-arr-grp-body .si-field');
+        assert.strictEqual(child?.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000');
+    });
+
+    test('compacts long struct pointer type labels in the data type column', async () => {
+        const longName = 'VeryLongTelemetryHeaderStruct';
+        const header: StructDef = {
+            id: 'long_ptr_header',
+            name: longName,
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'long_ptr_parent',
+            name: 'LongPtrParent',
+            packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x30).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xAB;
+        S.structs = [header, parent];
+        S.structPins = [{ id: 'pin_long_ptr_parent', structId: parent.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const typeCell = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-type');
+        assert.ok(typeCell, 'struct pointer type cell should render');
+        assert.strictEqual(typeCell!.textContent, 'VeryL...truct*');
+        assert.strictEqual(typeCell!.getAttribute('title'), `${longName}*`);
+        assert.strictEqual(typeCell!.getAttribute('aria-label'), `${longName}*`);
+    });
+
+    test('nested inline struct pointer uses inline source for jump and create', async () => {
+        const leaf: StructDef = {
+            id: 'leaf_inline_ptr',
+            name: 'LeafInlinePtr',
+            fields: [{ name: 'flag', type: 'uint8', count: 1 }],
+        };
+        const inner: StructDef = {
+            id: 'inner_inline_ptr',
+            name: 'InnerInlinePtr',
+            packed: true,
+            fields: [{ name: 'next', type: 'struct', refStructId: leaf.id, isPointer: true, count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent_inline_ptr',
+            name: 'ParentInlinePtr',
+            packed: true,
+            fields: [{ name: 'inner', type: 'struct', refStructId: inner.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x60).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x30;
+        bytes[0x30] = 0x7F;
+        S.structs = [leaf, inner, parent];
+        S.structPins = [{ id: 'pin_parent_inline_ptr', structId: parent.id, addr: 0, name: 'parentInst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
+        assert.ok(expand, 'parent struct pointer should render expandable row');
+        expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const headers = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
+        assert.strictEqual(headers.length, 2, 'expanded pointer should render nested pointer header');
+        const nested = headers[1];
+        nested!.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0x30);
+        assert.strictEqual(S.selEnd, 0x30);
+
+        const nestedChild = nested!
+            .closest<HTMLElement>('.si-arr-grp')!
+            .querySelector<HTMLElement>('.si-arr-grp-body .si-ptr-child-hdr[data-pointer-allow-create="true"]');
+        assert.ok(nestedChild, 'nested struct pointer should expose create-enabled child row');
+        nestedChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
+        assert.ok(create, 'nested struct pointer should enable create');
+        create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const targetPins = pinsForTarget(leaf.id, 0x30);
+        assert.strictEqual(targetPins.length, 1, 'nested create should add leaf target pin once');
+        const source = targetPins[0].pointerSources?.[0];
+        assert.ok(source, 'nested create should store source metadata');
+        assert.strictEqual(source!.sourcePinId, 'pin_parent_inline_ptr');
+        assert.strictEqual(source!.sourceStructId, inner.id);
+        assert.strictEqual(source!.sourceFieldPath, 'next');
+        assert.strictEqual(source!.pointerStorageAddress, 0x20);
+        assert.strictEqual(source!.targetAddress, 0x30);
     });
 
     test('defaults bit-field parent binary to full storage range', async () => {

@@ -8,7 +8,7 @@
     "esbuild.js"
   ],
   "dynamicallyLoaded": [
-    "src/webview/*.css"
+    "src/webview/styles/*.css"
   ],
   "usedClassMembers": [
     {

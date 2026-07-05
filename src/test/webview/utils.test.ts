@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 
-import { formatDecimal, formatHex, formatHexHtml, asUint64 } from '../webview/utils';
+import { formatDecimal, formatHex, formatHexHtml, asUint64 } from '../../webview/utils';
 
 suite('webview utils formatting', () => {
     test('formatDecimal number uses en locale grouping', () => {

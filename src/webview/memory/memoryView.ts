@@ -3,9 +3,9 @@
 // and segment label banners. Uses virtual scrolling to efficiently handle
 // large files by rendering only visible rows + a buffer.
 
-import { S, BPR } from './state';
-import { getByte } from './data';
-import { esc, fmtB, byteClass } from './utils';
+import { S, BPR } from '../state';
+import { getByte } from '../data';
+import { esc, fmtB, byteClass } from '../utils';
 import {
     calcScrollLayout,
     calcVisibleRange,

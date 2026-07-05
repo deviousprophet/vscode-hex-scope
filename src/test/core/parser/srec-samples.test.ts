@@ -1,8 +1,8 @@
 import * as assert from 'assert';
-import { parseIntelHex } from '../core/parser/IntelHexParser';
-import { parseSRec, srecIsData } from '../core/parser/SRecParser';
-import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
-import { loadIntelHexFixture as loadHex, loadSRecFixture as loadSrec } from './parser-fixtures';
+import { parseIntelHex } from '../../../core/parser/IntelHexParser';
+import { parseSRec, srecIsData } from '../../../core/parser/SRecParser';
+import { assertSegmentsContainBytes, segmentDataLengthTotal } from '../../shared/helpers';
+import { loadIntelHexFixture as loadHex, loadSRecFixture as loadSrec } from '../../shared/parser-fixtures';
 
 // Minimal SREC image: header, two contiguous data records, count, and terminator.
 

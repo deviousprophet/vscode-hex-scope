@@ -49,6 +49,7 @@ export type MemRow =
 // ── Struct Overlay ────────────────────────────────────────────────
 
 export type StructScalarFieldType =
+    | 'void'
     | 'ascii'
     | 'uint8' | 'uint16' | 'uint32' | 'uint64'
     | 'int8'  | 'int16'  | 'int32'  | 'int64'
@@ -66,6 +67,8 @@ export interface BitFieldChild {
 export interface StructField {
     name: string;
     type: StructFieldType;
+    /** When true, the field stores a pointer value whose target type is `type` / `refStructId`. */
+    isPointer?: boolean;
     /** Required when type === 'struct'; references StructDef.id. */
     refStructId?: string;
     /** Named bit-field children. When present, this field is a BitField container.
@@ -87,9 +90,19 @@ export interface StructDef {
 }
 
 /** A saved struct overlay instance: one struct definition applied to one address with a user label. */
+export interface StructPointerSource {
+    sourcePinId: string;
+    sourcePinName: string;
+    sourceStructId: string;
+    sourceFieldPath: string;
+    pointerStorageAddress: number;
+    targetAddress: number;
+}
+
 export interface StructPin {
     id: string;
     structId: string;  // references StructDef.id
     addr: number;      // base address
     name: string;      // user-provided label
+    pointerSources?: StructPointerSource[];
 }

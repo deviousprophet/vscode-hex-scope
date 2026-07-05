@@ -1,5 +1,5 @@
-import { vscode } from './api';
-import { getByte } from './data';
+import { vscode } from '../api';
+import { getByte } from '../data';
 import {
     calculateIntegrity,
     collectIntegrityBytes,
@@ -22,10 +22,10 @@ import {
     type IntegrityResult,
     type IntegrityStoredField,
     validateIntegrityRange,
-} from '../core/integrity';
-import { S } from './state';
-import { rerender } from './render';
-import { actionBtnsHtml, esc, formatHexHtml } from './utils';
+} from '../../core/integrity';
+import { S } from '../state';
+import { rerender } from '../render';
+import { actionBtnsHtml, esc, formatHexHtml } from '../utils';
 
 const DEBOUNCE_MS = 250;
 const ALGORITHM_LABELS: ReadonlyArray<readonly [IntegrityAlgorithm, string]> = [

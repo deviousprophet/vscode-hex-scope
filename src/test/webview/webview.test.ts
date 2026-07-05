@@ -1,11 +1,11 @@
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
-import { esc, fmtB, byteClass } from '../webview/utils';
-import { S, BPR } from '../webview/state';
-import { initFlatBytes, buildMemRows, getByte } from '../webview/data';
-import { integrityHighlightClass } from '../webview/memoryView';
-import { rerender } from '../webview/render';
+import { esc, fmtB, byteClass } from '../../webview/utils';
+import { S, BPR } from '../../webview/state';
+import { initFlatBytes, buildMemRows, getByte } from '../../webview/data';
+import { integrityHighlightClass } from '../../webview/memory/memoryView';
+import { rerender } from '../../webview/render';
 import {
     calcRowOffset,
     calcScrollLayout,
@@ -13,7 +13,7 @@ import {
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollState,
-} from '../webview/virtualScroll';
+} from '../../webview/memory/virtualScroll';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -414,7 +414,7 @@ suite('Memory View navigation', () => {
     });
 
     test('keeps all rows rendered when jumping in a viewport taller than the content', async () => {
-        const { renderMemBody, scrollTo } = await import('../webview/memoryView.js');
+        const { renderMemBody, scrollTo } = await import('../../webview/memory/memoryView.js');
         renderMemBody(() => {}, () => {});
 
         scrollTo(0x08010000);
@@ -455,7 +455,7 @@ suite('Parsed Segment Navigator', () => {
         let jumpedTo: number | null = null;
         rerender.jumpTo = address => { jumpedTo = address; };
 
-        const { renderSegments } = await import('../webview/sidebar.js');
+        const { renderSegments } = await import('../../webview/panels/sidebar.js');
         renderSegments();
 
         const items = document.querySelectorAll<HTMLElement>('.segment-item');
@@ -470,7 +470,7 @@ suite('Parsed Segment Navigator', () => {
     });
 
     test('renders empty state and preserves collapsed state', async () => {
-        const { renderSegments } = await import('../webview/sidebar.js');
+        const { renderSegments } = await import('../../webview/panels/sidebar.js');
         renderSegments();
 
         const section = document.getElementById('s-segments')!;
@@ -521,7 +521,7 @@ suite('Record View rendering', () => {
             format: 'ihex',
         };
 
-        const { renderRecordView } = await import('../webview/hexViewer.js');
+        const { renderRecordView } = await import('../../webview/hexViewer.js');
         renderRecordView();
 
         const rows = document.querySelectorAll('#record-view tbody tr');
@@ -529,7 +529,7 @@ suite('Record View rendering', () => {
         assert.strictEqual(document.querySelector('#record-view .raddr')?.textContent, '08000000');
         assert.ok(!(document.getElementById('record-view')?.textContent ?? '').includes('<tr'), 'record markup should not be escaped as text');
 
-        const api = await import('../webview/api.js');
+        const api = await import('../../webview/api.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
         api.vscode.postMessage = msg => { posted.push(msg); };
@@ -605,14 +605,14 @@ suite('Integrity Checks sidebar', () => {
 
     test('uses struct-style cards, shared byte order, edit forms, and profiles', async function () {
         this.timeout(5_000);
-        const api = await import('../webview/api.js');
+        const api = await import('../../webview/api.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
         api.vscode.postMessage = msg => { posted.push(msg); };
 
         try {
-            const view = await import('../webview/integrityView.js');
-            const { calculateIntegrity } = await import('../core/integrity.js');
+            const view = await import('../../webview/panels/integrityView.js');
+            const { calculateIntegrity } = await import('../../core/integrity.js');
             S.edits.clear();
             S.endian = 'le';
             view.renderIntegrity();

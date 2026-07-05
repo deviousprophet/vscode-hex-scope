@@ -1,7 +1,7 @@
-﻿import * as assert from 'assert';
-import { parseIntelHex } from '../core/parser/IntelHexParser';
-import { assertSegmentsContainBytes, segmentDataLengthTotal } from './helpers';
-import { loadIntelHexFixture as loadHex } from './parser-fixtures';
+import * as assert from 'assert';
+import { parseIntelHex } from '../../../core/parser/IntelHexParser';
+import { assertSegmentsContainBytes, segmentDataLengthTotal } from '../../shared/helpers';
+import { loadIntelHexFixture as loadHex } from '../../shared/parser-fixtures';
 
 // Minimal 16-bit image with two disjoint address ranges and 40 data bytes.
 

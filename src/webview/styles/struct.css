@@ -98,7 +98,7 @@
 /* Field header + rows */
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
+    grid-template-columns: 64px 22px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 9px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -108,7 +108,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
+    grid-template-columns: 64px 22px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 
@@ -127,6 +127,20 @@
     box-sizing: border-box;
 }
 .sfe-type-sel:focus { border-color: var(--focus-bdr); }
+
+.sfe-ptr-btn {
+    width: 22px; flex-shrink: 0; text-align: center;
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 11px; cursor: pointer; padding: 0; line-height: 1.4;
+    transition: border-color .1s, color .1s, background .1s;
+}
+.sfe-ptr-btn:hover:not(:disabled) { border-color: var(--high-color); color: var(--high-color); }
+.sfe-ptr-btn.active { border-style: solid; border-color: var(--high-color);
+                      color: var(--high-color); background: rgba(79,195,247,.1); }
+.sfe-ptr-btn.active:hover { border-color: var(--err); color: var(--err);
+                            background: rgba(255,80,80,.08); }
+.sfe-ptr-btn:disabled { opacity: .35; cursor: not-allowed; }
 
 /* Array cell */
 .sfe-arr-cell {
@@ -179,6 +193,13 @@
 .sfe-bit-btn.sfe-bit-btn-on:hover        { border-color: var(--err); color: var(--err);
                                             background: rgba(255,80,80,.08); }
 .sfe-bit-btn:disabled                    { opacity: .35; cursor: not-allowed; }
+
+.si-f-ptr-note {
+    color: var(--addr-fg);
+    opacity: .8;
+    font-family: var(--font-ui);
+    font-size: 10px;
+}
 
 /* ── Bit-field children container ─────────────────────────────── */
 .sfe-bf-children {
@@ -442,6 +463,11 @@
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
+.si-csource {
+    font-size: 9px; color: var(--muted-fg);
+    font-family: var(--font-editor); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
 .si-del-btn { display: none; } /* superseded by .act-btn — kept to avoid selector errors */
 
 /* Action buttons group (edit + delete) at top-right of card */
@@ -530,7 +556,7 @@
 /* Expanded field rows */
 .si-fields {
     --si-col-off: 30px;
-    --si-col-type: 20px;
+    --si-col-type: clamp(72px, 22%, 112px);
     --si-col-toggle: 18px;
     --si-col-gap: 2px;
     --si-col-pad-left: 6px;
@@ -553,7 +579,19 @@
 .si-field.si-selected { background: rgba(79,195,247,.12) !important; }
 
 .si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
-.si-f-type { font-size: 8px; color: var(--addr-fg); opacity: .55; font-family: var(--font-editor); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.si-f-type {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 8px;
+    color: var(--addr-fg);
+    opacity: .55;
+    font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
 .si-toggle-pad { display: block; width: var(--si-col-toggle); height: 1px; }
 
 /* name + dotted leader + value */

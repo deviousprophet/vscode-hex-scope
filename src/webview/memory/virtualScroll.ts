@@ -3,7 +3,7 @@
 // only visible rows + a buffer instead of the entire DOM tree.
 // This reduces DOM nodes from millions to hundreds, enabling 40x speedup.
 
-import { S } from './state';
+import { S } from '../state';
 
 export interface VirtualScrollState {
     containerHeight: number;        // visible height in pixels

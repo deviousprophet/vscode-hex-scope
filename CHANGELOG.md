@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.11.0] - 2026-07-04
+
+### Added
+
+- Struct Overlay pointer support, including typed pointers (`u8*`, `u16*`, `u32*`, `u64*`, `i8*`, `i16*`, `i32*`, `i64*`, `f32*`, `f64*`) and `void*`
+- Inline pointer dereference for mapped scalar and struct pointers, so target data can be inspected directly from Struct Overlay
+- `Jump to Address` action for pointer fields to quickly navigate to pointer targets in Memory view
+- Explicit `Create Struct Instance` action on struct pointer `{ }` child rows, with source metadata shown on created cards
+- Struct Instance Display design spec under `docs/design/struct-instance-display-spec.md`
+
+### Changed
+
+- Pointer rows now separate pointer storage selection from pointer target navigation: row click selects storage bytes, while value click follows/selects target bytes
+- Scalar pointer expansion shows a typed dereference row (`target type`, `*`, scalar value) without a repeated visible `+000` offset
+- Struct pointer expansion shows a `{ }` target root with target-relative member offsets, while instance creation stays an intentional context-menu action
+- Unmapped, null, missing, and unresolved pointer targets render as scalar-style pointer rows with leading status labels and no arrow, without expand buttons or child previews
+- Long data type labels use adaptive width, middle ellipsis, and full text in tooltip/accessibility labels
+- `void*` and unknown pointer rows now render as storage-only pointer rows with Jump to Address for mapped targets, without empty inline previews or Create Struct Instance actions
+
+### Fixed
+
+- Struct Overlay values now stay in sync after Hex view byte edits, including save, undo, fill, integrity edits, and external-change refresh paths
+
 ## [2.10.0] - 2026-06-29
 
 ### Changed

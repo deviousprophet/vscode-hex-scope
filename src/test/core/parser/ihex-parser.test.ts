@@ -1,10 +1,10 @@
-﻿import * as assert from 'assert';
-import { parseIntelHex, RecordType } from '../core/parser/IntelHexParser';
-import { assertParsedRecordPayload } from './helpers';
+import * as assert from 'assert';
+import { parseIntelHex, RecordType } from '../../../core/parser/IntelHexParser';
+import { assertParsedRecordPayload } from '../../shared/helpers';
 
 suite('IntelHexParser', () => {
 
-    // ── Test record builders ──────────────────────────────────────────────
+    // -- Test record builders ----------------------------------------------
 
     function dataRec(addr: number, bytes: number[]): string {
         const bc = bytes.length;
@@ -27,7 +27,7 @@ suite('IntelHexParser', () => {
 
     const EOF = ':00000001FF';
 
-    // ── Record parsing ────────────────────────────────────────────────────
+    // -- Record parsing ----------------------------------------------------
 
     test('reads a well-formed data record', () => {
         const rec = dataRec(0x0010, [0xCA, 0xFE, 0xBA, 0xBE]);
@@ -63,7 +63,7 @@ suite('IntelHexParser', () => {
         assert.strictEqual(result.records[2].lineNumber, 3);
     });
 
-    // ── Checksum validation ───────────────────────────────────────────────
+    // -- Checksum validation -----------------------------------------------
 
     test('corrupted checksum byte is flagged as invalid', () => {
         const corrupted = dataRec(0x0020, [0xAA, 0xBB]).slice(0, -2) + 'FF';
@@ -86,7 +86,7 @@ suite('IntelHexParser', () => {
         assert.strictEqual(result.checksumErrors, 0);
     });
 
-    // ── Malformed records ─────────────────────────────────────────────────
+    // -- Malformed records -------------------------------------------------
 
     test('line not starting with ":" is recorded as malformed', () => {
         const result = parseIntelHex('0100000000FF');
@@ -113,27 +113,27 @@ suite('IntelHexParser', () => {
     });
 
     test('unknown record type is flagged as malformed', () => {
-        // type 0x06: byteCount=0, addr=0x0000 → sum=6 → chk=0xFA
+        // type 0x06: byteCount=0, addr=0x0000 -> sum=6 -> chk=0xFA
         const result = parseIntelHex(':00000006FA');
         assert.strictEqual(result.malformedLines, 1);
         assert.ok(result.records[0].error?.includes('Unknown record type'));
     });
 
     test('EOF record with non-zero byte count is flagged as malformed', () => {
-        // type 0x01, byteCount=2, addr=0x0000, data=[0xAA,0xBB] → sum=360 → chk=0x98
+        // type 0x01, byteCount=2, addr=0x0000, data=[0xAA,0xBB] -> sum=360 -> chk=0x98
         const result = parseIntelHex(':02000001AABB98');
         assert.strictEqual(result.malformedLines, 1);
         assert.ok(result.records[0].error?.includes('byte count'));
     });
 
     test('Extended Linear Address with wrong byte count is flagged as malformed', () => {
-        // type 0x04, byteCount=4 (should be 2), data=[0x00,0x08,0x00,0x00] → sum=16 → chk=0xF0
+        // type 0x04, byteCount=4 (should be 2), data=[0x00,0x08,0x00,0x00] -> sum=16 -> chk=0xF0
         const result = parseIntelHex(':0400000400080000F0');
         assert.strictEqual(result.malformedLines, 1);
         assert.ok(result.records[0].error?.includes('byte count'));
     });
 
-    // ── Address resolution ────────────────────────────────────────────────
+    // -- Address resolution ------------------------------------------------
 
     test('without any address extension record the address is 16-bit', () => {
         const result = parseIntelHex([dataRec(0x1234, [0xFF]), EOF].join('\n'));
@@ -173,7 +173,7 @@ suite('IntelHexParser', () => {
         assert.strictEqual(result.startAddress, 0x00080000);
     });
 
-    // ── Segment assembly ──────────────────────────────────────────────────
+    // -- Segment assembly --------------------------------------------------
 
     test('adjacent records produce a single merged segment', () => {
         const src = [
@@ -207,7 +207,7 @@ suite('IntelHexParser', () => {
         assert.strictEqual(result.segments[0].startAddress, 0x0010);
     });
 
-    // ── Result statistics ─────────────────────────────────────────────────
+    // -- Result statistics -------------------------------------------------
 
     test('totalDataBytes sums the lengths of all valid segments', () => {
         const src = [
