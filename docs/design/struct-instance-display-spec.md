@@ -77,10 +77,14 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Pointer storage offset and pointer target offsets must be visually separable so users do not confuse where the pointer is stored with where target data lives.
 - If a pointer target is unmapped, null, missing, or otherwise not followable, the pointer row should render like a normal scalar field row: no expand button, no composite connector, and no child preview. Show the stored address plus a status note on the pointer value instead.
 - Pointer target preview rows should not use a generic visible name like `target`; the pointer row already establishes that context.
-- Scalar pointer target preview should be a compact target-value preview, not an empty expandable object:
+- Scalar pointer target preview should be a compact target-value row, not an empty expandable object:
+  - Parent row keeps the pointer type (`u32*`) and stored address value (`-> 0x...`).
+  - Expanded child row uses the pointed scalar type (`u32`), a dereference label (`*`), and normal scalar value formatting.
+  - Expanded child row hides the visible target-relative `+000` offset because every scalar dereference starts at the target base; keep byte selection and target address available through row metadata/tooltip/accessibility text instead.
+  - Expanded child row must not render an expand button, blank field name, or `{ }` object root.
 
         +001 | u16*   | ▾ next         | -> 0x00001000
-              |         |               | 0x002A
+              | u16    | *              | 0x002A
 
 - Struct pointer target preview should use `{ }` as the target object root, then show struct member children:
 

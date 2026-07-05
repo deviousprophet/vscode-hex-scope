@@ -2876,12 +2876,11 @@ function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, k
     }
     const isOpen = _expandedArrayFields.has(key);
     const childKey = `${key}::child`;
-    const child = pointerChildState(ctx, row, target, childKey);
     return compositeGroupHtml(
         key,
         isOpen,
         structPointerHeaderHtml(ctx, row, key, name, target, isOpen),
-        structPointerBodyHtml(ctx, row, child),
+        structPointerTargetBodyHtml(ctx, row, target, childKey),
     );
 }
 
@@ -2955,7 +2954,7 @@ function pointerChildBodyHtml(
 }
 
 function pointerChildSummary(row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>): string {
-    return target.def ? structPointerTargetSummary(row, target.addr, target.def) : scalarPointerTargetSummary(row, target.addr);
+    return target.def ? structPointerTargetSummary(row, target.addr, target.def) : pointerTargetTypeLabel(row, false);
 }
 
 function pointerChildSummaryTitle(row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>): string {
@@ -2969,14 +2968,6 @@ function structPointerTargetSummary(
     def: StructDef,
 ): string {
     return `${row.pointerTargetStructName ?? def.name} @ ${formatHex(addr, 8)}`;
-}
-
-function scalarPointerTargetSummary(row: DecodedField, addr: number): string {
-    const targetType = scalarPointerTargetType(row);
-    if (!targetType) { return pointerTargetTypeLabel(row, false); }
-    if (targetType === 'void') { return 'void'; }
-    const bytes = readScalarPointerTargetBytes(row, targetType, addr);
-    return bytes ? scalarPointerTargetValue(row, targetType, bytes) : '??';
 }
 
 function scalarPointerTargetType(row: DecodedField): Exclude<StructFieldType, 'struct'> | null {
@@ -2997,11 +2988,6 @@ function readScalarPointerTargetBytes(
         bytes.push(value);
     }
     return bytes;
-}
-
-function scalarPointerTargetValue(row: DecodedField, targetType: Exclude<StructFieldType, 'struct'>, bytes: number[]): string {
-    const targetRow = scalarPointerTargetRow(row, targetType, bytes);
-    return getCopyText(targetRow, definedFieldImplicitDisplayType(targetRow));
 }
 
 function scalarPointerTargetRow(row: DecodedField, targetType: Exclude<StructFieldType, 'struct'>, bytes: number[]): DecodedField {
@@ -3166,6 +3152,45 @@ function pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, chi
         `<span class="si-arr-addr" title="${esc(child.summaryTitle)}">${esc(child.summary)}</span>` +
         `</span>` +
         `</div>`;
+}
+
+function structPointerTargetBodyHtml(
+    ctx: StructRenderContext,
+    row: DecodedField,
+    target: Extract<PointerDerefTarget, { ok: true }>,
+    childKey: string,
+): string {
+    if (!target.def) { return scalarPointerTargetFieldHtml(ctx, row, target); }
+    const child = pointerChildState(ctx, row, target, childKey);
+    return structPointerBodyHtml(ctx, row, child);
+}
+
+function scalarPointerTargetFieldHtml(
+    ctx: StructRenderContext,
+    row: DecodedField,
+    target: Extract<PointerDerefTarget, { ok: true }>,
+): string {
+    const targetRow = scalarPointerTargetDecodedRow(row, target.addr);
+    return targetRow ? mkFieldRow(targetRow, target.addr, target.byteCount, scalarPointerTargetContext(ctx, target), '*') : '';
+}
+
+function scalarPointerTargetDecodedRow(row: DecodedField, addr: number): DecodedField | null {
+    const targetType = scalarPointerTargetType(row);
+    if (!targetType || targetType === 'void') { return null; }
+    const bytes = readScalarPointerTargetBytes(row, targetType, addr);
+    return bytes ? scalarPointerTargetRow(row, targetType, bytes) : null;
+}
+
+function scalarPointerTargetContext(
+    ctx: StructRenderContext,
+    target: Extract<PointerDerefTarget, { ok: true }>,
+): StructRenderContext {
+    return {
+        ...ctx,
+        baseAddr: target.addr,
+        pointerDepth: ctx.pointerDepth + 1,
+        hideOffsets: true,
+    };
 }
 
 function renderStructPointerBody(

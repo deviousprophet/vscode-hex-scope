@@ -161,6 +161,56 @@ suite('struct UI array header summary', () => {
         assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
     }
 
+    function setupScalarPointerPreviewFixture(): void {
+        const def: StructDef = {
+            id: 'ptr_scalar_preview',
+            name: 'PtrScalarPreview',
+            packed: true,
+            fields: [
+                { name: 'value', type: 'uint32', isPointer: true, count: 1 },
+            ],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0x30;
+        bytes[0x21] = 0x33;
+        bytes[0x22] = 0x43;
+        bytes[0x23] = 0x38;
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ptr_scalar_preview', structId: def.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+    }
+
+    function assertScalarPointerTargetPreview(row: HTMLElement): void {
+        const body = requiredPointerBody(row);
+        const child = body.querySelector<HTMLElement>(':scope > .si-field');
+        assert.ok(child, 'scalar pointer target preview should render');
+        assert.strictEqual(body.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'scalar target should not render an object child header');
+        assertScalarPointerTargetField(child!);
+    }
+
+    function assertScalarPointerTargetField(child: HTMLElement): void {
+        assert.strictEqual(child.querySelector<HTMLElement>('.si-f-off'), null, 'scalar pointer target should hide noisy +000 offset');
+        assert.ok(child.querySelector<HTMLElement>('.si-node-pad'), 'scalar pointer target should keep row alignment');
+        assert.strictEqual(requiredPointerTargetText(child, '.si-f-type'), 'u32');
+        assert.strictEqual(requiredPointerTargetText(child, '.si-f-name'), '*');
+        assert.strictEqual(requiredPointerTargetText(child, '.si-f-val'), '0x38433330');
+    }
+
+    function requiredPointerTargetText(row: HTMLElement, selector: string): string {
+        const el = row.querySelector<HTMLElement>(selector);
+        assert.ok(el, `${selector} should render`);
+        return el!.textContent ?? '';
+    }
+
+    function requiredPointerBody(row: HTMLElement): HTMLElement {
+        const group = row.closest<HTMLElement>('.si-arr-grp');
+        assert.ok(group, 'pointer group should render');
+        const body = group!.querySelector<HTMLElement>(':scope > .si-arr-grp-body');
+        assert.ok(body, 'pointer body should render after expand');
+        return body!;
+    }
+
     function setupOffsetVisiblePointerFixture(): void {
         const header: StructDef = {
             id: 'header_offset_visible',
@@ -953,24 +1003,8 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(S.selEnd, 0x21);
     });
 
-    test('scalar pointer target preview omits target label and uses scalar value display', async () => {
-        const def: StructDef = {
-            id: 'ptr_scalar_preview',
-            name: 'PtrScalarPreview',
-            packed: true,
-            fields: [
-                { name: 'value', type: 'uint32', isPointer: true, count: 1 },
-            ],
-        };
-        const bytes = new Array(0x40).fill(0);
-        bytes[0] = 0x20;
-        bytes[0x20] = 0x30;
-        bytes[0x21] = 0x33;
-        bytes[0x22] = 0x43;
-        bytes[0x23] = 0x38;
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ptr_scalar_preview', structId: def.id, addr: 0, name: 'inst' }];
-        setBytesInSegment(0, bytes);
+    test('scalar pointer target preview renders typed dereference row', async () => {
+        setupScalarPointerPreviewFixture();
 
         await renderPinsAndExpandCard();
 
@@ -978,12 +1012,7 @@ suite('struct UI array header summary', () => {
         assert.ok(row, 'scalar pointer row should render');
         row!.querySelector<HTMLElement>('.si-arr-exp-btn')!
             .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-
-        const child = document.querySelector<HTMLElement>('.si-ptr-child-hdr');
-        assert.ok(child, 'scalar pointer target preview should render');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, '');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, '0x38433330');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-arr-addr')?.getAttribute('title'), 'uint32 @ 0x00000020');
+        assertScalarPointerTargetPreview(row!);
     });
 
     test('struct pointer click jumps without creating destination pin', async () => {
