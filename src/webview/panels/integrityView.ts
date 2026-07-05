@@ -1,1 +1,1 @@
-export * from './integrity/integrityView';
+export * from './integrity/index';

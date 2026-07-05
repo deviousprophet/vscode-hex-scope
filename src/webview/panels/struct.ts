@@ -1,1 +1,1 @@
-export * from './struct/struct';
+export * from './struct/index';
