@@ -4,7 +4,7 @@
 import { S } from '../state';
 import { esc, fmtB, actionBtnsHtml, wireActionBtns } from '../utils';
 import { postProviderMessage } from '../vscodeApi';
-import { rerender } from '../renderRegistry';
+import { rerender } from '../render/registry';
 import { buildMemRows } from '../memory/memoryData';
 import type { SerializedSegment } from '../../core/types';
 

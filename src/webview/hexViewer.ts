@@ -4,7 +4,7 @@
 import { S }                                          from './state';
 import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
-import { rerender }                                   from './renderRegistry';
+import { rerender }                                   from './render/registry';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
@@ -25,7 +25,7 @@ import {
     isAnalyzeCommand,
     isCopyCommand,
 } from '../core/byte-tools';
-import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './memory/virtualScroll';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './render/memoryVirtualScroll';
 import {
     addLabel,
     applyInitialState,

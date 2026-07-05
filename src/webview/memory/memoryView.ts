@@ -15,7 +15,7 @@ import {
     physicalToLogicalScroll,
     type VirtualScrollLayout,
     type VirtualScrollState,
-} from './virtualScroll';
+} from '../render/memoryVirtualScroll';
 
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;

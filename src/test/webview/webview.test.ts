@@ -5,7 +5,7 @@ import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
 import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
 import { integrityHighlightClass } from '../../webview/memory/memoryView';
-import { rerender } from '../../webview/renderRegistry';
+import { rerender } from '../../webview/render/registry';
 import {
     calcRowOffset,
     calcScrollLayout,
@@ -13,7 +13,7 @@ import {
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollState,
-} from '../../webview/memory/virtualScroll';
+} from '../../webview/render/memoryVirtualScroll';
 
 function resetState(): void {
     S.parseResult  = null;

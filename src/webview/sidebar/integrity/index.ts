@@ -23,7 +23,7 @@ import {
     validateIntegrityRange,
 } from '../../../core/integrity';
 import { S } from '../../state';
-import { rerender } from '../../renderRegistry';
+import { rerender } from '../../render/registry';
 import { actionBtnsHtml, esc, formatHexHtml } from '../../utils';
 import {
     applyIntegrityDraft,
