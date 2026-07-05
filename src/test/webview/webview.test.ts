@@ -455,7 +455,7 @@ suite('Parsed Segment Navigator', () => {
         let jumpedTo: number | null = null;
         rerender.jumpTo = address => { jumpedTo = address; };
 
-        const { renderSegments } = await import('../../webview/panels/sidebar.js');
+        const { renderSegments } = await import('../../webview/panels/sidebar/index.js');
         renderSegments();
 
         const items = document.querySelectorAll<HTMLElement>('.segment-item');
@@ -470,7 +470,7 @@ suite('Parsed Segment Navigator', () => {
     });
 
     test('renders empty state and preserves collapsed state', async () => {
-        const { renderSegments } = await import('../../webview/panels/sidebar.js');
+        const { renderSegments } = await import('../../webview/panels/sidebar/index.js');
         renderSegments();
 
         const section = document.getElementById('s-segments')!;
@@ -611,7 +611,7 @@ suite('Integrity Checks sidebar', () => {
         api.vscode.postMessage = msg => { posted.push(msg); };
 
         try {
-            const view = await import('../../webview/panels/integrityView.js');
+            const view = await import('../../webview/panels/integrity/index.js');
             const { calculateIntegrity } = await import('../../core/integrity.js');
             S.edits.clear();
             S.endian = 'le';

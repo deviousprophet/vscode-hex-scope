@@ -6,8 +6,8 @@ import { postProviderMessage, vscode }                from './api';
 import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
-import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './panels/sidebar';
-import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './panels/struct';
+import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './panels/sidebar/index';
+import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './panels/struct/index';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './search/searchEngine';
 import { getByte }                                    from './data';
 import type { SerializedParseResult, SerializedRecord } from '../core/types';
@@ -49,7 +49,7 @@ import {
     renderIntegrity,
     setIntegrityEditHandler,
     setIntegrityProfiles,
-} from './panels/integrityView';
+} from './panels/integrity/index';
 import { messageType, type ProviderToWebviewMessage, type WebviewToProviderMessage } from '../webviewProtocol';
 
 postProviderMessage({ type: 'ready' });

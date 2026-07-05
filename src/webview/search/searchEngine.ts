@@ -251,7 +251,7 @@ function selectCurrentMatch(): void {
     S.selStart = start;
     S.selEnd = end;
     applySel();
-    import('../panels/sidebar.js').then(m => m.updateInspector());
+    import('../panels/sidebar/index.js').then(m => m.updateInspector());
 }
 
 function hasCurrentMatch(): boolean {
