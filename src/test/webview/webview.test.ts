@@ -13,7 +13,7 @@ import {
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollState,
-} from '../../webview/render/memoryVirtualScroll';
+} from '../../webview/render/virtualScroll';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -332,40 +332,39 @@ suite('virtual scroll metrics', () => {
     setup(resetState);
 
     test('recalculates cached offsets when row heights change', () => {
-        S.memRows = [
-            { type: 'data', address: 0x0000 },
-            { type: 'gap', from: 0x0010, to: 0x001F, bytes: 16 },
-            { type: 'data', address: 0x0020 },
-        ];
+        const rowTypes = ['data', 'gap', 'data'];
+        let rowHeight = 20;
+        let gapHeight = 30;
 
         const state: VirtualScrollState = {
             containerHeight: 100,
-            rowHeight: 20,
-            gapHeight: 30,
             scrollTop: 0,
             bufferSize: 10,
             visibleRowIndices: [0, 0],
+            rowCount: rowTypes.length,
+            heightVersion: '20:30',
+            getRowHeight: rowIndex => rowTypes[rowIndex] === 'gap' ? gapHeight : rowHeight,
         };
 
         assert.strictEqual(calcTotalHeight(state), 70);
 
-        state.rowHeight = 32;
-        state.gapHeight = 52;
+        rowHeight = 32;
+        gapHeight = 52;
+        state.heightVersion = '32:52';
 
         assert.strictEqual(calcTotalHeight(state), 116);
         assert.strictEqual(calcRowOffset(2, state), 84);
     });
 
     test('maps large logical scroll ranges onto capped physical height', () => {
-        S.memRows = Array.from({ length: 200_000 }, (_, i) => ({ type: 'data', address: i * BPR }));
-
         const state: VirtualScrollState = {
             containerHeight: 100,
-            rowHeight: 100,
-            gapHeight: 150,
             scrollTop: 0,
             bufferSize: 10,
             visibleRowIndices: [0, 0],
+            rowCount: 200_000,
+            heightVersion: '100',
+            getRowHeight: () => 100,
         };
 
         const layout = calcScrollLayout(state);

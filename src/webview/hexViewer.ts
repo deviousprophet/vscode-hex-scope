@@ -25,7 +25,7 @@ import {
     isAnalyzeCommand,
     isCopyCommand,
 } from '../core/byte-tools';
-import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './render/memoryVirtualScroll';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './render/virtualScroll';
 import {
     addLabel,
     applyInitialState,

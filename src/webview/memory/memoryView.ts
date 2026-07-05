@@ -15,7 +15,7 @@ import {
     physicalToLogicalScroll,
     type VirtualScrollLayout,
     type VirtualScrollState,
-} from '../render/memoryVirtualScroll';
+} from '../render/virtualScroll';
 
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;
@@ -84,20 +84,34 @@ function getVirtualScrollMetrics(scrollContainer: HTMLElement): { rowHeight: num
     };
 }
 
+function virtualScrollHeightVersion(rowHeight: number, gapHeight: number): string {
+    return `${rowHeight.toFixed(3)}:${gapHeight.toFixed(3)}`;
+}
+
+function memoryRowHeight(rowIndex: number, rowHeight: number, gapHeight: number): number {
+    return S.memRows[rowIndex]?.type === 'gap' ? gapHeight : rowHeight;
+}
+
+function memoryRowHeightGetter(rowHeight: number, gapHeight: number): (rowIndex: number) => number {
+    return rowIndex => memoryRowHeight(rowIndex, rowHeight, gapHeight);
+}
+
 function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     if (!vscrollState) { return; }
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const containerHeight = scrollContainer.clientHeight;
+    const heightVersion = virtualScrollHeightVersion(rowHeight, gapHeight);
     const unchanged = [
-        Math.abs(vscrollState.rowHeight - rowHeight) < 0.01,
-        Math.abs(vscrollState.gapHeight - gapHeight) < 0.01,
+        vscrollState.heightVersion === heightVersion,
         vscrollState.containerHeight === containerHeight,
+        vscrollState.rowCount === S.memRows.length,
     ].every(Boolean);
     if (unchanged) { return; }
 
-    vscrollState.rowHeight = rowHeight;
-    vscrollState.gapHeight = gapHeight;
     vscrollState.containerHeight = containerHeight;
+    vscrollState.rowCount = S.memRows.length;
+    vscrollState.heightVersion = heightVersion;
+    vscrollState.getRowHeight = memoryRowHeightGetter(rowHeight, gapHeight);
     vscrollRenderedRange = [-1, -1];
 }
 
@@ -293,11 +307,12 @@ export function renderMemBody(
 
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
-        rowHeight,
-        gapHeight,
         scrollTop: scrollContainer.scrollTop,
         bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
         visibleRowIndices: [0, 0],
+        rowCount: S.memRows.length,
+        heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight),
+        getRowHeight: memoryRowHeightGetter(rowHeight, gapHeight),
     };
     vscrollRenderedRange = [-1, -1];
 
@@ -645,7 +660,7 @@ function scrollRenderedRow(row: number): void {
 function setVirtualScrollPosition(scrollContainer: HTMLElement, rowIndex: number): VirtualScrollLayout {
     const state = vscrollState!;
     syncVirtualScrollMetrics(scrollContainer);
-    const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.rowHeight * 2);
+    const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.getRowHeight(rowIndex) * 2);
     const layout = calcScrollLayout(state);
     const targetTop = Math.min(desiredTop, layout.logicalScrollable);
     scrollContainer.scrollTop = logicalToPhysicalScroll(targetTop, state);
