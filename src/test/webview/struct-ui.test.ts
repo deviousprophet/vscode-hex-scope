@@ -140,6 +140,8 @@ suite('struct UI array header summary', () => {
         assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '', 'next', 'typed pointer name should not repeat target type');
         assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
         assertUnmappedPointerValue(row!);
+        assert.ok(row!.classList.contains('si-field'), 'unmapped pointer should use scalar field row layout');
+        assert.ok(!row!.classList.contains('si-arr-grp-hdr'), 'unmapped pointer should not use composite header layout');
         assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
         assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
     }

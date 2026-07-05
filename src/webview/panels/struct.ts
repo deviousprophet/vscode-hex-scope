@@ -2872,7 +2872,7 @@ function renderStructPointerArrayRows(
 function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, key: string, name: string): string {
     const target = pointerDerefTarget(row);
     if (!target.ok) {
-        return structPointerHeaderHtml(ctx, row, key, name, target, false, false);
+        return structPointerLeafHtml(ctx, row, key, name, target);
     }
     const isOpen = _expandedArrayFields.has(key);
     const childKey = `${key}::child`;
@@ -2880,9 +2880,38 @@ function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, k
     return compositeGroupHtml(
         key,
         isOpen,
-        structPointerHeaderHtml(ctx, row, key, name, target, isOpen, true),
+        structPointerHeaderHtml(ctx, row, key, name, target, isOpen),
         structPointerBodyHtml(ctx, row, child),
     );
+}
+
+function structPointerLeafHtml(
+    ctx: StructRenderContext,
+    row: DecodedField,
+    key: string,
+    name: string,
+    target: PointerDerefTarget,
+): string {
+    const storageStart = ctx.baseAddr + row.byteOffset;
+    const valKey = fieldValueKey(row, storageStart);
+    return (
+        structPointerLeafOpenTag(ctx, row, target, key, storageStart, valKey) +
+        structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
+        `<span class="si-toggle-pad" aria-hidden="true"></span>` +
+        structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
+        `</div>`
+    );
+}
+
+function structPointerLeafOpenTag(
+    ctx: StructRenderContext,
+    row: DecodedField,
+    target: PointerDerefTarget,
+    key: string,
+    storageStart: number,
+    valKey: string,
+): string {
+    return structPointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-field si-ptr-hdr si-ptr-field', 0);
 }
 
 function pointerChildState(ctx: StructRenderContext, row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>, key: string): PointerChildState {
@@ -3039,23 +3068,16 @@ function structPointerHeaderHtml(
     name: string,
     target: PointerDerefTarget,
     isOpen: boolean,
-    canPreview: boolean,
 ): string {
     const storageStart = ctx.baseAddr + row.byteOffset;
     const valKey = fieldValueKey(row, storageStart);
     return (
         structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        structPointerHeaderToggleHtml(isOpen, canPreview) +
+        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
         structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
-}
-
-function structPointerHeaderToggleHtml(isOpen: boolean, canPreview: boolean): string {
-    return canPreview
-        ? `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>`
-        : '<span class="si-toggle-pad" aria-hidden="true"></span>';
 }
 
 function structPointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): string {
@@ -3076,11 +3098,25 @@ function structPointerHeaderOpenTag(
     storageStart: number,
     valKey: string,
 ): string {
+    const targetCnt = target.ok ? target.byteCount : 0;
+    return structPointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-arr-grp-hdr si-ptr-hdr si-ptr-field', targetCnt);
+}
+
+function structPointerOpenTag(
+    ctx: StructRenderContext,
+    row: DecodedField,
+    target: PointerDerefTarget,
+    key: string,
+    storageStart: number,
+    valKey: string,
+    className: string,
+    targetCnt: number,
+): string {
     const targetStart = target.addr ?? storageStart;
     const byteCount = decodedRowByteCount(row);
-    return `<div class="si-arr-grp-hdr si-ptr-hdr si-ptr-field" data-byte-start="${storageStart}" data-byte-cnt="${byteCount}" ` +
+    return `<div class="${className}" data-byte-start="${storageStart}" data-byte-cnt="${byteCount}" ` +
         `data-offset-label="${offsetLabel(row.byteOffset)}" data-pointer-storage-start="${storageStart}" data-val-key="${esc(valKey)}"` +
-        ` data-pointer-target-start="${targetStart}" data-pointer-target-cnt="${target.ok ? target.byteCount : 0}"` +
+        ` data-pointer-target-start="${targetStart}" data-pointer-target-cnt="${targetCnt}"` +
         ` data-pointer-allow-create="false"` +
         sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(key)}">`;
