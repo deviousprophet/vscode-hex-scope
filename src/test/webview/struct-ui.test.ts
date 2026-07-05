@@ -843,12 +843,8 @@ suite('struct UI array header summary', () => {
         assert.ok(value.includes('0x20000000'), `pointer value should show decoded address, got: ${value}`);
         assert.ok(value.includes('unmapped'), `unmapped pointer should show status, got: ${value}`);
 
-        row!.querySelector<HTMLElement>('.si-arr-exp-btn')!
-            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        const child = document.querySelector<HTMLElement>('.si-ptr-child-hdr');
-        assert.ok(child, 'unmapped pointer should render a target status child row');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, '');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, '(unmapped)');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
 
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');

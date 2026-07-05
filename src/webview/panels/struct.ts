@@ -2865,13 +2865,16 @@ function renderStructPointerArrayRows(
 
 function renderStructPointerGroup(ctx: StructRenderContext, row: DecodedField, key: string, name: string): string {
     const target = pointerDerefTarget(row);
+    if (!target.ok) {
+        return structPointerHeaderHtml(ctx, row, key, name, target, false, false);
+    }
     const isOpen = _expandedArrayFields.has(key);
     const childKey = `${key}::child`;
     const child = pointerChildState(ctx, row, target, childKey);
     return compositeGroupHtml(
         key,
         isOpen,
-        structPointerHeaderHtml(ctx, row, key, name, target, isOpen),
+        structPointerHeaderHtml(ctx, row, key, name, target, isOpen, true),
         structPointerBodyHtml(ctx, row, child),
     );
 }
@@ -3014,16 +3017,23 @@ function structPointerHeaderHtml(
     name: string,
     target: PointerDerefTarget,
     isOpen: boolean,
+    canPreview: boolean,
 ): string {
     const storageStart = ctx.baseAddr + row.byteOffset;
     const valKey = fieldValueKey(row, storageStart);
     return (
         structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        structPointerHeaderToggleHtml(isOpen, canPreview) +
         structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
+}
+
+function structPointerHeaderToggleHtml(isOpen: boolean, canPreview: boolean): string {
+    return canPreview
+        ? `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>`
+        : '<span class="si-toggle-pad" aria-hidden="true"></span>';
 }
 
 function structPointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): string {
@@ -3326,17 +3336,19 @@ function wireInstanceCards(sec: HTMLElement): void {
 
     // Array group: arrow button toggles expand; rest of row selects in hex view
     sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
-        const expBtn = hdr.querySelector<HTMLElement>('.si-arr-exp-btn')!;
+        const expBtn = hdr.querySelector<HTMLElement>('.si-arr-exp-btn');
         const start  = parseInt(hdr.dataset.byteStart!);
         const cnt    = parseInt(hdr.dataset.byteCnt!);
         const isBitUnitHdr = hdr.classList.contains('si-bitunit-hdr');
         const isPointerHdr = hdr.classList.contains('si-ptr-hdr') || hdr.classList.contains('si-ptr-child-hdr');
 
-        expBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            if ((expBtn as HTMLButtonElement).disabled) { return; }
-            toggleCompositeGroup(hdr, expBtn, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', _expandedArrayFields);
-        });
+        if (expBtn) {
+            expBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                if ((expBtn as HTMLButtonElement).disabled) { return; }
+                toggleCompositeGroup(hdr, expBtn, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', _expandedArrayFields);
+            });
+        }
 
         hdr.querySelector<HTMLElement>('.si-f-ptr')?.addEventListener('click', e => {
             e.stopPropagation();
