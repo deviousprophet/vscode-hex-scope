@@ -1,4 +1,4 @@
-import { getByte } from '../../data';
+import { getByte } from '../../memory/memoryData';
 import {
     calculateIntegrity,
     collectIntegrityBytes,
@@ -23,7 +23,7 @@ import {
     validateIntegrityRange,
 } from '../../../core/integrity';
 import { S } from '../../state';
-import { rerender } from '../../render';
+import { rerender } from '../../renderRegistry';
 import { actionBtnsHtml, esc, formatHexHtml } from '../../utils';
 import {
     applyIntegrityDraft,

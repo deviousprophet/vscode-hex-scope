@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { parseIntelHex } from './core/parser/IntelHexParser';
-import { parseSRec } from './core/parser/SRecParser';
+import { parseIntelHex } from './core/parser/intelHexParser';
+import { parseSRec } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
 import type { SegmentLabel, SerializedParseResult, StructDef } from './core/types';
 import { detectFormatFromParts, repairChecksums, serializeIntelHex, serializeSRec, type HexScopeFormat } from './core/document';

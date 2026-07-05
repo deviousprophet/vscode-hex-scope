@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { parseSRec, SREC_ADDR_SIZES, srecIsData } from '../../../core/parser/SRecParser';
+import { parseSRec, SREC_ADDR_SIZES, srecIsData } from '../../../core/parser/srecParser';
 import { assertParsedRecordPayload } from '../../shared/helpers';
 
 suite('SRecParser', () => {

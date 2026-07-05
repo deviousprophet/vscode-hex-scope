@@ -1,4 +1,4 @@
-import { computeSRecChecksum, SREC_ADDR_SIZES, srecIsData } from './parser/SRecParser';
+import { computeSRecChecksum, SREC_ADDR_SIZES, srecIsData } from './parser/srecParser';
 import type { HexRecord, ParseResult } from './parser/types';
 
 type ParsedRecord = ParseResult['records'][number];

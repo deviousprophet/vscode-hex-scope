@@ -5,8 +5,8 @@ Pure codec logic lives in struct-codec.ts. */
 
 import { S }        from '../../state';
 import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../../utils';
-import { rerender } from '../../render';
-import { getByte }  from '../../data';
+import { rerender } from '../../renderRegistry';
+import { getByte }  from '../../memory/memoryData';
 import { persistStructPins, persistStructs, persistStructState } from './structPersistence';
 import {
     makeStructPin,

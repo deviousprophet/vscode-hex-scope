@@ -5,7 +5,7 @@ import {
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
 } from '../../core/struct-codec';
 import { S } from '../../webview/state';
-import { getByte } from '../../webview/data';
+import { getByte } from '../../webview/memory/memoryData';
 import type { StructDef, StructField } from '../../core/types';
 import { setBytesInSegment } from '../shared/struct-test-helpers';
 

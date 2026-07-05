@@ -1,5 +1,5 @@
 import type { IntegrityCheckSet, IntegrityProfile } from '../../../core/integrity';
-import { postProviderMessage } from '../../api';
+import { postProviderMessage } from '../../vscodeApi';
 
 export function copyIntegrityText(text: string, label: string): void {
     postProviderMessage({ type: 'copyText', text, label });

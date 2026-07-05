@@ -1,6 +1,6 @@
 import type { SegmentLabel, SerializedParseResult } from '../core/types';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
-import { buildMemRows, initFlatBytes } from './data';
+import { buildMemRows, initFlatBytes } from './memory/memoryData';
 import { S } from './state';
 
 export type InitMessage = Extract<ProviderToWebviewMessage, { type: 'init' }>;

@@ -3,9 +3,9 @@
 
 import { S } from '../state';
 import { esc, fmtB, actionBtnsHtml, wireActionBtns } from '../utils';
-import { postProviderMessage } from '../api';
-import { rerender } from '../render';
-import { buildMemRows } from '../data';
+import { postProviderMessage } from '../vscodeApi';
+import { rerender } from '../renderRegistry';
+import { buildMemRows } from '../memory/memoryData';
 import type { SerializedSegment } from '../../core/types';
 
 // ── Inspector ────────────────────────────────────────────────────

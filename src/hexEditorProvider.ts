@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { HexEditorSession, migrateStructDefinitions } from './HexEditorSession';
+import { HexEditorSession, migrateStructDefinitions } from './hexEditorSession';
 
 export { migrateStructDefinitions };
 

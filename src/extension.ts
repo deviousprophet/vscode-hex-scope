@@ -1,9 +1,9 @@
 // The module 'vscode' contains the VS Code extensibility API
 import * as vscode from 'vscode';
-import { HexEditorProvider } from './HexEditorProvider';
+import { HexEditorProvider } from './hexEditorProvider';
 import { detectFormatFromParts, repairChecksums } from './core/document';
-import { parseIntelHex } from './core/parser/IntelHexParser';
-import { parseSRec } from './core/parser/SRecParser';
+import { parseIntelHex } from './core/parser/intelHexParser';
+import { parseSRec } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
 
 async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: 'ihex' | 'srec'; parseResult: ParseResult }> {

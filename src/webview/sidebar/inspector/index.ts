@@ -1,6 +1,6 @@
 import { S } from '../../state';
-import { postProviderMessage } from '../../api';
-import { getByte } from '../../data';
+import { postProviderMessage } from '../../vscodeApi';
+import { getByte } from '../../memory/memoryData';
 import { esc, formatDecimal, formatHex } from '../../utils';
 export function renderInspector(): void {
     const sec = document.getElementById('s-insp')!;

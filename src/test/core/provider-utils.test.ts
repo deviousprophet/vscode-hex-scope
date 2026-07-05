@@ -5,9 +5,9 @@ import {
     repairChecksums,
     serializeSRec,
 } from '../../core/document';
-import { migrateStructDefinitions } from '../../HexEditorProvider';
-import { parseSRec } from '../../core/parser/SRecParser';
-import { parseIntelHex } from '../../core/parser/IntelHexParser';
+import { migrateStructDefinitions } from '../../hexEditorProvider';
+import { parseSRec } from '../../core/parser/srecParser';
+import { parseIntelHex } from '../../core/parser/intelHexParser';
 import type { StructDef } from '../../core/types';
 
 // ── detectFormatFromParts ─────────────────────────────────────────────────────

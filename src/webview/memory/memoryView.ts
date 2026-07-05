@@ -1,10 +1,10 @@
-﻿//  Memory View 
+﻿//  Memory View
 // Renders the hex-grid memory view: column header, data rows, gap rows,
 // and segment label banners. Uses virtual scrolling to efficiently handle
 // large files by rendering only visible rows + a buffer.
 
 import { S, BPR } from '../state';
-import { getByte } from '../data';
+import { getByte } from '../memory/memoryData';
 import { esc, fmtB, byteClass } from '../utils';
 import {
     calcScrollLayout,

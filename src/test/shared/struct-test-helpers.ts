@@ -1,4 +1,4 @@
-import { initFlatBytes } from '../../webview/data';
+import { initFlatBytes } from '../../webview/memory/memoryData';
 import { S } from '../../webview/state';
 
 export function setBytesInSegment(baseAddr: number, bytes: number[]): void {

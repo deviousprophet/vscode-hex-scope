@@ -3,7 +3,7 @@
 
 import type { SerializedParseResult, SegmentLabel, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
-import type { SidebarTab } from './types';
+import type { SidebarTab } from './sidebar/sidebarTypes';
 
 export const BPR = 16; // bytes per memory row
 

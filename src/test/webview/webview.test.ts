@@ -3,9 +3,9 @@ import { JSDOM } from 'jsdom';
 
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
-import { initFlatBytes, buildMemRows, getByte } from '../../webview/data';
+import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
 import { integrityHighlightClass } from '../../webview/memory/memoryView';
-import { rerender } from '../../webview/render';
+import { rerender } from '../../webview/renderRegistry';
 import {
     calcRowOffset,
     calcScrollLayout,
@@ -529,7 +529,7 @@ suite('Record View rendering', () => {
         assert.strictEqual(document.querySelector('#record-view .raddr')?.textContent, '08000000');
         assert.ok(!(document.getElementById('record-view')?.textContent ?? '').includes('<tr'), 'record markup should not be escaped as text');
 
-        const api = await import('../../webview/api.js');
+        const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
         api.vscode.postMessage = msg => { posted.push(msg); };
@@ -605,7 +605,7 @@ suite('Integrity Checks sidebar', () => {
 
     test('uses struct-style cards, shared byte order, edit forms, and profiles', async function () {
         this.timeout(5_000);
-        const api = await import('../../webview/api.js');
+        const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
         api.vscode.postMessage = msg => { posted.push(msg); };
