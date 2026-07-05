@@ -18,6 +18,10 @@
 - Unmapped, null, missing, and unresolved pointer targets render as scalar-style pointer rows without expand buttons or child previews
 - Long data type labels use adaptive width, middle ellipsis, and full text in tooltip/accessibility labels
 
+### Fixed
+
+- Struct Overlay values now stay in sync after Hex view byte edits, including save, undo, fill, integrity edits, and external-change refresh paths
+
 ## [2.10.0] - 2026-06-29
 
 ### Changed
