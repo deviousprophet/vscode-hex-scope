@@ -21,6 +21,7 @@
 ### Fixed
 
 - Struct Overlay values now stay in sync after Hex view byte edits, including save, undo, fill, integrity edits, and external-change refresh paths
+- `void*` and unknown pointer rows now render as storage-only pointer rows with Jump to Address for mapped targets, without empty inline previews or Create Struct Instance actions
 
 ## [2.10.0] - 2026-06-29
 
