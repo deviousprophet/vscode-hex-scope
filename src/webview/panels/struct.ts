@@ -5,9 +5,17 @@ Pure codec logic lives in struct-codec.ts. */
 
 import { S }        from '../state';
 import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../utils';
-import { postProviderMessage }   from '../api';
 import { rerender } from '../render';
 import { getByte }  from '../data';
+import { persistStructPins, persistStructs, persistStructState } from './structPersistence';
+import {
+    makeStructPin,
+    uniqueStructPinName as uniquePinName,
+    upsertPointerStructPin,
+    withEditedStructPin,
+    withoutStructDefinition,
+    withoutStructPin,
+} from './structPinsModel';
 import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeField, decodeStruct, allStructs, resolveStructFieldByPath,
@@ -15,7 +23,7 @@ import {
     normalizeStructField,
 } from '../../core/struct-codec.js';
 import type { DecodedField } from '../../core/struct-codec.js';
-import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin, StructPointerSource } from '../../core/types';
+import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../core/types';
 
 // ── Module state ──────────────────────────────────────────────────
 
@@ -983,7 +991,7 @@ function saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
 
     _editorError = null;
     S.structs = upsertStructList(S.structs, def);
-    postProviderMessage({ type: 'saveStructs', structs: S.structs });
+    persistStructs(S.structs);
     closeEditorAfterSave(def.id);
     renderStructPins();
 }
@@ -1350,11 +1358,11 @@ function wireTypesPanelControls(sec: HTMLElement): void {
         },
         btn => {
             const id = btn.dataset.structId!;
-            S.structs    = S.structs.filter(d => d.id !== id);
-            S.structPins = S.structPins.filter(p => p.structId !== id);
+            const next = withoutStructDefinition(S.structs, S.structPins, id);
+            S.structs = next.structs;
+            S.structPins = next.pins;
             if (_applyStructId === id) { _applyStructId = null; }
-            postProviderMessage({ type: 'saveStructs',    structs: S.structs });
-            postProviderMessage({ type: 'saveStructPins', pins:    S.structPins });
+            persistStructState(S.structs, S.structPins);
             renderStructPins();
         },
     );
@@ -1424,12 +1432,12 @@ function confirmAddStructPin(): void {
     const addr = parseStructApplyAddress(addrInp);
     if (addr === null) { return; }
     const name = structApplyName(nameInp);
-    const pin: StructPin = { id: `pin_${Date.now()}`, structId: _applyStructId, addr, name };
+    const pin = makeStructPin({ structId: _applyStructId, addr, name }, makePinId);
     S.structPins       = [...S.structPins, pin];
     S.activeStructAddr = addr;
     _expanded.add(pin.id);
     _addingPin = false;
-    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
+    persistStructPins(S.structPins);
     renderStructPins();
 }
 
@@ -1455,11 +1463,11 @@ function nextStructApplyName(): string {
 }
 
 function uniqueStructPinName(initialName: string, nextName: (n: number) => string): string {
-    const takenPinNames = new Set(S.structPins.map(p => p.name));
-    let candidate = initialName;
-    let n = 1;
-    while (takenPinNames.has(candidate)) { candidate = nextName(n++); }
-    return candidate;
+    return uniquePinName(S.structPins, initialName, nextName);
+}
+
+function makePinId(): string {
+    return `pin_${Date.now()}`;
 }
 
 /** Resets all transient view state for the struct panel and re-renders. Call when switching away and back. */
@@ -3533,8 +3541,8 @@ function wireInstanceCards(sec: HTMLElement): void {
                 const idx = parseInt(btn.dataset.idx!);
                 const pin = S.structPins[idx];
                 if (pin) { _expanded.delete(pin.id); }
-                S.structPins = S.structPins.filter((_, i) => i !== idx);
-                postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
+                S.structPins = withoutStructPin(S.structPins, idx);
+                persistStructPins(S.structPins);
                 renderStructPins();
             },
         );
@@ -3688,9 +3696,9 @@ function applyPinEdit(editForm: HTMLElement, idx: number, addr: number): void {
     const pin = S.structPins[idx];
     const nameVal = (editForm.querySelector('.si-pe-name') as HTMLInputElement).value.trim();
     const typeVal = (editForm.querySelector('.si-pe-type') as HTMLSelectElement).value;
-    S.structPins[idx] = { ...pin, name: nameVal || pin.name, addr, structId: typeVal };
+    S.structPins = withEditedStructPin(S.structPins, idx, { name: nameVal || pin.name, addr, structId: typeVal });
     S.activeStructAddr = addr;
-    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
+    persistStructPins(S.structPins);
 }
 
 function closePinEditForm(): void {
@@ -4486,34 +4494,20 @@ function resolvedStructPointerCreateState(row: DecodedField): Exclude<StructPoin
 function createStructInstanceFromPointer(source: PointerMenuSource | null): void {
     const state = structPointerCreateState(source);
     if (!state?.ok || !source) { return; }
-    const pointerSource = makeStructPointerSource(source, state.addr);
-    const pin = ensurePointerStructPin(source, state, pointerSource);
+    const result = upsertPointerStructPin(S.structPins, {
+        sourcePin: source.pin,
+        sourceStructId: source.sourceStructId,
+        sourceFieldPath: source.row.fieldName,
+        sourceFieldByteOffset: source.row.byteOffset,
+        sourceBaseAddr: source.sourceBaseAddr,
+        targetAddress: state.addr,
+        targetStructId: state.structId,
+    }, makePinId);
+    S.structPins = result.pins;
+    const pin = result.pin;
     selectCreatedPointerPin(pin, state);
-    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
+    persistStructPins(S.structPins);
     renderStructPins();
-}
-
-function ensurePointerStructPin(
-    source: PointerMenuSource,
-    state: Extract<StructPointerCreateState, { ok: true }>,
-    pointerSource: StructPointerSource,
-): StructPin {
-    const pin = S.structPins.find(candidate => candidate.addr === state.addr && candidate.structId === state.structId);
-    if (pin) {
-        addPointerSourceToExistingPin(pin, pointerSource);
-        return pin;
-    }
-    return appendPointerStructPin(source, state, pointerSource);
-}
-
-function appendPointerStructPin(
-    source: PointerMenuSource,
-    state: Extract<StructPointerCreateState, { ok: true }>,
-    pointerSource: StructPointerSource,
-): StructPin {
-    const pin = createPointerStructPin(source, state, pointerSource);
-    S.structPins = [...S.structPins, pin];
-    return pin;
 }
 
 function selectCreatedPointerPin(pin: StructPin, state: Extract<StructPointerCreateState, { ok: true }>): void {
@@ -4523,54 +4517,6 @@ function selectCreatedPointerPin(pin: StructPin, state: Extract<StructPointerCre
     selectPointerTarget(state.addr, structByteSize(state.def, S.structs));
 }
 
-function createPointerStructPin(
-    source: PointerMenuSource,
-    state: Extract<StructPointerCreateState, { ok: true }>,
-    pointerSource: StructPointerSource,
-): StructPin {
-    return {
-        id: `pin_${Date.now()}`,
-        structId: state.structId,
-        addr: state.addr,
-        name: nextPointerStructPinName(source.pin.name, source.row.fieldName, state.addr),
-        pointerSources: [pointerSource],
-    };
-}
-
-function nextPointerStructPinName(sourceName: string, fieldPath: string, targetAddr: number): string {
-    const base = `${sourceName}.${fieldPath} @${targetAddr.toString(16).toUpperCase().padStart(8, '0')}`;
-    return uniqueStructPinName(base, n => `${base}_${n}`);
-}
-
-function makeStructPointerSource(source: PointerMenuSource, targetAddress: number): StructPointerSource {
-    return {
-        sourcePinId: source.pin.id,
-        sourcePinName: source.pin.name,
-        sourceStructId: source.sourceStructId,
-        sourceFieldPath: source.row.fieldName,
-        pointerStorageAddress: source.sourceBaseAddr + source.row.byteOffset,
-        targetAddress,
-    };
-}
-
-function addPointerSourceToExistingPin(pin: StructPin, source: StructPointerSource): void {
-    if (pin.pointerSources?.some(existing => samePointerSource(existing, source))) { return; }
-    pin.pointerSources = [...(pin.pointerSources ?? []), source];
-}
-
-function samePointerSource(a: StructPointerSource, b: StructPointerSource): boolean {
-    return pointerSourceIdentity(a).every((value, idx) => value === pointerSourceIdentity(b)[idx]);
-}
-
-function pointerSourceIdentity(source: StructPointerSource): Array<string | number> {
-    return [
-        source.sourcePinId,
-        source.sourceStructId,
-        source.sourceFieldPath,
-        source.pointerStorageAddress,
-        source.targetAddress,
-    ];
-}
 
 function selectPointerTarget(addr: number, byteCount: number): void {
     S.selStart = addr;
