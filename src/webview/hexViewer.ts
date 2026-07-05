@@ -2,16 +2,16 @@
 // Bootstraps the UI, handles VS Code messages, wires all modules.
 
 import { S }                                          from './state';
-import { postProviderMessage, vscode }                from './api';
+import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
-import { rerender }                                   from './render';
+import { rerender }                                   from './render/registry';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
-import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './panels/sidebar';
-import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './panels/struct';
+import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
+import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './search/searchEngine';
-import { getByte }                                    from './data';
+import { getByte }                                    from './memory/memoryData';
 import type { SerializedParseResult, SerializedRecord } from '../core/types';
-import type { SidebarTab } from './types';
+import type { SidebarTab } from './sidebar/sidebarTypes';
 import {
     crc8,
     crc16,
@@ -25,7 +25,7 @@ import {
     isAnalyzeCommand,
     isCopyCommand,
 } from '../core/byte-tools';
-import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './memory/virtualScroll';
+import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './render/virtualScroll';
 import {
     addLabel,
     applyInitialState,
@@ -49,7 +49,7 @@ import {
     renderIntegrity,
     setIntegrityEditHandler,
     setIntegrityProfiles,
-} from './panels/integrityView';
+} from './sidebar/integrity/index';
 import { messageType, type ProviderToWebviewMessage, type WebviewToProviderMessage } from '../webviewProtocol';
 
 postProviderMessage({ type: 'ready' });

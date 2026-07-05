@@ -1,5 +1,4 @@
-import { postProviderMessage } from '../api';
-import { getByte } from '../data';
+import { getByte } from '../../memory/memoryData';
 import {
     calculateIntegrity,
     collectIntegrityBytes,
@@ -22,10 +21,31 @@ import {
     type IntegrityResult,
     type IntegrityStoredField,
     validateIntegrityRange,
-} from '../../core/integrity';
-import { S } from '../state';
-import { rerender } from '../render';
-import { actionBtnsHtml, esc, formatHexHtml } from '../utils';
+} from '../../../core/integrity';
+import { S } from '../../state';
+import { rerender } from '../../render/registry';
+import { actionBtnsHtml, esc, formatHexHtml } from '../../utils';
+import {
+    applyIntegrityDraft,
+    blankIntegrityDraft,
+    clearIntegrityAutoFixSuppression,
+    clearIntegrityCheckResult,
+    draftFromIntegrityConfig,
+    integrityCheckConfigFromState,
+    integrityCheckConfigsFromStates,
+    integrityCheckSetFromStates,
+    makeIntegrityCheck,
+    type IntegrityCheckState,
+    type IntegrityDraft,
+} from './integrityCheckModel';
+import {
+    copyIntegrityText,
+    createIntegrityProfile,
+    deleteIntegrityProfile,
+    persistIntegrityChecks as persistIntegrityChecksState,
+    renameIntegrityProfile,
+    updateIntegrityProfile,
+} from './integrityPersistence';
 
 const DEBOUNCE_MS = 250;
 const ALGORITHM_LABELS: ReadonlyArray<readonly [IntegrityAlgorithm, string]> = [
@@ -40,32 +60,6 @@ const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, checks:
 const INTEGRITY_STATUS_SYMBOLS: Record<string, string> = {
     Match: '✓', Mismatch: '✕', Calculated: '∑', Calculating: '…', Error: '!', 'Not configured': '?',
 };
-
-interface IntegrityCheckState {
-    id: number;
-    algorithm: IntegrityAlgorithm;
-    startRaw: string;
-    endRaw: string;
-    storedRaw: string;
-    autoFixStoredValue: boolean;
-    result: IntegrityResult | null;
-    expectedBytes: Uint8Array | null;
-    storedBytes: Uint8Array | null;
-    error: string;
-    meta: string;
-    calculating: boolean;
-    suppressAutoFixOnNextResult: boolean;
-    suppressedAutoFixMismatch: string;
-    timer: number | null;
-    token: number;
-}
-
-interface IntegrityDraft {
-    algorithm: IntegrityAlgorithm;
-    startRaw: string;
-    endRaw: string;
-    storedRaw: string;
-}
 
 type PreparedCheck = { request: IntegrityRequest; storedField?: IntegrityStoredField };
 type IntegrityEditHandler = (edits: Array<[number, number]>) => void;
@@ -89,42 +83,14 @@ const integrityState = {
 };
 
 function newCheck(config?: IntegrityCheckConfig): IntegrityCheckState {
-    const draft = config ? draftFromConfig(config) : blankDraft();
-    return {
-        id: nextCheckId++,
-        ...draft,
-        autoFixStoredValue: config?.autoFixStoredValue ?? false,
-        result: null,
-        expectedBytes: null,
-        storedBytes: null,
-        error: '',
-        meta: '',
-        calculating: false,
-        suppressAutoFixOnNextResult: false,
-        suppressedAutoFixMismatch: '',
-        timer: null,
-        token: 0,
-    };
-}
-
-function blankDraft(): IntegrityDraft {
-    return { algorithm: 'crc32-iso-hdlc', startRaw: '', endRaw: '', storedRaw: '' };
+    return makeIntegrityCheck(nextCheckId++, config);
 }
 
 function addDraft(): IntegrityDraft {
-    const draft = blankDraft();
+    const draft = blankIntegrityDraft();
     if (S.selStart !== null) { draft.startRaw = formatIntegrityAddress(S.selStart); }
     if (S.selEnd !== null) { draft.endRaw = formatIntegrityAddress(S.selEnd); }
     return draft;
-}
-
-function draftFromConfig(config: IntegrityCheckConfig): IntegrityDraft {
-    return {
-        algorithm: config.algorithm,
-        startRaw: formatIntegrityAddress(config.startAddress),
-        endRaw: formatIntegrityAddress(config.endAddress),
-        storedRaw: config.storedAddress === undefined ? '' : formatIntegrityAddress(config.storedAddress),
-    };
 }
 
 export function setIntegrityEditHandler(handler: IntegrityEditHandler): void {
@@ -463,11 +429,7 @@ function copyCalculatedValue(event: MouseEvent): void {
     const check = integrityState.checks.find(item => item.id === Number(button.dataset.checkId));
     if (!check?.result) { return; }
     const display = calculatedDisplay(check.result);
-    postProviderMessage({
-        type: 'copyText',
-        text: `0x${display.value}`,
-        label: `${algorithmLabel(check.algorithm)} calculated value`,
-    });
+    copyIntegrityText(`0x${display.value}`, `${algorithmLabel(check.algorithm)} calculated value`);
 }
 
 function toggleHighlightedCheck(id: number): void {
@@ -634,13 +596,7 @@ function saveEditedCheck(id: number, draft: IntegrityDraft): void {
 }
 
 function applyDraft(check: IntegrityCheckState, draft: IntegrityDraft): void {
-    check.algorithm = draft.algorithm;
-    check.startRaw = draft.startRaw;
-    check.endRaw = draft.endRaw;
-    check.storedRaw = isChecksumAlgorithm(draft.algorithm) ? draft.storedRaw : '';
-    if (!check.storedRaw) { check.autoFixStoredValue = false; }
-    clearAutoFixSuppression(check);
-    clearCheckResult(check);
+    applyIntegrityDraft(check, draft);
 }
 
 function cancelCheckForm(formId: string): void {
@@ -673,12 +629,7 @@ function cancelPendingCalculation(check: IntegrityCheckState): void {
 }
 
 function clearCheckResult(check: IntegrityCheckState): void {
-    check.result = null;
-    check.expectedBytes = null;
-    check.storedBytes = null;
-    check.error = '';
-    check.meta = '';
-    check.calculating = false;
+    clearIntegrityCheckResult(check);
 }
 
 function prepareIntegrityRequest(check: IntegrityCheckState): PreparedCheck | null {
@@ -939,8 +890,7 @@ function autoFixMismatchKey(check: IntegrityCheckState): string {
 }
 
 function clearAutoFixSuppression(check: IntegrityCheckState): void {
-    check.suppressAutoFixOnNextResult = false;
-    check.suppressedAutoFixMismatch = '';
+    clearIntegrityAutoFixSuppression(check);
 }
 
 function syncIntegrityHighlight(): void {
@@ -1047,35 +997,18 @@ function updateProfileButtonState(): void {
 
 function activeConfigs(): IntegrityCheckConfig[] | null {
     if (integrityState.checks.length === 0) { setProfileError('Add at least one integrity check.'); return null; }
-    const configs: IntegrityCheckConfig[] = [];
-    for (const check of integrityState.checks) {
-        const config = activeConfig(check);
-        if (!config.ok) { setProfileError(`Check ${configs.length + 1}: ${config.error}`); return null; }
-        configs.push(config.value);
-    }
-    return configs;
+    const configs = integrityCheckConfigsFromStates(integrityState.checks);
+    if (!configs.ok) { setProfileError(configs.error); return null; }
+    return configs.value;
 }
 
 function activeConfig(check: IntegrityCheckState): { ok: true; value: IntegrityCheckConfig } | { ok: false; error: string } {
-    const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
-    if (!range.ok) { return range; }
-    if (!hasStoredChecksum(check)) { return { ok: true, value: { ...range.value, autoFixStoredValue: false } }; }
-    const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
-    if (!stored.ok) { return stored; }
-    return { ok: true, value: { ...range.value, storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
+    return integrityCheckConfigFromState(check);
 }
 
 function persistIntegrityChecks(): void {
-    const checks: IntegrityCheckConfig[] = [];
-    for (const check of integrityState.checks) {
-        const config = activeConfig(check);
-        if (!config.ok) { return; }
-        checks.push(config.value);
-    }
-    postProviderMessage({
-        type: 'saveIntegrityChecks',
-        state: { schemaVersion: 1, checks },
-    });
+    const state = integrityCheckSetFromStates(integrityState.checks);
+    if (state.ok) { persistIntegrityChecksState(state.value); }
 }
 
 function applySelectedProfile(): void {
@@ -1100,7 +1033,7 @@ function updateSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     const checks = activeConfigs();
     if (!current || !checks) { return; }
-    postProviderMessage({ type: 'updateIntegrityProfile', profile: { ...current, checks } });
+    updateIntegrityProfile({ ...current, checks });
 }
 
 function renameSelectedProfile(): void {
@@ -1142,7 +1075,7 @@ function createNamedProfile(name: string): void {
     const id = `integrity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     selectedProfileId = id;
     profileNameMode = null;
-    postProviderMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
+    createIntegrityProfile({ schemaVersion: 1, id, name, checks });
 }
 
 function renameProfileTo(name: string): void {
@@ -1150,13 +1083,13 @@ function renameProfileTo(name: string): void {
     if (!current || name === current.name) { closeProfileNameForm(); return; }
     if (profileNameExists(name, current.id)) { setProfileError(`A profile named “${name}” already exists.`); return; }
     profileNameMode = null;
-    postProviderMessage({ type: 'renameIntegrityProfile', id: current.id, name });
+    renameIntegrityProfile(current.id, name);
 }
 
 function deleteSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     if (!current) { return; }
-    postProviderMessage({ type: 'deleteIntegrityProfile', id: current.id });
+    deleteIntegrityProfile(current.id);
 }
 
 function profileNameExists(name: string, exceptId = ''): boolean {

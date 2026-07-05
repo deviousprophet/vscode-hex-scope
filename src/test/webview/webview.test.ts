@@ -3,9 +3,9 @@ import { JSDOM } from 'jsdom';
 
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
-import { initFlatBytes, buildMemRows, getByte } from '../../webview/data';
+import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
 import { integrityHighlightClass } from '../../webview/memory/memoryView';
-import { rerender } from '../../webview/render';
+import { rerender } from '../../webview/render/registry';
 import {
     calcRowOffset,
     calcScrollLayout,
@@ -13,7 +13,7 @@ import {
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollState,
-} from '../../webview/memory/virtualScroll';
+} from '../../webview/render/virtualScroll';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -332,40 +332,39 @@ suite('virtual scroll metrics', () => {
     setup(resetState);
 
     test('recalculates cached offsets when row heights change', () => {
-        S.memRows = [
-            { type: 'data', address: 0x0000 },
-            { type: 'gap', from: 0x0010, to: 0x001F, bytes: 16 },
-            { type: 'data', address: 0x0020 },
-        ];
+        const rowTypes = ['data', 'gap', 'data'];
+        let rowHeight = 20;
+        let gapHeight = 30;
 
         const state: VirtualScrollState = {
             containerHeight: 100,
-            rowHeight: 20,
-            gapHeight: 30,
             scrollTop: 0,
             bufferSize: 10,
             visibleRowIndices: [0, 0],
+            rowCount: rowTypes.length,
+            heightVersion: '20:30',
+            getRowHeight: rowIndex => rowTypes[rowIndex] === 'gap' ? gapHeight : rowHeight,
         };
 
         assert.strictEqual(calcTotalHeight(state), 70);
 
-        state.rowHeight = 32;
-        state.gapHeight = 52;
+        rowHeight = 32;
+        gapHeight = 52;
+        state.heightVersion = '32:52';
 
         assert.strictEqual(calcTotalHeight(state), 116);
         assert.strictEqual(calcRowOffset(2, state), 84);
     });
 
     test('maps large logical scroll ranges onto capped physical height', () => {
-        S.memRows = Array.from({ length: 200_000 }, (_, i) => ({ type: 'data', address: i * BPR }));
-
         const state: VirtualScrollState = {
             containerHeight: 100,
-            rowHeight: 100,
-            gapHeight: 150,
             scrollTop: 0,
             bufferSize: 10,
             visibleRowIndices: [0, 0],
+            rowCount: 200_000,
+            heightVersion: '100',
+            getRowHeight: () => 100,
         };
 
         const layout = calcScrollLayout(state);
@@ -455,7 +454,7 @@ suite('Parsed Segment Navigator', () => {
         let jumpedTo: number | null = null;
         rerender.jumpTo = address => { jumpedTo = address; };
 
-        const { renderSegments } = await import('../../webview/panels/sidebar.js');
+        const { renderSegments } = await import('../../webview/sidebar/sidebar.js');
         renderSegments();
 
         const items = document.querySelectorAll<HTMLElement>('.segment-item');
@@ -470,7 +469,7 @@ suite('Parsed Segment Navigator', () => {
     });
 
     test('renders empty state and preserves collapsed state', async () => {
-        const { renderSegments } = await import('../../webview/panels/sidebar.js');
+        const { renderSegments } = await import('../../webview/sidebar/sidebar.js');
         renderSegments();
 
         const section = document.getElementById('s-segments')!;
@@ -529,7 +528,7 @@ suite('Record View rendering', () => {
         assert.strictEqual(document.querySelector('#record-view .raddr')?.textContent, '08000000');
         assert.ok(!(document.getElementById('record-view')?.textContent ?? '').includes('<tr'), 'record markup should not be escaped as text');
 
-        const api = await import('../../webview/api.js');
+        const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
         api.vscode.postMessage = msg => { posted.push(msg); };
@@ -605,13 +604,13 @@ suite('Integrity Checks sidebar', () => {
 
     test('uses struct-style cards, shared byte order, edit forms, and profiles', async function () {
         this.timeout(5_000);
-        const api = await import('../../webview/api.js');
+        const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
         const posted: unknown[] = [];
         api.vscode.postMessage = msg => { posted.push(msg); };
 
         try {
-            const view = await import('../../webview/panels/integrityView.js');
+            const view = await import('../../webview/sidebar/integrity/index.js');
             const { calculateIntegrity } = await import('../../core/integrity.js');
             S.edits.clear();
             S.endian = 'le';

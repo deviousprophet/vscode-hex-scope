@@ -1,5 +1,5 @@
-import type { StructDef, StructPin } from '../../core/types';
-import { postProviderMessage } from '../api';
+import type { StructDef, StructPin } from '../../../core/types';
+import { postProviderMessage } from '../../vscodeApi';
 
 export function persistStructs(structs: StructDef[]): void {
     postProviderMessage({ type: 'saveStructs', structs });

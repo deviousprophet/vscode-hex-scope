@@ -1,17 +1,16 @@
 // ── Virtual Scrolling System ────────────────────────────────────
-// Enables efficient rendering of large memory buffers by rendering
+// Enables efficient rendering of large row sets by rendering
 // only visible rows + a buffer instead of the entire DOM tree.
 // This reduces DOM nodes from millions to hundreds, enabling 40x speedup.
 
-import { S } from '../state';
-
 export interface VirtualScrollState {
-    containerHeight: number;        // visible height in pixels
-    rowHeight: number;              // assumed fixed row height
-    gapHeight: number;              // height of gap rows
-    scrollTop: number;              // current scroll position
-    bufferSize: number;             // rows to render above/below viewport
-    visibleRowIndices: [number, number];  // [start, end) indices into S.memRows
+    containerHeight: number;
+    scrollTop: number;
+    bufferSize: number;
+    visibleRowIndices: [number, number];
+    rowCount: number;
+    heightVersion: string | number;
+    getRowHeight: (rowIndex: number) => number;
 }
 
 export interface VirtualScrollLayout {
@@ -24,35 +23,31 @@ export interface VirtualScrollLayout {
 
 export const MAX_VIRTUAL_SCROLL_HEIGHT = 16_000_000;
 
-let cacheLen = -1;
-let cacheRowHeight = -1;
-let cacheGapHeight = -1;
+let cacheRowCount = -1;
+let cacheHeightVersion: string | number | null = null;
+let cacheGetRowHeight: VirtualScrollState['getRowHeight'] | null = null;
 let cumulativeHeights: number[] = [];
 let cachedTotalHeight = 0;
 
 function heightCacheMatches(state: VirtualScrollState): boolean {
     return [
-        cacheLen === S.memRows.length,
-        cacheRowHeight === state.rowHeight,
-        cacheGapHeight === state.gapHeight,
-        cumulativeHeights.length === S.memRows.length + 1,
+        cacheRowCount === state.rowCount,
+        cacheHeightVersion === state.heightVersion,
+        cacheGetRowHeight === state.getRowHeight,
+        cumulativeHeights.length === state.rowCount + 1,
     ].every(Boolean);
 }
 
-function rowPixelHeight(rowIndex: number, state: VirtualScrollState): number {
-    return S.memRows[rowIndex].type === 'gap' ? state.gapHeight : state.rowHeight;
-}
-
 function rebuildHeightCache(state: VirtualScrollState): void {
-    cumulativeHeights = new Array<number>(S.memRows.length + 1);
+    cumulativeHeights = new Array<number>(state.rowCount + 1);
     cumulativeHeights[0] = 0;
-    for (let i = 0; i < S.memRows.length; i++) {
-        cumulativeHeights[i + 1] = cumulativeHeights[i] + rowPixelHeight(i, state);
+    for (let i = 0; i < state.rowCount; i++) {
+        cumulativeHeights[i + 1] = cumulativeHeights[i] + state.getRowHeight(i);
     }
-    cachedTotalHeight = cumulativeHeights[S.memRows.length] ?? 0;
-    cacheLen = S.memRows.length;
-    cacheRowHeight = state.rowHeight;
-    cacheGapHeight = state.gapHeight;
+    cachedTotalHeight = cumulativeHeights[state.rowCount] ?? 0;
+    cacheRowCount = state.rowCount;
+    cacheHeightVersion = state.heightVersion;
+    cacheGetRowHeight = state.getRowHeight;
 }
 
 function ensureHeightCache(state: VirtualScrollState): void {
@@ -75,18 +70,18 @@ function lowerBound(values: number[], target: number): number {
 }
 
 /**
- * Calculate which rows (by index in S.memRows) should be rendered.
+ * Calculate which rows should be rendered.
  * Returns [startIdx, endIdx) — the range of indices to render.
  */
 export function calcVisibleRange(state: VirtualScrollState): [number, number] {
-    if (S.memRows.length === 0) { return [0, 0]; }
+    if (state.rowCount === 0) { return [0, 0]; }
     ensureHeightCache(state);
 
-    const firstVisible = Math.max(0, Math.min(S.memRows.length - 1, lowerBound(cumulativeHeights, state.scrollTop + 1) - 1));
-    const lastVisible = Math.max(firstVisible, Math.min(S.memRows.length - 1, lowerBound(cumulativeHeights, state.scrollTop + state.containerHeight + 1) - 1));
+    const firstVisible = Math.max(0, Math.min(state.rowCount - 1, lowerBound(cumulativeHeights, state.scrollTop + 1) - 1));
+    const lastVisible = Math.max(firstVisible, Math.min(state.rowCount - 1, lowerBound(cumulativeHeights, state.scrollTop + state.containerHeight + 1) - 1));
 
     const startIdx = Math.max(0, firstVisible - state.bufferSize);
-    const endIdx = Math.min(S.memRows.length, lastVisible + state.bufferSize + 1);
+    const endIdx = Math.min(state.rowCount, lastVisible + state.bufferSize + 1);
     return [startIdx, endIdx];
 }
 
@@ -103,7 +98,7 @@ export function calcTotalHeight(state: VirtualScrollState): number {
  */
 export function calcRowOffset(rowIndex: number, state: VirtualScrollState): number {
     ensureHeightCache(state);
-    const clamped = Math.max(0, Math.min(rowIndex, S.memRows.length));
+    const clamped = Math.max(0, Math.min(rowIndex, state.rowCount));
     return cumulativeHeights[clamped] ?? 0;
 }
 
@@ -112,8 +107,8 @@ export function calcRowOffset(rowIndex: number, state: VirtualScrollState): numb
  */
 function calcRangeHeight(start: number, end: number, state: VirtualScrollState): number {
     ensureHeightCache(state);
-    const s = Math.max(0, Math.min(start, S.memRows.length));
-    const e = Math.max(s, Math.min(end, S.memRows.length));
+    const s = Math.max(0, Math.min(start, state.rowCount));
+    const e = Math.max(s, Math.min(end, state.rowCount));
     return (cumulativeHeights[e] ?? 0) - (cumulativeHeights[s] ?? 0);
 }
 

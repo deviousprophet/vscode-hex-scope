@@ -3,10 +3,10 @@ Single section rendered into #s-struct-pins.
 Type management (create / edit / delete) is inline within that section.
 Pure codec logic lives in struct-codec.ts. */
 
-import { S }        from '../state';
-import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../utils';
-import { rerender } from '../render';
-import { getByte }  from '../data';
+import { S }        from '../../state';
+import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../../utils';
+import { rerender } from '../../render/registry';
+import { getByte }  from '../../memory/memoryData';
 import { persistStructPins, persistStructs, persistStructState } from './structPersistence';
 import {
     makeStructPin,
@@ -21,9 +21,9 @@ import {
     fieldByteSize, structByteSize, decodeField, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
     normalizeStructField,
-} from '../../core/struct-codec.js';
-import type { DecodedField } from '../../core/struct-codec.js';
-import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../core/types';
+} from '../../../core/struct-codec.js';
+import type { DecodedField } from '../../../core/struct-codec.js';
+import type { BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../core/types';
 
 // ── Module state ──────────────────────────────────────────────────
 
@@ -106,7 +106,7 @@ function isBitFieldRow(r: DecodedField): boolean {
 }
 
 /** Calculate total bits used by all children in a bit-field container. */
-function usedBitsInContainer(f: import('../../core/types').StructField): number {
+function usedBitsInContainer(f: import('../../../core/types').StructField): number {
     if (!Array.isArray(f.bitFields)) {
         return 0;
     }
@@ -114,7 +114,7 @@ function usedBitsInContainer(f: import('../../core/types').StructField): number 
 }
 
 /** Calculate available bits remaining in a bit-field container. */
-function availableBitsInContainer(f: import('../../core/types').StructField): number {
+function availableBitsInContainer(f: import('../../../core/types').StructField): number {
     if (!isUnsignedScalarType(f.type)) { return 0; }
     const typeBytes = fieldByteSize(f.type);
     const totalBits = typeBytes * 8;
@@ -502,12 +502,12 @@ function childFieldRowHtml(child: BitFieldChild, ci: number, total: number): str
 }
 
 /** Check if a field type is an unsigned scalar (eligible for bit-field container). */
-function isUnsignedScalarType(type: import('../../core/types').StructFieldType): type is import('../../core/types').StructScalarFieldType {
+function isUnsignedScalarType(type: import('../../../core/types').StructFieldType): type is import('../../../core/types').StructScalarFieldType {
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
 /** Get bit capacity for a parent field type. */
-function getParentBitCapacity(type: import('../../core/types').StructFieldType): number {
+function getParentBitCapacity(type: import('../../../core/types').StructFieldType): number {
     return fieldByteSize(type as any) * 8;
 }
 
@@ -1096,7 +1096,7 @@ function clearInvalidBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLEl
 }
 
 function isUnsignedEditorType(rawType: string): boolean {
-    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('../../core/types').StructFieldType);
+    return !rawType.startsWith('struct:') && isUnsignedScalarType(rawType as import('../../../core/types').StructFieldType);
 }
 
 function shouldClearBitChildren(bitBtn: HTMLElement | null, isUnsigned: boolean): boolean {
@@ -3517,8 +3517,8 @@ function wireInstanceCards(sec: HTMLElement): void {
             sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
             card.classList.add('si-card-selected');
             rerender.toMemory();
-            import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(pin.addr); });
-            import('./sidebar.js').then(m => m.updateInspector());
+            import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(pin.addr); });
+            import('../sidebar.js').then(m => m.updateInspector());
         });
     });
 
@@ -3997,8 +3997,8 @@ function selectStructFieldRow(row: HTMLElement, start: number, cnt: number): voi
     _selectedFieldAddr = start;
     _selectedArrKey = null;
     _selectedArrElemKey = null;
-    import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-    import('./sidebar.js').then(m => m.updateInspector());
+    import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    import('../sidebar.js').then(m => m.updateInspector());
     renderStructPins();
 }
 
@@ -4522,8 +4522,8 @@ function selectPointerTarget(addr: number, byteCount: number): void {
     S.selStart = addr;
     S.selEnd = addr + Math.max(1, byteCount) - 1;
     rerender.toMemory();
-    import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(addr); });
-    import('./sidebar.js').then(m => m.updateInspector());
+    import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(addr); });
+    import('../sidebar.js').then(m => m.updateInspector());
 }
 
 function showScalarFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
@@ -4728,8 +4728,8 @@ function selectStructRange(el: HTMLElement, start: number, count: number): void 
     S.selStart = start;
     S.selEnd = start + count - 1;
     el.classList.add('si-selected');
-    import('../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
-    import('./sidebar.js').then(m => m.updateInspector());
+    import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    import('../sidebar.js').then(m => m.updateInspector());
 }
 
 function fallbackCopyText(text: string): void {
