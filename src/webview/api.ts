@@ -1,4 +1,4 @@
-// ── VS Code webview API singleton ───────────────────────────────
+import type { WebviewToProviderMessage } from '../webviewProtocol';
 
 declare function acquireVsCodeApi(): {
     postMessage(msg: unknown): void;
@@ -7,3 +7,7 @@ declare function acquireVsCodeApi(): {
 };
 
 export const vscode = acquireVsCodeApi();
+
+export function postProviderMessage(msg: WebviewToProviderMessage): void {
+    vscode.postMessage(msg);
+}

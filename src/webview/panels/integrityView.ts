@@ -1,4 +1,4 @@
-import { vscode } from '../api';
+import { postProviderMessage } from '../api';
 import { getByte } from '../data';
 import {
     calculateIntegrity,
@@ -463,7 +463,7 @@ function copyCalculatedValue(event: MouseEvent): void {
     const check = integrityState.checks.find(item => item.id === Number(button.dataset.checkId));
     if (!check?.result) { return; }
     const display = calculatedDisplay(check.result);
-    vscode.postMessage({
+    postProviderMessage({
         type: 'copyText',
         text: `0x${display.value}`,
         label: `${algorithmLabel(check.algorithm)} calculated value`,
@@ -1072,7 +1072,7 @@ function persistIntegrityChecks(): void {
         if (!config.ok) { return; }
         checks.push(config.value);
     }
-    vscode.postMessage({
+    postProviderMessage({
         type: 'saveIntegrityChecks',
         state: { schemaVersion: 1, checks },
     });
@@ -1100,7 +1100,7 @@ function updateSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     const checks = activeConfigs();
     if (!current || !checks) { return; }
-    vscode.postMessage({ type: 'updateIntegrityProfile', profile: { ...current, checks } });
+    postProviderMessage({ type: 'updateIntegrityProfile', profile: { ...current, checks } });
 }
 
 function renameSelectedProfile(): void {
@@ -1142,7 +1142,7 @@ function createNamedProfile(name: string): void {
     const id = `integrity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     selectedProfileId = id;
     profileNameMode = null;
-    vscode.postMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
+    postProviderMessage({ type: 'createIntegrityProfile', profile: { schemaVersion: 1, id, name, checks } });
 }
 
 function renameProfileTo(name: string): void {
@@ -1150,13 +1150,13 @@ function renameProfileTo(name: string): void {
     if (!current || name === current.name) { closeProfileNameForm(); return; }
     if (profileNameExists(name, current.id)) { setProfileError(`A profile named “${name}” already exists.`); return; }
     profileNameMode = null;
-    vscode.postMessage({ type: 'renameIntegrityProfile', id: current.id, name });
+    postProviderMessage({ type: 'renameIntegrityProfile', id: current.id, name });
 }
 
 function deleteSelectedProfile(): void {
     const current = profiles.find(profile => profile.id === selectedProfileId);
     if (!current) { return; }
-    vscode.postMessage({ type: 'deleteIntegrityProfile', id: current.id });
+    postProviderMessage({ type: 'deleteIntegrityProfile', id: current.id });
 }
 
 function profileNameExists(name: string, exceptId = ''): boolean {

@@ -3,7 +3,7 @@
 
 import { S } from '../state';
 import { esc, fmtB, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex } from '../utils';
-import { vscode } from '../api';
+import { postProviderMessage } from '../api';
 import { rerender } from '../render';
 import { buildMemRows, getByte } from '../data';
 import type { SerializedSegment } from '../../core/types';
@@ -109,7 +109,7 @@ function multiByteInspectorHtml(selBytes: number[], len: number): string {
 function wireInspectorCopies(valsEl: HTMLElement): void {
     valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
         el.addEventListener('click', () => {
-            vscode.postMessage({ type: 'copyText', text: el.dataset.copy!, label: el.dataset.label ?? 'value' });
+            postProviderMessage({ type: 'copyText', text: el.dataset.copy!, label: el.dataset.label ?? 'value' });
         });
     });
 }
@@ -351,14 +351,14 @@ function wireMultiInlineControls(el: HTMLElement): void {
     el.querySelectorAll<HTMLElement>('.mi-dec[data-copy]').forEach(span => {
         span.addEventListener('click', e => {
             e.stopPropagation();
-            vscode.postMessage({ type: 'copyText', text: span.dataset.copy!, label: 'decimal' });
+            postProviderMessage({ type: 'copyText', text: span.dataset.copy!, label: 'decimal' });
         });
     });
 
     el.querySelectorAll<HTMLElement>('.mi-hex[data-copy]').forEach(span => {
         span.addEventListener('click', e => {
             e.stopPropagation();
-            vscode.postMessage({ type: 'copyText', text: span.dataset.copy!, label: 'hex' });
+            postProviderMessage({ type: 'copyText', text: span.dataset.copy!, label: 'hex' });
         });
     });
 }
@@ -499,7 +499,7 @@ export function renderLabels(): void {
         el => renderLabelForm(el.dataset.id),
         el => {
             S.labels = S.labels.filter(l => l.id !== el.dataset.id);
-            vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+            postProviderMessage({ type: 'saveLabels', labels: S.labels });
             buildMemRows();
             rerender.labels();
             if (S.currentView === 'memory') { rerender.memory(); }
@@ -605,7 +605,7 @@ function labelBadgeHtml(): string {
 }
 
 function persistLabelsAndRender(): void {
-    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    postProviderMessage({ type: 'saveLabels', labels: S.labels });
     buildMemRows();
     rerender.labels();
     if (S.currentView === 'memory') { rerender.memory(); }
@@ -812,7 +812,7 @@ function applyLabel(editId: string | undefined, editing: LabelState | undefined,
         ? S.labels.map(l => l.id === editId ? label : l)
         : [...S.labels, label];
 
-    vscode.postMessage({ type: 'saveLabels', labels: S.labels });
+    postProviderMessage({ type: 'saveLabels', labels: S.labels });
     buildMemRows();
     rerender.labels();
     rerenderMemoryIfVisible();

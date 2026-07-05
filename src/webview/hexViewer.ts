@@ -2,14 +2,14 @@
 // Bootstraps the UI, handles VS Code messages, wires all modules.
 
 import { S }                                          from './state';
-import { vscode }                                     from './api';
+import { postProviderMessage, vscode }                from './api';
 import { esc, fmtB, positionContextMenu, wireHoverSubmenus } from './utils';
 import { rerender }                                   from './render';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './panels/sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './panels/struct';
 import { initSearch, runSearch, clearSearch, nextMatch, prevMatch } from './search/searchEngine';
-import { initFlatBytes, buildMemRows, getByte }      from './data';
+import { getByte }                                    from './data';
 import type { SerializedParseResult, SerializedRecord } from '../core/types';
 import type { SidebarTab } from './types';
 import {
@@ -27,6 +27,21 @@ import {
 } from '../core/byte-tools';
 import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './memory/virtualScroll';
 import {
+    addLabel,
+    applyInitialState,
+    clearEditModel,
+    hasUnsavedEdits,
+    incomingFile,
+    loadIncomingFile,
+    loadParsedMemory,
+    lockForExternalChange,
+    rebuildMemoryRows,
+    type ClearEditReason,
+    type IncomingFile,
+    unlockExternalChange,
+    updateLabel,
+} from './appModel';
+import {
     activateIntegrity,
     notifyIntegrityBytesChanged,
     notifyIntegrityEditsDiscarded,
@@ -35,8 +50,9 @@ import {
     setIntegrityEditHandler,
     setIntegrityProfiles,
 } from './panels/integrityView';
+import { messageType, type ProviderToWebviewMessage, type WebviewToProviderMessage } from '../webviewProtocol';
 
-vscode.postMessage({ type: 'ready' });
+postProviderMessage({ type: 'ready' });
 
 const SIDEBAR_WIDTH_KEY = 'hexScope.sidebarWidth';
 const SIDEBAR_MIN_WIDTH = 260;
@@ -51,8 +67,9 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
 
 // ── Message handler ───────────────────────────────────────────────
 
-type WebviewMessage = { type: string; [key: string]: unknown };
-type WebviewMessageHandler = (msg: WebviewMessage) => void;
+type WebviewMessage = ProviderToWebviewMessage;
+type WebviewMessageByType<T extends WebviewMessage['type']> = Extract<WebviewMessage, { type: T }>;
+type WebviewMessageHandler = (msg: any) => void;
 
 const MESSAGE_HANDLERS: ReadonlyArray<readonly [string, WebviewMessageHandler]> = [
     ['init', handleInitMessage],
@@ -69,59 +86,40 @@ const MESSAGE_HANDLERS: ReadonlyArray<readonly [string, WebviewMessageHandler]> 
 
 window.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as WebviewMessage;
-    const entry = MESSAGE_HANDLERS.find(([type]) => type === msg?.type);
+    const entry = MESSAGE_HANDLERS.find(([type]) => type === messageType(msg));
     entry?.[1](msg);
 });
 
-function handleInitMessage(msg: WebviewMessage): void {
-    S.parseResult = msg.parseResult as typeof S.parseResult;
-    S.labels      = messageArray<typeof S.labels[number]>(msg.labels);
-    S.structs     = messageArray<typeof S.structs[number]>(msg.structs);
-    S.structPins  = messageArray<typeof S.structPins[number]>(msg.structPins);
-    S.endian      = messageEndian(msg.endian);
+function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
+    applyInitialState(msg);
     setIntegrityProfiles(msg.integrityProfiles);
-    initFlatBytes();
-    buildMemRows();
-
-    S.currentView = 'memory';
     render();
 }
 
-function messageArray<T>(value: unknown): T[] {
-    return Array.isArray(value) ? value as T[] : [];
-}
-
-function messageEndian(value: unknown): 'le' | 'be' {
-    return value === 'be' ? 'be' : 'le';
-}
-
-function handleIntegrityProfilesMessage(msg: WebviewMessage): void {
+function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): void {
     setIntegrityProfiles(msg.profiles, typeof msg.error === 'string' ? msg.error : '');
 }
 
-function handleLoadErrorMessage(msg: WebviewMessage): void {
+function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
     renderLoadError(String(msg.message ?? 'Failed to open file.'));
 }
 
-function handleAddLabelMessage(msg: WebviewMessage): void {
-    S.labels = [...S.labels, msg.label as typeof S.labels[0]];
+function handleAddLabelMessage(msg: WebviewMessageByType<'addLabel'>): void {
+    addLabel(msg.label);
     rebuildLabelsAndMemory();
 }
 
-function handleUpdateLabelMessage(msg: WebviewMessage): void {
-    const updated = msg.label as typeof S.labels[0];
-    S.labels = S.labels.map(l => l.id === updated.id ? updated : l);
+function handleUpdateLabelMessage(msg: WebviewMessageByType<'updateLabel'>): void {
+    updateLabel(msg.label);
     rebuildLabelsAndMemory();
 }
 
-function handleCopyCommandMessage(msg: WebviewMessage): void {
+function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): void {
     handleCopyCommand(msg.command as string);
 }
 
-function handleSavedEditsMessage(msg: WebviewMessage): void {
-    S.parseResult = msg.parseResult as typeof S.parseResult;
-    initFlatBytes();
-    buildMemRows();
+function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
+    loadParsedMemory(msg.parseResult);
     clearEditState();
     document.getElementById('btn-edit-mode')!.style.display = '';
     document.getElementById('edit-mode-group')!.style.display = 'none';
@@ -132,28 +130,24 @@ function handleSavedEditsMessage(msg: WebviewMessage): void {
     renderCurrentDataView();
 }
 
-function handleExternalChangeMessage(msg: WebviewMessage): void {
+function handleExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>): void {
     const incoming = incomingFileFromMessage(msg);
-    S.lockedDueToExternalChange = true;
+    lockForExternalChange();
     removeAllExternalChangeBanners();
     updateLockState();
-    if (S.editMode && S.edits.size > 0) {
+    if (hasUnsavedEdits()) {
         showExternalChangeConflict(incoming);
     } else {
         showExternalChangeReloadBanner(incoming);
     }
 }
 
-function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
-    S.parseResult = msg.parseResult as typeof S.parseResult;
-    S.labels      = (msg.labels as typeof S.labels) ?? [];
-    initFlatBytes();
-    buildMemRows();
-
-    S.lockedDueToExternalChange = true;
+function handleExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChangeError'>): void {
+    loadIncomingFile(incomingFile(msg.parseResult, msg.labels));
+    lockForExternalChange();
     removeAllExternalChangeBanners();
     updateLockState();
-    if (S.editMode && S.edits.size > 0) { clearEditState(); }
+    if (hasUnsavedEdits()) { clearEditState(); }
 
     showExternalChangeError(
         msg.checksumErrors as number,
@@ -167,13 +161,11 @@ function handleExternalChangeErrorMessage(msg: WebviewMessage): void {
     notifyIntegrityBytesChanged();
 }
 
-function handleRepairCompleteMessage(msg: WebviewMessage): void {
-    S.parseResult = msg.parseResult as typeof S.parseResult;
-    initFlatBytes();
-    buildMemRows();
+function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>): void {
+    loadParsedMemory(msg.parseResult);
     clearEditState();
     document.getElementById('ext-error-banner')?.remove();
-    S.lockedDueToExternalChange = false;
+    unlockExternalChange();
     updateLockState();
     updateEditControls();
     updateDirtyBar();
@@ -184,15 +176,13 @@ function handleRepairCompleteMessage(msg: WebviewMessage): void {
 }
 
 function rebuildLabelsAndMemory(): void {
-    buildMemRows();
+    rebuildMemoryRows();
     rerender.labels();
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
-function clearEditState(reason: 'refresh' | 'discard' = 'refresh'): void {
-    S.edits.clear();
-    S.undoStack.length = 0;
-    S.editMode = false;
+function clearEditState(reason: ClearEditReason = 'refresh'): void {
+    clearEditModel();
     if (reason === 'discard') { notifyIntegrityEditsDiscarded(); }
     else { notifyIntegrityBytesChanged(); }
 }
@@ -202,25 +192,19 @@ function renderCurrentDataView(): void {
     else if (S.currentView === 'record') { renderRecordView(); }
 }
 
-function incomingFileFromMessage(msg: WebviewMessage): IncomingFile {
-    return {
-        parseResult: msg.parseResult as typeof S.parseResult,
-        labels:      (msg.labels as typeof S.labels) ?? [],
-    };
+function incomingFileFromMessage(msg: WebviewMessageByType<'externalChange'>): IncomingFile {
+    return incomingFile(msg.parseResult, msg.labels);
 }
 
 // ── Helper: apply external change and unlock ──────────────────────
 
 function applyExternalChangeAndUnlock(incoming: IncomingFile): void {
-    S.parseResult = incoming.parseResult;
-    S.labels      = incoming.labels;
-    initFlatBytes();
-    buildMemRows();
+    loadIncomingFile(incoming);
     S.currentView = 'memory';
-    S.lockedDueToExternalChange = false;
+    unlockExternalChange();
     updateLockState();
     render();
-    vscode.postMessage({ type: 'reloadAccepted' });
+    postProviderMessage({ type: 'reloadAccepted' });
 }
 
 // ── Helper: update edit controls visibility ──────────────────────
@@ -366,7 +350,7 @@ function setFileEndian(endian: 'le' | 'be'): void {
     S.endian = endian;
     document.getElementById('sidebar-btn-le')?.classList.toggle('active', endian === 'le');
     document.getElementById('sidebar-btn-be')?.classList.toggle('active', endian === 'be');
-    vscode.postMessage({ type: 'saveEndian', endian });
+    postProviderMessage({ type: 'saveEndian', endian });
     renderInspector();
     renderStructPins();
     notifyIntegrityEndianChanged();
@@ -441,7 +425,7 @@ function setupEditButtons(): void {
     });
     document.getElementById('btn-save')!.addEventListener('click', () => {
         if (S.edits.size === 0) { return; }
-        vscode.postMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()) });
+        postProviderMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()) });
     });
 }
 
@@ -1125,11 +1109,6 @@ function switchView(v: ViewName): void {
 
 // ── External file-change helpers ──────────────────────────────────
 
-type IncomingFile = {
-    parseResult: typeof S.parseResult;
-    labels: typeof S.labels;
-};
-
 /** Remove all external change banners to ensure only latest state is shown. */
 function removeAllExternalChangeBanners(): void {
     document.getElementById('ext-conflict-banner')?.remove();
@@ -1296,14 +1275,14 @@ function wireExternalErrorActions(): void {
     const repairBtn = document.getElementById('eeb-repair');
     if (repairBtn) {
         repairBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'repairAndReload' });
+            postProviderMessage({ type: 'repairAndReload' });
         });
     }
 
     const viewTextBtn = document.getElementById('eeb-view-text');
     if (viewTextBtn) {
         viewTextBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'viewInNormalEditor' });
+            postProviderMessage({ type: 'viewInNormalEditor' });
         });
     }
 }
@@ -1444,7 +1423,7 @@ function handleCopyCommand(cmd: string): void {
     if (bytes.length === 0 || !isCopyCommand(cmd)) { return; }
 
     const text = formatCopyCommand(cmd, bytes);
-    vscode.postMessage({ type: 'copyText', text, label: `${bytes.length} bytes as ${cmd}` });
+    postProviderMessage({ type: 'copyText', text, label: `${bytes.length} bytes as ${cmd}` });
 }
 
 // ── CRC helpers ──────────────────────────────────────────────────
@@ -1472,7 +1451,7 @@ function handleAnalyzeCommand(cmd: string, bytes: number[]): boolean {
     if (!isAnalyzeCommand(cmd)) { return false; }
 
     const { text, label } = formatAnalyzeCommand(cmd, bytes);
-    vscode.postMessage({ type: 'copyText', text, label });
+    postProviderMessage({ type: 'copyText', text, label });
     return true;
 }
 

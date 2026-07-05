@@ -5,7 +5,7 @@ Pure codec logic lives in struct-codec.ts. */
 
 import { S }        from '../state';
 import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../utils';
-import { vscode }   from '../api';
+import { postProviderMessage }   from '../api';
 import { rerender } from '../render';
 import { getByte }  from '../data';
 import {
@@ -983,7 +983,7 @@ function saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
 
     _editorError = null;
     S.structs = upsertStructList(S.structs, def);
-    vscode.postMessage({ type: 'saveStructs', structs: S.structs });
+    postProviderMessage({ type: 'saveStructs', structs: S.structs });
     closeEditorAfterSave(def.id);
     renderStructPins();
 }
@@ -1353,8 +1353,8 @@ function wireTypesPanelControls(sec: HTMLElement): void {
             S.structs    = S.structs.filter(d => d.id !== id);
             S.structPins = S.structPins.filter(p => p.structId !== id);
             if (_applyStructId === id) { _applyStructId = null; }
-            vscode.postMessage({ type: 'saveStructs',    structs: S.structs });
-            vscode.postMessage({ type: 'saveStructPins', pins:    S.structPins });
+            postProviderMessage({ type: 'saveStructs',    structs: S.structs });
+            postProviderMessage({ type: 'saveStructPins', pins:    S.structPins });
             renderStructPins();
         },
     );
@@ -1429,7 +1429,7 @@ function confirmAddStructPin(): void {
     S.activeStructAddr = addr;
     _expanded.add(pin.id);
     _addingPin = false;
-    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
     renderStructPins();
 }
 
@@ -3534,7 +3534,7 @@ function wireInstanceCards(sec: HTMLElement): void {
                 const pin = S.structPins[idx];
                 if (pin) { _expanded.delete(pin.id); }
                 S.structPins = S.structPins.filter((_, i) => i !== idx);
-                vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+                postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
                 renderStructPins();
             },
         );
@@ -3690,7 +3690,7 @@ function applyPinEdit(editForm: HTMLElement, idx: number, addr: number): void {
     const typeVal = (editForm.querySelector('.si-pe-type') as HTMLSelectElement).value;
     S.structPins[idx] = { ...pin, name: nameVal || pin.name, addr, structId: typeVal };
     S.activeStructAddr = addr;
-    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
 }
 
 function closePinEditForm(): void {
@@ -4489,7 +4489,7 @@ function createStructInstanceFromPointer(source: PointerMenuSource | null): void
     const pointerSource = makeStructPointerSource(source, state.addr);
     const pin = ensurePointerStructPin(source, state, pointerSource);
     selectCreatedPointerPin(pin, state);
-    vscode.postMessage({ type: 'saveStructPins', pins: S.structPins });
+    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
     renderStructPins();
 }
 
