@@ -15,7 +15,7 @@
 - Pointer rows now separate pointer storage selection from pointer target navigation: row click selects storage bytes, while value click follows/selects target bytes
 - Scalar pointer expansion shows a typed dereference row (`target type`, `*`, scalar value) without a repeated visible `+000` offset
 - Struct pointer expansion shows a `{ }` target root with target-relative member offsets, while instance creation stays an intentional context-menu action
-- Unmapped, null, missing, and unresolved pointer targets render as scalar-style pointer rows with leading status labels, without expand buttons or child previews
+- Unmapped, null, missing, and unresolved pointer targets render as scalar-style pointer rows with leading status labels and no arrow, without expand buttons or child previews
 - Long data type labels use adaptive width, middle ellipsis, and full text in tooltip/accessibility labels
 
 ### Fixed

@@ -162,14 +162,14 @@ suite('struct UI array header summary', () => {
 
     function assertUnmappedPointerValue(row: HTMLElement): void {
         const value = row.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-        assert.strictEqual(value, '(unmapped) → 0x20000000', 'unmapped status should lead pointer address for right-edge alignment');
+        assert.strictEqual(value, '(unmapped) 0x20000000', 'unmapped status should not imply followable pointer navigation');
     }
 
     function assertNullPointerRow(): void {
         const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'null pointer row should render');
         const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-        assert.strictEqual(value, '(null) → 0x00000000', 'null status should be explicit and lead pointer address');
+        assert.strictEqual(value, '(null) 0x00000000', 'null status should be explicit without pointer navigation arrow');
         assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'null pointer should not render an expand button');
     }
 
