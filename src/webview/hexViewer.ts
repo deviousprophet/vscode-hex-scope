@@ -27,19 +27,12 @@ import {
 } from '../core/byte-tools';
 import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './render/virtualScroll';
 import {
-    addLabel,
-    applyInitialState,
     clearEditModel,
-    hasUnsavedEdits,
-    incomingFile,
     loadIncomingFile,
-    loadParsedMemory,
-    lockForExternalChange,
     rebuildMemoryRows,
     type ClearEditReason,
     type IncomingFile,
     unlockExternalChange,
-    updateLabel,
 } from './appModel';
 import {
     activateIntegrity,
@@ -50,7 +43,13 @@ import {
     setIntegrityEditHandler,
     setIntegrityProfiles,
 } from './sidebar/integrity/index';
-import { messageType, type ProviderToWebviewMessage, type WebviewToProviderMessage } from '../webviewProtocol';
+import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
+import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
+import {
+    applyProviderMessageToModel,
+    type WebviewInvalidations,
+    type WebviewModelUpdate,
+} from './webviewMessageModel';
 
 postProviderMessage({ type: 'ready' });
 
@@ -69,110 +68,73 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
 
 type WebviewMessage = ProviderToWebviewMessage;
 type WebviewMessageByType<T extends WebviewMessage['type']> = Extract<WebviewMessage, { type: T }>;
-type WebviewMessageHandler = (msg: any) => void;
+type ModelUpdateEffect = (update: WebviewModelUpdate) => void;
+type InvalidationEffect = readonly [keyof WebviewInvalidations, () => void];
 
-const MESSAGE_HANDLERS: ReadonlyArray<readonly [string, WebviewMessageHandler]> = [
-    ['init', handleInitMessage],
-    ['loadError', handleLoadErrorMessage],
-    ['addLabel', handleAddLabelMessage],
-    ['updateLabel', handleUpdateLabelMessage],
-    ['copyCommand', handleCopyCommandMessage],
-    ['savedEdits', handleSavedEditsMessage],
-    ['externalChange', handleExternalChangeMessage],
-    ['externalChangeError', handleExternalChangeErrorMessage],
-    ['repairComplete', handleRepairCompleteMessage],
-    ['integrityProfiles', handleIntegrityProfilesMessage],
+const MESSAGE_HANDLERS: ProviderMessageHandlers = {
+    init: handleInitMessage,
+    loadError: handleLoadErrorMessage,
+    addLabel: handleAddLabelMessage,
+    updateLabel: handleUpdateLabelMessage,
+    copyCommand: handleCopyCommandMessage,
+    savedEdits: handleSavedEditsMessage,
+    externalChange: handleExternalChangeMessage,
+    externalChangeError: handleExternalChangeErrorMessage,
+    repairComplete: handleRepairCompleteMessage,
+    integrityProfiles: handleIntegrityProfilesMessage,
+};
+
+const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
+    applyIntegrityProfileUpdate,
+    applyLoadErrorUpdate,
+    applyCopyCommandUpdate,
+    applyExternalBannerUpdate,
+    applyExternalChangeUpdate,
+    applyExternalChangeErrorUpdate,
 ];
 
 window.addEventListener('message', (e: MessageEvent) => {
-    const msg = e.data as WebviewMessage;
-    const entry = MESSAGE_HANDLERS.find(([type]) => type === messageType(msg));
-    entry?.[1](msg);
+    dispatchProviderMessage(e.data, MESSAGE_HANDLERS);
 });
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
-    applyInitialState(msg);
-    setIntegrityProfiles(msg.integrityProfiles);
-    render();
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): void {
-    setIntegrityProfiles(msg.profiles, typeof msg.error === 'string' ? msg.error : '');
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
-    renderLoadError(String(msg.message ?? 'Failed to open file.'));
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleAddLabelMessage(msg: WebviewMessageByType<'addLabel'>): void {
-    addLabel(msg.label);
-    rebuildLabelsAndMemory();
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleUpdateLabelMessage(msg: WebviewMessageByType<'updateLabel'>): void {
-    updateLabel(msg.label);
-    rebuildLabelsAndMemory();
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): void {
-    handleCopyCommand(msg.command as string);
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
-    loadParsedMemory(msg.parseResult);
-    clearEditState();
-    document.getElementById('btn-edit-mode')!.style.display = '';
-    document.getElementById('edit-mode-group')!.style.display = 'none';
-    updateDirtyBar();
-    renderStats();
-    renderSegments();
-    renderStructPins();
-    renderCurrentDataView();
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>): void {
-    const incoming = incomingFileFromMessage(msg);
-    lockForExternalChange();
-    removeAllExternalChangeBanners();
-    updateLockState();
-    if (hasUnsavedEdits()) {
-        showExternalChangeConflict(incoming);
-    } else {
-        showExternalChangeReloadBanner(incoming);
-    }
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChangeError'>): void {
-    loadIncomingFile(incomingFile(msg.parseResult, msg.labels));
-    lockForExternalChange();
-    removeAllExternalChangeBanners();
-    updateLockState();
-    if (hasUnsavedEdits()) { clearEditState(); }
-
-    showExternalChangeError(
-        msg.checksumErrors as number,
-        msg.malformedLines as number,
-        msg.errorCount as number,
-        msg.canQuickRepair as boolean,
-    );
-    renderSegments();
-    renderStructPins();
-    renderCurrentDataView();
-    notifyIntegrityBytesChanged();
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>): void {
-    loadParsedMemory(msg.parseResult);
-    clearEditState();
-    document.getElementById('ext-error-banner')?.remove();
-    unlockExternalChange();
-    updateLockState();
-    updateEditControls();
-    updateDirtyBar();
-    renderStats();
-    renderSegments();
-    renderStructPins();
-    renderCurrentDataView();
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function rebuildLabelsAndMemory(): void {
@@ -192,8 +154,72 @@ function renderCurrentDataView(): void {
     else if (S.currentView === 'record') { renderRecordView(); }
 }
 
-function incomingFileFromMessage(msg: WebviewMessageByType<'externalChange'>): IncomingFile {
-    return incomingFile(msg.parseResult, msg.labels);
+function applyWebviewModelUpdate(update: WebviewModelUpdate): void {
+    for (const effect of MODEL_UPDATE_EFFECTS) { effect(update); }
+    applyInvalidations(update.invalidations);
+}
+
+function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
+    if (update.integrityProfiles) {
+        setIntegrityProfiles(update.integrityProfiles, update.integrityProfileError ?? '');
+    }
+}
+
+function applyLoadErrorUpdate(update: WebviewModelUpdate): void {
+    if ('loadErrorMessage' in update) { renderLoadError(update.loadErrorMessage ?? ''); }
+}
+
+function applyCopyCommandUpdate(update: WebviewModelUpdate): void {
+    if (update.copyCommand) { handleCopyCommand(update.copyCommand); }
+}
+
+function applyExternalBannerUpdate(update: WebviewModelUpdate): void {
+    if (update.removeExternalChangeBanners) { removeAllExternalChangeBanners(); }
+    if (update.removeExternalChangeErrorBanner) { document.getElementById('ext-error-banner')?.remove(); }
+}
+
+function applyExternalChangeUpdate(update: WebviewModelUpdate): void {
+    if (!update.externalChange) { return; }
+    if (update.externalChange.hasUnsavedEdits) {
+        showExternalChangeConflict(update.externalChange.incoming);
+    } else {
+        showExternalChangeReloadBanner(update.externalChange.incoming);
+    }
+}
+
+function applyExternalChangeErrorUpdate(update: WebviewModelUpdate): void {
+    if (!update.externalChangeError) { return; }
+    showExternalChangeError(
+        update.externalChangeError.checksumErrors,
+        update.externalChangeError.malformedLines,
+        update.externalChangeError.errorCount,
+        update.externalChangeError.canQuickRepair,
+    );
+}
+
+function applyInvalidations(invalidations: WebviewInvalidations): void {
+    if (invalidations.fullRender) {
+        render();
+        return;
+    }
+    applyScopedInvalidations(invalidations);
+}
+
+function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
+    const effects: readonly InvalidationEffect[] = [
+        ['labelsAndMemory', rebuildLabelsAndMemory],
+        ['lockState', updateLockState],
+        ['editControls', updateEditControls],
+        ['dirtyBar', updateDirtyBar],
+        ['stats', renderStats],
+        ['segments', renderSegments],
+        ['structPins', renderStructPins],
+        ['currentDataView', renderCurrentDataView],
+        ['integrityBytesChanged', notifyIntegrityBytesChanged],
+    ];
+    for (const [key, effect] of effects) {
+        if (invalidations[key]) { effect(); }
+    }
 }
 
 // ── Helper: apply external change and unlock ──────────────────────
