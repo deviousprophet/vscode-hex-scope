@@ -10,6 +10,7 @@ import { getByte }  from '../../memory/memoryData';
 import { persistStructPins, persistStructs, persistStructState } from './structPersistence';
 import {
     makeStructPin,
+    parseStructPinAddressInput,
     uniqueStructPinName as uniquePinName,
     upsertPointerStructPin,
     withEditedStructPin,
@@ -3686,8 +3687,8 @@ function savePinEditForm(editForm: HTMLElement, pinId: string): void {
 
 function readPinEditAddress(editForm: HTMLElement): number | null {
     const addrInput = editForm.querySelector('.si-pe-addr') as HTMLInputElement;
-    const addr = parseInt(addrInput.value.trim().replace(/^0x/i, ''), 16);
-    if (!isNaN(addr)) { return addr; }
+    const addr = parseStructPinAddressInput(addrInput.value);
+    if (addr !== null) { addrInput.style.borderColor = ''; return addr; }
     addrInput.style.borderColor = 'var(--err)';
     return null;
 }
