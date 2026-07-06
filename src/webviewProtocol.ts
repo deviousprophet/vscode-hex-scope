@@ -1,4 +1,4 @@
-import type { CopyCommand } from './core/byte-tools';
+import type { CopyCommand } from './core/byte-tools/copyCommand';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
 import type { SegmentLabel, SerializedParseResult, StructDef, StructPin } from './core/types';
