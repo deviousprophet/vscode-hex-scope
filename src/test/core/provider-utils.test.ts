@@ -3,6 +3,7 @@ import {
     buildSRecDataRecord,
     detectFormatFromParts,
     repairChecksums,
+    serializeIntelHex,
     serializeSRec,
 } from '../../core/document';
 import { migrateStructDefinitions } from '../../hexEditorProvider';
@@ -189,6 +190,29 @@ suite('buildSRecDataRecord()', () => {
         const rec = buildSRecDataRecord(1, 0x0000, data); // asz=2
         const byteCount = parseInt(rec.slice(2, 4), 16);
         assert.strictEqual(byteCount, 2 + 3 + 1);
+    });
+});
+
+suite('serializeIntelHex()', () => {
+    test('preserves blank lines and surrounding record whitespace when editing data', () => {
+        const raw = [
+            '  :020000040800F2  ',
+            '',
+            ' \t:0400000001020304F2  ',
+            '   ',
+            ':00000001FF',
+        ].join('\n');
+        const result = parseIntelHex(raw);
+        const out = serializeIntelHex(raw, result, new Map([[0x08000000, 0xFF]]));
+
+        assert.strictEqual(out, [
+            '  :020000040800F2  ',
+            '',
+            ' \t:04000000FF020304F4  ',
+            '   ',
+            ':00000001FF',
+        ].join('\n'));
+        assert.strictEqual(parseIntelHex(out).checksumErrors, 0);
     });
 });
 

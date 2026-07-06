@@ -42,12 +42,38 @@ function serializeEditedRecords(
     if (edits.size === 0) { return originalRaw; }
 
     const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const lines = parseResult.records.map(rec => {
-        if (rec.error || !canEditRecord(rec)) { return rec.raw; }
-        const edited = applyRecordEdits(rec, edits);
-        return edited ? rebuildRecord(rec, edited) : rec.raw;
-    });
+    const lines = originalRaw.split(/\r?\n/);
+    for (const rec of parseResult.records) {
+        applySerializedRecordEdit(lines, rec, edits, canEditRecord, rebuildRecord);
+    }
     return lines.join(eol);
+}
+
+function applySerializedRecordEdit(
+    lines: string[],
+    rec: ParsedRecord,
+    edits: Map<number, number>,
+    canEditRecord: (rec: ParsedRecord) => boolean,
+    rebuildRecord: (rec: ParsedRecord, data: number[]) => string,
+): void {
+    const rebuiltRecord = editedRecordText(rec, edits, canEditRecord, rebuildRecord);
+    if (rebuiltRecord) { lines[rec.lineNumber - 1] = replaceRecordText(lines[rec.lineNumber - 1], rebuiltRecord); }
+}
+
+function editedRecordText(
+    rec: ParsedRecord,
+    edits: Map<number, number>,
+    canEditRecord: (rec: ParsedRecord) => boolean,
+    rebuildRecord: (rec: ParsedRecord, data: number[]) => string,
+): string | null {
+    if (rec.error || !canEditRecord(rec)) { return null; }
+    const edited = applyRecordEdits(rec, edits);
+    return edited ? rebuildRecord(rec, edited) : null;
+}
+
+function replaceRecordText(originalLine: string | undefined, rebuiltRecord: string): string {
+    const match = originalLine?.match(/^(\s*)\S+(\s*)$/);
+    return match ? `${match[1]}${rebuiltRecord}${match[2]}` : rebuiltRecord;
 }
 
 function applyRecordEdits(rec: ParsedRecord, edits: Map<number, number>): number[] | null {
