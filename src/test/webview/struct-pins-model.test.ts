@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import type { StructDef, StructPin } from '../../core/types';
 import {
     makeStructPin,
+    parseStructPinAddressInput,
     samePointerSource,
     uniqueStructPinName,
     upsertPointerStructPin,
@@ -12,6 +13,14 @@ import {
 } from '../../webview/sidebar/struct/structPinsModel';
 
 suite('struct pin model', () => {
+    test('parses full hex address input only', () => {
+        assert.strictEqual(parseStructPinAddressInput('123'), 0x123);
+        assert.strictEqual(parseStructPinAddressInput(' 0xDEADBEEF '), 0xDEADBEEF);
+        assert.strictEqual(parseStructPinAddressInput('123xyz'), null);
+        assert.strictEqual(parseStructPinAddressInput(''), null);
+        assert.strictEqual(parseStructPinAddressInput('0x100000000'), null);
+    });
+
     test('creates pins with injected ids', () => {
         const pin = makeStructPin({ structId: 's1', addr: 0x20, name: 'inst' }, () => 'pin_test');
 

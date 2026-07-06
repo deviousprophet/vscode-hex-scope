@@ -23,6 +23,14 @@ export type PointerStructPinResult = {
     pin: StructPin;
 };
 
+export function parseStructPinAddressInput(raw: string): number | null {
+    const text = raw.trim();
+    const hex = text.replace(/^0x/i, '');
+    if (!/^[0-9a-fA-F]+$/.test(hex)) { return null; }
+    const addr = Number.parseInt(hex, 16);
+    return Number.isSafeInteger(addr) && addr <= 0xFFFFFFFF ? addr : null;
+}
+
 export function makeStructPin(draft: StructPinDraft, makeId: PinIdFactory): StructPin {
     return {
         id: makeId(),
