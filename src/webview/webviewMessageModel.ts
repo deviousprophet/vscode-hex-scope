@@ -1,4 +1,4 @@
-import type { CopyCommand } from '../core/byte-tools';
+import type { CopyCommand } from '../core/byte-tools/copyCommand';
 import type { IntegrityCheckSet, IntegrityProfile } from '../core/integrity';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
 import {
