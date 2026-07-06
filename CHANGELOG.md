@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.11.1] - 2026-07-06
+
+### Changed
+
+- Refactored editor session, webview message handling, app state, sidebar features, render infrastructure, byte tools, record view, search, edit, selection, stats, external-change UI, and Struct Overlay internals into smaller focused modules
+- Upgraded Fallow CI/tooling configuration
+
+### Fixed
+
+- Fixed provider state staying stale after accepting an external file reload
+- Fixed edited saves rebuilding parsed record files and losing original blank lines or formatting
+- Fixed Struct Overlay pin address edits accepting partial or out-of-range hex input
+
 ## [2.11.0] - 2026-07-04
 
 ### Added
