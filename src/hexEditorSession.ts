@@ -248,6 +248,7 @@ export class HexEditorSession {
         // ── Live reload on external file changes ──────────────────────────
         // suppress the single watcher event caused by our own writes
         let suppressReload = false;
+        let pendingExternalReload: { raw: string; parseResult: ParseResult } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
         const watcher = vscode.workspace.createFileSystemWatcher(
@@ -266,6 +267,7 @@ export class HexEditorSession {
                     
                     // Validate the externally-changed file
                     if (hasParseErrors(newResult)) {
+                        pendingExternalReload = null;
                         // Update provider-side state with the new content so repair works on actual file
                         raw = newRaw;
                         parseResult = newResult;
@@ -286,13 +288,12 @@ export class HexEditorSession {
                     
                     // Send as 'externalChange' so the webview can guard against
                     // overwriting unsaved edits
+                    pendingExternalReload = { raw: newRaw, parseResult: newResult };
                     void postToWebview(webviewPanel.webview, {
                         type: 'externalChange',
                         parseResult: serializeParseResult(newResult, format),
                         labels: this._context.workspaceState.get(labelKey, []),
                     });
-                    // Update provider-side state only after webview accepts it
-                    // (done on 'reloadAccepted' response below)
                 } catch { /* file transiently unavailable */ }
             }, 200);
         };
@@ -411,7 +412,12 @@ export class HexEditorSession {
                 });
                 vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
             },
-            reloadAccepted: async () => {},
+            reloadAccepted: async () => {
+                if (!pendingExternalReload) { return; }
+                raw = pendingExternalReload.raw;
+                parseResult = pendingExternalReload.parseResult;
+                pendingExternalReload = null;
+            },
             repairAndReload: async () => {
                 if (!parseResult) { return; }
                 const repairedRaw = repairChecksums(raw, parseResult);
