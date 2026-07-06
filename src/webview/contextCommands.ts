@@ -48,6 +48,7 @@ function analyzeCommandHandler(cmd: string, bytes: number[]): ContextCommandResu
 
 function fillCommandHandler(cmd: string, _bytes: number[], editMode: boolean): ContextCommandResult {
     if (!editMode) { return { type: 'none' }; }
+    if (!cmd.startsWith('fill-')) { return { type: 'none' }; }
 
     const value = parseInt(cmd.slice(5), 16);
     return isValidFillValue(value) ? { type: 'fill', value } : { type: 'none' };
