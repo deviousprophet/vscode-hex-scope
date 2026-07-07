@@ -43,6 +43,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.Package.outputs.vsix_name }}
+          path: .
 
       - name: Build Release Notes
         id: release-notes
@@ -54,3 +55,9 @@ jobs:
         with:
           files: ${{ needs.Package.outputs.vsix_name }}.vsix
           body_path: ${{ steps.release-notes.outputs.path }}
+
+      - name: Publish to Open VSX
+        uses: HaaLeo/publish-vscode-extension@v2
+        with:
+          pat: ${{ secrets.OPEN_VSX_TOKEN }}
+          extensionFile: ${{ needs.Package.outputs.vsix_name }}.vsix
