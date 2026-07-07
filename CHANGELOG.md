@@ -295,8 +295,6 @@
 
 - Null-dereference crash when opening the struct type preview before any type was created
 
----
-
 ## [1.1.0] — 2026-04-10
 
 ### Added
@@ -314,16 +312,6 @@
 
 - `SerializedParseResult` extended with `format: 'ihex' | 'srec'` discriminant field
 - Parser comment style made consistent across `IntelHexParser.ts` and `SRecParser.ts`; `SRecParser.ts` no longer imports from `IntelHexParser.ts`
-- Sample files reorganised into `sample/ihex/` and `sample/srec/` subdirectories; `sample/README.md` renamed to `sample/SAMPLE.md`
-
-### Added (tests and samples)
-
-- `src/test/srec-parser.test.ts` — 30+ unit tests for the SREC parser
-- `src/test/ihex-samples.test.ts` — sample-file integration tests for all five Intel HEX samples
-- `src/test/srec-samples.test.ts` — sample-file integration tests for all six SREC samples plus cross-format parity checks
-- Six new SREC sample files: `minimal.srec`, `firmware_s1.srec`, `firmware_s3.srec`, `stm32_s3.srec`, `mixed_addr.srec`, `errors.srec`
-
----
 
 ## [1.0.0] — 2026-04-09
 
