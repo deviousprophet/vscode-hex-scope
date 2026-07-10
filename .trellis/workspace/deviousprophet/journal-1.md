@@ -39,3 +39,36 @@ Migrated the Struct Instance Display contract into Trellis, scanned the codebase
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Standardize PR creation
+
+**Date**: 2026-07-10
+**Task**: Standardize PR creation
+**Branch**: `feat/trellis-setup`
+
+### Summary
+
+Added sequential Trellis task numbering, a project-wide PR creation skill and code-spec, published draft PR #93 with the required concise title/body format, and archived the convention task.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7523a13` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
