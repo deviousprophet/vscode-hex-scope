@@ -72,3 +72,36 @@ Added sequential Trellis task numbering, a project-wide PR creation skill and co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Add changelog update skill
+
+**Date**: 2026-07-10
+**Task**: Add changelog update skill
+**Branch**: `feat/trellis-setup`
+
+### Summary
+
+Created a single-file project changelog skill with tag-to-HEAD impact analysis, SemVer inference, draft reconciliation, approval preview, synchronized package version updates, and repository style rules.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `979c17f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
