@@ -91,7 +91,7 @@ def find_task_by_name(task_name: str, tasks_dir: Path) -> Path | None:
     if exact_match.is_dir():
         return exact_match
 
-    # Try suffix match (e.g., "my-task" matches "01-21-my-task")
+    # Try suffix match (e.g., "my-task" matches "01-my-task")
     for d in tasks_dir.iterdir():
         if d.is_dir() and d.name.endswith(f"-{task_name}"):
             return d
@@ -176,7 +176,7 @@ def resolve_task_dir(target_dir: str, repo_root: Path) -> Path:
 
     Supports:
     - Absolute path: /path/to/task
-    - Relative path: .trellis/tasks/01-31-my-task
+    - Relative path: .trellis/tasks/01-my-task
     - Task name: my-task (uses find_task_by_name for lookup)
 
     Args:

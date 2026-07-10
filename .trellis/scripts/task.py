@@ -81,7 +81,7 @@ def cmd_start(args: argparse.Namespace) -> int:
 
     if not full_path.is_dir():
         print(colored(f"Error: Task not found: {task_input}", Colors.RED))
-        print("Hint: Use task name (e.g., 'my-task') or full path (e.g., '.trellis/tasks/01-31-my-task')")
+        print("Hint: Use task name (e.g., 'my-task') or full path (e.g., '.trellis/tasks/01-my-task')")
         return 1
 
     # Convert to relative path for storage
@@ -332,10 +332,10 @@ List options:
 Examples:
   python task.py create "Add login feature" --slug add-login
   python task.py create "Add login feature" --slug add-login --package cli
-  python task.py create "Child task" --slug child --parent .trellis/tasks/01-21-parent
+  python task.py create "Child task" --slug child --parent .trellis/tasks/01-parent
   python task.py add-context <dir> implement .trellis/spec/cli/backend/auth.md "Auth guidelines"
   python task.py set-branch <dir> task/add-login
-  python task.py start .trellis/tasks/01-21-add-login
+  python task.py start .trellis/tasks/01-add-login
   python task.py current --source
   python task.py finish
   python task.py archive add-login

@@ -39,7 +39,7 @@ python ./.trellis/scripts/get_context.py --mode packages   # list packages / lay
 
 ### Task System
 
-Every task has its own directory under `.trellis/tasks/{MM-DD-name}/` holding `task.json`, `prd.md`, optional `design.md`, optional `implement.md`, optional `research/`, and context manifests (`implement.jsonl`, `check.jsonl`) for sub-agent-capable platforms.
+Every task has its own directory under `.trellis/tasks/{NN-short-name}/` holding `task.json`, `prd.md`, optional `design.md`, optional `implement.md`, optional `research/`, and context manifests (`implement.jsonl`, `check.jsonl`) for sub-agent-capable platforms. `NN` is a monotonic task number allocated across active and archived tasks.
 
 ```bash
 # Task lifecycle
@@ -317,7 +317,7 @@ Create the task directory only after task-creation consent. The command sets sta
 python ./.trellis/scripts/task.py create "<task title>" --slug <name>
 ```
 
-`--slug` is the human-readable name only. Do **not** include the `MM-DD-` date prefix; `task.py create` adds that prefix automatically.
+`--slug` is the human-readable short name only. Do **not** include the numeric prefix; `task.py create` allocates the next `NN-` prefix automatically.
 
 For task trees, create the parent task first and then create each child with `--parent <parent-dir>`. Do not start the parent just because children exist; start the child that owns the next independently verifiable deliverable.
 

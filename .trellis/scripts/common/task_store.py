@@ -37,7 +37,6 @@ from .paths import (
     DIR_TASKS,
     DIR_WORKFLOW,
     FILE_TASK_JSON,
-    generate_task_date_prefix,
     get_developer,
     get_repo_root,
     get_tasks_dir,
@@ -105,6 +104,36 @@ def _repo_relative_path(path: Path, repo_root: Path) -> str:
         return path.relative_to(repo_root).as_posix()
     except ValueError:
         return str(path)
+
+
+_TASK_NUMBER_RE = re.compile(r"^(\d+)-")
+
+
+def _task_directory_names(tasks_dir: Path) -> list[str]:
+    """Return active and archived task directory names."""
+    names = [
+        entry.name
+        for entry in tasks_dir.iterdir()
+        if entry.is_dir() and entry.name != DIR_ARCHIVE
+    ]
+
+    archive_dir = tasks_dir / DIR_ARCHIVE
+    if archive_dir.is_dir():
+        for month_dir in archive_dir.iterdir():
+            if not month_dir.is_dir():
+                continue
+            names.extend(entry.name for entry in month_dir.iterdir() if entry.is_dir())
+    return names
+
+
+def _next_task_number_prefix(tasks_dir: Path) -> str:
+    """Allocate the next monotonic task number across active and archived tasks."""
+    numbers = [
+        int(match.group(1))
+        for name in _task_directory_names(tasks_dir)
+        if (match := _TASK_NUMBER_RE.match(name))
+    ]
+    return f"{max(numbers, default=-1) + 1:02d}"
 
 
 # =============================================================================
@@ -237,10 +266,10 @@ def cmd_create(args: argparse.Namespace) -> int:
         print(colored("Error: could not generate slug from title", Colors.RED), file=sys.stderr)
         return 1
 
-    # Create task directory with MM-DD-slug format
+    # Create task directory with NN-slug format.
     tasks_dir = get_tasks_dir(repo_root)
-    date_prefix = generate_task_date_prefix()
-    dir_name = f"{date_prefix}-{slug}"
+    number_prefix = _next_task_number_prefix(tasks_dir)
+    dir_name = f"{number_prefix}-{slug}"
     task_dir = tasks_dir / dir_name
     task_json_path = task_dir / FILE_TASK_JSON
 
