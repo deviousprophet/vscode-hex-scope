@@ -55,3 +55,17 @@ export interface ParseResult {
     /** Execution start address from a start-address record, if present. */
     startAddress?: number;
 }
+
+export interface ParseProgress {
+    stage: 'parse' | 'build';
+    completed: number;
+    total: number;
+}
+
+export interface ParseWorkOptions {
+    signal?: AbortSignal;
+    timeBudgetMs?: number;
+    now?: () => number;
+    yieldControl?: () => Promise<void>;
+    onProgress?: (progress: ParseProgress) => void;
+}

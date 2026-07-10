@@ -198,7 +198,7 @@ function scanByteSegment(
     return scanned;
 }
 
-function matchesAnyNeedle(segmentData: number[], offset: number, needles: number[][]): boolean {
+function matchesAnyNeedle(segmentData: ArrayLike<number>, offset: number, needles: number[][]): boolean {
     for (const needle of needles) {
         if (matchSequenceInSegment(segmentData, offset, needle)) { return true; }
     }
@@ -337,7 +337,7 @@ function reportSearchProgress(
     return now;
 }
 
-function matchSequenceInSegment(segmentData: number[], offset: number, needle: number[]): boolean {
+function matchSequenceInSegment(segmentData: ArrayLike<number>, offset: number, needle: number[]): boolean {
     for (let i = 0; i < needle.length; i++) {
         if (offset + i >= segmentData.length || segmentData[offset + i] !== needle[i]) {
             return false;

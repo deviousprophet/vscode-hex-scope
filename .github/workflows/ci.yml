@@ -12,6 +12,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  Performance:
+    name: Large-file memory budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:performance
+
   CT_After_Commit:
     name: Test After Commit
     uses: ./.github/workflows/ct.yml
@@ -21,8 +33,8 @@ jobs:
 
   Package:
     name: Package VSIX
-    needs: CT_After_Commit
-    if: ${{ needs.CT_After_Commit.result == 'success' }}
+    needs: [CT_After_Commit, Performance]
+    if: ${{ needs.CT_After_Commit.result == 'success' && needs.Performance.result == 'success' }}
     uses: ./.github/workflows/package.yml
     permissions:
       contents: read
