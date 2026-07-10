@@ -28,7 +28,7 @@ Current `BPR` default/contract is 16.
 - Memory data rows are BPR-aligned. Gaps become explicit gap rows; never allocate rows for every missing address.
 - Memory view virtualizes visible rows plus buffer and caps physical scroll height for large logical ranges.
 - Jump-to-address switches to Memory view, finds the containing row, scrolls it into view, and selects/highlights the intended range.
-- Record view renders every parsed record, including source errors/checksum status, as table rows; it does not reinterpret memory segments.
+- Record view represents every parsed record, including source errors/checksum status, but fetches only aligned 512-record pages for its visible window. It keeps an eight-page LRU cache, prefetches one adjacent page, and rejects stale generations.
 - Segment navigator sorts segments, displays inclusive range/size, and jumps to the segment start.
 - Labels are address/length overlays. Visibility/reordering persists through host messages; memory rows rebuild when label structure changes.
 - Stats derive from current parse result and pending/edit state, not stale DOM text.
@@ -51,6 +51,7 @@ Current `BPR` default/contract is 16.
 - Base: 16 mapped bytes at aligned address -> one data row.
 - Good: two distant segments -> ordered data rows separated by one gap row; jump uses segment index, not linear scan of address space.
 - Good: pending edit changes Memory/Inspector/struct/integrity reads without mutating original segment.
+- Good: compressed Record scrolling requests the target page and renders placeholders until that generation's page arrives.
 - Bad: flatten all firmware addresses into one giant array or fill gaps with zero.
 - Bad: use record address field without format-resolved address when navigating.
 

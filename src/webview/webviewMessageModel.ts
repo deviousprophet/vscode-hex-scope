@@ -1,6 +1,7 @@
 import type { CopyCommand } from '../core/byte-tools/copyCommand';
 import type { IntegrityCheckSet, IntegrityProfile } from '../core/integrity';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import { S } from './state';
 import {
     addLabel,
     applyInitialState,
@@ -9,6 +10,7 @@ import {
     incomingFile,
     loadIncomingFile,
     loadParsedMemory,
+    hydrateParseResult,
     lockForExternalChange,
     rebuildMemoryRows,
     type IncomingFile,
@@ -56,6 +58,8 @@ type ModelAppliers = {
 
 const MODEL_APPLIERS: ModelAppliers = {
     init: applyInitMessage,
+    loadProgress: applyPassiveMessage,
+    recordPage: applyPassiveMessage,
     integrityProfiles: applyIntegrityProfilesMessage,
     loadError: applyLoadErrorMessage,
     addLabel: applyAddLabelMessage,
@@ -66,6 +70,8 @@ const MODEL_APPLIERS: ModelAppliers = {
     externalChangeError: applyExternalChangeErrorMessage,
     repairComplete: applyRepairCompleteMessage,
 };
+
+function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }
 
 export function applyProviderMessageToModel(msg: WebviewMessage): WebviewModelUpdate {
     const apply = MODEL_APPLIERS[msg.type] as (message: WebviewMessage) => WebviewModelUpdate;
@@ -112,7 +118,8 @@ function applyCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): Webv
 }
 
 function applySavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): WebviewModelUpdate {
-    loadParsedMemory(msg.parseResult);
+    S.documentGeneration = msg.generation;
+    loadParsedMemory(hydrateParseResult(msg.parseResult));
     clearEditModel();
     return {
         invalidations: {
@@ -137,7 +144,7 @@ function applyExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>)
 }
 
 function applyExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChangeError'>): WebviewModelUpdate {
-    loadIncomingFile(incomingFile(msg.parseResult, msg.labels));
+    loadIncomingFile(incomingFile(msg.parseResult, msg.labels, msg.generation));
     lockForExternalChange();
     clearUnsavedEditsForExternalError();
     return {
@@ -163,7 +170,8 @@ function clearUnsavedEditsForExternalError(): void {
 }
 
 function applyRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>): WebviewModelUpdate {
-    loadParsedMemory(msg.parseResult);
+    S.documentGeneration = msg.generation;
+    loadParsedMemory(hydrateParseResult(msg.parseResult));
     clearEditModel();
     unlockExternalChange();
     return {
@@ -184,5 +192,5 @@ function applyRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>)
 function incomingFileFromExternalChange(
     msg: Extract<WebviewMessage, { type: 'externalChange' }>,
 ): IncomingFile {
-    return incomingFile(msg.parseResult, msg.labels);
+    return incomingFile(msg.parseResult, msg.labels, msg.generation);
 }

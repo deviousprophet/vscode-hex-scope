@@ -1,6 +1,9 @@
 import type { SerializedRecord, SerializedParseResult } from '../core/types';
 import { MAX_VIRTUAL_SCROLL_HEIGHT, physicalToLogicalScrollForLayout } from './render/virtualScroll';
 import { S } from './state';
+import { postProviderMessage } from './vscodeApi';
+import { RECORD_PAGE_SIZE } from '../webviewProtocol';
+import { RecordPageCache } from './recordPageCache';
 
 const IHEX_TYPE_LABELS: Record<number, string> = {
     0: 'DATA', 1: 'EOF', 2: 'EXT SEG ADDR', 3: 'START SEG ADDR',
@@ -16,6 +19,40 @@ const RECORD_FALLBACK_ROW_HEIGHT = 28;
 const RECORD_BUFFER_ROWS = 5;
 const RECORD_MAX_SPACER_PX = 1_000_000;
 let recordRenderSignature = '';
+const recordPages = new RecordPageCache(8);
+
+export function resetRecordPages(generation: number): void {
+    recordPages.reset(generation);
+    recordRenderSignature = '';
+}
+
+export function acceptRecordPage(generation: number, start: number, records: SerializedRecord[]): void {
+    if (!recordPages.accept(generation, start, records)) { return; }
+    recordRenderSignature = '';
+    renderRecordView();
+}
+
+function requestRecordPage(start: number, recordCount: number): void {
+    if (!recordPages.request(start, recordCount)) { return; }
+    postProviderMessage({
+        type: 'requestRecordPage',
+        generation: recordPages.generation,
+        start,
+        count: Math.min(RECORD_PAGE_SIZE, recordCount - start),
+    });
+}
+
+function requestRecordWindow(first: number, last: number, recordCount: number): void {
+    const firstPage = Math.floor(first / RECORD_PAGE_SIZE) * RECORD_PAGE_SIZE;
+    const lastPage = Math.floor(last / RECORD_PAGE_SIZE) * RECORD_PAGE_SIZE;
+    for (let start = firstPage; start <= lastPage; start += RECORD_PAGE_SIZE) { requestRecordPage(start, recordCount); }
+    requestRecordPage(firstPage - RECORD_PAGE_SIZE, recordCount);
+    requestRecordPage(lastPage + RECORD_PAGE_SIZE, recordCount);
+}
+
+function cachedRecord(index: number): SerializedRecord | undefined {
+    return recordPages.get(index) ?? S.parseResult?.records[index];
+}
 
 interface RecordScrollLayout {
     totalHeight: number;
@@ -78,7 +115,7 @@ export function renderRecordView(): void {
     if (!view) { return; }
     const { el, parseResult } = view;
 
-    if (parseResult.records.length === 0) {
+    if ((parseResult.recordCount ?? parseResult.records.length) === 0) {
         el.replaceChildren(recordViewUnavailableNode());
         return;
     }
@@ -128,14 +165,24 @@ function appendRecordTopSpacer(rows: HTMLTableRowElement[], win: RecordRenderWin
 
 function appendVisibleRecordRows(
     rows: HTMLTableRowElement[],
-    records: SerializedRecord[],
     win: RecordRenderWindow,
     isSrec: boolean,
     typeLabels: Record<number, string>,
 ): void {
-    for (let i = Math.max(0, win.firstVisibleIdx); i <= win.lastVisibleIdx && i < records.length; i++) {
-        rows.push(recordRow(records[i], isSrec, typeLabels));
+    for (let i = Math.max(0, win.firstVisibleIdx); i <= win.lastVisibleIdx; i++) {
+        const record = cachedRecord(i);
+        rows.push(record ? recordRow(record, isSrec, typeLabels) : recordPlaceholderRow());
     }
+}
+
+function recordPlaceholderRow(): HTMLTableRowElement {
+    const row = document.createElement('tr');
+    row.className = 'record-loading';
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.textContent = 'Loading…';
+    row.appendChild(cell);
+    return row;
 }
 
 function appendRecordBottomSpacer(rows: HTMLTableRowElement[], recordCount: number, win: RecordRenderWindow): void {
@@ -162,8 +209,9 @@ function replaceRecordViewContent(el: HTMLElement, table: HTMLTableElement, win:
 function renderRecordViewImpl(el: HTMLElement): void {
     if (!S.parseResult) { return; }
 
-    const recordCount = S.parseResult.records.length;
+    const recordCount = S.parseResult.recordCount ?? S.parseResult.records.length;
     const win = calcRecordRenderWindow(el, recordCount);
+    requestRecordWindow(win.firstVisibleIdx, win.lastVisibleIdx, recordCount);
     const signature = recordWindowSignature(recordCount, win);
     if (signature === recordRenderSignature) { return; }
     recordRenderSignature = signature;
@@ -174,7 +222,7 @@ function renderRecordViewImpl(el: HTMLElement): void {
     const rows: HTMLTableRowElement[] = [];
 
     appendRecordTopSpacer(rows, win);
-    appendVisibleRecordRows(rows, S.parseResult.records, win, isSrec, TYPE_LABELS);
+    appendVisibleRecordRows(rows, win, isSrec, TYPE_LABELS);
     appendRecordBottomSpacer(rows, recordCount, win);
 
     const tbody = document.createElement('tbody');

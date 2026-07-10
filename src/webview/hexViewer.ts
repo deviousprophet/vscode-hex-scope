@@ -15,7 +15,7 @@ import { initSearch } from './search/searchEngine';
 import { setupSearchControls } from './search/searchControls';
 import type { SerializedParseResult } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
-import { renderRecordView } from './recordView';
+import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
 import { renderStats } from './statsBar';
 import { fillSelectionTransaction, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
 import { updateDirtyBar, updateEditControls } from './editControls';
@@ -66,6 +66,8 @@ type InvalidationEffect = readonly [keyof WebviewInvalidations, () => void];
 
 const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     init: handleInitMessage,
+    loadProgress: handleLoadProgressMessage,
+    recordPage: handleRecordPageMessage,
     loadError: handleLoadErrorMessage,
     addLabel: handleAddLabelMessage,
     updateLabel: handleUpdateLabelMessage,
@@ -91,7 +93,27 @@ window.addEventListener('message', (e: MessageEvent) => {
 });
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
+    resetRecordPages(msg.generation);
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handleLoadProgressMessage(msg: WebviewMessageByType<'loadProgress'>): void {
+    if (msg.generation < S.documentGeneration) { return; }
+    const percent = msg.total && msg.total > 0 ? Math.floor((msg.completed / msg.total) * 100) : null;
+    const label = percent === null ? msg.stage : `${msg.stage} ${percent}%`;
+    if (!S.parseResult) {
+        document.getElementById('app')!.innerHTML = `<div class="load-progress" role="status">Loading ${esc(label)}…</div>`;
+        return;
+    }
+    const progress = document.getElementById('search-progress');
+    if (progress) {
+        progress.textContent = `Loading ${label}…`;
+        progress.setAttribute('aria-hidden', 'false');
+    }
+}
+
+function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void {
+    acceptRecordPage(msg.generation, msg.start, msg.records);
 }
 
 function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): void {
@@ -115,6 +137,8 @@ function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): voi
 }
 
 function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
+    resetRecordPages(msg.generation);
+    clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
@@ -123,11 +147,22 @@ function handleExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>
 }
 
 function handleExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChangeError'>): void {
+    resetRecordPages(msg.generation);
+    clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>): void {
+    resetRecordPages(msg.generation);
+    clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function clearLoadProgress(): void {
+    const progress = document.getElementById('search-progress');
+    if (!progress) { return; }
+    progress.textContent = '';
+    progress.setAttribute('aria-hidden', 'true');
 }
 
 function rebuildLabelsAndMemory(): void {
@@ -219,6 +254,8 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
 // ── Helper: apply external change and unlock ──────────────────────
 
 function applyExternalChangeAndUnlock(incoming: IncomingFile): void {
+    resetRecordPages(incoming.generation);
+    clearLoadProgress();
     loadIncomingFile(incoming);
     S.currentView = 'memory';
     unlockExternalChange();

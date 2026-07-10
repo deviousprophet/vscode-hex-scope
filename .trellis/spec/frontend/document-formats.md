@@ -22,6 +22,8 @@ type HexScopeFormat = 'ihex' | 'srec';
 function detectFormatFromParts(ext: string, raw: string): HexScopeFormat;
 function parseIntelHex(source: string): ParseResult;
 function parseSRec(source: string): ParseResult;
+function parseIntelHexCompact(source: string, options?: CompactParserOptions): Promise<CompactParseResult>;
+function parseSRecCompact(source: string, options?: CompactParserOptions): Promise<CompactParseResult>;
 function serializeIntelHex(raw: string, result: ParseResult, edits: Map<number, number>): string;
 function serializeSRec(raw: string, result: ParseResult, edits: Map<number, number>): string;
 function repairChecksums(raw: string, result: ParseResult): string;
@@ -33,8 +35,11 @@ function repairChecksums(raw: string, result: ParseResult): string;
 
 - Recognized SREC extensions (`srec`, `mot`, `s19`, `s28`, `s37`) override content sniffing. Otherwise leading `S[0-9]` selects SREC; default is IHEX.
 - Parsers retain every nonblank source record, including malformed/checksum-invalid rows, for Record view and repair UI.
+- Compact parsers retain every nonblank record as typed source-offset metadata, materializing record objects only for requested pages or edit/repair compatibility paths.
+- Async parsing scans source offsets without `split`, checks cancellation, reports monotonic parse/build progress, and yields within the configured 24 ms work budget.
 - Only valid-checksum, non-malformed data records contribute to memory segments.
 - Adjacent data records merge only when the next `resolvedAddress` equals current end; gaps create new segments.
+- Segment assembly allocates typed buffers directly; boxed `number[]` accumulation is forbidden on the large-file path.
 - IHEX supports data, EOF, extended segment/linear address, and start segment/linear records with required byte counts.
 - SREC supports S0-S3 and S5-S9; S4 is reserved; S1/S2/S3 alone carry memory data; S7/S8/S9 provide execution start address.
 - Serializers rewrite only affected valid data records. Preserve non-data records, blank lines, surrounding line whitespace, untouched lines, and original LF/CRLF style.

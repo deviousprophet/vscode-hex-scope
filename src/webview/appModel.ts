@@ -1,4 +1,4 @@
-import type { SegmentLabel, SerializedParseResult } from '../core/types';
+import type { SegmentLabel, SerializedParseResult, WireParseResult } from '../core/types';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
 import { buildMemRows, initFlatBytes } from './memory/memoryData';
 import { S } from './state';
@@ -6,18 +6,31 @@ import { S } from './state';
 export type InitMessage = Extract<ProviderToWebviewMessage, { type: 'init' }>;
 export type IncomingFile = {
     parseResult: SerializedParseResult;
+    generation: number;
     labels: SegmentLabel[];
 };
 
 export type ClearEditReason = 'refresh' | 'discard';
 
 export function applyInitialState(msg: InitMessage): void {
-    loadParsedMemory(msg.parseResult);
+    S.documentGeneration = msg.generation;
+    loadParsedMemory(hydrateParseResult(msg.parseResult));
     S.labels = messageArray(msg.labels);
     S.structs = messageArray(msg.structs);
     S.structPins = messageArray(msg.structPins);
     S.endian = msg.endian;
     S.currentView = 'memory';
+}
+
+export function hydrateParseResult(result: WireParseResult): SerializedParseResult {
+    return {
+        ...result,
+        records: [],
+        segments: result.segments.map(segment => ({
+            startAddress: segment.startAddress,
+            data: new Uint8Array(segment.data),
+        })),
+    };
 }
 
 function messageArray<T>(value: T[]): T[] {
@@ -42,12 +55,13 @@ export function updateLabel(label: SegmentLabel): void {
     S.labels = S.labels.map(item => item.id === label.id ? label : item);
 }
 
-export function incomingFile(parseResult: SerializedParseResult, labels: SegmentLabel[]): IncomingFile {
-    return { parseResult, labels };
+export function incomingFile(parseResult: WireParseResult, labels: SegmentLabel[], generation: number): IncomingFile {
+    return { parseResult: hydrateParseResult(parseResult), labels, generation };
 }
 
 export function loadIncomingFile(file: IncomingFile): void {
     loadParsedMemory(file.parseResult);
+    S.documentGeneration = file.generation;
     S.labels = file.labels;
 }
 

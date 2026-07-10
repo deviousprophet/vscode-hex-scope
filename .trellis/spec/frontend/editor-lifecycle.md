@@ -27,11 +27,13 @@ Full union lives only in `src/webviewProtocol.ts`.
 
 - Extension activation registers the custom editor and all contributed commands from `package.json`.
 - Provider uses `retainContextWhenHidden: true` and does not support multiple editors per document.
-- Webview sends `ready`; session responds with `init` containing serialized parse result, labels, structs, pins, endian, and integrity profiles/checks.
+- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, structs, pins, endian, and integrity profiles/checks.
 - `HexEditorSession` owns file I/O, parsing, watchers, VS Code persistence, clipboard, and host-side profile/definition migration.
 - `hexViewer.ts` owns browser composition. It dispatches known provider messages, applies model transitions, then DOM invalidations/effects.
 - Unknown/malformed provider message types return `false` and cause no handler execution.
-- Binary/typed-array parser data is converted to serializable arrays before crossing the webview seam.
+- Segment bytes cross the webview seam as exact `ArrayBuffer` values and hydrate to `Uint8Array` in the browser. Record details remain host-side and cross only in aligned 512-record pages.
+- Every load and record page carries a generation. Browser and host ignore stale generations after replacement, save, repair, external reload, or disposal.
+- Panel disposal aborts active parsing, clears page/document ownership, and prevents later posts.
 - `postToActive` is best-effort and targets only the currently active Hex Scope panel.
 
 ### 4. Validation & Error Matrix
@@ -44,7 +46,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 | Unknown provider message | `dispatchProviderMessage` returns false. |
 | Persisted profiles/checks malformed | Normalize/drop invalid entries; report profile error when relevant. |
 | Legacy struct definitions overlap global IDs/names | Deduplicate during migration. |
-| Panel disposed | Dispose watcher/listeners and clear active-panel ownership. |
+| Panel disposed | Abort active load; dispose watcher/listeners; drop raw/parsed state and active-panel ownership. |
 
 ### 5. Good/Base/Bad Cases
 
@@ -59,6 +61,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 - `src/test/webview/webview-message-model.test.ts`: unknown-message rejection, known dispatch, init and invalidations.
 - `src/test/core/provider-utils.test.ts`: format detection and legacy struct migration.
 - Any new discriminator needs host-to-browser or browser-to-host handling assertions and a no-op unknown-message assertion.
+- Paging tests cover alignment, maximum page size, cache eviction, stale generations, and compressed record scrolling.
 
 ### 7. Wrong vs Correct
 

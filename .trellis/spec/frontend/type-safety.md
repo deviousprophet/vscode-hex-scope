@@ -3,7 +3,7 @@
 ## Type Ownership
 
 - `src/core/parser/types.ts`: host-side `HexRecord`, `MemorySegment`, `ParseResult`.
-- `src/core/types.ts`: serialized webview-safe records/segments plus labels, search, memory rows, and struct types.
+- `src/core/types.ts`: hydrated webview records/segments, `WireParseResult` binary boundary types, labels, search, memory rows, and struct types.
 - `src/webviewProtocol.ts`: exhaustive cross-runtime message unions.
 - Feature core modules own feature-specific unions/results: `IntegrityValidation<T>`, `SearchMode`, `PointerDerefTarget`, and struct parse results.
 
@@ -31,7 +31,8 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 
 - Every message has a literal `type` discriminator.
 - Add new message fields to the owning union, host sender/handler, webview dispatcher/applier, and tests in one change.
-- Browser messages use serializable arrays/objects; typed arrays are converted at the host boundary (`serializeParseResult`).
+- Provider messages use exact `ArrayBuffer` segment payloads. `appModel.ts` is the single hydration boundary that wraps them in `Uint8Array`; browser feature code consumes only hydrated segments.
+- Record-page request counts and 512-record alignment are validated by the host; responses and document summaries carry one generation owner.
 - Unknown/malformed message types are ignored by `dispatchProviderMessage`, not cast and executed.
 
 ## Numeric and Address Rules

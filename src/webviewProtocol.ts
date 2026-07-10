@@ -1,40 +1,47 @@
 import type { CopyCommand } from './core/byte-tools/copyCommand';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
-import type { SegmentLabel, SerializedParseResult, StructDef, StructPin } from './core/types';
+import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
+
+export const RECORD_PAGE_SIZE = 512;
 
 export type HexScopeEndian = 'le' | 'be';
 
 export type ProviderToWebviewMessage =
     | {
         type: 'init';
-        parseResult: SerializedParseResult;
+        generation: number;
+        parseResult: WireParseResult;
         labels: SegmentLabel[];
         structs: StructDef[];
         structPins: StructPin[];
         endian: HexScopeEndian;
         integrityProfiles: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet };
     }
-    | { type: 'loadError'; message: string }
+    | { type: 'loadProgress'; generation: number; stage: 'read' | 'parse' | 'build' | 'transfer'; completed: number; total?: number }
+    | { type: 'recordPage'; generation: number; start: number; records: SerializedRecord[] }
+    | { type: 'loadError'; generation?: number; message: string }
     | { type: 'addLabel'; label: SegmentLabel }
     | { type: 'updateLabel'; label: SegmentLabel }
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
-    | { type: 'savedEdits'; parseResult: SerializedParseResult }
-    | { type: 'externalChange'; parseResult: SerializedParseResult; labels: SegmentLabel[] }
+    | { type: 'savedEdits'; generation: number; parseResult: WireParseResult }
+    | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[] }
     | {
         type: 'externalChangeError';
-        parseResult: SerializedParseResult;
+        generation: number;
+        parseResult: WireParseResult;
         labels: SegmentLabel[];
         checksumErrors: number;
         malformedLines: number;
         errorCount: number;
         canQuickRepair: boolean;
     }
-    | { type: 'repairComplete'; parseResult: SerializedParseResult }
+    | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
     | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
+    | { type: 'requestRecordPage'; generation: number; start: number; count: number }
     | { type: 'reloadAccepted' }
     | { type: 'copyText'; text: string; label?: string }
     | { type: 'saveLabels'; labels: SegmentLabel[] }

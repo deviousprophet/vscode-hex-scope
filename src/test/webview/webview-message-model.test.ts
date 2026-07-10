@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 
 import type { ProviderMessageHandlers } from '../../webview/webviewMessageDispatcher';
-import type { SegmentLabel, SerializedParseResult } from '../../core/types';
+import type { SegmentLabel, WireParseResult } from '../../core/types';
 import { dispatchProviderMessage } from '../../webview/webviewMessageDispatcher';
 import { S } from '../../webview/state';
 import { applyProviderMessageToModel } from '../../webview/webviewMessageModel';
@@ -51,11 +51,12 @@ suite('applyProviderMessageToModel()', () => {
 
     test('init loads parse state and requests a full render', () => {
         const parseResult = parseResultForTest({
-            segments: [{ startAddress: 0x1000, data: [1, 2] }],
+            segments: [{ startAddress: 0x1000, data: new Uint8Array([1, 2]).buffer }],
             totalDataBytes: 2,
         });
         const update = applyProviderMessageToModel({
             type: 'init',
+            generation: 1,
             parseResult,
             labels: [labelForTest()],
             structs: [],
@@ -64,7 +65,7 @@ suite('applyProviderMessageToModel()', () => {
             integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
         });
 
-        assert.strictEqual(S.parseResult, parseResult);
+        assert.strictEqual(S.parseResult?.totalDataBytes, parseResult.totalDataBytes);
         assert.strictEqual(S.labels.length, 1);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(update.invalidations.fullRender, true);
@@ -90,9 +91,9 @@ suite('applyProviderMessageToModel()', () => {
         S.edits.set(0x1000, 0xAA);
 
         const parseResult = parseResultForTest({ totalDataBytes: 1 });
-        const update = applyProviderMessageToModel({ type: 'savedEdits', parseResult });
+        const update = applyProviderMessageToModel({ type: 'savedEdits', generation: 2, parseResult });
 
-        assert.strictEqual(S.parseResult, parseResult);
+        assert.strictEqual(S.parseResult?.totalDataBytes, parseResult.totalDataBytes);
         assert.strictEqual(S.editMode, false);
         assert.strictEqual(S.edits.size, 0);
         assert.strictEqual(update.invalidations.editControls, true);
@@ -105,21 +106,22 @@ suite('applyProviderMessageToModel()', () => {
         const parseResult = parseResultForTest();
         const labels = [labelForTest()];
 
-        const update = applyProviderMessageToModel({ type: 'externalChange', parseResult, labels });
+        const update = applyProviderMessageToModel({ type: 'externalChange', generation: 3, parseResult, labels });
 
         assert.strictEqual(S.lockedDueToExternalChange, true);
         assert.strictEqual(update.invalidations.lockState, true);
         assert.strictEqual(update.removeExternalChangeBanners, true);
-        assert.deepStrictEqual(update.externalChange, {
-            incoming: { parseResult, labels },
-            hasUnsavedEdits: true,
-        });
+        assert.strictEqual(update.externalChange?.incoming.generation, 3);
+        assert.deepStrictEqual(update.externalChange?.incoming.labels, labels);
+        assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
     return {
         init: () => {},
+        loadProgress: () => {},
+        recordPage: () => {},
         loadError: () => {},
         addLabel: () => {},
         updateLabel: () => {},
@@ -132,9 +134,9 @@ function noOpHandlers(): ProviderMessageHandlers {
     };
 }
 
-function parseResultForTest(overrides: Partial<SerializedParseResult> = {}): SerializedParseResult {
+function parseResultForTest(overrides: Partial<WireParseResult> = {}): WireParseResult {
     return {
-        records: [],
+        recordCount: 0,
         segments: [],
         totalDataBytes: 0,
         checksumErrors: 0,
