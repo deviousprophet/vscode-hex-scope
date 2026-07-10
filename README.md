@@ -1,8 +1,9 @@
 # Hex Scope
 
-[![Marketplace](https://img.shields.io/badge/VS_Code-Marketplace-blue?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=deviousprophet.vscode-hex-scope)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-brightgreen?logo=github)](https://github.com/deviousprophet/vscode-hex-scope)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/deviousprophet/vscode-hex-scope/blob/master/LICENSE)
+[![Visual Studio Marketplace](https://img.shields.io/badge/Visual_Studio_Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=deviousprophet.vscode-hex-scope)
+[![Open VSX Registry](https://img.shields.io/badge/Open_VSX_Registry-c160ef)](https://open-vsx.org/extension/deviousprophet/vscode-hex-scope)
+[![GitHub Release](https://img.shields.io/github/v/release/deviousprophet/vscode-hex-scope?label=Latest%20Release&color=brightgreen&logo=github)](https://github.com/deviousprophet/vscode-hex-scope/releases)
+[![License](https://img.shields.io/github/license/deviousprophet/vscode-hex-scope?color=yellow)](https://github.com/deviousprophet/vscode-hex-scope/blob/master/LICENSE)
 
 Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SREC files as address-aware memory, inspect binary data, decode C structs, verify integrity values, and patch bytes without leaving the editor.
 
