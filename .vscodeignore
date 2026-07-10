@@ -1,5 +1,3 @@
-.vscode/**
-.vscode-test/**
 out/**
 node_modules/**
 src/**
@@ -13,6 +11,5 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
-.github/**
-.codegraph/**
 .fallowrc.json
+.*/**
