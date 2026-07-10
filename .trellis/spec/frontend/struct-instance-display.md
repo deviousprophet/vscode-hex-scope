@@ -1,4 +1,4 @@
-# Struct Instance Display Design Spec
+# Struct Instance Display Code-Spec
 
 This is a user-visible UX checklist for Struct Overlay instance rendering and behavior.
 
@@ -6,6 +6,188 @@ Scope:
 - Struct instance body rows in the Struct Overlay panel.
 - What users can see/click/right-click.
 - Focus on what the user sees, understands, clicks, and right-clicks.
+
+This file is normative for Struct Overlay row rendering and interaction. Detailed
+sections below preserve the complete UX contract; the opening scenario maps that
+contract to current code boundaries and executable checks.
+
+## Scenario: Render and interact with a struct instance
+
+### 1. Scope / Trigger
+
+- Trigger: any change to Struct Overlay decoded rows, grouping, pointer following,
+  hover/selection sync, context menus, value modes, keyboard behavior, or row CSS.
+- UI owner: `src/webview/sidebar/struct/index.ts`.
+- Decode owner: `src/core/struct-codec.ts`.
+- Shared domain types: `src/core/types.ts`.
+- Cross-layer flow:
+
+      StructField / StructDef + memory bytes
+        -> decodeStruct(...)
+        -> DecodedField[]
+        -> Struct Overlay row/group renderer
+        -> hover, selection, Inspector, Memory view, context menu
+
+- This contract does not add pointer-to-bitfield-storage semantics. Bitfield pointer
+  and bitfield pointer-array variants remain unsupported.
+
+### 2. Signatures
+
+Current source contracts that implementations must preserve or intentionally migrate:
+
+```typescript
+export interface StructField {
+    name: string;
+    type: StructFieldType;
+    isPointer?: boolean;
+    refStructId?: string;
+    bitFields?: BitFieldChild[];
+    count: number;
+    bitFieldsCollapsed?: boolean;
+}
+
+export interface StructDef {
+    id: string;
+    name: string;
+    fields: StructField[];
+    packed?: boolean;
+}
+
+export interface StructPin {
+    id: string;
+    structId: string;
+    addr: number;
+    name: string;
+    pointerSources?: StructPointerSource[];
+}
+
+export interface DecodedField {
+    fieldName: string;
+    type: StructScalarFieldType;
+    pointerTargetType?: StructFieldType;
+    pointerTargetStructId?: string;
+    pointerTargetStructName?: string;
+    pointerTargetByteSize?: number;
+    pointerValue?: number;
+    isPointer?: boolean;
+    arrayIdx: number;
+    byteOffset: number;
+    bytesHex: string;
+    decoded: string;
+    hasData: boolean;
+    isBitField?: boolean;
+    bitWidth?: number;
+    bitOffset?: number;
+    bitStorageByteSize?: number;
+    bitValueUnsigned?: string;
+}
+
+export function decodeStruct(
+    def: StructDef,
+    baseAddr: number,
+    getByte: (addr: number) => number | undefined,
+    globalEndian: 'le' | 'be',
+    bitFieldAllocation: BitFieldAllocation = 'msb',
+    defs: readonly StructDef[] = [],
+): DecodedField[];
+```
+
+Renderer-side source/target separation is represented by `StructRenderContext`,
+`PointerDerefTarget`, `pointerDerefTarget`, and pointer row/header render helpers in
+`src/webview/sidebar/struct/index.ts`. If these names change, update this anchor while
+preserving the behavior contracts below.
+
+### 3. Contracts
+
+- Input contract: a `StructDef`, base address, memory-byte accessor, endianness,
+  bitfield allocation, and referenced struct definitions decode into `DecodedField[]`.
+- Row identity contract: sticky value mode, open state, hover, and selection must use a
+  stable identity that distinguishes instance, field path, array index, bit child, and
+  pointer target context.
+- Address contract: direct rows use instance-relative offsets; pointer storage uses the
+  source field address; inline target rows use the pointed target base. Storage and
+  target addresses must never be visually or behaviorally conflated.
+- Rendering contract: every row family follows the Column Contract, Classification
+  Model, and family-specific sections below.
+- Interaction contract: expand/collapse changes visibility only; hover is transient;
+  selection is persistent and singular; context-menu opening does not select.
+- Pointer contract: followability controls expansion and actions. Known stored pointer
+  values with unavailable targets use status text, not missing-data text.
+- Accessibility contract: every mouse interaction has the keyboard/accessibility
+  equivalent defined below.
+- No environment keys or external API payloads participate in this feature.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required rendering / behavior |
+|---|---|
+| Direct bytes missing or undecodable | Show `??`; do not invent a decoded value. |
+| Pointer value is null | Show `(null) 0x00000000`; no arrow, expansion, connector, jump, or create action. |
+| Pointer target is unmapped/missing | Show status before stored address, e.g. `(unmapped) 0x00800000`; no arrow or child preview. |
+| Unknown C pointer target type | Degrade to `void*`; storage row only. |
+| Followable non-struct pointer | Allow target jump; render compact scalar dereference preview when supported; never render an empty object root. |
+| Followable struct pointer | Allow struct target preview and optional instance creation. |
+| Pointer expansion reaches max depth | Disable expansion and expose reason `max depth`. |
+| Pointer target is not a struct | Disable create/struct expansion and expose reason `non-struct target`. |
+| Selected range disappears after remap/layout change | Clear selection; never retain stale row/range state. |
+| Type label exceeds available width | Middle-compact visible label, CSS-clip as needed, preserve full accessible tooltip text. |
+| Duplicate local leaf name | Add stable `#2`, `#3`, ... suffixes. |
+| Bitfield pointer or pointer array requested | Treat as unsupported/future; do not synthesize target semantics. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: expanded `Header* hdr` keeps pointer storage row/source highlight, shows
+  `Header @ 0x...`, then target-relative member offsets and values.
+- Base: `u16 count` renders one four-column leaf; click selects its bytes; hover previews
+  the same bytes without changing selection.
+- Bad: unmapped `u16* next` renders as an expandable row with `->`, target children, or
+  `??`. Required result is a normal non-expandable storage row with `(unmapped)` status.
+- Bad: expand-button or context-menu click changes primary selection. Both interactions
+  must leave selection unchanged.
+- Bad: scalar dereference renders a blank-name expandable `{ }` object. It must render a
+  compact leaf with pointed scalar type, `*` label, and formatted value.
+
+### 6. Tests Required
+
+- Decoder unit tests: assert field kind/shape metadata, direct/pointer addresses,
+  missing-data state, nested struct offsets, arrays, bit offsets, and LE/BE values.
+- Renderer tests for every Quick Coverage Matrix cell: assert column text, labels,
+  collapsed/expanded offsets, indentation/connectors, and default value format.
+- Pointer tests: assert null, unmapped, `void*`, scalar target, struct target, pointer
+  array, max-depth, jump eligibility, create eligibility, and source/target metadata.
+- Interaction tests: assert hover enter/leave, exclusive selection, expand without
+  selection, context menu without selection, pointer-value follow, target-child select,
+  re-render persistence, and stale-selection clearing.
+- Menu tests: assert exact role-based menu model, sticky `View as`, copied values or
+  addresses, plus visible disabled reasons.
+- Accessibility tests: assert focusability, Enter/Space toggle, distinct focus/selected
+  state, keyboard context menu, accessible tooltip text, and keyboard pointer actions.
+- Visual/CSS tests: assert four-column alignment, adaptive type width, middle ellipsis,
+  indentation, target/source separation, and bit highlighting.
+- A regression test is invalid if it still passes after removing the behavior under test;
+  assertions must observe rendered output or dispatched selection/action state.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
++001 | u16* | ▾ next | -> 0x00001000
++000 |      | ▸      | { }
+```
+
+This conflates scalar dereference with an object, exposes a meaningless root, and makes
+the target-relative zero offset look like pointer-storage nesting.
+
+#### Correct
+
+```text
++001 | u16* | ▾ next | -> 0x00001000
+     | u16  | *      | 0x002A
+```
+
+Pointer row owns storage/source context. Compact child owns target scalar type/value;
+metadata retains target address and byte range while visible `+000` stays hidden.
 
 ## Column Contract
 

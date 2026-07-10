@@ -337,4 +337,3 @@
 - Commands: `hexScope.openInHexScope`, `hexScope.addSegmentLabel`, `hexScope.copyAsHexString`, `hexScope.copyAsCArray`, `hexScope.copyAsAscii`, `hexScope.copyRawRecord`
 - Intel HEX syntax highlighting via TextMate grammar with per-field token coloring (start code, byte count, address, record type, data, checksum)
 - Drag-to-select bytes across hex cells and decoded-text cells in the memory grid
-
