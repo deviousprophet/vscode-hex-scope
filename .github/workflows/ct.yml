@@ -10,6 +10,8 @@ jobs:
   UT_Test:
     name: Unit Test Execution
     runs-on: ubuntu-latest
+    outputs:
+      run-tests-outcome: ${{ steps.run-tests.outcome }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -35,25 +37,20 @@ jobs:
           set -o pipefail
           xvfb-run -a npm test 2>&1 | tee test-output.log
 
-      - name: Job Summary
-        if: always()
-        env:
-          RUN_TESTS_OUTCOME: ${{ steps.run-tests.outcome }}
-          LOG_FILE: test-output.log
-        run: node .github/scripts/summarize-tests.mjs
-
       - name: Upload Test Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           path: test-output.log
-          name: test-results-${{ github.sha }}
+          name: ut-test-output-${{ github.sha }}
           overwrite: true
 
   Performance_Test:
     name: Performance Test Execution
     needs: [UT_Test]
     runs-on: ubuntu-latest
+    outputs:
+      run-perf-tests-outcome: ${{ steps.run-perf-tests.outcome }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -68,4 +65,85 @@ jobs:
         run: npm ci
 
       - name: Run Performance Tests
-        run: npm run test:performance
+        id: run-perf-tests
+        run: |
+          set -o pipefail
+          npm run test:performance 2>&1 | tee performance-test-output.log
+
+      - name: Upload Performance Test Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          path: performance-test-output.log
+          name: performance-test-output-${{ github.sha }}
+          overwrite: true
+
+  Finalize:
+    name: Finalize Workflow
+    needs: [UT_Test, Performance_Test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check Job Results
+        run: |
+          UT_RESULT="${{ needs.UT_Test.result }}"
+          PERF_RESULT="${{ needs.Performance_Test.result }}"
+          FAILED=false
+          if [[ "$UT_RESULT" != "success" ]]; then
+            echo "❌ Unit Test job: $UT_RESULT"
+            FAILED=true
+          else
+            echo "✅ Unit Test job: $UT_RESULT"
+          fi
+          if [[ "$PERF_RESULT" != "success" ]]; then
+            echo "❌ Performance Test job: $PERF_RESULT"
+            FAILED=true
+          else
+            echo "✅ Performance Test job: $PERF_RESULT"
+          fi
+          if [[ "$FAILED" == "true" ]]; then
+            exit 1
+          fi
+
+      - name: Download UT Test Log
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: ut-test-output-${{ github.sha }}
+          path: .
+
+      - name: Download Performance Test Log
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-test-output-${{ github.sha }}
+          path: .
+
+      - name: Unit Test Summary
+        if: always()
+        env:
+          RUN_TESTS_OUTCOME: ${{ needs.UT_Test.outputs.run-tests-outcome }}
+          LOG_FILE: test-output.log
+          SUITE_NAME: Unit Test Results
+        run: node .github/scripts/summarize-tests.mjs
+
+      - name: Performance Test Summary
+        if: always()
+        env:
+          RUN_TESTS_OUTCOME: ${{ needs.Performance_Test.outputs.run-perf-tests-outcome }}
+          LOG_FILE: performance-test-output.log
+          SUITE_NAME: Performance Test Results
+        run: node .github/scripts/summarize-tests.mjs
+
+      - name: Upload Combined Test Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          path: |
+            test-output.log
+            performance-test-output.log
+          name: test-results-${{ github.sha }}
+          overwrite: true

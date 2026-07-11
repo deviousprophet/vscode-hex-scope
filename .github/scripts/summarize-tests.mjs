@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const runTestsOutcome = process.env.RUN_TESTS_OUTCOME ?? "unknown";
 const logFile = process.env.LOG_FILE ?? "test-output.log";
+const suiteName = process.env.SUITE_NAME ?? "Automated test results";
 const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 
 const passedIcon = "\u2705";
@@ -65,7 +66,7 @@ if (duration) {
   status += ` ${timerIcon} ${duration}`;
 }
 
-appendSummary(`# ${robotIcon} Automated test results
+appendSummary(`# ${robotIcon} ${suiteName}
 
 ${status}
 
