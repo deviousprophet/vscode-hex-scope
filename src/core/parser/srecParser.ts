@@ -5,8 +5,9 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
-import { buildContiguousSegments } from './segments';
-import { parseSourceRecords } from './records';
+import { buildContiguousSegments, buildContiguousSegmentsAsync } from './segments';
+import { parseSourceRecords, parseSourceRecordsAsync } from './records';
+import { createCompactParseResult, type CompactParseResult, type CompactParserOptions } from './compact';
 
 // ── SREC record-type metadata ─────────────────────────────────────
 
@@ -47,12 +48,14 @@ interface ParsedSRecLine {
     layout: SRecLayout;
 }
 
-function parseLine(raw: string, lineNumber: number): HexRecord {
+export function parseSRecRecordLine(raw: string, lineNumber: number): HexRecord {
     const base = createBaseRecord(raw, lineNumber);
     const parsed = parseSRecLine(raw, base);
     if (!isParsedSRecLine(parsed)) { return parsed; }
     return buildSRecRecord(raw, lineNumber, parsed);
 }
+
+const parseLine = parseSRecRecordLine;
 
 function createBaseRecord(raw: string, lineNumber: number): HexRecord {
     return {
@@ -236,4 +239,16 @@ export function parseSRec(source: string): ParseResult {
     const totalDataBytes = segments.reduce((s, seg) => s + seg.data.length, 0);
 
     return { records, segments, totalDataBytes, checksumErrors, malformedLines, startAddress };
+}
+
+export async function parseSRecCompact(source: string, options: CompactParserOptions = {}): Promise<CompactParseResult> {
+    let startAddress: number | undefined;
+    const parsed = await parseSourceRecordsAsync(source, parseLine, record => {
+        if (record.recordType === 7 || record.recordType === 8 || record.recordType === 9) {
+            startAddress = record.address;
+        }
+    }, options);
+    options.onProgress?.({ stage: 'build', completed: 0, total: parsed.records.length });
+    const segments = await buildContiguousSegmentsAsync(parsed.records, rec => srecIsData(rec.recordType), options);
+    return createCompactParseResult(parsed, segments, options, startAddress);
 }

@@ -4,8 +4,9 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
-import { buildContiguousSegments } from './segments';
-import { parseSourceRecords } from './records';
+import { buildContiguousSegments, buildContiguousSegmentsAsync } from './segments';
+import { parseSourceRecords, parseSourceRecordsAsync } from './records';
+import { createCompactParseResult, type CompactParseResult, type CompactParserOptions } from './compact';
 
 // ── Record-type metadata ──────────────────────────────────────────
 
@@ -75,6 +76,16 @@ export function parseIntelHex(source: string): ParseResult {
     return { records, segments, totalDataBytes, checksumErrors, malformedLines, startAddress: addressState.startAddress };
 }
 
+export async function parseIntelHexCompact(source: string, options: CompactParserOptions = {}): Promise<CompactParseResult> {
+    const addressState: IntelHexAddressState = { upperAddress: 0, addressMode: 'linear' };
+    const parsed = await parseSourceRecordsAsync(source, parseLine, record => {
+        updateIntelHexAddressState(record, addressState);
+    }, options);
+    options.onProgress?.({ stage: 'build', completed: 0, total: parsed.records.length });
+    const segments = await buildContiguousSegmentsAsync(parsed.records, rec => rec.recordType === RecordType.Data, options);
+    return createCompactParseResult(parsed, segments, options, addressState.startAddress);
+}
+
 function updateIntelHexAddressState(record: HexRecord, state: IntelHexAddressState): void {
     INTEL_HEX_ADDRESS_HANDLERS[record.recordType]?.(record, state);
 }
@@ -113,7 +124,7 @@ function resolvedIntelHexAddress(record: HexRecord, state: IntelHexAddressState)
 
 // ── Line parser ───────────────────────────────────────────────────
 
-function parseLine(raw: string, lineNumber: number): HexRecord {
+export function parseIntelHexLine(raw: string, lineNumber: number): HexRecord {
     const base = createBaseRecord(raw, lineNumber);
     const hexResult = parseIntelHexPayload(raw, base);
     if (typeof hexResult !== 'string') { return hexResult; }
@@ -122,6 +133,8 @@ function parseLine(raw: string, lineNumber: number): HexRecord {
     const error = validateIntelHexFields(fields);
     return buildIntelHexRecord(raw, lineNumber, fields, error);
 }
+
+const parseLine = parseIntelHexLine;
 
 function createBaseRecord(raw: string, lineNumber: number): HexRecord {
     return {

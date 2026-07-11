@@ -1,9 +1,10 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { parseIntelHex } from './core/parser/intelHexParser';
-import { parseSRec } from './core/parser/srecParser';
+import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
+import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
-import type { SegmentLabel, SerializedParseResult, StructDef } from './core/types';
+import type { CompactParseResult } from './core/parser/compact';
+import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
 import { detectFormatFromParts, repairChecksums, serializeIntelHex, serializeSRec, type HexScopeFormat } from './core/document';
 import {
     normalizeIntegrityCheckSet,
@@ -13,14 +14,43 @@ import {
 } from './core/integrity';
 import {
     messageType,
+    RECORD_PAGE_SIZE,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
-function hasParseErrors(result: ParseResult): boolean {
+function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
+}
+
+function serializeRecord(record: ParseResult['records'][number]): SerializedRecord {
+    return {
+        lineNumber: record.lineNumber,
+        raw: record.raw,
+        byteCount: record.byteCount,
+        address: record.address,
+        recordType: record.recordType,
+        data: Array.from(record.data),
+        checksum: record.checksum,
+        checksumValid: record.checksumValid,
+        resolvedAddress: record.resolvedAddress,
+        error: record.error,
+    };
+}
+
+function materializeParseResult(result: CompactParseResult, source: string, format: HexScopeFormat): ParseResult {
+    const parseLine = format === 'srec' ? parseSRecRecordLine : parseIntelHexLine;
+    const records = Array.from({ length: result.records.length }, (_, index) => result.records.materialize(index, source, parseLine));
+    return {
+        records,
+        segments: result.segments,
+        totalDataBytes: result.totalDataBytes,
+        checksumErrors: result.checksumErrors,
+        malformedLines: result.malformedLines,
+        startAddress: result.startAddress,
+    };
 }
 
 function postToPanel(panel: vscode.WebviewPanel, msg: ProviderToWebviewMessage): void {
@@ -34,6 +64,162 @@ async function postToWebview(webview: vscode.Webview, msg: ProviderToWebviewMess
 type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
 type StructDefIdentity = { id: string; name: string };
 type IncomingProviderMessage = WebviewToProviderMessage;
+type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecordPage' }>;
+
+class LoadProgressReporter {
+    private lastAt = 0;
+    private lastStage = '';
+
+    constructor(
+        private readonly webview: vscode.Webview,
+        private readonly canPost: () => boolean,
+        private readonly generation: () => number,
+    ) {}
+
+    public post(stage: 'read' | 'parse' | 'build' | 'transfer', completed: number, total?: number): void {
+        if (!this.canPost()) { return; }
+        const now = Date.now();
+        if (this.isThrottled(stage, completed, total, now)) { return; }
+        this.lastAt = now;
+        this.lastStage = stage;
+        void postToWebview(this.webview, {
+            type: 'loadProgress', generation: this.generation(), stage, completed, total,
+        });
+    }
+
+    private isThrottled(stage: string, completed: number, total: number | undefined, now: number): boolean {
+        return stage === this.lastStage && completed !== total && now - this.lastAt < 100;
+    }
+}
+
+function parseCompactByFormat(source: string, format: HexScopeFormat, options: Parameters<typeof parseIntelHexCompact>[1]): Promise<CompactParseResult> {
+    return format === 'srec' ? parseSRecCompact(source, options) : parseIntelHexCompact(source, options);
+}
+
+function parseErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Failed to read file.';
+}
+
+async function readDocumentSource(
+    document: vscode.CustomDocument,
+    webview: vscode.Webview,
+    generation: number,
+    isDisposed: () => boolean,
+): Promise<string | null> {
+    try {
+        return new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
+    } catch (error) {
+        if (!isDisposed()) {
+            await postToWebview(webview, { type: 'loadError', generation, message: parseErrorMessage(error) });
+        }
+        return null;
+    }
+}
+
+function validRecordPageBounds(start: number, count: number): boolean {
+    if (!Number.isInteger(start)) { return false; }
+    if (start < 0) { return false; }
+    if (start % RECORD_PAGE_SIZE !== 0) { return false; }
+    return validRecordPageCount(count);
+}
+
+function validRecordPageCount(count: number): boolean {
+    return Number.isInteger(count) && count >= 1;
+}
+
+async function parseCompactSafely(
+    source: string,
+    format: HexScopeFormat,
+    options: Parameters<typeof parseIntelHexCompact>[1],
+    isCancelled: () => boolean,
+): Promise<CompactParseResult | null> {
+    try {
+        return await parseCompactByFormat(source, format, options);
+    } catch (error) {
+        if (isCancelled()) { return null; }
+        throw error;
+    }
+}
+
+async function redirectInvalidDocument(
+    result: CompactParseResult,
+    document: vscode.CustomDocument,
+    panel: vscode.WebviewPanel,
+): Promise<boolean> {
+    if (!hasParseErrors(result)) { return false; }
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(document.uri), { preview: false });
+    panel.dispose();
+    return true;
+}
+
+async function loadInitialDocument(
+    document: vscode.CustomDocument,
+    panel: vscode.WebviewPanel,
+    token: vscode.CancellationToken,
+    controller: AbortController,
+    generation: number,
+    isDisposed: () => boolean,
+    onProgress: (progress: { stage: 'parse' | 'build'; completed: number; total: number }) => void,
+): Promise<{ source: string; format: HexScopeFormat; result: CompactParseResult } | null> {
+    const source = await readDocumentSource(document, panel.webview, generation, isDisposed);
+    if (source === null) { return null; }
+    if (initialLoadCancelled(isDisposed, token)) { return null; }
+    const format = detectFormat(document.uri, source);
+    const result = await parseCompactSafely(source, format, { signal: controller.signal, onProgress }, () => controller.signal.aborted || isDisposed());
+    if (!result) { return null; }
+    return finishInitialDocument(source, format, result, document, panel);
+}
+
+function initialLoadCancelled(isDisposed: () => boolean, token: vscode.CancellationToken): boolean {
+    return isDisposed() || token.isCancellationRequested;
+}
+
+async function finishInitialDocument(
+    source: string,
+    format: HexScopeFormat,
+    result: CompactParseResult,
+    document: vscode.CustomDocument,
+    panel: vscode.WebviewPanel,
+): Promise<{ source: string; format: HexScopeFormat; result: CompactParseResult } | null> {
+    if (await redirectInvalidDocument(result, document, panel)) { return null; }
+    return { source, format, result };
+}
+
+function materializeRecordPage(
+    result: CompactParseResult,
+    source: string,
+    format: HexScopeFormat,
+    start: number,
+    count: number,
+): SerializedRecord[] {
+    const parseLine = format === 'srec' ? parseSRecRecordLine : parseIntelHexLine;
+    const end = Math.min(result.records.length, start + count);
+    const records: SerializedRecord[] = [];
+    for (let index = start; index < end; index++) {
+        records.push(serializeRecord(result.records.materialize(index, source, parseLine)));
+    }
+    return records;
+}
+
+async function postRecordPage(
+    msg: RecordPageRequest,
+    result: CompactParseResult | null,
+    source: string,
+    format: HexScopeFormat,
+    currentGeneration: number,
+    webview: vscode.Webview,
+): Promise<void> {
+    if (!result || msg.generation !== currentGeneration) { return; }
+    const start = Number(msg.start);
+    const count = Math.min(RECORD_PAGE_SIZE, Number(msg.count));
+    if (!validRecordPageBounds(start, count)) { return; }
+    await postToWebview(webview, {
+        type: 'recordPage',
+        generation: currentGeneration,
+        start,
+        records: materializeRecordPage(result, source, format, start, count),
+    });
+}
 
 function stringProperty(value: unknown, key: 'id' | 'name'): string | null {
     const prop = (value as { id?: unknown; name?: unknown })?.[key];
@@ -113,27 +299,59 @@ export class HexEditorSession {
     async resolveCustomEditor(
         document: vscode.CustomDocument,
         webviewPanel: vscode.WebviewPanel,
-        _token: vscode.CancellationToken
+        token: vscode.CancellationToken
     ): Promise<void> {
         let raw = '';
         let format: HexScopeFormat = 'ihex';
-        let parseResult: ParseResult | null = null;
+        let parseResult: CompactParseResult | null = null;
         let webviewReady = false;
-
-        raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(document.uri));
-
-        format = detectFormat(document.uri, raw);
-        parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-
-        if (parseResult.checksumErrors > 0 || parseResult.malformedLines > 0) {
-            await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(document.uri), { preview: false });
-            webviewPanel.dispose();
-            return;
-        }
+        let generation = 0;
+        let currentGeneration = 0;
+        let disposed = false;
+        let activeLoad: AbortController | null = new AbortController();
+        token.onCancellationRequested(() => activeLoad?.abort());
 
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
         this._panels.add(webviewPanel);
+
+        let dispatchIncoming = async (rawMsg: unknown): Promise<void> => {
+            if (messageType(rawMsg) === 'ready') {
+                webviewReady = true;
+                await postToWebview(webviewPanel.webview, {
+                    type: 'loadProgress', generation, stage: 'read', completed: 0,
+                });
+            }
+        };
+        const incomingDisposable = webviewPanel.webview.onDidReceiveMessage(rawMsg => dispatchIncoming(rawMsg));
+        webviewPanel.onDidDispose(() => {
+            disposed = true;
+            activeLoad?.abort();
+            incomingDisposable.dispose();
+        });
+
+        const progressReporter = new LoadProgressReporter(
+            webviewPanel.webview,
+            () => webviewReady && !disposed,
+            () => generation,
+        );
+        const postProgress = progressReporter.post.bind(progressReporter);
+
+        postProgress('read', 0);
+
+        generation++;
+        const initial = await loadInitialDocument(
+            document,
+            webviewPanel,
+            token,
+            activeLoad,
+            generation,
+            () => disposed,
+            progress => postProgress(progress.stage, progress.completed, progress.total),
+        );
+        if (!initial) { return; }
+        ({ source: raw, format, result: parseResult } = initial);
+        currentGeneration = generation;
 
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
 
@@ -234,6 +452,7 @@ export class HexEditorSession {
             
             const msg: ProviderToWebviewMessage = {
                 type: 'init',
+                generation: currentGeneration,
                 parseResult: serialized,
                 labels:      this._context.workspaceState.get(labelKey, []),
                 structs,
@@ -245,10 +464,30 @@ export class HexEditorSession {
             void postToWebview(webviewPanel.webview, msg);
         };
 
+        const parseCompactSource = async (source: string): Promise<{ result: CompactParseResult; generation: number }> => {
+            activeLoad?.abort();
+            const controller = new AbortController();
+            activeLoad = controller;
+            const nextGeneration = ++generation;
+            const options = {
+                signal: controller.signal,
+                onProgress: (progress: { stage: 'parse' | 'build'; completed: number; total: number }) => {
+                    const previous = generation;
+                    generation = nextGeneration;
+                    postProgress(progress.stage, progress.completed, progress.total);
+                    generation = previous;
+                },
+            };
+            const result = format === 'srec'
+                ? await parseSRecCompact(source, options)
+                : await parseIntelHexCompact(source, options);
+            return { result, generation: nextGeneration };
+        };
+
         // ── Live reload on external file changes ──────────────────────────
         // suppress the single watcher event caused by our own writes
         let suppressReload = false;
-        let pendingExternalReload: { raw: string; parseResult: ParseResult } | null = null;
+        let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
         const watcher = vscode.workspace.createFileSystemWatcher(
@@ -263,7 +502,8 @@ export class HexEditorSession {
                 try {
                     const newRaw = new TextDecoder('utf-8').decode(
                         await vscode.workspace.fs.readFile(document.uri));
-                    const newResult = format === 'srec' ? parseSRec(newRaw) : parseIntelHex(newRaw);
+                    const loaded = await parseCompactSource(newRaw);
+                    const newResult = loaded.result;
                     
                     // Validate the externally-changed file
                     if (hasParseErrors(newResult)) {
@@ -271,11 +511,13 @@ export class HexEditorSession {
                         // Update provider-side state with the new content so repair works on actual file
                         raw = newRaw;
                         parseResult = newResult;
+                        currentGeneration = loaded.generation;
                         
                         // Quick repair only works with checksum errors; malformed lines need manual fixing
                         const canQuickRepair = newResult.malformedLines === 0;
                         void postToWebview(webviewPanel.webview, {
                             type: 'externalChangeError',
+                            generation: loaded.generation,
                             parseResult: serializeParseResult(newResult, format),
                             labels: this._context.workspaceState.get(labelKey, []),
                             checksumErrors: newResult.checksumErrors,
@@ -288,9 +530,10 @@ export class HexEditorSession {
                     
                     // Send as 'externalChange' so the webview can guard against
                     // overwriting unsaved edits
-                    pendingExternalReload = { raw: newRaw, parseResult: newResult };
+                    pendingExternalReload = { raw: newRaw, parseResult: newResult, generation: loaded.generation };
                     void postToWebview(webviewPanel.webview, {
                         type: 'externalChange',
+                        generation: loaded.generation,
                         parseResult: serializeParseResult(newResult, format),
                         labels: this._context.workspaceState.get(labelKey, []),
                     });
@@ -304,13 +547,14 @@ export class HexEditorSession {
         type WebviewMessageHandler = (msg: any) => Promise<void>;
 
         const currentFileName = () => document.uri.fsPath.split(/[\/\\]/).pop();
-        const parseCurrentRaw = () => format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-        const writeRawAndReparse = async (nextRaw: string): Promise<ParseResult> => {
+        const writeRawAndReparse = async (nextRaw: string): Promise<{ result: CompactParseResult; generation: number }> => {
             suppressReload = true;
             await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(nextRaw));
             raw = nextRaw;
-            parseResult = parseCurrentRaw();
-            return parseResult;
+            const loaded = await parseCompactSource(raw);
+            parseResult = loaded.result;
+            currentGeneration = loaded.generation;
+            return loaded;
         };
 
         const messageHandlers: Partial<Record<WebviewToProviderMessage['type'], WebviewMessageHandler>> = {
@@ -318,6 +562,9 @@ export class HexEditorSession {
                 webviewReady = true;
                 await postInit();
             },
+            requestRecordPage: msg => postRecordPage(
+                msg, parseResult, raw, format, currentGeneration, webviewPanel.webview,
+            ),
             copyText: async msg => {
                 await vscode.env.clipboard.writeText(msg.text as string);
                 vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
@@ -402,13 +649,15 @@ export class HexEditorSession {
                 if (!parseResult) { return; }
                 const edits = msg.edits;
                 const editMap = new Map<number, number>(edits);
+                const materialized = materializeParseResult(parseResult, raw, format);
                 const newHex = format === 'srec'
-                    ? serializeSRec(raw, parseResult, editMap)
-                    : serializeIntelHex(raw, parseResult, editMap);
-                const nextParseResult = await writeRawAndReparse(newHex);
+                    ? serializeSRec(raw, materialized, editMap)
+                    : serializeIntelHex(raw, materialized, editMap);
+                const loaded = await writeRawAndReparse(newHex);
                 void postToWebview(webviewPanel.webview, {
                     type: 'savedEdits',
-                    parseResult: serializeParseResult(nextParseResult, format),
+                    generation: loaded.generation,
+                    parseResult: serializeParseResult(loaded.result, format),
                 });
                 vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
             },
@@ -416,15 +665,17 @@ export class HexEditorSession {
                 if (!pendingExternalReload) { return; }
                 raw = pendingExternalReload.raw;
                 parseResult = pendingExternalReload.parseResult;
+                currentGeneration = pendingExternalReload.generation;
                 pendingExternalReload = null;
             },
             repairAndReload: async () => {
                 if (!parseResult) { return; }
-                const repairedRaw = repairChecksums(raw, parseResult);
-                const nextParseResult = await writeRawAndReparse(repairedRaw);
+                const repairedRaw = repairChecksums(raw, materializeParseResult(parseResult, raw, format));
+                const loaded = await writeRawAndReparse(repairedRaw);
                 void postToWebview(webviewPanel.webview, {
                     type: 'repairComplete',
-                    parseResult: serializeParseResult(nextParseResult, format),
+                    generation: loaded.generation,
+                    parseResult: serializeParseResult(loaded.result, format),
                 });
                 vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${currentFileName()}`);
             },
@@ -437,11 +688,12 @@ export class HexEditorSession {
             },
         };
 
-        webviewPanel.webview.onDidReceiveMessage(async rawMsg => {
+        dispatchIncoming = async rawMsg => {
             const msg = rawMsg as IncomingProviderMessage;
             const type = messageType(msg) as WebviewToProviderMessage['type'] | undefined;
             if (type) { await messageHandlers[type]?.(msg); }
-        });
+        };
+        await postInit();
 
         webviewPanel.onDidChangeViewState(e => {
             if (e.webviewPanel.active) {
@@ -450,6 +702,13 @@ export class HexEditorSession {
         });
 
         webviewPanel.onDidDispose(() => {
+            disposed = true;
+            activeLoad?.abort();
+            activeLoad = null;
+            raw = '';
+            parseResult = null;
+            pendingExternalReload = null;
+            incomingDisposable.dispose();
             watcher.dispose();
             clearTimeout(reloadTimer);
             this._panels.delete(webviewPanel);
@@ -548,24 +807,12 @@ function messageString(value: unknown): string {
     return typeof value === 'string' ? value : '';
 }
 
-function serializeParseResult(result: ParseResult, format: HexScopeFormat): SerializedParseResult {
+function serializeParseResult(result: CompactParseResult, format: HexScopeFormat): WireParseResult {
     return {
-        records: result.records.map(r => ({
-            lineNumber: r.lineNumber,
-            raw: r.raw,
-            byteCount: r.byteCount,
-            address: r.address,
-            recordType: r.recordType,
-            data: Array.from(r.data),
-            checksum: r.checksum,
-            checksumValid: r.checksumValid,
-            resolvedAddress: r.resolvedAddress,
-            error: r.error,
-        })),
         recordCount: result.records.length,
         segments: result.segments.map(s => ({
             startAddress: s.startAddress,
-            data: Array.from(s.data),
+            data: s.data.buffer.slice(s.data.byteOffset, s.data.byteOffset + s.data.byteLength) as ArrayBuffer,
         })),
         totalDataBytes: result.totalDataBytes,
         checksumErrors: result.checksumErrors,

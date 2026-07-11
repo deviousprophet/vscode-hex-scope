@@ -9,6 +9,8 @@ export type ProviderMessageHandlers = {
 
 const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'init',
+    'loadProgress',
+    'recordPage',
     'loadError',
     'addLabel',
     'updateLabel',

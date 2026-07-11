@@ -27,8 +27,9 @@ Current `BPR` default/contract is 16.
 - Byte lookup checks pending edits first, then mapped segment data; unmapped bytes return `undefined`.
 - Memory data rows are BPR-aligned. Gaps become explicit gap rows; never allocate rows for every missing address.
 - Memory view virtualizes visible rows plus buffer and caps physical scroll height for large logical ranges.
+- Rerendering the same Memory scroll container preserves its logical scroll position: convert the current physical position through the old layout before replacing virtual state, then map that logical position into the new layout.
 - Jump-to-address switches to Memory view, finds the containing row, scrolls it into view, and selects/highlights the intended range.
-- Record view renders every parsed record, including source errors/checksum status, as table rows; it does not reinterpret memory segments.
+- Record view represents every parsed record, including source errors/checksum status, but fetches only aligned 512-record pages for its visible window. It keeps an eight-page LRU cache, prefetches one adjacent page, and rejects stale generations.
 - Segment navigator sorts segments, displays inclusive range/size, and jumps to the segment start.
 - Labels are address/length overlays. Visibility/reordering persists through host messages; memory rows rebuild when label structure changes.
 - Stats derive from current parse result and pending/edit state, not stale DOM text.
@@ -44,6 +45,7 @@ Current `BPR` default/contract is 16.
 | Large address gap | One logical gap row. |
 | Jump outside mapped data | Do not create selection for nonexistent bytes. |
 | Viewport taller than content | Render all available rows and keep jump stable. |
+| Label add/delete/style rerender in compressed range | Preserve the first visible logical address; never reinterpret capped physical pixels as logical pixels. |
 | Hidden label | Preserve label data; omit its visual overlay. |
 
 ### 5. Good/Base/Bad Cases
@@ -51,12 +53,15 @@ Current `BPR` default/contract is 16.
 - Base: 16 mapped bytes at aligned address -> one data row.
 - Good: two distant segments -> ordered data rows separated by one gap row; jump uses segment index, not linear scan of address space.
 - Good: pending edit changes Memory/Inspector/struct/integrity reads without mutating original segment.
+- Good: compressed Record scrolling requests the target page and renders placeholders until that generation's page arrives.
+- Good: adding or deleting a label while viewing compressed Memory rows rerenders overlays without shifting the visible address.
 - Bad: flatten all firmware addresses into one giant array or fill gaps with zero.
 - Bad: use record address field without format-resolved address when navigating.
 
 ### 6. Tests Required
 
 - `src/test/webview/webview.test.ts`: segment index, edited byte precedence, gap rows, ordering, virtual scroll, navigation, segment navigator, Record view.
+- Compressed Memory rerender test: jump into a range above the physical-height cap, rebuild labels/rows, rerender the same container, and assert the first rendered address is unchanged.
 - Parser sample tests: mapped segment inputs and address gaps.
 - Add boundary cases for address `0`, last byte of segment, first byte after segment, huge gaps, and empty results.
 
@@ -65,15 +70,15 @@ Current `BPR` default/contract is 16.
 #### Wrong
 
 ```typescript
-return flatBytes[address] ?? 0;
+state.scrollTop = scrollContainer.scrollTop; // physical value misread as logical
 ```
 
 #### Correct
 
 ```typescript
-const edited = edits.get(address);
-if (edited !== undefined) return edited;
-return getMappedSegmentByte(index, address); // undefined when unmapped
+const logicalTop = physicalToLogicalScroll(scrollContainer.scrollTop, oldState);
+state.scrollTop = logicalTop;
+scrollContainer.scrollTop = logicalToPhysicalScroll(logicalTop, state);
 ```
 
-Unmapped is a domain state, not zero-valued data.
+Compressed scroll coordinates are a boundary contract: preserve logical position across rerenders.

@@ -4,8 +4,12 @@
     "src/extension.ts",
     "src/webview/hexViewer.ts",
     "src/test/**/*.test.ts",
+    "scripts/performance-large.cjs",
     ".vscode-test.mjs",
     "esbuild.js"
+  ],
+  "ignorePatterns": [
+    "out/**"
   ],
   "dynamicallyLoaded": [
     "src/webview/styles/*.css"

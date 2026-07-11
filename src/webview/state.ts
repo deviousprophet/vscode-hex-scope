@@ -8,6 +8,7 @@ import type { SidebarTab } from './sidebar/sidebarTypes';
 export const BPR = 16; // bytes per memory row
 
 export const S = {
+    documentGeneration: 0,
     parseResult:  null   as SerializedParseResult | null,
     labels:       []     as SegmentLabel[],
     /** Segment index for O(log n) byte access (built on parseResult change) */

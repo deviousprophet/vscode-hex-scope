@@ -21,7 +21,7 @@ jobs:
 
   Package:
     name: Package VSIX
-    needs: CT_After_Commit
+    needs: [CT_After_Commit]
     if: ${{ needs.CT_After_Commit.result == 'success' }}
     uses: ./.github/workflows/package.yml
     permissions:

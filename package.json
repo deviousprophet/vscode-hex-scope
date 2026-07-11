@@ -3,7 +3,7 @@
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
   "description": "Firmware memory explorer and editor for Intel HEX and Motorola SREC files.",
-  "version": "2.11.1",
+  "version": "2.12.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -327,7 +327,8 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "test:performance": "node scripts/run-performance-large.cjs"
   },
   "devDependencies": {
     "@types/vscode": "^1.120.0",

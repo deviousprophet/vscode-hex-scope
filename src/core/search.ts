@@ -33,6 +33,7 @@ interface SearchProgressState {
 const SEARCH_DEBOUNCE_MS = 120;
 const SEARCH_CHUNK_BUDGET_MS = 24;
 const SEARCH_PROGRESS_THROTTLE_MS = 150;
+const SEARCH_CLOCK_CHECK_COMPARISONS = 4_096;
 
 export class SearchEngine {
     private token = 0;
@@ -187,18 +188,17 @@ function scanByteSegment(
     deadline: number,
 ): number {
     let scanned = 0;
+    const comparisonsPerCandidate = Math.max(1, needleLen * needles.length);
+    const batchSize = Math.max(32, Math.floor(SEARCH_CLOCK_CHECK_COMPARISONS / comparisonsPerCandidate));
     while (cursor.offset <= seg.data.length - needleLen) {
+        const end = Math.min(cursor.offset + batchSize, seg.data.length - needleLen + 1);
+        scanned += scanByteBatch(seg, needles, cursor, matches, end);
         if (performance.now() >= deadline) { break; }
-        if (matchesAnyNeedle(seg.data, cursor.offset, needles)) {
-            matches.push(seg.startAddress + cursor.offset);
-        }
-        cursor.offset++;
-        scanned++;
     }
     return scanned;
 }
 
-function matchesAnyNeedle(segmentData: number[], offset: number, needles: number[][]): boolean {
+function matchesAnyNeedle(segmentData: ArrayLike<number>, offset: number, needles: number[][]): boolean {
     for (const needle of needles) {
         if (matchSequenceInSegment(segmentData, offset, needle)) { return true; }
     }
@@ -265,15 +265,27 @@ function scanAddressSegment(
 ): number {
     let scanned = 0;
     while (cursor.offset < seg.data.length) {
+        const end = Math.min(cursor.offset + SEARCH_CLOCK_CHECK_COMPARISONS, seg.data.length);
+        scanned += scanAddressBatch(seg, bounds, cursor, matches, end);
         if (performance.now() >= deadline) { break; }
-        const addr = (seg.startAddress + cursor.offset) >>> 0;
-        if ((addr >>> bounds.prefixShift) === bounds.prefixValue) {
-            matches.push(addr);
-        }
-        cursor.offset++;
-        scanned++;
     }
     return scanned;
+}
+
+function scanAddressBatch(
+    seg: SerializedSegment,
+    bounds: AddressSearchBounds,
+    cursor: SearchCursor,
+    matches: number[],
+    end: number,
+): number {
+    const start = cursor.offset;
+    while (cursor.offset < end) {
+        const address = (seg.startAddress + cursor.offset) >>> 0;
+        if ((address >>> bounds.prefixShift) === bounds.prefixValue) { matches.push(address); }
+        cursor.offset++;
+    }
+    return cursor.offset - start;
 }
 
 function scanAddressSearchSegment(
@@ -337,7 +349,7 @@ function reportSearchProgress(
     return now;
 }
 
-function matchSequenceInSegment(segmentData: number[], offset: number, needle: number[]): boolean {
+function matchSequenceInSegment(segmentData: ArrayLike<number>, offset: number, needle: number[]): boolean {
     for (let i = 0; i < needle.length; i++) {
         if (offset + i >= segmentData.length || segmentData[offset + i] !== needle[i]) {
             return false;
@@ -502,4 +514,21 @@ function canonicalizeAddrQuery(raw: string): string {
 function canonicalizeBytes(bytes: number[]): string | null {
     if (bytes.length === 0) { return null; }
     return bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+}
+
+function scanByteBatch(
+    seg: SerializedSegment,
+    needles: number[][],
+    cursor: SearchCursor,
+    matches: number[],
+    end: number,
+): number {
+    const start = cursor.offset;
+    while (cursor.offset < end) {
+        if (matchesAnyNeedle(seg.data, cursor.offset, needles)) {
+            matches.push(seg.startAddress + cursor.offset);
+        }
+        cursor.offset++;
+    }
+    return cursor.offset - start;
 }

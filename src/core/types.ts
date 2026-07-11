@@ -15,13 +15,28 @@ export interface SerializedRecord {
 
 export interface SerializedSegment {
     startAddress: number;
-    data: number[];
+    data: ArrayLike<number>;
 }
 
 export interface SerializedParseResult {
     records: SerializedRecord[];
     recordCount?: number;
     segments: SerializedSegment[];
+    totalDataBytes: number;
+    checksumErrors: number;
+    malformedLines: number;
+    startAddress?: number;
+    format: 'ihex' | 'srec';
+}
+
+export interface WireSegment {
+    startAddress: number;
+    data: ArrayBuffer;
+}
+
+export interface WireParseResult {
+    recordCount: number;
+    segments: WireSegment[];
     totalDataBytes: number;
     checksumErrors: number;
     malformedLines: number;
