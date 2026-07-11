@@ -50,16 +50,16 @@ function renderInspectorAddress(addrEl: HTMLElement, len: number): void {
     const startHex = S.selStart!.toString(16).toUpperCase().padStart(8, '0');
     addrEl.style.display = '';
     if (len === 1) {
-        addrEl.innerHTML = `<span class=\"insp-addr-value\">0x${startHex}</span>`;
+        addrEl.innerHTML = `<span class=\"insp-addr-value\">0x${esc(startHex)}</span>`;
         return;
     }
 
     const endHex = S.selEnd!.toString(16).toUpperCase().padStart(8, '0');
     addrEl.innerHTML =
-        `<span class=\"insp-addr-value\">0x${startHex}</span>` +
+        `<span class=\"insp-addr-value\">0x${esc(startHex)}</span>` +
         `<span class=\"insp-addr-sep\">–</span>` +
-        `<span class=\"insp-addr-value\">0x${endHex}</span>` +
-        `<span class=\"insp-addr-len\">${len} bytes</span>`;
+        `<span class=\"insp-addr-value\">0x${esc(endHex)}</span>` +
+        `<span class=\"insp-addr-len\">${esc(String(len))} bytes</span>`;
 }
 
 function singleByteInspectorHtml(val: number): string {
@@ -165,8 +165,8 @@ export function renderBits(val?: number): void {
         sec.innerHTML =
             `<div class="sb-hdr">Bit View</div>` +
             `<div class="sb-body">` +
-            `<div class="bitgrid-wrap">${bitIndexRow()}${byteRow(val, null)}</div>` +
-            `<span class="bit-pc">${pc}/8 bits set</span></div>`;
+            `<div class="bitgrid-wrap">${bitIndexRowHtml()}${byteRowHtml(val, null)}</div>` +
+            `<span class="bit-pc">${esc(String(pc))}/8 bits set</span></div>`;
     }
 
     applyCollapsibleSection(sec, true);
@@ -177,14 +177,14 @@ export function renderBits(val?: number): void {
 /** Multi-byte bit view — one 8-cell row per byte. */
 function renderBitsMulti(bytes: number[]): void {
     const sec   = document.getElementById('s-bits')!;
-    const rows  = bytes.map((b, i) => byteRow(b, `[${i}]`)).join('');
+    const rowsHtml = bytes.map((b, i) => byteRowHtml(b, `[${i}]`)).join('');
     const total = bytes.reduce((s, b) => s + popcount(b), 0);
     sec.innerHTML =
         `<div class="sb-hdr">Bit View ` +
-        `<span class="sb-badge" style="font-weight:400;opacity:.6">${bytes.length} byte${bytes.length > 1 ? 's' : ''}</span></div>` +
+        `<span class="sb-badge" style="font-weight:400;opacity:.6">${esc(String(bytes.length))} byte${bytes.length > 1 ? 's' : ''}</span></div>` +
         `<div class="sb-body">` +
-        `<div class="bitgrid-wrap">${bitIndexRow()}${rows}</div>` +
-        `<span class="bit-pc">${total}/${bytes.length * 8} bits set</span></div>`;
+        `<div class="bitgrid-wrap">${bitIndexRowHtml()}${rowsHtml}</div>` +
+        `<span class="bit-pc">${esc(String(total))}/${esc(String(bytes.length * 8))} bits set</span></div>`;
 
     // Persist collapsed state on the section element; default collapsed
     if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'true'; }
@@ -226,14 +226,14 @@ function popcount(v: number): number {
     return n;
 }
 
-function bitIndexRow(): string {
+function bitIndexRowHtml(): string {
     const cells = Array.from({ length: 8 }, (_, i) =>
         `<div class="bit-idx">${7 - i}</div>`
     ).join('');
     return `<div class="bit-row"><div></div>${cells}</div>`;
 }
 
-function byteRow(val: number, label: string | null): string {
+function byteRowHtml(val: number, label: string | null): string {
     const hexStr = val.toString(16).toUpperCase().padStart(2, '0');
     const cells = Array.from({ length: 8 }, (_, i) => {
         const bit = 7 - i;
@@ -368,11 +368,11 @@ function renderMultiInline(): void {
     const width = multiWidth(selLen);
     const le = S.endian === 'le';
     const raw = selectedPaddedBytes(width, selLen);
-    const group = multiValueGroupHtml(width, readMultiValues(raw, le));
+    const groupHtml = multiValueGroupHtml(width, readMultiValues(raw, le));
 
     el.innerHTML =
         multiPadNoteHtml(selLen, width) +
-        `<div class="mi-group">${group}</div>`;
+        `<div class="mi-group">${groupHtml}</div>`;
 
     wireMultiInlineControls(el);
 }

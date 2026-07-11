@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~241 | Active |
+| `journal-1.md` | ~274 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-11 | Audit innerHTML safety | `72a60b6` | `fix/audit-innerhtml` |
 | 7 | 2026-07-11 | Clear Fallow quality gates | `a341015` | `feat/large-file-pipeline` |
 | 6 | 2026-07-11 | Prepare large-file pipeline release | `1e1c752`, `61a7bf1` | `feat/large-file-pipeline` |
 | 5 | 2026-07-11 | Fix large-file search regression | `4ee0180` | `feat/large-file-pipeline` |
