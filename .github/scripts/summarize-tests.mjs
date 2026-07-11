@@ -32,6 +32,10 @@ function readLog() {
   return existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
 }
 
+function orEmpty(value) {
+  return value ?? "";
+}
+
 // ---------------------------------------------------------------------------
 // Mocha format
 // ---------------------------------------------------------------------------
@@ -65,11 +69,19 @@ function parseMochaStats(logText) {
   return { pass, fail, duration, total: pass + fail };
 }
 
+function testsDidNotRun(total) {
+  return runTestsOutcome !== "success" && total === 0;
+}
+
+function allTestsPassed(fail, total) {
+  return fail === 0 && total > 0;
+}
+
 function mochaStatusLine({ fail, total }) {
-  if (runTestsOutcome !== "success" && total === 0) {
+  if (testsDidNotRun(total)) {
     return `${ICONS.failed} Tests were not executed successfully`;
   }
-  if (fail === 0 && total > 0) {
+  if (allTestsPassed(fail, total)) {
     return `${ICONS.passed} All tests passed`;
   }
   return `${ICONS.failed} Some tests failed`;
@@ -114,7 +126,7 @@ ${block}
 }
 
 function renderMochaMissingRun(logText, total) {
-  const shouldRender = runTestsOutcome !== "success" && total === 0 && logText;
+  const shouldRender = testsDidNotRun(total) && logText;
   if (!shouldRender) {
     return;
   }
@@ -189,7 +201,8 @@ ${performanceStatusLine()}
 }
 
 function measurementRow(m) {
-  return `| ${m.name} | ${m.sourceMiB ?? ""} | ${m.records ?? ""} | ${m.elapsedMs ?? ""} | ${m.retainedMiB ?? ""} |\n`;
+  const fields = [m.name, m.sourceMiB, m.records, m.elapsedMs, m.retainedMiB].map(orEmpty);
+  return `| ${fields.join(" | ")} |\n`;
 }
 
 function renderPerformanceTable(measurements) {
