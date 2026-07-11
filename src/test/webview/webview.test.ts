@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
 import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
-import { integrityHighlightClass } from '../../webview/memory/memoryView';
+import { integrityHighlightClass, renderMemBody, scrollTo } from '../../webview/memory/memoryView';
 import { rerender } from '../../webview/render/registry';
 import {
     calcRowOffset,
@@ -374,6 +374,56 @@ suite('virtual scroll metrics', () => {
 
         assert.strictEqual(logicalToPhysicalScroll(layout.logicalScrollable, state), layout.physicalScrollable);
         assert.strictEqual(physicalToLogicalScroll(layout.physicalScrollable, state), layout.logicalScrollable);
+    });
+});
+
+suite('Memory View rerender stability', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        resetState();
+        dom = installWebviewDom(`<!doctype html><html style="--vscode-editor-font-size:12.5px"><body>
+            <div id="mem-header"></div>
+            <div id="mem-scroll"><div id="mem-rows"></div></div>
+        </body></html>`);
+        Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
+            value: 600,
+            configurable: true,
+        });
+    });
+
+    teardown(() => cleanupWebviewDom(dom));
+
+    test('preserves compressed scroll address when labels are added or deleted', () => {
+        const byteCount = 13 * 1024 * 1024;
+        S.parseResult = {
+            records: [],
+            recordCount: 0,
+            segments: [{ startAddress: 0, data: new Uint8Array(byteCount) }],
+            totalDataBytes: byteCount,
+            checksumErrors: 0,
+            malformedLines: 0,
+            format: 'ihex',
+        };
+        initFlatBytes();
+        buildMemRows();
+        renderMemBody(() => {}, () => {});
+        scrollTo(byteCount / 2);
+        const before = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
+
+        S.labels = [{ id: 'new', name: 'New label', startAddress: byteCount / 2, length: 16, color: '#fff' }];
+        buildMemRows();
+        renderMemBody(() => {}, () => {});
+        const afterAdd = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
+
+        S.labels = [];
+        buildMemRows();
+        renderMemBody(() => {}, () => {});
+        const afterDelete = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
+
+        assert.ok(before);
+        assert.strictEqual(afterAdd, before);
+        assert.strictEqual(afterDelete, before);
     });
 });
 

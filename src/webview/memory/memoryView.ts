@@ -19,6 +19,7 @@ import {
 
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;
+let vscrollContainer: HTMLElement | null = null;
 let vscrollRenderedRange: [number, number] = [0, 0];
 type HexCellHandler = (e: MouseEvent, el: HTMLElement) => void;
 interface MemoryScrollElement extends HTMLElement {
@@ -304,16 +305,23 @@ export function renderMemBody(
     // Initialize virtual scroll state
     const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
+    const logicalScrollTop = vscrollState && vscrollContainer === scrollContainer
+        ? physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState)
+        : scrollContainer.scrollTop;
 
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
-        scrollTop: scrollContainer.scrollTop,
+        scrollTop: logicalScrollTop,
         bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
         visibleRowIndices: [0, 0],
         rowCount: S.memRows.length,
         heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight),
         getRowHeight: memoryRowHeightGetter(rowHeight, gapHeight),
     };
+    vscrollContainer = scrollContainer;
+    const layout = calcScrollLayout(vscrollState);
+    vscrollState.scrollTop = Math.min(vscrollState.scrollTop, layout.logicalScrollable);
+    scrollContainer.scrollTop = logicalToPhysicalScroll(vscrollState.scrollTop, vscrollState);
     vscrollRenderedRange = [-1, -1];
 
     storeMemoryInteractionCallbacks(scrollContainer, onHexDown, onHexCtx);
