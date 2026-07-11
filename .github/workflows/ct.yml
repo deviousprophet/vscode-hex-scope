@@ -128,6 +128,7 @@ jobs:
           RUN_TESTS_OUTCOME: ${{ needs.UT_Test.outputs.run-tests-outcome }}
           LOG_FILE: test-output.log
           SUITE_NAME: Unit Test Results
+          TEST_FORMAT: mocha
         run: node .github/scripts/summarize-tests.mjs
 
       - name: Performance Test Summary
@@ -136,6 +137,7 @@ jobs:
           RUN_TESTS_OUTCOME: ${{ needs.Performance_Test.outputs.run-perf-tests-outcome }}
           LOG_FILE: performance-test-output.log
           SUITE_NAME: Performance Test Results
+          TEST_FORMAT: performance
         run: node .github/scripts/summarize-tests.mjs
 
       - name: Upload Combined Test Results Artifact
