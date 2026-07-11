@@ -83,8 +83,7 @@ export async function parseIntelHexCompact(source: string, options: CompactParse
     }, options);
     options.onProgress?.({ stage: 'build', completed: 0, total: parsed.records.length });
     const segments = await buildContiguousSegmentsAsync(parsed.records, rec => rec.recordType === RecordType.Data, options);
-    options.onProgress?.({ stage: 'build', completed: parsed.records.length, total: parsed.records.length });
-    const records = new CompactRecordStore(parsed.records, parsed.ranges);
+    const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options);
     const totalDataBytes = segments.reduce((sum, segment) => sum + segment.data.length, 0);
     return {
         records,

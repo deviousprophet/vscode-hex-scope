@@ -250,8 +250,7 @@ export async function parseSRecCompact(source: string, options: CompactParserOpt
     }, options);
     options.onProgress?.({ stage: 'build', completed: 0, total: parsed.records.length });
     const segments = await buildContiguousSegmentsAsync(parsed.records, rec => srecIsData(rec.recordType), options);
-    options.onProgress?.({ stage: 'build', completed: parsed.records.length, total: parsed.records.length });
-    const records = new CompactRecordStore(parsed.records, parsed.ranges);
+    const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options);
     const totalDataBytes = segments.reduce((sum, segment) => sum + segment.data.length, 0);
     return { records, segments, totalDataBytes, checksumErrors: parsed.checksumErrors, malformedLines: parsed.malformedLines, startAddress };
 }

@@ -1,7 +1,8 @@
-import type { HexRecord, MemorySegment, ParseProgress } from './types';
+import type { HexRecord, MemorySegment, ParseWorkOptions } from './types';
 import type { SourceRange } from './records';
 
 const RECORD_PAGE_CAPACITY = 65_536;
+const COMPACTION_BATCH_SIZE = 2_048;
 
 interface RecordMetadataPage {
     length: number;
@@ -44,10 +45,35 @@ export class CompactRecordStore {
     private readonly pages: RecordMetadataPage[] = [];
     public readonly length: number;
 
-    constructor(records: HexRecord[], ranges: SourceRange[]) {
+    private constructor(length: number) {
+        this.length = length;
+    }
+
+    public static async create(
+        records: HexRecord[],
+        ranges: SourceRange[],
+        options: ParseWorkOptions = {},
+    ): Promise<CompactRecordStore> {
         if (records.length !== ranges.length) { throw new Error('Record metadata range mismatch'); }
-        this.length = records.length;
-        for (let i = 0; i < records.length; i++) { this.append(i, records[i], ranges[i]); }
+        const store = new CompactRecordStore(records.length);
+        const now = options.now ?? (() => performance.now());
+        const yieldControl = options.yieldControl ?? (() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+        const budget = options.timeBudgetMs ?? 24;
+        let deadline = now() + budget;
+
+        for (let i = 0; i < records.length; i++) {
+            store.append(i, records[i], ranges[i]);
+            const batchComplete = (i + 1) % COMPACTION_BATCH_SIZE === 0;
+            if (!batchComplete) { continue; }
+            if (options.signal?.aborted) { throw new Error('Parse cancelled'); }
+            if (now() < deadline) { continue; }
+            options.onProgress?.({ stage: 'build', completed: i + 1, total: records.length });
+            await yieldControl();
+            deadline = now() + budget;
+        }
+        if (options.signal?.aborted) { throw new Error('Parse cancelled'); }
+        options.onProgress?.({ stage: 'build', completed: records.length, total: records.length });
+        return store;
     }
 
     private append(index: number, record: HexRecord, range: SourceRange): void {
@@ -81,10 +107,4 @@ export class CompactRecordStore {
     }
 }
 
-export interface CompactParserOptions {
-    signal?: AbortSignal;
-    timeBudgetMs?: number;
-    now?: () => number;
-    yieldControl?: () => Promise<void>;
-    onProgress?: (progress: ParseProgress) => void;
-}
+export type CompactParserOptions = ParseWorkOptions;
