@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.12.1] - 2026-07-11
+
+### Fixed
+
+- Exclude the `scripts` directory and `AGENTS.md` from VSCE packaging to reduce the extension size
+
 ## [2.12.0] - 2026-07-11
 
 ### Changed
