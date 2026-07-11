@@ -17,23 +17,31 @@ export class RecordPageCache {
     }
 
     public request(start: number, recordCount: number): boolean {
-        const valid = start >= 0 && start < recordCount && start % RECORD_PAGE_SIZE === 0;
-        if (!valid || this.pages.has(start) || this.pending.has(start)) { return false; }
+        if (!isValidPageStart(start, recordCount)) { return false; }
+        if (this.pages.has(start) || this.pending.has(start)) { return false; }
         this.pending.add(start);
         return true;
     }
 
     public accept(generation: number, start: number, records: SerializedRecord[]): boolean {
-        if (generation !== this.generationValue || start % RECORD_PAGE_SIZE !== 0) { return false; }
+        if (!this.acceptsPage(generation, start)) { return false; }
         this.pending.delete(start);
         this.pages.delete(start);
         this.pages.set(start, records);
+        this.evictOldestPages();
+        return true;
+    }
+
+    private acceptsPage(generation: number, start: number): boolean {
+        return generation === this.generationValue && start % RECORD_PAGE_SIZE === 0;
+    }
+
+    private evictOldestPages(): void {
         while (this.pages.size > this.pageLimit) {
             const oldest = this.pages.keys().next().value as number | undefined;
-            if (oldest === undefined) { break; }
+            if (oldest === undefined) { return; }
             this.pages.delete(oldest);
         }
-        return true;
     }
 
     public get(index: number): SerializedRecord | undefined {
@@ -44,4 +52,9 @@ export class RecordPageCache {
         this.pages.set(start, page);
         return page[index - start];
     }
+}
+
+function isValidPageStart(start: number, recordCount: number): boolean {
+    if (start < 0 || start >= recordCount) { return false; }
+    return start % RECORD_PAGE_SIZE === 0;
 }

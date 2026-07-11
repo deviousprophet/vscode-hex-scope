@@ -1,5 +1,5 @@
 import type { HexRecord, MemorySegment, ParseWorkOptions } from './types';
-import type { SourceRange } from './records';
+import type { ParsedRecordsWithRanges, SourceRange } from './records';
 
 const RECORD_PAGE_CAPACITY = 65_536;
 const COMPACTION_BATCH_SIZE = 2_048;
@@ -26,6 +26,23 @@ export interface CompactParseResult {
     startAddress?: number;
 }
 
+export async function createCompactParseResult(
+    parsed: ParsedRecordsWithRanges,
+    segments: MemorySegment[],
+    options: ParseWorkOptions,
+    startAddress?: number,
+): Promise<CompactParseResult> {
+    const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options);
+    return {
+        records,
+        segments,
+        totalDataBytes: segments.reduce((sum, segment) => sum + segment.data.length, 0),
+        checksumErrors: parsed.checksumErrors,
+        malformedLines: parsed.malformedLines,
+        startAddress,
+    };
+}
+
 function page(): RecordMetadataPage {
     return {
         length: 0,
@@ -41,6 +58,38 @@ function page(): RecordMetadataPage {
     };
 }
 
+class CompactionWork {
+    private readonly now: () => number;
+    private readonly yieldControl: () => Promise<void>;
+    private readonly budget: number;
+    private deadline: number;
+
+    constructor(private readonly options: ParseWorkOptions, private readonly total: number) {
+        this.now = options.now ?? (() => performance.now());
+        this.yieldControl = options.yieldControl ?? (() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+        this.budget = options.timeBudgetMs ?? 24;
+        this.deadline = this.now() + this.budget;
+    }
+
+    public async afterRecord(completed: number): Promise<void> {
+        if (completed % COMPACTION_BATCH_SIZE !== 0) { return; }
+        this.throwIfCancelled();
+        if (this.now() < this.deadline) { return; }
+        this.options.onProgress?.({ stage: 'build', completed, total: this.total });
+        await this.yieldControl();
+        this.deadline = this.now() + this.budget;
+    }
+
+    public finish(): void {
+        this.throwIfCancelled();
+        this.options.onProgress?.({ stage: 'build', completed: this.total, total: this.total });
+    }
+
+    private throwIfCancelled(): void {
+        if (this.options.signal?.aborted) { throw new Error('Parse cancelled'); }
+    }
+}
+
 export class CompactRecordStore {
     private readonly pages: RecordMetadataPage[] = [];
     public readonly length: number;
@@ -54,32 +103,21 @@ export class CompactRecordStore {
         ranges: SourceRange[],
         options: ParseWorkOptions = {},
     ): Promise<CompactRecordStore> {
-        if (records.length !== ranges.length) { throw new Error('Record metadata range mismatch'); }
+        assertMatchingRecordRanges(records, ranges);
         const store = new CompactRecordStore(records.length);
-        const now = options.now ?? (() => performance.now());
-        const yieldControl = options.yieldControl ?? (() => new Promise<void>(resolve => setTimeout(resolve, 0)));
-        const budget = options.timeBudgetMs ?? 24;
-        let deadline = now() + budget;
+        const work = new CompactionWork(options, records.length);
 
         for (let i = 0; i < records.length; i++) {
             store.append(i, records[i], ranges[i]);
-            const batchComplete = (i + 1) % COMPACTION_BATCH_SIZE === 0;
-            if (!batchComplete) { continue; }
-            if (options.signal?.aborted) { throw new Error('Parse cancelled'); }
-            if (now() < deadline) { continue; }
-            options.onProgress?.({ stage: 'build', completed: i + 1, total: records.length });
-            await yieldControl();
-            deadline = now() + budget;
+            await work.afterRecord(i + 1);
         }
-        if (options.signal?.aborted) { throw new Error('Parse cancelled'); }
-        options.onProgress?.({ stage: 'build', completed: records.length, total: records.length });
+        work.finish();
         return store;
     }
 
     private append(index: number, record: HexRecord, range: SourceRange): void {
         const pageIndex = Math.floor(index / RECORD_PAGE_CAPACITY);
-        const target = this.pages[pageIndex] ?? page();
-        if (!this.pages[pageIndex]) { this.pages.push(target); }
+        const target = this.pageAt(pageIndex);
         const i = target.length++;
         target.sourceStart[i] = range.start;
         target.sourceEnd[i] = range.end;
@@ -89,7 +127,15 @@ export class CompactRecordStore {
         target.byteCount[i] = record.byteCount;
         target.recordType[i] = record.recordType;
         target.checksum[i] = record.checksum;
-        target.flags[i] = (record.checksumValid ? 1 : 0) | (record.error ? 2 : 0);
+        target.flags[i] = recordFlags(record);
+    }
+
+    private pageAt(pageIndex: number): RecordMetadataPage {
+        const existing = this.pages[pageIndex];
+        if (existing) { return existing; }
+        const created = page();
+        this.pages.push(created);
+        return created;
     }
 
     public materialize(index: number, source: string, parseLine: (raw: string, lineNumber: number) => HexRecord): HexRecord {
@@ -105,6 +151,17 @@ export class CompactRecordStore {
         record.checksumValid = (p.flags[i] & 1) !== 0;
         return record;
     }
+}
+
+function assertMatchingRecordRanges(records: HexRecord[], ranges: SourceRange[]): void {
+    if (records.length !== ranges.length) { throw new Error('Record metadata range mismatch'); }
+}
+
+function recordFlags(record: HexRecord): number {
+    let flags = 0;
+    if (record.checksumValid) { flags |= 1; }
+    if (record.error) { flags |= 2; }
+    return flags;
 }
 
 export type CompactParserOptions = ParseWorkOptions;

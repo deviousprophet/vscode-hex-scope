@@ -289,26 +289,11 @@ function refreshMemoryHighlights(): void {
     applySel();
 }
 
-//  Memory body 
-
-export function renderMemBody(
-    onHexDown: (e: MouseEvent, el: HTMLElement) => void,
-    onHexCtx:  (e: MouseEvent, el: HTMLElement) => void,
-): void {
-    const container = document.getElementById('mem-rows')!;
-
-    if (S.memRows.length === 0) {
-        container.innerHTML = `<div style="padding:30px 20px;color:var(--non-graphic);font-size:12px">No data records found.</div>`;
-        return;
-    }
-
-    // Initialize virtual scroll state
-    const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
+function initializeMemoryScrollState(scrollContainer: MemoryScrollElement): void {
     const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const logicalScrollTop = vscrollState && vscrollContainer === scrollContainer
         ? physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState)
         : scrollContainer.scrollTop;
-
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
         scrollTop: logicalScrollTop,
@@ -323,54 +308,66 @@ export function renderMemBody(
     vscrollState.scrollTop = Math.min(vscrollState.scrollTop, layout.logicalScrollable);
     scrollContainer.scrollTop = logicalToPhysicalScroll(vscrollState.scrollTop, vscrollState);
     vscrollRenderedRange = [-1, -1];
+}
 
-    storeMemoryInteractionCallbacks(scrollContainer, onHexDown, onHexCtx);
+function initializeColumnHover(container: HTMLElement): void {
+    if (container.dataset.colHoverInit) { return; }
+    container.dataset.colHoverInit = '1';
+    const header = document.getElementById('mem-header')!;
+    let activeColumn: string | null = null;
+    const setColumn = (column: string | null) => {
+        if (column === activeColumn) { return; }
+        toggleColumnHighlight(container, header, activeColumn, false);
+        activeColumn = column;
+        toggleColumnHighlight(container, header, column, true);
+    };
+    container.addEventListener('mouseover', event => {
+        setColumn((event.target as HTMLElement).closest<HTMLElement>('[data-col]')?.dataset.col ?? null);
+    });
+    container.addEventListener('mouseleave', () => setColumn(null));
+}
 
-    // Keep header columns aligned with horizontal body scrolling.
-    syncHeaderScroll(scrollContainer.scrollLeft);
+function toggleColumnHighlight(container: HTMLElement, header: HTMLElement, column: string | null, active: boolean): void {
+    if (column === null) { return; }
+    const method = active ? 'add' : 'remove';
+    container.querySelectorAll<HTMLElement>(`[data-col="${column}"]`).forEach(el => el.classList[method]('col-hi'));
+    header.querySelectorAll<HTMLElement>(`[data-col="${column}"]`).forEach(el => el.classList[method]('col-hi'));
+}
 
-    // Initial render of visible rows
+function initializeMemoryScrollListeners(scrollContainer: MemoryScrollElement): void {
+    if (scrollContainer.dataset.vscrollInit) { return; }
+    scrollContainer.dataset.vscrollInit = '1';
+    scrollContainer.addEventListener('scroll', () => refreshMemoryScrollPosition(scrollContainer, true));
+    window.addEventListener('resize', () => refreshMemoryScrollPosition(scrollContainer, false));
+}
+
+function refreshMemoryScrollPosition(scrollContainer: MemoryScrollElement, syncHeader: boolean): void {
+    if (!vscrollState) { return; }
+    vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
+    if (syncHeader) { syncHeaderScroll(scrollContainer.scrollLeft); }
     renderVisibleRows();
+}
 
-    // Column hover  set up once per container lifetime
-    if (!container.dataset.colHoverInit) {
-        container.dataset.colHoverInit = '1';
-        const hdr = document.getElementById('mem-header')!;
-        let activeCol: string | null = null;
-        const setCol = (col: string | null) => {
-            if (col === activeCol) { return; }
-            if (activeCol !== null) {
-                container.querySelectorAll<HTMLElement>(`[data-col="${activeCol}"]`).forEach(el => el.classList.remove('col-hi'));
-                hdr.querySelectorAll<HTMLElement>(`[data-col="${activeCol}"]`).forEach(el => el.classList.remove('col-hi'));
-            }
-            activeCol = col;
-            if (col !== null) {
-                container.querySelectorAll<HTMLElement>(`[data-col="${col}"]`).forEach(el => el.classList.add('col-hi'));
-                hdr.querySelectorAll<HTMLElement>(`[data-col="${col}"]`).forEach(el => el.classList.add('col-hi'));
-            }
-        };
-        container.addEventListener('mouseover', e => {
-            const col = (e.target as HTMLElement).closest<HTMLElement>('[data-col]')?.dataset.col ?? null;
-            setCol(col);
-        });
-        container.addEventListener('mouseleave', () => setCol(null));
+//  Memory body
+
+export function renderMemBody(
+    onHexDown: (e: MouseEvent, el: HTMLElement) => void,
+    onHexCtx:  (e: MouseEvent, el: HTMLElement) => void,
+): void {
+    const container = document.getElementById('mem-rows')!;
+
+    if (S.memRows.length === 0) {
+        container.innerHTML = `<div style="padding:30px 20px;color:var(--non-graphic);font-size:12px">No data records found.</div>`;
+        return;
     }
 
-    // Set up scroll listener for virtual scrolling (only once)
-    if (!scrollContainer.dataset.vscrollInit) {
-        scrollContainer.dataset.vscrollInit = '1';
-        scrollContainer.addEventListener('scroll', () => {
-            if (!vscrollState) { return; }
-            vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
-            syncHeaderScroll(scrollContainer.scrollLeft);
-            renderVisibleRows();
-        });
-        window.addEventListener('resize', () => {
-            if (!vscrollState) { return; }
-            vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
-            renderVisibleRows();
-        });
-    }
+    const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
+    initializeMemoryScrollState(scrollContainer);
+    storeMemoryInteractionCallbacks(scrollContainer, onHexDown, onHexCtx);
+    syncHeaderScroll(scrollContainer.scrollLeft);
+    renderVisibleRows();
+    initializeColumnHover(container);
+    initializeMemoryScrollListeners(scrollContainer);
 }
 
 //  Single data row 

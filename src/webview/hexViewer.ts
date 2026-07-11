@@ -99,17 +99,28 @@ function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
 
 function handleLoadProgressMessage(msg: WebviewMessageByType<'loadProgress'>): void {
     if (msg.generation < S.documentGeneration) { return; }
-    const percent = msg.total && msg.total > 0 ? Math.floor((msg.completed / msg.total) * 100) : null;
-    const label = percent === null ? msg.stage : `${msg.stage} ${percent}%`;
+    const label = loadProgressLabel(msg);
     if (!S.parseResult) {
-        document.getElementById('app')!.innerHTML = `<div class="load-progress" role="status">Loading ${esc(label)}…</div>`;
+        renderInitialLoadProgress(label);
         return;
     }
+    renderActiveLoadProgress(label);
+}
+
+function loadProgressLabel(msg: WebviewMessageByType<'loadProgress'>): string {
+    if (!msg.total || msg.total <= 0) { return msg.stage; }
+    return `${msg.stage} ${Math.floor((msg.completed / msg.total) * 100)}%`;
+}
+
+function renderInitialLoadProgress(label: string): void {
+    document.getElementById('app')!.innerHTML = `<div class="load-progress" role="status">Loading ${esc(label)}…</div>`;
+}
+
+function renderActiveLoadProgress(label: string): void {
     const progress = document.getElementById('search-progress');
-    if (progress) {
-        progress.textContent = `Loading ${label}…`;
-        progress.setAttribute('aria-hidden', 'false');
-    }
+    if (!progress) { return; }
+    progress.textContent = `Loading ${label}…`;
+    progress.setAttribute('aria-hidden', 'false');
 }
 
 function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void {

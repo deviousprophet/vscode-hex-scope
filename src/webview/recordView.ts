@@ -115,17 +115,12 @@ export function renderRecordView(): void {
     if (!view) { return; }
     const { el, parseResult } = view;
 
-    if ((parseResult.recordCount ?? parseResult.records.length) === 0) {
+    if (recordCountOf(parseResult) === 0) {
         el.replaceChildren(recordViewUnavailableNode());
         return;
     }
 
-    if (!el.dataset.recordVscrollInit) {
-        el.dataset.recordVscrollInit = '1';
-        el.addEventListener('scroll', () => {
-            renderRecordViewImpl(el);
-        });
-    }
+    initializeRecordScroll(el);
 
     recordRenderSignature = '';
     renderRecordViewImpl(el);
@@ -175,6 +170,16 @@ function appendVisibleRecordRows(
     }
 }
 
+function recordCountOf(parseResult: SerializedParseResult): number {
+    return parseResult.recordCount ?? parseResult.records.length;
+}
+
+function initializeRecordScroll(el: HTMLElement): void {
+    if (el.dataset.recordVscrollInit) { return; }
+    el.dataset.recordVscrollInit = '1';
+    el.addEventListener('scroll', () => renderRecordViewImpl(el));
+}
+
 function recordPlaceholderRow(): HTMLTableRowElement {
     const row = document.createElement('tr');
     row.className = 'record-loading';
@@ -207,17 +212,18 @@ function replaceRecordViewContent(el: HTMLElement, table: HTMLTableElement, win:
 }
 
 function renderRecordViewImpl(el: HTMLElement): void {
-    if (!S.parseResult) { return; }
+    const parseResult = S.parseResult;
+    if (!parseResult) { return; }
 
-    const recordCount = S.parseResult.recordCount ?? S.parseResult.records.length;
+    const recordCount = recordCountOf(parseResult);
     const win = calcRecordRenderWindow(el, recordCount);
     requestRecordWindow(win.firstVisibleIdx, win.lastVisibleIdx, recordCount);
     const signature = recordWindowSignature(recordCount, win);
     if (signature === recordRenderSignature) { return; }
     recordRenderSignature = signature;
 
-    const isSrec = S.parseResult.format === 'srec';
-    const TYPE_LABELS = isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
+    const isSrec = parseResult.format === 'srec';
+    const TYPE_LABELS = recordTypeLabels(isSrec);
     const table = recordTableElement();
     const rows: HTMLTableRowElement[] = [];
 
@@ -230,6 +236,10 @@ function renderRecordViewImpl(el: HTMLElement): void {
     table.appendChild(tbody);
 
     replaceRecordViewContent(el, table, win);
+}
+
+function recordTypeLabels(isSrec: boolean): Record<number, string> {
+    return isSrec ? SREC_TYPE_LABELS : IHEX_TYPE_LABELS;
 }
 
 function recordTableElement(): HTMLTableElement {
