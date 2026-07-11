@@ -239,3 +239,36 @@ Removed all dead-code, duplication, health, and refactor findings without suppre
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Audit innerHTML safety
+
+**Date**: 2026-07-11
+**Task**: Audit innerHTML safety
+**Branch**: `fix/audit-innerhtml`
+
+### Summary
+
+Audited webview HTML sinks, added ESLint enforcement and regression tests, and escaped or named trusted fragments explicitly.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `72a60b6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
