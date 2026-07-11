@@ -47,7 +47,6 @@ jobs:
 
   Performance_Test:
     name: Performance Test Execution
-    needs: [UT_Test]
     runs-on: ubuntu-latest
     outputs:
       run-perf-tests-outcome: ${{ steps.run-perf-tests.outcome }}
