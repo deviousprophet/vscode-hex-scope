@@ -34,6 +34,9 @@ Full union lives only in `src/webviewProtocol.ts`.
 - Segment bytes cross the webview seam as exact `ArrayBuffer` values and hydrate to `Uint8Array` in the browser. Record details remain host-side and cross only in aligned 512-record pages.
 - Every load and record page carries a generation. Browser and host ignore stale generations after replacement, save, repair, external reload, or disposal.
 - Panel disposal aborts active parsing, clears page/document ownership, and prevents later posts.
+- Register complete panel cleanup before awaiting file reads or parsing. Early cancellation and invalid-document redirects release the same resources as a fully initialized panel.
+- Own panel-scoped subscriptions, watchers, timers, and cleanup callbacks in one idempotent `DisposableStore`; disposal runs callbacks once in reverse registration order.
+- Webview state needs no unload-time clearing: destroying the panel destroys the iframe realm. Host-side `_panels`, raw source, compact parse result, and pending reload references are the surviving ownership boundary to clear.
 - `postToActive` is best-effort and targets only the currently active Hex Scope panel.
 
 ### 4. Validation & Error Matrix
@@ -47,6 +50,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 | Persisted profiles/checks malformed | Normalize/drop invalid entries; report profile error when relevant. |
 | Legacy struct definitions overlap global IDs/names | Deduplicate during migration. |
 | Panel disposed | Abort active load; dispose watcher/listeners; drop raw/parsed state and active-panel ownership. |
+| Panel disposed during initial load | Run the already-registered complete cleanup; do not retain the panel in `_panels`. |
 
 ### 5. Good/Base/Bad Cases
 
@@ -62,6 +66,8 @@ Full union lives only in `src/webviewProtocol.ts`.
 - `src/test/core/provider-utils.test.ts`: format detection and legacy struct migration.
 - Any new discriminator needs host-to-browser or browser-to-host handling assertions and a no-op unknown-message assertion.
 - Paging tests cover alignment, maximum page size, cache eviction, stale generations, and compressed record scrolling.
+- `src/test/core/disposable-store.test.ts` covers once-only reverse-order cleanup and resources registered after disposal.
+- `npm run profile:memory-release` allocates four 64 MiB panel payloads, disposes their resource stores, forces GC, and asserts `arrayBuffers` returns near baseline. Keep it separate from `npm test`; it is a resource profile, not a unit test.
 
 ### 7. Wrong vs Correct
 
@@ -80,3 +86,25 @@ handlers[type](messageForKnownType);
 ```
 
 Typed protocol is the interface/test surface; keep orchestration behind `HexEditorSession` and `webviewMessageModel`.
+
+### Panel cleanup registration
+
+#### Wrong
+
+```typescript
+const loaded = await loadInitialDocument();
+panel.onDidDispose(cleanupEverything);
+```
+
+An early return before registration leaks host-side panel ownership.
+
+#### Correct
+
+```typescript
+const resources = new DisposableStore();
+panel.onDidDispose(() => resources.dispose());
+resources.add(clearHostSessionState);
+const loaded = await loadInitialDocument();
+```
+
+Optional late resources can be added safely; `DisposableStore.add()` disposes them immediately if the panel already closed.

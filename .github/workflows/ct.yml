@@ -45,11 +45,12 @@ jobs:
           name: ut-test-output-${{ github.sha }}
           overwrite: true
 
-  Performance_Test:
-    name: Performance Test Execution
+  Additional_Profiles:
+    name: Additional Resource Profiles
     runs-on: ubuntu-latest
     outputs:
-      run-perf-tests-outcome: ${{ steps.run-perf-tests.outcome }}
+      large-file-outcome: ${{ steps.large-file-profile.outcome }}
+      memory-release-outcome: ${{ steps.memory-release-profile.outcome }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -63,23 +64,32 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Performance Tests
-        id: run-perf-tests
+      - name: Run Large-File Profile
+        id: large-file-profile
         run: |
           set -o pipefail
-          npm run test:performance 2>&1 | tee performance-test-output.log
+          npm run profile:large-files 2>&1 | tee large-file-profile-output.log
 
-      - name: Upload Performance Test Results Artifact
+      - name: Run Memory-Release Profile
+        id: memory-release-profile
+        if: always()
+        run: |
+          set -o pipefail
+          npm run profile:memory-release 2>&1 | tee memory-release-profile-output.log
+
+      - name: Upload Profile Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          path: performance-test-output.log
-          name: performance-test-output-${{ github.sha }}
+          path: |
+            large-file-profile-output.log
+            memory-release-profile-output.log
+          name: profile-output-${{ github.sha }}
           overwrite: true
 
   Finalize:
     name: Finalize Workflow
-    needs: [UT_Test, Performance_Test]
+    needs: [UT_Test, Additional_Profiles]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -89,7 +99,7 @@ jobs:
       - name: Check Job Results
         run: |
           UT_RESULT="${{ needs.UT_Test.result }}"
-          PERF_RESULT="${{ needs.Performance_Test.result }}"
+          PROFILE_RESULT="${{ needs.Additional_Profiles.result }}"
           FAILED=false
           if [[ "$UT_RESULT" != "success" ]]; then
             echo "❌ Unit Test job: $UT_RESULT"
@@ -97,11 +107,11 @@ jobs:
           else
             echo "✅ Unit Test job: $UT_RESULT"
           fi
-          if [[ "$PERF_RESULT" != "success" ]]; then
-            echo "❌ Performance Test job: $PERF_RESULT"
+          if [[ "$PROFILE_RESULT" != "success" ]]; then
+            echo "❌ Additional Profiles job: $PROFILE_RESULT"
             FAILED=true
           else
-            echo "✅ Performance Test job: $PERF_RESULT"
+            echo "✅ Additional Profiles job: $PROFILE_RESULT"
           fi
           if [[ "$FAILED" == "true" ]]; then
             exit 1
@@ -114,11 +124,11 @@ jobs:
           name: ut-test-output-${{ github.sha }}
           path: .
 
-      - name: Download Performance Test Log
+      - name: Download Profile Logs
         if: always()
         uses: actions/download-artifact@v4
         with:
-          name: performance-test-output-${{ github.sha }}
+          name: profile-output-${{ github.sha }}
           path: .
 
       - name: Unit Test Summary
@@ -130,13 +140,22 @@ jobs:
           TEST_FORMAT: mocha
         run: node .github/scripts/summarize-tests.mjs
 
-      - name: Performance Test Summary
+      - name: Large-File Profile Summary
         if: always()
         env:
-          RUN_TESTS_OUTCOME: ${{ needs.Performance_Test.outputs.run-perf-tests-outcome }}
-          LOG_FILE: performance-test-output.log
-          SUITE_NAME: Performance Test Results
-          TEST_FORMAT: performance
+          RUN_TESTS_OUTCOME: ${{ needs.Additional_Profiles.outputs.large-file-outcome }}
+          LOG_FILE: large-file-profile-output.log
+          SUITE_NAME: Large-File Profile Results
+          TEST_FORMAT: large-file-profile
+        run: node .github/scripts/summarize-tests.mjs
+
+      - name: Memory-Release Profile Summary
+        if: always()
+        env:
+          RUN_TESTS_OUTCOME: ${{ needs.Additional_Profiles.outputs.memory-release-outcome }}
+          LOG_FILE: memory-release-profile-output.log
+          SUITE_NAME: Memory-Release Profile Results
+          TEST_FORMAT: memory-release-profile
         run: node .github/scripts/summarize-tests.mjs
 
       - name: Upload Combined Test Results Artifact
@@ -145,6 +164,7 @@ jobs:
         with:
           path: |
             test-output.log
-            performance-test-output.log
+            large-file-profile-output.log
+            memory-release-profile-output.log
           name: test-results-${{ github.sha }}
           overwrite: true

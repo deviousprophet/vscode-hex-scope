@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 const runTestsOutcome = process.env.RUN_TESTS_OUTCOME ?? "unknown";
 const logFile = process.env.LOG_FILE ?? "test-output.log";
 const suiteName = process.env.SUITE_NAME ?? "Automated test results";
-const testFormat = process.env.TEST_FORMAT ?? "mocha"; // "mocha" | "performance"
+const testFormat = process.env.TEST_FORMAT ?? "mocha"; // "mocha" | "large-file-profile" | "memory-release-profile"
 const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 
 const ICONS = {
@@ -188,8 +188,8 @@ function parsePerformanceLog(logText) {
 
 function performanceStatusLine() {
   return runTestsOutcome === "success"
-    ? `${ICONS.passed} Performance run passed`
-    : `${ICONS.failed} Performance run failed`;
+    ? `${ICONS.passed} Large-file profile passed`
+    : `${ICONS.failed} Large-file profile failed`;
 }
 
 function renderPerformanceHeader() {
@@ -233,7 +233,7 @@ function renderPerformanceEmptyState(measurements, summaryLine) {
     return;
   }
 
-  appendSummary(`${ICONS.failed} No performance measurements were found in the log.\n\n`);
+  appendSummary(`${ICONS.failed} No large-file measurements were found in the log.\n\n`);
 }
 
 function renderPerformanceFailure(logText) {
@@ -265,10 +265,39 @@ function summarizePerformance() {
   renderPerformanceFailure(logText);
 }
 
+function parseMemoryReleaseLog(logText) {
+  return logText
+    .split(/\r?\n/)
+    .map(tryParseJsonLine)
+    .find((entry) => typeof entry === "object" && entry !== null && "allocated" in entry && "retained" in entry) ?? null;
+}
+
+function summarizeMemoryRelease() {
+  const logText = readLog();
+  const measurement = parseMemoryReleaseLog(logText);
+  const status = runTestsOutcome === "success"
+    ? `${ICONS.passed} Memory-release profile passed`
+    : `${ICONS.failed} Memory-release profile failed`;
+  appendSummary(`# ${ICONS.robot} ${suiteName}\n\n${status}\n\n`);
+
+  if (measurement) {
+    appendSummary(`| Baseline bytes | Opened bytes | Closed bytes | Allocated bytes | Retained bytes |
+|---:|---:|---:|---:|---:|
+| ${measurement.baseline} | ${measurement.opened} | ${measurement.closed} | ${measurement.allocated} | ${measurement.retained} |
+
+`);
+  } else {
+    appendSummary(`${ICONS.failed} No memory-release measurement was found in the log.\n\n`);
+  }
+  renderPerformanceFailure(logText);
+}
+
 // ---------------------------------------------------------------------------
 
-if (testFormat === "performance") {
+if (testFormat === "large-file-profile" || testFormat === "performance") {
   summarizePerformance();
+} else if (testFormat === "memory-release-profile") {
+  summarizeMemoryRelease();
 } else {
   summarizeMocha();
 }

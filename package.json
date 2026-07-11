@@ -328,7 +328,8 @@
     "check-types": "tsc --noEmit",
     "lint": "node eslint-rules/require-escaped-html.test.mjs && eslint src",
     "test": "vscode-test",
-    "test:performance": "node scripts/run-performance-large.cjs"
+    "profile:memory-release": "node src/test/profiles/run-profile.ts memory-release",
+    "profile:large-files": "node src/test/profiles/run-profile.ts large-file"
   },
   "devDependencies": {
     "@types/vscode": "^1.120.0",
