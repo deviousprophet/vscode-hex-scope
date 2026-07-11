@@ -272,3 +272,36 @@ Audited webview HTML sinks, added ESLint enforcement and regression tests, and e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Verify memory release
+
+**Date**: 2026-07-11
+**Task**: Verify memory release
+**Branch**: `fix/verify-memory-release`
+
+### Summary
+
+Fixed early panel-disposal retention, added idempotent resource cleanup, typed resource profiles, and GitHub Actions profile summaries.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8cac7a4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
