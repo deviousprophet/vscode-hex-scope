@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.12.0] - 2026-07-11
+
+### Changed
+
+- Improved large firmware loading with cooperative IHEX/SREC parsing, compact record storage, binary segment transfer, progressive load feedback, and a paged `Records` view
+- Accelerated searches across large mapped segments while preserving progressive results and cancellation
+
+### Fixed
+
+- Fixed compressed Memory view addresses shifting after adding or deleting labels
+
 ## [2.11.1] - 2026-07-06
 
 ### Changed
