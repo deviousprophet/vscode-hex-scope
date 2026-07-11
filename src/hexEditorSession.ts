@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
+import { DisposableStore } from './core/disposableStore';
 import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
@@ -309,7 +310,10 @@ export class HexEditorSession {
         let currentGeneration = 0;
         let disposed = false;
         let activeLoad: AbortController | null = new AbortController();
-        token.onCancellationRequested(() => activeLoad?.abort());
+        let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
+        let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+        const resources = new DisposableStore();
+        resources.add(token.onCancellationRequested(() => activeLoad?.abort()));
 
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
@@ -324,11 +328,21 @@ export class HexEditorSession {
             }
         };
         const incomingDisposable = webviewPanel.webview.onDidReceiveMessage(rawMsg => dispatchIncoming(rawMsg));
-        webviewPanel.onDidDispose(() => {
+        resources.add(incomingDisposable);
+        resources.add(() => {
             disposed = true;
             activeLoad?.abort();
-            incomingDisposable.dispose();
+            activeLoad = null;
+            raw = '';
+            parseResult = null;
+            pendingExternalReload = null;
+            clearTimeout(reloadTimer);
+            this._panels.delete(webviewPanel);
+            if (HexEditorSession._activePanel === webviewPanel) {
+                HexEditorSession._activePanel = undefined;
+            }
         });
+        webviewPanel.onDidDispose(() => resources.dispose());
 
         const progressReporter = new LoadProgressReporter(
             webviewPanel.webview,
@@ -349,7 +363,10 @@ export class HexEditorSession {
             () => disposed,
             progress => postProgress(progress.stage, progress.completed, progress.total),
         );
-        if (!initial) { return; }
+        if (!initial) {
+            resources.dispose();
+            return;
+        }
         ({ source: raw, format, result: parseResult } = initial);
         currentGeneration = generation;
 
@@ -487,13 +504,11 @@ export class HexEditorSession {
         // ── Live reload on external file changes ──────────────────────────
         // suppress the single watcher event caused by our own writes
         let suppressReload = false;
-        let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
-        let reloadTimer: ReturnType<typeof setTimeout> | undefined;
-
         const watcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
                 document.uri.path.split('/').pop()!)
         );
+        resources.add(watcher);
 
         const onExternalChange = () => {
             if (suppressReload) { suppressReload = false; return; }
@@ -695,27 +710,11 @@ export class HexEditorSession {
         };
         await postInit();
 
-        webviewPanel.onDidChangeViewState(e => {
+        resources.add(webviewPanel.onDidChangeViewState(e => {
             if (e.webviewPanel.active) {
                 HexEditorSession._activePanel = webviewPanel;
             }
-        });
-
-        webviewPanel.onDidDispose(() => {
-            disposed = true;
-            activeLoad?.abort();
-            activeLoad = null;
-            raw = '';
-            parseResult = null;
-            pendingExternalReload = null;
-            incomingDisposable.dispose();
-            watcher.dispose();
-            clearTimeout(reloadTimer);
-            this._panels.delete(webviewPanel);
-            if (HexEditorSession._activePanel === webviewPanel) {
-                HexEditorSession._activePanel = undefined;
-            }
-        });
+        }));
     }
 
     private _getHtml(webview: vscode.Webview, _uri: vscode.Uri): string {

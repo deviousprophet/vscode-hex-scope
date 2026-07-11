@@ -5,6 +5,7 @@
 ### Fixed
 
 - Enforced escaping for dynamic webview HTML to prevent unsafe content injection
+- Released extension-host memory when Hex Scope panels close, including panels closed during initial parsing
 
 ## [2.12.1] - 2026-07-11
 
