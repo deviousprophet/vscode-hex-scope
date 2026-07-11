@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
-- **Last Active**: 2026-07-10
+- **Total Sessions**: 5
+- **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~141 | Active |
+| `journal-1.md` | ~174 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-07-11 | Fix large-file search regression | `4ee0180` | `feat/large-file-pipeline` |
 | 4 | 2026-07-10 | Large-file pipeline MVP | `ca7b8bd`, `4f77498` | `feat/large-file-pipeline` |
 | 3 | 2026-07-10 | Add changelog update skill | `979c17f` | `feat/trellis-setup` |
 | 2 | 2026-07-10 | Standardize PR creation | `7523a13` | `feat/trellis-setup` |

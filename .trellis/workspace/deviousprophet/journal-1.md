@@ -139,3 +139,36 @@ Added compact cooperative IHEX/SREC parsing, binary segment transfer, generation
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Fix large-file search regression
+
+**Date**: 2026-07-11
+**Task**: Fix large-file search regression
+**Branch**: `feat/large-file-pipeline`
+
+### Summary
+
+Amortized search deadline clock checks over bounded comparison batches, cutting 32 MiB scan time from 3.2 seconds to 0.25 seconds while preserving cancellation and progress.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4ee0180` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
