@@ -1,47 +1,77 @@
 const HTML_SINKS = new Set(['innerHTML', 'outerHTML']);
+const TRUSTED_HTML_NAME = /(?:Html|Class|Attr)$/;
+const PROPERTY_VALUE = {
+    Identifier: property => property.name,
+    Literal: property => property.value,
+};
 
 function propertyName(member) {
-    if (!member.computed && member.property.type === 'Identifier') { return member.property.name; }
-    if (member.computed && member.property.type === 'Literal') { return member.property.value; }
-    return undefined;
+    const property = member.property;
+    const expectedType = member.computed ? 'Literal' : 'Identifier';
+    return property.type === expectedType ? PROPERTY_VALUE[expectedType](property) : undefined;
 }
 
 function callableName(node) {
     if (node.type === 'Identifier') { return node.name; }
-    if (node.type === 'MemberExpression') { return propertyName(node); }
-    return undefined;
+    return node.type === 'MemberExpression' ? propertyName(node) : undefined;
 }
 
-function isHtmlSinkTemplate(node) {
-    const parent = node.parent;
-    if (parent?.type === 'AssignmentExpression' && parent.right === node && parent.left.type === 'MemberExpression') {
-        return HTML_SINKS.has(propertyName(parent.left));
-    }
-    if (parent?.type === 'CallExpression' && parent.arguments[1] === node && parent.callee.type === 'MemberExpression') {
-        return propertyName(parent.callee) === 'insertAdjacentHTML';
-    }
-    return false;
-}
+const SAFE_EXPRESSION = {
+    Literal: () => true,
+    Identifier: node => /Html$/.test(node.name),
+    CallExpression: node => {
+        const name = callableName(node.callee) ?? '';
+        return name === 'esc' || TRUSTED_HTML_NAME.test(name);
+    },
+    TemplateLiteral: node => node.expressions.every(isSafeHtmlExpression),
+    ConditionalExpression: node => [node.consequent, node.alternate].every(isSafeHtmlExpression),
+    LogicalExpression: node => [node.left, node.right].every(isSafeHtmlExpression),
+    UnaryExpression: () => true,
+    BinaryExpression: node => [node.left, node.right].every(isSafeHtmlExpression),
+};
 
 function isSafeHtmlExpression(node) {
-    if (node.type === 'Literal') { return true; }
-    if (node.type === 'Identifier') { return /Html$/.test(node.name); }
-    if (node.type === 'CallExpression') {
-        const name = callableName(node.callee) ?? '';
-        return name === 'esc' || /(?:Html|Class|Attr)$/.test(name);
-    }
-    if (node.type === 'TemplateLiteral') { return node.expressions.every(isSafeHtmlExpression); }
-    if (node.type === 'ConditionalExpression') {
-        return isSafeHtmlExpression(node.consequent) && isSafeHtmlExpression(node.alternate);
-    }
-    if (node.type === 'LogicalExpression') {
-        return isSafeHtmlExpression(node.left) && isSafeHtmlExpression(node.right);
-    }
-    if (node.type === 'UnaryExpression') { return true; }
-    if (node.type === 'BinaryExpression') {
-        return isSafeHtmlExpression(node.left) && isSafeHtmlExpression(node.right);
-    }
-    return false;
+    return SAFE_EXPRESSION[node.type]?.(node) ?? false;
+}
+
+function isHtmlAssignment(node) {
+    return node.left.type === 'MemberExpression' && HTML_SINKS.has(propertyName(node.left));
+}
+
+function isInsertAdjacentHtmlCall(node) {
+    return node.callee.type === 'MemberExpression' && propertyName(node.callee) === 'insertAdjacentHTML';
+}
+
+const SINK_TEMPLATE_PARENT = {
+    AssignmentExpression: (parent, node) => parent.right === node && isHtmlAssignment(parent),
+    CallExpression: (parent, node) => parent.arguments[1] === node && isInsertAdjacentHtmlCall(parent),
+};
+
+function isSinkTemplate(node) {
+    const parent = node.parent;
+    return SINK_TEMPLATE_PARENT[parent?.type]?.(parent, node) ?? false;
+}
+
+function reportUnsafeValue(context, node) {
+    if (node.type === 'TemplateLiteral' || isSafeHtmlExpression(node)) { return; }
+    context.report({ node, messageId: 'unescaped' });
+}
+
+function checkAssignment(context, node) {
+    if (isHtmlAssignment(node)) { reportUnsafeValue(context, node.right); }
+}
+
+function checkInsertAdjacentHtml(context, node) {
+    if (!isInsertAdjacentHtmlCall(node)) { return; }
+    const html = node.arguments[1];
+    if (html && html.type !== 'SpreadElement') { reportUnsafeValue(context, html); }
+}
+
+function checkTemplate(context, node) {
+    if (!isSinkTemplate(node)) { return; }
+    node.expressions
+        .filter(expression => !isSafeHtmlExpression(expression))
+        .forEach(expression => context.report({ node: expression, messageId: 'unescaped' }));
 }
 
 export const requireEscapedHtml = {
@@ -53,27 +83,9 @@ export const requireEscapedHtml = {
     },
     create(context) {
         return {
-            AssignmentExpression(node) {
-                if (node.left.type !== 'MemberExpression' || !HTML_SINKS.has(propertyName(node.left))) { return; }
-                if (node.right.type !== 'TemplateLiteral' && !isSafeHtmlExpression(node.right)) {
-                    context.report({ node: node.right, messageId: 'unescaped' });
-                }
-            },
-            CallExpression(node) {
-                if (node.callee.type !== 'MemberExpression' || propertyName(node.callee) !== 'insertAdjacentHTML') { return; }
-                const html = node.arguments[1];
-                if (html && html.type !== 'SpreadElement' && html.type !== 'TemplateLiteral' && !isSafeHtmlExpression(html)) {
-                    context.report({ node: html, messageId: 'unescaped' });
-                }
-            },
-            TemplateLiteral(node) {
-                if (!isHtmlSinkTemplate(node)) { return; }
-                for (const expression of node.expressions) {
-                    if (!isSafeHtmlExpression(expression)) {
-                        context.report({ node: expression, messageId: 'unescaped' });
-                    }
-                }
-            },
+            AssignmentExpression: node => checkAssignment(context, node),
+            CallExpression: node => checkInsertAdjacentHtml(context, node),
+            TemplateLiteral: node => checkTemplate(context, node),
         };
     },
 };
