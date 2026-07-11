@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.12.2] - 2026-07-11
+
+### Fixed
+
+- Enforced escaping for dynamic webview HTML to prevent unsafe content injection
+
 ## [2.12.1] - 2026-07-11
 
 ### Fixed
