@@ -33,6 +33,7 @@ interface SearchProgressState {
 const SEARCH_DEBOUNCE_MS = 120;
 const SEARCH_CHUNK_BUDGET_MS = 24;
 const SEARCH_PROGRESS_THROTTLE_MS = 150;
+const SEARCH_CLOCK_CHECK_COMPARISONS = 4_096;
 
 export class SearchEngine {
     private token = 0;
@@ -187,13 +188,18 @@ function scanByteSegment(
     deadline: number,
 ): number {
     let scanned = 0;
+    const comparisonsPerCandidate = Math.max(1, needleLen * needles.length);
+    const batchSize = Math.max(32, Math.floor(SEARCH_CLOCK_CHECK_COMPARISONS / comparisonsPerCandidate));
     while (cursor.offset <= seg.data.length - needleLen) {
-        if (performance.now() >= deadline) { break; }
-        if (matchesAnyNeedle(seg.data, cursor.offset, needles)) {
-            matches.push(seg.startAddress + cursor.offset);
+        const end = Math.min(cursor.offset + batchSize, seg.data.length - needleLen + 1);
+        while (cursor.offset < end) {
+            if (matchesAnyNeedle(seg.data, cursor.offset, needles)) {
+                matches.push(seg.startAddress + cursor.offset);
+            }
+            cursor.offset++;
+            scanned++;
         }
-        cursor.offset++;
-        scanned++;
+        if (performance.now() >= deadline) { break; }
     }
     return scanned;
 }
@@ -265,13 +271,16 @@ function scanAddressSegment(
 ): number {
     let scanned = 0;
     while (cursor.offset < seg.data.length) {
-        if (performance.now() >= deadline) { break; }
-        const addr = (seg.startAddress + cursor.offset) >>> 0;
-        if ((addr >>> bounds.prefixShift) === bounds.prefixValue) {
-            matches.push(addr);
+        const end = Math.min(cursor.offset + SEARCH_CLOCK_CHECK_COMPARISONS, seg.data.length);
+        while (cursor.offset < end) {
+            const addr = (seg.startAddress + cursor.offset) >>> 0;
+            if ((addr >>> bounds.prefixShift) === bounds.prefixValue) {
+                matches.push(addr);
+            }
+            cursor.offset++;
+            scanned++;
         }
-        cursor.offset++;
-        scanned++;
+        if (performance.now() >= deadline) { break; }
     }
     return scanned;
 }
