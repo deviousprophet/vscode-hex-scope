@@ -13,3 +13,5 @@ vsc-extension-quickstart.md
 **/.vscode-test.*
 .fallowrc.json
 .*/**
+scripts/**
+AGENTS.md
