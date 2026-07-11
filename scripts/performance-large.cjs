@@ -1,8 +1,8 @@
 'use strict';
 
 const { performance } = require('perf_hooks');
-const { parseIntelHexCompact } = require('../out/core/parser/intelHexParser.js');
-const { parseSRecCompact } = require('../out/core/parser/srecParser.js');
+const { parseIntelHexCompact } = require('../src/core/parser/intelHexParser.ts');
+const { parseSRecCompact } = require('../src/core/parser/srecParser.ts');
 
 const MAPPED_BYTES = 64 * 1024 * 1024;
 const MAX_RETAINED_BYTES = 384 * 1024 * 1024;
