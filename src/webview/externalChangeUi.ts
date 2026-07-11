@@ -1,4 +1,5 @@
 import type { IncomingFile } from './appModel';
+import { esc } from './utils';
 
 export function removeAllExternalChangeBanners(): void {
     document.getElementById('ext-conflict-banner')?.remove();
@@ -18,7 +19,7 @@ export function showExternalChangeConflict(
     banner.className = 'ext-conflict-banner';
     banner.innerHTML =
         `<span class="ecb-icon">&#9888;</span>` +
-        `<span class="ecb-msg">File changed externally. You have <strong>${unsavedEditCount}</strong> unsaved edit${unsavedEditCount === 1 ? '' : 's'}. Changes must be reloaded.</span>` +
+        `<span class="ecb-msg">File changed externally. You have <strong>${esc(String(unsavedEditCount))}</strong> unsaved edit${unsavedEditCount === 1 ? '' : 's'}. Changes must be reloaded.</span>` +
         `<button class="ecb-btn ecb-reload"  id="ecb-reload">Reload &amp; discard my edits</button>`;
 
     document.getElementById('app')!.prepend(banner);

@@ -119,15 +119,15 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
 //  Column header 
 
 export function renderMemHeader(): void {
-    const hidden = `<div class="cell-group"><span class="addr-cell">00000000</span></div>`;
+    const hiddenHtml = `<div class="cell-group"><span class="addr-cell">00000000</span></div>`;
 
-    const hexHdr = Array.from({ length: BPR }, (_, i) =>
+    const hexHeaderHtml = Array.from({ length: BPR }, (_, i) =>
         `<span class="data-cell" data-col="${i}" style="cursor:default;color:var(--addr-active-fg)">${i.toString(16).toUpperCase().padStart(2, '0')}</span>`
     ).join('');
 
     document.getElementById('mem-header')!.innerHTML =
-        `${hidden}` +
-        `<div class="cell-group">${hexHdr}</div>` +
+        `${hiddenHtml}` +
+        `<div class="cell-group">${hexHeaderHtml}</div>` +
         `<div class="cell-group"><span class="mem-hdr-decoded">Decoded text</span></div>`;
 }
 

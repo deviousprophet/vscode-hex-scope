@@ -1,10 +1,12 @@
 import typescriptEslint from "typescript-eslint";
+import localHtmlSafety from "./eslint-rules/require-escaped-html.mjs";
 
 export default [{
     files: ["**/*.ts"],
 }, {
     plugins: {
         "@typescript-eslint": typescriptEslint.plugin,
+        "local-html-safety": localHtmlSafety,
     },
 
     languageOptions: {
@@ -23,5 +25,6 @@ export default [{
         eqeqeq: "warn",
         "no-throw-literal": "warn",
         semi: "warn",
+        "local-html-safety/require-escaped-html": "error",
     },
 }];

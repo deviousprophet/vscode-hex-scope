@@ -84,12 +84,12 @@ export function renderSegments(): void {
 
 export function renderLabels(): void {
     const sec   = document.getElementById('s-labels')!;
-    const badge = labelBadgeHtml();
-    const items = labelItemsHtml(S.labels);
+    const badgeHtml = labelBadgeHtml();
+    const itemsHtml = labelItemsHtml(S.labels);
 
     sec.innerHTML = `
-        <div class="sb-hdr">Labels ${badge}</div>
-        <div class="sb-body">${items}
+        <div class="sb-hdr">Labels ${badgeHtml}</div>
+        <div class="sb-body">${itemsHtml}
         <button class="add-lbl-btn" id="btn-add-lbl">+ Add Segment Label</button>
         </div>`;
 
