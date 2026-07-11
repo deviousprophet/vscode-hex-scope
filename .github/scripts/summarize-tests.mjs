@@ -6,12 +6,14 @@ const suiteName = process.env.SUITE_NAME ?? "Automated test results";
 const testFormat = process.env.TEST_FORMAT ?? "mocha"; // "mocha" | "performance"
 const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 
-const passedIcon = "\u2705";
-const failedIcon = "\u274c";
-const timerIcon = "\u23f1";
-const robotIcon = "\u{1F916}";
-const clipboardIcon = "\u{1F4CB}";
-const logIcon = "\u{1FAB5}";
+const ICONS = {
+  passed: "\u2705",
+  failed: "\u274c",
+  timer: "\u23f1",
+  robot: "\u{1F916}",
+  clipboard: "\u{1F4CB}",
+  log: "\u{1FAB5}",
+};
 
 function appendSummary(markdown) {
   if (summaryPath) {
@@ -26,79 +28,81 @@ function tailLines(logText, count) {
   return logText.split(/\r?\n/).slice(-count).join("\n");
 }
 
-const logText = existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
-
-if (testFormat === "performance") {
-  summarizePerformance();
-} else {
-  summarizeMocha();
+function readLog() {
+  return existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
 }
 
-function summarizeMocha() {
-  function firstNumber(pattern, text) {
-    const match = pattern.exec(text);
-    return match ? Number(match[1]) : 0;
-  }
+// ---------------------------------------------------------------------------
+// Mocha format
+// ---------------------------------------------------------------------------
 
-  function passingDuration(text) {
-    return /[0-9]+ passing \(([^)]+)\)/.exec(text)?.[1] ?? "";
-  }
+function firstNumber(pattern, text) {
+  const match = pattern.exec(text);
+  return match ? Number(match[1]) : 0;
+}
 
-  function failureBlock(text) {
-    const lines = text.split(/\r?\n/);
-    const startIndex = lines.findIndex((line) => /^[ \t]+[0-9]+ failing/.test(line));
-    return startIndex === -1 ? "" : lines.slice(startIndex + 1).join("\n").trimEnd();
-  }
+function passingDuration(text) {
+  return /[0-9]+ passing \(([^)]+)\)/.exec(text)?.[1] ?? "";
+}
 
-  function failedTitles(block) {
-    return block
-      .split(/\r?\n/)
-      .map((line) => /^[ \t]+[0-9]+\) (.+)$/.exec(line)?.[1])
-      .filter(Boolean);
-  }
+function failureBlock(text) {
+  const lines = text.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => /^[ \t]+[0-9]+ failing/.test(line));
+  return startIndex === -1 ? "" : lines.slice(startIndex + 1).join("\n").trimEnd();
+}
 
+function failedTitles(block) {
+  return block
+    .split(/\r?\n/)
+    .map((line) => /^[ \t]+[0-9]+\) (.+)$/.exec(line)?.[1])
+    .filter(Boolean);
+}
+
+function parseMochaStats(logText) {
   const pass = firstNumber(/([0-9]+) passing \([^)]+\)/, logText);
   const fail = firstNumber(/([0-9]+) failing/, logText);
   const duration = passingDuration(logText);
-  const total = pass + fail;
+  return { pass, fail, duration, total: pass + fail };
+}
 
-  let status;
+function mochaStatusLine({ fail, total }) {
   if (runTestsOutcome !== "success" && total === 0) {
-    status = `${failedIcon} Tests were not executed successfully`;
-  } else if (fail === 0 && total > 0) {
-    status = `${passedIcon} All tests passed`;
-  } else {
-    status = `${failedIcon} Some tests failed`;
+    return `${ICONS.failed} Tests were not executed successfully`;
   }
-
-  if (duration) {
-    status += ` ${timerIcon} ${duration}`;
+  if (fail === 0 && total > 0) {
+    return `${ICONS.passed} All tests passed`;
   }
+  return `${ICONS.failed} Some tests failed`;
+}
 
-  appendSummary(`# ${robotIcon} ${suiteName}
+function renderMochaHeader(stats) {
+  const durationSuffix = stats.duration ? ` ${ICONS.timer} ${stats.duration}` : "";
+  const status = `${mochaStatusLine(stats)}${durationSuffix}`;
+
+  appendSummary(`# ${ICONS.robot} ${suiteName}
 
 ${status}
 
-| ${passedIcon} Passed | ${failedIcon} Failed | ${clipboardIcon} Total |
+| ${ICONS.passed} Passed | ${ICONS.failed} Failed | ${ICONS.clipboard} Total |
 |---:|---:|---:|
-| ${pass} | ${fail} | ${total} |
+| ${stats.pass} | ${stats.fail} | ${stats.total} |
 `);
+}
 
-  if (fail > 0 && logText) {
-    const block = failureBlock(logText);
-    const titles = failedTitles(block);
+function renderMochaFailures(logText, fail) {
+  if (fail === 0 || !logText) {
+    return;
+  }
 
-    appendSummary(`
+  const block = failureBlock(logText);
+  const titles = failedTitles(block);
+  const titleList = titles.map((title) => `- \`${title}\`\n`).join("");
+
+  appendSummary(`
 <details>
-<summary>${failedIcon} ${fail} failing test(s)</summary>
+<summary>${ICONS.failed} ${fail} failing test(s)</summary>
 
-`);
-
-    for (const title of titles) {
-      appendSummary(`- \`${title}\`\n`);
-    }
-
-    appendSummary(`
+${titleList}
 ### Error details
 
 \`\`\`
@@ -107,76 +111,127 @@ ${block}
 
 </details>
 `);
+}
+
+function renderMochaMissingRun(logText, total) {
+  const shouldRender = runTestsOutcome !== "success" && total === 0 && logText;
+  if (!shouldRender) {
+    return;
   }
 
-  if (runTestsOutcome !== "success" && total === 0 && logText) {
-    appendSummary(`
-## ${logIcon} Last 30 lines of output
+  appendSummary(`
+## ${ICONS.log} Last 30 lines of output
 
 \`\`\`
 ${tailLines(logText, 30)}
 \`\`\`
 `);
+}
+
+function summarizeMocha() {
+  const logText = readLog();
+  const stats = parseMochaStats(logText);
+
+  renderMochaHeader(stats);
+  renderMochaFailures(logText, stats.fail);
+  renderMochaMissingRun(logText, stats.total);
+}
+
+// ---------------------------------------------------------------------------
+// Performance format
+// ---------------------------------------------------------------------------
+
+function tryParseJsonLine(line) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
   }
 }
 
-function summarizePerformance() {
-  const lines = logText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+function isMeasurement(entry) {
+  return Boolean(entry) && typeof entry.name === "string" && "elapsedMs" in entry;
+}
+
+function isConcurrentSummary(entry) {
+  return Boolean(entry) && "concurrentRetainedMiB" in entry;
+}
+
+function parsePerformanceLog(logText) {
   const measurements = [];
   let summaryLine = null;
 
+  const lines = logText.split(/\r?\n/).filter((line) => line.trim().length > 0);
   for (const line of lines) {
-    let parsed;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue; // not a JSON line (e.g. stray text) - skip
-    }
-
-    if (parsed && typeof parsed === "object") {
-      if (typeof parsed.name === "string" && "elapsedMs" in parsed) {
-        measurements.push(parsed);
-      } else if ("concurrentRetainedMiB" in parsed) {
-        summaryLine = parsed;
-      }
+    const entry = tryParseJsonLine(line);
+    if (isMeasurement(entry)) {
+      measurements.push(entry);
+    } else if (isConcurrentSummary(entry)) {
+      summaryLine = entry;
     }
   }
 
-  const success = runTestsOutcome === "success";
-  const status = success
-    ? `${passedIcon} Performance run passed`
-    : `${failedIcon} Performance run failed`;
+  return { measurements, summaryLine };
+}
 
-  appendSummary(`# ${robotIcon} ${suiteName}
+function performanceStatusLine() {
+  return runTestsOutcome === "success"
+    ? `${ICONS.passed} Performance run passed`
+    : `${ICONS.failed} Performance run failed`;
+}
 
-${status}
+function renderPerformanceHeader() {
+  appendSummary(`# ${ICONS.robot} ${suiteName}
+
+${performanceStatusLine()}
 
 `);
+}
 
-  if (measurements.length > 0) {
-    appendSummary(`| Name | Source (MiB) | Records | Elapsed (ms) | Retained (MiB) |
+function measurementRow(m) {
+  return `| ${m.name} | ${m.sourceMiB ?? ""} | ${m.records ?? ""} | ${m.elapsedMs ?? ""} | ${m.retainedMiB ?? ""} |\n`;
+}
+
+function renderPerformanceTable(measurements) {
+  if (measurements.length === 0) {
+    return;
+  }
+
+  const header = `| Name | Source (MiB) | Records | Elapsed (ms) | Retained (MiB) |
 |---|---:|---:|---:|---:|
-`);
-    for (const m of measurements) {
-      appendSummary(`| ${m.name} | ${m.sourceMiB ?? ""} | ${m.records ?? ""} | ${m.elapsedMs ?? ""} | ${m.retainedMiB ?? ""} |\n`);
-    }
-    appendSummary("\n");
+`;
+  const rows = measurements.map(measurementRow).join("");
+  appendSummary(`${header}${rows}\n`);
+}
+
+function renderPerformanceConcurrentSummary(summaryLine) {
+  if (!summaryLine) {
+    return;
   }
 
-  if (summaryLine) {
-    appendSummary(
-      `${clipboardIcon} Concurrent retained: **${summaryLine.concurrentRetainedMiB} MiB** (documents: ${summaryLine.documents?.join(", ") ?? ""})\n\n`
-    );
+  const documents = summaryLine.documents?.join(", ") ?? "";
+  appendSummary(
+    `${ICONS.clipboard} Concurrent retained: **${summaryLine.concurrentRetainedMiB} MiB** (documents: ${documents})\n\n`
+  );
+}
+
+function renderPerformanceEmptyState(measurements, summaryLine) {
+  if (measurements.length > 0 || summaryLine) {
+    return;
   }
 
-  if (measurements.length === 0 && !summaryLine) {
-    appendSummary(`${failedIcon} No performance measurements were found in the log.\n\n`);
+  appendSummary(`${ICONS.failed} No performance measurements were found in the log.\n\n`);
+}
+
+function renderPerformanceFailure(logText) {
+  const success = runTestsOutcome === "success";
+  if (success || !logText) {
+    return;
   }
 
-  if (!success && logText) {
-    appendSummary(`
+  appendSummary(`
 <details>
-<summary>${failedIcon} Failure output</summary>
+<summary>${ICONS.failed} Failure output</summary>
 
 \`\`\`
 ${tailLines(logText, 40)}
@@ -184,5 +239,23 @@ ${tailLines(logText, 40)}
 
 </details>
 `);
-  }
+}
+
+function summarizePerformance() {
+  const logText = readLog();
+  const { measurements, summaryLine } = parsePerformanceLog(logText);
+
+  renderPerformanceHeader();
+  renderPerformanceTable(measurements);
+  renderPerformanceConcurrentSummary(summaryLine);
+  renderPerformanceEmptyState(measurements, summaryLine);
+  renderPerformanceFailure(logText);
+}
+
+// ---------------------------------------------------------------------------
+
+if (testFormat === "performance") {
+  summarizePerformance();
+} else {
+  summarizeMocha();
 }
