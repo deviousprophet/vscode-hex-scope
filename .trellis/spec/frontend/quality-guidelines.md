@@ -13,8 +13,8 @@ npm test
 Before creating or updating a pull request, also run the full Fallow analyzer and the changed-code audit:
 
 ```text
-npx -y fallow@3.3.0 --format json --quiet --explain
-npx -y fallow@3.3.0 audit --base origin/main --gate all --format json --quiet --explain
+npx -y fallow --format json --quiet --explain
+npx -y fallow audit --base origin/main --gate all --format json --quiet --explain
 ```
 
 Both reports must contain zero dead-code issues, clone groups, health findings, and refactor targets. Fix findings in code; do not add suppressions or weaken `.fallowrc.json` to pass the gate.
