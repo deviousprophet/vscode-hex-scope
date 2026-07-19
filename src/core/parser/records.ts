@@ -1,4 +1,5 @@
 import type { HexRecord, ParseWorkOptions } from './types';
+import { workBudgetRuntime, yieldWhenDue } from '../workBudget';
 
 export interface ParsedRecords {
     records: HexRecord[];
@@ -33,12 +34,6 @@ export function parseSourceRecords(
     }
 
     return { records, checksumErrors, malformedLines };
-}
-
-function defaultNow(): number { return performance.now(); }
-
-function defaultYield(): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, 0));
 }
 
 interface SourceLineRange {
@@ -90,29 +85,6 @@ function throwIfParseCancelled(options: ParseWorkOptions): void {
     if (options.signal?.aborted) { throw new Error('Parse cancelled'); }
 }
 
-async function yieldWhenDue(
-    now: () => number,
-    yieldControl: () => Promise<void>,
-    deadline: number,
-    budget: number,
-): Promise<number> {
-    if (now() < deadline) { return deadline; }
-    await yieldControl();
-    return now() + budget;
-}
-
-function parseWorkRuntime(options: ParseWorkOptions): {
-    now: () => number;
-    yieldControl: () => Promise<void>;
-    budget: number;
-} {
-    return {
-        now: options.now ?? defaultNow,
-        yieldControl: options.yieldControl ?? defaultYield,
-        budget: options.timeBudgetMs ?? 24,
-    };
-}
-
 function reportParseProgress(options: ParseWorkOptions, completed: number, total: number): void {
     options.onProgress?.({ stage: 'parse', completed, total });
 }
@@ -126,8 +98,8 @@ export async function parseSourceRecordsAsync(
     const parsed: ParsedRecordsWithRanges = { records: [], ranges: [], checksumErrors: 0, malformedLines: 0 };
     let lineNumber = 1;
     let cursor = 0;
-    const { now, yieldControl, budget } = parseWorkRuntime(options);
-    let deadline = now() + budget;
+    const runtime = workBudgetRuntime(options);
+    let deadline = runtime.now() + runtime.budget;
 
     while (cursor <= source.length) {
         throwIfParseCancelled(options);
@@ -137,7 +109,7 @@ export async function parseSourceRecordsAsync(
         cursor = line.nextCursor;
         lineNumber++;
         reportParseProgress(options, cursor, source.length);
-        deadline = await yieldWhenDue(now, yieldControl, deadline, budget);
+        deadline = await yieldWhenDue(runtime, deadline);
     }
     reportParseProgress(options, source.length, source.length);
     return parsed;

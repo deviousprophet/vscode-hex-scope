@@ -26,6 +26,8 @@ function parseIntelHexCompact(source: string, options?: CompactParserOptions): P
 function parseSRecCompact(source: string, options?: CompactParserOptions): Promise<CompactParseResult>;
 function serializeIntelHex(raw: string, result: ParseResult, edits: Map<number, number>): string;
 function serializeSRec(raw: string, result: ParseResult, edits: Map<number, number>): string;
+function serializeIntelHexAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
+function serializeSRecAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
 function repairChecksums(raw: string, result: ParseResult): string;
 ```
 
@@ -43,6 +45,7 @@ function repairChecksums(raw: string, result: ParseResult): string;
 - IHEX supports data, EOF, extended segment/linear address, and start segment/linear records with required byte counts.
 - SREC supports S0-S3 and S5-S9; S4 is reserved; S1/S2/S3 alone carry memory data; S7/S8/S9 provide execution start address.
 - Serializers rewrite only affected valid data records. Preserve non-data records, blank lines, surrounding line whitespace, untouched lines, and original LF/CRLF style.
+- Async serializers use the shared 24 ms work budget and yield between record batches on large edited documents; save flows must await them.
 - Empty edit maps return original text exactly.
 - Checksum repair changes the final checksum byte of invalid, otherwise parseable records; malformed records remain unchanged.
 

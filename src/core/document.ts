@@ -1,5 +1,6 @@
 import { computeSRecChecksum, SREC_ADDR_SIZES, srecIsData } from './parser/srecParser';
 import type { HexRecord, ParseResult } from './parser/types';
+import { workBudgetRuntime, yieldWhenDue, type WorkBudgetOptions } from './workBudget';
 
 type ParsedRecord = ParseResult['records'][number];
 
@@ -22,6 +23,22 @@ export function serializeIntelHex(originalRaw: string, parseResult: ParseResult,
     );
 }
 
+export function serializeIntelHexAsync(
+    originalRaw: string,
+    parseResult: ParseResult,
+    edits: Map<number, number>,
+    options: WorkBudgetOptions = {},
+): Promise<string> {
+    return serializeEditedRecordsAsync(
+        originalRaw,
+        parseResult,
+        edits,
+        rec => rec.recordType === 0,
+        (rec, data) => buildIntelHexDataRecord(rec.address, data),
+        options,
+    );
+}
+
 export function serializeSRec(originalRaw: string, parseResult: ParseResult, edits: Map<number, number>): string {
     return serializeEditedRecords(
         originalRaw,
@@ -29,6 +46,22 @@ export function serializeSRec(originalRaw: string, parseResult: ParseResult, edi
         edits,
         rec => srecIsData(rec.recordType),
         (rec, data) => buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data),
+    );
+}
+
+export function serializeSRecAsync(
+    originalRaw: string,
+    parseResult: ParseResult,
+    edits: Map<number, number>,
+    options: WorkBudgetOptions = {},
+): Promise<string> {
+    return serializeEditedRecordsAsync(
+        originalRaw,
+        parseResult,
+        edits,
+        rec => srecIsData(rec.recordType),
+        (rec, data) => buildSRecDataRecord(rec.recordType, rec.resolvedAddress, data),
+        options,
     );
 }
 
@@ -45,6 +78,27 @@ function serializeEditedRecords(
     const lines = originalRaw.split(/\r?\n/);
     for (const rec of parseResult.records) {
         applySerializedRecordEdit(lines, rec, edits, canEditRecord, rebuildRecord);
+    }
+    return lines.join(eol);
+}
+
+async function serializeEditedRecordsAsync(
+    originalRaw: string,
+    parseResult: ParseResult,
+    edits: Map<number, number>,
+    canEditRecord: (rec: ParsedRecord) => boolean,
+    rebuildRecord: (rec: ParsedRecord, data: number[]) => string,
+    options: WorkBudgetOptions,
+): Promise<string> {
+    if (edits.size === 0) { return originalRaw; }
+
+    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
+    const lines = originalRaw.split(/\r?\n/);
+    const runtime = workBudgetRuntime(options);
+    let deadline = runtime.now() + runtime.budget;
+    for (const rec of parseResult.records) {
+        applySerializedRecordEdit(lines, rec, edits, canEditRecord, rebuildRecord);
+        deadline = await yieldWhenDue(runtime, deadline);
     }
     return lines.join(eol);
 }

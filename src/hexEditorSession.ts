@@ -6,7 +6,7 @@ import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser'
 import type { ParseResult } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
-import { detectFormatFromParts, repairChecksums, serializeIntelHex, serializeSRec, type HexScopeFormat } from './core/document';
+import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from './core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
@@ -666,8 +666,8 @@ export class HexEditorSession {
                 const editMap = new Map<number, number>(edits);
                 const materialized = materializeParseResult(parseResult, raw, format);
                 const newHex = format === 'srec'
-                    ? serializeSRec(raw, materialized, editMap)
-                    : serializeIntelHex(raw, materialized, editMap);
+                    ? await serializeSRecAsync(raw, materialized, editMap)
+                    : await serializeIntelHexAsync(raw, materialized, editMap);
                 const loaded = await writeRawAndReparse(newHex);
                 void postToWebview(webviewPanel.webview, {
                     type: 'savedEdits',

@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import {
     calculateIntegrity,
     collectIntegrityBytes,
+    collectIntegrityBytesAsync,
     integrityBytesEqual,
     integrityBytesToValueHex,
     integrityValueToBytes,
@@ -34,6 +35,24 @@ suite('integrity algorithms', () => {
             assert.strictEqual(result.byteCount, 9);
         });
     }
+
+    test('software algorithms yield on large byte arrays and preserve results', async () => {
+        const data = new Uint8Array(16 * 1024);
+        data.fill(0xA5);
+        const algorithms: IntegrityAlgorithm[] = ['crc16-ccitt-false', 'crc32-iso-hdlc', 'md5'];
+        for (const algorithm of algorithms) {
+            const expected = await calculateIntegrity(algorithm, data);
+            let nowTick = 0;
+            let yieldCount = 0;
+            const result = await calculateIntegrity(algorithm, data, {
+                timeBudgetMs: 1,
+                now: () => nowTick++,
+                yieldControl: async () => { yieldCount++; },
+            });
+            assert.strictEqual(result.value, expected.value);
+            assert.ok(yieldCount > 0, `expected ${algorithm} calculation to yield`);
+        }
+    });
 });
 
 suite('integrity range parsing', () => {
@@ -95,6 +114,29 @@ suite('integrity range parsing', () => {
             { startAddress: 0x1002, byteLength: 2 },
         );
         assert.deepStrictEqual(bytes, { ok: true, value: new Uint8Array([0, 1, 4, 5]) });
+    });
+
+    test('async collection yields and preserves overlap exclusion', async () => {
+        const request = validateIntegrityRange('1000', '5000', 'crc32-iso-hdlc');
+        assert.strictEqual(request.ok, true);
+        if (!request.ok) { return; }
+        let nowTick = 0;
+        let yieldCount = 0;
+        const bytes = await collectIntegrityBytesAsync(
+            request.value,
+            address => address & 0xFF,
+            { startAddress: 0x2000, byteLength: 4 },
+            {
+                timeBudgetMs: 1,
+                now: () => nowTick++,
+                yieldControl: async () => { yieldCount++; },
+            },
+        );
+        assert.strictEqual(bytes.ok, true);
+        if (!bytes.ok) { return; }
+        assert.strictEqual(bytes.value.length, 0x4001 - 4);
+        assert.strictEqual(bytes.value[0], 0);
+        assert.ok(yieldCount > 0, 'expected integrity byte collection to yield');
     });
 
     test('encodes calculated values in selectable stored byte order', () => {

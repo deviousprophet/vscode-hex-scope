@@ -1,3 +1,5 @@
+import { workBudgetRuntime, yieldWhenDue, type WorkBudgetOptions } from './workBudget';
+
 const INTEGRITY_ALGORITHMS = [
     'crc16-ccitt-false',
     'crc32-iso-hdlc',
@@ -67,6 +69,7 @@ export type IntegrityValidation<T> =
 export type IntegrityEdit = [number, number];
 
 const MAX_ADDRESS = 0xFFFF_FFFF;
+const INTEGRITY_CLOCK_CHECK_BYTES = 4_096;
 
 function isIntegrityAlgorithm(value: unknown): value is IntegrityAlgorithm {
     return typeof value === 'string' && (INTEGRITY_ALGORITHMS as readonly string[]).includes(value);
@@ -254,6 +257,44 @@ export function collectIntegrityBytes(
     return { ok: true, value: Uint8Array.from(values) };
 }
 
+export async function collectIntegrityBytesAsync(
+    request: IntegrityRequest,
+    readByte: (address: number) => number | undefined,
+    excluded?: IntegrityStoredField,
+    options: WorkBudgetOptions = {},
+): Promise<IntegrityValidation<Uint8Array>> {
+    const values: number[] = [];
+    const runtime = workBudgetRuntime(options);
+    let deadline = runtime.now() + runtime.budget;
+    let checkedBytes = 0;
+    for (let address = request.startAddress; address <= request.endAddress; address++) {
+        const value = readIntegrityByte(address, readByte, excluded);
+        if (!value.ok) { return value; }
+        appendIntegrityByte(values, value.value);
+        if (++checkedBytes >= INTEGRITY_CLOCK_CHECK_BYTES) {
+            checkedBytes = 0;
+            deadline = await yieldWhenDue(runtime, deadline);
+        }
+    }
+    return { ok: true, value: Uint8Array.from(values) };
+}
+
+function appendIntegrityByte(values: number[], value: number | undefined): void {
+    if (value !== undefined) { values.push(value); }
+}
+
+function readIntegrityByte(
+    address: number,
+    readByte: (address: number) => number | undefined,
+    excluded?: IntegrityStoredField,
+): IntegrityValidation<number | undefined> {
+    if (isExcludedIntegrityAddress(address, excluded)) { return { ok: true, value: undefined }; }
+    const value = readByte(address);
+    return value === undefined
+        ? { ok: false, error: `No mapped byte at ${formatIntegrityAddress(address)}.` }
+        : { ok: true, value };
+}
+
 function isExcludedIntegrityAddress(address: number, excluded?: IntegrityStoredField): boolean {
     if (!excluded) { return false; }
     if (address < excluded.startAddress) { return false; }
@@ -324,16 +365,17 @@ function isConflictingIntegrityEdit(merged: Map<number, number>, address: number
 export async function calculateIntegrity(
     algorithm: IntegrityAlgorithm,
     bytes: Uint8Array,
+    options: WorkBudgetOptions = {},
 ): Promise<IntegrityResult> {
-    const value = await INTEGRITY_CALCULATORS[algorithm](bytes);
+    const value = await INTEGRITY_CALCULATORS[algorithm](bytes, options);
     return { algorithm, value: value.toUpperCase(), byteCount: bytes.length };
 }
 
-type IntegrityCalculator = (bytes: Uint8Array) => string | Promise<string>;
+type IntegrityCalculator = (bytes: Uint8Array, options: WorkBudgetOptions) => string | Promise<string>;
 
 const INTEGRITY_CALCULATORS: Record<IntegrityAlgorithm, IntegrityCalculator> = {
-    'crc16-ccitt-false': bytes => crc16CcittFalse(bytes).toString(16).padStart(4, '0'),
-    'crc32-iso-hdlc': bytes => crc32IsoHdlc(bytes).toString(16).padStart(8, '0'),
+    'crc16-ccitt-false': async (bytes, options) => (await crc16CcittFalseAsync(bytes, options)).toString(16).padStart(4, '0'),
+    'crc32-iso-hdlc': async (bytes, options) => (await crc32IsoHdlcAsync(bytes, options)).toString(16).padStart(8, '0'),
     md5,
     'sha-1': bytes => subtleDigest('SHA-1', bytes),
     'sha-256': bytes => subtleDigest('SHA-256', bytes),
@@ -344,26 +386,52 @@ export function formatIntegrityAddress(address: number): string {
     return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
 }
 
-function crc16CcittFalse(bytes: Uint8Array): number {
+async function crc16CcittFalseAsync(bytes: Uint8Array, options: WorkBudgetOptions): Promise<number> {
+    const runtime = workBudgetRuntime(options);
+    let deadline = runtime.now() + runtime.budget;
+    let checkedBytes = 0;
     let crc = 0xFFFF;
     for (const byte of bytes) {
-        crc ^= byte << 8;
-        for (let bit = 0; bit < 8; bit++) {
-            crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+        crc = crc16CcittFalseByte(crc, byte);
+        checkedBytes++;
+        if (checkedBytes >= INTEGRITY_CLOCK_CHECK_BYTES) {
+            checkedBytes = 0;
+            if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
         }
     }
     return crc;
 }
 
-function crc32IsoHdlc(bytes: Uint8Array): number {
+function crc16CcittFalseByte(crc: number, byte: number): number {
+    crc ^= byte << 8;
+    for (let bit = 0; bit < 8; bit++) {
+        crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+    return crc;
+}
+
+async function crc32IsoHdlcAsync(bytes: Uint8Array, options: WorkBudgetOptions): Promise<number> {
+    const runtime = workBudgetRuntime(options);
+    let deadline = runtime.now() + runtime.budget;
+    let checkedBytes = 0;
     let crc = 0xFFFF_FFFF;
     for (const byte of bytes) {
-        crc ^= byte;
-        for (let bit = 0; bit < 8; bit++) {
-            crc = crc & 1 ? (crc >>> 1) ^ 0xEDB8_8320 : crc >>> 1;
+        crc = crc32IsoHdlcByte(crc, byte);
+        checkedBytes++;
+        if (checkedBytes >= INTEGRITY_CLOCK_CHECK_BYTES) {
+            checkedBytes = 0;
+            if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
         }
     }
     return (crc ^ 0xFFFF_FFFF) >>> 0;
+}
+
+function crc32IsoHdlcByte(crc: number, byte: number): number {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) {
+        crc = crc & 1 ? (crc >>> 1) ^ 0xEDB8_8320 : crc >>> 1;
+    }
+    return crc;
 }
 
 async function subtleDigest(name: AlgorithmIdentifier, bytes: Uint8Array): Promise<string> {
@@ -385,7 +453,7 @@ const MD5_SHIFTS = [
 const MD5_CONSTANTS = Array.from({ length: 64 }, (_, i) =>
     Math.floor(Math.abs(Math.sin(i + 1)) * 0x1_0000_0000) >>> 0);
 
-function md5(input: Uint8Array): string {
+async function md5(input: Uint8Array, options: WorkBudgetOptions = {}): Promise<string> {
     const bitLength = BigInt(input.length) * 8n;
     const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
     const padded = new Uint8Array(paddedLength);
@@ -399,29 +467,49 @@ function md5(input: Uint8Array): string {
     let b0 = 0xEFCD_AB89;
     let c0 = 0x98BA_DCFE;
     let d0 = 0x1032_5476;
+    const runtime = workBudgetRuntime(options);
+    let deadline = runtime.now() + runtime.budget;
 
     for (let block = 0; block < paddedLength; block += 64) {
-        const words = Array.from({ length: 16 }, (_, i) => view.getUint32(block + i * 4, true));
-        let a = a0, b = b0, c = c0, d = d0;
-        for (let i = 0; i < 64; i++) {
-            const { mix, wordIndex } = md5Round(i, b, c, d);
-            const nextD = c;
-            c = b;
-            const sum = (a + mix + MD5_CONSTANTS[i] + words[wordIndex]) >>> 0;
-            b = (b + rotateLeft(sum, MD5_SHIFTS[i])) >>> 0;
-            a = d;
-            d = nextD;
-        }
-        a0 = (a0 + a) >>> 0;
-        b0 = (b0 + b) >>> 0;
-        c0 = (c0 + c) >>> 0;
-        d0 = (d0 + d) >>> 0;
+        const state = md5Block(view, block, a0, b0, c0, d0);
+        a0 = state.a0;
+        b0 = state.b0;
+        c0 = state.c0;
+        d0 = state.d0;
+        if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
     }
 
     const output = new Uint8Array(16);
     const outputView = new DataView(output.buffer);
     [a0, b0, c0, d0].forEach((word, i) => outputView.setUint32(i * 4, word, true));
     return bytesToHex(output);
+}
+
+function md5Block(
+    view: DataView,
+    block: number,
+    a0: number,
+    b0: number,
+    c0: number,
+    d0: number,
+): { a0: number; b0: number; c0: number; d0: number } {
+    const words = Array.from({ length: 16 }, (_, i) => view.getUint32(block + i * 4, true));
+    let a = a0, b = b0, c = c0, d = d0;
+    for (let i = 0; i < 64; i++) {
+        const { mix, wordIndex } = md5Round(i, b, c, d);
+        const nextD = c;
+        c = b;
+        const sum = (a + mix + MD5_CONSTANTS[i] + words[wordIndex]) >>> 0;
+        b = (b + rotateLeft(sum, MD5_SHIFTS[i])) >>> 0;
+        a = d;
+        d = nextD;
+    }
+    return {
+        a0: (a0 + a) >>> 0,
+        b0: (b0 + b) >>> 0,
+        c0: (c0 + c) >>> 0,
+        d0: (d0 + d) >>> 0,
+    };
 }
 
 function md5Round(i: number, b: number, c: number, d: number): { mix: number; wordIndex: number } {
