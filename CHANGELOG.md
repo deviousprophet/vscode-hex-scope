@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.0] - 2026-07-19
+
+### Changed
+
+- Large file saves now use async chunked serialization to prevent UI freezes on Intel HEX and SREC files
+- Integrity checks on large memory segments now use async chunked CRC and MD5 algorithms to prevent UI freezes
+
 ## [2.12.2] - 2026-07-11
 
 ### Fixed
