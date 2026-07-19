@@ -273,7 +273,7 @@ export async function collectIntegrityBytesAsync(
         appendIntegrityByte(values, value.value);
         if (++checkedBytes >= INTEGRITY_CLOCK_CHECK_BYTES) {
             checkedBytes = 0;
-            if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
+            deadline = await yieldWhenDue(runtime, deadline);
         }
     }
     return { ok: true, value: Uint8Array.from(values) };

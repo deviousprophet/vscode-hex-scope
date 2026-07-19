@@ -98,7 +98,7 @@ async function serializeEditedRecordsAsync(
     let deadline = runtime.now() + runtime.budget;
     for (const rec of parseResult.records) {
         applySerializedRecordEdit(lines, rec, edits, canEditRecord, rebuildRecord);
-        if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
+        deadline = await yieldWhenDue(runtime, deadline);
     }
     return lines.join(eol);
 }
