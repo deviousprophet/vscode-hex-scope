@@ -396,7 +396,7 @@ async function crc16CcittFalseAsync(bytes: Uint8Array, options: WorkBudgetOption
         checkedBytes++;
         if (checkedBytes >= INTEGRITY_CLOCK_CHECK_BYTES) {
             checkedBytes = 0;
-            if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
+            deadline = await yieldWhenDue(runtime, deadline);
         }
     }
     return crc;
@@ -420,7 +420,7 @@ async function crc32IsoHdlcAsync(bytes: Uint8Array, options: WorkBudgetOptions):
         checkedBytes++;
         if (checkedBytes >= INTEGRITY_CLOCK_CHECK_BYTES) {
             checkedBytes = 0;
-            if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
+            deadline = await yieldWhenDue(runtime, deadline);
         }
     }
     return (crc ^ 0xFFFF_FFFF) >>> 0;
@@ -476,7 +476,7 @@ async function md5(input: Uint8Array, options: WorkBudgetOptions = {}): Promise<
         b0 = state.b0;
         c0 = state.c0;
         d0 = state.d0;
-        if (runtime.now() >= deadline) { deadline = await yieldWhenDue(runtime, deadline); }
+        deadline = await yieldWhenDue(runtime, deadline);
     }
 
     const output = new Uint8Array(16);
