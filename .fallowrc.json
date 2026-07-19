@@ -10,7 +10,8 @@
     "esbuild.js"
   ],
   "ignorePatterns": [
-    "out/**"
+    "out/**",
+    ".opencode/**"
   ],
   "dynamicallyLoaded": [
     "src/webview/styles/*.css"
