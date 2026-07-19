@@ -3,7 +3,7 @@
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
   "description": "Firmware memory explorer and editor for Intel HEX and Motorola SREC files.",
-  "version": "2.12.2",
+  "version": "2.13.0",
   "license": "MIT",
   "repository": {
     "type": "git",
