@@ -26,7 +26,8 @@ interface IntegrityCheckSet { schemaVersion: 1; checks: IntegrityCheckConfig[]; 
 
 function validateIntegrityRange(...): IntegrityValidation<IntegrityRequest>;
 function collectIntegrityBytes(...): IntegrityValidation<Uint8Array>;
-function calculateIntegrity(algorithm, bytes): Promise<IntegrityResult>;
+function collectIntegrityBytesAsync(..., options?: WorkBudgetOptions): Promise<IntegrityValidation<Uint8Array>>;
+function calculateIntegrity(algorithm, bytes, options?: WorkBudgetOptions): Promise<IntegrityResult>;
 function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 ```
 
@@ -34,6 +35,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 
 - Start/end addresses are hexadecimal unsigned 32-bit and inclusive.
 - Every address in a range must be mapped unless it belongs to an explicitly excluded stored field.
+- Large byte collection and software integrity algorithms use the shared 24 ms work budget and yield cooperatively; SHA algorithms remain delegated to Web Crypto.
 - CRC16/CRC32 may compare against stored bytes and support selected stored byte order. Hash algorithms never retain stored-address/Auto-fix settings.
 - If stored field overlaps calculated range, exclude its bytes from calculation.
 - Calculated value text is uppercase; conversion to stored bytes honors selected LE/BE.

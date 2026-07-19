@@ -1,7 +1,7 @@
 import { getByte } from '../../memory/memoryData';
 import {
     calculateIntegrity,
-    collectIntegrityBytes,
+    collectIntegrityBytesAsync,
     formatIntegrityAddress,
     integrityBytesEqual,
     integrityBytesToHex,
@@ -673,7 +673,7 @@ function overlapByteCount(request: IntegrityRequest, field: IntegrityStoredField
 
 async function calculateAndRender(check: IntegrityCheckState, token: number, prepared: PreparedCheck): Promise<void> {
     const readByte = getByte;
-    const bytes = collectIntegrityBytes(prepared.request, readByte, prepared.storedField);
+    const bytes = await collectIntegrityBytesAsync(prepared.request, readByte, prepared.storedField);
     if (!bytes.ok) { applyCurrentError(check, token, bytes.error); return; }
     try {
         const result = await calculateIntegrity(prepared.request.algorithm, bytes.value);

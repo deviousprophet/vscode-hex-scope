@@ -1,3 +1,5 @@
+import type { WorkBudgetOptions } from '../workBudget';
+
 // ── Shared Parser Types ───────────────────────────────────────────
 // Common interfaces shared between IntelHexParser and SRecParser.
 // Both parsers produce a ParseResult of this shape so the rest of
@@ -62,10 +64,7 @@ export interface ParseProgress {
     total: number;
 }
 
-export interface ParseWorkOptions {
+export interface ParseWorkOptions extends WorkBudgetOptions {
     signal?: AbortSignal;
-    timeBudgetMs?: number;
-    now?: () => number;
-    yieldControl?: () => Promise<void>;
     onProgress?: (progress: ParseProgress) => void;
 }

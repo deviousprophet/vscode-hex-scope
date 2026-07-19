@@ -4,7 +4,9 @@ import {
     detectFormatFromParts,
     repairChecksums,
     serializeIntelHex,
+    serializeIntelHexAsync,
     serializeSRec,
+    serializeSRecAsync,
 } from '../../core/document';
 import { migrateStructDefinitions } from '../../hexEditorProvider';
 import { parseSRec } from '../../core/parser/srecParser';
@@ -214,6 +216,33 @@ suite('serializeIntelHex()', () => {
         ].join('\n'));
         assert.strictEqual(parseIntelHex(out).checksumErrors, 0);
     });
+
+    test('async serializer yields while preserving Intel HEX output', async () => {
+        const dataRecord = (address: number, data: number[]): string => {
+            const sum = data.reduce((acc, byte) => acc + byte, data.length + ((address >> 8) & 0xFF) + (address & 0xFF));
+            const checksum = ((~sum + 1) & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+            return `:${data.length.toString(16).toUpperCase().padStart(2, '0')}${address.toString(16).toUpperCase().padStart(4, '0')}00${data.map(byte => byte.toString(16).toUpperCase().padStart(2, '0')).join('')}${checksum}`;
+        };
+        const dataLines = Array.from({ length: 64 }, (_, i) => {
+            const address = i * 4;
+            return dataRecord(address, [1, 2, 3, 4]);
+        });
+        const raw = [':020000040800F2', ...dataLines, ':00000001FF'].join('\n');
+        const result = parseIntelHex(raw);
+        const edits = new Map([[0x08000000, 0xFF], [0x080000FC, 0xEE]]);
+        let nowTick = 0;
+        let yieldCount = 0;
+
+        const out = await serializeIntelHexAsync(raw, result, edits, {
+            timeBudgetMs: 1,
+            now: () => nowTick++,
+            yieldControl: async () => { yieldCount++; },
+        });
+
+        assert.strictEqual(out, serializeIntelHex(raw, result, edits));
+        assert.ok(yieldCount > 0, 'expected async Intel HEX serialization to yield');
+        assert.strictEqual(parseIntelHex(out).checksumErrors, 0);
+    });
 });
 
 // ── serializeSRec ─────────────────────────────────────────────────────────────
@@ -291,6 +320,26 @@ suite('serializeSRec()', () => {
         const edits = new Map<number, number>([[0x0001, 0x99]]);
         const out = serializeSRec(crlf, result, edits);
         assert.ok(out.includes('\r\n'), 'should preserve CRLF when input uses CRLF');
+    });
+
+    test('async serializer yields while preserving S-Record output', async () => {
+        const records = Array.from({ length: 64 }, (_, i) =>
+            buildSRecDataRecord(1, i * 4, [1, 2, 3, 4]));
+        const raw = [...records, 'S9030000FC'].join('\n');
+        const result = parseSRec(raw);
+        const edits = new Map([[0, 0xFF], [0xFC, 0xEE]]);
+        let nowTick = 0;
+        let yieldCount = 0;
+
+        const out = await serializeSRecAsync(raw, result, edits, {
+            timeBudgetMs: 1,
+            now: () => nowTick++,
+            yieldControl: async () => { yieldCount++; },
+        });
+
+        assert.strictEqual(out, serializeSRec(raw, result, edits));
+        assert.ok(yieldCount > 0, 'expected async S-Record serialization to yield');
+        assert.strictEqual(parseSRec(out).checksumErrors, 0);
     });
 });
 
