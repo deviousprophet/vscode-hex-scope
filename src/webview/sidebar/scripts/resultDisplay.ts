@@ -13,25 +13,26 @@ export function appendOutput(text: string): void {
     }
 }
 
+function errorBlock(error: string): string {
+    return error ? `<div class="script-output-error">${esc(error)}</div>` : '';
+}
+
+function resultsBlock(results: Array<{ label: string; value: string }> | null): string {
+    if (!results || results.length === 0) { return ''; }
+    const rows = results.map(r =>
+        `<span class="script-result-label">${esc(r.label)}:</span><span class="script-result-value">${esc(r.value)}</span>`
+    ).join('</div><div class="script-result-row">');
+    return `<div class="script-output-results"><div class="script-result-row">${rows}</div></div>`;
+}
+
+function writesBlock(count: number): string {
+    return count > 0 ? `<div class="script-output-writes">${count} byte(s) written (not yet saved)</div>` : '';
+}
+
 function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, pendingWriteCount: number): string {
     const name = scriptPath.split(/[\\/]/).pop() ?? scriptPath;
-    let html = `<div class="script-output-block">
-        <div class="script-output-header">${esc(name)}</div>`;
-    if (error) {
-        html += `<div class="script-output-error">${esc(error)}</div>`;
-    }
-    if (results && results.length > 0) {
-        html += '<div class="script-output-results">';
-        for (const r of results) {
-            html += `<div class="script-result-row"><span class="script-result-label">${esc(r.label)}:</span><span class="script-result-value">${esc(r.value)}</span></div>`;
-        }
-        html += '</div>';
-    }
-    if (pendingWriteCount > 0) {
-        html += `<div class="script-output-writes">${pendingWriteCount} byte(s) written (not yet saved)</div>`;
-    }
-    html += '<div class="script-output-log"></div></div>';
-    return html;
+    return `<div class="script-output-block">
+        <div class="script-output-header">${esc(name)}</div>${errorBlock(error)}${resultsBlock(results)}${writesBlock(pendingWriteCount)}<div class="script-output-log"></div></div>`;
 }
 
 export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, pendingWriteCount: number): void {

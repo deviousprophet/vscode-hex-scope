@@ -704,30 +704,22 @@ export class HexEditorSession {
                 void postToWebview(webviewPanel.webview, { type: 'scriptInfo', scripts });
             },
             runScript: async msg => {
-                if (!parseResult || disposed) { return; }
+                if (!parseResult) { return; }
+                if (disposed) { return; }
+                const scriptPath = msg.scriptPath;
+                const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
                 const host = new VSCodeScriptHost(parseResult.segments, {
-                    output: text => {
-                        void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath: msg.scriptPath, text });
-                    },
-                    setResult: (label, value) => {
-                        // accumulated in ScriptOutput
-                    },
+                    output: post, setResult: () => {},
                     confirm: async (type, detail) => {
                         const btn = await vscode.window.showWarningMessage(
-                            `Script "${msg.scriptPath}" wants to ${type}: ${detail}`,
-                            { modal: true },
-                            'Allow',
-                        );
+                            `Script "${scriptPath}" wants to ${type}: ${detail}`, { modal: true }, 'Allow');
                         return btn === 'Allow';
                     },
                 });
-                const output = await execute(msg.scriptPath, host);
+                const output = await execute(scriptPath, host);
                 void postToWebview(webviewPanel.webview, {
-                    type: 'scriptResult',
-                    scriptPath: msg.scriptPath,
-                    result: { results: output.results ?? [], log: output.log ?? [] },
-                    error: (output as { error?: string }).error ?? '',
-                    pendingWriteCount: host.pendingWrites.length,
+                    type: 'scriptResult', scriptPath, result: output,
+                    error: output.error ?? '', pendingWriteCount: host.pendingWrites.length,
                 });
             },
             closePanel: async () => {
