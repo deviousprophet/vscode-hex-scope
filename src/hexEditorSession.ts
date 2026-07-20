@@ -71,6 +71,7 @@ class LoadProgressReporter {
     private lastAt = 0;
     private lastStage = '';
     private pending: ProviderToWebviewMessage | null = null;
+    private flushed = false;
 
     constructor(
         private readonly webview: vscode.Webview,
@@ -83,7 +84,9 @@ class LoadProgressReporter {
         this.lastAt = now;
         this.lastStage = stage;
         this.pending = { type: 'loadProgress', generation: this.generation(), stage, completed, total };
-        void postToWebview(this.webview, this.pending);
+        if (this.flushed) {
+            void postToWebview(this.webview, this.pending);
+        }
     }
 
     public flush(): void {
@@ -91,6 +94,7 @@ class LoadProgressReporter {
             void postToWebview(this.webview, this.pending);
             this.pending = null;
         }
+        this.flushed = true;
     }
 
     private isThrottled(stage: string, completed: number, total: number | undefined, now: number): boolean {

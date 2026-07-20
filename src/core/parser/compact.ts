@@ -1,6 +1,6 @@
 import type { HexRecord, MemorySegment, ParseWorkOptions } from './types';
 import type { ParsedRecordsWithRanges, SourceRange } from './records';
-import { collectSegmentRanges, type SegmentRange } from './segments';
+import { canUseSegmentRecord, collectSegmentRanges, type SegmentRange } from './segments';
 
 const RECORD_PAGE_CAPACITY = 65_536;
 const COMPACTION_BATCH_SIZE = 2_048;
@@ -36,10 +36,6 @@ function isWithinSegRange(cursor: number, ranges: SegmentRange[], recordIndex: n
     return cursor < ranges.length && recordIndex >= ranges[cursor].startRecord;
 }
 
-function isValidSegRecord(record: HexRecord, isDataRecord: (rec: HexRecord) => boolean): boolean {
-    return !record.error && record.checksumValid && isDataRecord(record);
-}
-
 export async function createCompactParseResult(
     parsed: ParsedRecordsWithRanges,
     segRanges: SegmentRange[],
@@ -57,7 +53,7 @@ export async function createCompactParseResult(
     const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options, (i, record) => {
         segCursor = advanceSegCursor(segCursor, segRanges, i);
         if (!isWithinSegRange(segCursor, segRanges, i)) { return; }
-        if (!isValidSegRecord(record, isDataRecord)) { return; }
+        if (!canUseSegmentRecord(record, isDataRecord)) { return; }
         segments[segCursor].data.set(record.data, segOffsets[segCursor]);
         segOffsets[segCursor] += record.data.length;
     });

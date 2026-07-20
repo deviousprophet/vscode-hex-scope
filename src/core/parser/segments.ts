@@ -2,7 +2,7 @@ import type { HexRecord, MemorySegment } from './types';
 
 export type SegmentRange = { startRecord: number; endRecord: number; address: number; length: number };
 
-function canUseSegmentRecord(rec: HexRecord, isDataRecord: (rec: HexRecord) => boolean): boolean {
+export function canUseSegmentRecord(rec: HexRecord, isDataRecord: (rec: HexRecord) => boolean): boolean {
     return !rec.error && isDataRecord(rec) && rec.checksumValid;
 }
 
