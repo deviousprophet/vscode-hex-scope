@@ -230,3 +230,31 @@
 .lf-cancel     { background: transparent; color: var(--addr-fg); border: 1px solid var(--border) !important;
                  transition: color .1s, border-color .1s; }
 .lf-cancel:hover { color: var(--fg); border-color: var(--fg); }
+
+/* ── Scripts ──────────────────────────────────────────────────── */
+.script-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 8px; border-bottom: 1px solid var(--border); gap: 8px;
+}
+.script-name {
+    font-family: var(--font-editor); font-size: 12px; color: var(--fg); flex: 1; overflow: hidden; text-overflow: ellipsis;
+}
+.script-run-btn {
+    background: var(--btn-bg); color: var(--btn-fg); border: none; border-radius: 3px;
+    padding: 3px 10px; cursor: pointer; font-size: 11px; font-family: var(--font-ui);
+    white-space: nowrap;
+}
+.script-run-btn:hover { background: var(--btn-hover); }
+.script-output { margin-top: 8px; }
+.script-output-block {
+    background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 4px; margin: 4px 8px; padding: 8px;
+}
+.script-output-header { font-size: 11px; font-weight: 700; color: var(--addr-fg); margin-bottom: 4px; }
+.script-output-error { color: var(--match-hi); font-size: 11px; margin-bottom: 4px; }
+.script-output-results { margin-bottom: 4px; }
+.script-result-row { display: flex; gap: 6px; font-size: 11px; padding: 1px 0; }
+.script-result-label { font-weight: 700; color: var(--addr-fg); white-space: nowrap; }
+.script-result-value { color: var(--fg); font-family: var(--font-editor); }
+.script-output-writes { font-size: 10px; color: var(--info-fg); margin-bottom: 4px; }
+.script-output-log { font-size: 11px; color: var(--addr-fg); }
+.script-output-log div { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }

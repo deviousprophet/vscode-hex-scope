@@ -135,6 +135,11 @@
         "title": "Open with HexScope Viewer",
         "icon": "$(symbol-misc)",
         "category": "HexScope"
+      },
+      {
+        "command": "hexScope.runScript",
+        "title": "Run Script",
+        "category": "HexScope"
       }
     ],
     "menus": {

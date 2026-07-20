@@ -69,6 +69,10 @@ const MODEL_APPLIERS: ModelAppliers = {
     externalChange: applyExternalChangeMessage,
     externalChangeError: applyExternalChangeErrorMessage,
     repairComplete: applyRepairCompleteMessage,
+    scriptInfo: applyPassiveMessage,
+    scriptResult: applyPassiveMessage,
+    scriptOutput: applyPassiveMessage,
+    activateScriptsTab: applyPassiveMessage,
 };
 
 function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }

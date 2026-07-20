@@ -24,6 +24,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Integrity Checks and Profiles](./integrity-checks.md) | Algorithms, ranges, stored comparison, fixes, profiles |
 | [Struct Definitions, Decode, Pins, and Persistence](./struct-model.md) | Layout, validation, C text, decode, pins, migration |
 | [Struct Instance Display](./struct-instance-display.md) | Struct row rendering, pointers, selection, menus, accessibility |
+| [Scripting Support](./scripting.md) | Script runner, vm sandbox, ScriptHost adapter, API surface, sidebar UI |
 
 ## Pre-Development Checklist
 

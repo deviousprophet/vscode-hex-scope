@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Deep module seams, core vs extension boundary pattern"}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "HexDocumentSession, hexViewer message handling pattern"}
+{"file": ".trellis/spec/frontend/integrity-checks.md", "reason": "Existing hash/CRC API signatures, sidebar tab activation"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "State invalidation pattern for webview results"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Discriminated unions for protocol messages, boundary validation"}

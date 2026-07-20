@@ -20,6 +20,9 @@ import {
     type WebviewToProviderMessage,
 } from './webviewProtocol';
 
+import { scanScripts, execute } from './core/scripting/scriptRunner';
+import { VSCodeScriptHost } from './scriptHost';
+
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
@@ -693,6 +696,39 @@ export class HexEditorSession {
                     parseResult: serializeParseResult(loaded.result, format),
                 });
                 vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${currentFileName()}`);
+            },
+            requestScriptList: async () => {
+                const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!folder) { return; }
+                const scripts = scanScripts(folder.uri.fsPath);
+                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', scripts });
+            },
+            runScript: async msg => {
+                if (!parseResult || disposed) { return; }
+                const host = new VSCodeScriptHost(parseResult.segments, {
+                    output: text => {
+                        void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath: msg.scriptPath, text });
+                    },
+                    setResult: (label, value) => {
+                        // accumulated in ScriptOutput
+                    },
+                    confirm: async (type, detail) => {
+                        const btn = await vscode.window.showWarningMessage(
+                            `Script "${msg.scriptPath}" wants to ${type}: ${detail}`,
+                            { modal: true },
+                            'Allow',
+                        );
+                        return btn === 'Allow';
+                    },
+                });
+                const output = await execute(msg.scriptPath, host);
+                void postToWebview(webviewPanel.webview, {
+                    type: 'scriptResult',
+                    scriptPath: msg.scriptPath,
+                    result: { results: output.results ?? [], log: output.log ?? [] },
+                    error: (output as { error?: string }).error ?? '',
+                    pendingWriteCount: host.pendingWrites.length,
+                });
             },
             closePanel: async () => {
                 webviewPanel.dispose();

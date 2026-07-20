@@ -45,6 +45,7 @@ import {
     setIntegrityEditHandler,
     setIntegrityProfiles,
 } from './sidebar/integrity/index';
+import { updateScriptList, updateScriptResult, updateScriptOutput, activateScripts, scriptsSectionHtml } from './sidebar/scripts/index';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
@@ -77,6 +78,10 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
     integrityProfiles: handleIntegrityProfilesMessage,
+    scriptInfo: handleScriptInfoMessage,
+    scriptResult: handleScriptResultMessage,
+    scriptOutput: handleScriptOutputMessage,
+    activateScriptsTab: handleActivateScriptsTabMessage,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
@@ -167,6 +172,24 @@ function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>
     resetRecordPages(msg.generation);
     clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void {
+    updateScriptList(msg.scripts);
+}
+
+function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
+    updateScriptResult(msg.scriptPath, msg.result, msg.error, msg.pendingWriteCount);
+}
+
+function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): void {
+    updateScriptOutput(msg.scriptPath, msg.text);
+}
+
+function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScriptsTab'>): void {
+    S.sidebarTab = 'scripts';
+    applySidebarState();
+    activateScripts();
 }
 
 function clearLoadProgress(): void {
@@ -373,11 +396,15 @@ function render(): void {
                 <div class="${tabPanelClass('integrity')}" id="sbp-integrity">
                     <div id="s-integrity"></div>
                 </div>
+                <div class="${tabPanelClass('scripts')}" id="sbp-scripts">
+                    <div class="sb-section" id="s-scripts"></div>
+                </div>
             </div>
             <div id="side-tabs">
                 <button class="${sideTabClass('inspector')}" id="stab-insp">Inspector</button>
                 <button class="${sideTabClass('struct')}" id="stab-struct">Struct Overlay</button>
                 <button class="${sideTabClass('integrity')}" id="stab-integrity">Integrity Checks</button>
+                <button class="${sideTabClass('scripts')}" id="stab-scripts">Scripts</button>
             </div>
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
@@ -487,15 +514,22 @@ function setupSideTabs(): void {
         applySidebarState();
         activateIntegrity();
     });
+    document.getElementById('stab-scripts')!.addEventListener('click', () => {
+        S.sidebarTab = 'scripts';
+        applySidebarState();
+        activateScripts();
+    });
 }
 
 function applySidebarState(): void {
     document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
     document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
     document.getElementById('sbp-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
+    document.getElementById('sbp-scripts')!.classList.toggle('active', S.sidebarTab === 'scripts');
     document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
     document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
     document.getElementById('stab-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
+    document.getElementById('stab-scripts')!.classList.toggle('active', S.sidebarTab === 'scripts');
 }
 
 function renderInitialViews(): void {
@@ -505,6 +539,7 @@ function renderInitialViews(): void {
     renderBits();
     renderStructPins();
     renderIntegrity();
+    scriptsSectionHtml();
     renderSegments();
     renderLabels();
     setupCtxMenu();
