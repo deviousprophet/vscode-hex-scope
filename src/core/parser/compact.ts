@@ -32,6 +32,14 @@ function advanceSegCursor(cursor: number, ranges: SegmentRange[], recordIndex: n
     return cursor;
 }
 
+function isWithinSegRange(cursor: number, ranges: SegmentRange[], recordIndex: number): boolean {
+    return cursor < ranges.length && recordIndex >= ranges[cursor].startRecord;
+}
+
+function isValidSegRecord(record: HexRecord, isDataRecord: (rec: HexRecord) => boolean): boolean {
+    return !record.error && record.checksumValid && isDataRecord(record);
+}
+
 export async function createCompactParseResult(
     parsed: ParsedRecordsWithRanges,
     segRanges: SegmentRange[],
@@ -48,9 +56,8 @@ export async function createCompactParseResult(
 
     const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options, (i, record) => {
         segCursor = advanceSegCursor(segCursor, segRanges, i);
-        if (segCursor >= segRanges.length) { return; }
-        if (i < segRanges[segCursor].startRecord) { return; }
-        if (!isDataRecord(record) || record.error || !record.checksumValid) { return; }
+        if (!isWithinSegRange(segCursor, segRanges, i)) { return; }
+        if (!isValidSegRecord(record, isDataRecord)) { return; }
         segments[segCursor].data.set(record.data, segOffsets[segCursor]);
         segOffsets[segCursor] += record.data.length;
     });
