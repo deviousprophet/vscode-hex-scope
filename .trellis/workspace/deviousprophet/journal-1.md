@@ -305,3 +305,36 @@ Fixed early panel-disposal retention, added idempotent resource cleanup, typed r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Add scripting support for custom HEX processing
+
+**Date**: 2026-07-20
+**Task**: Add scripting support for custom HEX processing
+**Branch**: `feat/scripting-support`
+
+### Summary
+
+Implemented scripting support: core vm sandbox runner with HexScopeAPI (hex.read/write, crc, hash, exec, fetch), VSCodeScriptHost adapter with confirmation dialogs, scripts sidebar tab with run/output UI, command palette entry. All quality gates pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a564af9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
