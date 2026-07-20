@@ -1,6 +1,6 @@
 import type { HexRecord, MemorySegment, ParseWorkOptions } from './types';
 
-type SegmentRange = { startRecord: number; endRecord: number; address: number; length: number };
+export type SegmentRange = { startRecord: number; endRecord: number; address: number; length: number };
 
 function canUseSegmentRecord(rec: HexRecord, isDataRecord: (rec: HexRecord) => boolean): boolean {
     return !rec.error && isDataRecord(rec) && rec.checksumValid;
@@ -10,7 +10,7 @@ function startsNewRange(rec: HexRecord, current: SegmentRange | null): boolean {
     return !current || rec.resolvedAddress !== current.address + current.length;
 }
 
-function collectSegmentRanges(records: HexRecord[], isDataRecord: (rec: HexRecord) => boolean): SegmentRange[] {
+export function collectSegmentRanges(records: HexRecord[], isDataRecord: (rec: HexRecord) => boolean): SegmentRange[] {
     const ranges: SegmentRange[] = [];
     let current: SegmentRange | null = null;
     for (let i = 0; i < records.length; i++) {

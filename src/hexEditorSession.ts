@@ -70,22 +70,27 @@ type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecor
 class LoadProgressReporter {
     private lastAt = 0;
     private lastStage = '';
+    private pending: ProviderToWebviewMessage | null = null;
 
     constructor(
         private readonly webview: vscode.Webview,
-        private readonly canPost: () => boolean,
         private readonly generation: () => number,
     ) {}
 
     public post(stage: 'read' | 'parse' | 'build' | 'transfer', completed: number, total?: number): void {
-        if (!this.canPost()) { return; }
         const now = Date.now();
         if (this.isThrottled(stage, completed, total, now)) { return; }
         this.lastAt = now;
         this.lastStage = stage;
-        void postToWebview(this.webview, {
-            type: 'loadProgress', generation: this.generation(), stage, completed, total,
-        });
+        this.pending = { type: 'loadProgress', generation: this.generation(), stage, completed, total };
+        void postToWebview(this.webview, this.pending);
+    }
+
+    public flush(): void {
+        if (this.pending) {
+            void postToWebview(this.webview, this.pending);
+            this.pending = null;
+        }
     }
 
     private isThrottled(stage: string, completed: number, total: number | undefined, now: number): boolean {
@@ -319,12 +324,12 @@ export class HexEditorSession {
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
         this._panels.add(webviewPanel);
 
+        let flushProgress: (() => void) | null = null;
+
         let dispatchIncoming = async (rawMsg: unknown): Promise<void> => {
             if (messageType(rawMsg) === 'ready') {
+                flushProgress?.();
                 webviewReady = true;
-                await postToWebview(webviewPanel.webview, {
-                    type: 'loadProgress', generation, stage: 'read', completed: 0,
-                });
             }
         };
         const incomingDisposable = webviewPanel.webview.onDidReceiveMessage(rawMsg => dispatchIncoming(rawMsg));
@@ -346,15 +351,17 @@ export class HexEditorSession {
 
         const progressReporter = new LoadProgressReporter(
             webviewPanel.webview,
-            () => webviewReady && !disposed,
             () => generation,
         );
+        flushProgress = () => progressReporter.flush();
         const postProgress = progressReporter.post.bind(progressReporter);
 
         postProgress('read', 0);
 
+        await new Promise<void>(r => setImmediate(r));
+
         generation++;
-        const initial = await loadInitialDocument(
+        const loadPromise = loadInitialDocument(
             document,
             webviewPanel,
             token,
@@ -362,13 +369,12 @@ export class HexEditorSession {
             generation,
             () => disposed,
             progress => postProgress(progress.stage, progress.completed, progress.total),
-        );
-        if (!initial) {
-            resources.dispose();
-            return;
-        }
-        ({ source: raw, format, result: parseResult } = initial);
-        currentGeneration = generation;
+        ).then(initial => {
+            if (!initial) { resources.dispose(); return; }
+            ({ source: raw, format, result: parseResult } = initial);
+            currentGeneration = generation;
+            void postInit();
+        }).catch(() => resources.dispose());
 
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
 
@@ -462,7 +468,9 @@ export class HexEditorSession {
 
         const postInit = async () => {
             if (!webviewReady || !parseResult) { return; }
+            postProgress('transfer', 0);
             const serialized = serializeParseResult(parseResult, format);
+            postProgress('transfer', 1, 1);
             const structs = await loadStructs();
             const integrityProfiles = await loadIntegrityProfiles();
             const integrityChecks = await loadIntegrityChecks();
@@ -574,6 +582,7 @@ export class HexEditorSession {
 
         const messageHandlers: Partial<Record<WebviewToProviderMessage['type'], WebviewMessageHandler>> = {
             ready: async () => {
+                flushProgress?.();
                 webviewReady = true;
                 await postInit();
             },
@@ -708,7 +717,6 @@ export class HexEditorSession {
             const type = messageType(msg) as WebviewToProviderMessage['type'] | undefined;
             if (type) { await messageHandlers[type]?.(msg); }
         };
-        await postInit();
 
         resources.add(webviewPanel.onDidChangeViewState(e => {
             if (e.webviewPanel.active) {
@@ -741,6 +749,18 @@ export class HexEditorSession {
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style nonce="${nonce}">
+body{margin:0;padding:0;height:100vh;background:var(--vscode-editor-background,#1e1e1e)}
+#app{display:flex;flex-direction:column;height:100%;overflow:hidden}
+.loading-shell{display:grid;place-items:center;height:100%;padding:24px;background:radial-gradient(circle at top,rgba(156,220,254,.12),transparent 42%),linear-gradient(180deg,rgba(255,255,255,.02),transparent 28%)}
+.loading-card{width:min(460px,100%);padding:24px 26px;border:1px solid var(--vscode-panel-border,rgba(128,128,128,.35));border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));box-shadow:0 18px 50px rgba(0,0,0,.24)}
+.loading-eyebrow{margin-bottom:8px;color:var(--vscode-textLink-foreground,#3794ff);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.loading-title{margin-bottom:6px;font-size:22px;font-weight:700;color:var(--vscode-editor-foreground,#ccc)}
+.loading-text{margin-bottom:18px;color:var(--vscode-descriptionForeground,#8b8b8b);line-height:1.45}
+.loading-bar{position:relative;overflow:hidden;height:8px;border-radius:999px;background:rgba(255,255,255,.06)}
+.loading-bar-fill{width:35%;height:100%;border-radius:inherit;background:linear-gradient(90deg,rgba(156,220,254,.35),rgba(156,220,254,.95));animation:loading-slide 1.15s ease-in-out infinite}
+@keyframes loading-slide{0%{transform:translateX(-120%)}100%{transform:translateX(300%)}}
+    </style>
 ${cssLinks}
     <title>HexScope</title>
 </head>
