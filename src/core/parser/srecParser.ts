@@ -5,7 +5,7 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
-import { buildContiguousSegments, buildContiguousSegmentsAsync } from './segments';
+import { buildContiguousSegments, collectSegmentRanges } from './segments';
 import { parseSourceRecords, parseSourceRecordsAsync } from './records';
 import { createCompactParseResult, type CompactParseResult, type CompactParserOptions } from './compact';
 
@@ -248,7 +248,7 @@ export async function parseSRecCompact(source: string, options: CompactParserOpt
             startAddress = record.address;
         }
     }, options);
+    const segRanges = collectSegmentRanges(parsed.records, rec => srecIsData(rec.recordType));
     options.onProgress?.({ stage: 'build', completed: 0, total: parsed.records.length });
-    const segments = await buildContiguousSegmentsAsync(parsed.records, rec => srecIsData(rec.recordType), options);
-    return createCompactParseResult(parsed, segments, options, startAddress);
+    return createCompactParseResult(parsed, segRanges, options, startAddress, rec => srecIsData(rec.recordType));
 }

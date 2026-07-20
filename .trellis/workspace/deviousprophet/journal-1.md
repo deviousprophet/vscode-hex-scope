@@ -305,3 +305,36 @@ Fixed early panel-disposal retention, added idempotent resource cleanup, typed r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: fix: loading screen race condition and build perf
+
+**Date**: 2026-07-20
+**Task**: fix: loading screen race condition and build perf
+**Branch**: `fix/loading-screen-race-condition`
+
+### Summary
+
+Fixed loading screen blank on large files: queued progress before webview ready, inlined loading CSS, yielded for paint before background load, merged segment building into CompactRecordStore iteration (1-pass vs 3-pass)
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `56fe804` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
