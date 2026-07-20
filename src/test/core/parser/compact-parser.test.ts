@@ -1,7 +1,8 @@
 import * as assert from 'assert';
 import { parseIntelHex, parseIntelHexCompact, parseIntelHexLine } from '../../../core/parser/intelHexParser';
 import { parseSRec, parseSRecCompact, parseSRecRecordLine } from '../../../core/parser/srecParser';
-import { CompactRecordStore } from '../../../core/parser/compact';
+import { CompactRecordStore, createCompactParseResult } from '../../../core/parser/compact';
+import { collectSegmentRanges } from '../../../core/parser/segments';
 import type { HexRecord } from '../../../core/parser/types';
 
 suite('compact async parsers', () => {
@@ -86,5 +87,52 @@ suite('compact async parsers', () => {
 
         assert.strictEqual(store.length, records.length);
         assert.ok(yields >= 1);
+    });
+
+    test('build progress reports intermediate values without silent gap', async () => {
+        const record: HexRecord = {
+            lineNumber: 1,
+            raw: ':100000000102030405060708090A0B0C0D0E0F56',
+            byteCount: 16,
+            address: 0,
+            recordType: 0,
+            data: new Uint8Array(16).map((_, i) => i),
+            checksum: 0x56,
+            checksumValid: true,
+            resolvedAddress: 0,
+        };
+        const count = 10_000;
+        const records = Array.from({ length: count }, (_, i) => ({
+            ...record,
+            address: i * 16,
+            resolvedAddress: i * 16,
+        }));
+        const ranges = records.map(r => ({ start: 0, end: r.raw.length }));
+        const segRanges = collectSegmentRanges(records, () => true);
+        const progress: number[] = [];
+        let clock = 0;
+
+        const result = await createCompactParseResult(
+            { records, ranges, checksumErrors: 0, malformedLines: 0 },
+            segRanges,
+            { timeBudgetMs: 1, now: () => ++clock, onProgress: u => { progress.push(u.completed); } },
+        );
+        assert.strictEqual(result.segments.length, 1);
+        assert.strictEqual(result.segments[0].data.length, count * 16);
+        assert.ok(progress.length >= 3, `expected ≥3 progress updates, got ${progress.length}: [${progress.slice(0, 10).join(',')}…]`);
+        assert.deepStrictEqual(progress, [...progress].sort((a, b) => a - b));
+        assert.strictEqual(progress.at(-1), count);
+    });
+
+    test('segment data built during compaction matches sync parser', async () => {
+        const source = ':100000000102030405060708090A0B0C0D0E0F56\n:10001000101112131415161718191A1B1C1D1E1FF4\n:00000001FF\n';
+        const expected = parseIntelHex(source);
+        const actual = await parseIntelHexCompact(source);
+
+        assert.strictEqual(actual.segments.length, expected.segments.length);
+        assert.deepStrictEqual(
+            actual.segments.map(s => Array.from(s.data)),
+            expected.segments.map(s => Array.from(s.data)),
+        );
     });
 });

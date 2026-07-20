@@ -27,12 +27,17 @@ export interface CompactParseResult {
     startAddress?: number;
 }
 
+function advanceSegCursor(cursor: number, ranges: SegmentRange[], recordIndex: number): number {
+    while (cursor < ranges.length && recordIndex > ranges[cursor].endRecord) { cursor++; }
+    return cursor;
+}
+
 export async function createCompactParseResult(
     parsed: ParsedRecordsWithRanges,
     segRanges: SegmentRange[],
     options: ParseWorkOptions,
     startAddress?: number,
-    isDataRecord?: (rec: HexRecord) => boolean,
+    isDataRecord: (rec: HexRecord) => boolean = () => true,
 ): Promise<CompactParseResult> {
     const segments: MemorySegment[] = segRanges.map(r => ({
         startAddress: r.address,
@@ -42,12 +47,12 @@ export async function createCompactParseResult(
     let segCursor = 0;
 
     const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options, (i, record) => {
-        while (segCursor < segRanges.length && i > segRanges[segCursor].endRecord) { segCursor++; }
-        if (segCursor < segRanges.length && i >= segRanges[segCursor].startRecord
-            && !record.error && record.checksumValid && isDataRecord?.(record)) {
-            segments[segCursor].data.set(record.data, segOffsets[segCursor]);
-            segOffsets[segCursor] += record.data.length;
-        }
+        segCursor = advanceSegCursor(segCursor, segRanges, i);
+        if (segCursor >= segRanges.length) { return; }
+        if (i < segRanges[segCursor].startRecord) { return; }
+        if (!isDataRecord(record) || record.error || !record.checksumValid) { return; }
+        segments[segCursor].data.set(record.data, segOffsets[segCursor]);
+        segOffsets[segCursor] += record.data.length;
     });
 
     return {
