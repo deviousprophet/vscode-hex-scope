@@ -734,11 +734,10 @@ export class HexEditorSession {
                     },
                 });
                 const output = await execute(scriptPath, host, undefined, signal);
-                if (currentAbort?.signal === signal) { currentAbort = null; }
+                currentAbort = null;
                 void postToWebview(webviewPanel.webview, {
                     type: 'scriptResult', scriptPath, result: output,
-                    error: output.error ?? '',
-                    errorType: output.errorType,
+                    error: output.error ?? '', errorType: output.errorType,
                     pendingWriteCount: host.pendingWrites.length,
                 });
             },

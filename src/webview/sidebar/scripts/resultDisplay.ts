@@ -52,11 +52,15 @@ function logLinesHtml(lines: string[]): string {
     return lines.map(l => `<div>${esc(l)}</div>`).join('');
 }
 
+function flushArea(path: string | null): HTMLElement | null {
+    const p = path || runningPathFromButton();
+    return p ? resultAreaFor(p) : null;
+}
+
 function flushBuffer(): void {
     if (outputBuffer.length === 0) { return; }
     const lines = outputBuffer.splice(0);
-    const path = batchPath || runningPathFromButton();
-    const area = path ? resultAreaFor(path) : null;
+    const area = flushArea(batchPath);
     if (!area) { return; }
     const log = ensureLogArea(area);
     if (log) { log.insertAdjacentHTML('beforeend', logLinesHtml(lines)); }
