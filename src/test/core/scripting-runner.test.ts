@@ -24,6 +24,7 @@ function makeHost(overrides: Partial<IScriptHost> = {}): IScriptHost {
         confirm: async () => false,
         output(text) { log.push(text); },
         setResult(label, value) { results.push({ label, value }); },
+        collectOutput() { return { results: [...results], log: [...log] }; },
         ...overrides,
         ...{ _log: log, _results: results },
     } as IScriptHost & { _log: string[]; _results: Array<{ label: string; value: string }> };

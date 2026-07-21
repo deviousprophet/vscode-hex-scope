@@ -81,6 +81,7 @@ async function runOrError(
     jsCode: string,
     sandbox: Record<string, unknown>,
     api: HexScopeAPI,
+    host: ScriptHost,
     timeoutMs: number,
 ): Promise<ScriptOutput> {
     const loadError = loadModule(jsCode, sandbox, timeoutMs);
@@ -88,7 +89,8 @@ async function runOrError(
     const run = extractRun(sandbox);
     if (!run) { return { results: [], log: [], error: 'Script must export a \'run\' function.' }; }
     const execError = await runWithTimeout(() => run(api), timeoutMs);
-    return { results: [], log: [], error: execError ? execError.message : undefined };
+    const collected = host.collectOutput();
+    return { results: collected.results, log: collected.log, error: execError ? execError.message : undefined };
 }
 
 export async function execute(
@@ -98,7 +100,7 @@ export async function execute(
 ): Promise<ScriptOutput> {
     try {
         const api = buildAPI(host);
-        return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, timeoutMs);
+        return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, host, timeoutMs);
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return { results: [], log: [msg], error: msg };

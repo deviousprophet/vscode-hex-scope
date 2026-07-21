@@ -723,7 +723,7 @@ export class HexEditorSession {
                 const scriptPath = msg.scriptPath;
                 const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
                 const host = new VSCodeScriptHost(parseResult.segments, {
-                    output: post, setResult: () => {},
+                    output: post,
                     confirm: async (type, detail) => {
                         const btn = await vscode.window.showWarningMessage(
                             `Script "${scriptPath}" wants to ${type}: ${detail}`, { modal: true }, 'Allow');

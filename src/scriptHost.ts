@@ -34,22 +34,24 @@ export class VSCodeScriptHost implements IScriptHost {
     private readonly edits = new Map<number, number>();
     public readonly pendingWrites: WriteEdit[] = [];
     private readonly lookup: SegmentLookup[];
-    private readonly _output: (text: string) => void;
-    private readonly _setResult: (label: string, value: string) => void;
+    private readonly resultsAcc: Array<{ label: string; value: string }> = [];
+    private readonly logAcc: string[] = [];
+    private readonly _outputHook: (text: string) => void;
+    private readonly _resultHook: (label: string, value: string) => void;
     private readonly _confirm: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
 
     constructor(
         segments: MemorySegment[],
         options: {
-            output: (text: string) => void;
-            setResult: (label: string, value: string) => void;
-            confirm: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
+            output?: (text: string) => void;
+            setResult?: (label: string, value: string) => void;
+            confirm?: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
         },
     ) {
         this.lookup = buildLookup(segments);
-        this._output = options.output;
-        this._setResult = options.setResult;
-        this._confirm = options.confirm;
+        this._outputHook = options.output ?? (() => {});
+        this._resultHook = options.setResult ?? (() => {});
+        this._confirm = options.confirm ?? (async () => false);
     }
 
     get totalSize(): number {
@@ -81,6 +83,17 @@ export class VSCodeScriptHost implements IScriptHost {
         return this._confirm(type, detail);
     }
 
-    output(text: string): void { this._output(text); }
-    setResult(label: string, value: string): void { this._setResult(label, value); }
+    output(text: string): void {
+        this.logAcc.push(text);
+        this._outputHook(text);
+    }
+
+    setResult(label: string, value: string): void {
+        this.resultsAcc.push({ label, value });
+        this._resultHook(label, value);
+    }
+
+    collectOutput(): { results: Array<{ label: string; value: string }>; log: string[] } {
+        return { results: this.resultsAcc, log: this.logAcc };
+    }
 }

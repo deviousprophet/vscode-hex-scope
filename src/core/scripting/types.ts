@@ -5,6 +5,8 @@ export interface ScriptHost {
     confirm(type: 'write' | 'exec' | 'fetch', detail: string): Promise<boolean>;
     output(text: string): void;
     setResult(label: string, value: string): void;
+    /** Collect results and log accumulated during execution. */
+    collectOutput(): { results: Array<{ label: string; value: string }>; log: string[] };
     /** If true, the host data is stale and writes should be rejected. */
     stale?: boolean;
 }
