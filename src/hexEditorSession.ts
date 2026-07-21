@@ -734,6 +734,7 @@ export class HexEditorSession {
                     },
                 });
                 const output = await execute(scriptPath, host, undefined, signal);
+                // ponytail: guard with `if (currentAbort?.signal === signal)` if runs can overlap
                 currentAbort = null;
                 void postToWebview(webviewPanel.webview, {
                     type: 'scriptResult', scriptPath, result: output,

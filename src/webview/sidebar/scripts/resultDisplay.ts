@@ -73,13 +73,6 @@ function appendRealtime(text: string): void {
     if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
 }
 
-function resetOutput(): void {
-    outputCount = 0;
-    batchPath = null;
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-    outputBuffer = [];
-}
-
 export function appendOutput(text: string): void {
     outputCount++;
     if (outputCount <= BATCH_THRESHOLD) {
