@@ -232,29 +232,75 @@
 .lf-cancel:hover { color: var(--fg); border-color: var(--fg); }
 
 /* ── Scripts ──────────────────────────────────────────────────── */
-.script-item {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 8px; border-bottom: 1px solid var(--border); gap: 8px;
+#s-scripts { padding: 10px 12px; }
+
+.script-card {
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    border-radius: 4px; margin: 6px 0; overflow: hidden;
 }
+.script-card-info {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; gap: 8px; cursor: default;
+}
+.script-card-info:hover { background: rgba(255,255,255,.02); }
 .script-name {
-    font-family: var(--font-editor); font-size: 12px; color: var(--fg); flex: 1; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--font-editor); font-size: 12px; color: var(--fg);
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.script-ext {
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
+    background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: .03em;
 }
 .script-run-btn {
     background: var(--btn-bg); color: var(--btn-fg); border: none; border-radius: 3px;
-    padding: 3px 10px; cursor: pointer; font-size: 11px; font-family: var(--font-ui);
-    white-space: nowrap;
+    padding: 4px 12px; cursor: pointer; font-size: 11px; font-family: var(--font-ui);
+    white-space: nowrap; transition: background .1s;
 }
 .script-run-btn:hover { background: var(--btn-hover); }
-.script-output { margin-top: 8px; }
-.script-output-block {
-    background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 4px; margin: 4px 8px; padding: 8px;
+.script-run-btn:active { opacity: .8; }
+.script-run-btn.running {
+    background: var(--addr-fg); color: var(--bg); opacity: .6; pointer-events: none;
 }
-.script-output-header { font-size: 11px; font-weight: 700; color: var(--addr-fg); margin-bottom: 4px; }
-.script-output-error { color: var(--match-hi); font-size: 11px; margin-bottom: 4px; }
-.script-output-results { margin-bottom: 4px; }
-.script-result-row { display: flex; gap: 6px; font-size: 11px; padding: 1px 0; }
-.script-result-label { font-weight: 700; color: var(--addr-fg); white-space: nowrap; }
-.script-result-value { color: var(--fg); font-family: var(--font-editor); }
-.script-output-writes { font-size: 10px; color: var(--info-fg); margin-bottom: 4px; }
-.script-output-log { font-size: 11px; color: var(--addr-fg); }
-.script-output-log div { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+
+.script-output { margin-top: 4px; }
+.script-output-block {
+    border: 1px solid var(--border); border-radius: 4px;
+    margin: 8px 0; overflow: hidden;
+}
+.script-output-hdr {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 600; color: var(--addr-fg);
+    text-transform: uppercase; letter-spacing: .04em;
+    padding: 5px 8px; background: rgba(255,255,255,.03);
+    border-bottom: 1px solid var(--border);
+}
+.script-output-hdr-err {
+    color: var(--err, #e57373); background: rgba(241,76,76,.08);
+}
+.script-output-body { padding: 6px 8px; }
+.script-output-error {
+    color: var(--err, #e57373); font-size: 11px; margin-bottom: 4px;
+    padding: 4px 8px; background: rgba(241,76,76,.06);
+    border-radius: 3px;
+}
+.script-result-row {
+    display: flex; gap: 6px; font-size: 11px; padding: 3px 6px;
+    align-items: baseline;
+}
+.script-result-row:nth-child(odd) { background: rgba(255,255,255,.02); }
+.script-result-label {
+    font-weight: 700; color: var(--addr-fg); white-space: nowrap; min-width: 90px;
+}
+.script-result-value {
+    color: var(--fg); font-family: var(--font-editor); word-break: break-all;
+}
+.script-output-writes {
+    font-size: 10px; color: var(--info-fg, #4fc3f7);
+    padding: 3px 8px; margin-bottom: 4px;
+}
+.script-output-log {
+    font-size: 11px; color: var(--addr-fg); line-height: 1.5;
+}
+.script-output-log div { padding: 1px 6px; white-space: pre-wrap; word-break: break-all; }
+.script-output-log div:nth-child(odd) { background: rgba(255,255,255,.01); }
