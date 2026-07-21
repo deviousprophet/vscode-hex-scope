@@ -1,5 +1,5 @@
 import { setScripts, scriptListHtml, wireScriptList, requestScriptList } from './scriptList';
-import { resultDisplayHtml, showResult, appendOutput } from './resultDisplay';
+import { showResult, appendOutput } from './resultDisplay';
 
 let initialized = false;
 
@@ -44,6 +44,5 @@ export function renderScripts(): void {
         <div class="sb-hdr">Scripts</div>
         <div class="sb-body">
             <div class="s-scripts-list">${scriptListHtml()}</div>
-            <div class="s-scripts-output">${resultDisplayHtml()}</div>
         </div>`;
 }

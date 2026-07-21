@@ -263,10 +263,10 @@
     background: var(--addr-fg); color: var(--bg); opacity: .6; pointer-events: none;
 }
 
-.script-output { margin-top: 4px; }
+.script-result-area { border-top: 1px solid var(--border); }
 .script-output-block {
-    border: 1px solid var(--border); border-radius: 4px;
-    margin: 8px 0; overflow: hidden;
+    border: none; border-radius: 0;
+    overflow: hidden;
 }
 .script-output-hdr {
     display: flex; align-items: center; gap: 6px;

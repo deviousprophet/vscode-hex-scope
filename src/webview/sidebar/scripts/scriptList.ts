@@ -41,6 +41,7 @@ export function scriptListHtml(): string {
                 ${ext ? `<span class="script-ext">${esc(ext)}</span>` : ''}
                 <button class="script-run-btn${isRunning ? ' running' : ''}" data-path="${esc(s.filePath)}">${isRunning ? 'Running…' : 'Run'}</button>
             </div>
+            <div class="script-result-area" data-path="${esc(s.filePath)}"></div>
         </div>`;
     }).join('');
 }

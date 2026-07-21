@@ -1,16 +1,27 @@
 import { esc } from '../../utils';
-import { clearRunning } from './scriptList';
+import { clearRunning, setRunning } from './scriptList';
 
 export function resultDisplayHtml(): string {
-    return '<div id="script-output" class="script-output"><div class="sb-empty">Run a script to see output</div></div>';
+    return '';
+}
+
+function resultAreaFor(scriptPath: string): HTMLElement | null {
+    return document.querySelector(`.script-result-area[data-path="${scriptPath}"]`);
+}
+
+function runningResultArea(): HTMLElement | null {
+    const el = document.querySelector('.script-card .script-run-btn.running');
+    if (!el) { return null; }
+    const path = (el as HTMLElement).dataset.path;
+    return path ? resultAreaFor(path) : null;
 }
 
 export function appendOutput(text: string): void {
-    const el = document.getElementById('script-output');
-    if (!el) { return; }
-    const block = el.querySelector('.script-output-block:last-child');
-    if (block) {
-        block.querySelector('.script-output-log')!.innerHTML += `<div>${esc(text)}</div>`;
+    const area = runningResultArea();
+    if (!area) { return; }
+    const log = area.querySelector('.script-output-log');
+    if (log) {
+        log.innerHTML += `<div>${esc(text)}</div>`;
     }
 }
 
@@ -29,8 +40,9 @@ function resultsBlockHtml(results: Array<{ label: string; value: string }> | nul
 function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, err: string, pendingWriteCount: number): string {
     const name = scriptPath.split(/[\\/]/).pop() ?? scriptPath;
     const headerClass = err ? ' script-output-hdr-err' : '';
+    const icon = err ? '&#9888;' : '&#9654;';
     return `<div class="script-output-block" data-path="${esc(scriptPath)}">
-        <div class="script-output-hdr${headerClass}">${err ? '&#9888; Error' : '&#9654; Result'} &mdash; ${esc(name)}</div>${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log"></div></div>`;
+        <div class="script-output-hdr${headerClass}">${icon} ${err ? 'Error' : 'Result'} &mdash; ${esc(name)}</div>${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log"></div></div>`;
 }
 
 function writesBlockHtml(count: number): string {
@@ -38,19 +50,9 @@ function writesBlockHtml(count: number): string {
     return `<div class="script-output-writes">&#128190; ${count} byte(s) written (not yet saved)</div>`;
 }
 
-function existingBlock(scriptPath: string): Element | null {
-    const path = scriptPath.replace(/[\\/]/g, '\\/');
-    return document.querySelector(`.script-output-block[data-path="${path}"]`);
-}
-
 export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, pendingWriteCount: number): void {
     clearRunning();
-    const el = document.getElementById('script-output');
-    if (!el) { return; }
-    const existing = existingBlock(scriptPath);
-    if (existing) {
-        existing.outerHTML = scriptResultHtml(scriptPath, results, error, pendingWriteCount);
-    } else {
-        el.insertAdjacentHTML('afterbegin', scriptResultHtml(scriptPath, results, error, pendingWriteCount));
-    }
+    const area = resultAreaFor(scriptPath);
+    if (!area) { return; }
+    area.innerHTML = scriptResultHtml(scriptPath, results, error, pendingWriteCount);
 }
