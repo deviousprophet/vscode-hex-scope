@@ -70,6 +70,10 @@ function classifyError(err: unknown): { type: ScriptErrorType; message: string }
     return { type: 'runtime', message: msg };
 }
 
+function errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
 async function runWithTimeout(fn: () => void | Promise<void>, timeoutMs: number, signal?: AbortSignal): Promise<{ type: ScriptErrorType; message: string } | null> {
     const { promise: timer, cancel: clearTimer } = timeoutPromise(timeoutMs);
     const cancel = signal ? cancelPromise(signal) : timer;
@@ -77,7 +81,6 @@ async function runWithTimeout(fn: () => void | Promise<void>, timeoutMs: number,
         const result = fn();
         if (!isPromise(result)) {
             clearTimer();
-            if (signal?.aborted) { return { type: 'cancel', message: 'Cancelled by user' }; }
             return null;
         }
         await Promise.race([result, timer, cancel]);
@@ -110,8 +113,6 @@ async function runOrError(
     timeoutMs: number,
     signal?: AbortSignal,
 ): Promise<ScriptOutput> {
-    if (signal?.aborted) { return { results: [], log: [], error: 'Cancelled', errorType: 'cancel' }; }
-
     const loadError = loadModule(jsCode, sandbox, timeoutMs);
     if (loadError) {
         return { results: [], log: [loadError.message], error: loadError.message, errorType: 'compile' };
@@ -124,10 +125,8 @@ async function runOrError(
 
     const collected = host.collectOutput();
     const execError = await runWithTimeout(() => run(api), timeoutMs, signal);
-    if (!execError) {
-        return { results: collected.results, log: collected.log };
-    }
-    return { results: collected.results, log: collected.log, error: execError.message, errorType: execError.type };
+    const execResult = execError ? { error: execError.message, errorType: execError.type } : {};
+    return { results: collected.results, log: collected.log, ...execResult };
 }
 
 export async function execute(
@@ -136,11 +135,11 @@ export async function execute(
     timeoutMs: number = SCRIPT_TIMEOUT_MS,
     signal?: AbortSignal,
 ): Promise<ScriptOutput> {
+    if (signal?.aborted) { return { results: [], log: [], error: 'Cancelled', errorType: 'cancel' }; }
     try {
         const api = buildAPI(host);
         return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, host, timeoutMs, signal);
     } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return { results: [], log: [msg], error: msg, errorType: 'compile' };
+        return { results: [], log: [errorMessage(err)], error: errorMessage(err), errorType: 'compile' };
     }
 }

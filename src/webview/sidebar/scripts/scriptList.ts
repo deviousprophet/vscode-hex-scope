@@ -77,27 +77,33 @@ function runIconHtml(path: string): string {
     return '<span class="script-btn-icon play">&#9654;</span>';
 }
 
-export function scriptListHtml(): string {
-    if (currentScripts.length === 0) {
-        return '<div class="sb-empty">No scripts found in .hexscope/scripts/</div>';
-    }
-    return currentScripts.map(s => {
-        const ext = extLabel(s.name);
-        const isRun = runningPath === s.filePath;
-        const isDisabled = ext === 'ts';
-        return `
+function scriptCardHtml(s: { name: string; filePath: string }): string {
+    const ext = extLabel(s.name);
+    const isRun = runningPath === s.filePath;
+    const isDisabled = ext === 'ts';
+    const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
+    const runClass = isRun ? ' running' : '';
+    const disabledClass = isDisabled ? ' disabled-ts' : '';
+    const disabledTitle = isDisabled ? ' title="TypeScript scripts require esbuild. Use .js or run npm install."' : '';
+    return `
         <div class="script-card" data-path="${esc(s.filePath)}">
             <div class="script-card-info">
                 ${statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
-                ${ext ? `<span class="script-ext">${esc(ext)}</span>` : ''}
-                <button class="script-run-btn${isRun ? ' running' : ''}${isDisabled ? ' disabled-ts' : ''}" data-path="${esc(s.filePath)}"${isDisabled ? ' title="TypeScript scripts require esbuild. Use .js or run npm install."' : ''}>
+                ${extBadge}
+                <button class="script-run-btn${runClass}${disabledClass}" data-path="${esc(s.filePath)}"${disabledTitle}>
                     ${runIconHtml(s.filePath)}
                 </button>
             </div>
             <div class="script-result-area" data-path="${esc(s.filePath)}"></div>
         </div>`;
-    }).join('');
+}
+
+export function scriptListHtml(): string {
+    if (currentScripts.length === 0) {
+        return '<div class="sb-empty">No scripts found in .hexscope/scripts/</div>';
+    }
+    return currentScripts.map(scriptCardHtml).join('');
 }
 
 export function wireScriptList(container: HTMLElement): void {

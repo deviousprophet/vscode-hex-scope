@@ -36,13 +36,17 @@ function flushBuffer(): void {
     }
 }
 
+function appendRealtime(text: string): void {
+    const area = runningResultArea();
+    if (!area) { return; }
+    const log = area.querySelector('.script-output-log');
+    if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
+}
+
 export function appendOutput(text: string): void {
     outputCount++;
     if (outputCount <= BATCH_THRESHOLD) {
-        const area = runningResultArea();
-        if (!area) { return; }
-        const log = area.querySelector('.script-output-log');
-        if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
+        appendRealtime(text);
         return;
     }
     outputBuffer.push(text);
@@ -98,11 +102,17 @@ function wireCollapse(area: HTMLElement): void {
     });
 }
 
+function flushPendingOutput(): void {
+    if (!flushTimer) { return; }
+    clearTimeout(flushTimer);
+    flushTimer = null;
+    flushBuffer();
+}
+
 export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
     clearRunning();
     outputCount = 0;
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; flushBuffer(); }
-
+    flushPendingOutput();
     setScriptStatus(scriptPath, error ? 'error' : 'success');
 
     const area = resultAreaFor(scriptPath);
