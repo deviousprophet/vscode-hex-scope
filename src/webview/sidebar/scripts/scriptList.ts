@@ -1,12 +1,16 @@
 import { esc } from '../../utils';
 import { postProviderMessage } from '../../vscodeApi';
 import { S } from '../../state';
-import { resetOutput } from './resultDisplay';
 
 let currentScripts: Array<{ name: string; filePath: string }> = [];
 const scriptStatus = new Map<string, 'success' | 'error' | null>();
 let runningPath: string | null = null;
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+let runStartCallback: (() => void) | null = null;
+
+export function setRunStartCallback(cb: () => void): void {
+    runStartCallback = cb;
+}
 
 export function setScripts(scripts: Array<{ name: string; filePath: string }>): void {
     currentScripts = scripts;
@@ -56,7 +60,7 @@ export function updateScriptCount(count: number): void {
 
 function runScript(filePath: string): void {
     if (runningPath) { return; }
-    resetOutput();
+    runStartCallback?.();
     setRunning(filePath);
     postProviderMessage({ type: 'runScript', scriptPath: filePath, generation: S.documentGeneration });
 }

@@ -1,11 +1,18 @@
 import { esc } from '../../utils';
-import { clearRunning, setScriptStatus, updateStatusDot } from './scriptList';
+import { clearRunning, setScriptStatus, updateStatusDot, setRunStartCallback } from './scriptList';
 
 let outputCount = 0;
 let outputBuffer: string[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let batchPath: string | null = null;
 const BATCH_THRESHOLD = 100;
+
+setRunStartCallback(() => {
+    outputCount = 0;
+    batchPath = null;
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    outputBuffer = [];
+});
 
 function cssEscape(path: string): string {
     return path.replace(/\\/g, '\\\\');
@@ -62,7 +69,7 @@ function appendRealtime(text: string): void {
     if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
 }
 
-export function resetOutput(): void {
+function resetOutput(): void {
     outputCount = 0;
     batchPath = null;
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
