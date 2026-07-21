@@ -77,21 +77,25 @@ function runIconHtml(path: string): string {
     return '<span class="script-btn-icon play">&#9654;</span>';
 }
 
-function scriptCardHtml(s: { name: string; filePath: string }): string {
-    const ext = extLabel(s.name);
-    const isRun = runningPath === s.filePath;
-    const isDisabled = ext === 'ts';
-    const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
-    const runClass = isRun ? ' running' : '';
+function scriptBtnAttrs(path: string, isDisabled: boolean): { btnClass: string; btnTitle: string } {
+    const runClass = runningPath === path ? ' running' : '';
     const disabledClass = isDisabled ? ' disabled-ts' : '';
     const disabledTitle = isDisabled ? ' title="TypeScript scripts require esbuild. Use .js or run npm install."' : '';
+    return { btnClass: runClass + disabledClass, btnTitle: disabledTitle };
+}
+
+function scriptCardHtml(s: { name: string; filePath: string }): string {
+    const ext = extLabel(s.name);
+    const isDisabled = ext === 'ts';
+    const attrs = scriptBtnAttrs(s.filePath, isDisabled);
+    const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
     return `
         <div class="script-card" data-path="${esc(s.filePath)}">
             <div class="script-card-info">
                 ${statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
                 ${extBadge}
-                <button class="script-run-btn${runClass}${disabledClass}" data-path="${esc(s.filePath)}"${disabledTitle}>
+                <button class="script-run-btn${attrs.btnClass}" data-path="${esc(s.filePath)}"${attrs.btnTitle}>
                     ${runIconHtml(s.filePath)}
                 </button>
             </div>
@@ -117,14 +121,15 @@ export function wireScriptList(container: HTMLElement): void {
     });
 }
 
+function updateBtnState(btn: HTMLButtonElement): void {
+    const path = btn.dataset.path;
+    if (!path) { return; }
+    const isRun = runningPath === path;
+    btn.classList.toggle('running', isRun);
+    btn.innerHTML = runIconHtml(path);
+    btn.title = isRun ? (pendingTimer !== null ? 'Running…' : 'Click to cancel') : '';
+}
+
 function renderRunStates(): void {
-    document.querySelectorAll<HTMLButtonElement>('.script-run-btn').forEach(btn => {
-        const path = btn.dataset.path;
-        if (!path) { return; }
-        const isRun = runningPath === path;
-        const isPending = isRun && pendingTimer !== null;
-        btn.classList.toggle('running', isRun);
-        btn.innerHTML = runIconHtml(path);
-        btn.title = isRun ? (isPending ? 'Running…' : 'Click to cancel') : '';
-    });
+    document.querySelectorAll<HTMLButtonElement>('.script-run-btn').forEach(updateBtnState);
 }
