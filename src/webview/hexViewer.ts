@@ -45,7 +45,7 @@ import {
     setIntegrityEditHandler,
     setIntegrityProfiles,
 } from './sidebar/integrity/index';
-import { updateScriptList, updateScriptResult, updateScriptOutput, activateScripts, scriptsSectionHtml } from './sidebar/scripts/index';
+import { updateScriptList, updateScriptResult, updateScriptOutput, activateScripts, renderScripts } from './sidebar/scripts/index';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
@@ -540,7 +540,7 @@ function renderInitialViews(): void {
     renderBits();
     renderStructPins();
     renderIntegrity();
-    scriptsSectionHtml();
+    renderScripts();
     renderSegments();
     renderLabels();
     setupCtxMenu();
