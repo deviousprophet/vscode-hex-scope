@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
 import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
@@ -19,6 +20,9 @@ import {
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
+
+import { scanScripts, execute } from './core/scripting/scriptRunner';
+import { VSCodeScriptHost } from './scriptHost';
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
@@ -319,6 +323,7 @@ export class HexEditorSession {
         let currentGeneration = 0;
         let disposed = false;
         let activeLoad: AbortController | null = new AbortController();
+        let currentAbort: AbortController | null = null;
         let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
         const resources = new DisposableStore();
@@ -706,6 +711,40 @@ export class HexEditorSession {
                     parseResult: serializeParseResult(loaded.result, format),
                 });
                 vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${currentFileName()}`);
+            },
+            requestScriptList: async () => {
+                const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+                const root = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
+                const scripts = scanScripts(root);
+                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', scripts });
+            },
+            runScript: async msg => {
+                if (!parseResult) { return; }
+                if (disposed) { return; }
+                currentAbort = new AbortController();
+                const scriptPath = msg.scriptPath;
+                const signal = currentAbort.signal;
+                const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
+                const host = new VSCodeScriptHost(parseResult.segments, {
+                    output: post,
+                    confirm: async (type, detail) => {
+                        const btn = await vscode.window.showWarningMessage(
+                            `Script "${scriptPath}" wants to ${type}: ${detail}`, { modal: true }, 'Allow');
+                        return btn === 'Allow';
+                    },
+                });
+                const output = await execute(scriptPath, host, undefined, signal);
+                // ponytail: guard with `if (currentAbort?.signal === signal)` if runs can overlap
+                currentAbort = null;
+                void postToWebview(webviewPanel.webview, {
+                    type: 'scriptResult', scriptPath, result: output,
+                    error: output.error ?? '', errorType: output.errorType,
+                    pendingWriteCount: host.pendingWrites.length,
+                });
+            },
+            cancelScript: async msg => {
+                currentAbort?.abort();
+                currentAbort = null;
             },
             closePanel: async () => {
                 webviewPanel.dispose();

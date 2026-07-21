@@ -131,6 +131,10 @@ function noOpHandlers(): ProviderMessageHandlers {
         externalChangeError: () => {},
         repairComplete: () => {},
         integrityProfiles: () => {},
+        scriptInfo: () => {},
+        scriptResult: () => {},
+        scriptOutput: () => {},
+        activateScriptsTab: () => {},
     };
 }
 

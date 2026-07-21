@@ -66,6 +66,12 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.runScript', () => {
+            HexEditorProvider.postToActive({ type: 'activateScriptsTab' });
+        })
+    );
+
     // Copy commands — delegate to the active webview
     const copyCommands: Array<[string, string]> = [
         ['hexScope.copyAsHexString', 'hex'],

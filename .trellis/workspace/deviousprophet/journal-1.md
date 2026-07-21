@@ -307,15 +307,15 @@ Fixed early panel-disposal retention, added idempotent resource cleanup, typed r
 - None - task complete
 
 
-## Session 10: fix: loading screen race condition and build perf
+## Session 10: Add scripting support for custom HEX processing
 
 **Date**: 2026-07-20
-**Task**: fix: loading screen race condition and build perf
-**Branch**: `fix/loading-screen-race-condition`
+**Task**: Add scripting support for custom HEX processing
+**Branch**: `feat/scripting-support`
 
 ### Summary
 
-Fixed loading screen blank on large files: queued progress before webview ready, inlined loading CSS, yielded for paint before background load, merged segment building into CompactRecordStore iteration (1-pass vs 3-pass)
+Implemented scripting support: core vm sandbox runner with HexScopeAPI (hex.read/write, crc, hash, exec, fetch), VSCodeScriptHost adapter with confirmation dialogs, scripts sidebar tab with run/output UI, command palette entry. All quality gates pass.
 
 ### Main Changes
 
@@ -325,7 +325,42 @@ Fixed loading screen blank on large files: queued progress before webview ready,
 
 | Hash | Message |
 |------|---------|
-| `56fe804` | (see git log) |
+| `a564af9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 11: Implement scripts tab UI per finalized spec
+
+**Date**: 2026-07-21
+**Task**: Implement scripts tab UI per finalized spec
+**Branch**: `feat/scripting-support`
+
+### Summary
+
+Implemented the complete scripts tab UI: icon button state machine (Play/Spinner/Stop), embedded result cards with collapsible headers, status dots, toolbar with refresh, error type differentiation (compile/runtime/timeout/cancel), output batching, .ts disabled state, AbortController support, api.assert validation. Fixed 15+ bugs during implementation. All fallow findings resolved.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4481e78` | (see git log) |
+| `4a2bc1e` | (see git log) |
+| `7ccb06a` | (see git log) |
 
 ### Testing
 

@@ -37,7 +37,11 @@ export type ProviderToWebviewMessage =
         canQuickRepair: boolean;
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
-    | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string };
+    | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
+    | { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string }> }
+    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
+    | { type: 'scriptOutput'; scriptPath: string; text: string }
+    | { type: 'activateScriptsTab' };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -58,7 +62,10 @@ export type WebviewToProviderMessage =
     | { type: 'saveEdits'; edits: Array<[number, number]> }
     | { type: 'repairAndReload' }
     | { type: 'closePanel' }
-    | { type: 'viewInNormalEditor' };
+    | { type: 'viewInNormalEditor' }
+    | { type: 'requestScriptList' }
+    | { type: 'runScript'; scriptPath: string; generation: number }
+    | { type: 'cancelScript'; scriptPath: string };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

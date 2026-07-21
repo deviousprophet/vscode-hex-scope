@@ -1,11 +1,11 @@
 ---
 name: pr-create
-description: "Project-wide pull request creation rules. Use whenever creating, publishing, drafting, or updating a PR for this repository."
+description: "Project-wide rules for creating, publishing, drafting, or updating a PR for this repository. Trigger on: 'open pr', 'create pull request', 'draft pr', 'publish branch', 'make a PR', or any similar request."
 ---
 
 # PR Creation
 
-Apply these rules to every pull request in this repository.
+Apply these rules to every pull request in this repository. This skill MUST be loaded and its instructions followed whenever the user asks to open, create, draft, publish, or make a PR — even if they also mention Trellis or other workflows.
 
 ## Preflight
 
@@ -48,6 +48,8 @@ Rules:
 ## Publish
 
 1. Preview exact title/body before creation when the user has not already approved them.
-2. Push with upstream tracking when needed.
-3. Create the PR against the repository default branch unless the user specifies another base.
-4. Read back PR title, body, head, base, URL, and draft state after creation.
+2. Write the body markdown to a temporary `.md` file (e.g. `.git/PR_BODY.md`) using the `write` tool so that markdown formatting is preserved exactly.
+3. Push with upstream tracking when needed.
+4. Create the PR using `gh pr create --title "<title>" --body-file .git/PR_BODY.md --draft`. Use `--body-file` to avoid shell escaping issues with markdown content.
+5. Create against the repository default branch unless the user specifies another base.
+6. Read back PR title, body, head, base, URL, and draft state after creation.

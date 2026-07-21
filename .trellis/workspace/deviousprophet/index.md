@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-07-20
+- **Total Sessions**: 11
+- **Last Active**: 2026-07-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~340 | Active |
+| `journal-1.md` | ~375 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,7 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 10 | 2026-07-20 | fix: loading screen race condition and build perf | `56fe804` | `fix/loading-screen-race-condition` |
+| 11 | 2026-07-21 | Implement scripts tab UI per finalized spec | `4481e78`, `4a2bc1e`, `7ccb06a` | `feat/scripting-support` |
+| 10 | 2026-07-20 | Add scripting support for custom HEX processing | `a564af9` | `feat/scripting-support` |
 | 9 | 2026-07-11 | Verify memory release | `8cac7a4` | `fix/verify-memory-release` |
 | 8 | 2026-07-11 | Audit innerHTML safety | `72a60b6` | `fix/audit-innerhtml` |
 | 7 | 2026-07-11 | Clear Fallow quality gates | `a341015` | `feat/large-file-pipeline` |
