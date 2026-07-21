@@ -338,3 +338,38 @@ Implemented scripting support: core vm sandbox runner with HexScopeAPI (hex.read
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Implement scripts tab UI per finalized spec
+
+**Date**: 2026-07-21
+**Task**: Implement scripts tab UI per finalized spec
+**Branch**: `feat/scripting-support`
+
+### Summary
+
+Implemented the complete scripts tab UI: icon button state machine (Play/Spinner/Stop), embedded result cards with collapsible headers, status dots, toolbar with refresh, error type differentiation (compile/runtime/timeout/cancel), output batching, .ts disabled state, AbortController support, api.assert validation. Fixed 15+ bugs during implementation. All fallow findings resolved.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4481e78` | (see git log) |
+| `4a2bc1e` | (see git log) |
+| `7ccb06a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
