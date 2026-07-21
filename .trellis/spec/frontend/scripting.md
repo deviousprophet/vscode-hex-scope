@@ -200,14 +200,79 @@ Shown inside the result block when `pendingWriteCount > 0`. Informational only �
 | D12 | Run history | One result per card, replaced on re-run |
 | D13 | Result collapse | Auto-expand on new result, then collapsible via header click |
 
-### 8. Tests Required
+### 9. Gotchas
+
+#### 9.1 Windows backslash paths in CSS selectors
+
+When using `querySelector` with `data-path` attributes on Windows, file paths like `D:\sample\file.js` must have backslashes escaped in the CSS selector string. `document.querySelector` treats `\` as an escape character.
+
+```typescript
+// Wrong — breaks on Windows
+document.querySelector(`.card[data-path="${filePath}"]`);
+
+// Correct — escape backslashes
+function cssEscape(path: string): string {
+    return path.replace(/\\/g, '\\\\');
+}
+document.querySelector(`.card[data-path="${cssEscape(filePath)}"]`);
+```
+
+#### 9.2 `collectOutput()` timing
+
+`host.collectOutput()` must be called **after** `runWithTimeout()` completes, not before. The host accumulates results and log during script execution via `output()`, `setResult()`, and `assert()` calls. Calling it before execution returns empty arrays.
+
+```typescript
+// Wrong — collected before script runs
+const collected = host.collectOutput();
+await runWithTimeout(() => run(api), timeoutMs);
+return { results: collected.results, log: collected.log }; // always empty
+
+// Correct — collected after script runs
+await runWithTimeout(() => run(api), timeoutMs);
+const collected = host.collectOutput();
+return { results: collected.results, log: collected.log };
+```
+
+#### 9.3 Streaming output after `clearRunning()`
+
+`appendOutput()` finds the target card by looking for `.script-run-btn.running`. After `showResult()` calls `clearRunning()` (which removes the `.running` class), subsequent `appendOutput()` calls silently fail because no `running` class exists. Always render the complete result (including log) inside `showResult()` rather than calling `appendOutput()` afterward.
+
+#### 9.4 CSS specificity for toolbar overrides
+
+The `.sb-section .sb-hdr` selector (used for collapsible section headers) has higher specificity than `.scripts-toolbar`. To override `cursor: pointer`, use `.sb-section .scripts-toolbar` or `!important`.
+
+### 10. Patterns
+
+#### 10.1 Result block embedded in card
+
+Each script card contains its own result area (`.script-result-area`). Results are rendered inside the card, not in a separate output section. Re-running a script replaces the card's result via `data-path` matching.
+
+#### 10.2 Icon-only button state machine
+
+The Run/Cancel button uses three icon states to avoid text width changes:
+- ▶ Play (idle/done) — green
+- ⟳ Spinner (pending, 200ms after click) — CSS animation
+- ⏹ Stop (running) — red, click to cancel
+
+The button has a fixed `width: 28px; height: 22px` to prevent layout shift on state change.
+
+#### 10.3 Error type visual differentiation
+
+| Error type | Header icon | Header color | CSS class |
+|-----------|------------|--------------|-----------|
+| Compile | ⚠️ | Yellow (#cca700) | `script-output-hdr-err-compile` |
+| Runtime | 🔴 | Red (#e57373) | `script-output-hdr-err` |
+| Timeout | ⏱️ | Orange (#e67e22) | `script-output-hdr-err-timeout` |
+| Cancel | ⏹ | Dimmed (opacity .6) | `script-output-hdr-err-cancel` |
+
+### 11. Tests Required
 
 - `src/test/core/scripting-runner.test.ts` — core runner with mock ScriptHost, compile + execute round-trip
 - Protocol tests: new message types tested in `webview-message-model.test.ts`
 - Integration: manual test with sample .js/.ts scripts run from sidebar
 - `VSCodeScriptHost` tests: edit passthrough, unmapped address, totalSize
 
-### 9. Wrong vs Correct
+### 12. Wrong vs Correct
 
 #### Wrong
 ```typescript
