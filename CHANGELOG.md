@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.13.1] - 2026-07-20
+
+### Fixed
+
+- Fixed loading screen remaining blank or showing no progress when opening large firmware files
+
+### Changed
+
+- Improved large file load performance by merging segment construction into the compaction pass, eliminating redundant record iteration
+
 ## [2.13.0] - 2026-07-19
 
 ### Changed

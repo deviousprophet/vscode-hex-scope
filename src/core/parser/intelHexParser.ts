@@ -4,7 +4,7 @@
 // the other.
 
 import type { HexRecord, MemorySegment, ParseResult } from './types';
-import { buildContiguousSegments, buildContiguousSegmentsAsync } from './segments';
+import { buildContiguousSegments, collectSegmentRanges } from './segments';
 import { parseSourceRecords, parseSourceRecordsAsync } from './records';
 import { createCompactParseResult, type CompactParseResult, type CompactParserOptions } from './compact';
 
@@ -81,9 +81,9 @@ export async function parseIntelHexCompact(source: string, options: CompactParse
     const parsed = await parseSourceRecordsAsync(source, parseLine, record => {
         updateIntelHexAddressState(record, addressState);
     }, options);
+    const segRanges = collectSegmentRanges(parsed.records, rec => rec.recordType === RecordType.Data);
     options.onProgress?.({ stage: 'build', completed: 0, total: parsed.records.length });
-    const segments = await buildContiguousSegmentsAsync(parsed.records, rec => rec.recordType === RecordType.Data, options);
-    return createCompactParseResult(parsed, segments, options, addressState.startAddress);
+    return createCompactParseResult(parsed, segRanges, options, addressState.startAddress, rec => rec.recordType === RecordType.Data);
 }
 
 function updateIntelHexAddressState(record: HexRecord, state: IntelHexAddressState): void {

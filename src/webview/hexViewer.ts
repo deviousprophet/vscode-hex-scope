@@ -118,7 +118,8 @@ function loadProgressLabel(msg: WebviewMessageByType<'loadProgress'>): string {
 }
 
 function renderInitialLoadProgress(label: string): void {
-    document.getElementById('app')!.innerHTML = `<div class="load-progress" role="status">Loading ${esc(label)}…</div>`;
+    const text = document.querySelector('.loading-text');
+    if (text) { text.textContent = `Loading ${label}…`; }
 }
 
 function renderActiveLoadProgress(label: string): void {

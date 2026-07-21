@@ -1,5 +1,6 @@
 import type { HexRecord, MemorySegment, ParseWorkOptions } from './types';
 import type { ParsedRecordsWithRanges, SourceRange } from './records';
+import { canUseSegmentRecord, collectSegmentRanges, type SegmentRange } from './segments';
 
 const RECORD_PAGE_CAPACITY = 65_536;
 const COMPACTION_BATCH_SIZE = 2_048;
@@ -26,17 +27,41 @@ export interface CompactParseResult {
     startAddress?: number;
 }
 
+function advanceSegCursor(cursor: number, ranges: SegmentRange[], recordIndex: number): number {
+    while (cursor < ranges.length && recordIndex > ranges[cursor].endRecord) { cursor++; }
+    return cursor;
+}
+
+function isWithinSegRange(cursor: number, ranges: SegmentRange[], recordIndex: number): boolean {
+    return cursor < ranges.length && recordIndex >= ranges[cursor].startRecord;
+}
+
 export async function createCompactParseResult(
     parsed: ParsedRecordsWithRanges,
-    segments: MemorySegment[],
+    segRanges: SegmentRange[],
     options: ParseWorkOptions,
     startAddress?: number,
+    isDataRecord: (rec: HexRecord) => boolean = () => true,
 ): Promise<CompactParseResult> {
-    const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options);
+    const segments: MemorySegment[] = segRanges.map(r => ({
+        startAddress: r.address,
+        data: new Uint8Array(r.length),
+    }));
+    const segOffsets = new Uint32Array(segRanges.length);
+    let segCursor = 0;
+
+    const records = await CompactRecordStore.create(parsed.records, parsed.ranges, options, (i, record) => {
+        segCursor = advanceSegCursor(segCursor, segRanges, i);
+        if (!isWithinSegRange(segCursor, segRanges, i)) { return; }
+        if (!canUseSegmentRecord(record, isDataRecord)) { return; }
+        segments[segCursor].data.set(record.data, segOffsets[segCursor]);
+        segOffsets[segCursor] += record.data.length;
+    });
+
     return {
         records,
         segments,
-        totalDataBytes: segments.reduce((sum, segment) => sum + segment.data.length, 0),
+        totalDataBytes: segments.reduce((sum, seg) => sum + seg.data.length, 0),
         checksumErrors: parsed.checksumErrors,
         malformedLines: parsed.malformedLines,
         startAddress,
@@ -102,6 +127,7 @@ export class CompactRecordStore {
         records: HexRecord[],
         ranges: SourceRange[],
         options: ParseWorkOptions = {},
+        forRecord?: (index: number, record: HexRecord) => void,
     ): Promise<CompactRecordStore> {
         assertMatchingRecordRanges(records, ranges);
         const store = new CompactRecordStore(records.length);
@@ -109,6 +135,7 @@ export class CompactRecordStore {
 
         for (let i = 0; i < records.length; i++) {
             store.append(i, records[i], ranges[i]);
+            forRecord?.(i, records[i]);
             await work.afterRecord(i + 1);
         }
         work.finish();
