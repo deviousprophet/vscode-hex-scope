@@ -180,7 +180,7 @@ function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void 
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
-    updateScriptResult(msg.scriptPath, msg.result, msg.error, msg.pendingWriteCount);
+    updateScriptResult(msg.scriptPath, msg.result, msg.error, msg.errorType, msg.pendingWriteCount);
 }
 
 function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): void {

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
-import type { ScriptHost, HexScopeAPI, ScriptOutput } from './types';
+import type { ScriptHost, HexScopeAPI, ScriptOutput, ScriptErrorType } from './types';
 import { buildAPI } from './apiFactory';
 import { isScriptFile, readScript, compileScript } from './scriptCompiler';
 
@@ -48,19 +48,29 @@ function isPromise(value: unknown): value is Promise<unknown> {
     return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>).then === 'function';
 }
 
-async function runWithTimeout(fn: () => void | Promise<void>, timeoutMs: number): Promise<Error | null> {
+async function runWithTimeout(fn: () => void | Promise<void>, timeoutMs: number, signal?: AbortSignal): Promise<{ type: ScriptErrorType; message: string } | null> {
     try {
         const result = fn();
-        if (!isPromise(result)) { return null; }
+        if (!isPromise(result)) {
+            if (signal?.aborted) { return { type: 'cancel', message: 'Cancelled by user' }; }
+            return null;
+        }
         let timerId: ReturnType<typeof setTimeout> | undefined;
         const timer = new Promise<never>((_, reject) => {
             timerId = setTimeout(() => reject(new Error(`Script timed out after ${timeoutMs}ms.`)), timeoutMs);
         });
-        await Promise.race([result, timer]);
+        const cancel = signal ? new Promise<never>((_, reject) => {
+            if (signal.aborted) { reject(new Error('Cancelled')); return; }
+            signal.addEventListener('abort', () => reject(new Error('Cancelled')), { once: true });
+        }) : timer;
+        await Promise.race([result, timer, cancel]);
         clearTimeout(timerId);
         return null;
     } catch (err: unknown) {
-        return err instanceof Error ? err : new Error(String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === 'Cancelled') { return { type: 'cancel', message: 'Cancelled by user' }; }
+        if (msg.includes('timed out')) { return { type: 'timeout', message: msg }; }
+        return { type: 'runtime', message: msg };
     }
 }
 
@@ -83,26 +93,41 @@ async function runOrError(
     api: HexScopeAPI,
     host: ScriptHost,
     timeoutMs: number,
+    signal?: AbortSignal,
 ): Promise<ScriptOutput> {
+    if (signal?.aborted) { return { results: [], log: [], error: 'Cancelled', errorType: 'cancel' }; }
+
     const loadError = loadModule(jsCode, sandbox, timeoutMs);
-    if (loadError) { return { results: [], log: [loadError.message], error: loadError.message }; }
+    if (loadError) {
+        const msg = loadError.message;
+        const type: ScriptErrorType = msg.includes('esbuild') ? 'compile' : 'compile';
+        return { results: [], log: [msg], error: msg, errorType: type };
+    }
+
     const run = extractRun(sandbox);
-    if (!run) { return { results: [], log: [], error: 'Script must export a \'run\' function.' }; }
-    const execError = await runWithTimeout(() => run(api), timeoutMs);
+    if (!run) {
+        return { results: [], log: [], error: 'Script must export a \'run\' function.', errorType: 'compile' };
+    }
+
     const collected = host.collectOutput();
-    return { results: collected.results, log: collected.log, error: execError ? execError.message : undefined };
+    const execError = await runWithTimeout(() => run(api), timeoutMs, signal);
+    if (!execError) {
+        return { results: collected.results, log: collected.log };
+    }
+    return { results: collected.results, log: collected.log, error: execError.message, errorType: execError.type };
 }
 
 export async function execute(
     filePath: string,
     host: ScriptHost,
     timeoutMs: number = SCRIPT_TIMEOUT_MS,
+    signal?: AbortSignal,
 ): Promise<ScriptOutput> {
     try {
         const api = buildAPI(host);
-        return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, host, timeoutMs);
+        return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, host, timeoutMs, signal);
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { results: [], log: [msg], error: msg };
+        return { results: [], log: [msg], error: msg, errorType: 'compile' };
     }
 }

@@ -39,7 +39,7 @@ export type ProviderToWebviewMessage =
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
     | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
     | { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string }> }
-    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; pendingWriteCount: number }
+    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
     | { type: 'activateScriptsTab' };
 

@@ -1,9 +1,10 @@
 import { esc } from '../../utils';
-import { clearRunning } from './scriptList';
+import { clearRunning, setScriptStatus } from './scriptList';
 
-export function resultDisplayHtml(): string {
-    return '';
-}
+let outputCount = 0;
+let outputBuffer: string[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const BATCH_THRESHOLD = 100;
 
 function cssEscape(path: string): string {
     return path.replace(/\\/g, '\\\\');
@@ -20,13 +21,33 @@ function runningResultArea(): HTMLElement | null {
     return path ? resultAreaFor(path) : null;
 }
 
-export function appendOutput(text: string): void {
+function logLinesHtml(lines: string[]): string {
+    return lines.map(l => `<div>${esc(l)}</div>`).join('');
+}
+
+function flushBuffer(): void {
+    if (outputBuffer.length === 0) { return; }
+    const lines = outputBuffer.splice(0);
     const area = runningResultArea();
     if (!area) { return; }
     const log = area.querySelector('.script-output-log');
     if (log) {
-        log.innerHTML += `<div>${esc(text)}</div>`;
+        log.insertAdjacentHTML('beforeend', logLinesHtml(lines));
     }
+}
+
+export function appendOutput(text: string): void {
+    outputCount++;
+    if (outputCount <= BATCH_THRESHOLD) {
+        const area = runningResultArea();
+        if (!area) { return; }
+        const log = area.querySelector('.script-output-log');
+        if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
+        return;
+    }
+    outputBuffer.push(text);
+    if (flushTimer) { clearTimeout(flushTimer); }
+    flushTimer = setTimeout(() => { flushTimer = null; flushBuffer(); }, 0);
 }
 
 function errorBlockHtml(error: string): string {
@@ -41,12 +62,31 @@ function resultsBlockHtml(results: Array<{ label: string; value: string }> | nul
     return `<div class="script-output-body"><div class="script-result-row">${rows}</div></div>`;
 }
 
-function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, err: string, pendingWriteCount: number): string {
+type ErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | undefined;
+
+interface HeaderSpec {
+    icon: string;
+    label: string;
+    cssClass: string;
+}
+
+function headerFor(err: string, errType: ErrorType): HeaderSpec {
+    if (!err) { return { icon: '&#9654;', label: 'Result', cssClass: '' }; }
+    switch (errType) {
+        case 'compile': return { icon: '&#9888;', label: 'Compile Error', cssClass: ' script-output-hdr-err-compile' };
+        case 'runtime': return { icon: '&#128308;', label: 'Script Error', cssClass: ' script-output-hdr-err' };
+        case 'timeout': return { icon: '&#9201;', label: 'Timeout', cssClass: ' script-output-hdr-err-timeout' };
+        case 'cancel': return { icon: '&#9632;', label: 'Cancelled', cssClass: ' script-output-hdr-err-cancel' };
+        default: return { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
+    }
+}
+
+function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, err: string, errType: ErrorType, pendingWriteCount: number): string {
     const name = scriptPath.split(/[\\/]/).pop() ?? scriptPath;
-    const headerClass = err ? ' script-output-hdr-err' : '';
-    const icon = err ? '&#9888;' : '&#9654;';
-    return `<div class="script-output-block" data-path="${esc(scriptPath)}">
-        <div class="script-output-hdr${headerClass}">${icon} ${err ? 'Error' : 'Result'} &mdash; ${esc(name)}</div>${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log"></div></div>`;
+    const h = headerFor(err, errType);
+    return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
+        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label} &mdash; ${esc(name)}</div>
+        <div class="script-output-body-wrap">${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log"></div></div></div>`;
 }
 
 function writesBlockHtml(count: number): string {
@@ -54,9 +94,27 @@ function writesBlockHtml(count: number): string {
     return `<div class="script-output-writes">&#128190; ${count} byte(s) written (not yet saved)</div>`;
 }
 
-export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, pendingWriteCount: number): void {
+function wireCollapse(area: HTMLElement): void {
+    area.querySelectorAll('[data-collapse]').forEach(hdr => {
+        hdr.addEventListener('click', () => {
+            const block = (hdr as HTMLElement).closest('.script-output-block');
+            if (block) { block.classList.toggle('collapsed'); }
+        });
+    });
+}
+
+export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
     clearRunning();
+    outputCount = 0;
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; flushBuffer(); }
+
+    setScriptStatus(scriptPath, error ? 'error' : 'success');
+
     const area = resultAreaFor(scriptPath);
     if (!area) { return; }
-    area.innerHTML = scriptResultHtml(scriptPath, results, error, pendingWriteCount);
+    area.innerHTML = scriptResultHtml(scriptPath, results, error, errorType as ErrorType, pendingWriteCount);
+    // Auto-expand: remove collapsed class so result is visible
+    const block = area.querySelector('.script-output-block');
+    if (block) { block.classList.remove('collapsed'); }
+    wireCollapse(area);
 }

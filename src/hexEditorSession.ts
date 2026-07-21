@@ -733,7 +733,9 @@ export class HexEditorSession {
                 const output = await execute(scriptPath, host);
                 void postToWebview(webviewPanel.webview, {
                     type: 'scriptResult', scriptPath, result: output,
-                    error: output.error ?? '', pendingWriteCount: host.pendingWrites.length,
+                    error: output.error ?? '',
+                    errorType: output.errorType,
+                    pendingWriteCount: host.pendingWrites.length,
                 });
             },
             closePanel: async () => {

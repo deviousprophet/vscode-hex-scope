@@ -23,10 +23,13 @@ export interface FetchResult {
     body: string;
 }
 
+export type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel';
+
 export interface ScriptOutput {
     results: Array<{ label: string; value: string }>;
     log: string[];
     error?: string;
+    errorType?: ScriptErrorType;
 }
 
 export interface HexScopeAPI {
