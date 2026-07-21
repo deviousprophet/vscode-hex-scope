@@ -29,7 +29,7 @@ function resultsBlockHtml(results: Array<{ label: string; value: string }> | nul
 function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, err: string, pendingWriteCount: number): string {
     const name = scriptPath.split(/[\\/]/).pop() ?? scriptPath;
     const headerClass = err ? ' script-output-hdr-err' : '';
-    return `<div class="script-output-block">
+    return `<div class="script-output-block" data-path="${esc(scriptPath)}">
         <div class="script-output-hdr${headerClass}">${err ? '&#9888; Error' : '&#9654; Result'} &mdash; ${esc(name)}</div>${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log"></div></div>`;
 }
 
@@ -38,9 +38,19 @@ function writesBlockHtml(count: number): string {
     return `<div class="script-output-writes">&#128190; ${count} byte(s) written (not yet saved)</div>`;
 }
 
+function existingBlock(scriptPath: string): Element | null {
+    const path = scriptPath.replace(/[\\/]/g, '\\/');
+    return document.querySelector(`.script-output-block[data-path="${path}"]`);
+}
+
 export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, pendingWriteCount: number): void {
     clearRunning();
     const el = document.getElementById('script-output');
     if (!el) { return; }
-    el.insertAdjacentHTML('afterbegin', scriptResultHtml(scriptPath, results, error, pendingWriteCount));
+    const existing = existingBlock(scriptPath);
+    if (existing) {
+        existing.outerHTML = scriptResultHtml(scriptPath, results, error, pendingWriteCount);
+    } else {
+        el.insertAdjacentHTML('afterbegin', scriptResultHtml(scriptPath, results, error, pendingWriteCount));
+    }
 }
