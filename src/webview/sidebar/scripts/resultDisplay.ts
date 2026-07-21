@@ -4,6 +4,7 @@ import { clearRunning, setScriptStatus, updateStatusDot } from './scriptList';
 let outputCount = 0;
 let outputBuffer: string[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let batchPath: string | null = null;
 const BATCH_THRESHOLD = 100;
 
 function cssEscape(path: string): string {
@@ -47,7 +48,8 @@ function logLinesHtml(lines: string[]): string {
 function flushBuffer(): void {
     if (outputBuffer.length === 0) { return; }
     const lines = outputBuffer.splice(0);
-    const area = runningResultArea();
+    const path = batchPath || runningPathFromButton();
+    const area = path ? resultAreaFor(path) : null;
     if (!area) { return; }
     const log = ensureLogArea(area);
     if (log) { log.insertAdjacentHTML('beforeend', logLinesHtml(lines)); }
@@ -60,12 +62,20 @@ function appendRealtime(text: string): void {
     if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
 }
 
+export function resetOutput(): void {
+    outputCount = 0;
+    batchPath = null;
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    outputBuffer = [];
+}
+
 export function appendOutput(text: string): void {
     outputCount++;
     if (outputCount <= BATCH_THRESHOLD) {
         appendRealtime(text);
         return;
     }
+    if (!batchPath) { batchPath = runningPathFromButton(); }
     outputBuffer.push(text);
     if (flushTimer) { clearTimeout(flushTimer); }
     flushTimer = setTimeout(() => { flushTimer = null; flushBuffer(); }, 0);

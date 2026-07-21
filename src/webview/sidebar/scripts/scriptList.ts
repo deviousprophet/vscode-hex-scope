@@ -1,6 +1,7 @@
 import { esc } from '../../utils';
 import { postProviderMessage } from '../../vscodeApi';
 import { S } from '../../state';
+import { resetOutput } from './resultDisplay';
 
 let currentScripts: Array<{ name: string; filePath: string }> = [];
 const scriptStatus = new Map<string, 'success' | 'error' | null>();
@@ -55,6 +56,7 @@ export function updateScriptCount(count: number): void {
 
 function runScript(filePath: string): void {
     if (runningPath) { return; }
+    resetOutput();
     setRunning(filePath);
     postProviderMessage({ type: 'runScript', scriptPath: filePath, generation: S.documentGeneration });
 }
@@ -63,8 +65,7 @@ function cancelScript(filePath: string): void {
     runningPath = null;
     if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
     renderRunStates();
-    // AbortController integration — post cancel message
-    // Currently not wired to provider; timeout is the fallback
+    postProviderMessage({ type: 'cancelScript', scriptPath: filePath });
 }
 
 function cssEscape(path: string): string {

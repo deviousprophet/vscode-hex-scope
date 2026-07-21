@@ -323,6 +323,7 @@ export class HexEditorSession {
         let currentGeneration = 0;
         let disposed = false;
         let activeLoad: AbortController | null = new AbortController();
+        let currentAbort: AbortController | null = null;
         let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
         const resources = new DisposableStore();
@@ -720,7 +721,9 @@ export class HexEditorSession {
             runScript: async msg => {
                 if (!parseResult) { return; }
                 if (disposed) { return; }
+                currentAbort = new AbortController();
                 const scriptPath = msg.scriptPath;
+                const signal = currentAbort.signal;
                 const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
                 const host = new VSCodeScriptHost(parseResult.segments, {
                     output: post,
@@ -730,13 +733,18 @@ export class HexEditorSession {
                         return btn === 'Allow';
                     },
                 });
-                const output = await execute(scriptPath, host);
+                const output = await execute(scriptPath, host, undefined, signal);
+                if (currentAbort?.signal === signal) { currentAbort = null; }
                 void postToWebview(webviewPanel.webview, {
                     type: 'scriptResult', scriptPath, result: output,
                     error: output.error ?? '',
                     errorType: output.errorType,
                     pendingWriteCount: host.pendingWrites.length,
                 });
+            },
+            cancelScript: async msg => {
+                currentAbort?.abort();
+                currentAbort = null;
             },
             closePanel: async () => {
                 webviewPanel.dispose();
