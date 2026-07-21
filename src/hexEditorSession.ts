@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
 import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
@@ -712,8 +713,8 @@ export class HexEditorSession {
             },
             requestScriptList: async () => {
                 const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!folder) { return; }
-                const scripts = scanScripts(folder.uri.fsPath);
+                const root = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
+                const scripts = scanScripts(root);
                 void postToWebview(webviewPanel.webview, { type: 'scriptInfo', scripts });
             },
             runScript: async msg => {
