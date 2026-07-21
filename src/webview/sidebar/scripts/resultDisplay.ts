@@ -25,9 +25,8 @@ function runningResultArea(): HTMLElement | null {
 }
 
 function logAreaHtml(path: string | undefined): string {
-    const name = path ? path.split(/[\\/]/).pop() ?? path : 'Script';
     return `<div class="script-output-block" data-path="${cssEscape(path ?? '')}">
-        <div class="script-output-hdr" data-collapse> &mdash; ${esc(name)}</div>
+        <div class="script-output-hdr" data-collapse>Running</div>
         <div class="script-output-body-wrap"><div class="script-output-log"></div></div></div>`;
 }
 
@@ -99,11 +98,10 @@ function headerFor(err: string, errType: ErrorType): { icon: string; label: stri
 }
 
 function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, log: string[] | null, err: string, errType: ErrorType, pendingWriteCount: number): string {
-    const name = scriptPath.split(/[\\/]/).pop() ?? scriptPath;
     const h = headerFor(err, errType);
     const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
     return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
-        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label} &mdash; ${esc(name)}</div>
+        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}</div>
         <div class="script-output-body-wrap">${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
 }
 
