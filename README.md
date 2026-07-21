@@ -32,7 +32,7 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 - Write TypeScript or JavaScript scripts in `.hexscope/scripts/` to automate custom HEX operations
 - Script API: read/write hex data, compute CRC and hash values, call external processes, fetch web services
 - Operations that modify data or run external commands require explicit user confirmation
-- See [SCRIPTING.md](SCRIPTING.md) for the full guide
+- See [docs/SCRIPTING.md](docs/SCRIPTING.md) for the full guide
 
 ## Supported file types
 
