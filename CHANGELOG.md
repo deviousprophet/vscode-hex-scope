@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added scripting API for custom HEX workflows — users can author TypeScript/JavaScript scripts in `.hexscope/scripts/` to read and write hex data, compute CRC and hash values, call external processes, and fetch web services, with user-confirmation dialogs for write, exec, and fetch operations
+- Added scripting API for custom HEX workflows — users can author TypeScript or JavaScript scripts in `.hexscope/scripts/` to read and write hex data, compute CRC and hash values, call external processes, fetch web services, and validate results, with user-confirmation dialogs for write, exec, and fetch operations
 
 ## [2.13.1] - 2026-07-20
 
