@@ -75,7 +75,7 @@ function errorBlockHtml(error: string): string {
     return error ? `<div class="script-output-error">${esc(error)}</div>` : '';
 }
 
-function resultsBlockHtml(results: Array<{ label: string; value: string }> | null): string {
+function resultsBlockHtml(results: Array<{ label: string; value: string }> | null | undefined): string {
     if (!results || results.length === 0) { return ''; }
     const rows = results.map(r =>
         `<span class="script-result-label">${esc(r.label)}</span><span class="script-result-value">${esc(r.value)}</span>`
@@ -97,7 +97,7 @@ function headerFor(err: string, errType: ErrorType): { icon: string; label: stri
     return ERROR_HEADERS[errType ?? ''] ?? { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
 }
 
-function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, log: string[] | null, err: string, errType: ErrorType, pendingWriteCount: number): string {
+function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null | undefined, log: string[] | null | undefined, err: string, errType: ErrorType, pendingWriteCount: number): string {
     const h = headerFor(err, errType);
     const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
     return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
@@ -126,7 +126,7 @@ function flushPendingOutput(): void {
     flushBuffer();
 }
 
-export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, log: string[] | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
+export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null | undefined, log: string[] | null | undefined, error: string, errorType: string | undefined, pendingWriteCount: number): void {
     clearRunning();
     outputCount = 0;
     flushPendingOutput();

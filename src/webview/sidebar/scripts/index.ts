@@ -26,7 +26,7 @@ export function updateScriptList(scripts: Array<{ name: string; filePath: string
 }
 
 export function updateScriptResult(scriptPath: string, result: { results: Array<{ label: string; value: string }>; log: string[] } | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
-    showResult(scriptPath, result?.results ?? null, result?.log ?? null, error, errorType, pendingWriteCount);
+    showResult(scriptPath, result?.results, result?.log, error, errorType, pendingWriteCount);
 }
 
 export function updateScriptOutput(scriptPath: string, text: string): void {
