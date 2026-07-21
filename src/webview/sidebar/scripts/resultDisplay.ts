@@ -1,12 +1,16 @@
 import { esc } from '../../utils';
-import { clearRunning, setRunning } from './scriptList';
+import { clearRunning } from './scriptList';
 
 export function resultDisplayHtml(): string {
     return '';
 }
 
+function cssEscape(path: string): string {
+    return path.replace(/\\/g, '\\\\');
+}
+
 function resultAreaFor(scriptPath: string): HTMLElement | null {
-    return document.querySelector(`.script-result-area[data-path="${scriptPath}"]`);
+    return document.querySelector(`.script-result-area[data-path="${cssEscape(scriptPath)}"]`);
 }
 
 function runningResultArea(): HTMLElement | null {
