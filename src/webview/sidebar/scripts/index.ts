@@ -25,14 +25,8 @@ export function updateScriptList(scripts: Array<{ name: string; filePath: string
     wireScriptList(list);
 }
 
-function appendLog(log: string[] | undefined): void {
-    if (!log) { return; }
-    for (const line of log) { appendOutput(line); }
-}
-
 export function updateScriptResult(scriptPath: string, result: { results: Array<{ label: string; value: string }>; log: string[] } | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
-    showResult(scriptPath, result?.results ?? null, error, errorType, pendingWriteCount);
-    appendLog(result?.log);
+    showResult(scriptPath, result?.results ?? null, result?.log ?? null, error, errorType, pendingWriteCount);
 }
 
 export function updateScriptOutput(scriptPath: string, text: string): void {

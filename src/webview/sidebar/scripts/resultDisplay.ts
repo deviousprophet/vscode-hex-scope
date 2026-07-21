@@ -98,12 +98,13 @@ function headerFor(err: string, errType: ErrorType): { icon: string; label: stri
     return ERROR_HEADERS[errType ?? ''] ?? { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
 }
 
-function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, err: string, errType: ErrorType, pendingWriteCount: number): string {
+function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, log: string[] | null, err: string, errType: ErrorType, pendingWriteCount: number): string {
     const name = scriptPath.split(/[\\/]/).pop() ?? scriptPath;
     const h = headerFor(err, errType);
+    const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
     return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
         <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label} &mdash; ${esc(name)}</div>
-        <div class="script-output-body-wrap">${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log"></div></div></div>`;
+        <div class="script-output-body-wrap">${errorBlockHtml(err)}${resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
 }
 
 function writesBlockHtml(count: number): string {
@@ -127,7 +128,7 @@ function flushPendingOutput(): void {
     flushBuffer();
 }
 
-export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
+export function showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null, log: string[] | null, error: string, errorType: string | undefined, pendingWriteCount: number): void {
     clearRunning();
     outputCount = 0;
     flushPendingOutput();
@@ -136,7 +137,7 @@ export function showResult(scriptPath: string, results: Array<{ label: string; v
 
     const area = resultAreaFor(scriptPath);
     if (!area) { return; }
-    area.innerHTML = scriptResultHtml(scriptPath, results, error, errorType as ErrorType, pendingWriteCount);
+    area.innerHTML = scriptResultHtml(scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount);
     const block = area.querySelector('.script-output-block');
     if (block) { block.classList.remove('collapsed'); }
     wireCollapse(area);
