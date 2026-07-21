@@ -27,6 +27,13 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 - Stored CRC comparison, range highlighting, Auto fix, Fix all, and reusable profiles
 - Undoable byte patching with explicit Save and automatic record-checksum updates
 
+### Scripting
+
+- Write TypeScript or JavaScript scripts in `.hexscope/scripts/` to automate custom HEX operations
+- Script API: read/write hex data, compute CRC and hash values, call external processes, fetch web services
+- Operations that modify data or run external commands require explicit user confirmation
+- See [SCRIPTING.md](SCRIPTING.md) for the full guide
+
 ## Supported file types
 
 | Format | Extensions |
@@ -44,6 +51,7 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 | Search | `Ctrl+F` — search by byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
 | Struct Overlay | Define C structs, pin them at addresses, and decode live memory |
 | Integrity Checks | Configure checks, compare stored CRC values, and reuse saved profiles |
+| Scripts | Click the Scripts sidebar tab, pick a script from `.hexscope/scripts/`, and run it |
 
 ## Issues
 
