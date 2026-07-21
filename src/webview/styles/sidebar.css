@@ -236,12 +236,12 @@
 #s-scripts .sb-body { padding: 0 12px 12px; }
 
 /* Toolbar header — replaces sb-section collapsible pattern */
-.scripts-toolbar {
+.sb-section .scripts-toolbar {
     display: flex; align-items: center; gap: 6px; padding: 10px 12px;
     border-bottom: 1px solid var(--border); cursor: default; user-select: none;
 }
-.scripts-toolbar::before { content: '' !important; }
-.scripts-toolbar:hover { background: transparent; }
+.sb-section .scripts-toolbar::before { content: '' !important; }
+.sb-section .scripts-toolbar:hover { background: transparent; }
 .scripts-toolbar-title { font-size: 11px; font-weight: 600; color: var(--fg); text-transform: uppercase; letter-spacing: .04em; }
 .scripts-count { font-size: 10px; color: var(--addr-fg); }
 .scripts-refresh-btn {

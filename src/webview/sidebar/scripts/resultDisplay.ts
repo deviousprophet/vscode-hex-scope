@@ -76,7 +76,7 @@ const ERROR_HEADERS: Record<string, { icon: string; label: string; cssClass: str
 };
 
 function headerFor(err: string, errType: ErrorType): { icon: string; label: string; cssClass: string } {
-    if (!err) { return { icon: '&#9654;', label: 'Result', cssClass: '' }; }
+    if (!err) { return { icon: '', label: 'Result', cssClass: '' }; }
     return ERROR_HEADERS[errType ?? ''] ?? { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
 }
 
