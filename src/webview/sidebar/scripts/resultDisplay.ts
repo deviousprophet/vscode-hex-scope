@@ -1,5 +1,5 @@
 import { esc } from '../../utils';
-import { clearRunning, setScriptStatus } from './scriptList';
+import { clearRunning, setScriptStatus, updateStatusDot } from './scriptList';
 
 let outputCount = 0;
 let outputBuffer: string[] = [];
@@ -14,11 +14,31 @@ function resultAreaFor(scriptPath: string): HTMLElement | null {
     return document.querySelector(`.script-result-area[data-path="${cssEscape(scriptPath)}"]`);
 }
 
-function runningResultArea(): HTMLElement | null {
+function runningPathFromButton(): string | null {
     const el = document.querySelector('.script-card .script-run-btn.running');
-    if (!el) { return null; }
-    const path = (el as HTMLElement).dataset.path;
+    return el ? (el as HTMLElement).dataset.path ?? null : null;
+}
+
+function runningResultArea(): HTMLElement | null {
+    const path = runningPathFromButton();
     return path ? resultAreaFor(path) : null;
+}
+
+function logAreaHtml(path: string | undefined): string {
+    const name = path ? path.split(/[\\/]/).pop() ?? path : 'Script';
+    return `<div class="script-output-block" data-path="${cssEscape(path ?? '')}">
+        <div class="script-output-hdr" data-collapse> &mdash; ${esc(name)}</div>
+        <div class="script-output-body-wrap"><div class="script-output-log"></div></div></div>`;
+}
+
+function ensureLogArea(area: HTMLElement): HTMLElement | null {
+    let log = area.querySelector('.script-output-log') as HTMLElement | null;
+    if (!log) {
+        area.innerHTML = logAreaHtml(area.dataset.path);
+        log = area.querySelector('.script-output-log') as HTMLElement | null;
+        wireCollapse(area);
+    }
+    return log;
 }
 
 function logLinesHtml(lines: string[]): string {
@@ -30,16 +50,14 @@ function flushBuffer(): void {
     const lines = outputBuffer.splice(0);
     const area = runningResultArea();
     if (!area) { return; }
-    const log = area.querySelector('.script-output-log');
-    if (log) {
-        log.insertAdjacentHTML('beforeend', logLinesHtml(lines));
-    }
+    const log = ensureLogArea(area);
+    if (log) { log.insertAdjacentHTML('beforeend', logLinesHtml(lines)); }
 }
 
 function appendRealtime(text: string): void {
     const area = runningResultArea();
     if (!area) { return; }
-    const log = area.querySelector('.script-output-log');
+    const log = ensureLogArea(area);
     if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
 }
 
@@ -114,11 +132,11 @@ export function showResult(scriptPath: string, results: Array<{ label: string; v
     outputCount = 0;
     flushPendingOutput();
     setScriptStatus(scriptPath, error ? 'error' : 'success');
+    updateStatusDot(scriptPath);
 
     const area = resultAreaFor(scriptPath);
     if (!area) { return; }
     area.innerHTML = scriptResultHtml(scriptPath, results, error, errorType as ErrorType, pendingWriteCount);
-    // Auto-expand: remove collapsed class so result is visible
     const block = area.querySelector('.script-output-block');
     if (block) { block.classList.remove('collapsed'); }
     wireCollapse(area);

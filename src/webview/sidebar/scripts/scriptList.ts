@@ -18,6 +18,16 @@ export function setScriptStatus(path: string, status: 'success' | 'error'): void
     scriptStatus.set(path, status);
 }
 
+export function updateStatusDot(path: string): void {
+    const st = scriptStatus.get(path);
+    const dot = document.querySelector(`.script-card[data-path="${cssEscape(path)}"] .script-dot`);
+    if (!dot) { return; }
+    dot.className = 'script-dot';
+    if (st === 'success') { dot.classList.add('dot-ok'); (dot as HTMLElement).title = 'Last run succeeded'; }
+    else if (st === 'error') { dot.classList.add('dot-err'); (dot as HTMLElement).title = 'Last run errored'; }
+    else { dot.classList.add('dot-idle'); (dot as HTMLElement).title = 'Not yet run'; }
+}
+
 export function clearRunning(): void {
     runningPath = null;
     if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
@@ -55,6 +65,10 @@ function cancelScript(filePath: string): void {
     renderRunStates();
     // AbortController integration — post cancel message
     // Currently not wired to provider; timeout is the fallback
+}
+
+function cssEscape(path: string): string {
+    return path.replace(/\\/g, '\\\\');
 }
 
 function extLabel(name: string): string {
