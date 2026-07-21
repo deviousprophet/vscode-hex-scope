@@ -64,21 +64,16 @@ function resultsBlockHtml(results: Array<{ label: string; value: string }> | nul
 
 type ErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | undefined;
 
-interface HeaderSpec {
-    icon: string;
-    label: string;
-    cssClass: string;
-}
+const ERROR_HEADERS: Record<string, { icon: string; label: string; cssClass: string }> = {
+    compile: { icon: '&#9888;', label: 'Compile Error', cssClass: ' script-output-hdr-err-compile' },
+    runtime: { icon: '&#128308;', label: 'Script Error', cssClass: ' script-output-hdr-err' },
+    timeout: { icon: '&#9201;', label: 'Timeout', cssClass: ' script-output-hdr-err-timeout' },
+    cancel: { icon: '&#9632;', label: 'Cancelled', cssClass: ' script-output-hdr-err-cancel' },
+};
 
-function headerFor(err: string, errType: ErrorType): HeaderSpec {
+function headerFor(err: string, errType: ErrorType): { icon: string; label: string; cssClass: string } {
     if (!err) { return { icon: '&#9654;', label: 'Result', cssClass: '' }; }
-    switch (errType) {
-        case 'compile': return { icon: '&#9888;', label: 'Compile Error', cssClass: ' script-output-hdr-err-compile' };
-        case 'runtime': return { icon: '&#128308;', label: 'Script Error', cssClass: ' script-output-hdr-err' };
-        case 'timeout': return { icon: '&#9201;', label: 'Timeout', cssClass: ' script-output-hdr-err-timeout' };
-        case 'cancel': return { icon: '&#9632;', label: 'Cancelled', cssClass: ' script-output-hdr-err-cancel' };
-        default: return { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
-    }
+    return ERROR_HEADERS[errType ?? ''] ?? { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
 }
 
 function scriptResultHtml(scriptPath: string, results: Array<{ label: string; value: string }> | null, err: string, errType: ErrorType, pendingWriteCount: number): string {

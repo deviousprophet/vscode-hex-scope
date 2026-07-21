@@ -24,7 +24,7 @@ export function clearRunning(): void {
     renderRunStates();
 }
 
-export function setRunning(path: string): void {
+function setRunning(path: string): void {
     runningPath = path;
     if (pendingTimer) { clearTimeout(pendingTimer); }
     pendingTimer = setTimeout(() => {

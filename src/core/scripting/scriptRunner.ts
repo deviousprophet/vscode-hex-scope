@@ -48,29 +48,44 @@ function isPromise(value: unknown): value is Promise<unknown> {
     return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>).then === 'function';
 }
 
+function timeoutPromise(timeoutMs: number): { promise: Promise<never>; cancel: () => void } {
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    const promise = new Promise<never>((_, reject) => {
+        timerId = setTimeout(() => reject(new Error(`Script timed out after ${timeoutMs}ms.`)), timeoutMs);
+    });
+    return { promise, cancel: () => clearTimeout(timerId) };
+}
+
+function cancelPromise(signal: AbortSignal): Promise<never> {
+    return new Promise<never>((_, reject) => {
+        if (signal.aborted) { reject(new Error('Cancelled')); return; }
+        signal.addEventListener('abort', () => reject(new Error('Cancelled')), { once: true });
+    });
+}
+
+function classifyError(err: unknown): { type: ScriptErrorType; message: string } {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === 'Cancelled') { return { type: 'cancel', message: 'Cancelled by user' }; }
+    if (msg.includes('timed out')) { return { type: 'timeout', message: msg }; }
+    return { type: 'runtime', message: msg };
+}
+
 async function runWithTimeout(fn: () => void | Promise<void>, timeoutMs: number, signal?: AbortSignal): Promise<{ type: ScriptErrorType; message: string } | null> {
+    const { promise: timer, cancel: clearTimer } = timeoutPromise(timeoutMs);
+    const cancel = signal ? cancelPromise(signal) : timer;
     try {
         const result = fn();
         if (!isPromise(result)) {
+            clearTimer();
             if (signal?.aborted) { return { type: 'cancel', message: 'Cancelled by user' }; }
             return null;
         }
-        let timerId: ReturnType<typeof setTimeout> | undefined;
-        const timer = new Promise<never>((_, reject) => {
-            timerId = setTimeout(() => reject(new Error(`Script timed out after ${timeoutMs}ms.`)), timeoutMs);
-        });
-        const cancel = signal ? new Promise<never>((_, reject) => {
-            if (signal.aborted) { reject(new Error('Cancelled')); return; }
-            signal.addEventListener('abort', () => reject(new Error('Cancelled')), { once: true });
-        }) : timer;
         await Promise.race([result, timer, cancel]);
-        clearTimeout(timerId);
+        clearTimer();
         return null;
     } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg === 'Cancelled') { return { type: 'cancel', message: 'Cancelled by user' }; }
-        if (msg.includes('timed out')) { return { type: 'timeout', message: msg }; }
-        return { type: 'runtime', message: msg };
+        clearTimer();
+        return classifyError(err);
     }
 }
 
@@ -99,9 +114,7 @@ async function runOrError(
 
     const loadError = loadModule(jsCode, sandbox, timeoutMs);
     if (loadError) {
-        const msg = loadError.message;
-        const type: ScriptErrorType = msg.includes('esbuild') ? 'compile' : 'compile';
-        return { results: [], log: [msg], error: msg, errorType: type };
+        return { results: [], log: [loadError.message], error: loadError.message, errorType: 'compile' };
     }
 
     const run = extractRun(sandbox);
