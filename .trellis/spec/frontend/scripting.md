@@ -45,16 +45,20 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number): Promis
 
 ### 3. Contracts
 
+- Both VS Code extension and future CLI tool use the same `ScriptHost` adapter interface
 - Scripts live in `.hexscope/scripts/` relative to workspace root (falls back to document directory if no workspace folder)
 - Scripts export a `run(api: HexScopeAPI)` function — anything else is ignored
 - Scripts execute in `vm.Script.runInNewContext` sandbox — no `require`, `process`, `fs`
-- `.ts` files compiled with dynamic `import('esbuild')` — fallback to `.js` only if unavailable
+- `.ts` files compiled with dynamic `import('esbuild')` — no mtime caching, compile every run
+- `.ts` shown in UI with disabled Run button + "requires esbuild" tooltip when compiler unavailable
 - Timeout kills script after 30s (configurable per call)
 - VS Code `VSCodeScriptHost` confirms `write`/`exec`/`fetch` via `vscode.window.showWarningMessage` modal
 - Script results collected via `host.collectOutput()` after execution
-- Results displayed inside the corresponding script card in the sidebar
-- Re-running a script replaces its previous result card
-- Running state: button text changes to "Running…", button dims
+- Results embedded inside the corresponding script card (not a separate output section)
+- Re-running a script replaces its previous result
+- Cancel via `AbortController` kill-switch — cancel button shown during execution
+- On cancel: keep previous results visible; show partial output with "Cancelled" banner if no prior run
+- Errors stringified before crossing sandbox boundary (no stack traces to user)
 
 ### 4. Validation & Error Matrix
 
@@ -95,15 +99,105 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number): Promis
 
 ### 7. UI Component States
 
-| State | Rendering |
-|---|---|
-| Empty (no scripts) | "No scripts found in .hexscope/scripts/" |
-| Script list | Card per script: name, extension badge, Run button |
-| Running | Button shows "Running…", dimmed, disabled |
-| Result (success) | Card shows result block with ▶ header, key-value rows, log lines |
-| Result (error) | Card shows result block with ⚠ red header, error message |
-| Streaming output | Lines appended to running script's output log |
-| Write pending | Shows "N byte(s) written (not yet saved)" in result block |
+#### Script card layout
+
+```
+┌──────────────────────────────────────┐
+│ filename.ts        .ts   ●  [▶]     │  ← card-info row
+│──────────────────────────────────────│
+│  ▶ Result — filename.ts              │  ← result header (collapsible)
+│  ┌──────────────────────────────────┐│
+│  │ CRC32:       0x9BE3E0A3        ││  ← key-value results
+│  │ Done                            ││  ← output log
+│  └──────────────────────────────────┘│
+└──────────────────────────────────────┘
+```
+
+| Element | Details |
+|---------|---------|
+| Filename | Left-aligned, truncated with ellipsis, file path in tooltip |
+| Extension badge | `.js` or `.ts`, small pill, uppercase |
+| Status dot | ● green (last run succeeded), ● red (last run errored), ● gray (never run) |
+| Run/Cancel button | Right-aligned, fixed-width slot (no layout shift) |
+| Result area | Embedded below card-info, separated by a border line |
+
+#### Button state machine
+
+| State | Icon | Behavior |
+|-------|------|----------|
+| Idle / Done | ▶ Play (green) | Click to run |
+| Pending (0–200ms after click) | ⟳ Spinner (CSS animation) | Instant feedback, click ignored |
+| Running (after 200ms) | ⏹ Stop (red) | Click to cancel via `AbortController` |
+| Done (any terminal state) | ▶ Play (green) | Click to run again |
+
+- First 200ms after click shows spinner to confirm click registered
+- After 200ms, Stop icon appears — user can cancel
+- On completion/error/timeout/cancel, reverts to Play
+- No text labels — icons only, fixed min-width button
+
+#### Result block behavior
+
+- Auto-expands when new result arrives (overrides previous collapsed state)
+- Header clickable to collapse/expand (▶/▼ indicator)
+- Different headers for each terminal state:
+  - **Success**: "▶ Result — filename" (default style)
+  - **Runtime error**: "🔴 Script Error — filename" (red header)
+  - **Timeout**: "⏱️ Timeout — filename" (orange header)
+  - **Compile error**: "⚠️ Compile Error — filename" (yellow header)
+  - **Cancelled**: "⏹ Cancelled — filename" (dimmed header, partial output preserved)
+- Collapsed state persists across tab switches but not across re-runs
+
+#### Toolbar header
+
+```
+Scripts (3)  [↻]
+```
+
+- Replaces the `sb-section` collapsible pattern inherited from Inspector
+- Shows script count badge
+- Refresh ↻ button re-scans `.hexscope/scripts/` directory
+- No collapse toggle — the scripts tab has only one section
+
+#### Empty state
+
+```
+No scripts found in .hexscope/scripts/
+```
+
+Plain text with the path shown so the user knows where to create files.
+
+#### Output streaming
+
+- First 100 `api.output()` calls: posted immediately as individual `scriptOutput` messages
+- After 100 calls: batched via `setTimeout(flush, 0)` debounce — rapid calls coalesce into one flush per micro-task tick
+- Lines appended to the running script's result log
+- Alternating row backgrounds for readability
+
+#### Write pending notification
+
+```
+💾 3 byte(s) written (not yet saved)
+```
+
+Shown inside the result block when `pendingWriteCount > 0`. Informational only — the user saves edits through the normal Save flow.
+
+### 8. Design decisions
+
+| # | Decision | Choice |
+|---|----------|--------|
+| D1 | Runtime targets | VS Code + future CLI via `ScriptHost` adapter |
+| D2 | Error propagation | Stringify sandbox errors, lose stack trace |
+| D3 | TS compilation cache | No mtime cache — compile every run |
+| D4 | Output streaming | Real-time first 100 calls, then debounced batch |
+| D5 | Batch flush method | `setTimeout(flush, 0)` debounce |
+| D6 | TS file when esbuild missing | Show with disabled Run button + tooltip |
+| D7 | Cancellation mechanism | `AbortController` kill-switch |
+| D8 | Cancel result behavior | Keep previous results; partial + banner if no prior run |
+| D9 | Script ordering | Alphabetical by filename |
+| D10 | List refresh | On tab activation + manual Refresh button |
+| D11 | Result persistence | In-memory (DOM), survives tab switches, not page reload |
+| D12 | Run history | One result per card, replaced on re-run |
+| D13 | Result collapse | Auto-expand on new result, then collapsible via header click |
 
 ### 8. Tests Required
 
