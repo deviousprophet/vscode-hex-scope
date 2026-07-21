@@ -2,6 +2,20 @@
 
 Write TypeScript or JavaScript scripts in your workspace's `.hexscope/scripts/` directory to automate custom HEX operations.
 
+## Directory structure
+
+```
+your-firmware-project/
+├── firmware.hex
+└── .hexscope/
+    └── scripts/
+        ├── verify-crc.ts
+        ├── verify-signature.ts
+        └── update-checksums.ts
+```
+
+All scripts live under `.hexscope/scripts/` relative to your workspace root. Both `.ts` and `.js` files are supported.
+
 ## Getting started
 
 1. Create `.hexscope/scripts/` in your workspace root
