@@ -5,6 +5,8 @@ export interface ScriptHost {
     confirm(type: 'write' | 'exec' | 'fetch', detail: string): Promise<boolean>;
     output(text: string): void;
     setResult(label: string, value: string): void;
+    /** If true, the host data is stale and writes should be rejected. */
+    stale?: boolean;
 }
 
 export interface ExecResult {
@@ -32,9 +34,9 @@ export interface HexScopeAPI {
         size: number;
     };
     crc: {
-        crc8(data: number[]): number;
-        crc16(data: number[]): number;
-        crc32(data: number[]): number;
+        crc8(data: Uint8Array | number[]): number;
+        crc16(data: Uint8Array | number[]): number;
+        crc32(data: Uint8Array | number[]): number;
     };
     hash: {
         sha1(data: Uint8Array): Promise<Uint8Array>;

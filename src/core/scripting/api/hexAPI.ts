@@ -7,7 +7,7 @@ export function hexAPI(host: ScriptHost) {
         },
         async write(address: number, data: Uint8Array): Promise<boolean> {
             const ok = await host.confirm('write', `Write ${data.length} bytes at 0x${address.toString(16).toUpperCase()}`);
-            if (!ok) { return false; }
+            if (!ok || host.stale) { return false; }
             return host.writeBytes(address, data);
         },
         get size(): number {

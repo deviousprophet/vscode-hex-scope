@@ -6,28 +6,54 @@ export interface WriteEdit {
     value: number;
 }
 
+interface SegmentLookup {
+    startAddress: number;
+    endAddress: number;
+    data: Uint8Array;
+}
+
+function buildLookup(segments: MemorySegment[]): SegmentLookup[] {
+    return segments
+        .map(s => ({ startAddress: s.startAddress, endAddress: s.startAddress + s.data.length - 1, data: s.data }))
+        .sort((a, b) => a.startAddress - b.startAddress);
+}
+
+function findSegment(lookup: SegmentLookup[], addr: number): SegmentLookup | undefined {
+    let lo = 0, hi = lookup.length - 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        const seg = lookup[mid];
+        if (addr < seg.startAddress) { hi = mid - 1; }
+        else if (addr > seg.endAddress) { lo = mid + 1; }
+        else { return seg; }
+    }
+    return undefined;
+}
+
 export class VSCodeScriptHost implements IScriptHost {
     private readonly edits = new Map<number, number>();
     public readonly pendingWrites: WriteEdit[] = [];
+    private readonly lookup: SegmentLookup[];
     private readonly _output: (text: string) => void;
     private readonly _setResult: (label: string, value: string) => void;
     private readonly _confirm: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
 
     constructor(
-        private readonly segments: MemorySegment[],
+        segments: MemorySegment[],
         options: {
             output: (text: string) => void;
             setResult: (label: string, value: string) => void;
             confirm: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
         },
     ) {
+        this.lookup = buildLookup(segments);
         this._output = options.output;
         this._setResult = options.setResult;
         this._confirm = options.confirm;
     }
 
     get totalSize(): number {
-        return this.segments.reduce((sum, s) => sum + s.data.length, 0);
+        return this.lookup.reduce((sum, s) => sum + s.data.length, 0);
     }
 
     readBytes(address: number, length: number): Uint8Array {
@@ -36,7 +62,7 @@ export class VSCodeScriptHost implements IScriptHost {
             const addr = address + i;
             const editVal = this.edits.get(addr);
             if (editVal !== undefined) { bytes.push(editVal); continue; }
-            const seg = this.segments.find(s => addr >= s.startAddress && addr < s.startAddress + s.data.length);
+            const seg = findSegment(this.lookup, addr);
             if (!seg) { break; }
             bytes.push(seg.data[addr - seg.startAddress]);
         }

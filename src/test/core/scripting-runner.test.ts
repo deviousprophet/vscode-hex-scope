@@ -5,6 +5,7 @@ import * as assert from 'assert';
 import { execute, scanScripts } from '../../core/scripting/scriptRunner';
 import { isScriptFile, readScript } from '../../core/scripting/scriptCompiler';
 import type { ScriptHost as IScriptHost } from '../../core/scripting/types';
+import { VSCodeScriptHost } from '../../scriptHost';
 
 function makeHost(overrides: Partial<IScriptHost> = {}): IScriptHost {
     const log: string[] = [];
@@ -299,6 +300,35 @@ test('executes .ts script when esbuild is available', async () => {
         assert.equal(out.error, undefined);
         assert.ok((host as any)._log.includes('ts works'));
     } finally { rmDir(dir); }
+});
+
+test('VSCodeScriptHost readBytes returns edits before source data', () => {
+    const seg = { startAddress: 0x100, data: new Uint8Array([0xAA, 0xBB, 0xCC]) };
+    const host = new VSCodeScriptHost([seg], {
+        output: () => {}, setResult: () => {}, confirm: async () => false,
+    });
+    host.writeBytes(0x101, new Uint8Array([0xFF]));
+    const result = host.readBytes(0x100, 3);
+    assert.equal(result.length, 3);
+    assert.equal(result[0], 0xAA);
+    assert.equal(result[1], 0xFF);
+    assert.equal(result[2], 0xCC);
+});
+
+test('VSCodeScriptHost readBytes returns empty for unmapped address', () => {
+    const seg = { startAddress: 0x100, data: new Uint8Array([0xAA]) };
+    const host = new VSCodeScriptHost([seg], {
+        output: () => {}, setResult: () => {}, confirm: async () => false,
+    });
+    assert.equal(host.readBytes(0x200, 1).length, 0);
+});
+
+test('VSCodeScriptHost totalSize sums all segments', () => {
+    const host = new VSCodeScriptHost([
+        { startAddress: 0, data: new Uint8Array([1, 2]) },
+        { startAddress: 10, data: new Uint8Array([3]) },
+    ], { output: () => {}, setResult: () => {}, confirm: async () => false });
+    assert.equal(host.totalSize, 3);
 });
 
 });
