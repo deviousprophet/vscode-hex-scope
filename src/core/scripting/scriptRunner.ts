@@ -44,15 +44,20 @@ function extractRun(sandbox: Record<string, unknown>): ((api: HexScopeAPI) => vo
     return typeof fn === 'function' ? fn : null;
 }
 
+function isPromise(value: unknown): value is Promise<unknown> {
+    return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>).then === 'function';
+}
+
 async function runWithTimeout(fn: () => void | Promise<void>, timeoutMs: number): Promise<Error | null> {
     try {
         const result = fn();
-        if (result instanceof Promise) {
-            const timer = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Script timed out after ${timeoutMs}ms.`)), timeoutMs)
-            );
-            await Promise.race([result, timer]);
-        }
+        if (!isPromise(result)) { return null; }
+        let timerId: ReturnType<typeof setTimeout> | undefined;
+        const timer = new Promise<never>((_, reject) => {
+            timerId = setTimeout(() => reject(new Error(`Script timed out after ${timeoutMs}ms.`)), timeoutMs);
+        });
+        await Promise.race([result, timer]);
+        clearTimeout(timerId);
         return null;
     } catch (err: unknown) {
         return err instanceof Error ? err : new Error(String(err));
@@ -91,6 +96,11 @@ export async function execute(
     host: ScriptHost,
     timeoutMs: number = SCRIPT_TIMEOUT_MS,
 ): Promise<ScriptOutput> {
-    const api = buildAPI(host);
-    return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, timeoutMs);
+    try {
+        const api = buildAPI(host);
+        return runOrError(await compileScript(readScript(filePath), filePath), createSandbox(host), api, timeoutMs);
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { results: [], log: [msg], error: msg };
+    }
 }
