@@ -30,6 +30,7 @@ interface HexScopeAPI {
     fetch(url: string, opts?: RequestInit): Promise<FetchResult | null>;
     output(text: string): void;
     setResult(label: string, value: string): void;
+    assert(condition: boolean, label: string): void;
 }
 
 interface ScriptOutput {

@@ -16,5 +16,6 @@ export function buildAPI(host: ScriptHost): HexScopeAPI {
         fetch: fetchAPI(host),
         output: io.output,
         setResult: io.setResult,
+        assert: io.assert,
     };
 }

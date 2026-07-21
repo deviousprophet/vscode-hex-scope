@@ -24,6 +24,7 @@ function makeHost(overrides: Partial<IScriptHost> = {}): IScriptHost {
         confirm: async () => false,
         output(text) { log.push(text); },
         setResult(label, value) { results.push({ label, value }); },
+        assert(condition, label) { results.push({ label, value: condition ? '✅ PASS' : '❌ FAIL' }); },
         collectOutput() { return { results: [...results], log: [...log] }; },
         ...overrides,
         ...{ _log: log, _results: results },
@@ -300,6 +301,24 @@ test('executes .ts script when esbuild is available', async () => {
         if (out.error?.includes('esbuild')) { return; }
         assert.equal(out.error, undefined);
         assert.ok((host as any)._log.includes('ts works'));
+    } finally { rmDir(dir); }
+});
+
+test('api.assert records pass and fail', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'assert-test.js', `
+            module.exports = { run(api) {
+                api.assert(1 + 1 === 2, 'Math works');
+                api.assert(1 + 1 === 3, 'Math broken');
+            }};
+        `);
+        const host = makeHost();
+        const out = await execute(fp, host);
+        assert.equal(out.error, undefined);
+        assert.equal(out.results.length, 2);
+        assert.ok(out.results[0].value.includes('PASS'));
+        assert.ok(out.results[1].value.includes('FAIL'));
     } finally { rmDir(dir); }
 });
 

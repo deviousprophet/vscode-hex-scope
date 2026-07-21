@@ -93,6 +93,11 @@ export class VSCodeScriptHost implements IScriptHost {
         this._resultHook(label, value);
     }
 
+    assert(condition: boolean, label: string): void {
+        const icon = condition ? '\u2705' : '\u274C';
+        this.resultsAcc.push({ label, value: `${icon} ${condition ? 'PASS' : 'FAIL'}` });
+    }
+
     collectOutput(): { results: Array<{ label: string; value: string }>; log: string[] } {
         return { results: this.resultsAcc, log: this.logAcc };
     }

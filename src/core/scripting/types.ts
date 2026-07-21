@@ -5,6 +5,7 @@ export interface ScriptHost {
     confirm(type: 'write' | 'exec' | 'fetch', detail: string): Promise<boolean>;
     output(text: string): void;
     setResult(label: string, value: string): void;
+    assert(condition: boolean, label: string): void;
     /** Collect results and log accumulated during execution. */
     collectOutput(): { results: Array<{ label: string; value: string }>; log: string[] };
     /** If true, the host data is stale and writes should be rejected. */
@@ -52,4 +53,5 @@ export interface HexScopeAPI {
     fetch(url: string, options?: RequestInit): Promise<FetchResult | null>;
     output(text: string): void;
     setResult(label: string, value: string): void;
+    assert(condition: boolean, label: string): void;
 }

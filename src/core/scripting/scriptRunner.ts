@@ -123,8 +123,8 @@ async function runOrError(
         return { results: [], log: [], error: 'Script must export a \'run\' function.', errorType: 'compile' };
     }
 
-    const collected = host.collectOutput();
     const execError = await runWithTimeout(() => run(api), timeoutMs, signal);
+    const collected = host.collectOutput();
     const execResult = execError ? { error: execError.message, errorType: execError.type } : {};
     return { results: collected.results, log: collected.log, ...execResult };
 }

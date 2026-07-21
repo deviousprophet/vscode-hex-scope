@@ -193,6 +193,32 @@ export async function run(api) {
 }
 ```
 
+### `api.assert` — validation checks
+
+```typescript
+api.assert(condition: boolean, label: string): void
+```
+
+Records a pass/fail result as a result row without stopping the script. Multiple `assert` calls accumulate all results — none aborts on the first failure.
+
+| Call | Result row |
+|------|-----------|
+| `api.assert(true, 'CRC matches')` | `✅ PASS — CRC matches` |
+| `api.assert(false, 'Signature valid')` | `❌ FAIL — Signature valid` |
+
+**Example — firmware validation:**
+
+```typescript
+export function run(api) {
+    const data = api.hex.read(0, 128);
+    const hash = api.crc.crc32([...data]);
+    api.assert(hash === 0x12345678, 'CRC32 matches expected');
+    api.assert(data.length === 128, 'Read full range');
+    api.assert(data[0] === 0xAA, 'First byte is start marker');
+    api.setResult('Checks', '3 assertions run');
+}
+```
+
 ### `api.output` and `api.setResult` — displaying results
 
 ```typescript
