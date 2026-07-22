@@ -1,6 +1,6 @@
 ---
 name: update-changelog
-description: "Prepare or revise Hex Scope release changelog entries and synchronized package versions from committed changes since the latest release tag. Use when asked to update CHANGELOG.md, prepare release notes, choose the next release version, bump the release version, finalize an untagged changelog draft, or recheck changelog date/version before a push."
+description: "Prepare or revise release changelog entries and synchronized package versions from committed changes since the latest release tag. Use when asked to update CHANGELOG.md, prepare release notes, choose the next release version, bump the release version, finalize an untagged changelog draft, or recheck changelog date/version before a push."
 ---
 
 # Update Changelog
