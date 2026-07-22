@@ -38,3 +38,36 @@ Normalized sidebar CSS across 4 tabs: padding, fonts, button sizes, header align
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Fix stale compiled test artifacts, all 466 tests passing
+
+**Date**: 2026-07-23
+**Task**: Fix stale compiled test artifacts, all 466 tests passing
+**Branch**: `chore/sidebar-css`
+
+### Summary
+
+Cleaned stale out/test/ artifacts causing ENOENT failures. Restored sample fixture tests (inline in parser-fixtures.ts, no actual sample/ files needed). Added -webkit-user-select prefix for Safari compat. All 466 tests passing, 0 failing.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b799ed` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
