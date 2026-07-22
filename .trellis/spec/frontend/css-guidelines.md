@@ -51,7 +51,7 @@ Sidebar sections use the `.sb-section` → `.sb-hdr` → `.sb-body` pattern:
 .sb-body { /* inherits padding from section */ }
 ```
 
-`.sb-hdr` is a block-level flex container. The collapsible toggle triangle (▶) is injected via `.sb-section .sb-hdr::before` (inline-block, `margin-right: 6px`). Non-`.sb-section` headers that need matching text position must add equivalent `padding-left: 13px`.
+`.sb-hdr` is a block-level flex container. The collapsible toggle triangle (▶) is injected via `.sb-section .sb-hdr::before` (absolute, `left: 0; top: 50%; margin-top: -6px`). The triangle is taken out of flow so it doesn't affect text position — text sits at `.sb-hdr`'s `padding-left: 14px`.
 
 ## Button Standards
 
