@@ -97,6 +97,7 @@
     font-family: var(--font-ui);
     font-size: 10px;
     font-weight: 600;
+    letter-spacing: .07em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

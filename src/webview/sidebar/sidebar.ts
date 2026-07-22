@@ -90,7 +90,7 @@ export function renderLabels(): void {
     sec.innerHTML = `
         <div class="sb-hdr">Labels ${badgeHtml}</div>
         <div class="sb-body">${itemsHtml}
-        <button class="add-lbl-btn" id="btn-add-lbl">+ Add Segment Label</button>
+        <button class="lf-add-btn" id="btn-add-lbl">+ Add Segment Label</button>
         </div>`;
 
     // Persist collapsed state on the section element; default collapsed

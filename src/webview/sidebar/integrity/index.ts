@@ -165,7 +165,7 @@ function integrityShellHtml(): string {
     return `
         <div class="integrity-shell">
             <div class="si-hdr-row integrity-hdr-row">
-                <span class="sb-hdr" style="margin:0">Integrity Checks ${integrityBadgeHtml()}</span>
+                <span class="sb-hdr">Integrity Checks ${integrityBadgeHtml()}</span>
                 <button id="integrity-fix-all" class="struct-btn struct-btn-apply" type="button"${fixAllDisabledAttr()}>Fix all</button>
                 <button id="integrity-add-btn" class="si-add-btn"${addCheckDisabledAttr()}>＋ Add</button>
             </div>

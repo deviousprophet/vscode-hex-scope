@@ -39,13 +39,14 @@
     text-transform: uppercase;
 }
 
-.sidebar-endian-tabs button { font-size: 9px; padding: 1px 6px; }
+.sidebar-endian-tabs button { padding: 1px 6px; }
 .sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 
 .sb-hdr {
     display: flex; align-items: center; gap: 6px;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .07em; color: var(--addr-fg); margin-bottom: 8px;
+    position: relative; padding-left: 14px;
 }
 .sb-badge {
     background: rgba(134,180,212,.14); color: var(--high-color);
@@ -74,7 +75,7 @@
 .stab.active { color: var(--high-color); border-right-color: var(--high-color); }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
-.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; }
+.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; }
 .sb-tab-panel.active { display: block; }
 
 /* ── Locked state (external change pending) ─────────────────────── */
