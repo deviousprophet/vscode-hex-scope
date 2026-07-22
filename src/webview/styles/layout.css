@@ -75,7 +75,7 @@
 .stab.active { color: var(--high-color); border-right-color: var(--high-color); }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
-.sb-tab-panel { flex: 1; overflow-y: scroll; overflow-x: hidden; display: none; min-height: 0; }
+.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; }
 .sb-tab-panel.active { display: block; }
 
 /* ── Locked state (external change pending) ─────────────────────── */
