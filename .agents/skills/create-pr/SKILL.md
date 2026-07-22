@@ -1,5 +1,5 @@
 ---
-name: pr-create
+name: create-pr
 description: "Project-wide rules for creating, publishing, drafting, or updating a PR for this repository. Trigger on: 'open pr', 'create pull request', 'draft pr', 'publish branch', 'make a PR', or any similar request."
 ---
 
