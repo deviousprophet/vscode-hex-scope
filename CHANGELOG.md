@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.14.1] - 2026-07-22
+
+### Fixed
+
+- Fixed missing CSS in VSIX package causing unstyled webview — CSS files moved to `styles/` subdirectory in v2.11.0 excluded by `.vscodeignore` glob pattern
+
 ## [2.14.0] - 2026-07-21
 
 ### Added
