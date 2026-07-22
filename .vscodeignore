@@ -1,7 +1,7 @@
 out/**
 node_modules/**
 src/**
-!src/webview/*.css
+!src/webview/**/*.css
 .gitignore
 .yarnrc
 esbuild.js
