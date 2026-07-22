@@ -106,7 +106,7 @@
 /* Collapsible section support: hide body when collapsed */
 .sb-section.collapsed .sb-body { display: none; }
 .sb-section .sb-hdr {
-    cursor: pointer; -webkit-user-select: none; user-select: none;
+    cursor: pointer;  user-select: none;
     position: relative;
 }
 .sb-section .sb-hdr::before {
@@ -192,7 +192,7 @@
 .label-act {
     cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
     padding: 2px 3px; border-radius: 2px; flex-shrink: 0;
-    transition: color .1s, background .1s; -webkit-user-select: none; user-select: none;
+    transition: color .1s, background .1s;  user-select: none;
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
@@ -241,7 +241,7 @@
 /* Toolbar header — replaces sb-section collapsible pattern */
 .script-toolbar {
     display: flex; align-items: flex-start; gap: 6px; padding: 10px 12px;
-    border-bottom: 1px solid var(--border); cursor: default; -webkit-user-select: none; user-select: none;
+    border-bottom: 1px solid var(--border); cursor: default;  user-select: none;
 }
 .script-toolbar:hover { background: transparent; }
 .script-toolbar-title { font-size: 10px; font-weight: 700; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .07em; padding-left: 14px; }
@@ -312,7 +312,7 @@
     font-size: 10px; font-weight: 600; color: var(--addr-fg);
     text-transform: uppercase; letter-spacing: .04em;
     padding: 5px 8px; background: rgba(255,255,255,.03);
-    border-bottom: 1px solid var(--border); cursor: pointer; -webkit-user-select: none; user-select: none;
+    border-bottom: 1px solid var(--border); cursor: pointer;  user-select: none;
 }
 .script-output-hdr:hover { background: rgba(255,255,255,.06); }
 .script-output-hdr::before { content: '▼'; font-size: 8px; margin-right: 2px; }
