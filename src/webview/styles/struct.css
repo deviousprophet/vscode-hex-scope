@@ -312,7 +312,7 @@
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
 
 .si-add-btn {
-    flex-shrink: 0;
+    flex-shrink: 0; margin-left: auto;
     background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.35);
     border-radius: 3px; color: var(--high-color);
     font-size: 10px; font-family: var(--font-ui); font-weight: 600;
