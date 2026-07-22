@@ -97,6 +97,7 @@
     font-family: var(--font-ui);
     font-size: 10px;
     font-weight: 600;
+    letter-spacing: .07em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -298,7 +299,7 @@
     grid-template-columns: auto minmax(0, 1fr);
     line-height: 1.35;
     overflow-wrap: anywhere;
-    -webkit-user-select: text;
+    
     user-select: text;
 }
 

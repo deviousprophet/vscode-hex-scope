@@ -398,13 +398,13 @@ function render(): void {
                     <div id="s-integrity"></div>
                 </div>
                 <div class="${tabPanelClass('scripts')}" id="sbp-scripts">
-                    <div class="sb-section" id="s-scripts"></div>
+                    <div id="s-scripts"></div>
                 </div>
             </div>
             <div id="side-tabs">
                 <button class="${sideTabClass('inspector')}" id="stab-insp">Inspector</button>
-                <button class="${sideTabClass('struct')}" id="stab-struct">Struct Overlay</button>
-                <button class="${sideTabClass('integrity')}" id="stab-integrity">Integrity Checks</button>
+                <button class="${sideTabClass('struct')}" id="stab-struct">Struct</button>
+                <button class="${sideTabClass('integrity')}" id="stab-integrity">Integrity</button>
                 <button class="${sideTabClass('scripts')}" id="stab-scripts">Scripts</button>
             </div>
         </div>

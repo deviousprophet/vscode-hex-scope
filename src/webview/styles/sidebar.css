@@ -106,14 +106,17 @@
 /* Collapsible section support: hide body when collapsed */
 .sb-section.collapsed .sb-body { display: none; }
 .sb-section .sb-hdr {
-    cursor: pointer; -webkit-user-select: none; user-select: none;
+    cursor: pointer;  user-select: none;
     position: relative;
 }
 .sb-section .sb-hdr::before {
     content: '\25B6'; /* right-pointing triangle */
-    display: inline-block;
-    margin-right: 6px;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    margin-top: -6px;
     font-size: 12px;
+    line-height: 1;
     transition: transform .15s;
     color: var(--addr-fg);
 }
@@ -129,7 +132,7 @@
 .compact-tabs button {
     flex: 1; background: transparent; color: var(--addr-fg);
     border: none; border-radius: 2px; padding: 1px 8px; cursor: pointer;
-    font-size: 11px; font-family: var(--font-ui); transition: background .1s, color .1s;
+    font-size: 10px; font-family: var(--font-ui); transition: background .1s, color .1s;
 }
 .compact-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
 .compact-tabs button:hover:not(.active) { color: var(--fg); }
@@ -189,18 +192,18 @@
 .label-act {
     cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
     padding: 2px 3px; border-radius: 2px; flex-shrink: 0;
-    transition: color .1s, background .1s; -webkit-user-select: none; user-select: none;
+    transition: color .1s, background .1s;  user-select: none;
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
-.add-lbl-btn {
+.lf-add-btn {
     width: 100%; margin-top: 8px; padding: 5px;
     background: transparent; color: var(--high-color);
     border: 1px dashed rgba(134,180,212,.28); border-radius: 3px;
-    cursor: pointer; font-size: 11px; font-family: var(--font-ui);
+    cursor: pointer; font-size: 10px; font-family: var(--font-ui);
     transition: background .1s, border-style .1s;
 }
-.add-lbl-btn:hover { background: rgba(134,180,212,.07); border-style: solid; }
+.lf-add-btn:hover { background: rgba(134,180,212,.07); border-style: solid; }
 
 /* ── Label inline form ───────────────────────────────────────── */
 .lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
@@ -236,20 +239,19 @@
 #s-scripts .sb-body { padding: 0 12px 12px; }
 
 /* Toolbar header — replaces sb-section collapsible pattern */
-.sb-section .scripts-toolbar {
-    display: flex; align-items: center; gap: 6px; padding: 10px 12px;
-    border-bottom: 1px solid var(--border); cursor: default; user-select: none;
+.script-toolbar {
+    display: flex; align-items: flex-start; gap: 6px; padding: 10px 12px;
+    border-bottom: 1px solid var(--border); cursor: default;  user-select: none;
 }
-.sb-section .scripts-toolbar::before { content: '' !important; }
-.sb-section .scripts-toolbar:hover { background: transparent; }
-.scripts-toolbar-title { font-size: 11px; font-weight: 600; color: var(--fg); text-transform: uppercase; letter-spacing: .04em; }
-.scripts-count { font-size: 10px; color: var(--addr-fg); }
-.scripts-refresh-btn {
+.script-toolbar:hover { background: transparent; }
+.script-toolbar-title { font-size: 10px; font-weight: 700; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .07em; padding-left: 14px; }
+
+.script-refresh-btn {
     margin-left: auto; background: none; border: 1px solid var(--border); border-radius: 3px;
     color: var(--addr-fg); cursor: pointer; font-size: 13px; line-height: 1;
     padding: 2px 6px; transition: background .1s, color .1s;
 }
-.scripts-refresh-btn:hover { background: rgba(255,255,255,.06); color: var(--fg); }
+.script-refresh-btn:hover { background: rgba(255,255,255,.06); color: var(--fg); }
 
 /* Script card */
 .script-card {
@@ -310,7 +312,7 @@
     font-size: 10px; font-weight: 600; color: var(--addr-fg);
     text-transform: uppercase; letter-spacing: .04em;
     padding: 5px 8px; background: rgba(255,255,255,.03);
-    border-bottom: 1px solid var(--border); cursor: pointer; user-select: none;
+    border-bottom: 1px solid var(--border); cursor: pointer;  user-select: none;
 }
 .script-output-hdr:hover { background: rgba(255,255,255,.06); }
 .script-output-hdr::before { content: '▼'; font-size: 8px; margin-right: 2px; }

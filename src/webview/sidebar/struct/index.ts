@@ -1246,7 +1246,7 @@ function structInstancesPanelHtml(instBadge: string, addFormHtml: string, instHt
     return (
         `<div class="si-main-panel">` +
         `<div class="si-hdr-row">` +
-        `<span class="sb-hdr" style="margin:0">Struct Instances ${instBadge}</span>` +
+        `<span class="sb-hdr">Struct Instances ${instBadge}</span>` +
         bitLayoutToggleHtml() +
         `<button id="si-add-btn" class="si-add-btn"${_addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
         `<button id="si-types-btn" class="si-icon-btn" title="Manage types">&#9776;</button>` +
@@ -1260,7 +1260,6 @@ function structInstancesPanelHtml(instBadge: string, addFormHtml: string, instHt
 function bitLayoutToggleHtml(): string {
     return (
         `<div class="si-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
-        `<span class="si-toggle-label">Bit Layout</span>` +
         `<div class="compact-tabs sa-bit-order-tabs">` +
         `<button id="sa-btn-bit-lsb" class="${S.bitFieldAllocation === 'lsb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the least significant bit">LSB</button>` +
         `<button id="sa-btn-bit-msb" class="${S.bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
@@ -1274,7 +1273,7 @@ function structTypesPanelHtml(typeRows: string): string {
         `<div class="si-types-panel">` +
         `<div class="si-hdr-row">` +
         `<button id="sm-close-btn" class="si-icon-btn" title="${typePanelCloseTitle()}">&#8592;</button>` +
-        `<span class="sb-hdr" style="margin:0">${typePanelTitle()}</span>` +
+        `<span class="sb-hdr">${typePanelTitle()}</span>` +
         typePanelNewButtonHtml() +
         `</div>` +
         typePanelBodyHtml(typeRows) +

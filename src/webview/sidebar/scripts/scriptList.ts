@@ -55,7 +55,7 @@ export function requestScriptList(): void {
 
 export function updateScriptCount(count: number): void {
     const el = document.getElementById('scripts-count');
-    if (el) { el.textContent = `(${count})`; }
+    if (el) { el.textContent = String(count); el.hidden = count === 0; }
 }
 
 function runScript(filePath: string): void {

@@ -11,6 +11,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [State, Persistence, and Invalidation](./state-management.md) | Shared state owners, protocol flow, derived state, storage scope |
 | [Type and Validation Contracts](./type-safety.md) | Discriminated unions, boundary normalization, numeric/address rules |
 | [Quality and Test Contracts](./quality-guidelines.md) | Required checks, test placement, coverage expectations |
+| [CSS Guidelines](./css-guidelines.md) | File placement, design tokens, selector patterns, button standards |
 
 ## Feature Code-Specs
 

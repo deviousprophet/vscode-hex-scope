@@ -137,7 +137,7 @@ html, body {
     width: 18px; height: 18px; padding: 0; flex-shrink: 0;
     background: transparent; border: none; border-radius: 2px;
     cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
-    transition: color .1s, background .1s; -webkit-user-select: none; user-select: none;
+    transition: color .1s, background .1s;  user-select: none;
     opacity: 0; transition: opacity .1s, color .1s, background .1s;
 }
 /* Parent hover reveals the buttons */
@@ -184,7 +184,7 @@ html, body {
 }
 .dcp-msg {
     color: var(--fg); font-weight: 600;
-    -webkit-user-select: none; user-select: none;
+     user-select: none;
     margin-right: 2px;
 }
 .dcp-yes, .dcp-no {

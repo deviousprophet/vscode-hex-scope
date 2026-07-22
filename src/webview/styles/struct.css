@@ -1,13 +1,4 @@
-﻿.ctx-array-note {
-    padding: 6px 12px 0 12px;
-    font-size: 12px;
-    color: var(--addr-fg);
-    white-space: nowrap;
-    line-height: 1.4;
-    font-family: var(--font-ui);
-    font-style: italic;
-}
-/* ── Struct Overlay sidebar panel ────────────────────────────── */
+/* -- Struct Overlay sidebar panel ------------------------------ */
 
 /* Shared layout tokens */
 .struct-addr-pfx {
@@ -15,7 +6,7 @@
     font-family: var(--font-editor); font-size: 11px;
     color: var(--addr-fg); line-height: 1;
     padding: 2px 0 2px 2px;
-    -webkit-user-select: none; user-select: none;
+     user-select: none;
 }
 .struct-addr-inp {
     flex: 1; min-width: 0;
@@ -61,7 +52,7 @@
 }
 .sb-hdr-row .sb-hdr { margin-bottom: 0; }
 
-/* ══ Struct Types list (#s-struct) ══════════════════════════════ */
+/* -- Struct Types list (#s-struct) ------------------------------ */
 
 .sd-empty { margin-bottom: 4px; }
 
@@ -83,7 +74,7 @@
     font-family: var(--font-editor); white-space: nowrap;
 }
 
-/* ══ Struct form editor (#s-struct when editing) ═════════════════ */
+/* -- Struct form editor (#s-struct when editing) ----------------- */
 
 .se-form { display: flex; flex-direction: column; gap: 5px; }
 
@@ -179,7 +170,7 @@
 .sfe-del-btn:hover { color: var(--err); }
 .sfe-del-placeholder { display: block; width: 18px; }
 
-/* ── Bit-field toggle button (:N) ─────────────────────────────── */
+/* -- Bit-field toggle button (:N) ------------------------------- */
 .sfe-bit-btn {
     width: 28px; flex-shrink: 0; text-align: center;
     background: transparent; border: 1px dashed var(--border);
@@ -201,7 +192,7 @@
     font-size: 10px;
 }
 
-/* ── Bit-field children container ─────────────────────────────── */
+/* -- Bit-field children container ------------------------------- */
 .sfe-bf-children {
     grid-column: 1 / -1;
     display: flex; flex-direction: column; gap: 2px;
@@ -234,7 +225,7 @@
 .sfe-bf-child-unit {
     flex-shrink: 0;
     font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
-    -webkit-user-select: none; user-select: none;
+     user-select: none;
 }
 .sfe-bf-child-move {
     display: flex; align-items: center; gap: 1px;
@@ -283,10 +274,10 @@
     line-height: 1.3;
 }
 
-/* ══ Instances panel (#s-struct-pins) ════════════════════════════ */
+/* -- Instances panel (#s-struct-pins) ---------------------------- */
 #s-struct-pins { padding: 10px 12px; }
 
-/* Sliding two-panel track: main (instances) ←→ types */
+/* Sliding two-panel track: main (instances) ?? types */
 .si-panel-clip {
     overflow: hidden; /* clips the off-screen panel */
 }
@@ -308,9 +299,9 @@
     padding-left: 1px; /* prevent border clipping on slide edge */
 }
 
-/* Header row: title + badge + toggles + ＋ Add + ⚙ Types */
+/* Header row: title + badge + toggles + + Add + ? Types */
 .si-hdr-row {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: flex-start; gap: 6px;
     margin-bottom: 6px;
 }
 .si-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
@@ -318,17 +309,10 @@
     display: flex; flex-direction: column; align-items: center; gap: 1px;
     flex-shrink: 0;
 }
-.si-toggle-label {
-    color: var(--addr-fg);
-    font-family: var(--font-ui);
-    font-size: 8px;
-    line-height: 1;
-    white-space: nowrap;
-}
-.si-toggle-group .compact-tabs button { font-size: 9px; padding: 1px 5px; }
+.si-toggle-group .compact-tabs button { padding: 1px 5px; }
 
 .si-add-btn {
-    flex-shrink: 0;
+    flex-shrink: 0; margin-left: auto;
     background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.35);
     border-radius: 3px; color: var(--high-color);
     font-size: 10px; font-family: var(--font-ui); font-weight: 600;
@@ -356,13 +340,13 @@
     border-radius: 4px; padding: 8px; margin-bottom: 8px;
 }
 
-/* Form mode header (＋ New Instance / ✎ Edit Instance) */
+/* Form mode header (+ New Instance / ? Edit Instance) */
 .sa-form-hdr {
     font-size: 10px; font-weight: 600; font-family: var(--font-ui);
     padding-bottom: 5px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 1px;
-    -webkit-user-select: none; user-select: none;
+     user-select: none;
 }
 .sa-form-hdr-new  { color: var(--high-color); }
 .sa-form-hdr-edit { color: var(--addr-fg); }
@@ -402,8 +386,8 @@
 /* C syntax token colors */
 .sc-kw        { color: #569cd6; }          /* typedef struct */
 .sc-attr      { color: #c586c0; }          /* __attribute__((packed)) */
-.sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float … */
-.sc-cmt       { color: #6a9955; }          /* /* … */ */
+.sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float � */
+.sc-cmt       { color: #6a9955; }          /* /* � */ */
 
 .sa-addr-inp { flex: 0 0 90px; }
 
@@ -415,7 +399,7 @@
 }
 .sa-name-inp:focus { border-color: var(--high-color); }
 
-/* ══ Saved instances (expandable cards) ══════════════════════════ */
+/* -- Saved instances (expandable cards) -------------------------- */
 
 .si-card {
     border: 1px solid var(--border); border-radius: 4px;
@@ -429,7 +413,7 @@
 .si-card-hdr {
     display: flex; align-items: center; gap: 4px;
     padding: 5px 6px; cursor: pointer;
-    -webkit-user-select: none; user-select: none;
+     user-select: none;
 }
 .si-card-hdr:hover { background: var(--hover-bg); }
 
@@ -468,7 +452,7 @@
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
-.si-del-btn { display: none; } /* superseded by .act-btn — kept to avoid selector errors */
+.si-del-btn { display: none; } /* superseded by .act-btn � kept to avoid selector errors */
 
 /* Action buttons group (edit + delete) at top-right of card */
 .si-card-actions {
@@ -487,7 +471,7 @@
 .si-type-btn:hover { color: var(--high-color); }
 .si-type-btn.active { opacity: 1; color: var(--high-color); }
 
-/* Edit-type button on card (✎) */
+/* Edit-type button on card (?) */
 .si-edit-type-btn {
     flex-shrink: 0; padding: 0 3px;
     background: transparent; border: none;
@@ -497,7 +481,7 @@
 .si-card:hover .si-edit-type-btn { opacity: 1; }
 .si-edit-type-btn:hover { color: var(--high-color); }
 
-/* ＋ new-type button in add form type row */
+/* + new-type button in add form type row */
 .si-add-type-btn {
     flex-shrink: 0;
     background: transparent; border: 1px solid var(--border);
@@ -536,7 +520,7 @@
     color: var(--addr-fg); background: transparent;
     border: 1px solid var(--border);
     cursor: pointer; opacity: .55; transition: opacity .1s, border-color .1s, color .1s;
-    -webkit-user-select: none;
+    
     user-select: none;
 }
 .se-packed-btn:hover { opacity: .8; border-color: var(--addr-active-fg); }
