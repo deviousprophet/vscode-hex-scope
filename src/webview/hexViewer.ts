@@ -94,48 +94,25 @@ function applyTypedEdit(addr: number, value: number): void {
 }
 
 function advanceSel(addr: number): void {
-    const segments = S.parseResult?.segments;
-    if (!segments) {return;}
+    const segs = S.parseResult?.segments;
     const next = addr + 1;
-    for (const seg of segments) {
-        if (next >= seg.startAddress && next < seg.startAddress + seg.data.length) {
-            updateByteSelection(next, next);
-            return;
-        }
-    }
-    for (const seg of segments) {
-        if (seg.startAddress > addr) {
-            updateByteSelection(seg.startAddress, seg.startAddress);
-            return;
-        }
-    }
+    const same = segs?.find(s => next >= s.startAddress && next < s.startAddress + s.data.length);
+    if (same) { updateByteSelection(next, next); return; }
+    const later = segs?.find(s => s.startAddress > addr);
+    if (later) { updateByteSelection(later.startAddress, later.startAddress); }
 }
 
 const HEX_KEY_RE = /^[0-9a-fA-F]$/;
 
-function onEditKeydown(e: KeyboardEvent): void {
-    if (!S.editMode || S.lockedDueToExternalChange) {return;}
-    if (document.activeElement?.closest('#search-box, #ctx-menu')) {return;}
+function handleEditEscape(): void {
+    clearNibbleBuffer();
+    S.selStart = null;
+    S.selEnd = null;
+    applySel();
+    updateInspector();
+}
 
-    const selStart = S.selStart;
-    if (selStart === null || S.selEnd !== selStart) {
-        clearNibbleBuffer();
-        return;
-    }
-
-    if (e.key === 'Escape') {
-        clearNibbleBuffer();
-        S.selStart = null;
-        S.selEnd = null;
-        applySel();
-        updateInspector();
-        return;
-    }
-
-    if (!HEX_KEY_RE.test(e.key)) {return;}
-    e.preventDefault();
-
-    const char = e.key.toUpperCase();
+function handleEditBufferChar(selStart: number, char: string): void {
     if (nibbleBuffer === null) {
         nibbleBuffer = char;
         nibbleBufferAddr = selStart;
@@ -150,6 +127,28 @@ function onEditKeydown(e: KeyboardEvent): void {
     } else {
         clearNibbleBuffer();
     }
+}
+
+function isEditBlocked(): boolean {
+    return !S.editMode || S.lockedDueToExternalChange
+        || !!document.activeElement?.closest('#search-box, #ctx-menu');
+}
+
+function isSingleByteSelected(): boolean {
+    return S.selStart !== null && S.selEnd === S.selStart;
+}
+
+function onEditKeydown(e: KeyboardEvent): void {
+    if (isEditBlocked()) {return;}
+    if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
+    processEditKeypress(e, S.selStart!);
+}
+
+function processEditKeypress(e: KeyboardEvent, addr: number): void {
+    if (e.key === 'Escape') { handleEditEscape(); return; }
+    if (!HEX_KEY_RE.test(e.key)) {return;}
+    e.preventDefault();
+    handleEditBufferChar(addr, e.key.toUpperCase());
 }
 
 postProviderMessage({ type: 'ready' });
