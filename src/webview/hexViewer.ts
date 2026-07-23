@@ -17,7 +17,7 @@ import type { SerializedParseResult } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
 import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
 import { renderStats } from './statsBar';
-import { fillSelectionTransaction, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
+import { fillSelectionTransaction, getOriginalByte, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
 import { updateDirtyBar, updateEditControls } from './editControls';
 import {
     removeAllExternalChangeBanners,
@@ -55,6 +55,102 @@ import {
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { setupContextMenu, showContextMenu } from './contextMenuController';
+
+// ── Direct-typing edit buffer ─────────────────────────────────────
+let nibbleBuffer: string | null = null;
+let nibbleBufferAddr: number | null = null;
+
+function clearNibbleBuffer(): void {
+    nibbleBuffer = null;
+    if (nibbleBufferAddr !== null) {
+        const sel = `[data-addr="${nibbleBufferAddr.toString(16).toUpperCase().padStart(8, '0')}"]`;
+        const el = document.querySelector<HTMLElement>('.data-cell' + sel);
+        if (el) {
+            el.classList.remove('editing');
+            el.textContent = parseInt(el.dataset.val!, 10).toString(16).toUpperCase().padStart(2, '0');
+        }
+        nibbleBufferAddr = null;
+    }
+}
+
+function showNibblePreview(el: HTMLElement, char: string): void {
+    el.classList.add('editing');
+    el.textContent = char + '-';
+}
+
+function applyTypedEdit(addr: number, value: number): void {
+    clearNibbleBuffer();
+    const original = getOriginalByte(addr);
+    if (original === undefined) {return;}
+    if (original === value) { S.edits.delete(addr); return; }
+    S.edits.set(addr, value);
+    S.undoStack.push([[addr, original]]);
+    S.editMode = true;
+    updateDirtyBar();
+    memRerender();
+    updateInspector();
+    renderStructPins();
+    notifyIntegrityBytesChanged();
+}
+
+function advanceSel(addr: number): void {
+    const segments = S.parseResult?.segments;
+    if (!segments) {return;}
+    const next = addr + 1;
+    for (const seg of segments) {
+        if (next >= seg.startAddress && next < seg.startAddress + seg.data.length) {
+            updateByteSelection(next, next);
+            return;
+        }
+    }
+    for (const seg of segments) {
+        if (seg.startAddress > addr) {
+            updateByteSelection(seg.startAddress, seg.startAddress);
+            return;
+        }
+    }
+}
+
+const HEX_KEY_RE = /^[0-9a-fA-F]$/;
+
+function onEditKeydown(e: KeyboardEvent): void {
+    if (!S.editMode || S.lockedDueToExternalChange) {return;}
+    if (document.activeElement?.closest('#search-box, #ctx-menu')) {return;}
+
+    const selStart = S.selStart;
+    if (selStart === null || S.selEnd !== selStart) {
+        clearNibbleBuffer();
+        return;
+    }
+
+    if (e.key === 'Escape') {
+        clearNibbleBuffer();
+        S.selStart = null;
+        S.selEnd = null;
+        applySel();
+        updateInspector();
+        return;
+    }
+
+    if (!HEX_KEY_RE.test(e.key)) {return;}
+    e.preventDefault();
+
+    const char = e.key.toUpperCase();
+    if (nibbleBuffer === null) {
+        nibbleBuffer = char;
+        nibbleBufferAddr = selStart;
+        const el = document.querySelector<HTMLElement>(
+            `.data-cell[data-addr="${selStart.toString(16).toUpperCase().padStart(8, '0')}"]`
+        );
+        if (el) {showNibblePreview(el, char);}
+    } else if (nibbleBufferAddr === selStart) {
+        const value = parseInt(nibbleBuffer + char, 16);
+        applyTypedEdit(selStart, value);
+        advanceSel(selStart);
+    } else {
+        clearNibbleBuffer();
+    }
+}
 
 postProviderMessage({ type: 'ready' });
 
@@ -426,6 +522,7 @@ function setupRenderedUi(): void {
     setupMemoryDragSelection();
     setupSideTabs();
     renderInitialViews();
+    document.addEventListener('keydown', onEditKeydown, { capture: true });
 }
 
 function setupEndianControl(): void {
@@ -569,6 +666,7 @@ function memRerender(): void {
 }
 
 function updateByteSelection(start: number, end: number): void {
+    clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
     applySel();
@@ -578,6 +676,7 @@ function updateByteSelection(start: number, end: number): void {
 }
 
 function onByteDown(e: MouseEvent, el: HTMLElement): void {
+    clearNibbleBuffer();
     selectByteFromClick(e, el, updateByteSelection);
 }
 
@@ -661,6 +760,7 @@ function applyFill(fillVal: number): void {
 }
 
 function undoLastEdit(): void {
+    clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
