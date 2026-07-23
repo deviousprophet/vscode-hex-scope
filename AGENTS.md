@@ -20,12 +20,3 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 <!-- TRELLIS:END -->
 
-<!-- FALLOW:START -->
-# Fallow Quality Gate
-
-Before every `git push` that includes non-doc files, load fallow skill then run `npx fallow audit --base <target> --format json --quiet || true`. Parse JSON `verdict` (`pass`/`warn`/`fail`). Not `pass` → fix all warnings until green. Use `npx fallow` — no global install.
-
-Check PR CI checks for fallow verdict too. CI fallow failed → same as local fail — task undone.
-
-No suppression markers or config edits unless asked.
-<!-- FALLOW:END -->
