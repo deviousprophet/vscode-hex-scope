@@ -47,7 +47,7 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 |---|---|
 | Open | Right-click a supported file → **Open with HexScope Viewer** |
 | Views | Toolbar: **Memory** or **Records** |
-| Edit | Click **Edit** to patch bytes; **Save** writes changes and recomputes checksums |
+| Edit | Click **Edit**, then click a byte and type hex value to patch; right-click for batch fill; **Save** writes changes and recomputes checksums |
 | Search | `Ctrl+F` — search by byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
 | Struct Overlay | Define C structs, pin them at addresses, and decode live memory |
 | Integrity Checks | Configure checks, compare stored CRC values, and reuse saved profiles |
