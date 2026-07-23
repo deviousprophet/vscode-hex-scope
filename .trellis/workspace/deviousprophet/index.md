@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
-- **Last Active**: 2026-07-21
+- **Total Sessions**: 12
+- **Last Active**: 2026-07-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~375 | Active |
+| `journal-1.md` | ~137 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-07-23 | Direct-typing byte editing | `c3fe112` | `feat/edit-tedium` |
 | 11 | 2026-07-21 | Implement scripts tab UI per finalized spec | `4481e78`, `4a2bc1e`, `7ccb06a` | `feat/scripting-support` |
 | 10 | 2026-07-20 | Add scripting support for custom HEX processing | `a564af9` | `feat/scripting-support` |
 | 9 | 2026-07-11 | Verify memory release | `8cac7a4` | `fix/verify-memory-release` |
