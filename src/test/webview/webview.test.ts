@@ -14,6 +14,7 @@ import {
     physicalToLogicalScroll,
     type VirtualScrollState,
 } from '../../webview/render/virtualScroll';
+import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -919,5 +920,85 @@ suite('Integrity Checks sidebar', () => {
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }
+    });
+
+    test('stageIntegrityEdit one byte', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD] }],
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        const result = stageIntegrityEdit(0x1000, 0x42);
+        assert.deepStrictEqual(result, [0x1000, 0xDE]);
+        assert.strictEqual(S.edits.get(0x1000), 0x42);
+        assert.strictEqual(S.editMode, false);
+    });
+
+    test('stageIntegrityEdit skips unmapped address', () => {
+        resetState();
+        S.parseResult = null;
+        const result = stageIntegrityEdit(0x9999, 0x42);
+        assert.strictEqual(result, null);
+    });
+
+    test('stageIntegrityEdit reverts to original when re-editing to same value', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.edits.set(0x1000, 0x42);
+        const result = stageIntegrityEdit(0x1000, 0xDE);
+        assert.deepStrictEqual(result, [0x1000, 0x42]);
+        assert.strictEqual(S.edits.has(0x1000), false);
+    });
+
+    test('stageIntegrityEditTransaction multiple edits', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00, 0x01, 0x02] }],
+            totalDataBytes: 3, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        const ok = stageIntegrityEditTransaction([[0x1000, 0xFF], [0x1002, 0xEE]]);
+        assert.ok(ok);
+        assert.strictEqual(S.edits.get(0x1000), 0xFF);
+        assert.strictEqual(S.edits.get(0x1002), 0xEE);
+        assert.strictEqual(S.editMode, true);
+    });
+
+    test('fillSelectionTransaction fills range', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00, 0x00, 0x00, 0x00] }],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        fillSelectionTransaction({ start: 0x1001, end: 0x1002 }, 0xFF);
+        assert.strictEqual(S.edits.get(0x1001), 0xFF);
+        assert.strictEqual(S.edits.get(0x1002), 0xFF);
+        assert.strictEqual(S.edits.has(0x1000), false);
+    });
+
+    test('undoLastEditTransaction restores fill', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        const ok = undoLastEditTransaction();
+        assert.ok(ok);
+        assert.strictEqual(S.edits.has(0x1000), false);
     });
 });
