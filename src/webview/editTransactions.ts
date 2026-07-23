@@ -14,7 +14,7 @@ export function stageIntegrityEditTransaction(edits: Array<[number, number]>): b
     return true;
 }
 
-function stageIntegrityEdit(address: number, value: number): [number, number] | null {
+export function stageIntegrityEdit(address: number, value: number): [number, number] | null {
     const original = getOriginalByte(address);
     if (original === undefined) { return null; }
     const current = currentIntegrityByte(address, original);

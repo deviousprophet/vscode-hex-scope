@@ -102,3 +102,36 @@ Implemented the complete scripts tab UI: icon button state machine (Play/Spinner
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Direct-typing byte editing
+
+**Date**: 2026-07-23
+**Task**: Direct-typing byte editing
+**Branch**: `feat/edit-tedium`
+
+### Summary
+
+Implement direct-typing byte editing in edit mode. User clicks a byte, types 2 hex chars to patch it. Nibble buffer with A- preview, Escape cancels, click-away discards partial, selection advances via segment scan. 105 lines across 3 source files. All 466 tests pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c3fe112` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

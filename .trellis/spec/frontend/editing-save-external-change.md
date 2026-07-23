@@ -14,6 +14,16 @@ function fillSelectionTransaction(range: SelectionRange | null, fill: number): v
 function undoLastEditTransaction(): boolean;
 function clearEditModel(): void;
 function hasUnsavedEdits(): boolean;
+export function getOriginalByte(addr: number): number | undefined;
+
+// Direct-typing editing (hexViewer.ts local state)
+let nibbleBuffer: string | null;           // first hex nibble waiting for second
+let nibbleBufferAddr: number | null;        // address the first nibble targets
+function clearNibbleBuffer(): void;          // reset buffer, restore cell text
+function showNibblePreview(el: HTMLElement, char: string): void;
+function applyTypedEdit(addr: number, value: number): void;
+function advanceSel(addr: number): void;
+function onEditKeydown(e: KeyboardEvent): void;
 
 type WebviewToProviderMessage =
     | { type: 'saveEdits'; edits: Array<[number, number]> }
@@ -33,6 +43,12 @@ type WebviewToProviderMessage =
 - `savedEdits` replaces parsed memory and clears edits/undo only after host success.
 - Pending changes update Memory, Inspector, structs, search reads, integrity calculations, dirty bar, and edit controls through the shared accessor/invalidation path.
 - External file changes lock editing. With no local edits, offer reload; with local edits, show conflict choice. Parse-error changes use error UI and optional checksum repair.
+- Direct-typing (keyboard-based single-byte editing) uses a capture-phase `keydown` listener on `document`. Enters the same transaction path as fills (`S.edits`, `S.undoStack`).
+- Nibble buffer is module-level state in `hexViewer.ts`. First hex keypress stores the nibble and updates cell text in-place. Second hex keypress combines into a full byte and applies the edit.
+- Key filtering: only fires when `S.editMode && !S.lockedDueToExternalChange && singleByteSelected() && activeElement not inside #search-box or #ctx-menu`.
+- `clearNibbleBuffer` is wired into `onByteDown`, `updateByteSelection`, `undoLastEdit`, and Escape handler to prevent stale buffer leaks.
+- `advanceSel` uses segment-based scan: checks if `addr+1` is in the same segment, otherwise finds the next segment's start address.
+- Partial nibble on click-away (Q3-A) is silently discarded — no edit is applied.
 
 ### 4. Validation & Error Matrix
 

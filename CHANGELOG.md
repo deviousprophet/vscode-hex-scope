@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.15.0] - 2026-07-23
+
+### Added
+
+- Added direct-typing byte editing in edit mode — click a byte and type two hex characters to patch it, with automatic advance to the next byte for rapid multi-byte editing
+
 ## [2.14.1] - 2026-07-22
 
 ### Fixed

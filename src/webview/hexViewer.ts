@@ -17,7 +17,7 @@ import type { SerializedParseResult } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
 import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
 import { renderStats } from './statsBar';
-import { fillSelectionTransaction, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
+import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
 import { updateDirtyBar, updateEditControls } from './editControls';
 import {
     removeAllExternalChangeBanners,
@@ -55,6 +55,103 @@ import {
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { setupContextMenu, showContextMenu } from './contextMenuController';
+
+// ── Direct-typing edit buffer ─────────────────────────────────────
+let nibbleBuffer: string | null = null;
+let nibbleBufferAddr: number | null = null;
+
+function dataCellAt(addr: number): HTMLElement | null {
+    return document.querySelector<HTMLElement>(
+        `.data-cell[data-addr="${addr.toString(16).toUpperCase().padStart(8, '0')}"]`
+    );
+}
+
+function clearNibbleBuffer(): void {
+    nibbleBuffer = null;
+    if (nibbleBufferAddr !== null) {
+        const el = dataCellAt(nibbleBufferAddr);
+        if (el) {
+            el.classList.remove('editing');
+            el.textContent = parseInt(el.dataset.val!, 10).toString(16).toUpperCase().padStart(2, '0');
+        }
+        nibbleBufferAddr = null;
+    }
+}
+
+function showNibblePreview(el: HTMLElement, char: string): void {
+    el.classList.add('editing');
+    el.textContent = char + '-';
+}
+
+function applyTypedEdit(addr: number, value: number): void {
+    clearNibbleBuffer();
+    const prior = stageIntegrityEdit(addr, value);
+    if (!prior) {return;}
+    S.undoStack.push([prior]);
+    S.editMode = true;
+    updateDirtyBar();
+    updateEditControls();
+    memRerender();
+    updateInspector();
+    renderStructPins();
+    notifyIntegrityBytesChanged();
+}
+
+function advanceSel(addr: number): void {
+    const segs = S.parseResult?.segments;
+    const next = addr + 1;
+    const same = segs?.find(s => next >= s.startAddress && next < s.startAddress + s.data.length);
+    if (same) { updateByteSelection(next, next); return; }
+    const later = segs?.find(s => s.startAddress > addr);
+    if (later) { updateByteSelection(later.startAddress, later.startAddress); }
+}
+
+const HEX_CHAR_RE = /^[0-9a-fA-F]$/;
+
+function handleEditEscape(): void {
+    clearNibbleBuffer();
+    S.selStart = null;
+    S.selEnd = null;
+    applySel();
+    updateInspector();
+}
+
+function handleEditBufferChar(selStart: number, char: string): void {
+    if (nibbleBuffer === null) {
+        nibbleBuffer = char;
+        nibbleBufferAddr = selStart;
+        const el = dataCellAt(selStart);
+        if (el) {showNibblePreview(el, char);}
+    } else if (nibbleBufferAddr === selStart) {
+        const value = parseInt(nibbleBuffer + char, 16);
+        applyTypedEdit(selStart, value);
+        advanceSel(selStart);
+    } else {
+        clearNibbleBuffer();
+    }
+}
+
+function isEditBlocked(): boolean {
+    return !S.editMode || S.lockedDueToExternalChange
+        || !!document.activeElement?.closest('#search-box, #ctx-menu');
+}
+
+function isSingleByteSelected(): boolean {
+    return S.selStart !== null && S.selEnd === S.selStart;
+}
+
+function onEditKeydown(e: KeyboardEvent): void {
+    if (isEditBlocked()) {return;}
+    if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
+    processEditKeypress(e, S.selStart!);
+}
+
+function processEditKeypress(e: KeyboardEvent, addr: number): void {
+    if (e.key === 'Escape') { handleEditEscape(); return; }
+    if (!HEX_CHAR_RE.test(e.key)) {return;}
+    e.preventDefault();
+    handleEditBufferChar(addr, e.key.toUpperCase());
+}
 
 postProviderMessage({ type: 'ready' });
 
@@ -154,6 +251,7 @@ function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): voi
 }
 
 function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
+    clearNibbleBuffer();
     resetRecordPages(msg.generation);
     clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
@@ -426,6 +524,7 @@ function setupRenderedUi(): void {
     setupMemoryDragSelection();
     setupSideTabs();
     renderInitialViews();
+    document.addEventListener('keydown', onEditKeydown, { capture: true });
 }
 
 function setupEndianControl(): void {
@@ -463,6 +562,7 @@ function setupEditButtons(): void {
         if (S.currentView === 'memory') { memRerender(); }
     });
     document.getElementById('btn-cancel')!.addEventListener('click', () => {
+        clearNibbleBuffer();
         clearEditState('discard');
         updateEditControls();
         updateDirtyBar();
@@ -569,6 +669,7 @@ function memRerender(): void {
 }
 
 function updateByteSelection(start: number, end: number): void {
+    clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
     applySel();
@@ -578,6 +679,7 @@ function updateByteSelection(start: number, end: number): void {
 }
 
 function onByteDown(e: MouseEvent, el: HTMLElement): void {
+    clearNibbleBuffer();
     selectByteFromClick(e, el, updateByteSelection);
 }
 
@@ -661,6 +763,7 @@ function applyFill(fillVal: number): void {
 }
 
 function undoLastEdit(): void {
+    clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
     updateDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }

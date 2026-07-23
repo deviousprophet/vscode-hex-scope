@@ -71,6 +71,9 @@
 /* Edited / dirty byte — amber underline */
 .data-cell.dirty, .char-cell.dirty { text-decoration: underline; text-decoration-color: #e5a800; text-underline-offset: 2px; color: #e5a800; }
 
+/* Direct-typing nibble preview outline */
+.data-cell.editing { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+
 .data-cell.integrity-range, .char-cell.integrity-range {
     background: rgba(70, 140, 255, .24) !important;
 }
