@@ -69,7 +69,7 @@ function restoreEditedByte(addr: number, prevVal: number): void {
     S.edits.set(addr, prevVal);
 }
 
-export function getOriginalByte(addr: number): number | undefined {
+function getOriginalByte(addr: number): number | undefined {
     if (!S.parseResult) { return undefined; }
     for (const seg of S.parseResult.segments) {
         const off = addr - seg.startAddress;
