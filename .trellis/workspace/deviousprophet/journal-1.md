@@ -135,3 +135,69 @@ Implement direct-typing byte editing in edit mode. User clicks a byte, types 2 h
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Fix address search padding
+
+**Date**: 2026-07-24
+**Task**: Fix address search padding
+**Branch**: `fix/search-address-padding`
+
+### Summary
+
+buildAddressSearchBounds: fix padEnd->padStart so short queries like '1A0' find exact address 0x1A0. Add 8 addr search tests. Closes #123.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6c7e0e7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 14: Address search cleanup
+
+**Date**: 2026-07-24
+**Task**: Address search cleanup
+**Branch**: `fix/search-address-padding`
+
+### Summary
+
+Simplify AddressSearchBounds (rm dead fields), extract test helper, move addr tests to search.test.ts, add overflow tests. Refs #123.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `14fa689` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

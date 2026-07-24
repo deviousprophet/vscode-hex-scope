@@ -115,14 +115,22 @@
     border: 1px solid var(--input-bdr); border-radius: 3px;
     padding: 0 4px; height: 22px; font-size: 11px; cursor: pointer;
 }
+.search-addr-wrap { position: relative; display: inline-flex; align-items: center; }
+.search-addr-prefix {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    color: var(--non-graphic); font-family: var(--font-editor); font-size: 12px;
+    pointer-events: none; z-index: 1; line-height: 1; user-select: none;
+}
 #search-input {
     background: var(--input-bg); color: var(--fg);
     border: 1px solid var(--input-bdr); border-radius: 3px;
     padding: 0 7px; height: 26px; width: 180px; outline: none;
     font-size: 12px; font-family: var(--font-editor); transition: border-color .12s;
 }
+#search-input.search-addr-mode { padding-left: 23px; }
 #search-input::placeholder { color: var(--non-graphic); }
 #search-input:focus { border-color: var(--focus-bdr); }
+
 
 .nav-btn {
     width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;

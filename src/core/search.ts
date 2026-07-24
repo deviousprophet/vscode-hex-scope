@@ -17,11 +17,8 @@ interface SearchCursor {
     offset: number;
 }
 
-interface AddressSearchBounds {
-    queryMin: number;
-    queryMax: number;
-    prefixShift: number;
-    prefixValue: number;
+interface AddressSearchQuery {
+    queryValue: number;
 }
 
 interface SearchProgressState {
@@ -105,7 +102,7 @@ export class SearchEngine {
         const cursor: SearchCursor = { segmentIndex: 0, offset: 0 };
         const progress = createSearchProgress(segments);
 
-        const bounds = buildAddressSearchBounds(query);
+        const bounds = buildAddressSearchQuery(query);
         this.runChunkedSearch(token, segments.length, cursor, progress, handlers, matches, () =>
             scanAddressSearchChunk(segments, bounds, cursor, matches)
         );
@@ -205,18 +202,13 @@ function matchesAnyNeedle(segmentData: ArrayLike<number>, offset: number, needle
     return false;
 }
 
-function buildAddressSearchBounds(query: string): AddressSearchBounds {
-    return {
-        queryMin: parseInt(query.padEnd(8, '0'), 16),
-        queryMax: parseInt(query.padEnd(8, 'F'), 16),
-        prefixShift: (8 - query.length) * 4,
-        prefixValue: parseInt(query, 16) >>> 0,
-    };
+function buildAddressSearchQuery(query: string): AddressSearchQuery {
+    return { queryValue: parseInt(query.padStart(8, '0'), 16) >>> 0 };
 }
 
 function scanAddressSearchChunk(
     segments: SerializedSegment[],
-    bounds: AddressSearchBounds,
+    bounds: AddressSearchQuery,
     cursor: SearchCursor,
     matches: number[],
 ): number {
@@ -250,15 +242,15 @@ function scanSegmentsWithinBudget(
     return scanned;
 }
 
-function segmentOverlapsAddressBounds(seg: SerializedSegment, bounds: AddressSearchBounds): boolean {
+function segmentOverlapsAddressBounds(seg: SerializedSegment, bounds: AddressSearchQuery): boolean {
     const segStart = seg.startAddress;
     const segEnd = seg.startAddress + seg.data.length - 1;
-    return segEnd >= bounds.queryMin && segStart <= bounds.queryMax;
+    return segStart <= bounds.queryValue && segEnd >= bounds.queryValue;
 }
 
 function scanAddressSegment(
     seg: SerializedSegment,
-    bounds: AddressSearchBounds,
+    bounds: AddressSearchQuery,
     cursor: SearchCursor,
     matches: number[],
     deadline: number,
@@ -274,7 +266,7 @@ function scanAddressSegment(
 
 function scanAddressBatch(
     seg: SerializedSegment,
-    bounds: AddressSearchBounds,
+    bounds: AddressSearchQuery,
     cursor: SearchCursor,
     matches: number[],
     end: number,
@@ -282,7 +274,7 @@ function scanAddressBatch(
     const start = cursor.offset;
     while (cursor.offset < end) {
         const address = (seg.startAddress + cursor.offset) >>> 0;
-        if ((address >>> bounds.prefixShift) === bounds.prefixValue) { matches.push(address); }
+        if (address === bounds.queryValue) { matches.push(address); }
         cursor.offset++;
     }
     return cursor.offset - start;
@@ -290,7 +282,7 @@ function scanAddressBatch(
 
 function scanAddressSearchSegment(
     seg: SerializedSegment,
-    bounds: AddressSearchBounds,
+    bounds: AddressSearchQuery,
     cursor: SearchCursor,
     matches: number[],
     deadline: number,

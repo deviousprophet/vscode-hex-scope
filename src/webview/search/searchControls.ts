@@ -9,10 +9,27 @@ export function setupSearchControls(onUndo: () => void): void {
     const searchBtnLE = document.getElementById('search-btn-le') as HTMLButtonElement;
     const searchBtnBE = document.getElementById('search-btn-be') as HTMLButtonElement;
 
+    const addrPrefixEl = document.getElementById('search-addr-prefix')!;
+    const updateAddrOverlay = (): void => {
+        const show = S.searchMode === 'addr' && inputEl.value.length > 0;
+        addrPrefixEl.style.display = show ? '' : 'none';
+        inputEl.classList.toggle('search-addr-mode', show);
+    };
+
     const applySearchModeUi = (): void => {
         endianToggleEl.style.display = S.searchMode === 'value' ? 'inline-flex' : 'none';
         inputEl.placeholder = searchPlaceholder();
+        const isAddr = S.searchMode === 'addr';
+        inputEl.maxLength = isAddr ? 8 : 100;
+        if (!isAddr) { inputEl.classList.remove('search-addr-mode'); }
+        updateAddrOverlay();
     };
+
+    inputEl.addEventListener('input', () => {
+        if (S.searchMode !== 'addr') { return; }
+        inputEl.value = inputEl.value.replace(/[^0-9a-fA-F]/g, '');
+        updateAddrOverlay();
+    });
     const applyEndianUi = (): void => {
         searchBtnAuto.classList.toggle('active', S.searchEndianness === 'auto');
         searchBtnLE.classList.toggle('active', S.searchEndianness === 'le');
@@ -48,7 +65,7 @@ function searchPlaceholder(): string {
         bytes: 'Bytes (e.g. DE AD BE EF)',
         value: 'Value (e.g. 0x12345678 or 305419896)',
         ascii: 'ASCII text',
-        addr: 'Address (e.g. 0800 or 0x08001234)',
+        addr: 'Addr (e.g. 1A0)',
     };
     return placeholders[S.searchMode];
 }

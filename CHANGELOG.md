@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed address search requiring leading zeros — short queries like `1A0` now correctly match address `0x1A0`
+
+### Changed
+
+- Improved address search input with inline `0x` prefix, hex-only character filtering, and 8-character maximum
+
 ## [2.15.0] - 2026-07-23
 
 ### Added
