@@ -456,7 +456,10 @@ function render(): void {
                     <option value="ascii" ${selectedAttr(S.searchMode === 'ascii')}>ASCII</option>
                     <option value="addr"  ${selectedAttr(S.searchMode === 'addr')}>Addr</option>
                 </select>
-                <input id="search-input" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
+                <div class="search-addr-wrap">
+                    <span id="search-addr-prefix" class="search-addr-prefix">0x</span>
+                    <input id="search-input" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
+                </div>
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
                 <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
                 <button class="nav-btn" id="btn-next"         title="Next match">▼</button>
