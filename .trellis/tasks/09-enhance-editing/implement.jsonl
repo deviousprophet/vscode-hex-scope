@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Current edit transaction contracts, nibble buffer flow, batch edit API"}
+{"file": ".trellis/spec/frontend/search-inspect-copy.md", "reason": "selectedBytes(), formatCopyCommand(), copy command types"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module placement rules"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "DOM rendering and listener wiring patterns"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "State owner rules for new lastClickColumn field"}

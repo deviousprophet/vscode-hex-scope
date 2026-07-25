@@ -406,9 +406,10 @@ function dataRowCellHtml(addr: number, col: number, val: number): { hex: string;
     const hex  = val.toString(16).toUpperCase().padStart(2, '0');
     const dirty = S.edits.has(addr) ? ' dirty' : '';
     const integrity = integrityHighlightClass(addr);
+    const charClass = charCellClass(val) + (S.editMode && !isPrintableMemoryByte(val) ? ' edit-placeholder' : '');
     return {
         hex: `<span class="data-cell ${byteClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}" data-val="${val}">${hex}</span>`,
-        char: `<span class="char-cell ${charCellClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}">${charCellText(val)}</span>`,
+        char: `<span class="char-cell ${charClass}${dirty}${integrity}" data-col="${col}" data-addr="${ah}">${charCellText(val)}</span>`,
     };
 }
 
@@ -421,7 +422,8 @@ function charCellClass(val: number): string {
 }
 
 function charCellText(val: number): string {
-    return isPrintableMemoryByte(val) ? esc(String.fromCharCode(val)) : '';
+    if (isPrintableMemoryByte(val)) { return esc(String.fromCharCode(val)); }
+    return S.editMode ? '·' : '';
 }
 
 export function integrityHighlightClass(address: number): string {

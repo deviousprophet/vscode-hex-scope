@@ -49,6 +49,10 @@ type WebviewToProviderMessage =
 - `clearNibbleBuffer` is wired into `onByteDown`, `updateByteSelection`, `undoLastEdit`, and Escape handler to prevent stale buffer leaks.
 - `advanceSel` uses segment-based scan: checks if `addr+1` is in the same segment, otherwise finds the next segment's start address.
 - Partial nibble on click-away (Q3-A) is silently discarded — no edit is applied.
+- Decoded-text (char-cell) editing: when `S.lastClickColumn === 'char'` and a printable ASCII key is pressed in edit mode, the byte is replaced directly with the char code via `applyTypedEdit()`. Skips the nibble buffer.
+- Paste (`onCopyPasteKeydown`, Ctrl+V / Cmd+V) reads clipboard via `navigator.clipboard.readText()`, applies hex-first parsing via `parsePasteText()` (fallback to raw ASCII), then enters through `stageIntegrityEditTransaction()` for undo support. Aborts if `isEditBlocked()` or no selection. Clears nibble buffer before paste.
+- Copy (`onCopyPasteKeydown`, Ctrl+C / Cmd+C) formats selected bytes via `formatCopyCommand()` using `'hex'` or `'ascii'` format depending on `S.lastClickColumn`.
+- `S.lastClickColumn` is set on `mousedown` on hex/char cells, cleared on new file load (`applyInitialState`).
 
 ### 4. Validation & Error Matrix
 
