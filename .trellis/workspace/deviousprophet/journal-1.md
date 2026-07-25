@@ -201,3 +201,37 @@ Simplify AddressSearchBounds (rm dead fields), extract test helper, move addr te
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Add hex.readSelected() API
+
+**Date**: 2026-07-25
+**Task**: Add hex.readSelected() API
+**Branch**: `feat/read-selected-api`
+
+### Summary
+
+Added hex.readSelected() script API to read the current editor selection. Threaded selection range from webview through runScript message to VSCodeScriptHost. Updated docs (SCRIPTING.md + scripting spec) and added 3 unit tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `de0c3c7` | (see git log) |
+| `b0588fd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

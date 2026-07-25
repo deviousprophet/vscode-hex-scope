@@ -64,7 +64,7 @@ export type WebviewToProviderMessage =
     | { type: 'closePanel' }
     | { type: 'viewInNormalEditor' }
     | { type: 'requestScriptList' }
-    | { type: 'runScript'; scriptPath: string; generation: number }
+    | { type: 'runScript'; scriptPath: string; generation: number; selectionRange?: { start: number; end: number } }
     | { type: 'cancelScript'; scriptPath: string };
 
 export function messageType(message: unknown): string | undefined {

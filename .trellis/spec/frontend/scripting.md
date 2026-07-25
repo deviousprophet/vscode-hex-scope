@@ -19,11 +19,12 @@ interface ScriptHost {
     setResult(label: string, value: string): void;
     collectOutput(): { results: Array<{ label: string; value: string }>; log: string[] };
     stale?: boolean;
+    selectionRange?: { start: number; end: number };
 }
 
 // API injected into script vm context
 interface HexScopeAPI {
-    hex: { read(a: number, l: number): Uint8Array; write(a: number, d: Uint8Array): Promise<boolean>; size: number };
+    hex: { read(a: number, l: number): Uint8Array; readSelected(): Uint8Array; write(a: number, d: Uint8Array): Promise<boolean>; size: number };
     crc: { crc8(d: Uint8Array | number[]): number; crc16(d: Uint8Array | number[]): number; crc32(d: Uint8Array | number[]): number };
     hash: { sha1(d: Uint8Array): Promise<Uint8Array>; sha256(d: Uint8Array): Promise<Uint8Array>; sha512(d: Uint8Array): Promise<Uint8Array> };
     exec(cmd: string, args?: string[]): Promise<ExecResult | null>;
@@ -89,7 +90,7 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number): Promis
 ```typescript
 // Webview → Provider
 | { type: 'requestScriptList' }
-| { type: 'runScript'; scriptPath: string; generation: number }
+| { type: 'runScript'; scriptPath: string; generation: number; selectionRange?: { start: number; end: number } }
 
 // Provider → Webview
 | { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string }> }

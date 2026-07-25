@@ -2,13 +2,17 @@
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- Fixed address search requiring leading zeros — short queries like `1A0` now correctly match address `0x1A0`
+- Added `hex.readSelected()` scripting API to read the current editor selection without hardcoding addresses
 
 ### Changed
 
-- Improved address search input with inline `0x` prefix, hex-only character filtering, and 8-character maximum
+- Improved address search input with inline `0x` prefix, hex-only character filtering, and an 8-character maximum
+
+### Fixed
+
+- Fixed address search requiring leading zeros so short queries like `1A0` correctly match `0x1A0`
 
 ## [2.15.0] - 2026-07-23
 

@@ -74,6 +74,7 @@ If using TypeScript, install the types from the extension's source or copy the `
 
 ```typescript
 api.hex.read(address: number, length: number): Uint8Array
+api.hex.readSelected(): Uint8Array
 api.hex.write(address: number, data: Uint8Array): Promise<boolean>
 api.hex.size: number
 ```
@@ -81,6 +82,7 @@ api.hex.size: number
 | Method | Description |
 |--------|-------------|
 | `read(address, length)` | Returns bytes from the currently open document at the given firmware address. Stops reading at the first unmapped byte |
+| `readSelected()` | Returns the bytes in the current editor selection. Captured at script-run time. Returns 1 byte when cursor sits on a single byte; empty `Uint8Array` when no selection |
 | `write(address, data)` | Writes bytes. **Shows a confirmation dialog.** Returns `true` if the user accepted |
 | `size` | Total number of mapped bytes in the document (sum of all segment lengths) |
 
@@ -92,6 +94,36 @@ Addresses are absolute firmware addresses from the parsed segments. If the addre
 const vectorTable = api.hex.read(0x08000000, 128);  // first 128 bytes at 0x08000000
 const stackPtr = new DataView(vectorTable.buffer).getUint32(0, true);  // first 4 bytes LE
 api.output(`Stack pointer: 0x${stackPtr.toString(16).toUpperCase()}`);
+```
+
+**Example — reading the current selection:**
+
+```typescript
+const selected = api.hex.readSelected();
+const hex = [...selected].map(b => b.toString(16).padStart(2, '0')).join(' ');
+api.setResult('Selected bytes', hex.toUpperCase());
+api.output(`Read ${selected.length} bytes from selection`);
+```
+
+**Example — patching bytes:**
+
+```typescript
+export async function run(api) {
+    const addr = 0x08000000;
+    const before = api.hex.read(addr, 1);
+    api.output(`Current: 0x${before[0].toString(16).toUpperCase()}`);
+
+    const ok = await api.hex.write(addr, new Uint8Array([0xFF]));
+    api.setResult('Write accepted', ok ? 'Yes' : 'No');
+}
+```
+
+**Example — total size:**
+
+```typescript
+api.setResult('Total size', `${api.hex.size} bytes`);
+const data = api.hex.read(0, api.hex.size);  // read everything
+api.output(`Read ${data.length} bytes`);
 ```
 
 ### `api.crc` — CRC algorithms

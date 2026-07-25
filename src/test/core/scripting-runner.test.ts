@@ -118,6 +118,54 @@ test('supports hex.read API', async () => {
     } finally { rmDir(dir); }
 });
 
+test('hex.readSelected returns selection bytes', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'readsel.js', `
+            module.exports = { run(api) {
+                const data = api.hex.readSelected();
+                api.output(data.length.toString() + ':' + [...data].map(b => b.toString(16)).join(','));
+            }};
+        `);
+        const host = makeHost({ selectionRange: { start: 5, end: 9 } });
+        const out = await execute(fp, host);
+        assert.equal(out.error, undefined);
+        assert.ok((host as any)._log.some((l: string) => l === '5:5,6,7,8,9'));
+    } finally { rmDir(dir); }
+});
+
+test('hex.readSelected returns empty for no selection', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'readsel-none.js', `
+            module.exports = { run(api) {
+                const data = api.hex.readSelected();
+                api.output(data.length.toString());
+            }};
+        `);
+        const host = makeHost();
+        const out = await execute(fp, host);
+        assert.equal(out.error, undefined);
+        assert.ok((host as any)._log.includes('0'));
+    } finally { rmDir(dir); }
+});
+
+test('hex.readSelected returns 1 byte for zero-length selection', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'readsel-zero.js', `
+            module.exports = { run(api) {
+                const data = api.hex.readSelected();
+                api.output(data.length.toString() + ':' + data[0].toString(16));
+            }};
+        `);
+        const host = makeHost({ selectionRange: { start: 0xAB, end: 0xAB } });
+        const out = await execute(fp, host);
+        assert.equal(out.error, undefined);
+        assert.ok((host as any)._log.some((l: string) => l === '1:ab'));
+    } finally { rmDir(dir); }
+});
+
 test('supports crc API', async () => {
     const dir = tmpDir();
     try {
