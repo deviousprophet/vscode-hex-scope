@@ -39,6 +39,7 @@ export class VSCodeScriptHost implements IScriptHost {
     private readonly _outputHook: (text: string) => void;
     private readonly _resultHook: (label: string, value: string) => void;
     private readonly _confirm: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
+    selectionRange?: { start: number; end: number };
 
     constructor(
         segments: MemorySegment[],
@@ -46,12 +47,14 @@ export class VSCodeScriptHost implements IScriptHost {
             output?: (text: string) => void;
             setResult?: (label: string, value: string) => void;
             confirm?: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
+            selectionRange?: { start: number; end: number };
         },
     ) {
         this.lookup = buildLookup(segments);
         this._outputHook = options.output ?? (() => {});
         this._resultHook = options.setResult ?? (() => {});
         this._confirm = options.confirm ?? (async () => false);
+        this.selectionRange = options.selectionRange;
     }
 
     get totalSize(): number {

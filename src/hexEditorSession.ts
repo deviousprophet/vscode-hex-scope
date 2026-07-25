@@ -732,6 +732,7 @@ export class HexEditorSession {
                             `Script "${scriptPath}" wants to ${type}: ${detail}`, { modal: true }, 'Allow');
                         return btn === 'Allow';
                     },
+                    selectionRange: msg.selectionRange,
                 });
                 const output = await execute(scriptPath, host, undefined, signal);
                 // ponytail: guard with `if (currentAbort?.signal === signal)` if runs can overlap

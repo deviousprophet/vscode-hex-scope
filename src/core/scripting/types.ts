@@ -10,6 +10,8 @@ export interface ScriptHost {
     collectOutput(): { results: Array<{ label: string; value: string }>; log: string[] };
     /** If true, the host data is stale and writes should be rejected. */
     stale?: boolean;
+    /** Current editor selection range, if any. Set at script-run time. */
+    selectionRange?: { start: number; end: number };
 }
 
 export interface ExecResult {
@@ -36,6 +38,7 @@ export interface ScriptOutput {
 export interface HexScopeAPI {
     hex: {
         read(address: number, length: number): Uint8Array;
+        readSelected(): Uint8Array;
         write(address: number, data: Uint8Array): Promise<boolean>;
         size: number;
     };

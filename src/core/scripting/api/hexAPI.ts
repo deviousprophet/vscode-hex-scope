@@ -5,6 +5,11 @@ export function hexAPI(host: ScriptHost) {
         read(address: number, length: number): Uint8Array {
             return host.readBytes(address, length);
         },
+        readSelected(): Uint8Array {
+            const range = host.selectionRange;
+            if (!range) { return new Uint8Array(0); }
+            return host.readBytes(range.start, range.end - range.start + 1);
+        },
         async write(address: number, data: Uint8Array): Promise<boolean> {
             const ok = await host.confirm('write', `Write ${data.length} bytes at 0x${address.toString(16).toUpperCase()}`);
             if (!ok || host.stale) { return false; }

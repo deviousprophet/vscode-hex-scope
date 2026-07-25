@@ -1,6 +1,7 @@
 import { esc } from '../../utils';
 import { postProviderMessage } from '../../vscodeApi';
 import { S } from '../../state';
+import { currentSelectionRange } from '../../memory/selection';
 
 let currentScripts: Array<{ name: string; filePath: string }> = [];
 const scriptStatus = new Map<string, 'success' | 'error' | null>();
@@ -62,7 +63,8 @@ function runScript(filePath: string): void {
     if (runningPath) { return; }
     runStartCallback?.();
     setRunning(filePath);
-    postProviderMessage({ type: 'runScript', scriptPath: filePath, generation: S.documentGeneration });
+    const selectionRange = currentSelectionRange() ?? undefined;
+    postProviderMessage({ type: 'runScript', scriptPath: filePath, generation: S.documentGeneration, selectionRange });
 }
 
 function cancelScript(filePath: string): void {
