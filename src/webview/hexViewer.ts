@@ -170,22 +170,24 @@ function processEditKeypress(e: KeyboardEvent, addr: number): void {
 
 // ── Copy/paste keyboard handler ──────────────────────────────────
 
-function doCopySelection(): void {
-    if (S.selStart === null || S.selEnd === null) { return; }
+function collectSelectedBytes(): number[] {
+    if (S.selStart === null || S.selEnd === null) { return []; }
     const bytes: number[] = [];
     for (let a = S.selStart; a <= S.selEnd; a++) {
         const v = getByte(a);
         if (v !== undefined) { bytes.push(v); }
     }
+    return bytes;
+}
+
+function doCopySelection(): void {
+    const bytes = collectSelectedBytes();
     if (bytes.length === 0) { return; }
     const fmt = S.lastClickColumn === 'char' ? 'ascii' as const : 'hex' as const;
     navigator.clipboard.writeText(formatCopyCommand(fmt, bytes)).catch(() => {});
 }
 
-function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
-    const bytes = parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
-    if (bytes.length === 0) { return; }
-
+function buildPasteEdits(range: { start: number; end: number }, bytes: number[]): Array<[number, number]> {
     const edits: Array<[number, number]> = [];
     let addr = range.start;
     for (const b of bytes) {
@@ -193,8 +195,15 @@ function applyPasteBytes(range: { start: number; end: number }, clipText: string
         edits.push([addr, b]);
         addr++;
     }
-    if (edits.length === 0) { return; }
+    return edits;
+}
 
+function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
+    const bytes = parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
+    if (bytes.length === 0) { return; }
+
+    const edits = buildPasteEdits(range, bytes);
+    if (edits.length === 0) { return; }
     if (!stageIntegrityEditTransaction(edits)) { return; }
 
     updateDirtyBar();
