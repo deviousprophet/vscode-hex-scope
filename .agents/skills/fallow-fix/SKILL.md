@@ -7,6 +7,14 @@ description: "Fix all fallow findings (dead-code, complexity, duplication) by re
 
 Fix every fallow finding by refactoring source code. No `fallow-ignore` comments. No fallow config changes.
 
+## Before starting
+
+Load the `fallow` skill (if available) for detailed fallow CLI docs, issue types, and workflow recipes. This skill covers the fix loop only.
+
+## Tooling
+
+Always run fallow via `npx fallow ...`. Never install fallow globally (`npm i -g fallow`). Never install it as a project dependency.
+
 ## Process
 
 ### 1. Run full fallow scan
