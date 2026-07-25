@@ -143,17 +143,25 @@ function isSingleByteSelected(): boolean {
     return S.selStart !== null && S.selEnd === S.selStart;
 }
 
+function isModifierKey(e: KeyboardEvent): boolean {
+    return e.ctrlKey || e.metaKey;
+}
+
 function onEditKeydown(e: KeyboardEvent): void {
     if (isEditBlocked()) {return;}
-    if (e.ctrlKey || e.metaKey) { return; }
+    if (isModifierKey(e)) { return; }
     if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
     processEditKeypress(e, S.selStart!);
+}
+
+function isPrintableCharCode(code: number): boolean {
+    return code >= 0x20 && code <= 0x7E;
 }
 
 function handleCharColumnEdit(e: KeyboardEvent, addr: number): boolean {
     if (S.lastClickColumn !== 'char' || e.key.length !== 1) { return false; }
     const code = e.key.charCodeAt(0);
-    if (code < 0x20 || code > 0x7E) { return false; }
+    if (!isPrintableCharCode(code)) { return false; }
     e.preventDefault();
     applyTypedEdit(addr, code);
     advanceSel(addr);
@@ -172,12 +180,9 @@ function processEditKeypress(e: KeyboardEvent, addr: number): void {
 
 function collectSelectedBytes(): number[] {
     if (S.selStart === null || S.selEnd === null) { return []; }
-    const bytes: number[] = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) {
-        const v = getByte(a);
-        if (v !== undefined) { bytes.push(v); }
-    }
-    return bytes;
+    const addrs = [];
+    for (let a = S.selStart; a <= S.selEnd; a++) { addrs.push(a); }
+    return addrs.filter(a => getByte(a) !== undefined).map(a => getByte(a)!);
 }
 
 function doCopySelection(): void {
@@ -198,20 +203,22 @@ function buildPasteEdits(range: { start: number; end: number }, bytes: number[])
     return edits;
 }
 
+function stagePasteFromText(range: { start: number; end: number }, clipText: string): Array<[number, number]> {
+    const parsed = parsePasteText(clipText);
+    const bytes = parsed ?? [...clipText].map(c => c.charCodeAt(0));
+    return bytes.length > 0 ? buildPasteEdits(range, bytes) : [];
+}
+
 function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
-    const bytes = parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
-    if (bytes.length === 0) { return; }
-
-    const edits = buildPasteEdits(range, bytes);
-    if (edits.length === 0) { return; }
-    if (!stageIntegrityEditTransaction(edits)) { return; }
-
-    updateDirtyBar();
-    updateEditControls();
-    memRerender();
-    updateInspector();
-    renderStructPins();
-    notifyIntegrityBytesChanged();
+    const edits = stagePasteFromText(range, clipText);
+    if (edits.length > 0 && stageIntegrityEditTransaction(edits)) {
+        updateDirtyBar();
+        updateEditControls();
+        memRerender();
+        updateInspector();
+        renderStructPins();
+        notifyIntegrityBytesChanged();
+    }
 }
 
 function doPasteToSelection(): void {
@@ -225,10 +232,13 @@ function doPasteToSelection(): void {
         .catch(() => {});
 }
 
+function isCopyKey(e: KeyboardEvent): boolean { return e.key === 'c'; }
+function isPasteKey(e: KeyboardEvent): boolean { return e.key === 'v'; }
+
 function onCopyPasteKeydown(e: KeyboardEvent): void {
-    if (!e.ctrlKey && !e.metaKey) { return; }
-    if (e.key === 'c') { e.preventDefault(); doCopySelection(); return; }
-    if (e.key === 'v') { e.preventDefault(); doPasteToSelection(); return; }
+    if (!isModifierKey(e)) { return; }
+    if (isCopyKey(e)) { e.preventDefault(); doCopySelection(); return; }
+    if (isPasteKey(e)) { e.preventDefault(); doPasteToSelection(); return; }
 }
 
 postProviderMessage({ type: 'ready' });

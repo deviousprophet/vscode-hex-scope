@@ -10,22 +10,20 @@ function normalizePasteText(text: string): string | null {
 }
 
 function parseSpaceSeparatedHex(text: string): number[] | null {
-    const parts = text.split(' ');
-    const bytes: number[] = [];
-    for (const p of parts) {
-        if (p.length === 0) { continue; }
-        if (!HEX_PAIR.test(p)) { return null; }
-        bytes.push(parseInt(p, 16));
-    }
-    return bytes.length > 0 ? bytes : null;
+    const parts = text.split(' ').filter(p => p.length > 0);
+    if (parts.length === 0) { return null; }
+    if (!parts.every(p => HEX_PAIR.test(p))) { return null; }
+    return parts.map(p => parseInt(p, 16));
+}
+
+function isEvenLengthHex(text: string): boolean {
+    return HEX_ONLY.test(text) && text.length >= 2 && text.length % 2 === 0;
 }
 
 function parseRawHex(text: string): number[] | null {
-    if (!HEX_ONLY.test(text) || text.length < 2 || text.length % 2 !== 0) { return null; }
+    if (!isEvenLengthHex(text)) { return null; }
     const bytes: number[] = [];
-    for (let i = 0; i < text.length; i += 2) {
-        bytes.push(parseInt(text.slice(i, i + 2), 16));
-    }
+    for (let i = 0; i < text.length; i += 2) { bytes.push(parseInt(text.slice(i, i + 2), 16)); }
     return bytes;
 }
 
