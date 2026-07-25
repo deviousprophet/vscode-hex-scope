@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added decoded-text (ASCII column) editing in edit mode — click a character cell and type a printable key to replace the underlying byte
+- Added non-printable byte placeholder dots (`·`) in edit mode for clickable empty cells
+- Added Ctrl+C / Cmd+C copy that copies hex or ASCII format depending on which column the selection started in
+- Added Ctrl+V / Cmd+V paste in edit mode with automatic hex-pair detection, falling back to raw ASCII text, with undo support
+
 ## [2.16.0] - 2026-07-25
 
 ### Added
