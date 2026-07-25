@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-07-24
+- **Total Sessions**: 15
+- **Last Active**: 2026-07-25
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~203 | Active |
+| `journal-1.md` | ~237 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-07-25 | Add hex.readSelected() API | `de0c3c7`, `b0588fd` | `feat/read-selected-api` |
 | 14 | 2026-07-24 | Address search cleanup | `14fa689` | `fix/search-address-padding` |
 | 13 | 2026-07-24 | Fix address search padding | `6c7e0e7` | `fix/search-address-padding` |
 | 12 | 2026-07-23 | Direct-typing byte editing | `c3fe112` | `feat/edit-tedium` |
