@@ -96,6 +96,7 @@
 }
 .char-cell.cp { color: var(--fg); }
 .char-cell.cd { color: var(--non-graphic); cursor: default; }
+.char-cell.cd.edit-placeholder { opacity: 0.25; cursor: pointer; }
 
 /* ── Column hover highlight ───────────────────────────────────── */
 .data-cell.col-hi:not(.sel):not(.match) { background: rgba(255,255,255,.06); }

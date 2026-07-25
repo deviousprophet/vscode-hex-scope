@@ -20,6 +20,7 @@ export function applyInitialState(msg: InitMessage): void {
     S.structPins = messageArray(msg.structPins);
     S.endian = msg.endian;
     S.currentView = 'memory';
+    S.lastClickColumn = null;
 }
 
 export function hydrateParseResult(result: WireParseResult): SerializedParseResult {

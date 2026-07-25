@@ -38,4 +38,5 @@ export const S = {
     },
     sidebarTab:     'inspector' as SidebarTab,  // active sidebar tab
     lockedDueToExternalChange: false as boolean,  // view is locked pending external change action
+    lastClickColumn: null as 'hex' | 'char' | null,  // last memory view cell click column
 };

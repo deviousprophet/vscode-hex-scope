@@ -235,3 +235,36 @@ Added hex.readSelected() script API to read the current editor selection. Thread
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Enhance editing ability (decoded-text edit, copy/paste)
+
+**Date**: 2026-07-25
+**Task**: Enhance editing ability (decoded-text edit, copy/paste)
+**Branch**: `feat/enhance-editing`
+
+### Summary
+
+Implemented issue #122: edit decoded text cells directly in edit mode, non-printable placeholder dots, Ctrl+C/V copy/paste with hex auto-detection, macOS Cmd key support. All 496 tests pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `08522e2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

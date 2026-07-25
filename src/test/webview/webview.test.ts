@@ -15,6 +15,7 @@ import {
     type VirtualScrollState,
 } from '../../webview/render/virtualScroll';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
+import { parsePasteText } from '../../webview/pasteUtils';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -35,6 +36,7 @@ function resetState(): void {
     S.structPins       = [];
     S.integrityHighlight = null;
     S.sidebarTab       = 'inspector';
+    S.lastClickColumn  = null;
 }
 
 function installWebviewDom(markup: string): JSDOM {
@@ -1000,5 +1002,51 @@ suite('Integrity Checks sidebar', () => {
         const ok = undoLastEditTransaction();
         assert.ok(ok);
         assert.strictEqual(S.edits.has(0x1000), false);
+    });
+
+    // ── Paste parsing ────────────────────────────────────────────────
+
+    test('parsePasteText hex spaced pairs', () => {
+        assert.deepStrictEqual(parsePasteText('0A 1B 2C'), [10, 27, 44]);
+    });
+
+    test('parsePasteText hex raw concatenated', () => {
+        assert.deepStrictEqual(parsePasteText('0A1B2C'), [10, 27, 44]);
+    });
+
+    test('parsePasteText hex with 0x prefix', () => {
+        assert.deepStrictEqual(parsePasteText('0x0A 0x1B 0x2C'), [10, 27, 44]);
+    });
+
+    test('parsePasteText hex mixed whitespace', () => {
+        assert.deepStrictEqual(parsePasteText('0A 1B\t2C\n3D'), [10, 27, 44, 61]);
+    });
+
+    test('parsePasteText hex comma separated', () => {
+        assert.deepStrictEqual(parsePasteText('0A,1B,2C'), [10, 27, 44]);
+    });
+
+    test('parsePasteText hex semicolon separated', () => {
+        assert.deepStrictEqual(parsePasteText('0A;1B;2C'), [10, 27, 44]);
+    });
+
+    test('parsePasteText returns null for ASCII text', () => {
+        assert.strictEqual(parsePasteText('hello world'), null);
+    });
+
+    test('parsePasteText returns null for random non-hex', () => {
+        assert.strictEqual(parsePasteText('https://example.com'), null);
+    });
+
+    test('parsePasteText returns null for empty string', () => {
+        assert.strictEqual(parsePasteText(''), null);
+    });
+
+    test('parsePasteText returns null for odd hex digit count', () => {
+        assert.strictEqual(parsePasteText('A B C'), null);
+    });
+
+    test('parsePasteText parses single hex pair', () => {
+        assert.deepStrictEqual(parsePasteText('FF'), [255]);
     });
 });

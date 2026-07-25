@@ -5,8 +5,10 @@ import { S }                                          from './state';
 import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc } from './utils';
 import { rerender }                                   from './render/registry';
+import { parsePasteText }                             from './pasteUtils';
 import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
 import { setupMemoryDragSelection as setupMemoryDragSelectionController } from './memory/dragSelection';
+import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes, selectByteForContextMenu, selectByteFromClick } from './memory/selection';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
 import { setupSidebarResize } from './sidebar/sidebarResize';
@@ -54,6 +56,7 @@ import {
     type WebviewModelUpdate,
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
+import { formatCopyCommand } from '../core/byte-tools/copy';
 import { setupContextMenu, showContextMenu } from './contextMenuController';
 
 // ── Direct-typing edit buffer ─────────────────────────────────────
@@ -140,17 +143,102 @@ function isSingleByteSelected(): boolean {
     return S.selStart !== null && S.selEnd === S.selStart;
 }
 
+function isModifierKey(e: KeyboardEvent): boolean {
+    return e.ctrlKey || e.metaKey;
+}
+
 function onEditKeydown(e: KeyboardEvent): void {
     if (isEditBlocked()) {return;}
+    if (isModifierKey(e)) { return; }
     if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
     processEditKeypress(e, S.selStart!);
 }
 
+function isPrintableCharCode(code: number): boolean {
+    return code >= 0x20 && code <= 0x7E;
+}
+
+function handleCharColumnEdit(e: KeyboardEvent, addr: number): boolean {
+    if (S.lastClickColumn !== 'char' || e.key.length !== 1) { return false; }
+    const code = e.key.charCodeAt(0);
+    if (!isPrintableCharCode(code)) { return false; }
+    e.preventDefault();
+    applyTypedEdit(addr, code);
+    advanceSel(addr);
+    return true;
+}
+
 function processEditKeypress(e: KeyboardEvent, addr: number): void {
     if (e.key === 'Escape') { handleEditEscape(); return; }
+    if (handleCharColumnEdit(e, addr)) { return; }
     if (!HEX_CHAR_RE.test(e.key)) {return;}
     e.preventDefault();
     handleEditBufferChar(addr, e.key.toUpperCase());
+}
+
+// ── Copy/paste keyboard handler ──────────────────────────────────
+
+function collectSelectedBytes(): number[] {
+    if (S.selStart === null || S.selEnd === null) { return []; }
+    const addrs = [];
+    for (let a = S.selStart; a <= S.selEnd; a++) { addrs.push(a); }
+    return addrs.filter(a => getByte(a) !== undefined).map(a => getByte(a)!);
+}
+
+function doCopySelection(): void {
+    const bytes = collectSelectedBytes();
+    if (bytes.length === 0) { return; }
+    const fmt = S.lastClickColumn === 'char' ? 'ascii' as const : 'hex' as const;
+    navigator.clipboard.writeText(formatCopyCommand(fmt, bytes)).catch(() => {});
+}
+
+function buildPasteEdits(range: { start: number; end: number }, bytes: number[]): Array<[number, number]> {
+    const edits: Array<[number, number]> = [];
+    let addr = range.start;
+    for (const b of bytes) {
+        if (getByte(addr) === undefined) { break; }
+        edits.push([addr, b]);
+        addr++;
+    }
+    return edits;
+}
+
+function stagePasteFromText(range: { start: number; end: number }, clipText: string): Array<[number, number]> {
+    const parsed = parsePasteText(clipText);
+    const bytes = parsed ?? [...clipText].map(c => c.charCodeAt(0));
+    return bytes.length > 0 ? buildPasteEdits(range, bytes) : [];
+}
+
+function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
+    const edits = stagePasteFromText(range, clipText);
+    if (edits.length > 0 && stageIntegrityEditTransaction(edits)) {
+        updateDirtyBar();
+        updateEditControls();
+        memRerender();
+        updateInspector();
+        renderStructPins();
+        notifyIntegrityBytesChanged();
+    }
+}
+
+function doPasteToSelection(): void {
+    if (isEditBlocked()) { return; }
+    clearNibbleBuffer();
+    if (S.selStart === null) { return; }
+    const range = currentSelectionRange();
+    if (!range) { return; }
+    navigator.clipboard.readText()
+        .then(text => applyPasteBytes(range, text))
+        .catch(() => {});
+}
+
+function isCopyKey(e: KeyboardEvent): boolean { return e.key === 'c'; }
+function isPasteKey(e: KeyboardEvent): boolean { return e.key === 'v'; }
+
+function onCopyPasteKeydown(e: KeyboardEvent): void {
+    if (!isModifierKey(e)) { return; }
+    if (isCopyKey(e)) { e.preventDefault(); doCopySelection(); return; }
+    if (isPasteKey(e)) { e.preventDefault(); doPasteToSelection(); return; }
 }
 
 postProviderMessage({ type: 'ready' });
@@ -528,6 +616,7 @@ function setupRenderedUi(): void {
     setupSideTabs();
     renderInitialViews();
     document.addEventListener('keydown', onEditKeydown, { capture: true });
+    document.addEventListener('keydown', onCopyPasteKeydown);
 }
 
 function setupEndianControl(): void {
@@ -683,6 +772,7 @@ function updateByteSelection(start: number, end: number): void {
 
 function onByteDown(e: MouseEvent, el: HTMLElement): void {
     clearNibbleBuffer();
+    S.lastClickColumn = el.classList.contains('char-cell') ? 'char' : 'hex';
     selectByteFromClick(e, el, updateByteSelection);
 }
 
