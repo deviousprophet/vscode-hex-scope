@@ -9,13 +9,15 @@ const DEFAULT_MAX_SIZE = 1_048_576; // 1 MiB
  * Matches: 127.0.0.0/8, ::1, 169.254.0.0/16, fe80::/10, localhost,
  * and numeric IP forms (decimal 2130706433, hex 0x7f000001, octal 0177.0.0.1).
  */
+function matchAny(s: string, patterns: RegExp[]): boolean {
+    return patterns.some(p => p.test(s));
+}
+
 export function isPrivateHost(hostname: string): boolean {
     const h = hostname.replace(/^\[|\]$/g, '');
-    if (/^::1$/.test(h) || /^localhost$/i.test(h) || /^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) { return true; }
-    if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h) || /^169\.254\.\d{1,3}\.\d{1,3}$/.test(h)) { return true; }
-    if (h.startsWith('fe80:')) { return true; }
-    if (/^\d+$/.test(h) || /^0x[0-9a-f]+$/i.test(h)) { return true; }
-    if (/^0\d+\./.test(h)) { return true; }
+    if (matchAny(h, [/^::1$/, /^localhost$/i, /^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/])) { return true; }
+    if (matchAny(h, [/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, /^169\.254\.\d{1,3}\.\d{1,3}$/])) { return true; }
+    if (matchAny(h, [/^fe80:/, /^\d+$/, /^0x[0-9a-f]+$/i, /^0\d+\./])) { return true; }
     return false;
 }
 
