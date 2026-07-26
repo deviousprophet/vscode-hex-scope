@@ -184,7 +184,7 @@ html, body {
 }
 .dcp-msg {
     color: var(--fg); font-weight: 600;
-     user-select: none;
+    user-select: none;
     margin-right: 2px;
 }
 .dcp-yes, .dcp-no {
