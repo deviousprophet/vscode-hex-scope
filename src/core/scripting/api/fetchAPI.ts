@@ -52,9 +52,10 @@ function httpFetch(url: URL, maxSize: number, options: RequestInit = {}): Promis
                 return;
             }
             const chunks: Buffer[] = [];
+            let totalSize = 0;
             res.on('data', (chunk: Buffer) => {
-                const total = chunks.reduce((s, c) => s + c.length, 0) + chunk.length;
-                if (total > maxSize) {
+                totalSize += chunk.length;
+                if (totalSize > maxSize) {
                     res.destroy();
                     resolve({ ok: false, status: 0, body: `Response exceeded ${maxSize} byte limit` });
                     return;

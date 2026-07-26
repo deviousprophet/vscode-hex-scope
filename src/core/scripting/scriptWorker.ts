@@ -1,5 +1,6 @@
 import { parentPort, receiveMessageOnPort, workerData } from 'node:worker_threads';
 import * as vm from 'node:vm';
+import type { HexScopeAPI, ExecResult, FetchResult, FetchOptions } from './types';
 
 const lockView = new Int32Array((workerData as { lockBuffer: SharedArrayBuffer }).lockBuffer);
 let callId = 0;
@@ -25,7 +26,7 @@ function rpcCall(method: string, args: unknown[]): unknown {
     }
 }
 
-function buildAPI(collected: { results: Array<{ label: string; value: string }>; log: string[] }, rpcOut: (text: string) => void): Record<string, unknown> {
+function buildAPI(collected: { results: Array<{ label: string; value: string }>; log: string[] }, rpcOut: (text: string) => void): HexScopeAPI {
     return {
         hex: {
             read: (address: number, length: number): Uint8Array =>
@@ -49,10 +50,10 @@ function buildAPI(collected: { results: Array<{ label: string; value: string }>;
             sha512: (data: Uint8Array): Promise<Uint8Array> =>
                 Promise.resolve(new Uint8Array((rpcCall('hash.sha512', [Array.from(data)]) as number[]))),
         },
-        exec: (command: string, args?: string[]): Promise<unknown> =>
-            Promise.resolve(rpcCall('exec', [command, args])),
-        fetch: (url: string, options?: RequestInit): Promise<unknown> =>
-            Promise.resolve(rpcCall('fetch', [url, options])),
+        exec: (command: string, args?: string[]): Promise<ExecResult | null> =>
+            Promise.resolve(rpcCall('exec', [command, args]) as ExecResult | null),
+        fetch: (url: string, options?: FetchOptions): Promise<FetchResult | null> =>
+            Promise.resolve(rpcCall('fetch', [url, options]) as FetchResult | null),
         output: (text: string): void => rpcOut(text),
         setResult: (label: string, value: string): void => { collected.results.push({ label, value }); },
         assert: (condition: boolean, label: string): void => {
@@ -98,7 +99,7 @@ async function runScript(code: string, timeoutMs: number): Promise<void> {
             error: (...args: unknown[]) => rpcOut(`ERROR: ${args.map(String).join(' ')}`),
         },
         setTimeout, clearTimeout,
-        Buffer, Uint8Array, ArrayBuffer, DataView,
+        Uint8Array, ArrayBuffer, DataView,
         TextEncoder, TextDecoder, URL,
     });
 
@@ -109,7 +110,7 @@ async function runScript(code: string, timeoutMs: number): Promise<void> {
         return sendResult(collected, "Script must export a 'run' function.", 'compile');
     }
 
-    (api.hex as Record<string, unknown>).size = rpcCall('hex.size', []);
+    api.hex.size = rpcCall('hex.size', []) as number;
     // ponytail: duck-type thenable check because sandbox has its own Promise realm
     await awaitThenable(run(api));
     sendResult(collected);

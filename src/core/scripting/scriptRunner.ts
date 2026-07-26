@@ -12,7 +12,6 @@ export interface ScriptInfo {
     name: string;
     filePath: string;
     capabilities: string[];
-    trusted?: boolean;
 }
 
 function parseManifest(source: string): string[] {
@@ -77,7 +76,7 @@ export function scanScripts(workspaceRoot: string, trusted: boolean = true): Scr
                     const header = fs.readFileSync(filePath, 'utf-8').slice(0, 2048);
                     capabilities = parseManifest(header);
                 } catch { /* if file can't be read, no capabilities */ }
-                return { name: e.name, filePath, capabilities, trusted };
+                return { name: e.name, filePath, capabilities };
             })
             .sort((a, b) => a.name.localeCompare(b.name));
     } catch {
@@ -102,6 +101,8 @@ async function runInWorker(
 
     function snap(): ScriptOutput { const h = host.collectOutput(); return { results: h.results, log: h.log }; }
 
+    let abortCleanup: (() => void) | null = null;
+
     return new Promise<ScriptOutput>((resolve) => {
         const worker = new Worker(workerPath, {
             workerData: { lockBuffer },
@@ -111,6 +112,7 @@ async function runInWorker(
             if (done) { return; }
             done = true;
             clearTimeout(timerId);
+            abortCleanup?.();
             worker.terminate();
             resolve(result);
         };
@@ -125,8 +127,8 @@ async function runInWorker(
                 if (result instanceof Promise) {
                     result.then(
                         v => reply(worker, lockView, id, v),
-                        e => reply(worker, lockView, id, undefined, e instanceof Error ? e.message : String(e)),
-                    );
+                        e => reply(worker, lockView, id, undefined, errorMessage(e)),
+                    ).catch(() => { /* reply failed — worker likely terminated */ });
                 } else {
                     reply(worker, lockView, id, result);
                 }
@@ -168,9 +170,9 @@ async function runInWorker(
         worker.postMessage({ type: 'run', code: jsCode, timeoutMs });
 
         if (signal) {
-            signal.addEventListener('abort', () => {
-                finish({ ...snap(), error: 'Cancelled', errorType: 'cancel' });
-            }, { once: true });
+            const onAbort = () => finish({ ...snap(), error: 'Cancelled', errorType: 'cancel' });
+            signal.addEventListener('abort', onAbort, { once: true });
+            abortCleanup = () => signal.removeEventListener('abort', onAbort);
         }
     });
 }

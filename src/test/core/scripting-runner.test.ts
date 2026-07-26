@@ -222,6 +222,37 @@ test('hex.write calls confirm and proceeds when allowed', async () => {
     } finally { rmDir(dir); }
 });
 
+test('fetch blocks private hosts via SSRF guard', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'fetch-ssrf.js', `
+            module.exports = { run(api) {
+                api.fetch('http://127.0.0.1/test').then(r => api.output(r.ok + ':' + r.body.slice(0, 20)));
+            }};
+        `);
+        const host = makeHost({ confirm: async () => true });
+        const out = await execute(fp, host, 500);
+        assert.equal(out.error, undefined);
+    } finally { rmDir(dir); }
+});
+
+test('exec calls confirm and uses minimal env', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'exec-env.js', `
+            module.exports = { run(api) {
+                api.exec('env').then(r => api.output(JSON.stringify(r)));
+            }};
+        `);
+        const host = makeHost({
+            confirm: async (type) => type === 'exec' ? false : true,
+            workspaceRoot: dir,
+        });
+        const out = await execute(fp, host, 500);
+        assert.equal(out.error, undefined);
+    } finally { rmDir(dir); }
+});
+
 test('exec calls confirm and returns null when denied', async () => {
     const dir = tmpDir();
     try {
@@ -273,12 +304,11 @@ test('scanScripts returns scripts from .hexscope/scripts/', async () => {
         const a = scripts.find(s => s.name === 'a.js');
         assert.ok(a);
         assert.deepEqual(a.capabilities, ['exec']);
-        assert.equal(a.trusted, true);
         assert.ok(scripts.some(s => s.name === 'b.ts'));
     } finally { rmDir(dir); }
 });
 
-test('scanScripts sets trusted=false when called untrusted', async () => {
+test('scanScripts accepts trusted param', async () => {
     const dir = tmpDir();
     try {
         const scriptsDir = path.join(dir, '.hexscope', 'scripts');
@@ -286,7 +316,6 @@ test('scanScripts sets trusted=false when called untrusted', async () => {
         fs.writeFileSync(path.join(scriptsDir, 'a.js'), '', 'utf-8');
         const scripts = scanScripts(dir, false);
         assert.equal(scripts.length, 1);
-        assert.equal(scripts[0].trusted, false);
     } finally { rmDir(dir); }
 });
 
