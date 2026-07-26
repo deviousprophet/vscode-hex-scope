@@ -14,7 +14,8 @@
     ".opencode/**"
   ],
   "dynamicallyLoaded": [
-    "src/webview/styles/*.css"
+    "src/webview/styles/*.css",
+    "src/core/scripting/scriptWorker.ts"
   ],
   "usedClassMembers": [
     {

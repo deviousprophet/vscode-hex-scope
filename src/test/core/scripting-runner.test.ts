@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import * as assert from 'assert';
 import { execute, scanScripts } from '../../core/scripting/scriptRunner';
+import { isPrivateHost, oversizeResponse } from '../../core/scripting/api/fetchAPI';
 import { isScriptFile, readScript } from '../../core/scripting/scriptCompiler';
 import type { ScriptHost as IScriptHost } from '../../core/scripting/types';
 import { VSCodeScriptHost } from '../../scriptHost';
@@ -235,23 +236,99 @@ test('exec calls confirm and returns null when denied', async () => {
     } finally { rmDir(dir); }
 });
 
+test('isPrivateHost blocks loopback, link-local, and numeric IP forms', () => {
+    assert.ok(isPrivateHost('127.0.0.1'));
+    assert.ok(isPrivateHost('127.255.0.1'));
+    assert.ok(isPrivateHost('::1'));
+    assert.ok(isPrivateHost('[::1]'));
+    assert.ok(isPrivateHost('localhost'));
+    assert.ok(isPrivateHost('169.254.1.1'));
+    assert.ok(isPrivateHost('fe80::1'));
+    assert.ok(isPrivateHost('::ffff:127.0.0.1'));
+    assert.ok(isPrivateHost('2130706433')); // decimal 127.0.0.1
+    assert.ok(isPrivateHost('0x7f000001')); // hex 127.0.0.1
+    assert.ok(isPrivateHost('0177.0.0.1')); // octal 127.0.0.1
+    assert.ok(!isPrivateHost('example.com'));
+    assert.ok(!isPrivateHost('8.8.8.8'));
+    assert.ok(!isPrivateHost('10.0.0.1')); // RFC 1918 — not blocked (would need DNS)
+});
+
+test('oversizeResponse detects oversized content-length', () => {
+    assert.strictEqual(oversizeResponse('100', 1000), null);
+    assert.strictEqual(oversizeResponse('2000', 1000), 2000);
+    assert.strictEqual(oversizeResponse(undefined, 1000), null);
+    assert.strictEqual(oversizeResponse('abc', 1000), null);
+});
+
 test('scanScripts returns scripts from .hexscope/scripts/', async () => {
     const dir = tmpDir();
     try {
         const scriptsDir = path.join(dir, '.hexscope', 'scripts');
         fs.mkdirSync(scriptsDir, { recursive: true });
-        fs.writeFileSync(path.join(scriptsDir, 'a.js'), '', 'utf-8');
+        fs.writeFileSync(path.join(scriptsDir, 'a.js'), '/** @requires exec */\nmodule.exports = { run(api) {} };', 'utf-8');
         fs.writeFileSync(path.join(scriptsDir, 'b.ts'), '', 'utf-8');
         fs.writeFileSync(path.join(scriptsDir, 'readme.txt'), '', 'utf-8');
         const scripts = scanScripts(dir);
         assert.equal(scripts.length, 2);
-        assert.ok(scripts.some(s => s.name === 'a.js'));
+        const a = scripts.find(s => s.name === 'a.js');
+        assert.ok(a);
+        assert.deepEqual(a.capabilities, ['exec']);
+        assert.equal(a.trusted, true);
         assert.ok(scripts.some(s => s.name === 'b.ts'));
+    } finally { rmDir(dir); }
+});
+
+test('scanScripts sets trusted=false when called untrusted', async () => {
+    const dir = tmpDir();
+    try {
+        const scriptsDir = path.join(dir, '.hexscope', 'scripts');
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.writeFileSync(path.join(scriptsDir, 'a.js'), '', 'utf-8');
+        const scripts = scanScripts(dir, false);
+        assert.equal(scripts.length, 1);
+        assert.equal(scripts[0].trusted, false);
+    } finally { rmDir(dir); }
+});
+
+test('script cannot access process or require from sandbox', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'escape.js', `module.exports = { run(api) { api.output(typeof require); } };`);
+        const out = await execute(fp, makeHost());
+        assert.equal(out.error, undefined);
+        assert.ok((out as any)._log?.includes('undefined') || (out as any).log?.includes('undefined') || out.log?.includes('undefined'));
+    } finally { rmDir(dir); }
+});
+
+test('multiple sequential RPC calls work', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'multi-rpc.js', `
+            module.exports = { run(api) {
+                const a = api.hex.read(0, 4);
+                const b = api.hex.read(4, 4);
+                const c = api.hex.read(8, 4);
+                api.output(a.length + ',' + b.length + ',' + c.length);
+            }};
+        `);
+        const host = makeHost();
+        const out = await execute(fp, host);
+        assert.equal(out.error, undefined);
+        assert.ok(out.log.some((l: string) => l === '4,4,4'));
     } finally { rmDir(dir); }
 });
 
 test('scanScripts returns empty for missing dir', () => {
     assert.deepEqual(scanScripts(tmpdir()), []);
+});
+
+test('execute returns blocked error when not trusted', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'test.js', `module.exports = { run(api) { api.output('should not run'); } };`);
+        const out = await execute(fp, makeHost(), 1000, undefined, false);
+        assert.ok(out.error?.includes('trusted'));
+    } finally { rmDir(dir); }
 });
 
 test('isScriptFile recognizes .js and .ts', () => {

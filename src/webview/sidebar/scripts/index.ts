@@ -9,9 +9,9 @@ export function activateScripts(): void {
     requestScriptList();
 }
 
-export function updateScriptList(scripts: Array<{ name: string; filePath: string }>): void {
-    setScripts(scripts);
-    updateScriptCount(scripts.length);
+export function updateScriptList(msg: { trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[] }> }): void {
+    setScripts(msg.scripts, msg.trusted);
+    updateScriptCount(msg.scripts.length);
     const sec = document.getElementById('s-scripts');
     if (!sec) { return; }
     let list = sec.querySelector('.script-list') as HTMLElement | null;

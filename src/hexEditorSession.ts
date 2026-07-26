@@ -715,8 +715,9 @@ export class HexEditorSession {
             requestScriptList: async () => {
                 const folder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const root = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
-                const scripts = scanScripts(root);
-                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', scripts });
+                const trusted = vscode.workspace.isTrusted;
+                const scripts = scanScripts(root, trusted);
+                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts });
             },
             runScript: async msg => {
                 if (!parseResult) { return; }
@@ -734,7 +735,8 @@ export class HexEditorSession {
                     },
                     selectionRange: msg.selectionRange,
                 });
-                const output = await execute(scriptPath, host, undefined, signal);
+                const trusted = vscode.workspace.isTrusted;
+                const output = await execute(scriptPath, host, undefined, signal, trusted);
                 // ponytail: guard with `if (currentAbort?.signal === signal)` if runs can overlap
                 currentAbort = null;
                 void postToWebview(webviewPanel.webview, {

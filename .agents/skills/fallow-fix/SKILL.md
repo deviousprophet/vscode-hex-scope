@@ -23,11 +23,37 @@ Always run fallow via `npx fallow ...`. Never install fallow globally (`npm i -g
 npx fallow --format json --quiet 2>/dev/null || true
 ```
 
-Parse JSON output. Record `check.total_issues`, `dupes.stats.clone_groups`, and each `health.findings[]` entry.
+Parse JSON output with `node -e` or a proper JSON parser — do NOT `cat` or `Get-Content` the file, because the JSON line is truncated at 2000 chars when printed to terminal. The `health.findings` section lives at the end and is the first part lost.
+
+Extract all:
+- `check.total_issues` — dead code
+- `health.findings` — complexity (separate from `total_issues`)
+- `health.refactoring_targets` — structural suggestions (informational only)
+- `dupes.stats.clone_groups` — code duplication
+- fallow exit code
 
 ### 2. Exit if green
 
-If `check.total_issues === 0`, `dupes.stats.clone_groups === 0`, and `health.findings.length === 0` → report "all green" and stop.
+`check.total_issues === 0` alone is NOT green — `health.findings` is a separate axis and can be non-zero when `total_issues` is 0.
+
+Green requires ALL of:
+- `check.total_issues === 0` (dead code)
+- `health.findings.length === 0` (complexity — ALL severities, including `moderate`)
+- `dupes.stats.clone_groups === 0` (duplication)
+- fallow exit code `0`
+
+`health.refactoring_targets` are NOT part of green — they are informational suggestions that don't affect exit code or finding counts. Do not block green on them.
+
+### 3. Report refactoring targets (informational only)
+
+`health.refactoring_targets` are structural suggestions based on churn and coupling, not violations. They never block green.
+
+For each target:
+1. Check if the target file is in-scope for the current task (modified by the diff or directly related)
+2. If in-scope: evaluate and apply the recommended refactoring
+3. If out-of-scope: report it for awareness, do not refactor
+
+If a recommendation is clearly wrong (false positive), explain why and skip it regardless of scope.
 
 ### 3. Fix dead-code findings (if any)
 
@@ -61,10 +87,18 @@ For each `health.findings[]` with `severity !== "none"`:
 
 Read clone instances. If the duplication is within the same module, extract a shared helper. If cross-module, consider a shared utility.
 
-### 6. Re-run fallow
+### 6. Address refactoring targets (if in diff scope)
+
+Review `health.refactoring_targets`. If any target file was modified by the current diff, evaluate the suggested refactoring. Apply it if it improves the code without scope creep. If the target is outside the diff scope (pre-existing code), report it but do not refactor — it's a separate task.
+
+### 7. Re-run fallow
 
 After fixing each group of findings, re-run fallow. Repeat until zero findings. Log what was fixed.
 
-### 7. Verify
+### 8. Verify
 
 Run `npx tsc --noEmit` and the project's test command after all fixes to confirm no breakage.
+
+### 9. Summary output
+
+After each fix cycle, print: `findings fixed: <N>, refactoring targets remaining: <M>`. After zero findings, list any remaining refactoring targets that were outside diff scope.

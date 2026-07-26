@@ -44,6 +44,25 @@ async function main() {
 		],
 	});
 
+	// Worker isolate bundle (loaded dynamically by scriptRunner.ts)
+	const ctxWorker = await esbuild.context({
+		entryPoints: [
+			'src/core/scripting/scriptWorker.ts'
+		],
+		bundle: true,
+		format: 'cjs',
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: 'node',
+		outfile: 'dist/scriptWorker.js',
+		external: ['vscode'],
+		logLevel: 'silent',
+		plugins: [
+			esbuildProblemMatcherPlugin,
+		],
+	});
+
 	// Webview bundle (browser environment, no node/vscode externals)
 	const ctxWebview = await esbuild.context({
 		entryPoints: [
@@ -64,10 +83,13 @@ async function main() {
 
 	if (watch) {
 		await ctx.watch();
+		await ctxWorker.watch();
 		await ctxWebview.watch();
 	} else {
 		await ctx.rebuild();
 		await ctx.dispose();
+		await ctxWorker.rebuild();
+		await ctxWorker.dispose();
 		await ctxWebview.rebuild();
 		await ctxWebview.dispose();
 	}

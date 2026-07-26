@@ -362,7 +362,7 @@ function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>
 }
 
 function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void {
-    updateScriptList(msg.scripts);
+    updateScriptList(msg);
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
