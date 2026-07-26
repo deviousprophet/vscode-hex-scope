@@ -1,4 +1,4 @@
-/* -- Struct Overlay sidebar panel ------------------------------ */
+ï»¿/* -- Struct Overlay sidebar panel ------------------------------ */
 
 /* Shared layout tokens */
 .struct-addr-pfx {
@@ -6,7 +6,7 @@
     font-family: var(--font-editor); font-size: 11px;
     color: var(--addr-fg); line-height: 1;
     padding: 2px 0 2px 2px;
-     user-select: none;
+    user-select: none;
 }
 .struct-addr-inp {
     flex: 1; min-width: 0;
@@ -225,7 +225,7 @@
 .sfe-bf-child-unit {
     flex-shrink: 0;
     font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
-     user-select: none;
+    user-select: none;
 }
 .sfe-bf-child-move {
     display: flex; align-items: center; gap: 1px;
@@ -346,7 +346,7 @@
     padding-bottom: 5px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 1px;
-     user-select: none;
+    user-select: none;
 }
 .sa-form-hdr-new  { color: var(--high-color); }
 .sa-form-hdr-edit { color: var(--addr-fg); }
@@ -386,8 +386,8 @@
 /* C syntax token colors */
 .sc-kw        { color: #569cd6; }          /* typedef struct */
 .sc-attr      { color: #c586c0; }          /* __attribute__((packed)) */
-.sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float … */
-.sc-cmt       { color: #6a9955; }          /* /* … */ */
+.sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float â€¦ */
+.sc-cmt       { color: #6a9955; }          /* C comments */
 
 .sa-addr-inp { flex: 0 0 90px; }
 
@@ -413,7 +413,7 @@
 .si-card-hdr {
     display: flex; align-items: center; gap: 4px;
     padding: 5px 6px; cursor: pointer;
-     user-select: none;
+    user-select: none;
 }
 .si-card-hdr:hover { background: var(--hover-bg); }
 
@@ -452,7 +452,7 @@
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
-.si-del-btn { display: none; } /* superseded by .act-btn — kept to avoid selector errors */
+.si-del-btn { display: none; } /* superseded by .act-btn â€” kept to avoid selector errors */
 
 /* Action buttons group (edit + delete) at top-right of card */
 .si-card-actions {
