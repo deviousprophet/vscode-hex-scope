@@ -268,3 +268,36 @@ Implemented issue #122: edit decoded text cells directly in edit mode, non-print
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Harden scripting engine security boundary
+
+**Date**: 2026-07-26
+**Task**: Harden scripting engine security boundary
+**Branch**: `feat/harden-script-engine`
+
+### Summary
+
+Swap node:vm for worker_threads isolate + Atomics RPC. Add capability manifest, workspace trust, fetch/exec hardening. 502 tests passing.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2a8d483` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

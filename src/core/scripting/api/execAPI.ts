@@ -1,6 +1,18 @@
 import { execFile } from 'node:child_process';
 import type { ScriptHost, ExecResult } from '../types';
 
+const MINIMAL_ENV: Record<string, string | undefined> = {
+    PATH: process.env.PATH,
+    SHELL: process.env.SHELL,
+};
+
+// Win32 fallbacks for SHELL
+if (process.platform === 'win32') {
+    MINIMAL_ENV.SHELL ||= process.env.ComSpec ?? 'cmd.exe';
+} else {
+    MINIMAL_ENV.SHELL ||= '/bin/sh';
+}
+
 export function execAPI(host: ScriptHost) {
     return async (command: string, args?: string[]): Promise<ExecResult | null> => {
         const ok = await host.confirm('exec', `${command} ${(args ?? []).join(' ')}`.trim());
@@ -11,7 +23,7 @@ export function execAPI(host: ScriptHost) {
             // shorter one wins. If execFile finishes naturally first its child_process
             // exits and the shell timeout is moot. Make this configurable when the CLI
             // tool needs per-invocation limits.
-            execFile(command, args ?? [], { timeout: 30_000 }, (err, stdout, stderr) => {
+            execFile(command, args ?? [], { timeout: 30_000, env: MINIMAL_ENV, cwd: host.workspaceRoot ?? process.cwd() }, (err, stdout, stderr) => {
                 resolve({
                     stdout,
                     stderr,

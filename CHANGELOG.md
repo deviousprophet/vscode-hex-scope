@@ -8,6 +8,7 @@
 - Added non-printable byte placeholder dots (`·`) in edit mode for clickable empty cells
 - Added Ctrl+C / Cmd+C copy that copies hex or ASCII format depending on which column the selection started in
 - Added Ctrl+V / Cmd+V paste in edit mode with automatic hex-pair detection, falling back to raw ASCII text, with undo support
+- Hardened scripting engine security boundary — scripts run in a dedicated Worker thread (separate V8 heap) instead of a shared `node:vm` sandbox; scripts can declare required capabilities (`@requires exec`, `@requires network`) shown in the sidebar before execution; untrusted workspaces list scripts but disable the Run button; `fetch` API caps responses at 1 MiB and blocks loopback and link-local hosts by default; `exec` API runs with a minimal environment and pinned working directory
 
 ## [2.16.0] - 2026-07-25
 

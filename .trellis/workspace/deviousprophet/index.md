@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
-- **Last Active**: 2026-07-25
+- **Total Sessions**: 17
+- **Last Active**: 2026-07-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~270 | Active |
+| `journal-1.md` | ~303 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-07-26 | Harden scripting engine security boundary | `2a8d483` | `feat/harden-script-engine` |
 | 16 | 2026-07-25 | Enhance editing ability (decoded-text edit, copy/paste) | `08522e2` | `feat/enhance-editing` |
 | 15 | 2026-07-25 | Add hex.readSelected() API | `de0c3c7`, `b0588fd` | `feat/read-selected-api` |
 | 14 | 2026-07-24 | Address search cleanup | `14fa689` | `fix/search-address-padding` |

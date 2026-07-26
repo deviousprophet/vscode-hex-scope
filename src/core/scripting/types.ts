@@ -12,6 +12,8 @@ export interface ScriptHost {
     stale?: boolean;
     /** Current editor selection range, if any. Set at script-run time. */
     selectionRange?: { start: number; end: number };
+    /** Workspace root path used as pinned cwd for exec(). Falls back to process.cwd(). */
+    workspaceRoot?: string;
 }
 
 export interface ExecResult {
@@ -24,6 +26,13 @@ export interface FetchResult {
     ok: boolean;
     status: number;
     body: string;
+}
+
+export interface FetchOptions extends RequestInit {
+    /** Max response body size in bytes (default 1 MiB). */
+    maxSize?: number;
+    /** Allow requests to loopback/link-local addresses (default false). */
+    allowLoopback?: boolean;
 }
 
 export type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel';
@@ -53,7 +62,7 @@ export interface HexScopeAPI {
         sha512(data: Uint8Array): Promise<Uint8Array>;
     };
     exec(command: string, args?: string[]): Promise<ExecResult | null>;
-    fetch(url: string, options?: RequestInit): Promise<FetchResult | null>;
+    fetch(url: string, options?: FetchOptions): Promise<FetchResult | null>;
     output(text: string): void;
     setResult(label: string, value: string): void;
     assert(condition: boolean, label: string): void;
