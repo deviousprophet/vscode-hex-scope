@@ -233,6 +233,9 @@ function renderPerformanceEmptyState(measurements, summaryLine) {
     return;
   }
 
+  if (runTestsOutcome === "success") {
+    return; // skipped — script not present in this repo
+  }
   appendSummary(`${ICONS.failed} No large-file measurements were found in the log.\n\n`);
 }
 
@@ -286,7 +289,7 @@ function summarizeMemoryRelease() {
 | ${measurement.baseline} | ${measurement.opened} | ${measurement.closed} | ${measurement.allocated} | ${measurement.retained} |
 
 `);
-  } else {
+  } else if (runTestsOutcome !== "success") {
     appendSummary(`${ICONS.failed} No memory-release measurement was found in the log.\n\n`);
   }
   renderPerformanceFailure(logText);

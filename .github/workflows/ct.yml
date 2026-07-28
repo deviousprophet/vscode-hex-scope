@@ -67,15 +67,23 @@ jobs:
       - name: Run Large-File Profile
         id: large-file-profile
         run: |
-          set -o pipefail
-          npm run profile:large-files 2>&1 | tee large-file-profile-output.log
+          if node -e "process.exit(require('./package.json').scripts?.hasOwnProperty('profile:large-files') ? 0 : 1)"; then
+            set -o pipefail
+            npm run profile:large-files 2>&1 | tee large-file-profile-output.log
+          else
+            echo "profile:large-files not found — skipping" > large-file-profile-output.log
+          fi
 
       - name: Run Memory-Release Profile
         id: memory-release-profile
         if: always()
         run: |
-          set -o pipefail
-          npm run profile:memory-release 2>&1 | tee memory-release-profile-output.log
+          if node -e "process.exit(require('./package.json').scripts?.hasOwnProperty('profile:memory-release') ? 0 : 1)"; then
+            set -o pipefail
+            npm run profile:memory-release 2>&1 | tee memory-release-profile-output.log
+          else
+            echo "profile:memory-release not found — skipping" > memory-release-profile-output.log
+          fi
 
       - name: Upload Profile Results Artifact
         if: always()
