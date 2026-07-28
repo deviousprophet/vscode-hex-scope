@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 const runTestsOutcome = process.env.RUN_TESTS_OUTCOME ?? "unknown";
 const logFile = process.env.LOG_FILE ?? "test-output.log";
 const suiteName = process.env.SUITE_NAME ?? "Automated test results";
-const testFormat = process.env.TEST_FORMAT ?? "mocha"; // "mocha" | "large-file-profile" | "memory-release-profile"
+const testFormat = process.env.TEST_FORMAT ?? "mocha"; // "mocha" | "raw"
 const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 
 const ICONS = {
@@ -30,10 +30,6 @@ function tailLines(logText, count) {
 
 function readLog() {
   return existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
-}
-
-function orEmpty(value) {
-  return value ?? "";
 }
 
 // ---------------------------------------------------------------------------
@@ -150,157 +146,30 @@ function summarizeMocha() {
 }
 
 // ---------------------------------------------------------------------------
-// Performance format
+// Raw format — dump log text for custom test output
 // ---------------------------------------------------------------------------
 
-function tryParseJsonLine(line) {
-  try {
-    return JSON.parse(line);
-  } catch {
-    return null;
-  }
-}
-
-function isMeasurement(entry) {
-  return Boolean(entry) && typeof entry.name === "string" && "elapsedMs" in entry;
-}
-
-function isConcurrentSummary(entry) {
-  return Boolean(entry) && "concurrentRetainedMiB" in entry;
-}
-
-function parsePerformanceLog(logText) {
-  const measurements = [];
-  let summaryLine = null;
-
-  const lines = logText.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  for (const line of lines) {
-    const entry = tryParseJsonLine(line);
-    if (isMeasurement(entry)) {
-      measurements.push(entry);
-    } else if (isConcurrentSummary(entry)) {
-      summaryLine = entry;
-    }
+function summarizeRaw() {
+  const logText = readLog();
+  if (!logText) {
+    return; // no output to show
   }
 
-  return { measurements, summaryLine };
-}
-
-function performanceStatusLine() {
-  return runTestsOutcome === "success"
-    ? `${ICONS.passed} Large-file profile passed`
-    : `${ICONS.failed} Large-file profile failed`;
-}
-
-function renderPerformanceHeader() {
-  appendSummary(`# ${ICONS.robot} ${suiteName}
-
-${performanceStatusLine()}
-
-`);
-}
-
-function measurementRow(m) {
-  const fields = [m.name, m.sourceMiB, m.records, m.elapsedMs, m.retainedMiB].map(orEmpty);
-  return `| ${fields.join(" | ")} |\n`;
-}
-
-function renderPerformanceTable(measurements) {
-  if (measurements.length === 0) {
-    return;
-  }
-
-  const header = `| Name | Source (MiB) | Records | Elapsed (ms) | Retained (MiB) |
-|---|---:|---:|---:|---:|
-`;
-  const rows = measurements.map(measurementRow).join("");
-  appendSummary(`${header}${rows}\n`);
-}
-
-function renderPerformanceConcurrentSummary(summaryLine) {
-  if (!summaryLine) {
-    return;
-  }
-
-  const documents = summaryLine.documents?.join(", ") ?? "";
-  appendSummary(
-    `${ICONS.clipboard} Concurrent retained: **${summaryLine.concurrentRetainedMiB} MiB** (documents: ${documents})\n\n`
-  );
-}
-
-function renderPerformanceEmptyState(measurements, summaryLine) {
-  if (measurements.length > 0 || summaryLine) {
-    return;
-  }
-
-  if (runTestsOutcome === "success") {
-    return; // skipped — script not present in this repo
-  }
-  appendSummary(`${ICONS.failed} No large-file measurements were found in the log.\n\n`);
-}
-
-function renderPerformanceFailure(logText) {
-  const success = runTestsOutcome === "success";
-  if (success || !logText) {
-    return;
-  }
-
-  appendSummary(`
-<details>
-<summary>${ICONS.failed} Failure output</summary>
+  appendSummary(`<details>
+<summary>${suiteName}</summary>
 
 \`\`\`
-${tailLines(logText, 40)}
+${logText}
 \`\`\`
 
 </details>
 `);
 }
 
-function summarizePerformance() {
-  const logText = readLog();
-  const { measurements, summaryLine } = parsePerformanceLog(logText);
-
-  renderPerformanceHeader();
-  renderPerformanceTable(measurements);
-  renderPerformanceConcurrentSummary(summaryLine);
-  renderPerformanceEmptyState(measurements, summaryLine);
-  renderPerformanceFailure(logText);
-}
-
-function parseMemoryReleaseLog(logText) {
-  return logText
-    .split(/\r?\n/)
-    .map(tryParseJsonLine)
-    .find((entry) => typeof entry === "object" && entry !== null && "allocated" in entry && "retained" in entry) ?? null;
-}
-
-function summarizeMemoryRelease() {
-  const logText = readLog();
-  const measurement = parseMemoryReleaseLog(logText);
-  const status = runTestsOutcome === "success"
-    ? `${ICONS.passed} Memory-release profile passed`
-    : `${ICONS.failed} Memory-release profile failed`;
-  appendSummary(`# ${ICONS.robot} ${suiteName}\n\n${status}\n\n`);
-
-  if (measurement) {
-    appendSummary(`| Baseline bytes | Opened bytes | Closed bytes | Allocated bytes | Retained bytes |
-|---:|---:|---:|---:|---:|
-| ${measurement.baseline} | ${measurement.opened} | ${measurement.closed} | ${measurement.allocated} | ${measurement.retained} |
-
-`);
-  } else if (runTestsOutcome !== "success") {
-    appendSummary(`${ICONS.failed} No memory-release measurement was found in the log.\n\n`);
-  }
-  renderPerformanceFailure(logText);
-}
-
 // ---------------------------------------------------------------------------
 
-if (testFormat === "large-file-profile" || testFormat === "performance") {
-  summarizePerformance();
-} else if (testFormat === "memory-release-profile") {
-  summarizeMemoryRelease();
+if (testFormat === "raw") {
+  summarizeRaw();
 } else {
   summarizeMocha();
 }

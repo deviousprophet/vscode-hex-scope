@@ -149,22 +149,12 @@ jobs:
         run: node .github/scripts/summarize-tests.mjs
 
       - name: Large-File Profile Summary
-        if: always()
-        env:
-          RUN_TESTS_OUTCOME: ${{ needs.Additional_Profiles.outputs.large-file-outcome }}
-          LOG_FILE: large-file-profile-output.log
-          SUITE_NAME: Large-File Profile Results
-          TEST_FORMAT: large-file-profile
-        run: node .github/scripts/summarize-tests.mjs
+        if: always() && hashFiles('*-profile-test-summary.md') != ''
+        run: cat large-file-profile-test-summary.md >> $GITHUB_STEP_SUMMARY
 
       - name: Memory-Release Profile Summary
-        if: always()
-        env:
-          RUN_TESTS_OUTCOME: ${{ needs.Additional_Profiles.outputs.memory-release-outcome }}
-          LOG_FILE: memory-release-profile-output.log
-          SUITE_NAME: Memory-Release Profile Results
-          TEST_FORMAT: memory-release-profile
-        run: node .github/scripts/summarize-tests.mjs
+        if: always() && hashFiles('*-profile-test-summary.md') != ''
+        run: cat memory-release-profile-test-summary.md >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Combined Test Results Artifact
         if: always()
