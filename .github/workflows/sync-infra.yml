@@ -28,7 +28,7 @@ jobs:
 
       - name: Download agent skills (non-Trellis only; Trellis skills managed by Trellis itself)
         run: |
-          BASE="https://raw.githubusercontent.com/deviousprophet/vscode-ci-infra/main"
+          BASE="https://raw.githubusercontent.com/deviousprophet/vscode-ci-infra/v0.0.1"
           MANIFEST=$(curl -sSL "$BASE/agents/skills/MANIFEST.txt")
           echo "$MANIFEST" | while read skill; do
             [ -z "$skill" ] && continue
