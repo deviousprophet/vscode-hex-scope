@@ -47,30 +47,39 @@ async function main() {
   }
 }
 
-function syncDir(srcDir, dstDir, ignoreList) {
-  if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
+function ensureParent(filePath) {
+  const parent = filePath.substring(0, filePath.lastIndexOf(sep));
+  if (!existsSync(parent)) mkdirSync(parent, { recursive: true });
+}
 
-  const srcFiles = collectFiles(srcDir);
-  const dstFiles = existsSync(dstDir) ? collectFiles(dstDir) : new Set();
-
-  for (const relPath of srcFiles) {
-    const srcFile = join(srcDir, relPath);
+function copyAll(srcDir, dstDir, files) {
+  for (const relPath of files) {
     const dstFile = join(dstDir, relPath);
-    const parent = dstFile.substring(0, dstFile.lastIndexOf(sep));
-    if (!existsSync(parent)) mkdirSync(parent, { recursive: true });
-    cpSync(srcFile, dstFile, { force: true, dereference: true });
+    ensureParent(dstFile);
+    cpSync(join(srcDir, relPath), dstFile, { force: true, dereference: true });
   }
+}
 
+function isIgnored(relPath, patterns) {
+  return patterns.some((p) => relPath === p || relPath.startsWith(p + "/") || relPath.endsWith("/" + p));
+}
+
+function removeStale(dstDir, srcFiles, dstFiles, ignoreList) {
+  const rootRel = relative(ROOT, dstDir);
   for (const relPath of dstFiles) {
     if (srcFiles.has(relPath)) continue;
-    const fullDstPath = join(dstDir, relPath);
-    const fullRelFromRoot = join(relative(ROOT, dstDir), relPath).replace(/\\/g, "/");
-    if (ignoreList.some((p) => fullRelFromRoot === p || fullRelFromRoot.startsWith(p + "/") || fullRelFromRoot.endsWith("/" + p))) {
-      continue;
-    }
-    unlinkSync(fullDstPath);
+    const fullRel = join(rootRel, relPath).replace(/\\/g, "/");
+    if (isIgnored(fullRel, ignoreList)) continue;
+    unlinkSync(join(dstDir, relPath));
   }
+}
 
+function syncDir(srcDir, dstDir, ignoreList) {
+  if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
+  const srcFiles = collectFiles(srcDir);
+  const dstFiles = existsSync(dstDir) ? collectFiles(dstDir) : new Set();
+  copyAll(srcDir, dstDir, srcFiles);
+  removeStale(dstDir, srcFiles, dstFiles, ignoreList);
   cleanEmptyDirs(dstDir);
 }
 
