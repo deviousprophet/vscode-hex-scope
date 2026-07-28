@@ -69,30 +69,6 @@ def is_safe_task_path(task_path: str, repo_root: Path | None = None) -> bool:
     return True
 
 
-def is_within_tasks_dir(task_dir_abs: Path, repo_root: Path | None = None) -> bool:
-    """Check that a resolved task directory really is a task under the tasks dir.
-
-    A real task lives directly at ``.trellis/tasks/<name>``. This returns True
-    only when ``task_dir_abs`` is an immediate child of the tasks directory.
-
-    Guards archive: ``resolve_task_dir`` falls back to ``repo_root/<name>`` for
-    an unknown name, so a mistyped ``task.py archive src`` resolves to the real
-    ``src/`` source directory. Without this check archive would ``shutil.move``
-    it out of the repo. Also rejects the tasks dir itself and anything nested
-    under ``archive/`` (already-archived tasks).
-    """
-    if repo_root is None:
-        repo_root = get_repo_root()
-    try:
-        resolved = task_dir_abs.resolve()
-        tasks_resolved = get_tasks_dir(repo_root).resolve()
-    except (OSError, RuntimeError):
-        return False
-    if resolved.parent != tasks_resolved:
-        return False
-    return resolved.name != "archive"
-
-
 # =============================================================================
 # Task Lookup
 # =============================================================================
@@ -115,7 +91,7 @@ def find_task_by_name(task_name: str, tasks_dir: Path) -> Path | None:
     if exact_match.is_dir():
         return exact_match
 
-    # Try suffix match (e.g., "my-task" matches "01-21-my-task")
+    # Try suffix match (e.g., "my-task" matches "01-my-task")
     for d in tasks_dir.iterdir():
         if d.is_dir() and d.name.endswith(f"-{task_name}"):
             return d
@@ -200,7 +176,7 @@ def resolve_task_dir(target_dir: str, repo_root: Path) -> Path:
 
     Supports:
     - Absolute path: /path/to/task
-    - Relative path: .trellis/tasks/01-31-my-task
+    - Relative path: .trellis/tasks/01-my-task
     - Task name: my-task (uses find_task_by_name for lookup)
 
     Args:
