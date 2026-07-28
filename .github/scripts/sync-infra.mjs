@@ -16,14 +16,11 @@ const MAPPINGS = [
 const ROOT = process.cwd();
 
 async function main() {
-  // 1. Fetch version tag from infra repo
-  console.log("Fetching infra version...");
   const res = await fetch(VERSION_URL);
   if (!res.ok) throw new Error(`Failed to fetch VERSION: ${res.status}`);
   const tag = (await res.text()).trim();
   console.log(`Syncing from tag: ${tag}`);
 
-  // 2. Clone infra repo (shallow, pinned to tag)
   const tmp = mkdtempSync(join(tmpdir(), "infra-sync-"));
   try {
     execSync(
@@ -32,7 +29,6 @@ async function main() {
     );
     console.log("Cloned infra repo.");
 
-    // 3. Read ignore list (consumer-local files never to delete)
     const ignorePath = join(ROOT, ".infra-ignore");
     const ignoreList = existsSync(ignorePath)
       ? readFileSync(ignorePath, "utf8")
@@ -41,17 +37,11 @@ async function main() {
           .filter((l) => l && !l.startsWith("#"))
       : [];
 
-    // 4. Sync each directory
     for (const { src, dst } of MAPPINGS) {
       const srcDir = join(tmp, src.replace(/\//g, sep));
       const dstDir = join(ROOT, dst.replace(/\//g, sep));
-
-      if (!existsSync(srcDir)) {
-        console.log(`  SKIP  ${dst} — not found in source`);
-        continue;
-      }
-
-      mirrorDir(srcDir, dstDir, ignoreList);
+      if (!existsSync(srcDir)) { console.log(`  SKIP  ${dst}`); continue; }
+      syncDir(srcDir, dstDir, ignoreList);
       console.log(`  OK    ${dst}`);
     }
 
@@ -61,19 +51,12 @@ async function main() {
   }
 }
 
-function mirrorDir(srcDir, dstDir, ignoreList) {
-  // Ensure destination exists
+function syncDir(srcDir, dstDir, ignoreList) {
   if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
 
-  // Build set of relative paths in source
-  const srcFiles = new Set();
-  collectRelativePaths(srcDir, srcDir, srcFiles);
+  const srcFiles = collectFiles(srcDir);
+  const dstFiles = existsSync(dstDir) ? collectFiles(dstDir) : new Set();
 
-  // Build set of relative paths in destination
-  const dstFiles = new Set();
-  if (existsSync(dstDir)) collectRelativePaths(dstDir, dstDir, dstFiles);
-
-  // Copy files from source to destination (updates + adds)
   for (const relPath of srcFiles) {
     const srcFile = join(srcDir, relPath);
     const dstFile = join(dstDir, relPath);
@@ -82,59 +65,38 @@ function mirrorDir(srcDir, dstDir, ignoreList) {
     cpSync(srcFile, dstFile, { force: true, dereference: true });
   }
 
-  // Delete files in destination not in source, unless ignored
   for (const relPath of dstFiles) {
     if (srcFiles.has(relPath)) continue;
-
     const fullDstPath = join(dstDir, relPath);
     const fullRelFromRoot = join(relative(ROOT, dstDir), relPath).replace(/\\/g, "/");
-
-    if (isIgnored(fullRelFromRoot, ignoreList)) {
-      console.log(`  keep  ${fullRelFromRoot}`);
+    if (ignoreList.some((p) => fullRelFromRoot === p || fullRelFromRoot.startsWith(p + "/") || fullRelFromRoot.endsWith("/" + p))) {
       continue;
     }
-
     unlinkSync(fullDstPath);
-    console.log(`  del   ${fullRelFromRoot}`);
   }
 
-  // Clean up empty directories
-  removeEmptyDirs(dstDir);
+  cleanEmptyDirs(dstDir);
 }
 
-function collectRelativePaths(baseDir, currentDir, result) {
-  for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
-    const full = join(currentDir, entry.name);
-    const rel = relative(baseDir, full);
-    if (entry.isFile()) {
-      result.add(rel);
-    } else if (entry.isDirectory()) {
-      collectRelativePaths(baseDir, full, result);
+function collectFiles(dir) {
+  const result = new Set();
+  const walk = (current, prefix) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isFile()) result.add(rel);
+      else if (entry.isDirectory()) walk(join(current, entry.name), rel);
     }
-  }
+  };
+  walk(dir, "");
+  return result;
 }
 
-function isIgnored(relPath, ignoreList) {
-  for (const pattern of ignoreList) {
-    const normalized = pattern.replace(/\\/g, "/");
-    if (
-      relPath === normalized ||
-      relPath.startsWith(normalized + "/") ||
-      relPath.endsWith("/" + normalized)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function removeEmptyDirs(dir) {
+function cleanEmptyDirs(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      const full = join(dir, entry.name);
-      removeEmptyDirs(full);
-      try { rmSync(full, { recursive: true, force: true }); } catch { /* not empty */ }
-    }
+    if (!entry.isDirectory()) continue;
+    const full = join(dir, entry.name);
+    cleanEmptyDirs(full);
+    try { rmSync(full, { recursive: true, force: true }); } catch { /* not empty */ }
   }
 }
 
