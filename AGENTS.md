@@ -38,4 +38,3 @@ Always checkout from `main` unless the user specifies a different base branch.
 
 Save all source code files as UTF-8 (no BOM). Non-UTF-8 encoded files break fallow's AST parser and produce false-positive dead-code or unresolved-import findings.
 <!-- ENCODING:END -->
-
