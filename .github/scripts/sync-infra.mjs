@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
 const INFRA_REPO = "deviousprophet/vscode-ci-infra";
-const VERSION_URL = `https://raw.githubusercontent.com/${INFRA_REPO}/main/VERSION`;
+const INFRA_URL = `https://github.com/${INFRA_REPO}.git`;
 
 const MAPPINGS = [
   { src: ".github/workflows", dst: ".github/workflows" },
@@ -16,17 +16,13 @@ const MAPPINGS = [
 const ROOT = process.cwd();
 
 async function main() {
-  const res = await fetch(VERSION_URL);
-  if (!res.ok) throw new Error(`Failed to fetch VERSION: ${res.status}`);
-  const tag = (await res.text()).trim();
-  console.log(`Syncing from tag: ${tag}`);
-
   const tmp = mkdtempSync(join(tmpdir(), "infra-sync-"));
   try {
     execSync(
-      `git clone --depth 1 --branch ${tag} https://github.com/${INFRA_REPO}.git "${tmp}"`,
+      `git clone --depth 1 ${INFRA_URL} "${tmp}"`,
       { stdio: "pipe" }
     );
+    console.log("Syncing from main.");
     console.log("Cloned infra repo.");
 
     const ignorePath = join(ROOT, ".infra-ignore");
