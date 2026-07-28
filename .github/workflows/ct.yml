@@ -48,9 +48,6 @@ jobs:
   Additional_Profiles:
     name: Additional Resource Profiles
     runs-on: ubuntu-latest
-    outputs:
-      large-file-outcome: ${{ steps.large-file-profile.outcome }}
-      memory-release-outcome: ${{ steps.memory-release-profile.outcome }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -64,34 +61,18 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Large-File Profile
-        id: large-file-profile
+      - name: Run Custom Profiles
         run: |
-          if node -e "process.exit(require('./package.json').scripts?.hasOwnProperty('profile:large-files') ? 0 : 1)"; then
-            set -o pipefail
-            npm run profile:large-files 2>&1 | tee large-file-profile-output.log
-          else
-            echo "profile:large-files not found — skipping" > large-file-profile-output.log
-          fi
-
-      - name: Run Memory-Release Profile
-        id: memory-release-profile
-        if: always()
-        run: |
-          if node -e "process.exit(require('./package.json').scripts?.hasOwnProperty('profile:memory-release') ? 0 : 1)"; then
-            set -o pipefail
-            npm run profile:memory-release 2>&1 | tee memory-release-profile-output.log
-          else
-            echo "profile:memory-release not found — skipping" > memory-release-profile-output.log
-          fi
+          set -o pipefail
+          node .github/scripts/run-profiles.mjs 2>&1 | tee profile-combined-output.log
 
       - name: Upload Profile Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           path: |
-            large-file-profile-output.log
-            memory-release-profile-output.log
+            profile-combined-output.log
+            *-profile-test-summary.md
           name: profile-output-${{ github.sha }}
           overwrite: true
 
@@ -148,13 +129,13 @@ jobs:
           TEST_FORMAT: mocha
         run: node .github/scripts/summarize-tests.mjs
 
-      - name: Large-File Profile Summary
-        if: always() && hashFiles('*-profile-test-summary.md') != ''
-        run: cat large-file-profile-test-summary.md >> $GITHUB_STEP_SUMMARY
-
-      - name: Memory-Release Profile Summary
-        if: always() && hashFiles('*-profile-test-summary.md') != ''
-        run: cat memory-release-profile-test-summary.md >> $GITHUB_STEP_SUMMARY
+      - name: Profile Summaries
+        if: always()
+        run: |
+          for f in *-profile-test-summary.md; do
+            [ -f "$f" ] || continue
+            cat "$f" >> $GITHUB_STEP_SUMMARY
+          done
 
       - name: Upload Combined Test Results Artifact
         if: always()
@@ -162,7 +143,7 @@ jobs:
         with:
           path: |
             test-output.log
-            large-file-profile-output.log
-            memory-release-profile-output.log
+            profile-combined-output.log
+            *-profile-test-summary.md
           name: test-results-${{ github.sha }}
           overwrite: true
