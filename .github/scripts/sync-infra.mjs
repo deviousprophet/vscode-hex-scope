@@ -84,16 +84,14 @@ function syncDir(srcDir, dstDir, ignoreList) {
 }
 
 function collectFiles(dir) {
-  const result = new Set();
-  const walk = (current, prefix) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isFile()) result.add(rel);
-      else if (entry.isDirectory()) walk(join(current, entry.name), rel);
-    }
-  };
-  walk(dir, "");
-  return result;
+  const items = readdirSync(dir, { withFileTypes: true, recursive: true });
+  const result = [];
+  for (const e of items) {
+    if (!e.isFile()) continue;
+    const full = e.parentPath ? join(e.parentPath, e.name) : join(dir, e.name);
+    result.push(relative(dir, full).replace(/\\/g, "/"));
+  }
+  return new Set(result);
 }
 
 function cleanEmptyDirs(dir) {
