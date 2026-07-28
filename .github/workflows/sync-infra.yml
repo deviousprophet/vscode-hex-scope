@@ -19,7 +19,7 @@ jobs:
         run: |
           BASE="https://raw.githubusercontent.com/deviousprophet/vscode-ci-infra/v0.0.1"
           mkdir -p .github/workflows .github/scripts
-          for f in ct.yml package.yml release.yml fallow.yml ci.yml; do
+          for f in ct.yml package.yml; do
             curl -sSfL "$BASE/.github/workflows/$f" -o ".github/workflows/$f"
           done
           for f in summarize-tests.mjs extract-release-notes.mjs; do
