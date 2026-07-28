@@ -8,13 +8,7 @@
 
 import { existsSync, readdirSync } from "fs"
 import { join } from "path"
-import {
-  TrellisContext,
-  debugLog,
-  readContextInjectionLimits,
-  ContextBudget,
-  materializeArtifact,
-} from "../lib/trellis-context.js"
+import { TrellisContext, debugLog } from "../lib/trellis-context.js"
 
 // Supported subagent types
 const AGENTS_ALL = ["implement", "check", "research"]
@@ -35,112 +29,64 @@ function extractActiveTaskHint(prompt) {
  * Get context for implement agent. `taskDir` may be relative
  * (`.trellis/tasks/foo`) or absolute; both are resolved via
  * `ctx.resolveTaskDir`.
- *
- * Read order (mirrors Python `get_implement_context`):
- *   1. All files in implement.jsonl (spec/research manifests)
- *   2. prd.md (requirements)
- *   3. design.md if present (technical design)
- *   4. implement.md if present (execution plan)
- * All blocks share one total budget (issue #441).
  */
 function getImplementContext(ctx, taskDir) {
   const parts = []
   const taskDirFull = ctx.resolveTaskDir(taskDir)
   if (!taskDirFull) return ""
 
-  const limits = readContextInjectionLimits(ctx.directory)
-  const budget = new ContextBudget(limits.max_total_bytes)
-
-  // 1. Read implement.jsonl
   const jsonlPath = join(taskDirFull, "implement.jsonl")
-  const blocks = ctx.readJsonlWithFiles(jsonlPath, limits, budget)
-  if (blocks.length > 0) {
-    parts.push(ctx.buildContextFromEntries(blocks))
+  const entries = ctx.readJsonlWithFiles(jsonlPath)
+  if (entries.length > 0) {
+    parts.push(ctx.buildContextFromEntries(entries))
   }
 
-  // 2. Requirements document
-  const prdBlock = materializeArtifact(
-    ctx.directory,
-    `${taskDir}/prd.md`,
-    `${taskDir}/prd.md (Requirements)`,
-    "Requirements document",
-    limits,
-    budget,
-  )
-  if (prdBlock) parts.push(prdBlock)
+  const prd = ctx.readFile(join(taskDirFull, "prd.md"))
+  if (prd) {
+    parts.push(`=== ${taskDir}/prd.md (Requirements) ===\n${prd}`)
+  }
 
-  // 3. Technical design for complex tasks
-  const designBlock = materializeArtifact(
-    ctx.directory,
-    `${taskDir}/design.md`,
-    `${taskDir}/design.md (Technical Design)`,
-    "Technical design document",
-    limits,
-    budget,
-  )
-  if (designBlock) parts.push(designBlock)
+  const design = ctx.readFile(join(taskDirFull, "design.md"))
+  if (design) {
+    parts.push(`=== ${taskDir}/design.md (Technical Design) ===\n${design}`)
+  }
 
-  // 4. Execution plan for complex tasks
-  const implementPlanBlock = materializeArtifact(
-    ctx.directory,
-    `${taskDir}/implement.md`,
-    `${taskDir}/implement.md (Execution Plan)`,
-    "Execution plan document",
-    limits,
-    budget,
-  )
-  if (implementPlanBlock) parts.push(implementPlanBlock)
+  const implementPlan = ctx.readFile(join(taskDirFull, "implement.md"))
+  if (implementPlan) {
+    parts.push(`=== ${taskDir}/implement.md (Execution Plan) ===\n${implementPlan}`)
+  }
 
   return parts.join("\n\n")
 }
 
 /**
  * Get context for check agent. `taskDir` may be relative or absolute.
- * Same read order and shared budget as the implement context.
  */
 function getCheckContext(ctx, taskDir) {
   const parts = []
   const taskDirFull = ctx.resolveTaskDir(taskDir)
   if (!taskDirFull) return ""
 
-  const limits = readContextInjectionLimits(ctx.directory)
-  const budget = new ContextBudget(limits.max_total_bytes)
-
   const jsonlPath = join(taskDirFull, "check.jsonl")
-  const blocks = ctx.readJsonlWithFiles(jsonlPath, limits, budget)
-  if (blocks.length > 0) {
-    parts.push(ctx.buildContextFromEntries(blocks))
+  const entries = ctx.readJsonlWithFiles(jsonlPath)
+  if (entries.length > 0) {
+    parts.push(ctx.buildContextFromEntries(entries))
   }
 
-  const prdBlock = materializeArtifact(
-    ctx.directory,
-    `${taskDir}/prd.md`,
-    `${taskDir}/prd.md (Requirements)`,
-    "Requirements document",
-    limits,
-    budget,
-  )
-  if (prdBlock) parts.push(prdBlock)
+  const prd = ctx.readFile(join(taskDirFull, "prd.md"))
+  if (prd) {
+    parts.push(`=== ${taskDir}/prd.md (Requirements) ===\n${prd}`)
+  }
 
-  const designBlock = materializeArtifact(
-    ctx.directory,
-    `${taskDir}/design.md`,
-    `${taskDir}/design.md (Technical Design)`,
-    "Technical design document",
-    limits,
-    budget,
-  )
-  if (designBlock) parts.push(designBlock)
+  const design = ctx.readFile(join(taskDirFull, "design.md"))
+  if (design) {
+    parts.push(`=== ${taskDir}/design.md (Technical Design) ===\n${design}`)
+  }
 
-  const implementPlanBlock = materializeArtifact(
-    ctx.directory,
-    `${taskDir}/implement.md`,
-    `${taskDir}/implement.md (Execution Plan)`,
-    "Execution plan document",
-    limits,
-    budget,
-  )
-  if (implementPlanBlock) parts.push(implementPlanBlock)
+  const implementPlan = ctx.readFile(join(taskDirFull, "implement.md"))
+  if (implementPlan) {
+    parts.push(`=== ${taskDir}/implement.md (Execution Plan) ===\n${implementPlan}`)
+  }
 
   return parts.join("\n\n")
 }

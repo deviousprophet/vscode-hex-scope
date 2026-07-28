@@ -48,6 +48,9 @@ jobs:
   Additional_Profiles:
     name: Additional Resource Profiles
     runs-on: ubuntu-latest
+    outputs:
+      large-file-outcome: ${{ steps.large-file-profile.outcome }}
+      memory-release-outcome: ${{ steps.memory-release-profile.outcome }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -61,18 +64,26 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Custom Profiles
+      - name: Run Large-File Profile
+        id: large-file-profile
         run: |
           set -o pipefail
-          node .github/scripts/run-profiles.mjs 2>&1 | tee profile-combined-output.log
+          npm run profile:large-files 2>&1 | tee large-file-profile-output.log
+
+      - name: Run Memory-Release Profile
+        id: memory-release-profile
+        if: always()
+        run: |
+          set -o pipefail
+          npm run profile:memory-release 2>&1 | tee memory-release-profile-output.log
 
       - name: Upload Profile Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           path: |
-            profile-combined-output.log
-            *-profile-test-summary.md
+            large-file-profile-output.log
+            memory-release-profile-output.log
           name: profile-output-${{ github.sha }}
           overwrite: true
 
@@ -129,13 +140,23 @@ jobs:
           TEST_FORMAT: mocha
         run: node .github/scripts/summarize-tests.mjs
 
-      - name: Profile Summaries
+      - name: Large-File Profile Summary
         if: always()
-        run: |
-          for f in *-profile-test-summary.md; do
-            [ -f "$f" ] || continue
-            cat "$f" >> $GITHUB_STEP_SUMMARY
-          done
+        env:
+          RUN_TESTS_OUTCOME: ${{ needs.Additional_Profiles.outputs.large-file-outcome }}
+          LOG_FILE: large-file-profile-output.log
+          SUITE_NAME: Large-File Profile Results
+          TEST_FORMAT: large-file-profile
+        run: node .github/scripts/summarize-tests.mjs
+
+      - name: Memory-Release Profile Summary
+        if: always()
+        env:
+          RUN_TESTS_OUTCOME: ${{ needs.Additional_Profiles.outputs.memory-release-outcome }}
+          LOG_FILE: memory-release-profile-output.log
+          SUITE_NAME: Memory-Release Profile Results
+          TEST_FORMAT: memory-release-profile
+        run: node .github/scripts/summarize-tests.mjs
 
       - name: Upload Combined Test Results Artifact
         if: always()
@@ -143,7 +164,7 @@ jobs:
         with:
           path: |
             test-output.log
-            profile-combined-output.log
-            *-profile-test-summary.md
+            large-file-profile-output.log
+            memory-release-profile-output.log
           name: test-results-${{ github.sha }}
           overwrite: true

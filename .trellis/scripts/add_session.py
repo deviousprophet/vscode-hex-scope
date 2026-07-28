@@ -12,12 +12,9 @@ Usage:
     <session content here>
     EOF
 
-    # Structured content (repeatable; a section with no bullets is omitted):
-    python add_session.py --title "Title" --change "Did X" --test "Ran Y" --next-step "Do Z"
-
 Branch resolution order:
     1. --branch CLI arg (explicit)
-    2. task.json branch field (from active task, if still exists)
+    2. task.json branch field (from active task)
     3. git branch --show-current (auto-detect)
     4. None (omitted gracefully)
 """
@@ -41,14 +38,12 @@ from common.paths import (
 )
 from common.developer import ensure_developer
 from common.git import run_git
-from common.log import Colors, colored
 from common.safe_commit import (
     print_gitignore_warning,
     safe_git_add,
     safe_trellis_paths_to_add,
 )
 from common.tasks import load_task
-from common.types import TaskInfo
 from common.config import (
     get_packages,
     get_session_auto_commit,
@@ -131,99 +126,6 @@ def count_journal_files(dev_dir: Path, active_num: int) -> str:
     return "\n".join(result_lines)
 
 
-def get_current_git_branch(repo_root: Path) -> str | None:
-    """Return the current checkout branch, or None for detached/non-git states."""
-    rc, branch_out, _ = run_git(["branch", "--show-current"], cwd=repo_root)
-    if rc != 0:
-        return None
-    detected = branch_out.strip()
-    return detected or None
-
-
-def branch_ref_exists(repo_root: Path, branch: str) -> bool:
-    """Return True when branch exists locally or as the local origin ref."""
-    for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
-        rc, _, _ = run_git(["show-ref", "--verify", "--quiet", ref], cwd=repo_root)
-        if rc == 0:
-            return True
-    return False
-
-
-def resolve_session_branch(
-    repo_root: Path,
-    cli_branch: str | None,
-    task_data: TaskInfo | None,
-) -> str | None:
-    """Resolve journal branch without trusting stale task.json branch fields."""
-    if cli_branch:
-        return cli_branch
-
-    current_branch = get_current_git_branch(repo_root)
-    raw_task_branch = task_data.raw.get("branch") if task_data else None
-    task_branch = raw_task_branch.strip() if isinstance(raw_task_branch, str) else ""
-    if not task_branch:
-        return current_branch
-
-    if branch_ref_exists(repo_root, task_branch):
-        return task_branch
-
-    if current_branch:
-        print(
-            f"Warning: task.json branch '{task_branch}' no longer exists locally or as origin/{task_branch}; using current branch '{current_branch}'.",
-            file=sys.stderr,
-        )
-        return current_branch
-
-    print(
-        f"Warning: task.json branch '{task_branch}' no longer exists locally or as origin/{task_branch}; omitting branch.",
-        file=sys.stderr,
-    )
-    return None
-
-
-def is_git_worktree(repo_root: Path) -> bool:
-    """Return True when repo_root is a linked worktree (not the main working tree).
-
-    Standard test: `git rev-parse --git-dir` (per-worktree) differs from
-    `git rev-parse --git-common-dir` (shared across all worktrees) once both
-    are resolved to absolute paths. In the main working tree these are the
-    same directory.
-    """
-    rc_dir, git_dir, _ = run_git(["rev-parse", "--git-dir"], cwd=repo_root)
-    rc_common, git_common_dir, _ = run_git(
-        ["rev-parse", "--git-common-dir"], cwd=repo_root
-    )
-    if rc_dir != 0 or rc_common != 0:
-        return False
-
-    git_dir_path = (repo_root / git_dir.strip()).resolve()
-    git_common_dir_path = (repo_root / git_common_dir.strip()).resolve()
-    return git_dir_path != git_common_dir_path
-
-
-def warn_if_parallel_worktree(repo_root: Path) -> None:
-    """Non-blocking note: index.md conflicts across parallel worktrees/branches
-    are expected and safe. Only fires when running in a linked git worktree
-    (not the main tree) with `session_auto_commit` enabled (#415 quick-fix tier).
-    """
-    if not get_session_auto_commit(repo_root):
-        return
-    if not is_git_worktree(repo_root):
-        return
-    print(
-        colored(
-            "[NOTE] Running in a git worktree with session_auto_commit enabled: "
-            "journal-*.md files auto-merge via .gitattributes, but index.md "
-            "conflicts across parallel worktrees/branches are expected and safe "
-            "to resolve by picking either side (task state lives in task.json, "
-            "not index.md). See .trellis/spec/cli/backend/directory-structure.md "
-            '("Workspace Journal Merge Behavior").',
-            Colors.YELLOW,
-        ),
-        file=sys.stderr,
-    )
-
-
 def create_new_journal_file(
     dev_dir: Path, num: int, developer: str, today: str, max_lines: int = 2000,
 ) -> Path:
@@ -243,39 +145,15 @@ def create_new_journal_file(
     return new_file
 
 
-def _render_bullet_section(header: str, items: list[str], bullet_prefix: str = "- ") -> str:
-    """Render a Markdown section as bullets, or "" when there is no content.
-
-    A section with zero provided values is omitted entirely from the
-    rendered entry rather than falling back to a placeholder string.
-    """
-    if not items:
-        return ""
-    bullets = "\n".join(f"{bullet_prefix}{item}" for item in items)
-    return f"\n\n### {header}\n\n{bullets}"
-
-
-def _render_main_changes(changes: list[str], extra_content: str | None) -> str:
-    """Render the Main Changes section from --change bullets or freeform content."""
-    if changes:
-        return _render_bullet_section("Main Changes", changes)
-    if extra_content:
-        return f"\n\n### Main Changes\n\n{extra_content}"
-    return ""
-
-
 def generate_session_content(
     session_num: int,
     title: str,
     commit: str,
     summary: str,
+    extra_content: str,
     today: str,
     package: str | None = None,
     branch: str | None = None,
-    changes: list[str] | None = None,
-    extra_content: str | None = None,
-    tests: list[str] | None = None,
-    next_steps: list[str] | None = None,
 ) -> str:
     """Generate session content."""
     if commit and commit != "-":
@@ -290,10 +168,6 @@ def generate_session_content(
     package_line = f"\n**Package**: {package}" if package else ""
     branch_line = f"\n**Branch**: `{branch}`" if branch else ""
 
-    main_changes_section = _render_main_changes(changes or [], extra_content)
-    testing_section = _render_bullet_section("Testing", tests or [], bullet_prefix="- [OK] ")
-    next_steps_section = _render_bullet_section("Next Steps", next_steps or [])
-
     return f"""
 
 ## Session {session_num}: {title}
@@ -303,15 +177,27 @@ def generate_session_content(
 
 ### Summary
 
-{summary}{main_changes_section}
+{summary}
+
+### Main Changes
+
+{extra_content}
 
 ### Git Commits
 
-{commit_table}{testing_section}
+{commit_table}
+
+### Testing
+
+- [OK] (Add test results)
 
 ### Status
 
-[OK] **Completed**{next_steps_section}
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
 """
 
 
@@ -509,18 +395,14 @@ def _auto_commit_workspace(repo_root: Path) -> None:
 def add_session(
     title: str,
     commit: str = "-",
-    summary: str = "Session summary was not supplied.",
-    changes: list[str] | None = None,
-    extra_content: str | None = None,
-    tests: list[str] | None = None,
-    next_steps: list[str] | None = None,
+    summary: str = "(Add summary)",
+    extra_content: str = "(Add details)",
     auto_commit: bool = True,
     package: str | None = None,
     branch: str | None = None,
 ) -> int:
     """Add a new session."""
     repo_root = get_repo_root()
-    warn_if_parallel_worktree(repo_root)
     ensure_developer(repo_root)
 
     developer = get_developer(repo_root)
@@ -543,9 +425,8 @@ def add_session(
     new_session = current_session + 1
 
     session_content = generate_session_content(
-        new_session, title, commit, summary, today, package, branch,
-        changes=changes, extra_content=extra_content, tests=tests,
-        next_steps=next_steps,
+        new_session, title, commit, summary, extra_content, today, package,
+        branch,
     )
     content_lines = len(session_content.splitlines())
 
@@ -622,13 +503,10 @@ def main() -> int:
     )
     parser.add_argument("--title", required=True, help="Session title")
     parser.add_argument("--commit", default="-", help="Comma-separated commit hashes")
-    parser.add_argument("--summary", default="Session summary was not supplied.", help="Brief summary")
+    parser.add_argument("--summary", default="(Add summary)", help="Brief summary")
     parser.add_argument("--content-file", help="Path to file with detailed content")
     parser.add_argument("--package", help="Package name tag (e.g., cli, docs-site)")
     parser.add_argument("--branch", help="Branch name (auto-detected if omitted)")
-    parser.add_argument("--change", action="append", help="Main Changes bullet (repeatable)")
-    parser.add_argument("--test", action="append", help="Testing bullet (repeatable)")
-    parser.add_argument("--next-step", action="append", help="Next Steps bullet (repeatable)")
     parser.add_argument("--no-commit", action="store_true",
                         help="Skip auto-commit of workspace changes")
     parser.add_argument("--stdin", action="store_true",
@@ -636,7 +514,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    extra_content: str | None = None
+    extra_content = "(Add details)"
     if args.content_file:
         content_path = Path(args.content_file)
         if content_path.is_file():
@@ -665,12 +543,20 @@ def main() -> int:
         task_package = task_data.package if task_data else None
         package = resolve_package(task_package, repo_root)
 
-    branch = resolve_session_branch(repo_root, args.branch, task_data)
+    # Resolve branch: CLI → task.json → git auto-detect → None
+    branch = args.branch
+
+    if not branch:
+        if task_data and task_data.raw.get("branch"):
+            branch = task_data.raw["branch"]
+        else:
+            _, branch_out, _ = run_git(["branch", "--show-current"], cwd=repo_root)
+            detected = branch_out.strip()
+            if detected:
+                branch = detected
 
     return add_session(
-        args.title, args.commit, args.summary,
-        changes=args.change, extra_content=extra_content, tests=args.test,
-        next_steps=args.next_step,
+        args.title, args.commit, args.summary, extra_content,
         auto_commit=not args.no_commit,
         package=package,
         branch=branch,

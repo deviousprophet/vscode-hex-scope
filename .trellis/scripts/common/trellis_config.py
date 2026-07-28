@@ -78,11 +78,10 @@ def _parse_yaml_block(
             key, _, value = stripped.partition(":")
             key = key.strip()
             value = _strip_inline_comment(value).strip()
-            was_quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'")
             value = _unquote(value)
             current_list = None
 
-            if value or was_quoted:
+            if value:
                 target[key] = value
                 i += 1
             else:

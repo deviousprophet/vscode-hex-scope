@@ -13,7 +13,6 @@ Provides:
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from pathlib import Path
 
 
@@ -372,19 +371,6 @@ def has_current_task(repo_root: Path | None = None) -> bool:
         True if current task is set.
     """
     return get_current_task(repo_root) is not None
-
-
-# =============================================================================
-# Task ID Generation
-# =============================================================================
-
-def generate_task_date_prefix() -> str:
-    """Generate task ID based on date (MM-DD format).
-
-    Returns:
-        Date prefix string (e.g., "01-21").
-    """
-    return datetime.now().strftime("%m-%d")
 
 
 # =============================================================================
