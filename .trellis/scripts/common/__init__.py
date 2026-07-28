@@ -80,6 +80,7 @@ from .paths import (
     set_current_task,
     clear_current_task,
     has_current_task,
+    generate_task_date_prefix,
 )
 
 from .active_task import (
