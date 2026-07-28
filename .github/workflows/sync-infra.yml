@@ -17,7 +17,7 @@ jobs:
 
       - name: Download infra workflows
         run: |
-          BASE="https://raw.githubusercontent.com/deviousprophet/vscode-ci-infra/main"
+          BASE="https://raw.githubusercontent.com/deviousprophet/vscode-ci-infra/v0.0.1"
           mkdir -p .github/workflows .github/scripts
           for f in ct.yml package.yml release.yml fallow.yml ci.yml; do
             curl -sSfL "$BASE/.github/workflows/$f" -o ".github/workflows/$f"
