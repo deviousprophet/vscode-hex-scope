@@ -158,8 +158,12 @@ function tryParseJsonLine(line) {
 
 function groupEntry(groups, line) {
   const entry = tryParseJsonLine(line);
-  if (!entry || typeof entry._type !== "string") return;
-  if (!groups.has(entry._type)) groups.set(entry._type, []);
+  if (!entry || typeof entry._type !== "string") {
+    return;
+  }
+  if (!groups.has(entry._type)) {
+    groups.set(entry._type, []);
+  }
   groups.get(entry._type).push(entry);
 }
 
@@ -177,7 +181,9 @@ function statusBadge() {
 }
 
 function renderFailureTail(logText) {
-  if (runTestsOutcome === "success" || !logText) return;
+  if (runTestsOutcome === "success" || !logText) {
+    return;
+  }
   appendSummary(`
 <details>
 <summary>${ICONS.failed} Failure output</summary>
@@ -201,20 +207,23 @@ registry.set("large-file-load", (records, logText) => {
   const rows = records.map(r =>
     `| ${[r.name, r.sourceMiB, r.records, r.elapsedMs, r.retainedMiB].map(v => v ?? "").join(" | ")} |\n`
   ).join("");
-  return { header: `${ICONS.robot} Large-File Load\n\n${statusBadge()}\n\n`, body: `${header}${rows}\n` };
+  return { body: `${header}${rows}\n` };
 });
 
 registry.set("large-file-summary", (records) => {
   const s = records[0];
-  if (!s) return { body: "" };
+  if (!s) {
+    return { body: "" };
+  }
   return { body: `${ICONS.clipboard} Concurrent retained: **${s.concurrentRetainedMiB} MiB** (documents: ${s.documents?.join(", ") ?? ""})\n\n` };
 });
 
 registry.set("memory-release", (records) => {
   const m = records[0];
-  if (!m) return { header: `${ICONS.robot} Memory-Release\n\n${statusBadge()}\n\n`, body: `${ICONS.failed} No measurement found.\n\n` };
+  if (!m) {
+    return { body: `${ICONS.failed} No measurement found.\n\n` };
+  }
   return {
-    header: `${ICONS.robot} Memory-Release\n\n${statusBadge()}\n\n`,
     body: `| Baseline | Opened | Closed | Allocated | Retained |
 |---:|---:|---:|---:|---:|
 | ${m.baseline} | ${m.opened} | ${m.closed} | ${m.allocated} | ${m.retained} |
@@ -231,11 +240,24 @@ function renderUnknownType(type, records) {
   };
 }
 
+function typeDisplayName(type) {
+  return type
+    .split("-")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function renderTypedGroup(type, records, logText) {
   const renderer = registry.get(type) ?? renderUnknownType;
   const { header = "", body = "" } = renderer(records, logText);
-  const text = header + body;
-  if (text) appendSummary(text);
+  const text = `## ${ICONS.robot} ${typeDisplayName(type)}
+
+${statusBadge()}
+
+${header}${body}`;
+  if (text.trim()) {
+    appendSummary(text);
+  }
 }
 
 function summarizeTyped() {
@@ -243,20 +265,19 @@ function summarizeTyped() {
   const groups = groupByType(logText);
 
   if (groups.size === 0) {
-    // No typed records found — likely a mocha-only run; handled by caller
-    return false;
+    return;
   }
 
-  for (const [type, records] of groups) renderTypedGroup(type, records, logText);
-
+  appendSummary(`\n---\n# ${ICONS.robot} Benchmark\n`);
+  for (const [type, records] of groups) {
+    renderTypedGroup(type, records, logText);
+  }
   renderFailureTail(logText);
-  return true;
 }
 
 // ---------------------------------------------------------------------------
 // Main dispatch
 // ---------------------------------------------------------------------------
 
-if (!summarizeTyped()) {
-  summarizeMocha();  // no typed records → mocha format
-}
+summarizeMocha();
+summarizeTyped();
