@@ -143,6 +143,11 @@ function summarizeMocha() {
   const logText = readLog();
   const stats = parseMochaStats(logText);
 
+  // If no tests ran, skip mocha format (e.g. benchmark-only log)
+  if (stats.total === 0) {
+    return;
+  }
+
   renderMochaHeader(stats);
   renderMochaFailures(logText, stats.fail);
   renderMochaMissingRun(logText, stats.total);

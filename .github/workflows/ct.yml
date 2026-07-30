@@ -132,6 +132,7 @@ jobs:
         env:
           RUN_TESTS_OUTCOME: ${{ needs.Benchmarks.result }}
           LOG_FILE: benchmark-output.log
+          SUITE_NAME: Benchmark
         run: node .github/scripts/summarize-tests.mjs
 
       - name: Upload Combined Test Results Artifact
