@@ -9,9 +9,9 @@ const ICONS = {
   passed: "\u2705",
   failed: "\u274c",
   timer: "\u23f1",
-  robot: "\u{1F916}",
   clipboard: "\u{1F4CB}",
   log: "\u{1FAB5}",
+  zap: "\u26A1",
 };
 
 function appendSummary(markdown) {
@@ -90,7 +90,7 @@ function renderMochaHeader(stats) {
   const durationSuffix = stats.duration ? ` ${ICONS.timer} ${stats.duration}` : "";
   const status = `${mochaStatusLine(stats)}${durationSuffix}`;
 
-  appendSummary(`# ${ICONS.robot} ${suiteName}
+  appendSummary(`# ${ICONS.clipboard} ${suiteName}
 
 ${status}
 
@@ -241,7 +241,7 @@ registry.set("memory-release", (records) => {
 
 function renderUnknownType(type, records) {
   return {
-    body: `\n<details>\n<summary>${ICONS.robot} \`${type}\` (unknown benchmark type)</summary>\n\n\`\`\`json\n${records.map(r => JSON.stringify(r, null, 2)).join("\n")}\n\`\`\`\n\n</details>\n`
+    body: `\n<details>\n<summary>\`${type}\` (unknown benchmark type)</summary>\n\n\`\`\`json\n${records.map(r => JSON.stringify(r, null, 2)).join("\n")}\n\`\`\`\n\n</details>\n`
   };
 }
 
@@ -255,7 +255,7 @@ function typeDisplayName(type) {
 function renderTypedGroup(type, records, logText) {
   const renderer = registry.get(type) ?? renderUnknownType;
   const { header = "", body = "" } = renderer(records, logText);
-  const text = `## ${ICONS.robot} ${typeDisplayName(type)}
+  const text = `## ${typeDisplayName(type)}
 
 ${statusBadge()}
 
@@ -273,7 +273,7 @@ function summarizeTyped() {
     return;
   }
 
-  appendSummary(`\n---\n# ${ICONS.robot} Benchmark\n`);
+  appendSummary(`\n---\n# ${ICONS.zap} Benchmark\n`);
   for (const [type, records] of groups) {
     renderTypedGroup(type, records, logText);
   }
