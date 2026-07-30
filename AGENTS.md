@@ -19,22 +19,3 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
-
-<!-- BRANCH_NAMING:START -->
-## Branch naming
-
-- `feat/<slug>` — new features or enhancements
-- `fix/<slug>` — bug fixes
-- `chore/<slug>` — tooling, config, docs, skills, non-functional changes
-- `refactor/<slug>` — code restructuring with no behavior change
-- `perf/<slug>` — performance improvements
-- `test/<slug>` — test-only additions
-
-Always checkout from `main` unless the user specifies a different base branch.
-<!-- BRANCH_NAMING:END -->
-
-<!-- ENCODING:START -->
-## Encoding
-
-Save all source code files as UTF-8 (no BOM). Non-UTF-8 encoded files break fallow's AST parser and produce false-positive dead-code or unresolved-import findings.
-<!-- ENCODING:END -->

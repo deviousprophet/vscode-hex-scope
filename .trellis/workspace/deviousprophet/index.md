@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
-- **Last Active**: 2026-07-26
+- **Total Sessions**: 0
+- **Last Active**: -
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~303 | Active |
+| `journal-1.md` | ~0 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,23 +29,6 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 17 | 2026-07-26 | Harden scripting engine security boundary | `2a8d483` | `feat/harden-script-engine` |
-| 16 | 2026-07-25 | Enhance editing ability (decoded-text edit, copy/paste) | `08522e2` | `feat/enhance-editing` |
-| 15 | 2026-07-25 | Add hex.readSelected() API | `de0c3c7`, `b0588fd` | `feat/read-selected-api` |
-| 14 | 2026-07-24 | Address search cleanup | `14fa689` | `fix/search-address-padding` |
-| 13 | 2026-07-24 | Fix address search padding | `6c7e0e7` | `fix/search-address-padding` |
-| 12 | 2026-07-23 | Direct-typing byte editing | `c3fe112` | `feat/edit-tedium` |
-| 11 | 2026-07-21 | Implement scripts tab UI per finalized spec | `4481e78`, `4a2bc1e`, `7ccb06a` | `feat/scripting-support` |
-| 10 | 2026-07-20 | Add scripting support for custom HEX processing | `a564af9` | `feat/scripting-support` |
-| 9 | 2026-07-11 | Verify memory release | `8cac7a4` | `fix/verify-memory-release` |
-| 8 | 2026-07-11 | Audit innerHTML safety | `72a60b6` | `fix/audit-innerhtml` |
-| 7 | 2026-07-11 | Clear Fallow quality gates | `a341015` | `feat/large-file-pipeline` |
-| 6 | 2026-07-11 | Prepare large-file pipeline release | `1e1c752`, `61a7bf1` | `feat/large-file-pipeline` |
-| 5 | 2026-07-11 | Fix large-file search regression | `4ee0180` | `feat/large-file-pipeline` |
-| 4 | 2026-07-10 | Large-file pipeline MVP | `ca7b8bd`, `4f77498` | `feat/large-file-pipeline` |
-| 3 | 2026-07-10 | Add changelog update skill | `979c17f` | `feat/trellis-setup` |
-| 2 | 2026-07-10 | Standardize PR creation | `7523a13` | `feat/trellis-setup` |
-| 1 | 2026-07-10 | Bootstrap Hex Scope Trellis specs | `e64fc75`, `e30e236` | `feat/trellis-setup` |
 <!-- @@@/auto:session-history -->
 
 ---
