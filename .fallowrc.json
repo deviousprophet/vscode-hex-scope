@@ -4,8 +4,7 @@
     "src/extension.ts",
     "src/webview/hexViewer.ts",
     "src/test/**/*.test.ts",
-    "src/test/profiles/memory-release-profile.ts",
-    "src/test/profiles/large-file-profile.ts",
+    "src/test/benchmarks/*.ts",
     ".vscode-test.mjs",
     "esbuild.js"
   ],
