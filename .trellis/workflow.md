@@ -9,7 +9,10 @@
 3. **Persist everything** — research, decisions, and lessons all go to files; conversations get compacted, files don't
 4. **Incremental development** — one task at a time
 5. **Capture learnings** — after each task, review and write new knowledge back to spec
+## Repository Conventions
 
+- **Branch naming**: `feat/<slug>` (features), `fix/<slug>` (bug fixes), `chore/<slug>` (tooling/config/docs/skills), `refactor/<slug>` (restructuring, no behavior change), `perf/<slug>` (performance), `test/<slug>` (test-only). Always branch from `main` unless user specifies different base.
+- **Encoding**: Save all source files as UTF-8 (no BOM). Non-UTF-8 breaks fallow's AST parser, producing false-positive findings.
 ---
 
 ## Trellis System

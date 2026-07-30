@@ -10,7 +10,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [DOM Rendering and Interaction](./component-guidelines.md) | HTML rendering, listener wiring, rerenders, accessibility |
 | [State, Persistence, and Invalidation](./state-management.md) | Shared state owners, protocol flow, derived state, storage scope |
 | [Type and Validation Contracts](./type-safety.md) | Discriminated unions, boundary normalization, numeric/address rules |
-| [Quality and Test Contracts](./quality-guidelines.md) | Required checks, test placement, coverage expectations |
+| [Quality Test Contracts](./quality-guidelines.md) | Required checks, test placement, coverage expectations, fallow-fix skill |
 | [CSS Guidelines](./css-guidelines.md) | File placement, design tokens, selector patterns, button standards |
 
 ## Feature Code-Specs
@@ -38,6 +38,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 ## Quality Check
 
 - Confirm each changed behavior still has one owning module and one authoritative contract.
+- Run full Fallow scan and fix findings via [`fallow-fix` skill](../.agents/skills/custom/fallow-fix/SKILL.md).
 - Run `npm run check-types`, `npm run lint`, and `npm test`.
 - Update the owning feature spec when signatures, payload fields, validation errors, persistence, or visible behavior change.
 
