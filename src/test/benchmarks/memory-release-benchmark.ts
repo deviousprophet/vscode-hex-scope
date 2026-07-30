@@ -38,7 +38,7 @@ const closed = arrayBufferBytes();
 
 const retained = Math.max(0, closed - baseline);
 const allocated = opened - baseline;
-console.log(JSON.stringify({ baseline, opened, closed, allocated, retained }));
+console.log(JSON.stringify({ _type: 'memory-release', baseline, opened, closed, allocated, retained }));
 
 assert.ok(allocated >= PANEL_COUNT * BYTES_PER_PANEL,
     `expected at least ${PANEL_COUNT * BYTES_PER_PANEL} bytes allocated, measured ${allocated}`);

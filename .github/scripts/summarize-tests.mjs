@@ -3,7 +3,6 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 const runTestsOutcome = process.env.RUN_TESTS_OUTCOME ?? "unknown";
 const logFile = process.env.LOG_FILE ?? "test-output.log";
 const suiteName = process.env.SUITE_NAME ?? "Automated test results";
-const testFormat = process.env.TEST_FORMAT ?? "mocha"; // "mocha" | "large-file-profile" | "memory-release-profile"
 const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 
 const ICONS = {
@@ -150,98 +149,35 @@ function summarizeMocha() {
 }
 
 // ---------------------------------------------------------------------------
-// Performance format
+// Typed benchmark registry  — new benchmark = new renderer in registry map
 // ---------------------------------------------------------------------------
 
 function tryParseJsonLine(line) {
-  try {
-    return JSON.parse(line);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(line); } catch { return null; }
 }
 
-function isMeasurement(entry) {
-  return Boolean(entry) && typeof entry.name === "string" && "elapsedMs" in entry;
+function groupEntry(groups, line) {
+  const entry = tryParseJsonLine(line);
+  if (!entry || typeof entry._type !== "string") return;
+  if (!groups.has(entry._type)) groups.set(entry._type, []);
+  groups.get(entry._type).push(entry);
 }
 
-function isConcurrentSummary(entry) {
-  return Boolean(entry) && "concurrentRetainedMiB" in entry;
+/** Group parsed log lines by _type. Lines without _type are ignored here. */
+function groupByType(logText) {
+  const groups = new Map();
+  logText.split(/\r?\n/).forEach(line => groupEntry(groups, line));
+  return groups;
 }
 
-function parsePerformanceLog(logText) {
-  const measurements = [];
-  let summaryLine = null;
-
-  const lines = logText.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  for (const line of lines) {
-    const entry = tryParseJsonLine(line);
-    if (isMeasurement(entry)) {
-      measurements.push(entry);
-    } else if (isConcurrentSummary(entry)) {
-      summaryLine = entry;
-    }
-  }
-
-  return { measurements, summaryLine };
-}
-
-function performanceStatusLine() {
+function statusBadge() {
   return runTestsOutcome === "success"
-    ? `${ICONS.passed} Large-file profile passed`
-    : `${ICONS.failed} Large-file profile failed`;
+    ? `${ICONS.passed} Passed`
+    : `${ICONS.failed} Failed`;
 }
 
-function renderPerformanceHeader() {
-  appendSummary(`# ${ICONS.robot} ${suiteName}
-
-${performanceStatusLine()}
-
-`);
-}
-
-function measurementRow(m) {
-  const fields = [m.name, m.sourceMiB, m.records, m.elapsedMs, m.retainedMiB].map(orEmpty);
-  return `| ${fields.join(" | ")} |\n`;
-}
-
-function renderPerformanceTable(measurements) {
-  if (measurements.length === 0) {
-    return;
-  }
-
-  const header = `| Name | Source (MiB) | Records | Elapsed (ms) | Retained (MiB) |
-|---|---:|---:|---:|---:|
-`;
-  const rows = measurements.map(measurementRow).join("");
-  appendSummary(`${header}${rows}\n`);
-}
-
-function renderPerformanceConcurrentSummary(summaryLine) {
-  if (!summaryLine) {
-    return;
-  }
-
-  const documents = summaryLine.documents?.join(", ") ?? "";
-  appendSummary(
-    `${ICONS.clipboard} Concurrent retained: **${summaryLine.concurrentRetainedMiB} MiB** (documents: ${documents})\n\n`
-  );
-}
-
-function renderPerformanceEmptyState(measurements, summaryLine) {
-  if (measurements.length > 0 || summaryLine) {
-    return;
-  }
-
-  appendSummary(`${ICONS.failed} No large-file measurements were found in the log.\n\n`);
-}
-
-function renderPerformanceFailure(logText) {
-  const success = runTestsOutcome === "success";
-  if (success || !logText) {
-    return;
-  }
-
+function renderFailureTail(logText) {
+  if (runTestsOutcome === "success" || !logText) return;
   appendSummary(`
 <details>
 <summary>${ICONS.failed} Failure output</summary>
@@ -254,50 +190,73 @@ ${tailLines(logText, 40)}
 `);
 }
 
-function summarizePerformance() {
-  const logText = readLog();
-  const { measurements, summaryLine } = parsePerformanceLog(logText);
+// -- Renderers registered by _type ------------------------------------------
 
-  renderPerformanceHeader();
-  renderPerformanceTable(measurements);
-  renderPerformanceConcurrentSummary(summaryLine);
-  renderPerformanceEmptyState(measurements, summaryLine);
-  renderPerformanceFailure(logText);
-}
+const registry = new Map();
 
-function parseMemoryReleaseLog(logText) {
-  return logText
-    .split(/\r?\n/)
-    .map(tryParseJsonLine)
-    .find((entry) => typeof entry === "object" && entry !== null && "allocated" in entry && "retained" in entry) ?? null;
-}
+registry.set("large-file-load", (records, logText) => {
+  const header = `| Name | Source (MiB) | Records | Elapsed (ms) | Retained (MiB) |
+|---|---:|---:|---:|---:|
+`;
+  const rows = records.map(r =>
+    `| ${[r.name, r.sourceMiB, r.records, r.elapsedMs, r.retainedMiB].map(v => v ?? "").join(" | ")} |\n`
+  ).join("");
+  return { header: `${ICONS.robot} Large-File Load\n\n${statusBadge()}\n\n`, body: `${header}${rows}\n` };
+});
 
-function summarizeMemoryRelease() {
-  const logText = readLog();
-  const measurement = parseMemoryReleaseLog(logText);
-  const status = runTestsOutcome === "success"
-    ? `${ICONS.passed} Memory-release profile passed`
-    : `${ICONS.failed} Memory-release profile failed`;
-  appendSummary(`# ${ICONS.robot} ${suiteName}\n\n${status}\n\n`);
+registry.set("large-file-summary", (records) => {
+  const s = records[0];
+  if (!s) return { body: "" };
+  return { body: `${ICONS.clipboard} Concurrent retained: **${s.concurrentRetainedMiB} MiB** (documents: ${s.documents?.join(", ") ?? ""})\n\n` };
+});
 
-  if (measurement) {
-    appendSummary(`| Baseline bytes | Opened bytes | Closed bytes | Allocated bytes | Retained bytes |
+registry.set("memory-release", (records) => {
+  const m = records[0];
+  if (!m) return { header: `${ICONS.robot} Memory-Release\n\n${statusBadge()}\n\n`, body: `${ICONS.failed} No measurement found.\n\n` };
+  return {
+    header: `${ICONS.robot} Memory-Release\n\n${statusBadge()}\n\n`,
+    body: `| Baseline | Opened | Closed | Allocated | Retained |
 |---:|---:|---:|---:|---:|
-| ${measurement.baseline} | ${measurement.opened} | ${measurement.closed} | ${measurement.allocated} | ${measurement.retained} |
+| ${m.baseline} | ${m.opened} | ${m.closed} | ${m.allocated} | ${m.retained} |
 
-`);
-  } else {
-    appendSummary(`${ICONS.failed} No memory-release measurement was found in the log.\n\n`);
+`
+  };
+});
+
+// -- Typed-summary driver ---------------------------------------------------
+
+function renderUnknownType(type, records) {
+  return {
+    body: `\n<details>\n<summary>${ICONS.robot} \`${type}\` (unknown benchmark type)</summary>\n\n\`\`\`json\n${records.map(r => JSON.stringify(r, null, 2)).join("\n")}\n\`\`\`\n\n</details>\n`
+  };
+}
+
+function renderTypedGroup(type, records, logText) {
+  const renderer = registry.get(type) ?? renderUnknownType;
+  const { header = "", body = "" } = renderer(records, logText);
+  const text = header + body;
+  if (text) appendSummary(text);
+}
+
+function summarizeTyped() {
+  const logText = readLog();
+  const groups = groupByType(logText);
+
+  if (groups.size === 0) {
+    // No typed records found — likely a mocha-only run; handled by caller
+    return false;
   }
-  renderPerformanceFailure(logText);
+
+  for (const [type, records] of groups) renderTypedGroup(type, records, logText);
+
+  renderFailureTail(logText);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
+// Main dispatch
+// ---------------------------------------------------------------------------
 
-if (testFormat === "large-file-profile" || testFormat === "performance") {
-  summarizePerformance();
-} else if (testFormat === "memory-release-profile") {
-  summarizeMemoryRelease();
-} else {
-  summarizeMocha();
+if (!summarizeTyped()) {
+  summarizeMocha();  // no typed records → mocha format
 }

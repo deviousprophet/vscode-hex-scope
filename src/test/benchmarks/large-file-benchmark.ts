@@ -62,7 +62,7 @@ async function load(
     const result = await parser(source);
     const elapsedMs = Math.round(performance.now() - started);
     const retained = retainedBytes() - before;
-    console.log(JSON.stringify({ name, sourceMiB: Math.round(source.length / 1048576), records: result.records.length, elapsedMs, retainedMiB: Math.round(retained / 1048576) }));
+    console.log(JSON.stringify({ _type: 'large-file-load', name, sourceMiB: Math.round(source.length / 1048576), records: result.records.length, elapsedMs, retainedMiB: Math.round(retained / 1048576) }));
     if (retained > MAX_RETAINED_BYTES) {
         throw new Error(`${name} retained ${Math.round(retained / 1048576)} MiB; limit is 384 MiB`);
     }
@@ -78,7 +78,7 @@ async function run(): Promise<void> {
     if (total > MAX_RETAINED_BYTES * 2) {
         throw new Error(`Two documents retained ${Math.round(total / 1048576)} MiB; limit is 768 MiB`);
     }
-    console.log(JSON.stringify({ concurrentRetainedMiB: Math.round(total / 1048576), documents: [ihex.records.length, srec.records.length] }));
+    console.log(JSON.stringify({ _type: 'large-file-summary', concurrentRetainedMiB: Math.round(total / 1048576), documents: [ihex.records.length, srec.records.length] }));
 }
 
 run().catch(error => {
