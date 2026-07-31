@@ -7,7 +7,7 @@ description: "Prepare or revise release changelog entries synchronized with pack
 
 Two modes:
 - **update** (default) — append/overwrite `## [Unreleased]` section from `tag..HEAD`. Never touches versions or package.json.
-- **release** — on explicit "release" request: promote current `[Unreleased]` → `## [X.Y.Z] - YYYY-MM-DD`, bump package versions, leave `[Unreleased]` above for next cycle.
+- **release** — on explicit "release" request: replace current `[Unreleased]` with `## [X.Y.Z] - YYYY-MM-DD`, bump package versions, delete now-empty `[Unreleased]` heading. Release replaces `[Unreleased]` with the versioned section; no empty section left for next cycle.
 
 ## 1. Inspect Release State
 
@@ -97,7 +97,7 @@ Never modify a tagged release section.
 - ...
 ```
 
-If `[Unreleased]` section already exists (hand-written or from prior update), compare its topics with the new commit-derived entries:
+If no `[Unreleased]` section exists, create it with entries from `tag..HEAD`. If `[Unreleased]` section already exists (hand-written or from prior update), compare its topics with the new commit-derived entries:
 
 - **Related** — existing entries cover the same features/areas as new commits → **replace** with authoritative commit-derived content (it's the source of truth).
 - **Unrelated** — existing entries cover different features/areas than new commits → **merge**: keep existing entries and append new ones under appropriate sections.
@@ -117,7 +117,7 @@ If no qualifying changes since last tag → report "Nothing new to log." Change 
 - ...
 ```
 
-Promote current `[Unreleased]` content. If `[Unreleased]` is empty, fill from tag..HEAD. Place new versioned section **above** a fresh `## [Unreleased]`.
+Promote current `[Unreleased]` content. If `[Unreleased]` is empty, fill from tag..HEAD. Replace the `## [Unreleased]` heading with `## [X.Y.Z] - YYYY-MM-DD` and delete the now-empty section — the versioned section becomes topmost. No `[Unreleased]` heading is left behind; a future update run re-creates it.
 
 After release, `[Unreleased]` stays empty until new commits arrive after the tag.
 
@@ -157,7 +157,7 @@ Replace/create `## [Unreleased]` section at top of `CHANGELOG.md`. No other file
 
 ### release mode
 
-1. Promote `[Unreleased]` content into `## [X.Y.Z] - YYYY-MM-DD` below a fresh `## [Unreleased]`.
+1. Replace the `## [Unreleased]` heading with `## [X.Y.Z] - YYYY-MM-DD` (keep its content), then delete the now-empty `[Unreleased]` section so the versioned section is topmost.
 2. Update package versions without scripts or tags:
 
    ```bash
