@@ -36,15 +36,20 @@ function buildFillTransaction(range: SelectionRange | null, fillVal: number): Ar
     if (!range) { return []; }
     const prev: Array<[number, number]> = [];
     for (let a = range.start; a <= range.end; a++) {
-        const original = getOriginalByte(a);
-        if (original === undefined) { continue; }
-        const current = currentIntegrityByte(a, original);
-        if (current === fillVal) { continue; }
-        if (fillVal === original) { S.edits.delete(a); }
-        else { S.edits.set(a, fillVal); }
-        prev.push([a, current]);
+        const prior = stageFillByte(a, fillVal);
+        if (prior) { prev.push(prior); }
     }
     return prev;
+}
+
+function stageFillByte(address: number, fillVal: number): [number, number] | null {
+    const original = getOriginalByte(address);
+    if (original === undefined) { return null; }
+    const current = currentIntegrityByte(address, original);
+    if (current === fillVal) { return null; }
+    if (fillVal === original) { S.edits.delete(address); }
+    else { S.edits.set(address, fillVal); }
+    return [address, current];
 }
 
 export function undoLastEditTransaction(): boolean {
