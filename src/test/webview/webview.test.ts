@@ -1162,7 +1162,7 @@ suite('selectedBytes() - gap filtering', () => {
         initFlatBytes();
         S.selStart = 0x0000;
         S.selEnd = 0x0201;
-        const result = copyCommandResult('copy-hex', selectedBytes());
+        const result = copyCommandResult('hex', selectedBytes());
         assert.strictEqual(result.type, 'copyText');
         assert.strictEqual((result as { type: 'copyText'; text: string }).text, '01 02 03 04');
     });
@@ -1180,8 +1180,8 @@ suite('selectedBytes() - gap filtering', () => {
         S.selStart = 0x0100;
         S.selEnd = 0x0102;
         assert.deepStrictEqual(selectedBytes(), []);
-        assert.deepStrictEqual(copyCommandResult('copy-hex', selectedBytes()), { type: 'none' });
-        assert.deepStrictEqual(contextCommandResult('copy-hex', selectedBytes(), false), { type: 'none' });
+        assert.deepStrictEqual(copyCommandResult('hex', selectedBytes()), { type: 'none' });
+        assert.deepStrictEqual(contextCommandResult('hex', selectedBytes(), false), { type: 'none' });
     });
 
     test('analyze over gap-spanning selection computes on mapped bytes only', () => {
