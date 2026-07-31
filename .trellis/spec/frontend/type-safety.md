@@ -48,7 +48,7 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 - `any` or double assertions at protocol/persistence boundaries.
 - Duplicated local shapes for a message already represented in `webviewProtocol.ts`.
 - Casting persisted JSON directly to `IntegrityProfile[]`, `StructDef[]`, or check sets.
-- Treating `undefined` bytes as zero outside an explicitly documented compatibility seam. Core memory lookup preserves `undefined`; `selectedBytes()` currently maps holes in a spanning selection to `0`.
+- Treating `undefined` bytes as zero outside an explicitly documented compatibility seam. Core memory lookup preserves `undefined`; copy/analyze paths (`selectedBytes()`, keyboard `collectSelectedBytes()`) skip unmapped addresses instead of zero-filling.
 - Converting 64-bit decoded values to `number` before formatting.
 - Adding a discriminator without exhaustive map/set updates.
 

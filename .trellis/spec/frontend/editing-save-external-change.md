@@ -38,6 +38,7 @@ type WebviewToProviderMessage =
 - Every user action that changes multiple bytes is one transaction. Undo restores the full prior values atomically.
 - Edit values are bytes (`0..255`) and target only mapped addresses.
 - Fill-selection uses the normalized inclusive selection range.
+- Fill applies per-byte with `stageIntegrityEdit` semantics: skip addresses whose current value already equals `fillVal`; if `fillVal` equals the byte's original value but a prior edit changed it, revert by removing the `S.edits` entry. Undo still records the prior current value for every byte actually changed.
 - Integrity Auto fix/Fix all enters through the same transaction owner, so it is undoable and updates all byte consumers.
 - Save sends a stable list of edits to the extension host. Host serializes through the current document format, recomputes affected record checksums, writes, reparses, then returns `savedEdits`.
 - `savedEdits` replaces parsed memory and clears edits/undo only after host success.
@@ -59,6 +60,9 @@ type WebviewToProviderMessage =
 | Condition | Required behavior |
 |---|---|
 | No selection / invalid fill byte | No transaction. |
+| Fill byte equals byte's current value | No edit entry, no undo entry, byte stays clean — dirty bar unchanged. |
+| Fill byte equals byte's original value after prior edit | Revert: remove the `S.edits` entry, byte clean. |
+| Fill byte differs from byte's current value | Stage edit with prior current value recorded for undo. |
 | Edit transaction includes unmapped address | Skip that entry; apply mapped changes; return `false` only when no byte changed. Never create phantom memory. |
 | Multiple updates target same address in one integrity fix | Compatible duplicates merge; conflicting values reject atomically. |
 | Save write/reparse fails | Keep pending edits and surface error; do not pretend saved. |
@@ -71,13 +75,14 @@ type WebviewToProviderMessage =
 
 - Base: edit one mapped byte -> dirty state -> save -> checksum-correct rewritten record -> `savedEdits` -> clean state.
 - Good: Fix all stages one atomic transaction; one undo restores every affected stored checksum byte.
+- Good: fill byte equal to byte's current value records no edit entry and no undo entry; fill byte equal to byte's original value after a prior edit reverts the entry.
 - Good: external change during local edits leaves both decision context and local overlay available until user chooses.
 - Bad: mutate `parseResult.segments` when typing, making discard impossible.
 - Bad: clear dirty state when posting `saveEdits` before host confirms success.
 
 ### 6. Tests Required
 
-- Transactions: one-byte, fill range, multi-edit integrity transaction, duplicate/conflict, undo, empty/no-op, unmapped target.
+- Transactions: one-byte, fill range, multi-edit integrity transaction, duplicate/conflict, undo, empty/no-op, unmapped target. Fill: assert no edit/undo entry when byte already equals fill value; assert revert (entry removed) when fill restores original value; assert undo records prior current value of the byte actually changed.
 - Serialization: edits across records, unchanged no-edit input, checksum update, whitespace/EOL/non-data preservation for both formats.
 - Model: `savedEdits` clear/rebuild invalidations; external change lock/conflict/error/repair transitions.
 - DOM: edit controls, dirty bar, conflict/error banners, disabled actions while locked.

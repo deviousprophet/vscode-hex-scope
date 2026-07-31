@@ -14,7 +14,8 @@ export function selectedBytes(): number[] {
     if (!range) { return []; }
     const out: number[] = [];
     for (let a = range.start; a <= range.end; a++) {
-        out.push(getByte(a) ?? 0);
+        const b = getByte(a);
+        if (b !== undefined) { out.push(b); }
     }
     return out;
 }
