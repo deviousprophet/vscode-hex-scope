@@ -1,5 +1,4 @@
 import type { SelectionRange } from './memory/selection';
-import { getByte } from './memory/memoryData';
 import { S } from './state';
 
 export function stageIntegrityEditTransaction(edits: Array<[number, number]>): boolean {
@@ -37,12 +36,20 @@ function buildFillTransaction(range: SelectionRange | null, fillVal: number): Ar
     if (!range) { return []; }
     const prev: Array<[number, number]> = [];
     for (let a = range.start; a <= range.end; a++) {
-        const orig = getByte(a);
-        if (orig === undefined) { continue; }
-        prev.push([a, orig]);
-        S.edits.set(a, fillVal);
+        const prior = stageFillByte(a, fillVal);
+        if (prior) { prev.push(prior); }
     }
     return prev;
+}
+
+function stageFillByte(address: number, fillVal: number): [number, number] | null {
+    const original = getOriginalByte(address);
+    if (original === undefined) { return null; }
+    const current = currentIntegrityByte(address, original);
+    if (current === fillVal) { return null; }
+    if (fillVal === original) { S.edits.delete(address); }
+    else { S.edits.set(address, fillVal); }
+    return [address, current];
 }
 
 export function undoLastEditTransaction(): boolean {

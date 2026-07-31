@@ -988,6 +988,51 @@ suite('Integrity Checks sidebar', () => {
         assert.strictEqual(S.edits.has(0x1000), false);
     });
 
+    test('fillSelectionTransaction skips bytes already equal to fill value', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00, 0xAA, 0xAA, 0x00] }],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        fillSelectionTransaction({ start: 0x1000, end: 0x1003 }, 0xAA);
+        assert.strictEqual(S.edits.size, 2);
+        assert.strictEqual(S.edits.get(0x1000), 0xAA);
+        assert.strictEqual(S.edits.get(0x1003), 0xAA);
+        assert.strictEqual(S.edits.has(0x1001), false);
+        assert.strictEqual(S.edits.has(0x1002), false);
+    });
+
+    test('fillSelectionTransaction skips whole range when fill value unchanged', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xAA, 0xAA, 0xAA] }],
+            totalDataBytes: 3, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        fillSelectionTransaction({ start: 0x1000, end: 0x1002 }, 0xAA);
+        assert.strictEqual(S.edits.size, 0);
+        assert.strictEqual(S.undoStack.length, 0);
+    });
+
+    test('fillSelectionTransaction reverts edited byte to original value', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD] }],
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.edits.set(0x1000, 0x42);
+        fillSelectionTransaction({ start: 0x1000, end: 0x1001 }, 0xDE);
+        assert.strictEqual(S.edits.has(0x1000), false);
+        assert.strictEqual(S.edits.get(0x1001), 0xDE);
+        assert.strictEqual(S.undoStack.length, 1);
+        assert.deepStrictEqual(S.undoStack[0], [[0x1000, 0x42], [0x1001, 0xAD]]);
+    });
+
     test('undoLastEditTransaction restores fill', () => {
         resetState();
         S.parseResult = {
