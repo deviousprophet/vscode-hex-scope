@@ -8,7 +8,7 @@ export function crc8(data: number[]): number {
 }
 
 export function crc16(data: number[]): number {
-    let c = 0;
+    let c = 0xFFFF;
     for (const b of data) {
         c ^= b;
         for (let i = 0; i < 8; i++) { c = c & 1 ? ((c >>> 1) ^ 0xA001) : c >>> 1; }
