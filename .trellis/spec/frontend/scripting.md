@@ -39,6 +39,8 @@ interface FetchOptions extends RequestInit {
 interface HexScopeAPI {
     hex: { read(a: number, l: number): Uint8Array; readSelected(): Uint8Array; write(a: number, d: Uint8Array): Promise<boolean>; size: number };
     crc: { crc8(d: Uint8Array | number[]): number; crc16(d: Uint8Array | number[]): number; crc32(d: Uint8Array | number[]): number };
+    // crc8 = CRC-8 (poly 0x07, init 0x00); crc16 = real CRC-16/Modbus (poly 0xA001, init 0xFFFF, check vector "123456789" → 0x4B37);
+    // crc32 = CRC-32/ISO-HDLC (check vector "123456789" → 0xCBF43926). Same functions back Analyze context menu.
     hash: { sha1(d: Uint8Array): Promise<Uint8Array>; sha256(d: Uint8Array): Promise<Uint8Array>; sha512(d: Uint8Array): Promise<Uint8Array> };
     exec(cmd: string, args?: string[]): Promise<ExecResult | null>;
     fetch(url: string, opts?: FetchOptions): Promise<FetchResult | null>;

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Fixed context-menu Copy/Analyze emitting `0x00` bytes for unmapped addresses when the selection spans a gap — gap addresses are now skipped (matching the keyboard copy path), and a selection fully inside an unmapped gap copies nothing
 - Fixed fill-selection marking bytes dirty when the fill value matched their current value — re-filling with the same value no longer dirties the file or emits no-op edits
 - Fixed `crc16` computing CRC-16/ANSI instead of the documented CRC-16/Modbus (init changed to `0xFFFF`); check value for `"123456789"` is now `0x4B37`. Existing scripts and Analyze results using `crc16` will see new output
 

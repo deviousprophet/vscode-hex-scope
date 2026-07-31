@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
-- **Last Active**: 2026-07-30
+- **Total Sessions**: 2
+- **Last Active**: 2026-08-01
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~29 | Active |
+| `journal-1.md` | ~50 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-08-01 | Fix gap copy zero + webview test suite nesting repair | `dc02597` | `fix/gap-copy-zero` |
 | 1 | 2026-07-30 | Bootstrap guidelines + finish-work | `b9ced7d`, `b0a8e58` | `main` |
 <!-- @@@/auto:session-history -->
 

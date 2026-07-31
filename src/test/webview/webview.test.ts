@@ -16,6 +16,8 @@ import {
 } from '../../webview/render/virtualScroll';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
 import { parsePasteText } from '../../webview/pasteUtils';
+import { selectedBytes } from '../../webview/memory/selection';
+import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -1095,3 +1097,109 @@ suite('Integrity Checks sidebar', () => {
         assert.deepStrictEqual(parsePasteText('FF'), [255]);
     });
 });
+
+// ── selectedBytes() gap filtering ───────────────────────────────
+
+suite('selectedBytes() - gap filtering', () => {
+    setup(resetState);
+
+    test('no selection returns empty', () => {
+        assert.deepStrictEqual(selectedBytes(), []);
+    });
+
+    test('skips unmapped gap addresses in spanning selection', () => {
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x0000, data: [0x01, 0x02] },
+                { startAddress: 0x0200, data: [0x03, 0x04] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.selStart = 0x0000;
+        S.selEnd = 0x0201;
+        assert.deepStrictEqual(selectedBytes(), [0x01, 0x02, 0x03, 0x04]);
+    });
+
+    test('selection fully inside unmapped gap returns empty', () => {
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x0000, data: [0x01, 0x02] },
+                { startAddress: 0x0200, data: [0x03, 0x04] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.selStart = 0x0100;
+        S.selEnd = 0x0102;
+        assert.deepStrictEqual(selectedBytes(), []);
+    });
+
+    test('uses edited bytes and skips in-range unmapped addresses', () => {
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD] }],
+            totalDataBytes: 2, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.edits.set(0x1001, 0x42);
+        S.selStart = 0x1000;
+        S.selEnd = 0x1003; // 0x1002-0x1003 unmapped (past segment end)
+        assert.deepStrictEqual(selectedBytes(), [0xDE, 0x42]);
+    });
+
+    test('copyCommandResult over gap-spanning bytes formats mapped bytes only', () => {
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x0000, data: [0x01, 0x02] },
+                { startAddress: 0x0200, data: [0x03, 0x04] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.selStart = 0x0000;
+        S.selEnd = 0x0201;
+        const result = copyCommandResult('hex', selectedBytes());
+        assert.strictEqual(result.type, 'copyText');
+        assert.strictEqual((result as { type: 'copyText'; text: string }).text, '01 02 03 04');
+    });
+
+    test('all-unmapped selection yields copy no-op', () => {
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x0000, data: [0x01, 0x02] },
+                { startAddress: 0x0200, data: [0x03, 0x04] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.selStart = 0x0100;
+        S.selEnd = 0x0102;
+        assert.deepStrictEqual(selectedBytes(), []);
+        assert.deepStrictEqual(copyCommandResult('hex', selectedBytes()), { type: 'none' });
+        assert.deepStrictEqual(contextCommandResult('hex', selectedBytes(), false), { type: 'none' });
+    });
+
+    test('analyze over gap-spanning selection computes on mapped bytes only', () => {
+        S.parseResult = {
+            records: [],
+            segments: [
+                { startAddress: 0x0000, data: [0x01, 0x02] },
+                { startAddress: 0x0200, data: [0x03, 0x04] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.selStart = 0x0000;
+        S.selEnd = 0x0201;
+        const result = contextCommandResult('an-xor', selectedBytes(), false);
+        assert.strictEqual(result.type, 'copyText');
+        const text = (result as { type: 'copyText'; text: string }).text;
+        assert.strictEqual(text, '0x04'); // 0x01 ^ 0x02 ^ 0x03 ^ 0x04
+    });
+});
+
