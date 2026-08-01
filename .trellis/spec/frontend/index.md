@@ -27,6 +27,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Struct Instance Display](./struct-instance-display.md) | Struct row rendering, pointers, selection, menus, accessibility |
 | [Scripting Support](./scripting.md) | Script runner, vm sandbox, ScriptHost adapter, API surface, sidebar UI |
 | [Diff View](./diff-view.md) | hexScope.hexDiff editor: data model (visual rows), protocol, session, layout, selection/copy |
+| [Hex View Component](./hex-view-component.md) | reusable single-panel hex grid: byte-cell design (bn/bd/be + combos), component API, interaction |
 
 ## Pre-Development Checklist
 

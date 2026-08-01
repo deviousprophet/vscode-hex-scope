@@ -159,7 +159,7 @@ suite('hex view component interaction', () => {
         assert.ok(!(cellAt(0x1003).closest('.diff-row'))!.classList.contains('row-hi'), 'mirror row cleared');
     });
 
-    test('match cells render with amatch on the focused match address', () => {
+    test('match cells render the match class', () => {
         setupDom();
         const a = parse([seg(0x1000, [1, 2, 3, 4])]);
         const b = parse([seg(0x1000, [1, 2, 3, 4])]);
@@ -169,12 +169,11 @@ suite('hex view component interaction', () => {
             rows: groupVisualRows(d.rows),
             searchRowIndex: -1,
             matchSet: new Set([0x1001, 0x1003]),
-            matchFocusAddr: 0x1003,
             error: null,
             visibleRange: [0, 1],
             totalHeight: 22,
         });
-        assert.ok(html.includes('data-cell unchanged match"'), 'plain match present');
-        assert.ok(html.includes('data-cell unchanged match amatch"'), 'focused match carries amatch');
+        assert.ok(html.includes('data-cell bn match'), 'match cells carry match');
+        assert.ok(!html.includes('amatch'), 'no amatch state');
     });
 });

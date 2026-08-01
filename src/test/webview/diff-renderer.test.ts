@@ -90,7 +90,7 @@ suite('diff renderer', () => {
 
     test('match addresses get the match class', () => {
         const html = componentHtml({ matchSet: new Set([0x1003]) });
-        assert.strictEqual((html.match(/class="data-cell unchanged match"/g) ?? []).length, 1);
+        assert.strictEqual((html.match(/class="data-cell bn match"/g) ?? []).length, 1);
     });
 
     test('a side with a parse error is flagged panel-error', () => {

@@ -22,8 +22,6 @@ export interface HexViewRenderInput {
     rows: readonly DiffVisualRow[];
     searchRowIndex: number;
     matchSet: ReadonlySet<number>;
-    /** Address of the current search match, to mark it `.amatch` (single-view parity). */
-    matchFocusAddr?: number;
     error: string | null;
     visibleRange: [number, number];
     totalHeight: number;
@@ -33,30 +31,31 @@ function byteText(cell: DiffCell | null): string {
     return cell && cell.present ? cell.byte.toString(16).toUpperCase().padStart(2, '0') : '··';
 }
 
-const DIFF_TYPES = new Set(['changed', 'added', 'removed']);
+/** Status -> byte-cell class: unchanged=bn, empty=be, all differences=bd. */
+const STATUS_CLASS: Record<string, string> = {
+    unchanged: 'bn',
+    empty: 'be',
+    changed: 'bd',
+    added: 'bd',
+    removed: 'bd',
+};
 
-/** Collapse all difference statuses into the single `bd` (byte-diff) visual. */
-function diffStatus(status: string): string {
-    return DIFF_TYPES.has(status) ? 'bd' : status;
+function cellClass(cell: DiffCell | null, status: string, isMatch: boolean): string {
+    const cls = `data-cell ${STATUS_CLASS[status] ?? status}`;
+    return isMatch && cell?.present ? `${cls} match` : cls;
 }
 
-function cellClass(cell: DiffCell | null, status: string, isMatch: boolean, isAmatch: boolean): string {
-    const cls = !cell || !cell.present ? 'data-cell empty' : `data-cell ${diffStatus(status)}`;
-    if (isMatch && cell?.present) { return `${cls} match${isAmatch ? ' amatch' : ''}`; }
-    return cls;
+function cellHtml(cell: DiffCell | null, status: string, isMatch: boolean, side: 'a' | 'b', addr: number): string {
+    return `<span class="${cellClass(cell, status, isMatch)}" data-addr="${esc(formatAddress(addr))}" data-side="${side}">${byteText(cell)}</span>`;
 }
 
-function cellHtml(cell: DiffCell | null, status: string, isMatch: boolean, isAmatch: boolean, side: 'a' | 'b', addr: number): string {
-    return `<span class="${cellClass(cell, status, isMatch, isAmatch)}" data-addr="${esc(formatAddress(addr))}" data-side="${side}">${byteText(cell)}</span>`;
-}
-
-function rowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, isSearchRow: boolean, matchSet: ReadonlySet<number>, matchFocusAddr: number, error: string | null): string {
+function rowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, isSearchRow: boolean, matchSet: ReadonlySet<number>, error: string | null): string {
     const addr = esc(formatAddress(vr.baseAddress));
     const cells: string[] = [];
     for (let j = 0; j < DIFF_ROW_BYTES; j++) {
         const byteAddr = vr.baseAddress + j;
         const cell = side === 'a' ? vr.a[j] : vr.b[j];
-        cells.push(cellHtml(cell, vr.statuses[j], matchSet.has(byteAddr), byteAddr === matchFocusAddr, side, byteAddr));
+        cells.push(cellHtml(cell, vr.statuses[j], matchSet.has(byteAddr), side, byteAddr));
     }
     return `<div class="diff-row" data-addr="${addr}" style="top:${index * DIFF_ROW_HEIGHT}px">
         <span class="addr">${addr}</span>
@@ -75,9 +74,8 @@ function headerHtml(): string {
 /** Pure HTML for one component (testable without DOM). */
 export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRenderInput): string {
     const rows: string[] = [];
-    const matchFocusAddr = input.matchFocusAddr ?? -1;
     for (let i = input.visibleRange[0]; i < input.visibleRange[1] && i < input.rows.length; i++) {
-        rows.push(rowHtml(input.rows[i], side, i, i === input.searchRowIndex, input.matchSet, matchFocusAddr, input.error));
+        rows.push(rowHtml(input.rows[i], side, i, i === input.searchRowIndex, input.matchSet, input.error));
     }
     return `<div class="diff-component ${side}">
         ${input.label ? `<div class="panel-label">${esc(input.label)}</div>` : ''}
