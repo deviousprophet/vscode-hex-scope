@@ -91,6 +91,37 @@
           }
         ],
         "priority": "option"
+      },
+      {
+        "viewType": "hexScope.hexDiff",
+        "displayName": "HexScope Diff",
+        "selector": [
+          {
+            "filenamePattern": "*.hex"
+          },
+          {
+            "filenamePattern": "*.ihx"
+          },
+          {
+            "filenamePattern": "*.ihex"
+          },
+          {
+            "filenamePattern": "*.srec"
+          },
+          {
+            "filenamePattern": "*.mot"
+          },
+          {
+            "filenamePattern": "*.s19"
+          },
+          {
+            "filenamePattern": "*.s28"
+          },
+          {
+            "filenamePattern": "*.s37"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "submenus": [
@@ -140,6 +171,21 @@
         "command": "hexScope.runScript",
         "title": "Run Script",
         "category": "HexScope"
+      },
+      {
+        "command": "hexScope.compareSelected",
+        "title": "Compare Two Files",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.selectAsFirst",
+        "title": "Select as First File (A)",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.compareToStaged",
+        "title": "Compare with First File (A)",
+        "category": "HexScope"
       }
     ],
     "menus": {
@@ -181,9 +227,43 @@
           "command": "hexScope.quickRepair",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
+        },
+        {
+          "command": "hexScope.selectAsFirst",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "hexScope.compareToStaged",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "hexScope.compareSelected"
+        },
+        {
+          "command": "hexScope.selectAsFirst"
+        },
+        {
+          "command": "hexScope.compareToStaged",
+          "when": "hexScope.hasStagedFirst"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "hexScope.selectAsFirst",
+        "key": "alt+down",
+        "when": "resourceLangId =~ /^(intel-hex|srec)$/ && editorTextFocus"
+      },
+      {
+        "command": "hexScope.compareToStaged",
+        "key": "alt+up",
+        "when": "resourceLangId =~ /^(intel-hex|srec)$/ && editorTextFocus && hexScope.hasStagedFirst"
+      }
+    ],
     "configurationDefaults": {
       "editor.tokenColorCustomizations": {
         "textMateRules": [
