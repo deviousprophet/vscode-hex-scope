@@ -192,8 +192,13 @@
       "explorer/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
           "group": "navigation"
+        },
+        {
+          "command": "hexScope.compareSelected",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection",
+          "group": "navigation@1"
         }
       ],
       "editor/title": [
@@ -229,19 +234,14 @@
           "group": "navigation"
         },
         {
-          "command": "hexScope.compareSelected",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection",
-          "group": "navigation@1"
-        },
-        {
           "command": "hexScope.selectAsFirst",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
-          "group": "navigation@2"
+          "group": "navigation@1"
         },
         {
           "command": "hexScope.compareToStaged",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst && !listMultiSelection",
-          "group": "navigation@3"
+          "group": "navigation@2"
         }
       ],
       "commandPalette": [
@@ -259,18 +259,6 @@
         }
       ]
     },
-    "keybindings": [
-      {
-        "command": "hexScope.selectAsFirst",
-        "key": "ctrl+alt+down",
-        "when": "resourceLangId =~ /^(intel-hex|srec)$/ && editorTextFocus"
-      },
-      {
-        "command": "hexScope.compareToStaged",
-        "key": "ctrl+alt+up",
-        "when": "resourceLangId =~ /^(intel-hex|srec)$/ && editorTextFocus && hexScope.hasStagedFirst"
-      }
-    ],
     "configurationDefaults": {
       "editor.tokenColorCustomizations": {
         "textMateRules": [

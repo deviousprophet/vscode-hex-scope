@@ -27,12 +27,16 @@ suite('package.json diff wiring', () => {
         assert.ok(submenu, 'hexScope.actions submenu must be declared in contributes.submenus');
     });
 
-    test('Compare Selected is reachable from the explorer context menu', () => {
-        const submenuItems = (contributes.menus?.['hexScope.actions'] ?? []);
-        const hasCompare = submenuItems.some(i => i.command === 'hexScope.compareSelected');
+    test('Compare Selected is a direct explorer/context item (reliable Uri[] on multi-select)', () => {
+        const explorerItems = (contributes.menus?.['explorer/context'] ?? []);
+        const compare = explorerItems.find(i => i.command === 'hexScope.compareSelected');
         assert.ok(
-            hasCompare,
-            'hexScope.compareSelected must be in the hexScope.actions submenu (shown via explorer/context)'
+            compare,
+            'hexScope.compareSelected must be a direct explorer/context command (submenus do not receive Uri[] on multi-select)'
+        );
+        assert.ok(
+            compare!.when?.includes('listDoubleSelection'),
+            'Compare Two Files must require exactly 2 selected (listDoubleSelection)'
         );
     });
 
@@ -41,8 +45,13 @@ suite('package.json diff wiring', () => {
             (contributes.menus?.['hexScope.actions'] ?? []).map(i => [i.command, i.when ?? ''])
         );
         assert.ok(
-            items.get('hexScope.compareSelected')?.includes('listDoubleSelection'),
-            'Compare Two Files must require exactly 2 selected (listDoubleSelection)'
+            !items.has('hexScope.compareSelected'),
+            'Compare Two Files lives as a direct explorer/context item, not in the submenu'
+        );
+        const submenuWhen = (contributes.menus?.['explorer/context'] ?? []).find(i => i.submenu === 'hexScope.actions')?.when ?? '';
+        assert.ok(
+            submenuWhen.includes('!listMultiSelection'),
+            'the single-file HexScope submenu must be hidden on multi-select'
         );
         assert.ok(
             items.get('hexScope.selectAsFirst')?.includes('!listMultiSelection'),
