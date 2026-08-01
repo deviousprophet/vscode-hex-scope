@@ -420,9 +420,11 @@ function wireComponents(): void {
         onLeave: () => to.setMirrorAddr(-1),
         onSelectionChange: (range: HexViewRange | null) => {
             selection = range ? { side: from === compA ? 'a' : 'b', start: range.start, end: range.end } : null;
-            // Single-active selection: the other component clears its own.
+            // Single-active selection: the other component clears its own,
+            // and this side drops its own mirror (it now holds the selection).
             to.setSelection(null);
             to.setMirrorRange(range);
+            from.setMirrorRange(null);
         },
         onColumnHover: col => to.setColumn(col),
         onColumnLeave: () => to.setColumn(-1),
