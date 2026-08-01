@@ -11,6 +11,7 @@ import { messageType } from '../webviewProtocol';
 import { vscode } from './vscodeApi';
 import { esc } from './utils';
 import {
+    formatAddress,
     diffRunFocus,
     searchMatchFocus,
     DIFF_ROW_BYTES,
@@ -41,6 +42,9 @@ let aLabels: SegmentLabel[] = [];
 let bLabels: SegmentLabel[] = [];
 let selection: DiffSelection | null = null;
 let dragging = false;
+let hoverAddr = -1;
+let hoverSide: 'a' | 'b' | null = null;
+let hoverCol = -1;
 
 let scrollTop = 0;
 let containerHeight = 0;
@@ -170,6 +174,7 @@ function renderScroll(): void {
         ${renderDiffComponentHtml(state, 'b', bLabel, range, totalHeight)}
     </div>`;
     scrollEl.scrollTop = scrollTop;
+    reapplyTransientHighlights();
     scrollEl.addEventListener('scroll', () => {
         scrollTop = scrollEl.scrollTop;
         rerender();
@@ -407,7 +412,7 @@ window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage
     if (handler) { handler(event.data as Extract<ProviderToWebviewMessage, { type: string }>); }
 });
 
-// ── Selection + copy (per-panel) ─────────────────────────────────
+// ── Selection + hover (per-panel, DOM-class updates, no re-render) ─
 function cellFromEvent(target: EventTarget | null): { side: 'a' | 'b'; addr: number } | null {
     const el = (target as HTMLElement).closest?.('[data-addr][data-side]') as HTMLElement | null;
     if (!el) { return null; }
@@ -417,33 +422,106 @@ function cellFromEvent(target: EventTarget | null): { side: 'a' | 'b'; addr: num
     return { side, addr };
 }
 
+const addrSel = (addr: number, side?: 'a' | 'b'): string =>
+    `.data-cell[data-addr="${esc(formatAddress(addr))}"]${side ? `[data-side="${side}"]` : ''}`;
+
+/** Apply `.sel` to the selected side's range and `.sel-mirror` to the other side. */
+function applySelectionDom(): void {
+    document.querySelectorAll('.data-cell.sel, .data-cell.sel-mirror').forEach(el => el.classList.remove('sel', 'sel-mirror'));
+    if (!selection) { return; }
+    const other = selection.side === 'a' ? 'b' : 'a';
+    for (const el of document.querySelectorAll<HTMLElement>(`.data-cell[data-side="${selection.side}"]`)) {
+        const a = parseInt(el.dataset.addr ?? '', 16);
+        if (a >= selection.start && a <= selection.end) { el.classList.add('sel'); }
+    }
+    for (const el of document.querySelectorAll<HTMLElement>(`.data-cell[data-side="${other}"]`)) {
+        const a = parseInt(el.dataset.addr ?? '', 16);
+        if (a >= selection.start && a <= selection.end) { el.classList.add('sel-mirror'); }
+    }
+}
+
+/** Highlight the same address in the opposite component (cross-panel hover). */
+function applyHoverMirror(): void {
+    document.querySelectorAll('.data-cell.cell-mirror').forEach(el => el.classList.remove('cell-mirror'));
+    if (hoverAddr < 0 || !hoverSide) { return; }
+    const mirror = document.querySelector(addrSel(hoverAddr, hoverSide === 'a' ? 'b' : 'a'));
+    mirror?.classList.add('cell-mirror');
+}
+
+/** Highlight the byte column across both components when hovering a header offset. */
+function applyColHover(): void {
+    document.querySelectorAll('.data-cell.col-hi').forEach(el => el.classList.remove('col-hi'));
+    if (hoverCol < 0) { return; }
+    for (const el of document.querySelectorAll<HTMLElement>('.data-cell[data-addr]')) {
+        const a = parseInt(el.dataset.addr ?? '', 16);
+        if (a >= 0 && (a & 0xF) === hoverCol) { el.classList.add('col-hi'); }
+    }
+}
+
 function wireSelection(): void {
     document.addEventListener('mousedown', e => {
         const cell = cellFromEvent(e.target);
         if (cell) {
             dragging = true;
             selection = { side: cell.side, start: cell.addr, end: cell.addr };
-            rerender();
+            applySelectionDom();
             return;
         }
         // Clicking empty scroll space clears the selection; toolbar/rail clicks leave it.
         if ((e.target as HTMLElement).closest?.('#diff-scroll')) {
             selection = null;
-            rerender();
+            applySelectionDom();
         }
     });
     document.addEventListener('mouseover', e => {
-        if (!dragging || !selection) { return; }
+        if (dragging && selection) {
+            const cell = cellFromEvent(e.target);
+            if (cell && cell.side === selection.side) {
+                selection = {
+                    side: cell.side,
+                    start: Math.min(selection.start, cell.addr),
+                    end: Math.max(selection.end, cell.addr),
+                };
+                applySelectionDom();
+            }
+            return;
+        }
         const cell = cellFromEvent(e.target);
-        if (!cell || cell.side !== selection.side) { return; }
-        selection = {
-            side: cell.side,
-            start: Math.min(selection.start, cell.addr),
-            end: Math.max(selection.end, cell.addr),
-        };
-        rerender();
+        if (cell) {
+            hoverAddr = cell.addr;
+            hoverSide = cell.side;
+            applyHoverMirror();
+        }
+    });
+    document.addEventListener('mouseout', e => {
+        if (cellFromEvent(e.target)) {
+            hoverAddr = -1;
+            hoverSide = null;
+            applyHoverMirror();
+        }
     });
     document.addEventListener('mouseup', () => { dragging = false; });
+
+    // Header column hover: highlight that offset column across both components.
+    document.addEventListener('mouseover', e => {
+        const hcell = (e.target as HTMLElement).closest?.('.diff-header .hcell') as HTMLElement | null;
+        if (!hcell) { return; }
+        const idx = Array.prototype.indexOf.call(hcell.parentElement?.children ?? [], hcell);
+        if (idx >= 0) { hoverCol = idx; applyColHover(); }
+    });
+    document.addEventListener('mouseout', e => {
+        if ((e.target as HTMLElement).closest?.('.diff-header .hcell')) {
+            hoverCol = -1;
+            applyColHover();
+        }
+    });
+}
+
+/** Re-apply transient hover/selection classes after the DOM is rebuilt. */
+function reapplyTransientHighlights(): void {
+    applySelectionDom();
+    applyHoverMirror();
+    applyColHover();
 }
 
 /** Bytes of the selected side over the selection range, in address order. */

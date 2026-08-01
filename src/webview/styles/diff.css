@@ -108,6 +108,18 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
 /* ── Search match highlight ───────────────────────────────────── */
 .data-cell.match { background: var(--match-bg) !important; }
 
+/* ── Hover / selection (layered: hover < selection) ───────────── */
+/* per-cell hover (primary); skip empty cells like the single view */
+.data-cell:not(.empty):hover { background: var(--hover-bg); }
+/* cross-panel mirror of the hovered byte (opposite component) */
+.data-cell.cell-mirror { box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+/* byte column highlight from the 00..0F header hover */
+.data-cell.col-hi { background: rgba(255,255,255,.07); }
+/* selected bytes (single-view style) */
+.data-cell.sel { background: var(--sel-bg) !important; color: var(--sel-fg, var(--fg)); }
+/* cross-panel outline of the selected range (opposite component) */
+.data-cell.sel-mirror { box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); }
+
 /* ── Per-panel parse-error state ──────────────────────────────── */
 .side.panel-error { opacity: .45; }
 .side.panel-error .data-cell { background: transparent; }

@@ -119,6 +119,13 @@ D30. **Explorer menu switch (single vs double select), kept in the HexScope subm
 D31. **Unsupported selection → explicit warning.** `compareSelected` validates every picked URI against the supported extensions (`.hex .ihx .ihex .srec .mot .s19 .s28 .s37`); if any is unsupported (e.g. mixed hex+txt selection), it warns "only HEX/SREC files can be compared (unsupported: …)" and does not open. Command-palette entries for the staging/compare commands are gated to `resourceLangId =~ /^(intel-hex|srec)$/` so they can't fire from a non-hex editor.
 D32. **Diff chrome (user-specified).** The toolbar sits **on top** (under the file-label rail): view tabs (All/Diff), diff-region navigation, the search box (D28), copy control, and Swap. The summary bar no longer shows changed/added/removed byte counts or region counts — it only signals "Files are identical". **View mode** toggle: **All** shows the full aligned grid; **Diff** shows only visual rows that contain a difference (changed/added/removed); an empty Diff result shows "No differences".
 D33. **Reusable hexview component (user-specified architecture).** The diff is built from a reusable **hexview component**: optional filename label + 00..0F header + (address gutter + hex cells). The diff view renders `[component A] ┃ [component B]` — two components in **one shared scroll container** (rows use the same absolute offsets, so they stay byte-aligned and scroll together), separated by a **single continuous sticky separator** spanning the full height. The label + header are sticky at the top. **Swap exchanges the whole components** (label + header + cells) around the fixed separator. The filename label is optional (empty = omitted) so the same component can later power the single hex view; the single view is **kept as-is for now** and adopting the shared component is a separate future task.
+D34. **Hover + selection (user-specified).** Layered highlights, hover always weaker than selection:
+    - **Row hover** — row background + address brighten (like the single view).
+    - **Per-cell hover** — the byte under the cursor highlights (single-view style, empty cells skipped).
+    - **Cross-panel mirror** — hovering a byte highlights the **same address** in the opposite component (subtle outline).
+    - **Column hover** — hovering a 00..0F header offset highlights that byte column across **both** components.
+    - **Selection** — click = 1 byte, click-drag = range, click empty space clears; selected cells use the single-view `sel` style; the same address range in the opposite component gets a **sel-mirror outline**.
+    Live hover/drag update classes via DOM (no full re-render per cell), so dense-hex interaction stays smooth.
 
 
 
