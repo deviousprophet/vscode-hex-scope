@@ -179,8 +179,12 @@ export class HexViewComponent {
     getSelection(): HexViewRange | null { return this._selection; }
     setSelection(range: HexViewRange | null): void { this._selection = range; this.applySel(); }
 
-    /** Paint the hovered-by-the-other-side address in this component. */
-    setMirrorAddr(addr: number): void { this._mirrorAddr = addr; this.applyMirror(); }
+    /** Paint the hovered-by-the-other-side byte in this component (cell + row + column). */
+    setMirrorAddr(addr: number): void {
+        this._mirrorAddr = addr;
+        this.applyMirror();
+        this.applyMirrorRow(addr);
+    }
     /** Paint the selected-by-the-other-side range in this component. */
     setMirrorRange(range: HexViewRange | null): void { this._mirrorRange = range; this.applyMirrorRange(); }
     /** Paint a byte column in this component (from either header's hover). */
@@ -191,8 +195,20 @@ export class HexViewComponent {
         this.applySel();
         this.applyHover();
         this.applyMirror();
+        this.applyMirrorRow(this._mirrorAddr);
         this.applyMirrorRange();
         this.applyColumn();
+    }
+
+    /** Highlight the row containing `addr` (mirrors the other side's row hover). */
+    private applyMirrorRow(addr: number): void {
+        const scope = this.rootSel;
+        document.querySelectorAll(`${scope} .diff-row.row-hi`).forEach(el => el.classList.remove('row-hi'));
+        if (addr < 0) { return; }
+        for (const el of document.querySelectorAll<HTMLElement>(`${scope} .diff-row[data-addr]`)) {
+            const base = parseInt(el.dataset.addr ?? '', 16);
+            if (Number.isFinite(base) && addr >= base && addr < base + DIFF_ROW_BYTES) { el.classList.add('row-hi'); }
+        }
     }
 
     /** Highlight the hovered byte on its own side too (matches the mirror). */

@@ -147,6 +147,18 @@ suite('hex view component interaction', () => {
         assert.ok(!(dom.window.document.querySelector<HTMLElement>('.diff-header .hcell[data-col="5"]'))!.classList.contains('sel-col'), 'unselected column not marked');
     });
 
+    test('setMirrorAddr mirrors the byte cell AND its row (cross-panel hover)', () => {
+        setupDom();
+        const comp = mountComponent();
+        comp.setMirrorAddr(0x1003);
+        assert.ok(cellAt(0x1003).classList.contains('cell-mirror'), 'mirrored cell carries cell-mirror');
+        const row = cellAt(0x1003).closest('.diff-row');
+        assert.ok(row?.classList.contains('row-hi'), 'mirrored row carries row-hi');
+        comp.setMirrorAddr(-1);
+        assert.ok(!cellAt(0x1003).classList.contains('cell-mirror'), 'mirror cell cleared');
+        assert.ok(!(cellAt(0x1003).closest('.diff-row'))!.classList.contains('row-hi'), 'mirror row cleared');
+    });
+
     test('match cells render with amatch on the focused match address', () => {
         setupDom();
         const a = parse([seg(0x1000, [1, 2, 3, 4])]);

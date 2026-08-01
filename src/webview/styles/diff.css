@@ -62,6 +62,8 @@
     width: fit-content;
 }
 .diff-row:hover { background: var(--hover-bg); }
+/* cross-panel mirror of the hovered row (opposite component) */
+.diff-row.row-hi { background: var(--hover-bg); }
 
 /* ── Address gutter (matches single-view .addr-cell) ───────────── */
 .diff-row .addr,
