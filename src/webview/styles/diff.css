@@ -1,31 +1,6 @@
 /* ── Diff view: visual parity with the single-file hex editor ── */
 /* Loaded after base.css; reuses its design tokens.               */
 
-/* ── Shared label rail ────────────────────────────────────────── */
-.diff-labels {
-    flex-shrink: 0;
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 10px;
-    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
-    font-family: var(--font-ui); font-size: 11px;
-    user-select: none; white-space: nowrap;
-}
-.diff-labels .label {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 1px 8px; border-radius: 3px;
-    font-weight: 600;
-}
-.diff-labels .label::before {
-    content: attr(data-side);
-    font-family: var(--font-editor); font-weight: 700; font-size: 10px;
-}
-.diff-labels .label.a { color: var(--high-color); background: rgba(156,220,254,.12); border: 1px solid rgba(156,220,254,.35); }
-.diff-labels .label.b { color: #e37933;            background: rgba(227,121,51,.12);  border: 1px solid rgba(227,121,51,.35); }
-
-/* Swap exchanges panel + label positions only (identity stays file-bound) */
-body.swapped .diff-labels .label.a { order: 2; }
-body.swapped .diff-labels .label.b { order: 1; }
-
 /* ── Summary bar (mirrors #stats-bar) ─────────────────────────── */
 .diff-summary {
     flex-shrink: 0;
@@ -41,13 +16,29 @@ body.swapped .diff-labels .label.b { order: 1; }
 
 /* ── Scroll viewport ──────────────────────────────────────────── */
 #diff-scroll { flex: 1; min-height: 0; overflow: auto; }
+.diff-panel-labels,
 .diff-header,
 .diff-body { width: fit-content; margin: 0 auto; }
 .diff-body { position: relative; }
 
-/* ── Fixed column header: 00..0F offsets, sticky at the top ───── */
+/* ── Per-panel file labels (VS Code tab style, sticky) ────────── */
+.diff-panel-labels {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; align-items: center;
+    height: 24px;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+    font-family: var(--font-ui); font-size: 11px;
+    user-select: none; white-space: nowrap;
+}
+.diff-panel-labels .side { justify-content: center; }
+.diff-panel-labels .panel-name {
+    overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    padding: 0 6px; color: var(--fg);
+}
+
+/* ── Fixed column header: 00..0F offsets, sticky under the labels ─ */
 .diff-header {
-    position: sticky; top: 0; z-index: 2;
+    position: sticky; top: 24px; z-index: 2;
     display: flex; align-items: center;
     height: 22px;
     background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
@@ -94,15 +85,15 @@ body.swapped .diff-labels .label.b { order: 1; }
 
 /* Swap exchanges panel positions only (identity stays file-bound).
    The separator keeps order 2 in both states, so it does not jump. */
-.diff-row .addr.a, .diff-header .addr.a { order: 0; }
-.diff-row .side.a,   .diff-header .side.a   { order: 1; }
-.diff-row .diff-sep, .diff-header .diff-sep { order: 2; }
-.diff-row .addr.b,   .diff-header .addr.b   { order: 3; }
-.diff-row .side.b,   .diff-header .side.b   { order: 4; }
-body.swapped .diff-row .addr.b, .diff-header .addr.b { order: 0; }
-body.swapped .diff-row .side.b,   .diff-header .side.b   { order: 1; }
-body.swapped .diff-row .addr.a,   .diff-header .addr.a   { order: 3; }
-body.swapped .diff-row .side.a,   .diff-header .side.a   { order: 4; }
+.diff-row .addr.a, .diff-header .addr.a, .diff-panel-labels .addr.a { order: 0; }
+.diff-row .side.a,   .diff-header .side.a,   .diff-panel-labels .side.a   { order: 1; }
+.diff-row .diff-sep, .diff-header .diff-sep, .diff-panel-labels .diff-sep { order: 2; }
+.diff-row .addr.b,   .diff-header .addr.b,   .diff-panel-labels .addr.b   { order: 3; }
+.diff-row .side.b,   .diff-header .side.b,   .diff-panel-labels .side.b   { order: 4; }
+body.swapped .diff-row .addr.b, .diff-header .addr.b, .diff-panel-labels .addr.b { order: 0; }
+body.swapped .diff-row .side.b,   .diff-header .side.b,   .diff-panel-labels .side.b   { order: 1; }
+body.swapped .diff-row .addr.a,   .diff-header .addr.a,   .diff-panel-labels .addr.a   { order: 3; }
+body.swapped .diff-row .side.a,   .diff-header .side.a,   .diff-panel-labels .side.a   { order: 4; }
 
 /* ── Hex byte cell (geometry shared via base.css) ──────────────── */
 .data-cell { cursor: default; }

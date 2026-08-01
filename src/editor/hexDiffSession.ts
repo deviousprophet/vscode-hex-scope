@@ -44,8 +44,13 @@ function fileName(path: string): string {
     return path.split(/[\/\\]/).pop() ?? path;
 }
 
-function labelFor(uri: vscode.Uri): string {
-    return fileName(uri.fsPath);
+/** Editor-tab-style label: the base filename, or `<dir>/<name>` when the two files share a name. */
+function labelFor(uri: vscode.Uri, otherName: string): string {
+    const name = fileName(uri.fsPath);
+    if (name !== otherName) { return name; }
+    const parts = uri.fsPath.split(/[\/\\]/).filter(Boolean);
+    const dir = parts[parts.length - 2];
+    return dir ? `${dir}/${name}` : name;
 }
 
 /** Extract the opaque pair key from a diff tab URI (key lives in the query). */
@@ -204,8 +209,8 @@ export class HexDiffSession {
             return;
         }
 
-        const aLabel = labelFor(aUri);
-        const bLabel = labelFor(bUri);
+        const aLabel = labelFor(aUri, fileName(bUri.fsPath));
+        const bLabel = labelFor(bUri, fileName(aUri.fsPath));
         const aLabels = readLabels(this._context, aUri);
         const bLabels = readLabels(this._context, bUri);
         const result: DiffResult = computeDiff(aState.result, bState.result);

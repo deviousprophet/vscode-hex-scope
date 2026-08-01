@@ -79,6 +79,17 @@ export function renderDiffHeaderHtml(state: DiffRenderState): string {
     </div>`;
 }
 
+/** Per-panel file-name labels, one above each panel (VS Code tab style). */
+export function renderDiffPanelLabelsHtml(aLabel: string, bLabel: string): string {
+    return `<div class="diff-panel-labels">
+        <span class="addr a"></span>
+        <div class="side a"><span class="panel-name">${esc(aLabel)}</span></div>
+        <span class="diff-sep"></span>
+        <span class="addr b"></span>
+        <div class="side b"><span class="panel-name">${esc(bLabel)}</span></div>
+    </div>`;
+}
+
 /** Build the visible window of visual rows using fixed-height windowing. */
 export function renderDiffRowsHtml(
     state: DiffRenderState,

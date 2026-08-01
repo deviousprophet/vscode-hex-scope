@@ -4,7 +4,7 @@ import * as assert from 'assert';
 import { computeDiff } from '../../core/diff';
 import type { CompactParseResult } from '../../core/parser/compact';
 import type { DiffRow } from '../../core/diff';
-import { renderDiffRowsHtml, renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
+import { renderDiffRowsHtml, renderDiffSummaryHtml, renderDiffPanelLabelsHtml } from '../../webview/diff/diffRenderer';
 import { groupVisualRows } from '../../webview/diff/diffViewModel';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
@@ -128,6 +128,16 @@ suite('diff renderer', () => {
         const sb = html.indexOf('class="side b"');
         assert.ok(a >= 0 && sa > a && sep > sa && ab > sep && sb > ab,
             'separator must sit between the two panels (addr/side a | sep | addr/side b)');
+    });
+
+    test('panel labels render per side as plain filenames, no A/B tags', () => {
+        const html = renderDiffPanelLabelsHtml('a.hex', 'b.hex');
+        assert.ok(html.includes('>a.hex<') && html.includes('>b.hex<'), 'both filenames shown');
+        assert.ok(!/>[AB]<\/span>/.test(html), 'no A/B side tags');
+        const sa = html.indexOf('class="side a"');
+        const sep = html.indexOf('class="diff-sep"');
+        const sb = html.indexOf('class="side b"');
+        assert.ok(sa >= 0 && sep > sa && sb > sep, 'labels separated by the fixed divider');
     });
 
     test('identical files render an identical summary', () => {

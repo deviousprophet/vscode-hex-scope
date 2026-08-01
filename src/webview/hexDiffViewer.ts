@@ -19,7 +19,7 @@ import {
     visualRowIndexForAddress,
     type DiffVisualRow,
 } from './diff/diffViewModel';
-import { renderDiffSummaryHtml, renderDiffRowsHtml, renderDiffHeaderHtml, type DiffRenderState, type DiffSelection } from './diff/diffRenderer';
+import { renderDiffSummaryHtml, renderDiffRowsHtml, renderDiffHeaderHtml, renderDiffPanelLabelsHtml, type DiffRenderState, type DiffSelection } from './diff/diffRenderer';
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
@@ -168,7 +168,8 @@ function renderScroll(): void {
         return;
     }
     scrollEl.innerHTML =
-        renderDiffHeaderHtml(renderState())
+        renderDiffPanelLabelsHtml(aLabel, bLabel)
+        + renderDiffHeaderHtml(renderState())
         + renderDiffRowsHtml(renderState(), visibleWindow(rows.length), rows.length * ROW_HEIGHT);
     // Absolute-positioned rows don't size the body; give the body the header's
     // real width so it and the rows center as one block.
@@ -188,10 +189,6 @@ function rerender(): void {
     visualRows = groupVisualRows(result?.rows ?? []);
 
     app.innerHTML = `
-        <div class="diff-labels">
-            <span class="label a" data-side="A">${esc(aLabel)}</span>
-            <span class="label b" data-side="B">${esc(bLabel)}</span>
-        </div>
         <div class="diff-toolbar">
             <div class="view-tabs">
                 <button id="view-all" class="${viewMode === 'all' ? 'active' : ''}">All</button>
