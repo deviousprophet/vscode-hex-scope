@@ -31,8 +31,6 @@ function parseResultIsValid(parseResult: ParseResult): boolean {
 // ── Diff staging (D7: ephemeral, session only) ─────────────────────
 let stagedFirstPath: string | null = null;
 
-const STAGED_DECORATION = 'hexScope.stagedFirst';
-
 function openDiff(aPath: string, bPath: string): void {
     void vscode.commands.executeCommand('vscode.openWith', diffViewUri(aPath, bPath), HexDiffProvider.viewType);
 }
