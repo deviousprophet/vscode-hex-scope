@@ -128,9 +128,10 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
 .data-cell.bd.col-hi { background: rgba(255,90,90,.14); }
 .diff-header .hcell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
 
-/* Selection: bn-style fill; diff keeps red text */
-.data-cell.sel { background: var(--sel-bg); color: var(--sel-fg, var(--fg)); outline: none; }
-.data-cell.bd.sel { background: var(--sel-bg); color: #ff6b6b; }
+/* Selection: bn-style fill; diff keeps red text. `!important` so hover
+   never overwrites the selection during drag (single-view parity). */
+.data-cell.sel { background: var(--sel-bg) !important; color: var(--sel-fg, var(--fg)); outline: none; }
+.data-cell.bd.sel { background: var(--sel-bg) !important; color: #ff6b6b; }
 /* cross-panel selection → dashed outline (opposite component) */
 .data-cell.sel-mirror { outline: 1px dashed rgba(95,207,255,.5); outline-offset: -1px; }
 
@@ -138,7 +139,7 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
 .data-cell.match { background: rgba(234,179,8,.22); }
 .data-cell.bd.match { color: #ff6b6b; }
 /* sel+match: yellow bg + blue border; diff keeps red text */
-.data-cell.sel.match { background: rgba(234,179,8,.22); color: var(--fg); outline: 1px solid rgba(95,207,255,.9); outline-offset: -1px; }
+.data-cell.sel.match { background: rgba(234,179,8,.22) !important; color: var(--fg); outline: 1px solid rgba(95,207,255,.9); outline-offset: -1px; }
 .data-cell.bd.sel.match { color: #ff6b6b; }
 
 /* Selected columns highlight in the header (single-view .sel-col) */
