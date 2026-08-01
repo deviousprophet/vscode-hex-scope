@@ -28,6 +28,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Scripting Support](./scripting.md) | Script runner, vm sandbox, ScriptHost adapter, API surface, sidebar UI |
 | [Diff View](./diff-view.md) | hexScope.hexDiff editor: data model (visual rows), protocol, session, layout, selection/copy |
 | [Hex View Component](./hex-view-component.md) | reusable single-panel hex grid: byte-cell design (bn/bd/be + combos), component API, interaction |
+| [Search Bar Component](./search-bar-component.md) | reusable search box: mode/endian/input/nav/count API, Enter-nav parity, busy spinner |
 
 ## Pre-Development Checklist
 

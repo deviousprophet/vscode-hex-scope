@@ -50,7 +50,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 ## 5. Webview layout (hexDiffViewer.ts + diff.css)
 
 - Chrome: toolbar (top), summary bar, label rail, error banners, `#diff-scroll` (the grid), `#status`.
-- **Reusable hexview component** (`renderDiffComponentHtml`): optional filename label (`panel-label`, empty = omitted) + 00..0F header + (address gutter + hex cells). The diff renders `[component A] ┃ [component B]` in one `.diff-grid` flex row, **centered** (`width: fit-content; margin: 0 auto`).
+- **Reusable hexview component** (`renderHexViewComponentHtml`): optional filename label (`panel-label`, empty = omitted) + 00..0F header + (address gutter + hex cells). The diff renders `[component A] ┃ [component B]` in one `.diff-grid` flex row, **centered** (`width: fit-content; margin: 0 auto`).
 - Both components share **one `#diff-scroll`**; rows are absolute at the same `top: index × DIFF_ROW_HEIGHT`, so sides stay byte-aligned and scroll together (single scrollbar).
 - **Single continuous separator**: `.diff-sep` (2px, `align-self: stretch`, `position: sticky`) spans the full grid height; label + header are sticky (`top: 0` / `top: 24px`).
 - **Swap** reorders the two whole components around the fixed separator via `.diff-grid` `order` rules (`body.swapped`).
