@@ -19,14 +19,14 @@
 .diff-component .diff-header {
     position: sticky; top: 24px; z-index: 2;
     display: flex; align-items: center;
-    height: 22px;
     background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
     font-family: var(--font-editor); font-size: var(--font-size);
     font-weight: 700; color: var(--addr-active-fg);
     user-select: none; white-space: nowrap;
 }
 .diff-header .hcell {
-    width: var(--cell-size); text-align: center; line-height: 22px;
+    width: var(--cell-size); height: var(--cell-size); line-height: var(--cell-size);
+    text-align: center;
 }
 .diff-header .side .hcell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 
@@ -103,13 +103,11 @@
 .data-cell.sel.match { background: rgba(234,179,8,.22) !important; color: var(--fg); outline: 1px solid rgba(95,207,255,.9); outline-offset: -1px; }
 .data-cell.bd.sel.match { color: #ff6b6b; }
 
-/* Selected columns highlight in the header (single-view .sel-col).
-   outline (not inset box-shadow) so all four sides stay visible. */
+/* Selected columns highlight in the header (single-view .sel-col) */
 .diff-header .hcell.sel-col {
     background: rgba(255,255,255,.07);
     color: var(--fg) !important;
-    outline: 1px solid rgba(255,255,255,.9);
-    outline-offset: -1px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
 }
 
 /* ── Per-panel states ─────────────────────────────────────────── */
