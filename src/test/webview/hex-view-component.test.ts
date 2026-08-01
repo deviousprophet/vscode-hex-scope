@@ -91,18 +91,34 @@ suite('hex view component interaction', () => {
         });
     });
 
-    test('cell hover fires onHover and clears on mouseout', () => {
+    test('cell hover fires onHover, highlights its column, clears on leave', () => {
         setupDom();
         const comp = mountComponent();
         let hovered = -1;
-        comp.setCallbacks({ onHover: a => { hovered = a; }, onLeave: () => { hovered = -1; } });
+        let column = -1;
+        comp.setCallbacks({
+            onHover: a => { hovered = a; },
+            onLeave: () => { hovered = -1; },
+            onColumnHover: c => { column = c; },
+            onColumnLeave: () => { column = -1; },
+        });
 
-        cellAt(0x1002).dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
-        assert.strictEqual(hovered, 0x1002, 'onHover reports the hovered byte address');
-        cellAt(0x1002).classList.contains('cell-hover');
+        cellAt(0x1003).dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+        assert.strictEqual(hovered, 0x1003, 'onHover reports the hovered byte address');
+        assert.ok(cellAt(0x1003).classList.contains('cell-hover'), 'hovered cell carries cell-hover');
+        assert.strictEqual(column, 3, 'byte hover highlights its column (single-view parity)');
+        cellsInColumn(3).forEach(el => {
+            assert.ok(el.classList.contains('col-hi'), 'column cells carry col-hi');
+        });
 
-        cellAt(0x1002).dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true }));
-        assert.strictEqual(hovered, -1, 'onLeave after mouseout');
+        // Leaving the whole component clears hover + column.
+        const body = dom.window.document.body;
+        cellAt(0x1003).dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: body }));
+        assert.strictEqual(hovered, -1, 'onLeave after leaving the component');
+        assert.strictEqual(column, -1, 'onColumnLeave after leaving the component');
+        cellsInColumn(3).forEach(el => {
+            assert.ok(!el.classList.contains('col-hi'), 'col-hi removed on leave');
+        });
     });
 
     test('mousedown selects a byte and fires onSelectionChange; drag extends', () => {

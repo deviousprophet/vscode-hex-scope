@@ -140,33 +140,34 @@ export class HexViewComponent {
             }
             const c = cell(e.target);
             if (c) {
+                // byte hover + its column (single-view parity: byte hover highlights the column)
                 this._hoverAddr = c.addr;
                 this.applyHover();
                 this.cb.onHover?.(c.addr);
+                this.applyColumn(c.addr & 0xF);
+                this.cb.onColumnHover?.(c.addr & 0xF);
+                return;
+            }
+            const h = (e.target as HTMLElement).closest?.(`${this.rootSel} .diff-header .hcell`) as HTMLElement | null;
+            if (h) {
+                const col = Array.prototype.indexOf.call(h.parentElement?.children ?? [], h);
+                this.applyColumn(col);
+                this.cb.onColumnHover?.(col);
             }
         });
         on('mouseout', e => {
-            if (cell(e.target)) {
+            // Leaving the whole component clears hover + column (mouseleave emulation).
+            const t = e.target as HTMLElement;
+            const related = (e as MouseEvent).relatedTarget as HTMLElement | null;
+            if (t.closest?.(this.rootSel) && !related?.closest?.(this.rootSel)) {
                 this._hoverAddr = -1;
                 this.applyHover();
                 this.cb.onLeave?.();
-            }
-        });
-        on('mouseup', () => { this._dragging = false; });
-
-        on('mouseover', e => {
-            const h = (e.target as HTMLElement).closest?.(`${this.rootSel} .diff-header .hcell`) as HTMLElement | null;
-            if (!h) { return; }
-            const col = Array.prototype.indexOf.call(h.parentElement?.children ?? [], h);
-            this.applyColumn(col);
-            this.cb.onColumnHover?.(col);
-        });
-        on('mouseout', e => {
-            if ((e.target as HTMLElement).closest?.(`${this.rootSel} .diff-header .hcell`)) {
                 this.applyColumn(-1);
                 this.cb.onColumnLeave?.();
             }
         });
+        on('mouseup', () => { this._dragging = false; });
     }
 
     destroy(): void {
