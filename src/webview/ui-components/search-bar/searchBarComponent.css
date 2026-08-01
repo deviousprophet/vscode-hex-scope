@@ -3,10 +3,16 @@
 
 #search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; }
 
-/* Endian toggle (Auto / LE / BE) */
-.search-endian-toggle { flex-shrink: 0; }
-.search-endian-toggle button { min-width: 42px; height: 22px; font-size: 10px; }
-.search-endian-toggle button.active { background: var(--btn-bg); color: var(--btn-fg); }
+/* Endian toggle: a single fixed-size button that cycles LE → BE → Auto */
+.search-endian-toggle {
+    flex-shrink: 0;
+    min-width: 42px; height: 22px;
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    font-size: 10px; font-family: var(--font-ui);
+    cursor: pointer;
+}
+.search-endian-toggle:hover { border-color: var(--focus-bdr); }
 
 #search-mode {
     background: var(--input-bg); color: var(--fg);
@@ -38,6 +44,30 @@
     cursor: pointer; font-size: 13px; transition: background .12s, color .12s;
 }
 .nav-btn:hover { background: var(--hover-bg); color: var(--fg); border-color: var(--border); }
+/* button sizes mirror the single view exactly */
+.search-btn        { width: 24px; height: 24px; padding: 0; font-size: 12px; line-height: 1; }
+#btn-prev, #btn-next { width: 30px; height: 26px; font-size: 13px; border-radius: 4px; }
+#btn-clear-search { width: 24px; height: 24px; font-size: 12px; }
+
+.search-progress {
+    width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    visibility: hidden; opacity: 0;
+    transition: opacity .12s ease;
+}
+.search-progress::before {
+    content: '';
+    width: 11px; height: 11px;
+    border: 2px solid var(--input-bdr);
+    border-top-color: var(--high-color);
+    border-radius: 50%;
+    animation: hs-search-spin .8s linear infinite;
+}
+.search-progress.active { visibility: visible; opacity: 1; }
+@keyframes hs-search-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
 
 #match-count {
     color: var(--fg); font-size: 11px;

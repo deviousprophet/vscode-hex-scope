@@ -46,6 +46,7 @@ const compB = new HexViewComponent('b');
 
 const searchBar = new SearchBarComponent({
     onSearch: (query, mode, endianness) => {
+        searchBar.setBusy(true);
         post({ type: 'diffSearchRequest', generation, query, mode, endianness });
     },
     onPrev: () => gotoMatch(-1),
@@ -291,6 +292,7 @@ const diffHandlers: Record<string, DiffHandler> = {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffSearch' }>;
         searchMatches = msg.matches;
         searchFocusAddr = searchMatches[0] ?? -1;
+        searchBar.setBusy(false);
         rerender();
     },
     loadError: m => {
