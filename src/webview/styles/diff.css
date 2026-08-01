@@ -83,27 +83,26 @@ body.swapped .diff-labels .label.b { order: 1; }
 
 /* ── Side panels ──────────────────────────────────────────────── */
 .side { display: inline-flex; align-items: center; }
-/* Visible gutter between the two panels so diff regions stand out. */
-.side.a {
-    border-right: 2px solid var(--border);
-    padding-right: calc(var(--cell-size) * 0.5); margin-right: calc(var(--cell-size) * 0.5);
-}
-.side.a:hover { border-right-color: rgba(255,255,255,.28); }
 
-/* Swap exchanges panel positions only (identity stays file-bound) */
+/* Fixed divider between the two panels; a flex item with a constant
+   order so it stays centered when A/B panels swap around it. */
+.diff-sep {
+    flex-shrink: 0; align-self: stretch;
+    width: 0; border-left: 2px solid var(--border);
+    margin: 0 calc(var(--cell-size) * 0.45);
+}
+
+/* Swap exchanges panel positions only (identity stays file-bound).
+   The separator keeps order 2 in both states, so it does not jump. */
 .diff-row .addr.a, .diff-header .addr.a { order: 0; }
 .diff-row .side.a,   .diff-header .side.a   { order: 1; }
-.diff-row .addr.b,   .diff-header .addr.b   { order: 2; }
-.diff-row .side.b,   .diff-header .side.b   { order: 3; }
+.diff-row .diff-sep, .diff-header .diff-sep { order: 2; }
+.diff-row .addr.b,   .diff-header .addr.b   { order: 3; }
+.diff-row .side.b,   .diff-header .side.b   { order: 4; }
 body.swapped .diff-row .addr.b, .diff-header .addr.b { order: 0; }
 body.swapped .diff-row .side.b,   .diff-header .side.b   { order: 1; }
-body.swapped .diff-row .addr.a,   .diff-header .addr.a   { order: 2; }
-body.swapped .diff-row .side.a,   .diff-header .side.a   {
-    order: 3;
-    margin-right: 0; padding-right: 0; border-right: none;
-    border-left: 2px solid var(--border);
-    padding-left: calc(var(--cell-size) * 0.5); margin-left: calc(var(--cell-size) * 0.5);
-}
+body.swapped .diff-row .addr.a,   .diff-header .addr.a   { order: 3; }
+body.swapped .diff-row .side.a,   .diff-header .side.a   { order: 4; }
 
 /* ── Hex byte cell (geometry shared via base.css) ──────────────── */
 .data-cell { cursor: default; }

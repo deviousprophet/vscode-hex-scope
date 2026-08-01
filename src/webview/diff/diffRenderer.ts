@@ -58,6 +58,7 @@ function rowHtml(vr: DiffVisualRow, isSearchRow: boolean, topPx: number, state: 
     return `<div class="diff-row" data-addr="${addr}" style="top:${topPx}px">
         <span class="addr a">${addr}</span>
         <div class="side a${isSearchRow ? ' search-row' : ''}${sideError(state.aError)}">${aCols.join('')}</div>
+        <span class="diff-sep"></span>
         <span class="addr b">${addr}</span>
         <div class="side b${isSearchRow ? ' search-row' : ''}${sideError(state.bError)}">${bCols.join('')}</div>
     </div>`;
@@ -72,6 +73,7 @@ export function renderDiffHeaderHtml(state: DiffRenderState): string {
     return `<div class="diff-header">
         <span class="addr a"></span>
         <div class="side a">${cells.join('')}</div>
+        <span class="diff-sep"></span>
         <span class="addr b"></span>
         <div class="side b">${cells.join('')}</div>
     </div>`;

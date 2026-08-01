@@ -119,6 +119,17 @@ suite('diff renderer', () => {
         assert.ok(!/data-side="b" class="data-cell unchanged sel"/.test(html), 'B side must not be selected');
     });
 
+    test('row structure is addr.a, side.a, fixed separator, addr.b, side.b', () => {
+        const html = render();
+        const a = html.indexOf('class="addr a"');
+        const sa = html.indexOf('class="side a"');
+        const sep = html.indexOf('class="diff-sep"');
+        const ab = html.indexOf('class="addr b"');
+        const sb = html.indexOf('class="side b"');
+        assert.ok(a >= 0 && sa > a && sep > sa && ab > sep && sb > ab,
+            'separator must sit between the two panels (addr/side a | sep | addr/side b)');
+    });
+
     test('identical files render an identical summary', () => {
         const a = parse([seg(0x1000, [1])]);
         const d = computeDiff(a, a);
