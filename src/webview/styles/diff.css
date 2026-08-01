@@ -1,0 +1,199 @@
+/* ── Diff view: visual parity with the single-file hex editor ── */
+/* Loaded after base.css; reuses its design tokens.               */
+
+/* ── Shared label rail ────────────────────────────────────────── */
+.diff-labels {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
+    font-family: var(--font-ui); font-size: 11px;
+    user-select: none; white-space: nowrap;
+}
+.diff-labels .label {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 1px 8px; border-radius: 3px;
+    font-weight: 600;
+}
+.diff-labels .label::before {
+    content: attr(data-side);
+    font-family: var(--font-editor); font-weight: 700; font-size: 10px;
+}
+.diff-labels .label.a { color: var(--high-color); background: rgba(156,220,254,.12); border: 1px solid rgba(156,220,254,.35); }
+.diff-labels .label.b { color: #e37933;            background: rgba(227,121,51,.12);  border: 1px solid rgba(227,121,51,.35); }
+
+/* Swap exchanges panel + label positions only (identity stays file-bound) */
+body.swapped .diff-labels .label.a { order: 2; }
+body.swapped .diff-labels .label.b { order: 1; }
+
+/* ── Summary bar (mirrors #stats-bar) ─────────────────────────── */
+.diff-summary {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 14px;
+    padding: 2px 10px;
+    background: var(--panel-bg); border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--fg);
+}
+.diff-summary.identical { color: var(--ok); font-weight: 600; }
+.diff-summary b.d-changed { color: #ff6b6b; }
+.diff-summary b.d-added   { color: var(--ok); }
+.diff-summary b.d-removed { color: #c586c0; }
+
+/* ── Scroll viewport ──────────────────────────────────────────── */
+#diff-scroll { flex: 1; min-height: 0; overflow: auto; }
+.diff-header,
+.diff-body { width: fit-content; margin: 0 auto; }
+.diff-body { position: relative; }
+
+/* ── Fixed column header: 00..0F offsets, sticky at the top ───── */
+.diff-header {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center;
+    height: 22px;
+    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
+    font-family: var(--font-editor); font-size: var(--font-size);
+    font-weight: 700; color: var(--addr-active-fg);
+    user-select: none; white-space: nowrap;
+}
+.diff-header .hcell {
+    width: var(--cell-size); text-align: center; line-height: 22px;
+}
+.diff-header .side .hcell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
+
+/* ── Data row (fixed row height = ROW_HEIGHT in hexDiffViewer) ── */
+.diff-row {
+    position: absolute; left: 0; right: auto; top: 0;
+    display: flex; align-items: center;
+    height: 22px; white-space: nowrap;
+    width: fit-content;
+}
+.diff-row:hover { background: var(--hover-bg); }
+
+/* ── Address gutters (one per panel; mirrors .addr-cell) ──────── */
+.diff-row .addr,
+.diff-header .addr {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    line-height: 22px; text-transform: uppercase;
+    color: var(--addr-fg); white-space: nowrap;
+    padding: 0 8px 0 6px; user-select: none;
+    width: calc(8ch + 14px); flex-shrink: 0;
+}
+.diff-header .addr { visibility: hidden; }
+.diff-row:hover .addr { color: var(--addr-active-fg); }
+
+/* ── Side panels ──────────────────────────────────────────────── */
+.side { display: inline-flex; align-items: center; }
+/* Visible gutter between the two panels so diff regions stand out. */
+.side.a {
+    border-right: 2px solid var(--border);
+    padding-right: calc(var(--cell-size) * 0.5); margin-right: calc(var(--cell-size) * 0.5);
+}
+.side.a:hover { border-right-color: rgba(255,255,255,.28); }
+
+/* Swap exchanges panel positions only (identity stays file-bound) */
+.diff-row .addr.a, .diff-header .addr.a { order: 0; }
+.diff-row .side.a,   .diff-header .side.a   { order: 1; }
+.diff-row .addr.b,   .diff-header .addr.b   { order: 2; }
+.diff-row .side.b,   .diff-header .side.b   { order: 3; }
+body.swapped .diff-row .addr.b, .diff-header .addr.b { order: 0; }
+body.swapped .diff-row .side.b,   .diff-header .side.b   { order: 1; }
+body.swapped .diff-row .addr.a,   .diff-header .addr.a   { order: 2; }
+body.swapped .diff-row .side.a,   .diff-header .side.a   {
+    order: 3;
+    margin-right: 0; padding-right: 0; border-right: none;
+    border-left: 2px solid var(--border);
+    padding-left: calc(var(--cell-size) * 0.5); margin-left: calc(var(--cell-size) * 0.5);
+}
+
+/* ── Hex byte cell (geometry shared via base.css) ──────────────── */
+.data-cell { cursor: default; }
+/* 4-byte group gap, same as the memory view */
+.side .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
+
+/* ── Status colors: changed red, added green, removed magenta ─── */
+.data-cell.unchanged { color: var(--fg); }
+.data-cell.empty     { color: var(--non-graphic); opacity: .55; }
+.data-cell.changed   { color: #ff6b6b;   background: rgba(255,90,90,.16); }
+.data-cell.added     { color: var(--ok); background: rgba(78,201,160,.14); }
+.data-cell.removed   { color: #c586c0;   background: rgba(197,134,192,.14); }
+
+/* ── Search match highlight ───────────────────────────────────── */
+.data-cell.match { background: var(--match-bg) !important; }
+
+/* ── Per-panel parse-error state ──────────────────────────────── */
+.side.panel-error { opacity: .45; }
+.side.panel-error .data-cell { background: transparent; }
+.diff-errors { flex-shrink: 0; display: flex; gap: 8px; padding: 3px 10px; }
+.diff-errors .side-error {
+    flex: 1; font-size: 11px; padding: 2px 8px; border-radius: 3px;
+    background: rgba(244,135,113,.12); border: 1px solid rgba(244,135,113,.4); color: var(--err);
+}
+
+/* ── Label rail (read-only display of both files' address labels) ─ */
+.diff-rail {
+    flex-shrink: 0; max-height: 84px; overflow-y: auto;
+    padding: 2px 10px; border-bottom: 1px solid var(--border);
+    background: var(--panel-bg);
+}
+.rail-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 1px 4px; border-left: 3px solid; margin: 1px 0;
+    font-size: 10px; white-space: nowrap;
+}
+.rail-tag {
+    font-family: var(--font-editor); font-weight: 700; font-size: 9px;
+    border-radius: 3px; padding: 0 4px; flex-shrink: 0;
+}
+.rail-tag.a { color: var(--high-color); background: rgba(156,220,254,.12); }
+.rail-tag.b { color: #e37933; background: rgba(227,121,51,.12); }
+.rail-name { font-weight: 600; color: var(--fg); }
+.rail-range { font-family: var(--font-editor); color: var(--addr-fg); margin-left: auto; }
+
+/* ── Search focus row highlight ───────────────────────────────── */
+.side.search-row { box-shadow: inset 0 0 0 1px rgba(95,207,255,.9); border-radius: 2px; }
+
+/* ── Toolbar (mirrors #toolbar) ───────────────────────────────── */
+.diff-toolbar {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 6px;
+    height: 35px; min-height: 35px;
+    padding: 0 10px;
+    background: var(--toolbar-bg); border-top: 1px solid var(--border);
+}
+.diff-toolbar button {
+    height: 24px; padding: 0 8px;
+    background: transparent; color: var(--fg);
+    border: 1px solid transparent; border-radius: 4px;
+    font-size: 11px; font-family: var(--font-ui);
+    cursor: pointer; white-space: nowrap;
+    transition: background .12s, color .12s, border-color .12s;
+}
+.diff-toolbar button:hover { background: var(--hover-bg); border-color: var(--border); }
+#diff-search-mode,
+#diff-copy-format {
+    height: 24px;
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    font-size: 11px; font-family: var(--font-ui);
+    cursor: pointer;
+}
+#diff-endian { min-width: 42px; font-family: var(--font-editor); }
+.diff-toolbar input[type="text"] {
+    margin-left: auto;
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 0 7px; height: 24px; width: 200px; outline: none;
+    font-size: 12px; font-family: var(--font-editor);
+    transition: border-color .12s;
+}
+.diff-toolbar input[type="text"]::placeholder { color: var(--non-graphic); }
+.diff-toolbar input[type="text"]:focus { border-color: var(--focus-bdr); }
+
+/* ── Status bar (mirrors #stats-bar) ──────────────────────────── */
+#status {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 14px;
+    padding: 2px 10px;
+    background: var(--panel-bg); border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--fg);
+}

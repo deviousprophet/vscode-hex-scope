@@ -53,12 +53,8 @@
 .data-row:hover .addr-cell { color: var(--addr-active-fg); }
 
 /* ── Hex byte cell (mirrors DataCell — square, font-size driven) ─ */
-.data-cell {
-    font-family: var(--font-editor); font-size: var(--font-size);
-    width: var(--cell-size); height: var(--cell-size); line-height: var(--cell-size);
-    text-align: center; display: inline-block; border-radius: 2px;
-    user-select: none; cursor: pointer;
-}
+/* Base geometry lives in base.css; this view only sets the cursor. */
+.data-cell { cursor: pointer; }
 /* 4-byte group gap: add left margin to the 5th, 9th, 13th cell (1-indexed) */
 .cell-group .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 .cell-group .char-cell:nth-child(4n+1):not(:first-child)  { margin-left: calc(var(--text-cell-width) * 0.3); }

@@ -229,14 +229,19 @@
           "group": "navigation"
         },
         {
-          "command": "hexScope.selectAsFirst",
+          "command": "hexScope.compareSelected",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation@1"
         },
         {
+          "command": "hexScope.selectAsFirst",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "group": "navigation@2"
+        },
+        {
           "command": "hexScope.compareToStaged",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst",
-          "group": "navigation@2"
+          "group": "navigation@3"
         }
       ],
       "commandPalette": [
@@ -255,12 +260,12 @@
     "keybindings": [
       {
         "command": "hexScope.selectAsFirst",
-        "key": "alt+down",
+        "key": "ctrl+alt+down",
         "when": "resourceLangId =~ /^(intel-hex|srec)$/ && editorTextFocus"
       },
       {
         "command": "hexScope.compareToStaged",
-        "key": "alt+up",
+        "key": "ctrl+alt+up",
         "when": "resourceLangId =~ /^(intel-hex|srec)$/ && editorTextFocus && hexScope.hasStagedFirst"
       }
     ],
@@ -402,6 +407,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
+    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
@@ -409,7 +415,7 @@
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "npm run clean && npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "node eslint-rules/require-escaped-html.test.mjs && eslint src",
     "test": "vscode-test",

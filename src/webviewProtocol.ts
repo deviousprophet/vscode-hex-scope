@@ -2,6 +2,7 @@ import type { CopyCommand } from './core/byte-tools/copyCommand';
 import type { DiffResult } from './core/diff';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
+import type { SearchEndianness, SearchMode } from './core/types';
 import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 
 export const RECORD_PAGE_SIZE = 512;
@@ -43,8 +44,8 @@ export type ProviderToWebviewMessage =
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
     | { type: 'activateScriptsTab' }
-    | { type: 'diffInit'; generation: number; result: DiffResult; aLabel: string; bLabel: string; aFormat: HexScopeFormat; bFormat: HexScopeFormat }
-    | { type: 'diffUpdate'; generation: number; result: DiffResult }
+    | { type: 'diffInit'; generation: number; result: DiffResult; aLabel: string; bLabel: string; aFormat: HexScopeFormat; bFormat: HexScopeFormat; aError: string | null; bError: string | null; aLabels: SegmentLabel[]; bLabels: SegmentLabel[] }
+    | { type: 'diffUpdate'; generation: number; result: DiffResult; aError: string | null; bError: string | null }
     | { type: 'diffSwap'; generation: number; swapped: boolean }
     | { type: 'diffSearch'; generation: number; query: string; matches: number[] };
 
@@ -73,7 +74,7 @@ export type WebviewToProviderMessage =
     | { type: 'cancelScript'; scriptPath: string }
     | { type: 'diffReady' }
     | { type: 'diffSwapRequest' }
-    | { type: 'diffSearchRequest'; generation: number; query: string };
+    | { type: 'diffSearchRequest'; generation: number; query: string; mode: SearchMode; endianness: SearchEndianness };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

@@ -28,7 +28,7 @@ function parseResultIsValid(parseResult: ParseResult): boolean {
     return parseResult.checksumErrors === 0 && parseResult.malformedLines === 0;
 }
 
-// ── Diff staging (D7: ephemeral, session only) ─────────────────────
+// ── Diff staging (ephemeral, session only) ─────────────────────────
 let stagedFirstPath: string | null = null;
 
 function openDiff(aPath: string, bPath: string): void {
@@ -46,7 +46,7 @@ function firstInvalid(pa: ParseResult, pb: ParseResult, a: vscode.Uri, b: vscode
     return undefined;
 }
 
-/** Validate pair (D8/D9): distinct URIs, both parse valid; then open. */
+/** Validate pair: distinct URIs, both parse valid; then open. */
 async function validateAndOpenPair(a: vscode.Uri, b: vscode.Uri): Promise<void> {
     if (a.fsPath === b.fsPath) {
         vscode.window.showWarningMessage('HexScope: cannot diff a file with itself.');
@@ -90,30 +90,23 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerFileDecorationProvider(diffDecorationProvider())
     );
 
-function pairFromPicked(picked: readonly vscode.Uri[]): [vscode.Uri, vscode.Uri] | undefined {
-    return picked.length >= 2 ? [picked[0], picked[1]] : undefined;
+/** Diff pair resolution: explicit 2-URI args or a multi-select Uri[] (first = A). No file picker. */
+function resolvePair(first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri): [vscode.Uri, vscode.Uri] | undefined {
+    const picked = Array.isArray(first) ? first : first && second ? [first, second] : undefined;
+    if (!picked || picked.length < 2) { return undefined; }
+    return [picked[0], picked[1]];
 }
 
-/** Diff pair resolution: explicit args win, else pick two via dialog (D17: first = A). */
-async function resolvePair(first?: vscode.Uri, second?: vscode.Uri): Promise<[vscode.Uri, vscode.Uri] | undefined> {
-    if (first && second) { return [first, second]; }
-    const picked = await vscode.window.showOpenDialog({
-        canSelectMany: true,
-        filters: { 'Hex files': ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28', 's37'] },
-    });
-    return picked ? pairFromPicked(picked) : undefined;
-}
-
-    // Compare selected (2 URIs) — first selected is A (D17)
+    // Compare selected (2 URIs, explorer multi-select) — first selected is A
     context.subscriptions.push(
-        vscode.commands.registerCommand('hexScope.compareSelected', async (first?: vscode.Uri, second?: vscode.Uri) => {
-            const pair = await resolvePair(first, second);
+        vscode.commands.registerCommand('hexScope.compareSelected', (first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri) => {
+            const pair = resolvePair(first, second);
             if (!pair) { return; }
-            await validateAndOpenPair(pair[0], pair[1]);
+            void validateAndOpenPair(pair[0], pair[1]);
         })
     );
 
-    // Stage current file as A (D7/D18)
+    // Stage current file as A
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.selectAsFirst', (uri?: vscode.Uri) => {
             const target = commandTarget(uri);
@@ -124,7 +117,7 @@ async function resolvePair(first?: vscode.Uri, second?: vscode.Uri): Promise<[vs
         })
     );
 
-    // Compare current file vs staged A (D7)
+    // Compare current file vs staged A
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.compareToStaged', (uri?: vscode.Uri) => {
             const target = commandTarget(uri);

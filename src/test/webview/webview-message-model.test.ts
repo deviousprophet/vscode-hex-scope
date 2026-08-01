@@ -133,12 +133,12 @@ suite('applyProviderMessageToModel()', () => {
         } satisfies ProviderMessageHandlers;
 
         const base = { rows: [], summary: { unchanged: 0, changed: 0, added: 0, removed: 0 }, runs: [], totalBytes: 0, identical: true };
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffInit', generation: 1, result: base, aLabel: 'A', bLabel: 'B', aFormat: 'ihex', bFormat: 'ihex' }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffInit', generation: 1, result: base, aLabel: 'A', bLabel: 'B', aFormat: 'ihex', bFormat: 'ihex', aError: null, bError: null, aLabels: [], bLabels: [] }, handlers), true);
         assert.strictEqual(initCalled, true);
         assert.strictEqual(dispatchProviderMessage({ type: 'diffSearch', generation: 1, query: 'ff', matches: [0x1000] }, handlers), true);
         assert.strictEqual(searchCalled, true);
         assert.strictEqual(dispatchProviderMessage({ type: 'diffSwap', generation: 1, swapped: true }, handlers), true);
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffUpdate', generation: 1, result: base }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffUpdate', generation: 1, result: base, aError: null, bError: null }, handlers), true);
 
         // Unknown diff-adjacent types stay rejected.
         assert.strictEqual(dispatchProviderMessage({ type: 'diffBogus' }, handlers), false);

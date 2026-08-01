@@ -130,6 +130,15 @@ html, body {
 ::-webkit-scrollbar-thumb:hover { background: rgba(121,121,121,.7); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* ── Hex byte cell (shared base for memory-view and diff) ──────── */
+/* Geometry only; cursor + state modifiers live in the owning view. */
+.data-cell {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    width: var(--cell-size); height: var(--cell-size); line-height: var(--cell-size);
+    text-align: center; display: inline-block; border-radius: 2px;
+    user-select: none;
+}
+
 /* ── Shared action buttons (edit ✎ / delete 🗑) ────────────────── */
 /* Used in labels, struct instance cards, and manage-types rows.    */
 .act-btn {

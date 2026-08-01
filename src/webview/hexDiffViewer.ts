@@ -3,11 +3,23 @@
 // view sends diffReady/diffSwapRequest/diffSearchRequest.
 
 import type { DiffResult } from '../core/diff';
+import type { SearchEndianness, SearchMode, SegmentLabel } from '../core/types';
+import type { CopyCommand } from '../core/byte-tools/copyCommand';
+import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
 import { vscode } from './vscodeApi';
-import { esc, formatAddress, rowIndexForAddress, diffRunFocus, searchMatchFocus } from './diff/diffViewModel';
-import { renderDiffSummaryHtml, renderDiffRowsHtml } from './diff/diffRenderer';
+import { esc } from './utils';
+import {
+    diffRunFocus,
+    searchMatchFocus,
+    DIFF_ROW_BYTES,
+    DIFF_ROW_HEIGHT,
+    groupVisualRows,
+    visualRowIndexForAddress,
+    type DiffVisualRow,
+} from './diff/diffViewModel';
+import { renderDiffSummaryHtml, renderDiffRowsHtml, renderDiffHeaderHtml, type DiffRenderState, type DiffSelection } from './diff/diffRenderer';
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
@@ -16,14 +28,23 @@ let aLabel = '';
 let bLabel = '';
 let swapped = false;
 let error: string | null = null;
+let aError: string | null = null;
+let bError: string | null = null;
 let searchQuery = '';
+let searchMode: SearchMode = 'bytes';
+let searchEndianness: SearchEndianness = 'le';
 let searchMatches: number[] = [];
 let searchFocusAddr = -1;
 let diffFocusAddr = -1;
+let aLabels: SegmentLabel[] = [];
+let bLabels: SegmentLabel[] = [];
+let selection: DiffSelection | null = null;
+let dragging = false;
 
 let scrollTop = 0;
 let containerHeight = 0;
-const ROW_HEIGHT = 22;
+let visualRows: DiffVisualRow[] = [];
+const ROW_HEIGHT = DIFF_ROW_HEIGHT;
 const RENDER_BUFFER = 20;
 
 const vscodeApi = vscode;
@@ -45,52 +66,107 @@ function visibleWindow(rowCount: number): [number, number] {
 }
 
 function searchRowIndexFor(): number {
-    return searchFocusAddr >= 0 && result ? rowIndexForAddress(result, searchFocusAddr) : -1;
+    return searchFocusAddr >= 0 ? visualRowIndexForAddress(visualRows, searchFocusAddr) : -1;
 }
 
-function diffScrollHtml(rows: DiffResult['rows'], totalHeight: number): string {
-    const [start, end] = visibleWindow(rows.length);
-    return `<div id="diff-scroll" style="height:${esc(String(containerHeight))}px;overflow:auto">
-            ${renderDiffRowsHtml({ result, searchRowIndex: searchRowIndexFor() }, [start, end], totalHeight, scrollTop)}
-        </div>`;
+function renderState(): DiffRenderState {
+    return {
+        result,
+        visualRows,
+        searchRowIndex: searchRowIndexFor(),
+        matchSet: new Set(searchMatches),
+        aError,
+        bError,
+        selection,
+    };
 }
 
-function rerender(): void {
-    const rows = result?.rows ?? [];
-    const totalHeight = rows.length * ROW_HEIGHT;
+function errorBannersHtml(): string {
+    const parts: string[] = [];
+    if (aError) { parts.push(`<div class="side-error">A: ${esc(aError)}</div>`); }
+    if (bError) { parts.push(`<div class="side-error">B: ${esc(bError)}</div>`); }
+    return parts.length ? `<div class="diff-errors">${parts.join('')}</div>` : '';
+}
 
-    app.innerHTML = `
-        <div class="diff-labels">
-            <span class="label a">${esc(aLabel)}</span>
-            <span class="label b">${esc(bLabel)}</span>
-        </div>
-        <div class="diff-summary">${renderDiffSummaryHtml({ result, searchRowIndex: searchRowIndexFor() })}</div>
-        ${diffScrollHtml(rows, totalHeight)}
-        <div class="diff-toolbar">
-            <button id="prev-diff">▲ Prev</button>
-            <button id="next-diff">Next ▼</button>
-            <input id="diff-search" type="text" placeholder="Search hex bytes (e.g. DE AD BE EF)" value="${esc(searchQuery)}">
-            <button id="prev-match">▲ Match</button>
-            <button id="next-match">Match ▼</button>
-            <button id="swap">⇄ Swap</button>
-        </div>
-    `;
+function railItemHtml(side: 'A' | 'B', label: SegmentLabel): string {
+    const range = `0x${label.startAddress.toString(16).toUpperCase()} · ${label.length} B`;
+    return `<div class="rail-item" style="border-left-color:${esc(label.color)}">
+        <span class="rail-tag ${side === 'A' ? 'a' : 'b'}">${side}</span>
+        <span class="rail-name">${esc(label.name)}</span>
+        <span class="rail-range">${esc(range)}</span>
+    </div>`;
+}
 
+function labelRailHtml(): string {
+    const items = [
+        ...aLabels.map(l => railItemHtml('A', l)),
+        ...bLabels.map(l => railItemHtml('B', l)),
+    ];
+    if (items.length === 0) { return ''; }
+    return `<div class="diff-rail">${items.join('')}</div>`;
+}
+
+function modeSelectHtml(): string {
+    const options = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
+        `<option value="${m}"${m === searchMode ? ' selected' : ''}>${m}</option>`
+    ).join('');
+    return `<select id="diff-search-mode" title="Search mode">${options}</select>`;
+}
+
+function copyControlsHtml(): string {
+    const options = (['hex', 'c-array', 'ascii'] as const).map(f =>
+        `<option value="${f}"${f === 'hex' ? ' selected' : ''}>${f}</option>`
+    ).join('');
+    return `<select id="diff-copy-format" title="Copy format">${options}</select><button id="copy-selection" title="Copy selected bytes">Copy</button>`;
+}
+
+function renderScroll(): void {
     const scrollEl = document.getElementById('diff-scroll')!;
+    containerHeight = Math.max(200, scrollEl.clientHeight);
+    scrollEl.innerHTML =
+        renderDiffHeaderHtml(renderState())
+        + renderDiffRowsHtml(renderState(), visibleWindow(visualRows.length), visualRows.length * ROW_HEIGHT);
     scrollEl.scrollTop = scrollTop;
     scrollEl.addEventListener('scroll', () => {
         scrollTop = scrollEl.scrollTop;
         rerender();
     });
+}
 
+function rerender(): void {
+    visualRows = groupVisualRows(result?.rows ?? []);
+
+    app.innerHTML = `
+        <div class="diff-labels">
+            <span class="label a" data-side="A">${esc(aLabel)}</span>
+            <span class="label b" data-side="B">${esc(bLabel)}</span>
+        </div>
+        <div class="diff-summary">${renderDiffSummaryHtml(renderState())}</div>
+        ${labelRailHtml()}
+        ${errorBannersHtml()}
+        <div id="diff-scroll"></div>
+        <div class="diff-toolbar">
+            <button id="prev-diff">▲ Prev</button>
+            <button id="next-diff">Next ▼</button>
+            ${modeSelectHtml()}
+            <button id="diff-endian" title="Byte order">${esc(searchEndianness.toUpperCase())}</button>
+            <input id="diff-search" type="text" placeholder="Search bytes, value, ASCII, address" value="${esc(searchQuery)}">
+            <button id="prev-match">▲ Match</button>
+            <button id="next-match">Match ▼</button>
+            ${copyControlsHtml()}
+            <button id="swap">⇄ Swap</button>
+        </div>
+    `;
+
+    renderScroll();
     wireToolbar();
     updateStatus();
 }
 
-/** Navigate so the row containing `addr` is centered in the viewport. */
+/** Navigate so the visual row containing `addr` is centered in the viewport. */
 function focusRow(addr: number): void {
-    const idx = rowIndexForAddress(result!, addr);
-    if (!result || idx < 0) { return; }
+    const idx = visualRowIndexForAddress(visualRows, addr);
+    if (idx < 0) { return; }
     scrollTop = Math.max(0, idx * ROW_HEIGHT - containerHeight / 2);
     rerender();
 }
@@ -124,15 +200,37 @@ function wireToolbar(): void {
     const searchInput = document.getElementById('diff-search') as HTMLInputElement;
     const doSearch = (query: string): void => {
         searchQuery = query;
-        post({ type: 'diffSearchRequest', generation, query });
+        post({ type: 'diffSearchRequest', generation, query, mode: searchMode, endianness: searchEndianness });
     };
     searchInput.addEventListener('change', () => doSearch(searchInput.value));
     searchInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') { doSearch(searchInput.value); }
     });
 
+    document.getElementById('diff-search-mode')!.addEventListener('change', (e: Event) => {
+        searchMode = (e.target as HTMLSelectElement).value as SearchMode;
+        doSearch(searchInput.value);
+    });
+    document.getElementById('diff-endian')!.addEventListener('click', () => {
+        searchEndianness = searchEndianness === 'le' ? 'be' : searchEndianness === 'be' ? 'auto' : 'le';
+        doSearch(searchInput.value);
+    });
+
     document.getElementById('prev-match')!.addEventListener('click', () => gotoMatch(-1));
     document.getElementById('next-match')!.addEventListener('click', () => gotoMatch(1));
+
+    document.getElementById('copy-selection')!.addEventListener('click', () => copySelection());
+}
+
+function copySelection(format?: CopyCommand): void {
+    const bytes = selectionBytes();
+    if (bytes.length === 0) { return; }
+    let fmt = format;
+    if (!fmt) {
+        const sel = document.getElementById('diff-copy-format') as HTMLSelectElement | null;
+        fmt = (sel?.value as CopyCommand | undefined) ?? 'hex';
+    }
+    void navigator.clipboard.writeText(formatCopyCommand(fmt, bytes));
 }
 
 function updateStatus(): void {
@@ -141,27 +239,31 @@ function updateStatus(): void {
     } else if (!result) {
         status.textContent = 'Loading…';
     } else {
-        status.textContent = `A=${esc(aLabel)} ⇄ B=${esc(bLabel)} · ${result.rows.length} rows · ${result.runs.length} diff regions`;
+        let text = `A=${aLabel} ⇄ B=${bLabel} · ${visualRows.length} rows · ${result.runs.length} diff regions`;
+        if (selection) {
+            text += ` · ${selection.side.toUpperCase()} 0x${selection.start.toString(16)}-0x${selection.end.toString(16)}`;
+        }
+        status.textContent = text;
     }
 }
 
 // ── Message handling ──────────────────────────────────────────────
 type DiffHandler = (m: Extract<ProviderToWebviewMessage, { type: string }>) => void;
 
-/** True when `addr` is a real, present focus and still exists in `result`. */
-function focusExists(addr: number, result: DiffResult): boolean {
-    return addr >= 0 && rowIndexForAddress(result, addr) >= 0;
+/** True when `addr` is a present focus and still exists in the current diff. */
+function focusExists(addr: number): boolean {
+    return addr >= 0 && visualRowIndexForAddress(visualRows, addr) >= 0;
 }
 
 /** Drop stale focus addresses that no longer exist in the new result. */
-function dropInvalidFocus(result: DiffResult): void {
-    if (!focusExists(diffFocusAddr, result)) { diffFocusAddr = -1; }
-    if (!focusExists(searchFocusAddr, result)) { searchFocusAddr = -1; }
+function dropInvalidFocus(): void {
+    if (!focusExists(diffFocusAddr)) { diffFocusAddr = -1; }
+    if (!focusExists(searchFocusAddr)) { searchFocusAddr = -1; }
 }
 
 function applyDiff(result: DiffResult): void {
     if (error) { error = null; }
-    dropInvalidFocus(result);
+    dropInvalidFocus();
     rerender();
 }
 
@@ -172,6 +274,10 @@ const diffHandlers: Record<string, DiffHandler> = {
         result = msg.result;
         aLabel = msg.aLabel;
         bLabel = msg.bLabel;
+        aError = msg.aError;
+        bError = msg.bError;
+        aLabels = msg.aLabels;
+        bLabels = msg.bLabels;
         searchMatches = [];
         searchFocusAddr = -1;
         diffFocusAddr = -1;
@@ -181,6 +287,8 @@ const diffHandlers: Record<string, DiffHandler> = {
     diffUpdate: m => {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffUpdate' }>;
         result = msg.result;
+        aError = msg.aError;
+        bError = msg.bError;
         applyDiff(msg.result);
     },
     diffSwap: m => {
@@ -206,11 +314,77 @@ window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage
     if (handler) { handler(event.data as Extract<ProviderToWebviewMessage, { type: string }>); }
 });
 
+// ── Selection + copy (per-panel) ─────────────────────────────────
+function cellFromEvent(target: EventTarget | null): { side: 'a' | 'b'; addr: number } | null {
+    const el = (target as HTMLElement).closest?.('[data-addr][data-side]') as HTMLElement | null;
+    if (!el) { return null; }
+    const side = el.dataset.side as 'a' | 'b';
+    const addr = parseInt(el.dataset.addr ?? '', 16);
+    if (!Number.isFinite(addr)) { return null; }
+    return { side, addr };
+}
+
+function wireSelection(): void {
+    document.addEventListener('mousedown', e => {
+        const cell = cellFromEvent(e.target);
+        if (cell) {
+            dragging = true;
+            selection = { side: cell.side, start: cell.addr, end: cell.addr };
+            rerender();
+            return;
+        }
+        // Clicking empty scroll space clears the selection; toolbar/rail clicks leave it.
+        if ((e.target as HTMLElement).closest?.('#diff-scroll')) {
+            selection = null;
+            rerender();
+        }
+    });
+    document.addEventListener('mouseover', e => {
+        if (!dragging || !selection) { return; }
+        const cell = cellFromEvent(e.target);
+        if (!cell || cell.side !== selection.side) { return; }
+        selection = {
+            side: cell.side,
+            start: Math.min(selection.start, cell.addr),
+            end: Math.max(selection.end, cell.addr),
+        };
+        rerender();
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+}
+
+/** Bytes of the selected side over the selection range, in address order. */
+function selectionBytes(): number[] {
+    if (!selection) { return []; }
+    const bytes: number[] = [];
+    for (const vr of visualRows) {
+        for (let i = 0; i < DIFF_ROW_BYTES; i++) {
+            const addr = vr.baseAddress + i;
+            if (addr < selection.start || addr > selection.end) { continue; }
+            const cell = selection.side === 'a' ? vr.a[i] : vr.b[i];
+            if (cell?.present) { bytes.push(cell.byte); }
+        }
+    }
+    return bytes;
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────
-containerHeight = Math.max(200, window.innerHeight - 90);
-window.addEventListener('resize', () => {
-    containerHeight = Math.max(200, window.innerHeight - 90);
-    rerender();
+window.addEventListener('resize', () => rerender());
+
+wireSelection();
+
+// Alt+↓ / Alt+↑ jump to next/prev diff run.
+document.addEventListener('keydown', e => {
+    if (!e.altKey) { return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); gotoDiff(1); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); gotoDiff(-1); }
+});
+
+// Ctrl+C copies the selected side's bytes in the chosen copy format.
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        copySelection();
+    }
 });
 
 post({ type: 'diffReady' });

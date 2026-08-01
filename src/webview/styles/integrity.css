@@ -84,14 +84,6 @@
     box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4f9de8);
 }
 
-.integrity-card-info {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-
 .integrity-card-title {
     color: var(--fg);
     font-family: var(--font-ui);

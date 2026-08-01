@@ -7,6 +7,8 @@ import { parseSRecCompact } from '../core/parser/srecParser';
 import type { CompactParseResult } from '../core/parser/compact';
 import type { HexScopeFormat } from '../core/document';
 import { SearchEngine } from '../core/search';
+import type { SearchEndianness, SearchMode } from '../core/types';
+import type { SegmentLabel } from '../core/types';
 import { detectFormatFromParts } from '../core/document';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
@@ -28,12 +30,34 @@ function parseErrors(result: CompactParseResult): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
 }
 
+/** Human message for an invalid side, or null when valid. */
+function parseErrorFor(result: CompactParseResult): string | null {
+    if (result.checksumErrors > 0 && result.malformedLines > 0) {
+        return `Parse error: ${result.checksumErrors} checksum error(s), ${result.malformedLines} malformed line(s).`;
+    }
+    if (result.checksumErrors > 0) { return `Parse error: ${result.checksumErrors} checksum error(s).`; }
+    if (result.malformedLines > 0) { return `Parse error: ${result.malformedLines} malformed line(s).`; }
+    return null;
+}
+
 function fileName(path: string): string {
     return path.split(/[\/\\]/).pop() ?? path;
 }
 
-function labelFor(uri: vscode.Uri, side: 'A' | 'B'): string {
-    return `${fileName(uri.fsPath)} [${side}]`;
+function labelFor(uri: vscode.Uri): string {
+    return fileName(uri.fsPath);
+}
+
+/** Extract the opaque pair key from a diff tab URI (key lives in the query). */
+function pairKeyFromUri(uri: vscode.Uri): string {
+    const match = /(?:^|&)k=([^&]+)/.exec(uri.query);
+    if (!match) { throw new Error('diff tab URI is missing its pair key'); }
+    return match[1];
+}
+
+/** Address-range labels stored for a file (read-only display in the diff). */
+function readLabels(context: vscode.ExtensionContext, uri: vscode.Uri): SegmentLabel[] {
+    return context.workspaceState.get<SegmentLabel[]>(`hexScope.labels.${uri.toString()}`, []);
 }
 
 export class HexDiffSession {
@@ -49,7 +73,7 @@ export class HexDiffSession {
         const resources = new DisposableStore();
         resources.add(token.onCancellationRequested(() => {}));
 
-        const pair = decodePairKey(document.uri.path.split('/').pop() ?? document.uri.path);
+        const pair = decodePairKey(pairKeyFromUri(document.uri));
         const aUri = vscode.Uri.file(pair.aPath);
         const bUri = vscode.Uri.file(pair.bPath);
 
@@ -84,6 +108,8 @@ export class HexDiffSession {
                 type: 'diffUpdate',
                 generation,
                 result,
+                aError: parseErrorFor(aState.result),
+                bError: parseErrorFor(bState.result),
             });
         };
 
@@ -93,7 +119,7 @@ export class HexDiffSession {
                 if (side === 'a') { aState = loaded; } else { bState = loaded; }
                 recompute();
             } catch {
-                /* file transiently unavailable; keep last state (D15) */
+                /* file transiently unavailable; keep last state */
             }
         };
 
@@ -117,7 +143,7 @@ export class HexDiffSession {
         watch(aUri, 'a');
         watch(bUri, 'b');
 
-        const runSearch = (query: string, onComplete: (matches: number[]) => void): void => {
+        const runSearch = (query: string, mode: SearchMode, endianness: SearchEndianness, onComplete: (matches: number[]) => void): void => {
             const hasAnyState = aState !== null || bState !== null;
             if (!hasAnyState) { onComplete([]); return; }
             const engine = new SearchEngine();
@@ -131,7 +157,7 @@ export class HexDiffSession {
             };
             const runOne = (segments: Array<{ startAddress: number; data: ArrayLike<number> }>, mark: 'a' | 'b'): void => {
                 engine.search(
-                    { mode: 'bytes', raw: query, segments },
+                    { mode, endianness, raw: query, segments },
                     { onComplete: matches => { merged.push(...matches); done[mark] = true; complete(); } },
                 );
             };
@@ -152,7 +178,7 @@ export class HexDiffSession {
         const onSearchRequest = (rawMsg: unknown): void => {
             const msg = rawMsg as Extract<WebviewToProviderMessage, { type: 'diffSearchRequest' }>;
             if (msg.generation !== generation) { return; }
-            runSearch(String(msg.query), matches => {
+            runSearch(String(msg.query), msg.mode, msg.endianness, matches => {
                 post({ type: 'diffSearch', generation, query: String(msg.query), matches });
             });
         };
@@ -178,8 +204,10 @@ export class HexDiffSession {
             return;
         }
 
-        const aLabel = labelFor(aUri, 'A');
-        const bLabel = labelFor(bUri, 'B');
+        const aLabel = labelFor(aUri);
+        const bLabel = labelFor(bUri);
+        const aLabels = readLabels(this._context, aUri);
+        const bLabels = readLabels(this._context, bUri);
         const result: DiffResult = computeDiff(aState.result, bState.result);
         const sendInit = (): void => {
             if (!webviewReady || !aState || !bState) { return; }
@@ -191,23 +219,47 @@ export class HexDiffSession {
                 bLabel,
                 aFormat: aState.format,
                 bFormat: bState.format,
+                aError: parseErrorFor(aState.result),
+                bError: parseErrorFor(bState.result),
+                aLabels,
+                bLabels,
             });
         };
         sendInit();
     }
 
     private _getHtml(webview: vscode.Webview, _uri: vscode.Uri): string {
-        const nonce = 'diff';
+        const nonce = getNonce();
+        const cssLinks = ['base', 'diff'].map(name => {
+            const uri = webview.asWebviewUri(
+                vscode.Uri.joinPath(this._context.extensionUri, 'src', 'webview', 'styles', `${name}.css`)
+            );
+            return `    <link rel="stylesheet" href="${uri}">`;
+        }).join('\n');
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+${cssLinks}
+<title>HexScope Diff</title>
 </head>
 <body>
 <div id="app">Hex Diff View</div>
+<div id="status"></div>
 <script nonce="${nonce}" src="${webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'dist', 'hexDiffViewer.js'))}"></script>
 </body>
 </html>`;
     }
+}
+
+function getNonce(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < 32; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
 }

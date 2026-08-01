@@ -16,7 +16,9 @@
 .ecb-icon { font-size: 13px; color: #e5a800; flex-shrink: 0; }
 .ecb-msg  { color: var(--fg); flex: 1; min-width: 0; }
 .ecb-msg strong { color: #e5a800; }
-.ecb-btn {
+.ecb-btn,
+.erb-btn,
+.eeb-btn {
     border-radius: 3px; font-size: 11px; font-family: var(--font-ui);
     padding: 2px 10px; cursor: pointer; white-space: nowrap;
     transition: background .1s, border-color .1s;
@@ -41,11 +43,6 @@
 }
 .erb-icon { font-size: 13px; color: #78b4ff; flex-shrink: 0; }
 .erb-msg  { color: var(--fg); flex: 1; min-width: 0; }
-.erb-btn {
-    border-radius: 3px; font-size: 11px; font-family: var(--font-ui);
-    padding: 2px 10px; cursor: pointer; white-space: nowrap;
-    transition: background .1s, border-color .1s;
-}
 .erb-reload {
     background: rgba(78,201,160,.12); border: 1px solid rgba(78,201,160,.4);
     color: #4ec9a0;
@@ -62,11 +59,6 @@
 .eeb-icon { font-size: 13px; color: var(--err); flex-shrink: 0; }
 .eeb-msg  { color: var(--fg); flex: 1; min-width: 0; }
 .eeb-msg strong { color: var(--err); }
-.eeb-btn {
-    border-radius: 3px; font-size: 11px; font-family: var(--font-ui);
-    padding: 2px 10px; cursor: pointer; white-space: nowrap;
-    transition: background .1s, border-color .1s;
-}
 
 /* Shared success-action button style (used by eeb-repair, eeb-view-text, erb-reload) */
 .eeb-repair,

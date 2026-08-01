@@ -48,9 +48,9 @@ function segmentList(result: CompactParseResult | null): SegmentInput[] {
 }
 
 /**
- * Sorted, deduped, BPR-aligned union of both files' row starts (D5).
+ * Sorted, deduped, BPR-aligned union of both files' row starts.
  * A leading aligned row is prepended when the first segment starts
- * mid-row, so both panels share the same aligned gutter (AC2b).
+ * mid-row, so both panels share the same aligned gutter.
  */
 function unionRowStarts(aSegs: readonly SegmentInput[], bSegs: readonly SegmentInput[]): number[] {
     const set = new Set<number>();
@@ -82,7 +82,7 @@ function bothMissing(a: number | undefined, b: number | undefined): boolean {
     return a === undefined && b === undefined;
 }
 
-/** Per-address status from both sides' bytes (D4). */
+/** Per-address status from both sides' bytes. */
 function statusFor(a: number | undefined, b: number | undefined): DiffByteStatus {
     if (bothMissing(a, b)) { return 'empty'; }
     if (a === undefined) { return 'added'; }
@@ -104,7 +104,7 @@ function isIdentical(summary: DiffSummary): boolean {
     return summary.changed === 0 && summary.added === 0 && summary.removed === 0;
 }
 
-/** Runs (D16) = contiguous non-unchanged addresses, merged across row boundaries. */
+/** Runs = contiguous non-unchanged addresses, merged across row boundaries. */
 function extractRuns(rows: readonly DiffRow[]): DiffRun[] {
     const runs: DiffRun[] = [];
     let start = -1;
@@ -138,9 +138,9 @@ function diffRowFor(addr: number, aByte: number | undefined, bByte: number | und
 /**
  * Build the aligned diff between two parsed firmware images.
  *
- * Alignment: union of both files' row spans (D5). A cell is `null` when that
+ * Alignment: union of both files' row spans. A cell is `null` when that
  * side has no byte at an address (`getByteAt` returns undefined for unmapped).
- * Status per address (D4); added/removed are per-address statuses, not
+ * Status per address; added/removed are per-address statuses, not
  * structures.
  */
 export function computeDiff(aResult: CompactParseResult | null, bResult: CompactParseResult | null): DiffResult {

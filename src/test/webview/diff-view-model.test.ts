@@ -2,6 +2,7 @@
 
 import * as assert from 'assert';
 import type { DiffResult, DiffRow } from '../../core/diff';
+import { DIFF_BPR } from '../../core/diff';
 import {
     DIFF_ROW_BYTES,
     rowIndexForAddress,
@@ -81,7 +82,7 @@ suite('diff view model', () => {
     });
 
     test('DIFF_ROW_BYTES matches core diff constant', () => {
-        assert.strictEqual(DIFF_ROW_BYTES, 16);
+        assert.strictEqual(DIFF_ROW_BYTES, DIFF_BPR);
     });
 });
 

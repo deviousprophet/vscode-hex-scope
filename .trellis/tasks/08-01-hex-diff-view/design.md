@@ -9,15 +9,17 @@ Two new layers, mirroring the existing single-file editor's split (spec: `fronte
 ```text
 extension host                          webview (browser)
 ─────────────────                       ─────────────────
-src/hexDiffProvider.ts   ──protocol──▶  src/webview/hexDiffViewer.ts   (composition root)
-src/hexDiffSession.ts    ──protocol──▶  src/webview/diff/*             (render + model)
-src/core/diff.ts         (pure, testable — no vscode/DOM imports)
+src/editor/hexDiffProvider.ts ─protocol▶ src/webview/hexDiffViewer.ts  (composition root)
+src/editor/hexDiffSession.ts  ─protocol▶ src/webview/diff/*            (render + model)
+src/core/diff.ts              (pure, testable — no vscode/DOM imports)
 ```
 
 - **`src/core/diff.ts`** — pure diff engine. Input: two `CompactParseResult`s. Output: serializable `DiffResult` (below). No `vscode`, no DOM. Unit-testable like `core/search.ts`, `core/memory.ts`.
-- **`src/hexDiffProvider.ts`** — `CustomReadonlyEditorProvider` for `viewType = 'hexScope.hexDiff'`; registers via `registerCustomEditorProvider` with `webviewOptions.retainContextWhenHidden: true`. `openCustomDocument` returns a **virtual document** whose `uri` encodes the canonicalized URI pair (D14). Delegates to `HexDiffSession`.
-- **`src/hexDiffSession.ts`** — per-panel orchestration: parse both files, run `core/diff`, serialize `DiffResult` over the protocol, watch both URIs + debounce (reuse pattern from `hexEditorSession.ts:524`), swap/staging state that is webview-local vs session-local.
+- **`src/editor/hexDiffProvider.ts`** — `CustomReadonlyEditorProvider` for `viewType = 'hexScope.hexDiff'`; registers via `registerCustomEditorProvider` with `webviewOptions.retainContextWhenHidden: true`. `openCustomDocument` returns a **virtual document** whose `uri` encodes the canonicalized URI pair (D14). Delegates to `HexDiffSession`. Extends `ReadonlyEditorProviderBase` (shared plumbing with `HexEditorProvider`).
+- **`src/editor/hexDiffSession.ts`** — per-panel orchestration: parse both files, run `core/diff`, serialize `DiffResult` over the protocol, watch both URIs + debounce (reuse pattern from `hexEditorSession.ts:524`), swap/staging state that is webview-local vs session-local. Builds the webview HTML (loads `base.css` + `diff.css`, R8/D24).
 - **`src/webview/hexDiffViewer.ts`** — thin composition root: wires panels, shared label rail, summary bar, next/prev, swap, search. No diff logic.
+- **`src/webview/diff/`** — `diffViewModel.ts` (pure navigation/window math, `DIFF_ROW_HEIGHT`, `DIFF_ROW_BYTES`) + `diffRenderer.ts` (row/summary HTML). No vscode/DOM imports; unit-testable.
+- **`src/webview/styles/diff.css`** — diff-view styling, loaded after `base.css` for token parity (R8).
 
 Where it plugs into existing code:
 
@@ -63,11 +65,14 @@ New provider→webview messages:
 
 - `type: 'diffInit'` — full `DiffResult` + A/B panel metadata (fileName, format, per-side labels union with side tag per D22).
 - `type: 'diffUpdate'` — recomputed `DiffResult` after external change (D13); replaces prior, keeps same tab.
+- `type: 'diffSwap'` — host-confirmed swap orientation (`swapped: boolean`); applied client-side to panel/label order (D23).
+- `type: 'diffSearch'` — union match list for a query (`matches: number[]`), from the host-side `SearchEngine` run against both files (D21).
 
 New webview→provider messages:
 
-- `type: 'diffSwap'` — request panel swap (D23); host confirms or webview handles locally (swap is view preference — see §4).
-- `type: 'diffSearch'` — query + mode + endianness; host runs `SearchEngine` against **both** sides (D21), returns union match list. (Alternatively reuse existing search message if shape fits; keep diff-specific if not.)
+- `type: 'diffReady'` — webview booted; host sends `diffInit` on first readiness.
+- `type: 'diffSwapRequest'` — request panel swap; host flips its orientation and replies with `diffSwap`.
+- `type: 'diffSearchRequest'` — query + generation; host runs `SearchEngine` against **both** sides, replies with `diffSearch`.
 
 All new discriminators: dispatch + model handling + unknown-message no-op assertions (spec `editor-lifecycle.md` §5, §6).
 
@@ -88,6 +93,11 @@ Pair identity = canonicalized URI pair; same pair reuses one tab (D14). Virtual 
 ### 2.4 Read-only enforcement
 
 `CustomReadonlyEditorProvider` + no save/edit messages wired. D10/AC7: no tabs, edit controls, scripts, structs, inspector, bit view, integrity. Selection + copy reuse existing copy formatters (D11) via existing `copyCommand` pattern (`src/extension.ts:84`).
+
+### 2.5 Webview UI (visual parity + virtual scroll)
+
+- **Styling (R8/D24).** `hexDiffSession._getHtml` loads `base.css` (design tokens, reset, scrollbar) then `diff.css` (diff-only rules). CSP allows `style-src 'unsafe-inline'` (mirrors the hex editor) so the renderer's inline geometry styles work. The webview HTML declares every node the script references at bootstrap — including `#status` (a missing `#status` element previously crashed the first `updateStatus()` call). Status colors: changed=amber `#e5a800`, added=green `#4ec9a0`, removed=red `#f48771`; A/B side accents blue `#9cdcfe` / orange `#e37933` (D23) applied to label-rail chips (`data-side` letter) and summary counts.
+- **Virtual scroll (R9/D25).** `DIFF_ROW_HEIGHT` (22px) is a single constant exported from `diffViewModel.ts`; `diff.css` `.diff-row { height: 22px }` must stay in sync (unit test `DIFF_ROW_BYTES` parity exists; add `DIFF_ROW_HEIGHT` parity if the row-height contract grows). Rows are absolutely positioned (`top: index × DIFF_ROW_HEIGHT`) inside a `position:relative` `#diff-scroll` body of height `rows × DIFF_ROW_HEIGHT`; the container `overflow:auto` scrolls natively; `scrollTop` is restored after each re-render. No `translateY` body offset — an earlier translateY-plus-container-scroll double-offset froze the viewport (AC10).
 
 ## 3. Compatibility & Migration
 
@@ -116,10 +126,12 @@ Pair identity = canonicalized URI pair; same pair reuses one tab (D14). Virtual 
 ## 6. Tests Required (map to PRD ACs)
 
 - `src/test/core/diff.test.ts` — statuses (unchanged/changed/added/removed/empty), union rows + gaps, summary counts, run extraction, address `0`/huge gaps/empty results, cross-format parse inputs (AC3/AC4/AC6/AC8).
-- `src/test/core/` pair-URI encoding round-trip tests (D14).
+- `src/test/core/` pair-URI encoding round-trip tests (D14/AC12).
 - `src/test/webview/webview-message-model.test.ts` — new discriminators dispatch + unknown no-op (D1/D21).
+- `src/test/webview/diff-view-model.test.ts` — `diffRunFocus` / `searchMatchFocus` wrap, row/column indexing, `DIFF_ROW_BYTES` parity with core (D16/D21).
 - `src/test/extension/extension.test.ts` — new command registration + staging lifecycle (D7/D17/D18).
 - Search union tests against `core/search.ts` on two segment sets (D21).
+- Manual visual check: diff view matches hex editor's visual language (R8/AC9); scroll is smooth with no frozen/double-offset viewport (R9/AC10).
 
 ## 7. Follow-up before `task.py start`
 
