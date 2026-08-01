@@ -62,7 +62,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 ## 6. Selection + copy
 
 - Click-drag on a `[data-side][data-addr]` cell selects a byte range locked to the starting side; selection clears only on empty `#diff-scroll` clicks (toolbar/rail clicks keep it).
-- Toolbar copy select (hex / c-array / ascii) + Ctrl+C → `formatCopyCommand(fmt, selectionBytes())` over the selected side's present bytes in address order.
+- Ctrl+C → `formatCopyCommand('hex', selectionBytes())` over the selected side's present bytes in address order.
 
 ## 7. Tests Required
 
