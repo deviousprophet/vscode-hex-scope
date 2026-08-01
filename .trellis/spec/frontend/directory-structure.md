@@ -28,10 +28,14 @@ src/
 |  `- byte-tools/               pure copy/analyze/format helpers
 `- webview/
    |- hexViewer.ts              composition root and DOM effect wiring
+   |- hexDiffViewer.ts          diff-view composition root (two HexViewComponents)
    |- appModel.ts               authoritative UI model transitions
    |- state.ts                  state shape/defaults only
    |- webviewMessage*.ts        provider dispatch and typed model updates
    |- memory/, search/, render/ view-specific modules
+   |- diff/                     diff-specific view model + renderer helpers
+   |- ui-components/            reusable standalone UI components (own code + css per component)
+   |  `- hex-view/              HexViewComponent: single-panel hex grid (+ hexViewComponent.css)
    `- sidebar/{inspector,integrity,struct}/ feature modules
 ```
 
@@ -42,6 +46,7 @@ src/
 - Add cross-runtime messages only in `src/webviewProtocol.ts`, then update both session handling and webview dispatch/model handling.
 - Put shared state mutation in `appModel.ts`; feature modules may own transient UI state when it has one owner, as integrity and struct modules do.
 - `hexViewer.ts` is the composition root. It wires `rerender` callbacks and effects; it must not become a second owner for parsing or feature rules.
+- Reusable UI components live under `src/webview/ui-components/<name>/` as a self-contained unit (code + its own `.css`). A component owns its DOM classes and interaction; hosts compose them and wire cross-component effects via callbacks. See `hex-view/` (the hex grid component reused by the diff view; the single view is a future consumer).
 - Tests mirror ownership under `src/test/core`, `src/test/webview`, and `src/test/extension`.
 
 ## Deep Module Seams
