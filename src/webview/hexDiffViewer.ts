@@ -9,7 +9,7 @@ import type { SerializedParseResult, WireParseResult } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
 import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
-import { messageType } from '../webviewProtocol';
+import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import { vscode } from './vscodeApi';
 import { esc } from './utils';
 import { buildSegmentIndex, getByteAt } from '../core/memory';
@@ -286,7 +286,6 @@ function updateStatus(): void {
 }
 
 // ── Message handling ──────────────────────────────────────────────
-type DiffHandler = (m: Extract<ProviderToWebviewMessage, { type: string }>) => void;
 
 /** True when `addr` is a present focus and still exists in the current diff. */
 function focusExists(addr: number): boolean {
@@ -305,7 +304,7 @@ function applyDiff(): void {
     rerender();
 }
 
-const diffHandlers: Record<string, DiffHandler> = {
+const diffHandlers: Partial<ProviderMessageHandlers> = {
     diffInit: m => {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffInit' }>;
         generation = msg.generation;
@@ -373,8 +372,7 @@ const diffHandlers: Record<string, DiffHandler> = {
 };
 
 window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage>) => {
-    const handler = diffHandlers[messageType(event.data) ?? ''];
-    if (handler) { handler(event.data as Extract<ProviderToWebviewMessage, { type: string }>); }
+    dispatchProviderMessage(event.data, diffHandlers);
 });
 
 // ── Component wiring (two hexview components + cross-panel highlights) ─

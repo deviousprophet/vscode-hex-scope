@@ -31,6 +31,14 @@ suite('webview message dispatcher', () => {
         assert.strictEqual(dispatchProviderMessage(null, handlers), false);
     });
 
+    test('partial handler maps: a valid type with no handler is a safe no-op', () => {
+        // The diff view passes a Partial<ProviderMessageHandlers>; a well-formed
+        // message whose type has no registered handler must be ignored, not crash.
+        const onlyDiffInit = { diffInit: () => {} };
+        assert.strictEqual(dispatchProviderMessage({ type: 'loadError', message: 'x' }, onlyDiffInit), false);
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffInit' } as never, onlyDiffInit), true);
+    });
+
     test('dispatches known provider message types', () => {
         let called = false;
         const handlers = {
