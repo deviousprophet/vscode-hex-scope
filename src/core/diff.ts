@@ -126,8 +126,8 @@ function closeRun(runs: DiffRun[], runStart: number, beforeAddr: number): number
  * across row boundaries.
  */
 export function buildDiffMeta(aResult: CompactParseResult | null, bResult: CompactParseResult | null): DiffMeta {
-    const aIndex = buildSegmentIndex(aResult as never);
-    const bIndex = buildSegmentIndex(bResult as never);
+    const aIndex = buildSegmentIndex(aResult);
+    const bIndex = buildSegmentIndex(bResult);
     const starts = unionRowStarts(segmentList(aResult), segmentList(bResult));
     const summary: DiffSummary = { unchanged: 0, changed: 0, added: 0, removed: 0 };
     const rowStarts = new Uint32Array(starts.length);
@@ -140,8 +140,8 @@ export function buildDiffMeta(aResult: CompactParseResult | null, bResult: Compa
         rowStarts[r] = base;
         for (let i = 0; i < DIFF_BPR; i++) {
             const addr = base + i;
-            const aByte = getByteAt(aResult as never, aIndex, NO_EDITS, addr);
-            const bByte = getByteAt(bResult as never, bIndex, NO_EDITS, addr);
+            const aByte = getByteAt(aResult, aIndex, NO_EDITS, addr);
+            const bByte = getByteAt(bResult, bIndex, NO_EDITS, addr);
             const status = statusFor(aByte, bByte);
             bumpSummary(summary, status);
             if (isChange(status)) {

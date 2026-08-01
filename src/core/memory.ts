@@ -1,4 +1,4 @@
-import type { MemRow, SerializedParseResult } from './types';
+import type { MemRow } from './types';
 
 export interface SegmentIndexEntry {
     startAddr: number;
@@ -6,9 +6,14 @@ export interface SegmentIndexEntry {
     offset: number;
 }
 
-type ParseSegment = SerializedParseResult['segments'][number];
+/** A parse result narrowed to what memory helpers read: its segments. */
+export interface SegmentSource {
+    segments: readonly { startAddress: number; data: ArrayLike<number> }[];
+}
 
-export function buildSegmentIndex(parseResult: SerializedParseResult | null): SegmentIndexEntry[] {
+type ParseSegment = SegmentSource['segments'][number];
+
+export function buildSegmentIndex(parseResult: SegmentSource | null): SegmentIndexEntry[] {
     if (!parseResult || parseResult.segments.length === 0) {
         return [];
     }
@@ -43,7 +48,7 @@ function findSegmentAtAddress(segmentIndex: readonly SegmentIndexEntry[], addr: 
 }
 
 export function getByteAt(
-    parseResult: SerializedParseResult | null,
+    parseResult: SegmentSource | null,
     segmentIndex: readonly SegmentIndexEntry[],
     edits: ReadonlyMap<number, number>,
     addr: number,
@@ -82,7 +87,7 @@ function appendGapBeforeRow(memRows: MemRow[], rows: number[], index: number, by
     }
 }
 
-export function buildMemoryRows(parseResult: SerializedParseResult | null, bytesPerRow: number): MemRow[] {
+export function buildMemoryRows(parseResult: SegmentSource | null, bytesPerRow: number): MemRow[] {
     if (!parseResult || parseResult.segments.length === 0) {
         return [];
     }
