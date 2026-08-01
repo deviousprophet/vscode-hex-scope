@@ -20,7 +20,7 @@ import {
     type DiffVisualRow,
 } from './diff/diffViewModel';
 import { renderDiffSummaryHtml, type DiffSummaryState } from './diff/diffRenderer';
-import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewRange } from './diff/hexViewComponent';
+import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewRange } from './ui-components/hex-view/hexViewComponent';
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
@@ -492,4 +492,5 @@ document.addEventListener('keydown', e => {
 
 post({ type: 'diffReady' });
 rerender();
+
 

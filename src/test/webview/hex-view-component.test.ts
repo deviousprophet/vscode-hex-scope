@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom';
 import { computeDiff } from '../../core/diff';
 import type { CompactParseResult } from '../../core/parser/compact';
 import { groupVisualRows } from '../../webview/diff/diffViewModel';
-import { HexViewComponent, renderHexViewComponentHtml } from '../../webview/diff/hexViewComponent';
+import { HexViewComponent, renderHexViewComponentHtml } from '../../webview/ui-components/hex-view/hexViewComponent';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
     return {
@@ -177,3 +177,4 @@ suite('hex view component interaction', () => {
         assert.ok(!html.includes('amatch'), 'no amatch state');
     });
 });
+

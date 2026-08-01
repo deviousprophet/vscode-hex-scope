@@ -4,7 +4,7 @@ import * as assert from 'assert';
 import { computeDiff } from '../../core/diff';
 import type { CompactParseResult } from '../../core/parser/compact';
 import { renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
-import { renderHexViewComponentHtml } from '../../webview/diff/hexViewComponent';
+import { renderHexViewComponentHtml } from '../../webview/ui-components/hex-view/hexViewComponent';
 import { groupVisualRows } from '../../webview/diff/diffViewModel';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
@@ -128,4 +128,5 @@ suite('diff renderer', () => {
         assert.ok(html.includes('Files are identical'));
     });
 });
+
 

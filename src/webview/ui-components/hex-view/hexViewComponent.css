@@ -1,0 +1,116 @@
+/* Hex View Component — reusable single-panel hex grid.
+   Loaded after base.css; reuses its design tokens.
+   A component = optional panel-label + 00..0F header + (address gutter + cells). */
+
+.diff-component { display: flex; flex-direction: column; }
+
+/* Optional per-file label (the renderer omits it when absent). */
+.diff-component .panel-label {
+    position: sticky; top: 0; z-index: 3;
+    height: 24px;
+    display: flex; align-items: center;
+    padding: 0 10px;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+    font-family: var(--font-ui); font-size: 11px; color: var(--fg);
+    white-space: nowrap;
+}
+
+/* ── Fixed column header: 00..0F offsets, sticky under the label ─ */
+.diff-component .diff-header {
+    position: sticky; top: 24px; z-index: 2;
+    display: flex; align-items: center;
+    height: 22px;
+    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
+    font-family: var(--font-editor); font-size: var(--font-size);
+    font-weight: 700; color: var(--addr-active-fg);
+    user-select: none; white-space: nowrap;
+}
+.diff-header .hcell {
+    width: var(--cell-size); text-align: center; line-height: 22px;
+}
+.diff-header .side .hcell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
+
+/* ── Data body: rows absolute-positioned for virtual scroll ───── */
+.diff-component .diff-body { position: relative; }
+
+/* ── Data row (fixed row height = ROW_HEIGHT in the host) ──────── */
+.diff-row {
+    position: absolute; left: 0; right: auto; top: 0;
+    display: flex; align-items: center;
+    height: 22px; white-space: nowrap;
+    width: fit-content;
+}
+.diff-row:hover { background: var(--hover-bg); }
+/* cross-panel mirror of the hovered row (host paints it) */
+.diff-row.row-hi { background: var(--hover-bg); }
+
+/* ── Address gutter (matches single-view .addr-cell) ───────────── */
+.diff-row .addr,
+.diff-header .addr {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    line-height: var(--cell-size); text-transform: uppercase;
+    color: var(--addr-fg); white-space: nowrap;
+    padding: 0 3px; border-radius: 2px; user-select: none;
+    width: calc(8ch + 6px); flex-shrink: 0;
+}
+.diff-header .addr { visibility: hidden; }
+.diff-row:hover .addr { color: var(--addr-active-fg); }
+/* selected rows highlight their address gutter (single-view .row-sel) */
+.diff-row.row-sel .addr {
+    color: var(--fg);
+    background: rgba(255,255,255,.07);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
+}
+
+/* ── Hex cells ────────────────────────────────────────────────── */
+.side { display: inline-flex; align-items: center; }
+.side .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
+.data-cell { cursor: default; }
+
+/* ── Byte-cell component design ──────────────────────────────── */
+/* Value/status classes (single-view naming): bn/bz/bp/bh/be/bd.  */
+.data-cell.bn { color: var(--fg); }
+.data-cell.bz { color: var(--zero-color); }
+.data-cell.bp { color: var(--print-color); }
+.data-cell.bh { color: var(--high-color); }
+.data-cell.be { color: var(--non-graphic); cursor: default; }
+/* bd (byte-diff): red text; red bg only on base + hover */
+.data-cell.bd { color: #ff6b6b; background: rgba(255,90,90,.10); }
+
+/* Hover: normal cells = hover bg; diff cells = a red lift */
+.data-cell:not(.empty):hover { background: var(--hover-bg); }
+.data-cell.bd.cell-hover,
+.data-cell.bd.cell-mirror { background: rgba(255,90,90,.16); box-shadow: none; }
+/* cross-panel hover mirror on normal cells: inner ring */
+.data-cell.cell-mirror { box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); }
+
+/* Column hover: faint white on normal, faint red tint on diff */
+.col-hi { background: rgba(255,255,255,.06); }
+.data-cell.bd.col-hi { background: rgba(255,90,90,.14); }
+.diff-header .hcell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
+
+/* Selection: bn-style fill; diff keeps red text. `!important` so hover
+   never overwrites the selection during drag (single-view parity). */
+.data-cell.sel { background: var(--sel-bg) !important; color: var(--sel-fg, var(--fg)); outline: none; }
+.data-cell.bd.sel { background: var(--sel-bg) !important; color: #ff6b6b; }
+/* cross-panel selection → dashed outline (host paints it) */
+.data-cell.sel-mirror { outline: 1px dashed rgba(95,207,255,.5); outline-offset: -1px; }
+
+/* Match: faded yellow bg; diff keeps red text */
+.data-cell.match { background: rgba(234,179,8,.22); }
+.data-cell.bd.match { color: #ff6b6b; }
+/* sel+match: yellow bg + blue border; diff keeps red text */
+.data-cell.sel.match { background: rgba(234,179,8,.22) !important; color: var(--fg); outline: 1px solid rgba(95,207,255,.9); outline-offset: -1px; }
+.data-cell.bd.sel.match { color: #ff6b6b; }
+
+/* Selected columns highlight in the header (single-view .sel-col) */
+.diff-header .hcell.sel-col {
+    background: rgba(255,255,255,.07);
+    color: var(--fg) !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
+}
+
+/* ── Per-panel states ─────────────────────────────────────────── */
+.side.panel-error { opacity: .45; }
+.side.panel-error .data-cell { background: transparent; }
+.side.search-row { box-shadow: inset 0 0 0 1px rgba(95,207,255,.9); border-radius: 2px; }

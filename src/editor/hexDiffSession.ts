@@ -235,10 +235,14 @@ export class HexDiffSession {
 
     private _getHtml(webview: vscode.Webview, _uri: vscode.Uri): string {
         const nonce = getNonce();
-        const cssLinks = ['base', 'toolbar', 'diff'].map(name => {
-            const uri = webview.asWebviewUri(
-                vscode.Uri.joinPath(this._context.extensionUri, 'src', 'webview', 'styles', `${name}.css`)
-            );
+        const cssFiles = [
+            'src/webview/styles/base.css',
+            'src/webview/styles/toolbar.css',
+            'src/webview/ui-components/hex-view/hexViewComponent.css',
+            'src/webview/styles/diff.css',
+        ];
+        const cssLinks = cssFiles.map(rel => {
+            const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, rel));
             return `    <link rel="stylesheet" href="${uri}">`;
         }).join('\n');
 

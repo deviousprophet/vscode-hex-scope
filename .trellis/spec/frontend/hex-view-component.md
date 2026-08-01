@@ -1,6 +1,6 @@
 # Hex View Component Code-Spec
 
-Reusable single-panel hex grid (filename label + 00..0F header + address gutter + byte cells) with its own hover / selection / column interaction. Powers the diff view (`src/webview/diff/hexViewComponent.ts`); the single-file hex view is a future consumer.
+Reusable single-panel hex grid (filename label + 00..0F header + address gutter + byte cells) with its own hover / selection / column interaction. Powers the diff view (`src/webview/ui-components/hex-view/hexViewComponent.ts`); the single-file hex view is a future consumer.
 
 ## 1. Byte-cell design (approved final)
 
@@ -47,3 +47,4 @@ Status→class mapping: `unchanged→bn`, `empty→be`, `changed|added|removed�
 ## 3. Tests
 
 `src/test/webview/hex-view-component.test.ts` (jsdom): column hover (onColumnHover + `col-hi` on data and header cells), cell hover (onHover + `cell-hover` + column; clears on component leave), click/drag selection (onSelectionChange + `sel` + `row-sel` + `sel-col`), `setMirrorAddr` (cell-mirror + row-hi). `src/test/webview/diff-renderer.test.ts`: `bd` collapse, `bn match`, label optional, identical summary.
+

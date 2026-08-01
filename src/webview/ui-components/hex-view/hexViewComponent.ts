@@ -3,9 +3,9 @@
 // interaction. Emits callbacks so a host (e.g. the diff view) can paint
 // cross-panel highlights. Reusable later by the single-file hex view.
 
-import type { DiffCell } from '../../core/diff';
-import { DIFF_ROW_BYTES, DIFF_ROW_HEIGHT, formatAddress, type DiffVisualRow } from './diffViewModel';
-import { esc } from '../utils';
+import type { DiffCell } from '../../../core/diff';
+import { DIFF_ROW_BYTES, DIFF_ROW_HEIGHT, formatAddress, type DiffVisualRow } from '../../diff/diffViewModel';
+import { esc } from '../../utils';
 
 export interface HexViewRange { start: number; end: number }
 
