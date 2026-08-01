@@ -12,6 +12,13 @@ export interface SearchBarCallbacks {
     onClear: () => void;
 }
 
+const MODE_LABELS: Record<SearchMode, string> = {
+    bytes: 'Bytes',
+    value: 'Value',
+    ascii: 'ASCII',
+    addr: 'Addr',
+};
+
 function placeholderFor(mode: SearchMode): string {
     const placeholders: Record<SearchMode, string> = {
         bytes: 'Bytes (e.g. DE AD BE EF)',
@@ -39,7 +46,7 @@ export class SearchBarComponent {
     /** HTML for the host to inject into its toolbar. */
     toHtml(): string {
         const modeOpts = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
-            `<option value="${m}"${this.mode === m ? ' selected' : ''}>${m === 'bytes' ? 'Bytes' : m === 'value' ? 'Value' : m === 'ascii' ? 'ASCII' : 'Addr'}</option>`
+            `<option value="${m}"${this.mode === m ? ' selected' : ''}>${MODE_LABELS[m]}</option>`
         ).join('');
         const endBtn = (end: SearchEndianness, label: string) =>
             `<button id="search-btn-${end}" class="${this.endianness === end ? 'active' : ''}" type="button">${label}</button>`;
