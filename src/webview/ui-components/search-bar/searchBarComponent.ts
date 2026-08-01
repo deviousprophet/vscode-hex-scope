@@ -39,7 +39,7 @@ export class SearchBarComponent {
     /** HTML for the host to inject into its toolbar. */
     toHtml(): string {
         const modeOpts = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
-            `<option value="${m}"${this.mode === m ? ' selected' : ''}>${m}</option>`
+            `<option value="${m}"${this.mode === m ? ' selected' : ''}>${m === 'bytes' ? 'Bytes' : m === 'value' ? 'Value' : m === 'ascii' ? 'ASCII' : 'Addr'}</option>`
         ).join('');
         const endBtn = (end: SearchEndianness, label: string) =>
             `<button id="search-btn-${end}" class="${this.endianness === end ? 'active' : ''}" type="button">${label}</button>`;
