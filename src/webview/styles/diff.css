@@ -155,9 +155,8 @@ body.swapped .diff-row .side.a,   .diff-header .side.a   {
 /* ── Toolbar (mirrors #toolbar) ───────────────────────────────── */
 .diff-toolbar {
     flex-shrink: 0;
-    display: flex; align-items: center; gap: 6px;
-    height: 35px; min-height: 35px;
-    padding: 0 10px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+    min-height: 35px; padding: 4px 10px;
     background: var(--toolbar-bg); border-top: 1px solid var(--border);
 }
 .diff-toolbar button {
@@ -179,10 +178,10 @@ body.swapped .diff-row .side.a,   .diff-header .side.a   {
 }
 #diff-endian { min-width: 42px; font-family: var(--font-editor); }
 .diff-toolbar input[type="text"] {
-    margin-left: auto;
+    flex: 1 1 160px; min-width: 120px; max-width: 320px;
     background: var(--input-bg); color: var(--input-fg);
     border: 1px solid var(--input-bdr); border-radius: 3px;
-    padding: 0 7px; height: 24px; width: 200px; outline: none;
+    padding: 0 7px; height: 24px; outline: none;
     font-size: 12px; font-family: var(--font-editor);
     transition: border-color .12s;
 }

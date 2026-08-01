@@ -126,6 +126,13 @@ function renderScroll(): void {
     scrollEl.innerHTML =
         renderDiffHeaderHtml(renderState())
         + renderDiffRowsHtml(renderState(), visibleWindow(visualRows.length), visualRows.length * ROW_HEIGHT);
+    // Absolute-positioned rows don't size the body; give the body the header's
+    // real width so it and the rows center as one block.
+    const header = scrollEl.querySelector('.diff-header') as HTMLElement | null;
+    const body = scrollEl.querySelector('.diff-body') as HTMLElement | null;
+    if (header && body) {
+        body.style.width = `${header.offsetWidth}px`;
+    }
     scrollEl.scrollTop = scrollTop;
     scrollEl.addEventListener('scroll', () => {
         scrollTop = scrollEl.scrollTop;
