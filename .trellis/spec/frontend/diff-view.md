@@ -10,18 +10,22 @@ Feature: `hexScope.hexDiff` custom editor — side-by-side byte diff of two Inte
 
 ## 2. Data model
 
-- `src/core/diff.ts` `computeDiff(aResult, bResult)` emits **one `DiffRow` per address**: `{ address, a: DiffCell|null, b: DiffCell|null, status }` with `status ∈ unchanged|changed|added|removed|empty`. Union-of-row-spans alignment (16-byte blocks, empty cells where a side lacks data). Also `summary`, `runs` (contiguous non-unchanged), `identical`.
-- The webview **groups 16 address rows into one 16-byte visual row**: `groupVisualRows(rows): DiffVisualRow[]` where `DiffVisualRow = { baseAddress, a[], b[], statuses[] }` (`diffViewModel.ts`). Virtual scroll, `focusRow`, `searchRowIndexFor` operate on **visual rows** (`visualRowIndexForAddress`).
-  - Anti-pattern (fixed): rendering each per-address row as a full 16-cell visual row repeats one byte 16× per visual row.
+**Scale target (locked): 8MB firmware.** For an 8MB pair the current full-materialization `DiffResult.rows` (512k rows × 16 cells × 2 sides ≈ 1.5M objects) must NOT be serialized/transferred as JSON. The diff grid is the memory view's analog, so it uses the **memory-view model**: segments once + lazy per-window compute.
+
+- `src/core/diff.ts` keeps the pure, testable status engine: per-address `status ∈ unchanged|changed|added|removed|empty` from presence+value, `summary`, `runs` (contiguous non-unchanged), `identical`. It gains a **sync light-metadata pass** that produces `unionRowStarts` + per-row `hasDiff` (Uint8Array) + `summary` + `runs` + `identical` — O(bytes) scan, no cell objects materialized. This is the **only** full scan; it is fast (~30–60ms at 8MB) and runs synchronously (a "build" stage checkpoint, not chunked).
+- The webview holds: both sides' **segment indexes** (`getByteAt`, `core/memory.ts`) + a **light full row array** `[{ address, hasDiff }]` (`unionRowStarts` → Uint8Array per row). It **computes the visible window's cells/status on scroll** (bytes + `statusFor` from the shared core), never materializing per-cell objects for the whole file. Scroll math, "Diff mode" filtering (`hasDiff`), `visualRowIndexForAddress` (binary search over row starts) unchanged.
+- Transfer is **binary ArrayBuffer**, reusing the single view's `WireParseResult` (`data: ArrayBuffer`, zero-copy through `postMessage`). `diffInit` = `{ a: WireParseResult, b: WireParseResult, meta: { rowStarts: Uint32Array, hasDiff: Uint8Array, summary, runs, identical, totalRows, ... } }`.
+- Webview visual grouping stays: `groupVisualRows` → `DiffVisualRow = { baseAddress, a[], b[], statuses[] }`, but cell data is read from the segments per window instead of from a full rows array.
 - `pairUri.ts`: `encodePairKey`/`decodePairKey` — base64 of canonical-sorted `[aPath, bPath]`, uri-encoded. Same pair → same key.
 
 ## 3. Protocol (webviewProtocol.ts)
 
 Provider → webview:
-- `diffInit { generation, result: DiffResult, aLabel, bLabel, aFormat, bFormat, aError: string|null, bError: string|null, aLabels: SegmentLabel[], bLabels: SegmentLabel[] }`
-- `diffUpdate { generation, result, aError, bError }` — recomputed after external change
+- `diffInit { generation, a: WireParseResult, b: WireParseResult, meta: DiffMeta, aLabel, bLabel, aFormat, bFormat, aError: string|null, bError: string|null, aLabels: SegmentLabel[], bLabels: SegmentLabel[] }` — `DiffMeta = { rowStarts: Uint32Array, hasDiff: Uint8Array, summary, runs, identical, totalRows }` (ArrayBuffers transferable; no per-cell data)
+- `diffUpdate { generation, a, b, meta, aError, bError }` — recomputed after external change (same wire shape)
+- `diffProgress { generation, stage: 'read'|'parse'|'build'|'transfer', completed, total }` — staged load % (throttled, mirrors single view's `loadProgress`)
 - `diffSwap { generation, swapped }`
-- `diffSearch { generation, query, matches: number[] }`
+- `diffSearch { generation, query, matches: number[], done: boolean }` — **streamed**: partial `diffSearch` posts forward each engine's `onProgressUpdate` (engine throttles to 150ms), final one has `done: true`
 - `loadError { generation, message }`
 
 Webview → provider:
@@ -33,11 +37,14 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 
 ## 4. Session (src/editor/hexDiffSession.ts)
 
-- Parses both files (`parseIntelHexCompact`/`parseSRecCompact`), runs `computeDiff`, sends `diffInit` on `diffReady`.
+- **Load pipeline (sequential, staged, cancellable):** `read A → parse A (→50%) → read B → parse B (→95%) → build light metadata (sync pass) → transfer (→100%)`. Per-file `onProgress` mapped onto the range (single view's `LoadProgressReporter` throttle/flush pattern). Parser called with `{ signal, onProgress }` — **cancellable**.
+- **Cancellation = abort + restart on external change mid-load** (generation-bumped re-run; the watcher's debounced reload covers post-load changes). Abort also on panel dispose.
+- **Loading card (single view's `.loading-shell`/`.loading-card`, styles already in base.css):** shown in the initial `_getHtml` HTML; webview keeps it until `diffInit`. On `loadError` before data → error card (same shell). **Reloads after load reuse the diff UI in place** with a `Reloading…` status/spinner — the full card is initial-load only.
+- Parses both files (`parseIntelHexCompact`/`parseSRecCompact`), runs the light-metadata pass, sends `diffInit` on `diffReady`.
 - `readLabels(context, uri)` → `workspaceState.get('hexScope.labels.' + uri.toString(), [])`; sent as `aLabels`/`bLabels` (read-only display).
 - External-change watchers per side + 200ms debounce → re-parse that side → `diffUpdate`.
 - Per-side validity: `parseErrorFor(result)` returns a message when `checksumErrors`/`malformedLines` > 0; carried as `aError`/`bError` so the webview shows a per-panel parse-error state.
-- Search: the diff view uses the reusable **`SearchBarComponent`** (`ui-components/search-bar/`); its `onSearch(query, mode, endianness)` callback drives `diffSearchRequest`. The host runs core `SearchEngine` over **both** sides' segments with the requested `mode`/`endianness`, merges the matches into one sorted union, and returns them in `diffSearch`. The endian control is a single fixed-size button that cycles LE → BE → Auto (the single view keeps its 3-button toggle until it reuses the component).
+- Search: the diff view uses the reusable **`SearchBarComponent`** (`ui-components/search-bar/`); its `onSearch(query, mode, endianness)` callback drives `diffSearchRequest`. The host runs core `SearchEngine` over **both** sides' segments with the requested `mode`/`endianness`, merges into one sorted union, and **streams** partial `diffSearch` posts from each engine's `onProgressUpdate` (final `done: true`). Enter on an **unchanged completed** query navigates next/prev match (single-view `handleCompletedSearchNavigation` parity). The endian control is a **segmented Auto/LE/BE pill** (single-view style).
 - Swap is a view preference; host echoes orientation via `diffSwap`.
 
 ## 5. Webview layout (hexDiffViewer.ts + diff.css)
@@ -69,5 +76,5 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 
 ## 8. Wrong vs Correct
 
-Wrong: opaque base64 in the tab title; `compareSelected` missing from the explorer menu; bare `Alt+↓/↑` bound to staging (menu shows "Alt+Down"); per-address rows rendered as 16-cell rows (byte repeated); `translateY` + container scroll double-offset (frozen viewport); `#status` element missing (bootstrap crash); no CSS loaded (unstyled HTML); identical-content pair blocked instead of showing identical state.
-Correct: readable `a.hex ⟷ b.hex` title; Compare Selected in the `hexScope.actions` submenu handling `Uri[]`; `Alt+↓/↑` = diff navigation in the webview, staging on `Ctrl+Alt`; 16-byte visual rows; measured flex scroll container; styled diff view; identical-state display.
+Wrong: opaque base64 in the tab title; `compareSelected` missing from the explorer menu; bare `Alt+↓/↑` bound to staging (menu shows "Alt+Down"); per-address rows rendered as 16-cell rows (byte repeated); `translateY` + container scroll double-offset (frozen viewport); `#status` element missing (bootstrap crash); no CSS loaded (unstyled HTML); identical-content pair blocked instead of showing identical state; full `DiffResult.rows` JSON shipped for large files; no loading card / silent blank during parse+diff; Enter re-runs a completed search instead of navigating; endian control as an unlabeled cycling button.
+Correct: readable `a.hex ⟷ b.hex` title; Compare Selected in the `hexScope.actions` submenu handling `Uri[]`; `Alt+↓/↑` = diff navigation in the webview, staging on `Ctrl+Alt`; 16-byte visual rows; measured flex scroll container; styled diff view; identical-state display; lazy per-window cells over binary segments; loading card with staged % (initial load) + in-place reloads; streaming search with first-jump; Enter cycles matches; segmented Auto/LE/BE pill.

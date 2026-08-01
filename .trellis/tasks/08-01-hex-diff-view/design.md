@@ -116,12 +116,31 @@ Pair identity = canonicalized URI pair; same pair reuses one tab (D14). Virtual 
 
 | Decision | Trade-off |
 |---|---|
-| D3 host-side diff | One-time cost per open, big payload for huge files; serialization must be compact (reuse ArrayBuffer-segment transfer pattern from `hexEditorSession`). Acceptable: diff of two firmware images is typically ≤ a few MiB. |
+| D3 host-side diff, **lazy transfer (locked Q2/Q4)** | Status/geometry computed host-side once; **per-cell data is NOT shipped** — both files transfer as binary `WireParseResult` segments (ArrayBuffer, zero-copy) + light meta (`rowStarts`/`hasDiff`/`summary`/`runs`), and the webview computes visible-window cells lazily. No full `DiffResult.rows` JSON at any scale. |
 | D5 union rows | Guarantees address alignment (AC6) at the cost of rendering empty cells; same virtual-scroll state keeps it cheap. |
 | D23 swap = position only | Identity stays file-bound; added/removed semantics never flip. Webview-local view preference; can be applied client-side without host round-trip — but diffUpdate must arrive with orientation the webview already knows (host sends A/B data keyed by side tag, webview renders left/right by its swap flag). |
-| D21 union search | Two engine runs, one merged match list; match highlight lives on the panel with data. Cost is two segment scans, acceptable. |
+| D21 union search | Two engine runs, one merged match list; **streamed** progressively (`onProgressUpdate`, final `done: true`). Cost is two segment scans, acceptable. |
 | Virtual doc URI pair | Requires reversible encoding + careful canonicalization; failure mode = duplicate tabs. Test the round-trip. |
 | Live re-diff (D13) | Recompute + reserialize on each external change; debounce 200ms like single-file. Identical/unparseable states handled per D15 without closing the tab. |
+
+## 4a. Performance / scale decisions (grill, 2026-08-01)
+
+Target **8MB** per file. Full materialization + JSON `postMessage` of `DiffResult.rows` (~1.5M objects, tens of MB JSON) is rejected. Locked:
+
+| Q | Decision |
+|---|---|
+| Q1 | Scale target **8MB** |
+| Q2 | **B — lazy window model**: segments once + light meta; cells computed per visible window (memory-view analog) |
+| Q3 | **B1** — webview holds light full rows `[{address, hasDiff}]` + two segment indexes; no per-cell objects |
+| Q4 | **ArrayBuffer binary transfer**, reuse `WireParseResult` (zero-copy `postMessage`) |
+| Q5 | **Sequential** parse A → B, staged % (`read A → parse A →50% → read B → parse B →95% → build → transfer →100%`), reusing `LoadProgressReporter` throttle/flush |
+| Q6 | **Abort + restart** on external change mid-load (generation bump); abort on dispose |
+| Q7 | **Card only on initial load**; reloads re-render in place with `Reloading…` status/spinner |
+| Q8 | **Streaming search** — partial `diffSearch` from engine `onProgressUpdate` (throttled 150ms) + first-jump to match #1; final `done: true` |
+| Q9 | **Sync build pass** — light meta (`rowStarts`+`hasDiff`+`summary`+`runs`+`identical`) one O(bytes) scan, ~30–60ms, "build" checkpoint, NOT chunked |
+| Q10 | **Enter-nav parity** — Enter on an unchanged completed query navigates next/prev match (Shift=prev), single-view `handleCompletedSearchNavigation` behavior |
+
+Loading card reuses single view's `.loading-shell`/`.loading-card` (base.css). `loadError` before data → error card.
 
 ## 5. Operational / Rollback
 
