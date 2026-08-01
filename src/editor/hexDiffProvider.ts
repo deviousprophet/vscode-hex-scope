@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { HexDiffSession } from './hexDiffSession';
-import { encodePairKey } from './core/pairUri';
+import { encodePairKey } from '../core/pairUri';
 
 export class HexDiffProvider implements vscode.CustomReadonlyEditorProvider {
     public static readonly viewType = 'hexScope.hexDiff';

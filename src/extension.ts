@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 import * as vscode from 'vscode';
-import { HexEditorProvider } from './hexEditorProvider';
-import { HexDiffProvider, diffViewUri } from './hexDiffProvider';
+import { HexEditorProvider } from './editor/hexEditorProvider';
+import { HexDiffProvider, diffViewUri } from './editor/hexDiffProvider';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';

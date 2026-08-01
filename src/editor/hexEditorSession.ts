@@ -1,28 +1,28 @@
 import * as crypto from 'crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { DisposableStore } from './core/disposableStore';
-import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
-import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
-import type { ParseResult } from './core/parser/types';
-import type { CompactParseResult } from './core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
-import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from './core/document';
+import { DisposableStore } from '../core/disposableStore';
+import { parseIntelHexCompact, parseIntelHexLine } from '../core/parser/intelHexParser';
+import { parseSRecCompact, parseSRecRecordLine } from '../core/parser/srecParser';
+import type { ParseResult } from '../core/parser/types';
+import type { CompactParseResult } from '../core/parser/compact';
+import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from '../core/types';
+import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from '../core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
     type IntegrityCheckSet,
     type IntegrityProfile,
-} from './core/integrity';
+} from '../core/integrity';
 import {
     messageType,
     RECORD_PAGE_SIZE,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
-} from './webviewProtocol';
+} from '../webviewProtocol';
 
-import { scanScripts, execute } from './core/scripting/scriptRunner';
-import { VSCodeScriptHost } from './scriptHost';
+import { scanScripts, execute } from '../core/scripting/scriptRunner';
+import { VSCodeScriptHost } from '../scriptHost';
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 

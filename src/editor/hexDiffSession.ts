@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
-import { DisposableStore } from './core/disposableStore';
-import { computeDiff, type DiffResult } from './core/diff';
-import { decodePairKey } from './core/pairUri';
-import { parseIntelHexCompact } from './core/parser/intelHexParser';
-import { parseSRecCompact } from './core/parser/srecParser';
-import type { CompactParseResult } from './core/parser/compact';
-import type { HexScopeFormat } from './core/document';
-import { SearchEngine } from './core/search';
-import { detectFormatFromParts } from './core/document';
-import type { ProviderToWebviewMessage, WebviewToProviderMessage } from './webviewProtocol';
-import { messageType } from './webviewProtocol';
+import { DisposableStore } from '../core/disposableStore';
+import { computeDiff, type DiffResult } from '../core/diff';
+import { decodePairKey } from '../core/pairUri';
+import { parseIntelHexCompact } from '../core/parser/intelHexParser';
+import { parseSRecCompact } from '../core/parser/srecParser';
+import type { CompactParseResult } from '../core/parser/compact';
+import type { HexScopeFormat } from '../core/document';
+import { SearchEngine } from '../core/search';
+import { detectFormatFromParts } from '../core/document';
+import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
+import { messageType } from '../webviewProtocol';
 
 // ── Staging state (D7: ephemeral, module-level, session only) ──────
 let stagedFirstPath: string | null = null;
