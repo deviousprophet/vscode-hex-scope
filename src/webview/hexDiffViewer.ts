@@ -3,7 +3,7 @@
 // view sends diffReady/diffSwapRequest/diffSearchRequest.
 
 import type { DiffResult } from '../core/diff';
-import type { SearchEndianness, SearchMode, SegmentLabel } from '../core/types';
+import type { SegmentLabel } from '../core/types';
 import type { CopyCommand } from '../core/byte-tools/copyCommand';
 import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
@@ -21,6 +21,7 @@ import {
 } from './diff/diffViewModel';
 import { renderDiffSummaryHtml, type DiffSummaryState } from './diff/diffRenderer';
 import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewRange } from './ui-components/hex-view/hexViewComponent';
+import { SearchBarComponent } from './ui-components/search-bar/searchBarComponent';
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
@@ -31,9 +32,6 @@ let swapped = false;
 let error: string | null = null;
 let aError: string | null = null;
 let bError: string | null = null;
-let searchQuery = '';
-let searchMode: SearchMode = 'bytes';
-let searchEndianness: SearchEndianness = 'le';
 let searchMatches: number[] = [];
 let searchFocusAddr = -1;
 let diffFocusAddr = -1;
@@ -45,6 +43,19 @@ let selection: { side: 'a' | 'b'; start: number; end: number } | null = null;
 
 const compA = new HexViewComponent('a');
 const compB = new HexViewComponent('b');
+
+const searchBar = new SearchBarComponent({
+    onSearch: (query, mode, endianness) => {
+        post({ type: 'diffSearchRequest', generation, query, mode, endianness });
+    },
+    onPrev: () => gotoMatch(-1),
+    onNext: () => gotoMatch(1),
+    onClear: () => {
+        searchMatches = [];
+        searchFocusAddr = -1;
+        rerender();
+    },
+});
 
 let scrollTop = 0;
 let containerHeight = 0;
@@ -109,44 +120,6 @@ function labelRailHtml(): string {
     return `<div class="diff-rail">${items.join('')}</div>`;
 }
 
-function searchPlaceholder(): string {
-    const placeholders: Record<SearchMode, string> = {
-        bytes: 'Bytes (e.g. DE AD BE EF)',
-        value: 'Value (e.g. 0x12345678 or 305419896)',
-        ascii: 'ASCII text',
-        addr: 'Addr (e.g. 1A0)',
-    };
-    return placeholders[searchMode];
-}
-
-function endianButtonsHtml(): string {
-    const btn = (end: SearchEndianness, label: string) =>
-        `<button id="search-btn-${end}" class="${searchEndianness === end ? 'active' : ''}" type="button">${label}</button>`;
-    return `<div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:${searchMode === 'value' ? 'inline-flex' : 'none'}">
-        ${btn('auto', 'Auto')}${btn('le', 'LE')}${btn('be', 'BE')}
-    </div>`;
-}
-
-function searchBoxHtml(): string {
-    const modeOpts = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
-        `<option value="${m}"${searchMode === m ? ' selected' : ''}>${m}</option>`
-    ).join('');
-    return `<div id="search-box">
-        ${endianButtonsHtml()}
-        <select id="search-mode">${modeOpts}</select>
-        <div class="search-addr-wrap">
-            <span id="search-addr-prefix" class="search-addr-prefix" style="display:none">0x</span>
-            <input id="search-input" type="text" placeholder="${esc(searchPlaceholder())}" autocomplete="off" spellcheck="false"
-                maxlength="${searchMode === 'addr' ? 8 : 100}" class="${searchMode === 'addr' ? 'search-addr-mode' : ''}" value="${esc(searchQuery)}">
-        </div>
-        <button class="nav-btn" id="btn-search" title="Run search" aria-label="Run search">&#128269;</button>
-        <button class="nav-btn" id="btn-prev" title="Previous match">&#9650;</button>
-        <button class="nav-btn" id="btn-next" title="Next match">&#9660;</button>
-        <button class="nav-btn" id="btn-clear-search" title="Clear">&#10005;</button>
-        <span id="match-count"></span>
-    </div>`;
-}
-
 function renderScroll(): void {
     const scrollEl = document.getElementById('diff-scroll')!;
     containerHeight = Math.max(200, scrollEl.clientHeight);
@@ -194,7 +167,7 @@ function rerender(): void {
             <button id="prev-diff" class="nav-btn" title="Previous difference">&#9650;</button>
             <button id="next-diff" class="nav-btn" title="Next difference">&#9660;</button>
             <button id="swap" class="nav-btn" title="Swap A/B">&#8646;</button>
-            ${searchBoxHtml()}
+            ${searchBar.toHtml()}
         </div>
         <div class="diff-summary">${renderDiffSummaryHtml(summaryState())}</div>
         ${labelRailHtml()}
@@ -232,31 +205,6 @@ function gotoMatch(direction: 1 | -1): void {
     if (f) { searchFocusAddr = f.address; focusRow(f.address); }
 }
 
-function applySearchModeUi(inputEl: HTMLInputElement): void {
-    const endianToggle = document.getElementById('search-endian-toggle') as HTMLElement | null;
-    if (endianToggle) { endianToggle.style.display = searchMode === 'value' ? 'inline-flex' : 'none'; }
-    inputEl.placeholder = searchPlaceholder();
-    inputEl.maxLength = searchMode === 'addr' ? 8 : 100;
-    if (searchMode !== 'addr') { inputEl.classList.remove('search-addr-mode'); }
-    updateAddrOverlay(inputEl);
-}
-
-function updateAddrOverlay(inputEl: HTMLInputElement): void {
-    const prefix = document.getElementById('search-addr-prefix') as HTMLElement | null;
-    const show = searchMode === 'addr' && inputEl.value.length > 0;
-    if (prefix) { prefix.style.display = show ? '' : 'none'; }
-    inputEl.classList.toggle('search-addr-mode', show);
-}
-
-function applyEndianUi(): void {
-    const toggle = (id: string, on: boolean): void => {
-        document.getElementById(id)?.classList.toggle('active', on);
-    };
-    toggle('search-btn-auto', searchEndianness === 'auto');
-    toggle('search-btn-le', searchEndianness === 'le');
-    toggle('search-btn-be', searchEndianness === 'be');
-}
-
 function wireToolbar(): void {
     document.getElementById('view-all')!.addEventListener('click', () => { viewMode = 'all'; scrollTop = 0; rerender(); });
     document.getElementById('view-diff')!.addEventListener('click', () => { viewMode = 'diff'; scrollTop = 0; rerender(); });
@@ -267,52 +215,6 @@ function wireToolbar(): void {
         post({ type: 'diffSwapRequest' });
         document.body.classList.toggle('swapped', swapped);
     });
-
-    const searchInput = document.getElementById('search-input') as HTMLInputElement;
-    const doSearch = (query: string): void => {
-        searchQuery = query;
-        post({ type: 'diffSearchRequest', generation, query, mode: searchMode, endianness: searchEndianness });
-    };
-
-    searchInput.addEventListener('input', () => {
-        if (searchMode !== 'addr') { return; }
-        searchInput.value = searchInput.value.replace(/[^0-9a-fA-F]/g, '');
-        updateAddrOverlay(searchInput);
-    });
-    searchInput.addEventListener('keydown', e => {
-        if (e.key !== 'Enter') { return; }
-        e.preventDefault();
-        doSearch(searchInput.value);
-        if (e.shiftKey) { gotoMatch(-1); }
-    });
-
-    document.getElementById('search-mode')!.addEventListener('change', (e: Event) => {
-        searchMode = (e.target as HTMLSelectElement).value as SearchMode;
-        applySearchModeUi(searchInput);
-        doSearch(searchInput.value);
-    });
-    const endianButtons: Array<[SearchEndianness, string]> = [['auto', 'search-btn-auto'], ['le', 'search-btn-le'], ['be', 'search-btn-be']];
-    for (const [end, id] of endianButtons) {
-        document.getElementById(id)!.addEventListener('click', () => {
-            searchEndianness = end;
-            applyEndianUi();
-            doSearch(searchInput.value);
-        });
-    }
-    document.getElementById('btn-search')!.addEventListener('click', () => doSearch(searchInput.value));
-    document.getElementById('btn-prev')!.addEventListener('click', () => gotoMatch(-1));
-    document.getElementById('btn-next')!.addEventListener('click', () => gotoMatch(1));
-    document.getElementById('btn-clear-search')!.addEventListener('click', () => {
-        searchInput.value = '';
-        searchQuery = '';
-        searchMatches = [];
-        searchFocusAddr = -1;
-        updateAddrOverlay(searchInput);
-        rerender();
-    });
-
-    applySearchModeUi(searchInput);
-    applyEndianUi();
 }
 
 function copySelection(format?: CopyCommand): void {
@@ -321,17 +223,8 @@ function copySelection(format?: CopyCommand): void {
     void navigator.clipboard.writeText(formatCopyCommand(format ?? 'hex', bytes));
 }
 
-function updateMatchCount(): void {
-    const el = document.getElementById('match-count');
-    if (!el) { return; }
-    if (searchQuery.length > 0 && searchMatches.length === 0) { el.textContent = '0 / 0'; return; }
-    if (searchMatches.length === 0) { el.textContent = ''; return; }
-    const idx = searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0;
-    el.textContent = `${idx + 1} / ${searchMatches.length}`;
-}
-
 function updateStatus(): void {
-    updateMatchCount();
+    searchBar.setCount(searchMatches.length, searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0);
     if (error) {
         status.textContent = `Error: ${error}`;
     } else if (!result) {
@@ -481,16 +374,11 @@ document.addEventListener('keydown', e => {
     }
 });
 
-// Ctrl+F focuses the search box (mirrors the single-file view).
-document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        const inp = document.getElementById('search-input') as HTMLInputElement | null;
-        if (inp) { inp.focus(); inp.select(); }
-    }
-});
-
 post({ type: 'diffReady' });
 rerender();
+searchBar.mount();
+
+
+
 
 

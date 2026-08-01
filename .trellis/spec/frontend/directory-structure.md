@@ -35,7 +35,8 @@ src/
    |- memory/, search/, render/ view-specific modules
    |- diff/                     diff-specific view model + renderer helpers
    |- ui-components/            reusable standalone UI components (own code + css per component)
-   |  `- hex-view/              HexViewComponent: single-panel hex grid (+ hexViewComponent.css)
+   |  |- hex-view/              HexViewComponent: single-panel hex grid (+ hexViewComponent.css)
+   |  `- search-bar/            SearchBarComponent: mode/endian/input/nav/count search box (+ searchBarComponent.css)
    `- sidebar/{inspector,integrity,struct}/ feature modules
 ```
 

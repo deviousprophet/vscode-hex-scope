@@ -238,6 +238,7 @@ export class HexDiffSession {
         const cssFiles = [
             'src/webview/styles/base.css',
             'src/webview/styles/toolbar.css',
+            'src/webview/ui-components/search-bar/searchBarComponent.css',
             'src/webview/ui-components/hex-view/hexViewComponent.css',
             'src/webview/styles/diff.css',
         ];
@@ -272,3 +273,4 @@ function getNonce(): string {
     }
     return result;
 }
+

@@ -37,7 +37,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 - `readLabels(context, uri)` → `workspaceState.get('hexScope.labels.' + uri.toString(), [])`; sent as `aLabels`/`bLabels` (read-only display).
 - External-change watchers per side + 200ms debounce → re-parse that side → `diffUpdate`.
 - Per-side validity: `parseErrorFor(result)` returns a message when `checksumErrors`/`malformedLines` > 0; carried as `aError`/`bError` so the webview shows a per-panel parse-error state.
-- Search: runs core `SearchEngine` over **both** sides' segments with the requested `mode`/`endianness`, merges matches into one sorted union.
+- Search: the diff view uses the reusable **`SearchBarComponent`** (`ui-components/search-bar/`); its `onSearch(query, mode, endianness)` callback drives `diffSearchRequest`. The host runs core `SearchEngine` over **both** sides' segments with the requested `mode`/`endianness`, merges the matches into one sorted union, and returns them in `diffSearch`.
 - Swap is a view preference; host echoes orientation via `diffSwap`.
 
 ## 5. Webview layout (hexDiffViewer.ts + diff.css)

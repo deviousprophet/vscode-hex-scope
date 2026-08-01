@@ -1,0 +1,47 @@
+/* Reusable search bar (mode select, endian toggle, input, nav buttons, count).
+   Self-contained: the host only needs base.css + this file. */
+
+#search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+
+/* Endian toggle (Auto / LE / BE) */
+.search-endian-toggle { flex-shrink: 0; }
+.search-endian-toggle button { min-width: 42px; height: 22px; font-size: 10px; }
+.search-endian-toggle button.active { background: var(--btn-bg); color: var(--btn-fg); }
+
+#search-mode {
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 0 4px; height: 22px; font-size: 11px; cursor: pointer;
+}
+
+.search-addr-wrap { position: relative; display: inline-flex; align-items: center; }
+.search-addr-prefix {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    color: var(--non-graphic); font-family: var(--font-editor); font-size: 12px;
+    pointer-events: none; z-index: 1; line-height: 1; user-select: none;
+}
+
+#search-input {
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 0 7px; height: 26px; width: 180px; outline: none;
+    font-size: 12px; font-family: var(--font-editor); transition: border-color .12s;
+}
+#search-input.search-addr-mode { padding-left: 23px; }
+#search-input::placeholder { color: var(--non-graphic); }
+#search-input:focus { border-color: var(--focus-bdr); }
+
+.nav-btn {
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    background: transparent; color: var(--fg);
+    border: 1px solid transparent; border-radius: 4px;
+    cursor: pointer; font-size: 13px; transition: background .12s, color .12s;
+}
+.nav-btn:hover { background: var(--hover-bg); color: var(--fg); border-color: var(--border); }
+
+#match-count {
+    color: var(--fg); font-size: 11px;
+    width: 14ch; text-align: right; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+}
