@@ -98,19 +98,25 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerFileDecorationProvider(diffDecorationProvider())
     );
 
-/** Diff pair resolution: explicit 2-URI args or a multi-select Uri[] (first = A). No file picker. */
-function resolvePair(first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri): [vscode.Uri, vscode.Uri] | undefined {
-    const picked = Array.isArray(first) ? first : first && second ? [first, second] : undefined;
-    if (!picked || picked.length < 2) { return undefined; }
-    return [picked[0], picked[1]];
+const SUPPORTED_DIFF_EXTS = ['.hex', '.ihx', '.ihex', '.srec', '.mot', '.s19', '.s28', '.s37'];
+
+function isSupportedDiffFile(uri: vscode.Uri): boolean {
+    const name = uri.path.toLowerCase();
+    return SUPPORTED_DIFF_EXTS.some(ext => name.endsWith(ext));
 }
 
     // Compare selected (2 URIs, explorer multi-select) — first selected is A
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.compareSelected', (first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri) => {
-            const pair = resolvePair(first, second);
-            if (!pair) { return; }
-            void validateAndOpenPair(pair[0], pair[1]);
+            const picked = Array.isArray(first) ? first : first && second ? [first, second] : undefined;
+            if (!picked || picked.length < 2) { return; }
+            const unsupported = picked.filter(u => !isSupportedDiffFile(u));
+            if (unsupported.length > 0) {
+                const names = unsupported.map(u => u.fsPath.split(/[\\/]/).pop()).join(', ');
+                vscode.window.showWarningMessage(`HexScope: only HEX/SREC files can be compared (unsupported: ${names}).`);
+                return;
+            }
+            void validateAndOpenPair(picked[0], picked[1]);
         })
     );
 

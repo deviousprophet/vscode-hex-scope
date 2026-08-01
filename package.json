@@ -246,14 +246,16 @@
       ],
       "commandPalette": [
         {
-          "command": "hexScope.compareSelected"
+          "command": "hexScope.compareSelected",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/"
         },
         {
-          "command": "hexScope.selectAsFirst"
+          "command": "hexScope.selectAsFirst",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/"
         },
         {
           "command": "hexScope.compareToStaged",
-          "when": "hexScope.hasStagedFirst"
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst"
         }
       ]
     },

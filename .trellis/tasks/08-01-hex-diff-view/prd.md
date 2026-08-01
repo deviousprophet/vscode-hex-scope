@@ -116,6 +116,7 @@ D30. **Explorer menu switch (single vs double select).** Inside the `hexScope.ac
     - `selectAsFirst` (**Set as 1st file to compare**) requires `!listMultiSelection` (single select) — hidden on multi-select.
     - `compareToStaged` (**Compare with the 1st file**) requires `hexScope.hasStagedFirst && !listMultiSelection`.
     So single-select shows only the staging flow; exactly-2 shows only Compare Two Files; >2 shows neither. The same clauses make the staging items appear in the editor-title menus (single active editor, no list selection) while Compare Two Files stays explorer-only. The staged state is **cleared as soon as a diff opens** (either entry path), so the badge and "Compare with the 1st file" item disappear immediately (D7).
+D31. **Unsupported selection → explicit warning.** `compareSelected` validates every picked URI against the supported extensions (`.hex .ihx .ihex .srec .mot .s19 .s28 .s37`); if any is unsupported (e.g. mixed hex+txt selection), it warns "only HEX/SREC files can be compared (unsupported: …)" and does not open. Command-palette entries for the staging/compare commands are gated to `resourceLangId =~ /^(intel-hex|srec)$/` so they can't fire from a non-hex editor.
 
 
 
