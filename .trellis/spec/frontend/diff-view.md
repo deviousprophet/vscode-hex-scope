@@ -50,6 +50,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 - Per-panel errors: `aError`/`bError` → the affected component's side gets `panel-error` (dimmed cells) + a `.side-error` banner.
 - Status colors: changed = red `#ff6b6b`, added = green `#4ec9a0`, removed = magenta `#c586c0`; cells `data-cell ${status}`, per-cell `match` (search) and `sel` (selection).
 - **Hover/selection (layered, hover < selection)**: row hover (bg + addr brighten); per-cell hover (skip empty cells); **cross-panel mirror** — hovered byte's same address in the opposite component gets `cell-mirror`; **column hover** — 00..0F header hover highlights that offset across both components (`col-hi`); **selection** — click/click-drag (`sel`, single-view style) with a `sel-mirror` outline on the opposite component. Live hover/drag updates DOM classes (no per-cell re-render).
+- **Reusable interaction**: `HexViewComponent` (`diff/hexViewComponent.ts`) owns render + hover + selection + column-hover and emits callbacks; the diff wires only the cross-panel layer between its two instances. `renderHexViewComponentHtml` is the pure HTML builder (label optional). Single hex view can later reuse one component.
 
 ## 6. Selection + copy
 

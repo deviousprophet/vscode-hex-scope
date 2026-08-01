@@ -3,7 +3,8 @@
 import * as assert from 'assert';
 import { computeDiff } from '../../core/diff';
 import type { CompactParseResult } from '../../core/parser/compact';
-import { renderDiffComponentHtml, renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
+import { renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
+import { renderHexViewComponentHtml } from '../../webview/diff/hexViewComponent';
 import { groupVisualRows } from '../../webview/diff/diffViewModel';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
@@ -20,26 +21,20 @@ function seg(startAddress: number, bytes: number[]): { startAddress: number; dat
     return { startAddress, data: Uint8Array.from(bytes) };
 }
 
-function componentHtml(overrides: Partial<Parameters<typeof renderDiffComponentHtml>[0]> = {}, label = 'file.hex'): string {
+function componentHtml(overrides: Partial<Parameters<typeof renderHexViewComponentHtml>[1]> = {}, label = 'file.hex'): string {
     const a = parse([seg(0x1000, [1, 2, 3, 4])]);
     const b = parse([seg(0x1000, [1, 2, 3, 4])]);
     const d = computeDiff(a, b);
-    return renderDiffComponentHtml(
-        {
-            result: d,
-            visualRows: groupVisualRows(d.rows),
-            searchRowIndex: -1,
-            matchSet: new Set(),
-            aError: null,
-            bError: null,
-            selection: null,
-            ...overrides,
-        },
-        'a',
+    return renderHexViewComponentHtml('a', {
         label,
-        [0, 1],
-        22,
-    );
+        rows: groupVisualRows(d.rows),
+        searchRowIndex: -1,
+        matchSet: new Set(),
+        error: null,
+        visibleRange: [0, 1],
+        totalHeight: 22,
+        ...overrides,
+    });
 }
 
 suite('diff visual-row grouping', () => {
@@ -99,13 +94,8 @@ suite('diff renderer', () => {
     });
 
     test('a side with a parse error is flagged panel-error', () => {
-        const html = componentHtml({ aError: 'parse error' });
+        const html = componentHtml({ error: 'parse error' });
         assert.ok(html.includes('side panel-error'), 'affected side carries the error flag');
-    });
-
-    test('selected cells get the sel class on the selected side only', () => {
-        const html = componentHtml({ selection: { side: 'a', start: 0x1000, end: 0x1000 } });
-        assert.strictEqual((html.match(/class="data-cell unchanged sel"/g) ?? []).length, 1);
     });
 
     test('label is optional: present when given, omitted when empty', () => {
@@ -116,15 +106,8 @@ suite('diff renderer', () => {
     test('identical files render an identical summary', () => {
         const a = parse([seg(0x1000, [1])]);
         const d = computeDiff(a, a);
-        const html = renderDiffSummaryHtml({
-            result: d,
-            visualRows: groupVisualRows(d.rows),
-            searchRowIndex: -1,
-            matchSet: new Set(),
-            aError: null,
-            bError: null,
-            selection: null,
-        });
+        const html = renderDiffSummaryHtml({ result: d, aError: null, bError: null });
         assert.ok(html.includes('Files are identical'));
     });
 });
+

@@ -126,6 +126,7 @@ D34. **Hover + selection (user-specified).** Layered highlights, hover always we
     - **Column hover** — hovering a 00..0F header offset highlights that byte column across **both** components.
     - **Selection** — click = 1 byte, click-drag = range, click empty space clears; selected cells use the single-view `sel` style; the same address range in the opposite component gets a **sel-mirror outline**.
     Live hover/drag update classes via DOM (no full re-render per cell), so dense-hex interaction stays smooth.
+D35. **Hover/selection live inside the reusable component.** The hover/selection/column interaction (D34) is packed into `HexViewComponent` (`src/webview/diff/hexViewComponent.ts`): each component owns its own hover + selection + header-column state, emits `onHover`/`onLeave`/`onSelectionChange`/`onColumnHover`/`onColumnLeave` callbacks, and paints its own `sel`/column highlights. The diff view instantiates two components and wires only the **cross-panel** layer via callbacks (hovered byte's mirror `cell-mirror`, selection `sel-mirror` outline, column highlight on the other component). A single view later reuses one component with no cross-panel wiring.
 
 
 

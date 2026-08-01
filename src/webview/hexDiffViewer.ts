@@ -11,7 +11,6 @@ import { messageType } from '../webviewProtocol';
 import { vscode } from './vscodeApi';
 import { esc } from './utils';
 import {
-    formatAddress,
     diffRunFocus,
     searchMatchFocus,
     DIFF_ROW_BYTES,
@@ -20,7 +19,8 @@ import {
     visualRowIndexForAddress,
     type DiffVisualRow,
 } from './diff/diffViewModel';
-import { renderDiffSummaryHtml, renderDiffComponentHtml, type DiffRenderState, type DiffSelection } from './diff/diffRenderer';
+import { renderDiffSummaryHtml, type DiffSummaryState } from './diff/diffRenderer';
+import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewRange } from './diff/hexViewComponent';
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
@@ -40,11 +40,11 @@ let diffFocusAddr = -1;
 let viewMode: 'all' | 'diff' = 'all';
 let aLabels: SegmentLabel[] = [];
 let bLabels: SegmentLabel[] = [];
-let selection: DiffSelection | null = null;
-let dragging = false;
-let hoverAddr = -1;
-let hoverSide: 'a' | 'b' | null = null;
-let hoverCol = -1;
+// Selection mirror, kept for copy + status; the components own the real state.
+let selection: { side: 'a' | 'b'; start: number; end: number } | null = null;
+
+const compA = new HexViewComponent('a');
+const compB = new HexViewComponent('b');
 
 let scrollTop = 0;
 let containerHeight = 0;
@@ -80,16 +80,8 @@ function searchRowIndexFor(): number {
     return searchFocusAddr >= 0 ? visualRowIndexForAddress(shownRows(), searchFocusAddr) : -1;
 }
 
-function renderState(): DiffRenderState {
-    return {
-        result,
-        visualRows: shownRows(),
-        searchRowIndex: searchRowIndexFor(),
-        matchSet: new Set(searchMatches),
-        aError,
-        bError,
-        selection,
-    };
+function summaryState(): DiffSummaryState {
+    return { result, aError, bError };
 }
 
 function errorBannersHtml(): string {
@@ -165,16 +157,24 @@ function renderScroll(): void {
         scrollEl.addEventListener('scroll', () => rerender());
         return;
     }
-    const state = renderState();
     const totalHeight = rows.length * ROW_HEIGHT;
     const range = visibleWindow(rows.length);
+    const matchSet = new Set(searchMatches);
+    const input = {
+        rows,
+        searchRowIndex: searchRowIndexFor(),
+        matchSet,
+        visibleRange: range,
+        totalHeight,
+    };
     scrollEl.innerHTML = `<div class="diff-grid">
-        ${renderDiffComponentHtml(state, 'a', aLabel, range, totalHeight)}
+        ${renderHexViewComponentHtml('a', { ...input, label: aLabel, error: aError })}
         <span class="diff-sep"></span>
-        ${renderDiffComponentHtml(state, 'b', bLabel, range, totalHeight)}
+        ${renderHexViewComponentHtml('b', { ...input, label: bLabel, error: bError })}
     </div>`;
     scrollEl.scrollTop = scrollTop;
-    reapplyTransientHighlights();
+    compA.reapply();
+    compB.reapply();
     scrollEl.addEventListener('scroll', () => {
         scrollTop = scrollEl.scrollTop;
         rerender();
@@ -196,7 +196,7 @@ function rerender(): void {
             <button id="swap" class="nav-btn" title="Swap A/B">&#8646;</button>
             ${searchBoxHtml()}
         </div>
-        <div class="diff-summary">${renderDiffSummaryHtml(renderState())}</div>
+        <div class="diff-summary">${renderDiffSummaryHtml(summaryState())}</div>
         ${labelRailHtml()}
         ${errorBannersHtml()}
         <div id="diff-scroll"></div>
@@ -412,116 +412,35 @@ window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage
     if (handler) { handler(event.data as Extract<ProviderToWebviewMessage, { type: string }>); }
 });
 
-// ── Selection + hover (per-panel, DOM-class updates, no re-render) ─
-function cellFromEvent(target: EventTarget | null): { side: 'a' | 'b'; addr: number } | null {
-    const el = (target as HTMLElement).closest?.('[data-addr][data-side]') as HTMLElement | null;
-    if (!el) { return null; }
-    const side = el.dataset.side as 'a' | 'b';
-    const addr = parseInt(el.dataset.addr ?? '', 16);
-    if (!Number.isFinite(addr)) { return null; }
-    return { side, addr };
-}
+// ── Component wiring (two hexview components + cross-panel highlights) ─
+function wireComponents(): void {
+    // Cross-panel hover mirror: hovered byte lights up in the other component.
+    const mirrorCallbacks = (from: HexViewComponent, to: HexViewComponent): HexViewCallbacks => ({
+        onHover: addr => to.setMirrorAddr(addr),
+        onLeave: () => to.setMirrorAddr(-1),
+        onSelectionChange: (range: HexViewRange | null) => {
+            selection = range ? { side: from === compA ? 'a' : 'b', start: range.start, end: range.end } : null;
+            to.setMirrorRange(range);
+        },
+        onColumnHover: col => to.setColumn(col),
+        onColumnLeave: () => to.setColumn(-1),
+    });
+    compA.setCallbacks(mirrorCallbacks(compA, compB));
+    compB.setCallbacks(mirrorCallbacks(compB, compA));
 
-const addrSel = (addr: number, side?: 'a' | 'b'): string =>
-    `.data-cell[data-addr="${esc(formatAddress(addr))}"]${side ? `[data-side="${side}"]` : ''}`;
+    compA.mount();
+    compB.mount();
 
-/** Apply `.sel` to the selected side's range and `.sel-mirror` to the other side. */
-function applySelectionDom(): void {
-    document.querySelectorAll('.data-cell.sel, .data-cell.sel-mirror').forEach(el => el.classList.remove('sel', 'sel-mirror'));
-    if (!selection) { return; }
-    const other = selection.side === 'a' ? 'b' : 'a';
-    for (const el of document.querySelectorAll<HTMLElement>(`.data-cell[data-side="${selection.side}"]`)) {
-        const a = parseInt(el.dataset.addr ?? '', 16);
-        if (a >= selection.start && a <= selection.end) { el.classList.add('sel'); }
-    }
-    for (const el of document.querySelectorAll<HTMLElement>(`.data-cell[data-side="${other}"]`)) {
-        const a = parseInt(el.dataset.addr ?? '', 16);
-        if (a >= selection.start && a <= selection.end) { el.classList.add('sel-mirror'); }
-    }
-}
-
-/** Highlight the same address in the opposite component (cross-panel hover). */
-function applyHoverMirror(): void {
-    document.querySelectorAll('.data-cell.cell-mirror').forEach(el => el.classList.remove('cell-mirror'));
-    if (hoverAddr < 0 || !hoverSide) { return; }
-    const mirror = document.querySelector(addrSel(hoverAddr, hoverSide === 'a' ? 'b' : 'a'));
-    mirror?.classList.add('cell-mirror');
-}
-
-/** Highlight the byte column across both components when hovering a header offset. */
-function applyColHover(): void {
-    document.querySelectorAll('.data-cell.col-hi').forEach(el => el.classList.remove('col-hi'));
-    if (hoverCol < 0) { return; }
-    for (const el of document.querySelectorAll<HTMLElement>('.data-cell[data-addr]')) {
-        const a = parseInt(el.dataset.addr ?? '', 16);
-        if (a >= 0 && (a & 0xF) === hoverCol) { el.classList.add('col-hi'); }
-    }
-}
-
-function wireSelection(): void {
+    // Clicking empty scroll space clears the selection (toolbar/rail clicks leave it).
     document.addEventListener('mousedown', e => {
-        const cell = cellFromEvent(e.target);
-        if (cell) {
-            dragging = true;
-            selection = { side: cell.side, start: cell.addr, end: cell.addr };
-            applySelectionDom();
-            return;
-        }
-        // Clicking empty scroll space clears the selection; toolbar/rail clicks leave it.
-        if ((e.target as HTMLElement).closest?.('#diff-scroll')) {
+        if ((e.target as HTMLElement).closest?.('#diff-scroll') && !(e.target as HTMLElement).closest?.('.data-cell')) {
+            compA.setSelection(null);
+            compB.setSelection(null);
             selection = null;
-            applySelectionDom();
+            compA.setMirrorRange(null);
+            compB.setMirrorRange(null);
         }
     });
-    document.addEventListener('mouseover', e => {
-        if (dragging && selection) {
-            const cell = cellFromEvent(e.target);
-            if (cell && cell.side === selection.side) {
-                selection = {
-                    side: cell.side,
-                    start: Math.min(selection.start, cell.addr),
-                    end: Math.max(selection.end, cell.addr),
-                };
-                applySelectionDom();
-            }
-            return;
-        }
-        const cell = cellFromEvent(e.target);
-        if (cell) {
-            hoverAddr = cell.addr;
-            hoverSide = cell.side;
-            applyHoverMirror();
-        }
-    });
-    document.addEventListener('mouseout', e => {
-        if (cellFromEvent(e.target)) {
-            hoverAddr = -1;
-            hoverSide = null;
-            applyHoverMirror();
-        }
-    });
-    document.addEventListener('mouseup', () => { dragging = false; });
-
-    // Header column hover: highlight that offset column across both components.
-    document.addEventListener('mouseover', e => {
-        const hcell = (e.target as HTMLElement).closest?.('.diff-header .hcell') as HTMLElement | null;
-        if (!hcell) { return; }
-        const idx = Array.prototype.indexOf.call(hcell.parentElement?.children ?? [], hcell);
-        if (idx >= 0) { hoverCol = idx; applyColHover(); }
-    });
-    document.addEventListener('mouseout', e => {
-        if ((e.target as HTMLElement).closest?.('.diff-header .hcell')) {
-            hoverCol = -1;
-            applyColHover();
-        }
-    });
-}
-
-/** Re-apply transient hover/selection classes after the DOM is rebuilt. */
-function reapplyTransientHighlights(): void {
-    applySelectionDom();
-    applyHoverMirror();
-    applyColHover();
 }
 
 /** Bytes of the selected side over the selection range, in address order. */
@@ -542,7 +461,7 @@ function selectionBytes(): number[] {
 // ── Bootstrap ─────────────────────────────────────────────────────
 window.addEventListener('resize', () => rerender());
 
-wireSelection();
+wireComponents();
 
 // Alt+↓ / Alt+↑ jump to next/prev diff run.
 document.addEventListener('keydown', e => {
@@ -569,3 +488,4 @@ document.addEventListener('keydown', e => {
 
 post({ type: 'diffReady' });
 rerender();
+
