@@ -33,8 +33,15 @@ function byteText(cell: DiffCell | null): string {
     return cell && cell.present ? cell.byte.toString(16).toUpperCase().padStart(2, '0') : '··';
 }
 
+const DIFF_TYPES = new Set(['changed', 'added', 'removed']);
+
+/** Collapse all difference statuses into a single `diff` visual. */
+function diffStatus(status: string): string {
+    return DIFF_TYPES.has(status) ? 'diff' : status;
+}
+
 function cellClass(cell: DiffCell | null, status: string, isMatch: boolean, isAmatch: boolean): string {
-    const cls = !cell || !cell.present ? 'data-cell empty' : `data-cell ${status}`;
+    const cls = !cell || !cell.present ? 'data-cell empty' : `data-cell ${diffStatus(status)}`;
     if (isMatch && cell?.present) { return `${cls} match${isAmatch ? ' amatch' : ''}`; }
     return cls;
 }

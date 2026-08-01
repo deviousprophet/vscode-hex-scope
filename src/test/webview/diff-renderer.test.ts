@@ -103,6 +103,25 @@ suite('diff renderer', () => {
         assert.ok(!componentHtml(undefined, '').includes('class="panel-label"'));
     });
 
+    test('changed/added/removed all render as the single diff status', () => {
+        const a = parse([seg(0x1000, [1, 2, 3, 4])]);
+        const b = parse([seg(0x1000, [1, 9, 3, 4])]);
+        const d = computeDiff(a, b);
+        const html = renderHexViewComponentHtml('a', {
+            label: 'f.hex',
+            rows: groupVisualRows(d.rows),
+            searchRowIndex: -1,
+            matchSet: new Set(),
+            error: null,
+            visibleRange: [0, 1],
+            totalHeight: 22,
+        });
+        assert.ok(html.includes('data-cell diff'), 'differing byte renders as diff');
+        assert.ok(!html.includes('data-cell changed'), 'no separate changed class');
+        assert.ok(!html.includes('data-cell added'), 'no separate added class');
+        assert.ok(!html.includes('data-cell removed'), 'no separate removed class');
+    });
+
     test('identical files render an identical summary', () => {
         const a = parse([seg(0x1000, [1])]);
         const d = computeDiff(a, a);

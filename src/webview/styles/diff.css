@@ -106,46 +106,31 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
 /* 4-byte group gap, same as the memory view */
 .side .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 
-/* ── Status colors: changed red, added green, removed magenta ─── */
+/* ── Status (all differences collapse to one "diff" look) ─────── */
 .data-cell.unchanged { color: var(--fg); }
 .data-cell.empty     { color: var(--non-graphic); opacity: .55; }
-.data-cell.changed   { color: #ff6b6b;   background: rgba(255,90,90,.16); }
-.data-cell.added     { color: var(--ok); background: rgba(78,201,160,.14); }
-.data-cell.removed   { color: #c586c0;   background: rgba(197,134,192,.14); }
+.data-cell.diff      { color: #ff6b6b; background: rgba(255,90,90,.16); }
 
-/* ── Hover / selection (single-view parity, layered: hover < selection) ─ */
-/* per-cell hover (skip empty cells, like the single view) */
-.data-cell:not(.empty):hover { background: var(--hover-bg); }
-/* hovered byte (own side) and its cross-panel mirror share one look */
-.data-cell.cell-hover,
-.data-cell.cell-mirror {
-    background: rgba(255,255,255,.10);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
-}
-/* byte column hover from the 00..0F header (data + header cells) */
-.data-cell.col-hi:not(.sel):not(.match) { background: rgba(255,255,255,.06); }
+/* ── 4 independent visual channels: status=bg, sel=outline,
+       hover=inner ring, match=amber underline. All coexist. ─────── */
+/* column hover: faint bg, only on non-status cells (low specificity) */
+.col-hi { background: rgba(255,255,255,.06); }
 .diff-header .hcell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
-/* selected bytes (single-view style) */
-.data-cell.sel { background: var(--sel-bg) !important; color: var(--sel-fg, var(--fg)); outline: none; }
+/* selection → outline (primary) */
+.data-cell.sel { outline: 1px solid rgba(95,207,255,.9); outline-offset: -1px; }
+/* cross-panel selection → dashed outline (opposite component) */
+.data-cell.sel-mirror { outline: 1px dashed rgba(95,207,255,.5); outline-offset: -1px; }
+/* hover → inner ring (primary + cross-panel mirror share the look) */
+.data-cell.cell-hover,
+.data-cell.cell-mirror { box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); }
+/* match → amber underline */
+.data-cell.match        { text-decoration: underline; text-decoration-color: #eab308; text-underline-offset: 3px; }
+.data-cell.match.amatch { text-decoration-thickness: 3px; }
 /* selected columns highlight in the header (single-view .sel-col) */
 .diff-header .hcell.sel-col {
     background: rgba(255,255,255,.07);
     color: var(--fg) !important;
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
-}
-/* cross-panel outline of the selected range (opposite component) */
-.data-cell.sel-mirror { box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); }
-
-/* Match + selection combos (single-view parity) */
-.data-cell.match { background: var(--match-bg) !important; }
-.data-cell.match.amatch { background: var(--match-hi) !important; }
-.data-cell.sel.match {
-    background: var(--match-hi) !important;
-    color: var(--fg);
-    box-shadow: inset 0 0 0 1px rgba(95,207,255,.95), 0 0 0 1px rgba(95,207,255,.5);
-}
-.data-cell.sel.match.amatch {
-    box-shadow: inset 0 0 0 2px rgba(95,207,255,1), 0 0 0 1px rgba(95,207,255,.8);
 }
 
 /* ── Per-panel parse-error state ──────────────────────────────── */
