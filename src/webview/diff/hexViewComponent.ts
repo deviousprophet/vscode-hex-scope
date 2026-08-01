@@ -78,6 +78,7 @@ export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRender
 /** Interaction controller: owns its own hover/selection, emits callbacks. */
 export class HexViewComponent {
     private _selection: HexViewRange | null = null;
+    private _hoverAddr = -1;
     private _mirrorAddr = -1;
     private _mirrorRange: HexViewRange | null = null;
     private _column = -1;
@@ -134,10 +135,18 @@ export class HexViewComponent {
                 return;
             }
             const c = cell(e.target);
-            if (c) { this.cb.onHover?.(c.addr); }
+            if (c) {
+                this._hoverAddr = c.addr;
+                this.applyHover();
+                this.cb.onHover?.(c.addr);
+            }
         });
         on('mouseout', e => {
-            if (cell(e.target)) { this.cb.onLeave?.(); }
+            if (cell(e.target)) {
+                this._hoverAddr = -1;
+                this.applyHover();
+                this.cb.onLeave?.();
+            }
         });
         on('mouseup', () => { this._dragging = false; });
 
@@ -173,7 +182,22 @@ export class HexViewComponent {
     setColumn(col: number): void { this.applyColumn(col); }
 
     /** Re-apply transient paints after the DOM is rebuilt. */
-    reapply(): void { this.applySel(); this.applyMirror(); this.applyMirrorRange(); this.applyColumn(); }
+    reapply(): void {
+        this.applySel();
+        this.applyHover();
+        this.applyMirror();
+        this.applyMirrorRange();
+        this.applyColumn();
+    }
+
+    /** Highlight the hovered byte on its own side too (matches the mirror). */
+    private applyHover(): void {
+        const scope = this.rootSel;
+        document.querySelectorAll(`${scope} .data-cell.cell-hover`).forEach(el => el.classList.remove('cell-hover'));
+        if (this._hoverAddr < 0) { return; }
+        const el = document.querySelector(`${scope} .data-cell[data-addr="${esc(formatAddress(this._hoverAddr))}"]`);
+        el?.classList.add('cell-hover');
+    }
 
     private applySel(): void {
         const scope = this.rootSel;

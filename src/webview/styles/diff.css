@@ -109,10 +109,14 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
 .data-cell.match { background: var(--match-bg) !important; }
 
 /* ── Hover / selection (layered: hover < selection) ───────────── */
-/* per-cell hover (primary); skip empty cells like the single view */
+/* per-cell hover background (primary, like the single view) */
 .data-cell:not(.empty):hover { background: var(--hover-bg); }
-/* cross-panel mirror of the hovered byte (opposite component) */
-.data-cell.cell-mirror { box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+/* hovered byte (own side) and its cross-panel mirror share one look */
+.data-cell.cell-hover,
+.data-cell.cell-mirror {
+    background: rgba(255,255,255,.10);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+}
 /* byte column highlight from the 00..0F header hover */
 .data-cell.col-hi { background: rgba(255,255,255,.07); }
 /* selected bytes (single-view style) */
