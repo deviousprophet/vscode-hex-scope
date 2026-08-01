@@ -152,23 +152,13 @@ body.swapped .diff-row .side.a,   .diff-header .side.a   {
 /* ── Search focus row highlight ───────────────────────────────── */
 .side.search-row { box-shadow: inset 0 0 0 1px rgba(95,207,255,.9); border-radius: 2px; }
 
-/* ── Toolbar (mirrors #toolbar) ───────────────────────────────── */
+/* ── Toolbar (top; search UI reuses toolbar.css #search-box etc.) ─ */
 .diff-toolbar {
     flex-shrink: 0;
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
     min-height: 35px; padding: 4px 10px;
-    background: var(--toolbar-bg); border-top: 1px solid var(--border);
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
 }
-.diff-toolbar button {
-    height: 24px; padding: 0 8px;
-    background: transparent; color: var(--fg);
-    border: 1px solid transparent; border-radius: 4px;
-    font-size: 11px; font-family: var(--font-ui);
-    cursor: pointer; white-space: nowrap;
-    transition: background .12s, color .12s, border-color .12s;
-}
-.diff-toolbar button:hover { background: var(--hover-bg); border-color: var(--border); }
-#diff-search-mode,
 #diff-copy-format {
     height: 24px;
     background: var(--input-bg); color: var(--fg);
@@ -176,17 +166,12 @@ body.swapped .diff-row .side.a,   .diff-header .side.a   {
     font-size: 11px; font-family: var(--font-ui);
     cursor: pointer;
 }
-#diff-endian { min-width: 42px; font-family: var(--font-editor); }
-.diff-toolbar input[type="text"] {
-    flex: 1 1 160px; min-width: 120px; max-width: 320px;
-    background: var(--input-bg); color: var(--input-fg);
-    border: 1px solid var(--input-bdr); border-radius: 3px;
-    padding: 0 7px; height: 24px; outline: none;
-    font-size: 12px; font-family: var(--font-editor);
-    transition: border-color .12s;
+
+/* ── Diff-mode empty state ─────────────────────────────────────── */
+.diff-no-diffs {
+    display: grid; place-items: center; height: 100%;
+    color: var(--addr-fg); font-size: 12px; font-family: var(--font-ui);
 }
-.diff-toolbar input[type="text"]::placeholder { color: var(--non-graphic); }
-.diff-toolbar input[type="text"]:focus { border-color: var(--focus-bdr); }
 
 /* ── Status bar (mirrors #stats-bar) ──────────────────────────── */
 #status {

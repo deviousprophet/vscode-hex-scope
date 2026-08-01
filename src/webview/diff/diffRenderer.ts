@@ -91,9 +91,9 @@ export function renderDiffRowsHtml(
 }
 
 export function renderDiffSummaryHtml(state: DiffRenderState): string {
-    const r = state.result;
-    if (!r) { return ''; }
-    if (r.identical && !state.aError && !state.bError) { return '<div class="diff-summary identical">Files are identical</div>'; }
-    const { changed, added, removed } = r.summary;
-    return `<div class="diff-summary">Changed <b class="d-changed">${changed}</b> · Added <b class="d-added">${added}</b> · Removed <b class="d-removed">${removed}</b> · ${r.runs.length} regions</div>`;
+    if (!state.result) { return ''; }
+    if (state.result.identical && !state.aError && !state.bError) {
+        return '<div class="diff-summary identical">Files are identical</div>';
+    }
+    return '';
 }

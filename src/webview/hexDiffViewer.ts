@@ -36,6 +36,7 @@ let searchEndianness: SearchEndianness = 'le';
 let searchMatches: number[] = [];
 let searchFocusAddr = -1;
 let diffFocusAddr = -1;
+let viewMode: 'all' | 'diff' = 'all';
 let aLabels: SegmentLabel[] = [];
 let bLabels: SegmentLabel[] = [];
 let selection: DiffSelection | null = null;
@@ -65,14 +66,20 @@ function visibleWindow(rowCount: number): [number, number] {
     return [first, last];
 }
 
+/** Rows currently shown: all, or only rows containing differences. */
+function shownRows(): DiffVisualRow[] {
+    if (viewMode !== 'diff' || result === null) { return visualRows; }
+    return visualRows.filter(vr => vr.statuses.some(s => s !== 'unchanged' && s !== 'empty'));
+}
+
 function searchRowIndexFor(): number {
-    return searchFocusAddr >= 0 ? visualRowIndexForAddress(visualRows, searchFocusAddr) : -1;
+    return searchFocusAddr >= 0 ? visualRowIndexForAddress(shownRows(), searchFocusAddr) : -1;
 }
 
 function renderState(): DiffRenderState {
     return {
         result,
-        visualRows,
+        visualRows: shownRows(),
         searchRowIndex: searchRowIndexFor(),
         matchSet: new Set(searchMatches),
         aError,
@@ -106,26 +113,63 @@ function labelRailHtml(): string {
     return `<div class="diff-rail">${items.join('')}</div>`;
 }
 
-function modeSelectHtml(): string {
-    const options = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
-        `<option value="${m}"${m === searchMode ? ' selected' : ''}>${m}</option>`
-    ).join('');
-    return `<select id="diff-search-mode" title="Search mode">${options}</select>`;
-}
-
-function copyControlsHtml(): string {
-    const options = (['hex', 'c-array', 'ascii'] as const).map(f =>
+function copyFormatOptionsHtml(): string {
+    return (['hex', 'c-array', 'ascii'] as const).map(f =>
         `<option value="${f}"${f === 'hex' ? ' selected' : ''}>${f}</option>`
     ).join('');
-    return `<select id="diff-copy-format" title="Copy format">${options}</select><button id="copy-selection" title="Copy selected bytes">Copy</button>`;
+}
+
+function searchPlaceholder(): string {
+    const placeholders: Record<SearchMode, string> = {
+        bytes: 'Bytes (e.g. DE AD BE EF)',
+        value: 'Value (e.g. 0x12345678 or 305419896)',
+        ascii: 'ASCII text',
+        addr: 'Addr (e.g. 1A0)',
+    };
+    return placeholders[searchMode];
+}
+
+function endianButtonsHtml(): string {
+    const btn = (end: SearchEndianness, label: string) =>
+        `<button id="search-btn-${end}" class="${searchEndianness === end ? 'active' : ''}" type="button">${label}</button>`;
+    return `<div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:${searchMode === 'value' ? 'inline-flex' : 'none'}">
+        ${btn('auto', 'Auto')}${btn('le', 'LE')}${btn('be', 'BE')}
+    </div>`;
+}
+
+function searchBoxHtml(): string {
+    const modeOpts = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
+        `<option value="${m}"${searchMode === m ? ' selected' : ''}>${m}</option>`
+    ).join('');
+    return `<div id="search-box">
+        ${endianButtonsHtml()}
+        <select id="search-mode">${modeOpts}</select>
+        <div class="search-addr-wrap">
+            <span id="search-addr-prefix" class="search-addr-prefix" style="display:none">0x</span>
+            <input id="search-input" type="text" placeholder="${esc(searchPlaceholder())}" autocomplete="off" spellcheck="false"
+                maxlength="${searchMode === 'addr' ? 8 : 100}" class="${searchMode === 'addr' ? 'search-addr-mode' : ''}" value="${esc(searchQuery)}">
+        </div>
+        <button class="nav-btn" id="btn-search" title="Run search" aria-label="Run search">&#128269;</button>
+        <button class="nav-btn" id="btn-prev" title="Previous match">&#9650;</button>
+        <button class="nav-btn" id="btn-next" title="Next match">&#9660;</button>
+        <button class="nav-btn" id="btn-clear-search" title="Clear">&#10005;</button>
+        <span id="match-count"></span>
+    </div>`;
 }
 
 function renderScroll(): void {
     const scrollEl = document.getElementById('diff-scroll')!;
     containerHeight = Math.max(200, scrollEl.clientHeight);
+    const rows = shownRows();
+    if (viewMode === 'diff' && result !== null && rows.length === 0) {
+        scrollEl.innerHTML = '<div class="diff-no-diffs">No differences at the shown addresses</div>';
+        scrollEl.scrollTop = 0;
+        scrollEl.addEventListener('scroll', () => rerender());
+        return;
+    }
     scrollEl.innerHTML =
         renderDiffHeaderHtml(renderState())
-        + renderDiffRowsHtml(renderState(), visibleWindow(visualRows.length), visualRows.length * ROW_HEIGHT);
+        + renderDiffRowsHtml(renderState(), visibleWindow(rows.length), rows.length * ROW_HEIGHT);
     // Absolute-positioned rows don't size the body; give the body the header's
     // real width so it and the rows center as one block.
     const header = scrollEl.querySelector('.diff-header') as HTMLElement | null;
@@ -148,21 +192,24 @@ function rerender(): void {
             <span class="label a" data-side="A">${esc(aLabel)}</span>
             <span class="label b" data-side="B">${esc(bLabel)}</span>
         </div>
+        <div class="diff-toolbar">
+            <div class="view-tabs">
+                <button id="view-all" class="${viewMode === 'all' ? 'active' : ''}">All</button>
+                <button id="view-diff" class="${viewMode === 'diff' ? 'active' : ''}">Diff</button>
+            </div>
+            <div class="tb-sep"></div>
+            <button id="prev-diff" class="nav-btn" title="Previous difference">&#9650;</button>
+            <button id="next-diff" class="nav-btn" title="Next difference">&#9660;</button>
+            ${searchBoxHtml()}
+            <div class="tb-sep"></div>
+            <button id="copy-selection" class="nav-btn" title="Copy selected bytes">Copy</button>
+            <select id="diff-copy-format" title="Copy format">${copyFormatOptionsHtml()}</select>
+            <button id="swap" class="nav-btn" title="Swap A/B">&#8646; Swap</button>
+        </div>
         <div class="diff-summary">${renderDiffSummaryHtml(renderState())}</div>
         ${labelRailHtml()}
         ${errorBannersHtml()}
         <div id="diff-scroll"></div>
-        <div class="diff-toolbar">
-            <button id="prev-diff">▲ Prev</button>
-            <button id="next-diff">Next ▼</button>
-            ${modeSelectHtml()}
-            <button id="diff-endian" title="Byte order">${esc(searchEndianness.toUpperCase())}</button>
-            <input id="diff-search" type="text" placeholder="Search bytes, value, ASCII, address" value="${esc(searchQuery)}">
-            <button id="prev-match">▲ Match</button>
-            <button id="next-match">Match ▼</button>
-            ${copyControlsHtml()}
-            <button id="swap">⇄ Swap</button>
-        </div>
     `;
 
     renderScroll();
@@ -172,7 +219,7 @@ function rerender(): void {
 
 /** Navigate so the visual row containing `addr` is centered in the viewport. */
 function focusRow(addr: number): void {
-    const idx = visualRowIndexForAddress(visualRows, addr);
+    const idx = visualRowIndexForAddress(shownRows(), addr);
     if (idx < 0) { return; }
     scrollTop = Math.max(0, idx * ROW_HEIGHT - containerHeight / 2);
     rerender();
@@ -195,7 +242,34 @@ function gotoMatch(direction: 1 | -1): void {
     if (f) { searchFocusAddr = f.address; focusRow(f.address); }
 }
 
+function applySearchModeUi(inputEl: HTMLInputElement): void {
+    const endianToggle = document.getElementById('search-endian-toggle') as HTMLElement | null;
+    if (endianToggle) { endianToggle.style.display = searchMode === 'value' ? 'inline-flex' : 'none'; }
+    inputEl.placeholder = searchPlaceholder();
+    inputEl.maxLength = searchMode === 'addr' ? 8 : 100;
+    if (searchMode !== 'addr') { inputEl.classList.remove('search-addr-mode'); }
+    updateAddrOverlay(inputEl);
+}
+
+function updateAddrOverlay(inputEl: HTMLInputElement): void {
+    const prefix = document.getElementById('search-addr-prefix') as HTMLElement | null;
+    const show = searchMode === 'addr' && inputEl.value.length > 0;
+    if (prefix) { prefix.style.display = show ? '' : 'none'; }
+    inputEl.classList.toggle('search-addr-mode', show);
+}
+
+function applyEndianUi(): void {
+    const toggle = (id: string, on: boolean): void => {
+        document.getElementById(id)?.classList.toggle('active', on);
+    };
+    toggle('search-btn-auto', searchEndianness === 'auto');
+    toggle('search-btn-le', searchEndianness === 'le');
+    toggle('search-btn-be', searchEndianness === 'be');
+}
+
 function wireToolbar(): void {
+    document.getElementById('view-all')!.addEventListener('click', () => { viewMode = 'all'; scrollTop = 0; rerender(); });
+    document.getElementById('view-diff')!.addEventListener('click', () => { viewMode = 'diff'; scrollTop = 0; rerender(); });
     document.getElementById('prev-diff')!.addEventListener('click', () => gotoDiff(-1));
     document.getElementById('next-diff')!.addEventListener('click', () => gotoDiff(1));
     document.getElementById('swap')!.addEventListener('click', () => {
@@ -204,29 +278,53 @@ function wireToolbar(): void {
         document.body.classList.toggle('swapped', swapped);
     });
 
-    const searchInput = document.getElementById('diff-search') as HTMLInputElement;
+    const searchInput = document.getElementById('search-input') as HTMLInputElement;
     const doSearch = (query: string): void => {
         searchQuery = query;
         post({ type: 'diffSearchRequest', generation, query, mode: searchMode, endianness: searchEndianness });
     };
-    searchInput.addEventListener('change', () => doSearch(searchInput.value));
+
+    searchInput.addEventListener('input', () => {
+        if (searchMode !== 'addr') { return; }
+        searchInput.value = searchInput.value.replace(/[^0-9a-fA-F]/g, '');
+        updateAddrOverlay(searchInput);
+    });
     searchInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { doSearch(searchInput.value); }
+        if (e.key !== 'Enter') { return; }
+        e.preventDefault();
+        doSearch(searchInput.value);
+        if (e.shiftKey) { gotoMatch(-1); }
     });
 
-    document.getElementById('diff-search-mode')!.addEventListener('change', (e: Event) => {
+    document.getElementById('search-mode')!.addEventListener('change', (e: Event) => {
         searchMode = (e.target as HTMLSelectElement).value as SearchMode;
+        applySearchModeUi(searchInput);
         doSearch(searchInput.value);
     });
-    document.getElementById('diff-endian')!.addEventListener('click', () => {
-        searchEndianness = searchEndianness === 'le' ? 'be' : searchEndianness === 'be' ? 'auto' : 'le';
-        doSearch(searchInput.value);
+    const endianButtons: Array<[SearchEndianness, string]> = [['auto', 'search-btn-auto'], ['le', 'search-btn-le'], ['be', 'search-btn-be']];
+    for (const [end, id] of endianButtons) {
+        document.getElementById(id)!.addEventListener('click', () => {
+            searchEndianness = end;
+            applyEndianUi();
+            doSearch(searchInput.value);
+        });
+    }
+    document.getElementById('btn-search')!.addEventListener('click', () => doSearch(searchInput.value));
+    document.getElementById('btn-prev')!.addEventListener('click', () => gotoMatch(-1));
+    document.getElementById('btn-next')!.addEventListener('click', () => gotoMatch(1));
+    document.getElementById('btn-clear-search')!.addEventListener('click', () => {
+        searchInput.value = '';
+        searchQuery = '';
+        searchMatches = [];
+        searchFocusAddr = -1;
+        updateAddrOverlay(searchInput);
+        rerender();
     });
-
-    document.getElementById('prev-match')!.addEventListener('click', () => gotoMatch(-1));
-    document.getElementById('next-match')!.addEventListener('click', () => gotoMatch(1));
 
     document.getElementById('copy-selection')!.addEventListener('click', () => copySelection());
+
+    applySearchModeUi(searchInput);
+    applyEndianUi();
 }
 
 function copySelection(format?: CopyCommand): void {
@@ -240,13 +338,23 @@ function copySelection(format?: CopyCommand): void {
     void navigator.clipboard.writeText(formatCopyCommand(fmt, bytes));
 }
 
+function updateMatchCount(): void {
+    const el = document.getElementById('match-count');
+    if (!el) { return; }
+    if (searchQuery.length > 0 && searchMatches.length === 0) { el.textContent = '0 / 0'; return; }
+    if (searchMatches.length === 0) { el.textContent = ''; return; }
+    const idx = searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0;
+    el.textContent = `${idx + 1} / ${searchMatches.length}`;
+}
+
 function updateStatus(): void {
+    updateMatchCount();
     if (error) {
         status.textContent = `Error: ${error}`;
     } else if (!result) {
         status.textContent = 'Loading…';
     } else {
-        let text = `A=${aLabel} ⇄ B=${bLabel} · ${visualRows.length} rows · ${result.runs.length} diff regions`;
+        let text = `A=${aLabel} ⇄ B=${bLabel} · ${visualRows.length} rows`;
         if (selection) {
             text += ` · ${selection.side.toUpperCase()} 0x${selection.start.toString(16)}-0x${selection.end.toString(16)}`;
         }
@@ -259,7 +367,7 @@ type DiffHandler = (m: Extract<ProviderToWebviewMessage, { type: string }>) => v
 
 /** True when `addr` is a present focus and still exists in the current diff. */
 function focusExists(addr: number): boolean {
-    return addr >= 0 && visualRowIndexForAddress(visualRows, addr) >= 0;
+    return addr >= 0 && visualRowIndexForAddress(shownRows(), addr) >= 0;
 }
 
 /** Drop stale focus addresses that no longer exist in the new result. */
@@ -391,6 +499,15 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         copySelection();
+    }
+});
+
+// Ctrl+F focuses the search box (mirrors the single-file view).
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        const inp = document.getElementById('search-input') as HTMLInputElement | null;
+        if (inp) { inp.focus(); inp.select(); }
     }
 });
 
