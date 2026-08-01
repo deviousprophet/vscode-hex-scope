@@ -45,26 +45,6 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
     background: rgba(244,135,113,.12); border: 1px solid rgba(244,135,113,.4); color: var(--err);
 }
 
-/* ── Label rail (read-only display of both files' address labels) ─ */
-.diff-rail {
-    flex-shrink: 0; max-height: 84px; overflow-y: auto;
-    padding: 2px 10px; border-bottom: 1px solid var(--border);
-    background: var(--panel-bg);
-}
-.rail-item {
-    display: flex; align-items: center; gap: 6px;
-    padding: 1px 4px; border-left: 3px solid; margin: 1px 0;
-    font-size: 10px; white-space: nowrap;
-}
-.rail-tag {
-    font-family: var(--font-editor); font-weight: 700; font-size: 9px;
-    border-radius: 3px; padding: 0 4px; flex-shrink: 0;
-}
-.rail-tag.a { color: var(--high-color); background: rgba(156,220,254,.12); }
-.rail-tag.b { color: #e37933; background: rgba(227,121,51,.12); }
-.rail-name { font-weight: 600; color: var(--fg); }
-.rail-range { font-family: var(--font-editor); color: var(--addr-fg); margin-left: auto; }
-
 /* ── Toolbar (top; search UI comes from SearchBarComponent.css) ─── */
 .diff-toolbar {
     flex-shrink: 0;

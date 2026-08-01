@@ -136,7 +136,12 @@ suite('applyProviderMessageToModel()', () => {
 
         const meta = { rowStarts: new Uint32Array(), hasDiff: new Uint8Array(), summary: { unchanged: 0, changed: 0, added: 0, removed: 0 }, runs: [], identical: true, totalRows: 0 };
         const parseResult = parseResultForTest();
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffInit', generation: 1, a: parseResult, b: parseResult, meta, aLabel: 'A', bLabel: 'B', aFormat: 'ihex', bFormat: 'ihex', aError: null, bError: null, aLabels: [], bLabels: [] }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({ type:                         'diffInit', generation: 1, a:  
+                        parseResult, b: parseResult,   
+                        meta, aLabel: 'A', bLabel:     
+                        'B', aFormat: 'ihex', bFormat: 
+                        'ihex', aError: null, bError:  
+                        null }, handlers), true);
         assert.strictEqual(initCalled, true);
         assert.strictEqual(dispatchProviderMessage({ type: 'diffSearch', generation: 1, query: 'ff', matches: [0x1000], done: true }, handlers), true);
         assert.strictEqual(searchCalled, true);

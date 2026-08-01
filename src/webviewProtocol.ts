@@ -44,7 +44,7 @@ export type ProviderToWebviewMessage =
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
     | { type: 'activateScriptsTab' }
-    | { type: 'diffInit'; generation: number; a: WireParseResult; b: WireParseResult; meta: DiffMeta; aLabel: string; bLabel: string; aFormat: HexScopeFormat; bFormat: HexScopeFormat; aError: string | null; bError: string | null; aLabels: SegmentLabel[]; bLabels: SegmentLabel[] }
+    | { type: 'diffInit'; generation: number; a: WireParseResult; b: WireParseResult; meta: DiffMeta; aLabel: string; bLabel: string; aFormat: HexScopeFormat; bFormat: HexScopeFormat; aError: string | null; bError: string | null }
     | { type: 'diffUpdate'; generation: number; a: WireParseResult; b: WireParseResult; meta: DiffMeta; aError: string | null; bError: string | null }
     | { type: 'diffProgress'; generation: number; stage: 'read' | 'parse' | 'build' | 'transfer'; completed: number; total: number }
     | { type: 'diffSwap'; generation: number; swapped: boolean }

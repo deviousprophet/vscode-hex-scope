@@ -17,7 +17,7 @@ src/core/diff.ts              (pure, testable — no vscode/DOM imports)
 - **`src/core/diff.ts`** — pure diff engine. Input: two `CompactParseResult`s. Output: serializable `DiffResult` (below). No `vscode`, no DOM. Unit-testable like `core/search.ts`, `core/memory.ts`.
 - **`src/editor/hexDiffProvider.ts`** — `CustomReadonlyEditorProvider` for `viewType = 'hexScope.hexDiff'`; registers via `registerCustomEditorProvider` with `webviewOptions.retainContextWhenHidden: true`. `openCustomDocument` returns a **virtual document** whose `uri` encodes the canonicalized URI pair (D14). Delegates to `HexDiffSession`. Extends `ReadonlyEditorProviderBase` (shared plumbing with `HexEditorProvider`).
 - **`src/editor/hexDiffSession.ts`** — per-panel orchestration: parse both files, run `core/diff`, serialize `DiffResult` over the protocol, watch both URIs + debounce (reuse pattern from `hexEditorSession.ts:524`), swap/staging state that is webview-local vs session-local. Builds the webview HTML (loads `base.css` + `diff.css`, R8/D24).
-- **`src/webview/hexDiffViewer.ts`** — thin composition root: wires panels, shared label rail, summary bar, next/prev, swap, search. No diff logic.
+- **`src/webview/hexDiffViewer.ts`** — thin composition root: wires panels, summary bar, next/prev, swap, search. No diff logic.
 - **`src/webview/diff/`** — `diffViewModel.ts` (pure navigation/window math, `DIFF_ROW_HEIGHT`, `DIFF_ROW_BYTES`) + `diffRenderer.ts` (row/summary HTML). No vscode/DOM imports; unit-testable.
 - **`src/webview/styles/diff.css`** — diff-view styling, loaded after `base.css` for token parity (R8).
 
@@ -63,7 +63,7 @@ Memory-map construction reuses `buildSegmentIndex`/`getByteAt` from `core/memory
 
 New provider→webview messages:
 
-- `type: 'diffInit'` — full `DiffResult` + A/B panel metadata (fileName, format, per-side labels union with side tag per D22).
+- `type: 'diffInit'` — full `DiffResult` + A/B panel metadata (fileName, format).
 - `type: 'diffUpdate'` — recomputed `DiffResult` after external change (D13); replaces prior, keeps same tab.
 - `type: 'diffSwap'` — host-confirmed swap orientation (`swapped: boolean`); applied client-side to panel/label order (D23).
 - `type: 'diffSearch'` — union match list for a query (`matches: number[]`), from the host-side `SearchEngine` run against both files (D21).
@@ -103,14 +103,14 @@ Pair identity = canonicalized URI pair; same pair reuses one tab (D14). Virtual 
 - **Per-panel error (D27).** `diffInit`/`diffUpdate` carry `aError`/`bError` (`string|null`, from `parseErrorFor`). Affected panel gets `panel-error` (dimmed cells) + a `.side-error` banner under the summary.
 - **Search (D28).** `diffSearchRequest {query, mode, endianness}` → `SearchEngine` against both sides, union `matches[]`. Renderer highlights **per cell** (`matchSet`) and marks the current focus row (`search-row`).
 - **Selection + copy (D29, copy = component intent).** Click-drag on a `[data-side][data-addr]` cell selects a byte range locked to one side; selection-clear only on empty `#diff-scroll` clicks. `HexViewComponent` owns the Ctrl+C keydown (guarded against text inputs) and emits `onCopy(range)`; the diff host reads that side's present bytes (`getByteAt` over its index) and writes hex via `formatCopyCommand`. Copy-in-component, bytes+format+clipboard-in-host (option B).
-- **Label rail (D6/D22).** `diffInit` carries `aLabels`/`bLabels` (`SegmentLabel[]` from per-uri `hexScope.labels.${uri}`). `.diff-rail` lists both unions, side-tagged (A blue / B orange chips), read-only. Range-highlight across panels not yet implemented (only the rail list) — future work.
+- **Label rail (D6/D22).** **REMOVED (user, 2026-08-01):** the diff view shows no address-range labels (`SegmentLabel`); only the per-panel filename labels (`aLabel`/`bLabel`) render. No `readLabels`, no `aLabels`/`bLabels` in `diffInit`, no `.diff-rail`.
 
 ## 3. Compatibility & Migration
 
 - **No breaking change** to `hexScope.hexEditor`; new viewType is additive.
 - Pair-key URI encoding must round-trip: two URIs → one opaque document URI → two URIs. Use a stable reversible encoding (e.g. base64 of a JSON `[aPath, bPath]`), canonical order by fsPath so same pair always maps to same URI (D14).
 - Cross-format pairs (ihex vs srec) supported (AC8); both parse to `CompactParseResult` segments, diff operates on addresses only.
-- Labels: read from per-uri `hexScope.labels.${uri}` workspaceState (existing key format, `hexEditorSession.ts:388`), unioned with side tags (D22); display-only, never persisted from diff view.
+- Labels: **not shown in the diff view** (REMOVED, user 2026-08-01 — see label-rail bullet).
 
 ## 4. Important Trade-offs
 

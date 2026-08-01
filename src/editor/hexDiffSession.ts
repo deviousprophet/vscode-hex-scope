@@ -7,8 +7,7 @@ import { parseSRecCompact } from '../core/parser/srecParser';
 import type { CompactParseResult } from '../core/parser/compact';
 import type { HexScopeFormat } from '../core/document';
 import { SearchEngine } from '../core/search';
-import type { SearchEndianness, SearchMode } from '../core/types';
-import type { SegmentLabel, WireParseResult } from '../core/types';
+import type { SearchEndianness, SearchMode, WireParseResult } from '../core/types';
 import { detectFormatFromParts } from '../core/document';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
@@ -60,11 +59,6 @@ function pairKeyFromUri(uri: vscode.Uri): string {
     const match = /(?:^|&)k=([^&]+)/.exec(uri.query);
     if (!match) { throw new Error('diff tab URI is missing its pair key'); }
     return match[1];
-}
-
-/** Address-range labels stored for a file (read-only display in the diff). */
-function readLabels(context: vscode.ExtensionContext, uri: vscode.Uri): SegmentLabel[] {
-    return context.workspaceState.get<SegmentLabel[]>(`hexScope.labels.${uri.toString()}`, []);
 }
 
 /** Serialize a parse result for zero-copy ArrayBuffer transfer to the webview. */
@@ -182,8 +176,6 @@ export class HexDiffSession {
                 bFormat: bState.format,
                 aError: parseErrorFor(aState.result),
                 bError: parseErrorFor(bState.result),
-                aLabels: readLabels(this._context, aUri),
-                bLabels: readLabels(this._context, bUri),
             });
         };
 

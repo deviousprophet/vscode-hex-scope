@@ -21,7 +21,7 @@ Feature: `hexScope.hexDiff` custom editor — side-by-side byte diff of two Inte
 ## 3. Protocol (webviewProtocol.ts)
 
 Provider → webview:
-- `diffInit { generation, a: WireParseResult, b: WireParseResult, meta: DiffMeta, aLabel, bLabel, aFormat, bFormat, aError: string|null, bError: string|null, aLabels: SegmentLabel[], bLabels: SegmentLabel[] }` — `DiffMeta = { rowStarts: Uint32Array, hasDiff: Uint8Array, summary, runs, identical, totalRows }` (ArrayBuffers transferable; no per-cell data)
+- `diffInit { generation, a: WireParseResult, b: WireParseResult, meta: DiffMeta, aLabel, bLabel, aFormat, bFormat, aError: string|null, bError: string|null }` — `DiffMeta = { rowStarts: Uint32Array, hasDiff: Uint8Array, summary, runs, identical, totalRows }` (ArrayBuffers transferable; no per-cell data). No address-range labels (`SegmentLabel`) are carried — the diff view shows none (REMOVED, user 2026-08-01).
 - `diffUpdate { generation, a, b, meta, aError, bError }` — recomputed after external change (same wire shape)
 - `diffProgress { generation, stage: 'read'|'parse'|'build'|'transfer', completed, total }` — staged load % (throttled, mirrors single view's `loadProgress`)
 - `diffSwap { generation, swapped }`
@@ -40,8 +40,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 - **Load pipeline (sequential, staged, cancellable):** `read A → parse A (→50%) → read B → parse B (→95%) → build light metadata (sync pass) → transfer (→100%)`. Per-file `onProgress` mapped onto the range (single view's `LoadProgressReporter` throttle/flush pattern). Parser called with `{ signal, onProgress }` — **cancellable**.
 - **Cancellation = abort + restart on external change mid-load** (generation-bumped re-run; the watcher's debounced reload covers post-load changes). Abort also on panel dispose.
 - **Loading card (single view's `.loading-shell`/`.loading-card`, styles already in base.css):** shown in the initial `_getHtml` HTML; webview keeps it until `diffInit`. On `loadError` before data → error card (same shell). **Reloads after load reuse the diff UI in place** with a `Reloading…` status/spinner — the full card is initial-load only.
-- Parses both files (`parseIntelHexCompact`/`parseSRecCompact`), runs the light-metadata pass, sends `diffInit` on `diffReady`.
-- `readLabels(context, uri)` → `workspaceState.get('hexScope.labels.' + uri.toString(), [])`; sent as `aLabels`/`bLabels` (read-only display).
+- Parses both files (`parseIntelHexCompact`/`parseSRecCompact`), runs the light-metadata pass, sends `diffInit` on `diffReady`. No address-range labels are read or sent (REMOVED, user 2026-08-01).
 - External-change watchers per side + 200ms debounce → re-parse that side → `diffUpdate`.
 - Per-side validity: `parseErrorFor(result)` returns a message when `checksumErrors`/`malformedLines` > 0; carried as `aError`/`bError` so the webview shows a per-panel parse-error state.
 - Search: the diff view uses the reusable **`SearchBarComponent`** (`ui-components/search-bar/`); its `onSearch(query, mode, endianness)` callback drives `diffSearchRequest`. The host runs core `SearchEngine` over **both** sides' segments with the requested `mode`/`endianness`, merges into one sorted union, and **streams** partial `diffSearch` posts from each engine's `onProgressUpdate` (final `done: true`). Enter on an **unchanged completed** query navigates next/prev match (single-view `handleCompletedSearchNavigation` parity). The endian control is a **segmented Auto/LE/BE pill** (single-view style).
@@ -49,7 +48,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 
 ## 5. Webview layout (hexDiffViewer.ts + diff.css)
 
-- Chrome: toolbar (top), summary bar, label rail, error banners, `#diff-scroll` (the grid), `#status`.
+- Chrome: toolbar (top), summary bar, error banners, `#diff-scroll` (the grid), `#status`.
 - **Reusable hexview component** (`renderHexViewComponentHtml`): optional filename label (`panel-label`, empty = omitted) + 00..0F header + (address gutter + hex cells). The diff renders `[component A] ┃ [component B]` in one `.diff-grid` flex row, **centered** (`width: fit-content; margin: 0 auto`).
 - Both components share **one `#diff-scroll`**; rows are absolute at the same `top: index × DIFF_ROW_HEIGHT`, so sides stay byte-aligned and scroll together (single scrollbar).
 - **Single continuous separator**: `.diff-sep` (2px, `align-self: stretch`, `position: sticky`) spans the full grid height; label + header are sticky (`top: 0` / `top: 24px`).
@@ -61,7 +60,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 
 ## 6. Selection + copy
 
-- Click-drag on a `[data-side][data-addr]` cell selects a byte range locked to the starting side; selection clears only on empty `#diff-scroll` clicks (toolbar/rail clicks keep it).
+- Click-drag on a `[data-side][data-addr]` cell selects a byte range locked to the starting side; selection clears only on empty `#diff-scroll` clicks (toolbar clicks keep it).
 - Ctrl+C copy is owned by `HexViewComponent` (keydown, text-input guarded): it emits `onCopy(range)`; the diff host reads the selected side's present bytes via its segment index and writes hex (`formatCopyCommand('hex', …)`). No global host keydown handler.
 
 ## 7. Tests Required

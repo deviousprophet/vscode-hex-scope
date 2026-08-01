@@ -5,7 +5,7 @@
 // a light DiffMeta; per-window cells are computed on scroll.
 
 import type { DiffMeta } from '../core/diff';
-import type { SegmentLabel, SerializedParseResult, WireParseResult } from '../core/types';
+import type { SerializedParseResult, WireParseResult } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
 import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
@@ -46,8 +46,6 @@ let searchMatches: number[] = [];
 let searchFocusAddr = -1;
 let diffFocusAddr = -1;
 let viewMode: 'all' | 'diff' = 'all';
-let aLabels: SegmentLabel[] = [];
-let bLabels: SegmentLabel[] = [];
 let firstJumpDone = false;
 let lastRequestedQuery = '';
 // Selection mirror, kept for copy + status; the components own the real state.
@@ -143,24 +141,6 @@ function errorBannersHtml(): string {
     return parts.length ? `<div class="diff-errors">${parts.join('')}</div>` : '';
 }
 
-function railItemHtml(side: 'A' | 'B', label: SegmentLabel): string {
-    const range = `0x${label.startAddress.toString(16).toUpperCase()} · ${label.length} B`;
-    return `<div class="rail-item" style="border-left-color:${esc(label.color)}">
-        <span class="rail-tag ${side === 'A' ? 'a' : 'b'}">${side}</span>
-        <span class="rail-name">${esc(label.name)}</span>
-        <span class="rail-range">${esc(range)}</span>
-    </div>`;
-}
-
-function labelRailHtml(): string {
-    const items = [
-        ...aLabels.map(l => railItemHtml('A', l)),
-        ...bLabels.map(l => railItemHtml('B', l)),
-    ];
-    if (items.length === 0) { return ''; }
-    return `<div class="diff-rail">${items.join('')}</div>`;
-}
-
 function renderScroll(): void {
     const scrollEl = document.getElementById('diff-scroll')!;
     containerHeight = Math.max(200, scrollEl.clientHeight);
@@ -222,7 +202,6 @@ function rerender(): void {
             ${searchBar.toHtml()}
         </div>
         <div class="diff-summary">${renderDiffSummaryHtml(summaryState())}</div>
-        ${labelRailHtml()}
         ${errorBannersHtml()}
         <div id="diff-scroll"></div>
     `;
@@ -337,8 +316,6 @@ const diffHandlers: Record<string, DiffHandler> = {
         bLabel = msg.bLabel;
         aError = msg.aError;
         bError = msg.bError;
-        aLabels = msg.aLabels;
-        bLabels = msg.bLabels;
         searchMatches = [];
         searchFocusAddr = -1;
         diffFocusAddr = -1;
