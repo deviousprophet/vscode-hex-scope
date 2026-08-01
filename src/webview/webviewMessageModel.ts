@@ -75,6 +75,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     activateScriptsTab: applyPassiveMessage,
     diffInit: applyPassiveMessage,
     diffUpdate: applyPassiveMessage,
+    diffProgress: applyPassiveMessage,
     diffSwap: applyPassiveMessage,
     diffSearch: applyPassiveMessage,
 };

@@ -3,6 +3,7 @@
 // behaviours; the host runs the actual search and applies/navigates matches.
 
 import type { SearchEndianness, SearchMode } from '../../../core/types';
+import { canonicalizeQuery } from '../../../core/search';
 import { esc } from '../../utils';
 
 export interface SearchBarCallbacks {
@@ -36,6 +37,10 @@ export class SearchBarComponent {
     private cb: SearchBarCallbacks;
     private _mounted = false;
     private readonly _listeners: Array<[string, EventListener]> = [];
+    // Enter-nav parity: Enter on an unchanged query whose search already
+    // completed navigates matches instead of re-running.
+    private _lastSearchKey = '';
+    private _searchCompleted = false;
 
     constructor(cb: SearchBarCallbacks) {
         this.cb = cb;
@@ -78,7 +83,12 @@ export class SearchBarComponent {
             this._listeners.push([type, fn]);
         };
         const input = (): HTMLInputElement => document.getElementById('search-input') as HTMLInputElement;
-        const run = (): void => this.cb.onSearch(input().value.trim(), this.mode, this.endianness);
+        const run = (): void => {
+            const q = input().value.trim();
+            this._lastSearchKey = searchKeyFor(this.mode, q, this.endianness);
+            this._searchCompleted = false;
+            this.cb.onSearch(q, this.mode, this.endianness);
+        };
         const updateAddrOverlay = (inp: HTMLInputElement): void => {
             const prefix = document.getElementById('search-addr-prefix') as HTMLElement | null;
             const show = this.mode === 'addr' && inp.value.length > 0;
@@ -116,7 +126,16 @@ export class SearchBarComponent {
             const k = e as KeyboardEvent;
             if (k.target instanceof HTMLInputElement && (k.target as HTMLInputElement).id === 'search-input' && k.key === 'Enter') {
                 k.preventDefault();
-                run();
+                const inp = k.target as HTMLInputElement;
+                const q = inp.value.trim();
+                const key = searchKeyFor(this.mode, q, this.endianness);
+                if (q.length > 0 && key === this._lastSearchKey && this._searchCompleted) {
+                    if (k.shiftKey) { this.cb.onPrev(); } else { this.cb.onNext(); }
+                    return;
+                }
+                this._lastSearchKey = key;
+                this._searchCompleted = false;
+                this.cb.onSearch(q, this.mode, this.endianness);
                 if (k.shiftKey) { this.cb.onPrev(); }
                 return;
             }
@@ -136,6 +155,8 @@ export class SearchBarComponent {
                 const inp = input();
                 inp.value = '';
                 updateAddrOverlay(inp);
+                this._lastSearchKey = '';
+                this._searchCompleted = false;
                 this.cb.onClear();
             }
             else if (id === 'search-btn-auto' || id === 'search-btn-le' || id === 'search-btn-be') {
@@ -167,7 +188,15 @@ export class SearchBarComponent {
         if (!el) { return; }
         el.classList.toggle('active', busy);
         el.setAttribute('aria-hidden', String(!busy));
+        if (!busy) { this._searchCompleted = true; }
     }
+}
+
+/** Canonical search key (mirrors the single view's Enter-nav key). */
+function searchKeyFor(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
+    const canonical = canonicalizeQuery(mode, raw);
+    const endianKey = mode === 'value' ? endianness : 'n/a';
+    return `${mode}|${endianKey}|${canonical}`;
 }
 
 

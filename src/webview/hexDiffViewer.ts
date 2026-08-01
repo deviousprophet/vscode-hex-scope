@@ -1,15 +1,20 @@
 // ── HexScope Diff Webview Entry Point ─────────────────────────────
-// Two-panel hex diff. Host sends diffInit/diffUpdate/diffSwap/diffSearch;
-// view sends diffReady/diffSwapRequest/diffSearchRequest.
+// Two-panel hex diff. Host sends diffInit/diffUpdate/diffProgress/diffSwap/
+// diffSearch; view sends diffReady/diffSwapRequest/diffSearchRequest.
+// Large-file model: segments transfer once as binary WireParseResult +
+// a light DiffMeta; per-window cells are computed on scroll.
 
-import type { DiffResult } from '../core/diff';
-import type { SegmentLabel } from '../core/types';
+import type { DiffMeta } from '../core/diff';
+import type { SegmentLabel, SerializedParseResult, WireParseResult } from '../core/types';
+import type { SegmentIndexEntry } from '../core/memory';
 import type { CopyCommand } from '../core/byte-tools/copyCommand';
 import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
 import { vscode } from './vscodeApi';
 import { esc } from './utils';
+import { buildSegmentIndex, getByteAt } from '../core/memory';
+import { diffCellWindow } from '../core/diff';
 import {
     diffRunFocus,
     searchMatchFocus,
@@ -17,6 +22,7 @@ import {
     DIFF_ROW_HEIGHT,
     groupVisualRows,
     visualRowIndexForAddress,
+    type DiffLightRow,
     type DiffVisualRow,
 } from './diff/diffViewModel';
 import { renderDiffSummaryHtml, type DiffSummaryState } from './diff/diffRenderer';
@@ -25,7 +31,12 @@ import { SearchBarComponent } from './ui-components/search-bar/searchBarComponen
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
-let result: DiffResult | null = null;
+let loaded = false;
+let meta: DiffMeta | null = null;
+let aResult: SerializedParseResult | null = null;
+let bResult: SerializedParseResult | null = null;
+let aIndex: SegmentIndexEntry[] = [];
+let bIndex: SegmentIndexEntry[] = [];
 let aLabel = '';
 let bLabel = '';
 let swapped = false;
@@ -38,6 +49,8 @@ let diffFocusAddr = -1;
 let viewMode: 'all' | 'diff' = 'all';
 let aLabels: SegmentLabel[] = [];
 let bLabels: SegmentLabel[] = [];
+let firstJumpDone = false;
+let lastRequestedQuery = '';
 // Selection mirror, kept for copy + status; the components own the real state.
 let selection: { side: 'a' | 'b'; start: number; end: number } | null = null;
 
@@ -46,6 +59,8 @@ const compB = new HexViewComponent('b');
 
 const searchBar = new SearchBarComponent({
     onSearch: (query, mode, endianness) => {
+        lastRequestedQuery = query;
+        firstJumpDone = false;
         searchBar.setBusy(true);
         post({ type: 'diffSearchRequest', generation, query, mode, endianness });
     },
@@ -54,13 +69,20 @@ const searchBar = new SearchBarComponent({
     onClear: () => {
         searchMatches = [];
         searchFocusAddr = -1;
+        firstJumpDone = false;
+        // Supersede any in-flight search so stale partials cannot repopulate,
+        // and drop the spinner: the clear request's own done reply is filtered
+        // by the query check below, so busy must be cleared here.
+        lastRequestedQuery = '';
+        searchBar.setBusy(false);
+        post({ type: 'diffSearchRequest', generation, query: '', mode: 'bytes', endianness: 'le' });
         rerender();
     },
 });
 
 let scrollTop = 0;
 let containerHeight = 0;
-let visualRows: DiffVisualRow[] = [];
+let visualRows: DiffLightRow[] = [];
 const ROW_HEIGHT = DIFF_ROW_HEIGHT;
 const RENDER_BUFFER = 20;
 
@@ -74,6 +96,25 @@ function post(msg: WebviewToProviderMessage): void {
     void vscodeApi.postMessage(msg);
 }
 
+/** Rehydrate the binary wire segments into byte-addressable segments. */
+function hydrateParseResult(result: WireParseResult): SerializedParseResult {
+    return {
+        ...result,
+        records: [],
+        segments: result.segments.map(segment => ({
+            startAddress: segment.startAddress,
+            data: new Uint8Array(segment.data),
+        })),
+    };
+}
+
+function applySides(aWire: WireParseResult, bWire: WireParseResult): void {
+    aResult = hydrateParseResult(aWire);
+    bResult = hydrateParseResult(bWire);
+    aIndex = buildSegmentIndex(aResult);
+    bIndex = buildSegmentIndex(bResult);
+}
+
 // Fixed-height windowing: visible rows + buffer. Returns [start, end).
 function visibleWindow(rowCount: number): [number, number] {
     if (rowCount === 0) { return [0, 0]; }
@@ -83,9 +124,9 @@ function visibleWindow(rowCount: number): [number, number] {
 }
 
 /** Rows currently shown: all, or only rows containing differences. */
-function shownRows(): DiffVisualRow[] {
-    if (viewMode !== 'diff' || result === null) { return visualRows; }
-    return visualRows.filter(vr => vr.statuses.some(s => s !== 'unchanged' && s !== 'empty'));
+function shownRows(): DiffLightRow[] {
+    if (viewMode !== 'diff' || meta === null) { return visualRows; }
+    return visualRows.filter(r => r.hasDiff);
 }
 
 function searchRowIndexFor(): number {
@@ -93,7 +134,7 @@ function searchRowIndexFor(): number {
 }
 
 function summaryState(): DiffSummaryState {
-    return { result, aError, bError };
+    return { meta, aError, bError };
 }
 
 function errorBannersHtml(): string {
@@ -125,20 +166,25 @@ function renderScroll(): void {
     const scrollEl = document.getElementById('diff-scroll')!;
     containerHeight = Math.max(200, scrollEl.clientHeight);
     const rows = shownRows();
-    if (viewMode === 'diff' && result !== null && rows.length === 0) {
-        scrollEl.innerHTML = '<div class="diff-no-diffs">No differences at the shown addresses</div>';
+    if (viewMode === 'diff' && rows.length === 0) {
+        scrollEl.innerHTML = '<div class="diff-no-diffs">No differences</div>';
         scrollEl.scrollTop = 0;
-        scrollEl.addEventListener('scroll', () => rerender());
         return;
     }
     const totalHeight = rows.length * ROW_HEIGHT;
     const range = visibleWindow(rows.length);
     const matchSet = new Set(searchMatches);
+    const searchRowIndex = searchRowIndexFor();
+    // Materialize only the visible window's cells from the segment indexes.
+    const windowRows: DiffVisualRow[] = [];
+    for (let i = range[0]; i < range[1]; i++) {
+        windowRows.push(diffCellWindow(aResult, aIndex, bResult, bIndex, rows[i].baseAddress));
+    }
     const input = {
-        rows,
-        searchRowIndex: searchRowIndexFor(),
+        rows: windowRows,
+        rowOffset: range[0],
+        searchRowIndex,
         matchSet,
-        visibleRange: range,
         totalHeight,
     };
     scrollEl.innerHTML = `<div class="diff-grid">
@@ -149,14 +195,20 @@ function renderScroll(): void {
     scrollEl.scrollTop = scrollTop;
     compA.reapply();
     compB.reapply();
-    scrollEl.addEventListener('scroll', () => {
-        scrollTop = scrollEl.scrollTop;
-        rerender();
-    });
+    if (!scrollEl.dataset.vscrollInit) {
+        scrollEl.dataset.vscrollInit = '1';
+        scrollEl.addEventListener('scroll', () => {
+            scrollTop = scrollEl.scrollTop;
+            rerender();
+        });
+    }
 }
 
 function rerender(): void {
-    visualRows = groupVisualRows(result?.rows ?? []);
+    if (!loaded) {
+        if (error) { renderErrorCard(); }
+        return;
+    }
 
     app.innerHTML = `
         <div class="diff-toolbar">
@@ -181,6 +233,27 @@ function rerender(): void {
     updateStatus();
 }
 
+/** Loading card replaced by an error card before any data arrives. */
+function renderErrorCard(): void {
+    app.innerHTML = `<div class="loading-shell" aria-live="polite">
+        <div class="loading-card">
+            <div class="loading-eyebrow">HexScope</div>
+            <div class="loading-title">Could not open files</div>
+            <div class="loading-text">${esc(error ?? 'Failed to open the selected files.')}</div>
+        </div>
+    </div>`;
+    status.textContent = error ? `Error: ${error}` : '';
+}
+
+/** Live staged progress while the loading card is visible. */
+function updateLoadingProgress(msg: Extract<ProviderToWebviewMessage, { type: 'diffProgress' }>): void {
+    const pct = msg.total > 0 ? Math.min(100, Math.round((msg.completed / msg.total) * 100)) : 0;
+    const text = document.getElementById('load-text');
+    if (text) { text.textContent = `Loading files… ${pct}% (${msg.stage})`; }
+    const fill = document.getElementById('load-fill') as HTMLElement | null;
+    if (fill) { fill.style.width = `${Math.max(4, pct)}%`; }
+}
+
 /** Navigate so the visual row containing `addr` is centered in the viewport. */
 function focusRow(addr: number): void {
     const idx = visualRowIndexForAddress(shownRows(), addr);
@@ -191,18 +264,18 @@ function focusRow(addr: number): void {
 
 /** Address to start navigating from when nothing is focused yet. */
 function diffFocusBase(): number {
-    return diffFocusAddr >= 0 ? diffFocusAddr : (result?.runs[0]?.start ?? 0);
+    return diffFocusAddr >= 0 ? diffFocusAddr : (meta?.runs[0]?.start ?? 0);
 }
 
 function gotoDiff(direction: 1 | -1): void {
-    if (!result) { return; }
-    const f = diffRunFocus(result, diffFocusBase(), direction);
+    if (!meta) { return; }
+    const f = diffRunFocus(meta, diffFocusBase(), direction);
     if (f) { diffFocusAddr = f.address; focusRow(f.address); }
 }
 
 function gotoMatch(direction: 1 | -1): void {
-    if (!result) { return; }
-    const f = searchMatchFocus(result, searchMatches, searchFocusAddr >= 0 ? searchFocusAddr : -1, direction);
+    if (!meta) { return; }
+    const f = searchMatchFocus(meta, searchMatches, searchFocusAddr >= 0 ? searchFocusAddr : -1, direction);
     if (f) { searchFocusAddr = f.address; focusRow(f.address); }
 }
 
@@ -228,7 +301,7 @@ function updateStatus(): void {
     searchBar.setCount(searchMatches.length, searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0);
     if (error) {
         status.textContent = `Error: ${error}`;
-    } else if (!result) {
+    } else if (!meta) {
         status.textContent = 'Loading…';
     } else {
         let text = `A=${aLabel} ⇄ B=${bLabel} · ${visualRows.length} rows`;
@@ -253,7 +326,7 @@ function dropInvalidFocus(): void {
     if (!focusExists(searchFocusAddr)) { searchFocusAddr = -1; }
 }
 
-function applyDiff(result: DiffResult): void {
+function applyDiff(): void {
     if (error) { error = null; }
     dropInvalidFocus();
     rerender();
@@ -263,7 +336,9 @@ const diffHandlers: Record<string, DiffHandler> = {
     diffInit: m => {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffInit' }>;
         generation = msg.generation;
-        result = msg.result;
+        applySides(msg.a, msg.b);
+        meta = msg.meta;
+        visualRows = groupVisualRows(msg.meta);
         aLabel = msg.aLabel;
         bLabel = msg.bLabel;
         aError = msg.aError;
@@ -273,15 +348,29 @@ const diffHandlers: Record<string, DiffHandler> = {
         searchMatches = [];
         searchFocusAddr = -1;
         diffFocusAddr = -1;
+        firstJumpDone = false;
         error = null;
+        loaded = true;
         rerender();
     },
     diffUpdate: m => {
+        if (!loaded) { return; }
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffUpdate' }>;
-        result = msg.result;
+        generation = msg.generation;
+        applySides(msg.a, msg.b);
+        meta = msg.meta;
+        visualRows = groupVisualRows(msg.meta);
         aError = msg.aError;
         bError = msg.bError;
-        applyDiff(msg.result);
+        applyDiff();
+    },
+    diffProgress: m => {
+        const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffProgress' }>;
+        if (!loaded) {
+            updateLoadingProgress(msg);
+        } else {
+            status.textContent = `Reloading… (${msg.stage})`;
+        }
     },
     diffSwap: m => {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffSwap' }>;
@@ -290,15 +379,24 @@ const diffHandlers: Record<string, DiffHandler> = {
     },
     diffSearch: m => {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffSearch' }>;
+        if (msg.query !== lastRequestedQuery) { return; }
         searchMatches = msg.matches;
-        searchFocusAddr = searchMatches[0] ?? -1;
-        searchBar.setBusy(false);
+        if (!firstJumpDone && msg.matches.length > 0) {
+            firstJumpDone = true;
+            searchFocusAddr = msg.matches[0];
+            focusRow(searchFocusAddr);
+        }
+        if (msg.done) { searchBar.setBusy(false); }
         rerender();
     },
     loadError: m => {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'loadError' }>;
         error = msg.message;
-        rerender();
+        if (!loaded) {
+            renderErrorCard();
+        } else {
+            rerender();
+        }
     },
 };
 
@@ -346,13 +444,12 @@ function wireComponents(): void {
 function selectionBytes(): number[] {
     if (!selection) { return []; }
     const bytes: number[] = [];
-    for (const vr of visualRows) {
-        for (let i = 0; i < DIFF_ROW_BYTES; i++) {
-            const addr = vr.baseAddress + i;
-            if (addr < selection.start || addr > selection.end) { continue; }
-            const cell = selection.side === 'a' ? vr.a[i] : vr.b[i];
-            if (cell?.present) { bytes.push(cell.byte); }
-        }
+    const result = selection.side === 'a' ? aResult : bResult;
+    const index = selection.side === 'a' ? aIndex : bIndex;
+    const noEdits = new Map<number, number>();
+    for (let addr = selection.start; addr <= selection.end; addr++) {
+        const b = getByteAt(result, index, noEdits, addr);
+        if (b !== undefined) { bytes.push(b); }
     }
     return bytes;
 }
@@ -379,8 +476,3 @@ document.addEventListener('keydown', e => {
 post({ type: 'diffReady' });
 rerender();
 searchBar.mount();
-
-
-
-
-

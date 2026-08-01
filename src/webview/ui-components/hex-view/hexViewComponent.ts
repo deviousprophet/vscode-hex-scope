@@ -20,10 +20,11 @@ export interface HexViewCallbacks {
 export interface HexViewRenderInput {
     label: string;
     rows: readonly DiffVisualRow[];
+    /** Index of `rows[0]` within the full row list (absolute positioning). */
+    rowOffset: number;
     searchRowIndex: number;
     matchSet: ReadonlySet<number>;
     error: string | null;
-    visibleRange: [number, number];
     totalHeight: number;
 }
 
@@ -49,7 +50,7 @@ function cellHtml(cell: DiffCell | null, status: string, isMatch: boolean, side:
     return `<span class="${cellClass(cell, status, isMatch)}" data-addr="${esc(formatAddress(addr))}" data-side="${side}">${byteText(cell)}</span>`;
 }
 
-function rowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, isSearchRow: boolean, matchSet: ReadonlySet<number>, error: string | null): string {
+function rowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, rowOffset: number, isSearchRow: boolean, matchSet: ReadonlySet<number>, error: string | null): string {
     const addr = esc(formatAddress(vr.baseAddress));
     const cells: string[] = [];
     for (let j = 0; j < DIFF_ROW_BYTES; j++) {
@@ -57,7 +58,8 @@ function rowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, isSearchRow:
         const cell = side === 'a' ? vr.a[j] : vr.b[j];
         cells.push(cellHtml(cell, vr.statuses[j], matchSet.has(byteAddr), side, byteAddr));
     }
-    return `<div class="diff-row" data-addr="${addr}" style="top:${index * DIFF_ROW_HEIGHT}px">
+    const top = (index + rowOffset) * DIFF_ROW_HEIGHT;
+    return `<div class="diff-row" data-addr="${addr}" style="top:${top}px">
         <span class="addr">${addr}</span>
         <div class="side${isSearchRow ? ' search-row' : ''}${error ? ' panel-error' : ''}">${cells.join('')}</div>
     </div>`;
@@ -74,8 +76,8 @@ function headerHtml(): string {
 /** Pure HTML for one component (testable without DOM). */
 export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRenderInput): string {
     const rows: string[] = [];
-    for (let i = input.visibleRange[0]; i < input.visibleRange[1] && i < input.rows.length; i++) {
-        rows.push(rowHtml(input.rows[i], side, i, i === input.searchRowIndex, input.matchSet, input.error));
+    for (let i = 0; i < input.rows.length; i++) {
+        rows.push(rowHtml(input.rows[i], side, i, input.rowOffset, i + input.rowOffset === input.searchRowIndex, input.matchSet, input.error));
     }
     return `<div class="diff-component ${side}">
         ${input.label ? `<div class="panel-label">${esc(input.label)}</div>` : ''}
@@ -126,6 +128,9 @@ export class HexViewComponent {
         on('mousedown', e => {
             const c = cell(e.target);
             if (!c) { return; }
+            // Empty (be) cells carry no data: they cannot start a selection.
+            const targetEl = (e.target as HTMLElement).closest?.(`${this.rootSel} .data-cell`) as HTMLElement | null;
+            if (targetEl?.classList.contains('be')) { return; }
             this._dragging = true;
             this._selection = { start: c.addr, end: c.addr };
             this.applySel();

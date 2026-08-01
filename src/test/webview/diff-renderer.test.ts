@@ -1,11 +1,12 @@
-// Unit tests for the diff renderer + visual-row grouping (pure, no DOM/vscode).
+// Unit tests for the diff renderer + visual-row windowing (pure, no DOM/vscode).
 
 import * as assert from 'assert';
-import { computeDiff } from '../../core/diff';
+import { buildDiffMeta, diffCellWindow } from '../../core/diff';
 import type { CompactParseResult } from '../../core/parser/compact';
+import type { SerializedParseResult } from '../../core/types';
+import { buildSegmentIndex } from '../../core/memory';
 import { renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
 import { renderHexViewComponentHtml } from '../../webview/ui-components/hex-view/hexViewComponent';
-import { groupVisualRows } from '../../webview/diff/diffViewModel';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
     return {
@@ -17,47 +18,62 @@ function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): Com
     };
 }
 
+function serialized(segments: Array<{ startAddress: number; data: Uint8Array }>): SerializedParseResult {
+    return {
+        records: [],
+        segments,
+        totalDataBytes: segments.reduce((n, s) => n + s.data.length, 0),
+        checksumErrors: 0,
+        malformedLines: 0,
+        format: 'ihex',
+    };
+}
+
 function seg(startAddress: number, bytes: number[]): { startAddress: number; data: Uint8Array } {
     return { startAddress, data: Uint8Array.from(bytes) };
 }
 
-function componentHtml(overrides: Partial<Parameters<typeof renderHexViewComponentHtml>[1]> = {}, label = 'file.hex'): string {
-    const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-    const b = parse([seg(0x1000, [1, 2, 3, 4])]);
-    const d = computeDiff(a, b);
+function windowsFor(segmentsA: Array<{ startAddress: number; data: Uint8Array }>, segmentsB: Array<{ startAddress: number; data: Uint8Array }>): ReturnType<typeof diffCellWindow>[] {
+    const a = serialized(segmentsA);
+    const b = serialized(segmentsB);
+    const aIndex = buildSegmentIndex(a);
+    const bIndex = buildSegmentIndex(b);
+    const meta = buildDiffMeta(parse(segmentsA), parse(segmentsB));
+    return Array.from(meta.rowStarts, base => diffCellWindow(a, aIndex, b, bIndex, base));
+}
+
+function componentHtml(
+    overrides: Partial<Omit<Parameters<typeof renderHexViewComponentHtml>[1], 'label'>> = {},
+    label = 'file.hex',
+): string {
+    const windows = windowsFor([seg(0x1000, [1, 2, 3, 4])], [seg(0x1000, [1, 2, 3, 4])]);
     return renderHexViewComponentHtml('a', {
         label,
-        rows: groupVisualRows(d.rows),
+        rows: windows,
+        rowOffset: 0,
         searchRowIndex: -1,
         matchSet: new Set(),
         error: null,
-        visibleRange: [0, 1],
         totalHeight: 22,
         ...overrides,
     });
 }
 
-suite('diff visual-row grouping', () => {
-    test('16 address rows collapse into one 16-byte visual row', () => {
-        const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const b = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const d = computeDiff(a, b);
-        assert.strictEqual(d.rows.length, 16, 'computeDiff emits one row per address');
-        const visual = groupVisualRows(d.rows);
-        assert.strictEqual(visual.length, 1, '16 address rows become one visual row');
-        assert.strictEqual(visual[0].baseAddress, 0x1000);
+suite('diff visual-row windowing', () => {
+    test('one 16-byte window per union row', () => {
+        const windows = windowsFor([seg(0x1000, [1, 2, 3, 4])], [seg(0x1000, [1, 2, 3, 4])]);
+        assert.strictEqual(windows.length, 1);
+        assert.strictEqual(windows[0].baseAddress, 0x1000);
+        assert.strictEqual(windows[0].a.length, 16, 'window carries 16 cells per side');
     });
 
-    test('visual row carries distinct per-address bytes, not one repeated byte', () => {
-        const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const b = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const d = computeDiff(a, b);
-        const [vr] = groupVisualRows(d.rows);
+    test('window carries distinct per-address bytes, not one repeated byte', () => {
+        const [w] = windowsFor([seg(0x1000, [1, 2, 3, 4])], [seg(0x1000, [1, 2, 3, 4])]);
         assert.deepStrictEqual(
-            vr.a.slice(0, 4).map(c => c?.byte),
+            w.a.slice(0, 4).map(c => c?.byte),
             [1, 2, 3, 4],
         );
-        assert.strictEqual(vr.a[4], null, 'addresses past the file end are empty cells');
+        assert.strictEqual(w.a[4], null, 'addresses past the file end are empty cells');
     });
 
     test('rendered component shows the real bytes, not a repeated first byte', () => {
@@ -67,14 +83,11 @@ suite('diff visual-row grouping', () => {
         assert.ok(html.includes('>··<'), 'empty cells after the data');
     });
 
-    test('a gap creates its own visual rows aligned to 16', () => {
-        const a = parse([seg(0x1000, [1, 2])]);
-        const b = parse([seg(0x1010, [5])]);
-        const d = computeDiff(a, b);
-        const visual = groupVisualRows(d.rows);
-        assert.strictEqual(visual.length, 2);
-        assert.strictEqual(visual[0].baseAddress, 0x1000);
-        assert.strictEqual(visual[1].baseAddress, 0x1010);
+    test('a gap creates its own windows aligned to 16', () => {
+        const windows = windowsFor([seg(0x1000, [1, 2])], [seg(0x1010, [5])]);
+        assert.strictEqual(windows.length, 2);
+        assert.strictEqual(windows[0].baseAddress, 0x1000);
+        assert.strictEqual(windows[1].baseAddress, 0x1010);
     });
 });
 
@@ -88,6 +101,11 @@ suite('diff renderer', () => {
         assert.ok(!html.includes('data-side="b"'), 'a component renders one side only');
     });
 
+    test('rows are absolutely positioned at (rowOffset + index) x row height', () => {
+        const html = componentHtml({ rowOffset: 40 });
+        assert.ok(html.includes('style="top:880px"'), 'row 40 at 40*22px');
+    });
+
     test('match addresses get the match class', () => {
         const html = componentHtml({ matchSet: new Set([0x1003]) });
         assert.strictEqual((html.match(/class="data-cell bn match"/g) ?? []).length, 1);
@@ -99,21 +117,19 @@ suite('diff renderer', () => {
     });
 
     test('label is optional: present when given, omitted when empty', () => {
-        assert.ok(componentHtml(undefined, 'a.hex').includes('class="panel-label"'));
-        assert.ok(!componentHtml(undefined, '').includes('class="panel-label"'));
+        assert.ok(componentHtml({}, 'a.hex').includes('class="panel-label"'));
+        assert.ok(!componentHtml({}, '').includes('class="panel-label"'));
     });
 
     test('changed/added/removed all render as the single bd status', () => {
-        const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const b = parse([seg(0x1000, [1, 9, 3, 4])]);
-        const d = computeDiff(a, b);
+        const windows = windowsFor([seg(0x1000, [1, 2, 3, 4])], [seg(0x1000, [1, 9, 3, 4])]);
         const html = renderHexViewComponentHtml('a', {
             label: 'f.hex',
-            rows: groupVisualRows(d.rows),
+            rows: windows,
+            rowOffset: 0,
             searchRowIndex: -1,
             matchSet: new Set(),
             error: null,
-            visibleRange: [0, 1],
             totalHeight: 22,
         });
         assert.ok(html.includes('data-cell bd'), 'differing byte renders as bd');
@@ -122,11 +138,13 @@ suite('diff renderer', () => {
     });
 
     test('identical files render an identical summary', () => {
-        const a = parse([seg(0x1000, [1])]);
-        const d = computeDiff(a, a);
-        const html = renderDiffSummaryHtml({ result: d, aError: null, bError: null });
+        const meta = buildDiffMeta(parse([seg(0x1000, [1])]), parse([seg(0x1000, [1])]));
+        const html = renderDiffSummaryHtml({ meta, aError: null, bError: null });
         assert.ok(html.includes('Files are identical'));
     });
+
+    test('a diff summary renders nothing (counts live in the toolbar, not the bar)', () => {
+        const meta = buildDiffMeta(parse([seg(0x1000, [1])]), parse([seg(0x1000, [2])]));
+        assert.strictEqual(renderDiffSummaryHtml({ meta, aError: null, bError: null }), '');
+    });
 });
-
-

@@ -270,6 +270,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     activateScriptsTab: handleActivateScriptsTabMessage,
     diffInit: () => {},
     diffUpdate: () => {},
+    diffProgress: () => {},
     diffSwap: () => {},
     diffSearch: () => {},
 };

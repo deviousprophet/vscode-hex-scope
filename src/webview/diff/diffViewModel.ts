@@ -1,10 +1,9 @@
 // Diff view model — pure state for the HexScope diff webview.
 // No DOM, no vscode API: unit-testable in isolation.
+// The webview holds a light full row list (address + hasDiff) plus the two
+// segment indexes; per-window cells are computed on scroll via `diffCellWindow`.
 
-import type {
-    DiffResult,
-    DiffRow,
-} from '../../core/diff';
+import type { DiffCell, DiffByteStatus, DiffMeta } from '../../core/diff';
 import { DIFF_BPR } from '../../core/diff';
 
 /** Row width in bytes; single source of truth is `DIFF_BPR` in core/diff.ts. */
@@ -13,14 +12,49 @@ export const DIFF_ROW_BYTES = DIFF_BPR;
 /** Fixed row height in px; must match `.diff-row` height in diff.css. */
 export const DIFF_ROW_HEIGHT = 22;
 
-/** Index of the row containing `address`, or -1. */
-export function rowIndexForAddress(result: DiffResult, address: number): number {
-    return result.rows.findIndex(row => row.address <= address && address < row.address + DIFF_ROW_BYTES);
+/** One lightweight union row: address + whether it contains a diff. */
+export interface DiffLightRow {
+    baseAddress: number;
+    hasDiff: boolean;
 }
 
-/** Byte offset (0-15) of `address` inside its row. */
-export function columnForAddress(row: DiffRow, address: number): number {
-    return address - row.address;
+/** One 16-byte visual row: per-address cells + statuses for both panels. */
+export interface DiffVisualRow {
+    baseAddress: number;
+    a: Array<DiffCell | null>;
+    b: Array<DiffCell | null>;
+    statuses: DiffByteStatus[];
+}
+
+/** Build the light full row list from the meta pass (no per-cell data). */
+export function groupVisualRows(meta: DiffMeta): DiffLightRow[] {
+    const rows: DiffLightRow[] = new Array(meta.totalRows);
+    const starts = meta.rowStarts;
+    for (let i = 0; i < starts.length; i++) {
+        rows[i] = { baseAddress: starts[i], hasDiff: meta.hasDiff[i] === 1 };
+    }
+    return rows;
+}
+
+/** Index of the union row containing `address`, or -1 (gaps included). */
+export function rowIndexForAddress(meta: DiffMeta | null, address: number): number {
+    if (!meta) { return -1; }
+    const starts = meta.rowStarts;
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        const base = starts[mid];
+        if (address < base) { hi = mid - 1; }
+        else if (address >= base + DIFF_ROW_BYTES) { lo = mid + 1; }
+        else { return mid; }
+    }
+    return -1;
+}
+
+/** Byte offset (0-15) of `address` inside its BPR-aligned row. */
+export function columnForAddress(baseAddress: number, address: number): number {
+    return address - baseAddress;
 }
 
 export interface DiffFocus {
@@ -29,36 +63,22 @@ export interface DiffFocus {
     column: number;
 }
 
-/** One 16-byte visual row: per-address cells + statuses for both panels. */
-export interface DiffVisualRow {
-    baseAddress: number;
-    a: Array<{ present: boolean; byte: number } | null>;
-    b: Array<{ present: boolean; byte: number } | null>;
-    statuses: DiffRow['status'][];
-}
-
 /**
- * Group per-address diff rows (one per byte) into 16-byte visual rows.
- * `computeDiff` emits `DIFF_ROW_BYTES` consecutive address rows per aligned
- * block (empty cells for missing data), so chunking is contiguous.
+ * Index of the visual row containing `address` among `rows` (sorted by
+ * baseAddress), or -1. Rows may skip address ranges (gaps): an address that
+ * falls between rows is not part of any row.
  */
-export function groupVisualRows(rows: readonly DiffRow[]): DiffVisualRow[] {
-    const visual: DiffVisualRow[] = [];
-    for (let i = 0; i < rows.length; i += DIFF_ROW_BYTES) {
-        const chunk = rows.slice(i, i + DIFF_ROW_BYTES);
-        visual.push({
-            baseAddress: chunk[0].address,
-            a: chunk.map(r => r.a),
-            b: chunk.map(r => r.b),
-            statuses: chunk.map(r => r.status),
-        });
+export function visualRowIndexForAddress(rows: readonly { baseAddress: number }[], address: number): number {
+    let lo = 0;
+    let hi = rows.length - 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        const base = rows[mid].baseAddress;
+        if (address < base) { hi = mid - 1; }
+        else if (address >= base + DIFF_ROW_BYTES) { lo = mid + 1; }
+        else { return mid; }
     }
-    return visual;
-}
-
-/** Index of the visual row containing `address`, or -1. */
-export function visualRowIndexForAddress(visualRows: readonly DiffVisualRow[], address: number): number {
-    return visualRows.findIndex(r => address >= r.baseAddress && address < r.baseAddress + DIFF_ROW_BYTES);
+    return -1;
 }
 
 /** Wrap an index into [0, len) moving by `direction` from `current`; `current < 0` starts at 0. */
@@ -68,26 +88,27 @@ function wrapIndex(len: number, current: number, direction: 1 | -1): number {
 }
 
 /** Next/prev difference run boundary relative to `current` address (wraps). */
-export function diffRunFocus(result: DiffResult, current: number, direction: 1 | -1): DiffFocus | null {
-    if (!result || result.runs.length === 0) { return null; }
-    const idx = result.runs.findIndex(r => r.start <= current && current < r.end);
-    const next = wrapIndex(result.runs.length, idx, direction);
-    const address = result.runs[next].start;
-    return { address, rowIndex: rowIndexForAddress(result, address), column: 0 };
+export function diffRunFocus(meta: DiffMeta | null, current: number, direction: 1 | -1): DiffFocus | null {
+    if (!meta || meta.runs.length === 0) { return null; }
+    const idx = meta.runs.findIndex(r => r.start <= current && current <= r.end);
+    const next = wrapIndex(meta.runs.length, idx, direction);
+    const address = meta.runs[next].start;
+    const rowIndex = rowIndexForAddress(meta, address);
+    if (rowIndex < 0) { return null; }
+    return { address, rowIndex, column: address - meta.rowStarts[rowIndex] };
 }
 
 /** Next/prev search match address relative to `current` (wraps). */
-export function searchMatchFocus(result: DiffResult, matches: number[], current: number, direction: 1 | -1): DiffFocus | null {
-    if (!result || matches.length === 0) { return null; }
+export function searchMatchFocus(meta: DiffMeta | null, matches: number[], current: number, direction: 1 | -1): DiffFocus | null {
+    if (!meta || matches.length === 0) { return null; }
     const idx = matches.indexOf(current);
     const next = wrapIndex(matches.length, idx, direction);
     const address = matches[next];
-    const rowIndex = rowIndexForAddress(result, address);
+    const rowIndex = rowIndexForAddress(meta, address);
     if (rowIndex < 0) { return null; }
-    return { address, rowIndex, column: columnForAddress(result.rows[rowIndex], address) };
+    return { address, rowIndex, column: address - meta.rowStarts[rowIndex] };
 }
 
 export function formatAddress(address: number): string {
     return address.toString(16).toUpperCase().padStart(8, '0');
 }
-

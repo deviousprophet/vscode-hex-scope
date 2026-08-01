@@ -26,6 +26,7 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'activateScriptsTab',
     'diffInit',
     'diffUpdate',
+    'diffProgress',
     'diffSwap',
     'diffSearch',
 ];

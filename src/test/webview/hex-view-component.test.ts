@@ -2,23 +2,28 @@
 
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import { computeDiff } from '../../core/diff';
-import type { CompactParseResult } from '../../core/parser/compact';
-import { groupVisualRows } from '../../webview/diff/diffViewModel';
+import { diffCellWindow } from '../../core/diff';
+import type { SerializedParseResult } from '../../core/types';
+import { buildSegmentIndex } from '../../core/memory';
 import { HexViewComponent, renderHexViewComponentHtml } from '../../webview/ui-components/hex-view/hexViewComponent';
 
-function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
+function seg(startAddress: number, bytes: number[]): { startAddress: number; data: Uint8Array } {
+    return { startAddress, data: Uint8Array.from(bytes) };
+}
+
+function serialized(segments: Array<{ startAddress: number; data: Uint8Array }>): SerializedParseResult {
     return {
-        records: { pageCount: 0, get: () => undefined } as never,
+        records: [],
         segments,
         totalDataBytes: segments.reduce((n, s) => n + s.data.length, 0),
         checksumErrors: 0,
         malformedLines: 0,
+        format: 'ihex',
     };
 }
 
-function seg(startAddress: number, bytes: number[]): { startAddress: number; data: Uint8Array } {
-    return { startAddress, data: Uint8Array.from(bytes) };
+function windowRowFor(a: SerializedParseResult, b: SerializedParseResult, baseAddress: number): ReturnType<typeof diffCellWindow> {
+    return diffCellWindow(a, buildSegmentIndex(a), b, buildSegmentIndex(b), baseAddress);
 }
 
 let dom: JSDOM;
@@ -36,17 +41,16 @@ function setupDom(): void {
 }
 
 function mountComponent(side: 'a' | 'b' = 'a'): HexViewComponent {
-    const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-    const b = parse([seg(0x1000, [1, 2, 3, 4])]);
-    const d = computeDiff(a, b);
-    const rows = groupVisualRows(d.rows);
+    const a = serialized([seg(0x1000, [1, 2, 3, 4])]);
+    const b = serialized([seg(0x1000, [1, 2, 3, 4])]);
+    const rows = [windowRowFor(a, b, 0x1000)];
     dom.window.document.body.innerHTML = renderHexViewComponentHtml(side, {
         label: 'file.hex',
         rows,
+        rowOffset: 0,
         searchRowIndex: -1,
         matchSet: new Set(),
         error: null,
-        visibleRange: [0, 1],
         totalHeight: 22,
     });
     const comp = new HexViewComponent(side);
@@ -147,6 +151,17 @@ suite('hex view component interaction', () => {
         assert.ok(!(dom.window.document.querySelector<HTMLElement>('.diff-header .hcell[data-col="5"]'))!.classList.contains('sel-col'), 'unselected column not marked');
     });
 
+    test('mousedown on an empty cell does not start a selection', () => {
+        setupDom();
+        const comp = mountComponent();
+        let fired = false;
+        comp.setCallbacks({ onSelectionChange: () => { fired = true; } });
+
+        cellAt(0x1004).dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+        assert.strictEqual(fired, false, 'empty cell cannot start a selection');
+        assert.ok(!cellAt(0x1004).classList.contains('sel'), 'empty cell never carries sel');
+    });
+
     test('setMirrorAddr mirrors the byte cell AND its row (cross-panel hover)', () => {
         setupDom();
         const comp = mountComponent();
@@ -161,16 +176,15 @@ suite('hex view component interaction', () => {
 
     test('match cells render the match class', () => {
         setupDom();
-        const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const b = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const d = computeDiff(a, b);
+        const a = serialized([seg(0x1000, [1, 2, 3, 4])]);
+        const b = serialized([seg(0x1000, [1, 2, 3, 4])]);
         const html = renderHexViewComponentHtml('a', {
             label: 'f.hex',
-            rows: groupVisualRows(d.rows),
+            rows: [windowRowFor(a, b, 0x1000)],
+            rowOffset: 0,
             searchRowIndex: -1,
             matchSet: new Set([0x1001, 0x1003]),
             error: null,
-            visibleRange: [0, 1],
             totalHeight: 22,
         });
         assert.ok(html.includes('data-cell bn match'), 'match cells carry match');
