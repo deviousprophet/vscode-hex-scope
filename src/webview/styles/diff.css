@@ -106,10 +106,10 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
 /* 4-byte group gap, same as the memory view */
 .side .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 
-/* ── Status (all differences collapse to one "diff" look) ─────── */
+/* ── Status (all differences collapse to one `bd` byte-diff look) ─ */
 .data-cell.unchanged { color: var(--fg); }
 .data-cell.empty     { color: var(--non-graphic); opacity: .55; }
-.data-cell.diff      { color: #ff6b6b; background: rgba(255,90,90,.16); }
+.data-cell.bd        { color: #ff6b6b; background: rgba(255,90,90,.16); }
 
 /* ── 4 independent visual channels: status=bg, sel=outline,
        hover=inner ring, match=amber underline. All coexist. ─────── */

@@ -35,9 +35,9 @@ function byteText(cell: DiffCell | null): string {
 
 const DIFF_TYPES = new Set(['changed', 'added', 'removed']);
 
-/** Collapse all difference statuses into a single `diff` visual. */
+/** Collapse all difference statuses into the single `bd` (byte-diff) visual. */
 function diffStatus(status: string): string {
-    return DIFF_TYPES.has(status) ? 'diff' : status;
+    return DIFF_TYPES.has(status) ? 'bd' : status;
 }
 
 function cellClass(cell: DiffCell | null, status: string, isMatch: boolean, isAmatch: boolean): string {

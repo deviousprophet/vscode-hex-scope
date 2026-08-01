@@ -103,7 +103,7 @@ suite('diff renderer', () => {
         assert.ok(!componentHtml(undefined, '').includes('class="panel-label"'));
     });
 
-    test('changed/added/removed all render as the single diff status', () => {
+    test('changed/added/removed all render as the single bd status', () => {
         const a = parse([seg(0x1000, [1, 2, 3, 4])]);
         const b = parse([seg(0x1000, [1, 9, 3, 4])]);
         const d = computeDiff(a, b);
@@ -116,8 +116,7 @@ suite('diff renderer', () => {
             visibleRange: [0, 1],
             totalHeight: 22,
         });
-        assert.ok(html.includes('data-cell diff'), 'differing byte renders as diff');
-        assert.ok(!html.includes('data-cell changed'), 'no separate changed class');
+        assert.ok(html.includes('data-cell bd'), 'differing byte renders as bd');
         assert.ok(!html.includes('data-cell added'), 'no separate added class');
         assert.ok(!html.includes('data-cell removed'), 'no separate removed class');
     });
