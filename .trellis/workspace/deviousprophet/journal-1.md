@@ -75,3 +75,32 @@ Deep review (Spec axis, earlier cancelled) surfaced real defects + missing featu
 ### Status
 
 [WIP] Task in_progress. Docs persisted (prd D26–D29, design §2.5, new `frontend/diff-view.md` spec). Remaining: visual verification of the new layout in a live VS Code run; possible further polish; then phase 3.4 commit + 3.5 wrap-up.
+
+
+## Session 3: Hex diff view complete: lazy-window model, reusable components, review cleanup
+
+**Date**: 2026-08-01
+**Task**: Hex diff view complete: lazy-window model, reusable components, review cleanup
+**Branch**: `feat/hex-diff-view`
+
+### Summary
+
+Completed the hexScope.hexDiff custom editor. Locked 8MB large-file design (grill Q1-Q10): lazy per-window cells over binary WireParseResult segments + light DiffMeta, sequential staged load with diffProgress, cancellable parse (abort+restart on external change), loading card (initial-load only), streaming union search with first-jump, Enter-nav parity. Extracted reusable HexViewComponent + SearchBarComponent (endian pill, mode labels, copy-as-intent onCopy). Removed address-range label rail (user). Review-driven cleanups: dead needsLeadingRow, .be hover guard, prev-wrap, shared binary search, parse stage labels, decodePairKey validation, memory.ts SegmentSource widening (no as never). 584 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `768e285` | (see git log) |
+| `9e8ce5d` | (see git log) |
+| `b51bd29` | (see git log) |
+| `ea1c94c` | (see git log) |
+| `026c090` | (see git log) |
+| `a1ff249` | (see git log) |
+| `7961483` | (see git log) |
+| `b3168f0` | (see git log) |
+| `a692e48` | (see git log) |
+
+### Status
+
+[OK] **Completed**
