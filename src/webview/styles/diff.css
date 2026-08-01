@@ -66,14 +66,16 @@
 
 /* ── Address gutters (one per panel; mirrors .addr-cell) ──────── */
 .diff-row .addr,
-.diff-header .addr {
+.diff-header .addr,
+.diff-panel-labels .addr {
     font-family: var(--font-editor); font-size: var(--font-size);
     line-height: 22px; text-transform: uppercase;
     color: var(--addr-fg); white-space: nowrap;
     padding: 0 8px 0 6px; user-select: none;
     width: calc(8ch + 14px); flex-shrink: 0;
 }
-.diff-header .addr { visibility: hidden; }
+.diff-header .addr,
+.diff-panel-labels .addr { visibility: hidden; }
 .diff-row:hover .addr { color: var(--addr-active-fg); }
 
 /* ── Side panels ──────────────────────────────────────────────── */
