@@ -200,7 +200,7 @@ function rerender(): void {
             <div class="tb-sep"></div>
             <button id="prev-diff" class="nav-btn" title="Previous difference">&#9650;</button>
             <button id="next-diff" class="nav-btn" title="Next difference">&#9660;</button>
-            <button id="swap" class="nav-btn" title="Swap A/B">&#8646; Swap</button>
+            <button id="swap" class="nav-btn" title="Swap A/B">&#8646;</button>
             ${searchBoxHtml()}
             <div class="tb-sep"></div>
             <button id="copy-selection" class="nav-btn" title="Copy selected bytes">Copy</button>
