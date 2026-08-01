@@ -48,3 +48,30 @@ Fixed issue #142: selectedBytes() now skips unmapped gap addresses instead of ze
 ### Status
 
 [OK] **Completed**
+
+## Session 3: Hex diff view — bug fixes, gap completion, UI polish
+
+**Date**: 2026-08-01
+**Task**: `08-01-hex-diff-view` (in_progress)
+**Branch**: `feat/hex-diff-view`
+
+### Summary
+
+Deep review (Spec axis, earlier cancelled) surfaced real defects + missing feature gaps that the first implementation pass claimed but didn't deliver. Fixed via TDD (red → green, clean `npm run clean` in pretest).
+
+- **Confirmed bugs fixed**: Compare Selected missing from explorer menu + `Uri[]` array unhandled (fell into a file dialog); diff tab title = opaque base64 pair key (key moved to URI query, path = both filenames); bare `Alt+↓/↑` mis-bound to staging commands (showed "Alt+Down" menu hint) → staging now `Ctrl+Alt`, diff-nav is webview-local `Alt+ArrowDown/Up`.
+- **Critical rendering bug**: `computeDiff` emits one `DiffRow` per address but the renderer drew each as a full 16-cell visual row — one byte repeated 16× per visual row. Fixed with `groupVisualRows` (16-byte visual rows) + `visualRowIndexForAddress`; regression-tested against real `computeDiff` output.
+- **Gaps completed**: per-cell search match highlight + search mode/endianness; per-panel parse-error state (`aError`/`bError`); label rail (both files' `SegmentLabel`s, side-tagged); per-panel click-drag selection + copy (hex/c-array/ascii).
+- **UI per user request**: 00..0F column header (sticky), dual address gutters per panel, centered grid, visible 2px gutter between panels, changed highlight red (added green, removed magenta).
+- **Layout fix**: `#diff-scroll` measured via `clientHeight` (fixed `innerHeight - 90` + flex double-sized, clipped toolbar).
+- Cleaned design tags (D17/…) out of code comments per user instruction.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `384afbf` | fix(diff): complete diff-view gaps, fix rendering + UX defects |
+
+### Status
+
+[WIP] Task in_progress. Docs persisted (prd D26–D29, design §2.5, new `frontend/diff-view.md` spec). Remaining: visual verification of the new layout in a live VS Code run; possible further polish; then phase 3.4 commit + 3.5 wrap-up.
