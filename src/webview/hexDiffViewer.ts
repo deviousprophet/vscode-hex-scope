@@ -164,6 +164,7 @@ function renderScroll(): void {
         rows,
         searchRowIndex: searchRowIndexFor(),
         matchSet,
+        matchFocusAddr: searchFocusAddr,
         visibleRange: range,
         totalHeight,
     };
