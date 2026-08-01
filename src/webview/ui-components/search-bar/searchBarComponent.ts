@@ -22,17 +22,6 @@ function placeholderFor(mode: SearchMode): string {
     return placeholders[mode];
 }
 
-function endianLabel(e: SearchEndianness): string {
-    return e === 'auto' ? 'Auto' : e === 'le' ? 'LE' : 'BE';
-}
-
-const ENDIAN_CYCLE: SearchEndianness[] = ['le', 'be', 'auto'];
-
-function nextEndianness(e: SearchEndianness): SearchEndianness {
-    const idx = ENDIAN_CYCLE.indexOf(e);
-    return ENDIAN_CYCLE[(idx + 1) % ENDIAN_CYCLE.length];
-}
-
 export class SearchBarComponent {
     private mode: SearchMode = 'bytes';
     private endianness: SearchEndianness = 'le';
@@ -52,9 +41,12 @@ export class SearchBarComponent {
         const modeOpts = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
             `<option value="${m}"${this.mode === m ? ' selected' : ''}>${m}</option>`
         ).join('');
+        const endBtn = (end: SearchEndianness, label: string) =>
+            `<button id="search-btn-${end}" class="${this.endianness === end ? 'active' : ''}" type="button">${label}</button>`;
         return `<div id="search-box">
-            <button id="search-endian-toggle" class="search-endian-toggle" type="button" title="Byte order"
-                style="display:${this.mode === 'value' ? 'inline-flex' : 'none'}">${esc(endianLabel(this.endianness))}</button>
+            <div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:${this.mode === 'value' ? 'inline-flex' : 'none'}">
+                ${endBtn('auto', 'Auto')}${endBtn('le', 'LE')}${endBtn('be', 'BE')}
+            </div>
             <select id="search-mode">${modeOpts}</select>
             <div class="search-addr-wrap">
                 <span id="search-addr-prefix" class="search-addr-prefix" style="display:none">0x</span>
@@ -93,6 +85,11 @@ export class SearchBarComponent {
             inp.placeholder = placeholderFor(this.mode);
             inp.maxLength = this.mode === 'addr' ? 8 : 100;
             updateAddrOverlay(inp);
+        };
+        const updateEndianUi = (): void => {
+            for (const end of ['auto', 'le', 'be'] as const) {
+                document.getElementById(`search-btn-${end}`)?.classList.toggle('active', this.endianness === end);
+            }
         };
 
         on('change', e => {
@@ -134,9 +131,9 @@ export class SearchBarComponent {
                 updateAddrOverlay(inp);
                 this.cb.onClear();
             }
-            else if (id === 'search-endian-toggle') {
-                this.endianness = nextEndianness(this.endianness);
-                (e.target as HTMLElement).textContent = endianLabel(this.endianness);
+            else if (id === 'search-btn-auto' || id === 'search-btn-le' || id === 'search-btn-be') {
+                this.endianness = id === 'search-btn-auto' ? 'auto' : id === 'search-btn-le' ? 'le' : 'be';
+                updateEndianUi();
                 run();
             }
         });
