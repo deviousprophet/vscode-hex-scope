@@ -62,7 +62,7 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 ## 6. Selection + copy
 
 - Click-drag on a `[data-side][data-addr]` cell selects a byte range locked to the starting side; selection clears only on empty `#diff-scroll` clicks (toolbar/rail clicks keep it).
-- Ctrl+C → `formatCopyCommand('hex', selectionBytes())` over the selected side's present bytes in address order.
+- Ctrl+C copy is owned by `HexViewComponent` (keydown, text-input guarded): it emits `onCopy(range)`; the diff host reads the selected side's present bytes via its segment index and writes hex (`formatCopyCommand('hex', …)`). No global host keydown handler.
 
 ## 7. Tests Required
 

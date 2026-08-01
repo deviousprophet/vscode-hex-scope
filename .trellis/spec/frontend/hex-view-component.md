@@ -39,12 +39,13 @@ A byte cell carries a **base class** (value/status) plus **combo classes** (hove
 - `setMirrorAddr(addr)` — paint the hovered-by-the-other-side byte (cell + row).
 - `setMirrorRange(range)` — paint the selected-by-the-other-side range (sel-mirror).
 - `setColumn(col)` / `reapply()`.
-- Callbacks: `onHover(addr)`, `onLeave()`, `onSelectionChange(range)`, `onColumnHover(col)`, `onColumnLeave()`.
+- Callbacks: `onHover(addr)`, `onLeave()`, `onSelectionChange(range)`, `onColumnHover(col)`, `onColumnLeave()`, `onCopy(range)`.
+- **Copy intent (option B):** the component owns the Ctrl/Cmd+C keydown (guarded against `input/textarea/select/[contenteditable]` targets) and, when it holds a selection, emits `onCopy(range)`. The host decides bytes + format + clipboard. This keeps the component free of data-model/format/clipboard concerns and matches the `onSelectionChange` trigger-in-component / effect-in-host pattern. (Future editing reuse: a read-only view has no paste; if the component later backs an editable view, add an `onPaste` intent the host decides on — not wired today.)
 - Hover clears on leaving the whole component (mouseleave emulation via `relatedTarget`), not per cell (no flicker).
 
 Status→class mapping: `unchanged→bn`, `empty→be`, `changed|added|removed→bd` (single diff visual).
 
 ## 3. Tests
 
-`src/test/webview/hex-view-component.test.ts` (jsdom): column hover (onColumnHover + `col-hi` on data and header cells), cell hover (onHover + `cell-hover` + column; clears on component leave), click/drag selection (onSelectionChange + `sel` + `row-sel` + `sel-col`), `setMirrorAddr` (cell-mirror + row-hi). `src/test/webview/diff-renderer.test.ts`: `bd` collapse, `bn match`, label optional, identical summary.
+`src/test/webview/hex-view-component.test.ts` (jsdom): column hover (onColumnHover + `col-hi` on data and header cells), cell hover (onHover + `cell-hover` + column; clears on component leave), click/drag selection (onSelectionChange + `sel` + `row-sel` + `sel-col`), empty-cell selection guard, Ctrl+C copy intent (onCopy + text-input guard), `setMirrorAddr` (cell-mirror + row-hi). `src/test/webview/diff-renderer.test.ts`: `bd` collapse, `bn match`, label optional, identical summary.
 

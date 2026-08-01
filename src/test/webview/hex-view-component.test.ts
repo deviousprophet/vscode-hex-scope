@@ -190,5 +190,26 @@ suite('hex view component interaction', () => {
         assert.ok(html.includes('data-cell bn match'), 'match cells carry match');
         assert.ok(!html.includes('amatch'), 'no amatch state');
     });
+
+    test('Ctrl+C with a selection fires onCopy; guarded against text inputs', () => {
+        setupDom();
+        const comp = mountComponent();
+        let copied: { start: number; end: number } | null = null;
+        comp.setCallbacks({ onCopy: r => { copied = r; } });
+
+        cellAt(0x1000).dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+
+        const input = dom.window.document.createElement('input');
+        dom.window.document.body.appendChild(input);
+        input.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+            key: 'c', ctrlKey: true, bubbles: true,
+        }));
+        assert.strictEqual(copied, null, 'Ctrl+C inside a text input is not hijacked');
+
+        dom.window.document.body.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+            key: 'c', ctrlKey: true, bubbles: true,
+        }));
+        assert.deepStrictEqual(copied, { start: 0x1000, end: 0x1000 }, 'Ctrl+C emits the held selection');
+    });
 });
 

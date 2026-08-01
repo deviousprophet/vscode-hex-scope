@@ -7,7 +7,6 @@
 import type { DiffMeta } from '../core/diff';
 import type { SegmentLabel, SerializedParseResult, WireParseResult } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
-import type { CopyCommand } from '../core/byte-tools/copyCommand';
 import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
@@ -291,12 +290,6 @@ function wireToolbar(): void {
     });
 }
 
-function copySelection(format?: CopyCommand): void {
-    const bytes = selectionBytes();
-    if (bytes.length === 0) { return; }
-    void navigator.clipboard.writeText(formatCopyCommand(format ?? 'hex', bytes));
-}
-
 function updateStatus(): void {
     searchBar.setCount(searchMatches.length, searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0);
     if (error) {
@@ -406,6 +399,19 @@ window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage
 });
 
 // ── Component wiring (two hexview components + cross-panel highlights) ─
+function copySide(side: 'a' | 'b', range: HexViewRange): void {
+    const result = side === 'a' ? aResult : bResult;
+    const index = side === 'a' ? aIndex : bIndex;
+    const noEdits = new Map<number, number>();
+    const bytes: number[] = [];
+    for (let addr = range.start; addr <= range.end; addr++) {
+        const b = getByteAt(result, index, noEdits, addr);
+        if (b !== undefined) { bytes.push(b); }
+    }
+    if (bytes.length === 0) { return; }
+    void navigator.clipboard.writeText(formatCopyCommand('hex', bytes));
+}
+
 function wireComponents(): void {
     // Cross-panel hover mirror: hovered byte lights up in the other component.
     const mirrorCallbacks = (from: HexViewComponent, to: HexViewComponent): HexViewCallbacks => ({
@@ -421,6 +427,7 @@ function wireComponents(): void {
         },
         onColumnHover: col => to.setColumn(col),
         onColumnLeave: () => to.setColumn(-1),
+        onCopy: range => copySide(from === compA ? 'a' : 'b', range),
     });
     compA.setCallbacks(mirrorCallbacks(compA, compB));
     compB.setCallbacks(mirrorCallbacks(compB, compA));
@@ -440,20 +447,6 @@ function wireComponents(): void {
     });
 }
 
-/** Bytes of the selected side over the selection range, in address order. */
-function selectionBytes(): number[] {
-    if (!selection) { return []; }
-    const bytes: number[] = [];
-    const result = selection.side === 'a' ? aResult : bResult;
-    const index = selection.side === 'a' ? aIndex : bIndex;
-    const noEdits = new Map<number, number>();
-    for (let addr = selection.start; addr <= selection.end; addr++) {
-        const b = getByteAt(result, index, noEdits, addr);
-        if (b !== undefined) { bytes.push(b); }
-    }
-    return bytes;
-}
-
 // ── Bootstrap ─────────────────────────────────────────────────────
 window.addEventListener('resize', () => rerender());
 
@@ -464,13 +457,6 @@ document.addEventListener('keydown', e => {
     if (!e.altKey) { return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); gotoDiff(1); }
     if (e.key === 'ArrowUp') { e.preventDefault(); gotoDiff(-1); }
-});
-
-// Ctrl+C copies the selected side's bytes in the chosen copy format.
-document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        copySelection();
-    }
 });
 
 post({ type: 'diffReady' });

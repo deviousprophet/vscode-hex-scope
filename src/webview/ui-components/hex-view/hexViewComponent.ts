@@ -15,6 +15,8 @@ export interface HexViewCallbacks {
     onSelectionChange?: (range: HexViewRange | null) => void;
     onColumnHover?: (col: number) => void;
     onColumnLeave?: () => void;
+    /** Ctrl/Cmd+C with this component's selection active; the host decides bytes + format. */
+    onCopy?: (range: HexViewRange) => void;
 }
 
 export interface HexViewRenderInput {
@@ -178,6 +180,15 @@ export class HexViewComponent {
             }
         });
         on('mouseup', () => { this._dragging = false; });
+        on('keydown', e => {
+            const k = e as KeyboardEvent;
+            if (!(k.ctrlKey || k.metaKey) || k.key.toLowerCase() !== 'c') { return; }
+            const target = k.target as HTMLElement | null;
+            if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) { return; }
+            if (!this._selection) { return; }
+            k.preventDefault();
+            this.cb.onCopy?.(this._selection);
+        });
     }
 
     destroy(): void {
