@@ -62,8 +62,8 @@ function segmentList(result: CompactParseResult | null): SegmentInput[] {
 
 /**
  * Sorted, deduped, BPR-aligned union of both files' row starts.
- * A leading aligned row is prepended when the first segment starts
- * mid-row, so both panels share the same aligned gutter.
+ * Rows are always BPR-aligned (`firstRowOf`/`lastRowOf` round down), so both
+ * panels share the same aligned gutter.
  */
 function unionRowStarts(aSegs: readonly SegmentInput[], bSegs: readonly SegmentInput[]): number[] {
     const set = new Set<number>();
@@ -72,11 +72,7 @@ function unionRowStarts(aSegs: readonly SegmentInput[], bSegs: readonly SegmentI
             set.add(row);
         }
     }
-    const rows = [...set].sort((a, b) => a - b);
-    if (needsLeadingRow(rows)) {
-        rows.unshift(rows[0] - (rows[0] % DIFF_BPR));
-    }
-    return rows;
+    return [...set].sort((a, b) => a - b);
 }
 
 function firstRowOf(seg: SegmentInput): number {
@@ -85,10 +81,6 @@ function firstRowOf(seg: SegmentInput): number {
 
 function lastRowOf(seg: SegmentInput): number {
     return seg.startAddress + seg.data.length - 1 - ((seg.startAddress + seg.data.length - 1) % DIFF_BPR);
-}
-
-function needsLeadingRow(rows: readonly number[]): boolean {
-    return rows.length > 0 && rows[0] % DIFF_BPR !== 0;
 }
 
 function bothMissing(a: number | undefined, b: number | undefined): boolean {

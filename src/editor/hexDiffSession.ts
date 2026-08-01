@@ -116,7 +116,6 @@ class DiffProgressReporter {
 }
 
 export class HexDiffSession {
-    private static _activePanel: vscode.WebviewPanel | undefined;
 
     constructor(private readonly _context: vscode.ExtensionContext) {}
 
@@ -157,11 +156,7 @@ export class HexDiffSession {
             clearTimeout(reloadTimer);
             loadAbort?.abort();
             loadAbort = null;
-            if (HexDiffSession._activePanel === webviewPanel) {
-                HexDiffSession._activePanel = undefined;
-            }
         });
-        HexDiffSession._activePanel = webviewPanel;
 
         const progressReporter = new DiffProgressReporter(webviewPanel.webview, () => generation);
         const postProgress = progressReporter.post.bind(progressReporter);
@@ -226,13 +221,13 @@ export class HexDiffSession {
                     postProgress('read', 5, 100);
                     const aLoaded = await readAndParse(aUri, {
                         signal,
-                        onProgress: p => postProgress(p.stage, Math.round(6 + 44 * fraction(p)), 100),
+                        onProgress: p => postProgress('parse', Math.round(6 + 44 * fraction(p)), 100),
                     });
                     if (cancelled()) { return; }
                     postProgress('read', 55, 100);
                     const bLoaded = await readAndParse(bUri, {
                         signal,
-                        onProgress: p => postProgress(p.stage, Math.round(56 + 39 * fraction(p)), 100),
+                        onProgress: p => postProgress('parse', Math.round(56 + 39 * fraction(p)), 100),
                     });
                     if (cancelled()) { return; }
                     postProgress('build', 97, 100);
@@ -263,7 +258,7 @@ export class HexDiffSession {
             try {
                 postProgress('read', 5, 100);
                 const loaded = await readAndParse(uri, {
-                    onProgress: p => postProgress(p.stage, Math.round(6 + 84 * fraction(p)), 100),
+                    onProgress: p => postProgress('parse', Math.round(6 + 84 * fraction(p)), 100),
                 });
                 if (side === 'a') { aState = loaded; } else { bState = loaded; }
                 recompute();

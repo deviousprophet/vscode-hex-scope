@@ -109,6 +109,8 @@ suite('diff view model', () => {
         assert.deepStrictEqual(searchMatchFocus(m, matches, 0x002A, 1), { address: 0x0003, rowIndex: 0, column: 3 });
         // backward wrap
         assert.deepStrictEqual(searchMatchFocus(m, matches, 0x0003, -1), { address: 0x002A, rowIndex: 2, column: 10 });
+        // prev with no focus wraps to the LAST match (next would start at the first)
+        assert.deepStrictEqual(searchMatchFocus(m, matches, -1, -1), { address: 0x002A, rowIndex: 2, column: 10 });
         // empty matches -> null
         assert.strictEqual(searchMatchFocus(m, [], 0, 1), null);
     });

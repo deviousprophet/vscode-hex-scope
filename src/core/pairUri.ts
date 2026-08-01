@@ -13,8 +13,16 @@ export function encodePairKey(aPath: string, bPath: string): string {
 
 /** Decode an opaque pair key back into [aPath, bPath] (canonical order). */
 export function decodePairKey(key: string): { aPath: string; bPath: string } {
-    const decoded = JSON.parse(Buffer.from(decodeURIComponent(key), 'base64').toString('utf8')) as [string, string];
-    const [ap, bp] = pairCanonical(decoded[0], decoded[1]);
+    let pair: unknown;
+    try {
+        pair = JSON.parse(Buffer.from(decodeURIComponent(key), 'base64').toString('utf8'));
+    } catch {
+        throw new Error('invalid pair key');
+    }
+    if (!Array.isArray(pair) || pair.length !== 2 || pair.some(p => typeof p !== 'string')) {
+        throw new Error('invalid pair key');
+    }
+    const [ap, bp] = pairCanonical(pair[0] as string, pair[1] as string);
     return { aPath: ap, bPath: bp };
 }
 

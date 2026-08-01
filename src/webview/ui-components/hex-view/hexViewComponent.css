@@ -77,8 +77,8 @@
 /* bd (byte-diff): red text; red bg only on base + hover */
 .data-cell.bd { color: #ff6b6b; background: rgba(255,90,90,.10); }
 
-/* Hover: normal cells = hover bg; diff cells = a red lift */
-.data-cell:not(.empty):hover { background: var(--hover-bg); }
+/* Hover: normal cells = hover bg; diff cells = a red lift; empty cells stay inert */
+.data-cell:not(.be):not(.bd):hover { background: var(--hover-bg); }
 .data-cell.bd.cell-hover,
 .data-cell.bd.cell-mirror { background: rgba(255,90,90,.16); box-shadow: none; }
 /* cross-panel hover mirror on normal cells: inner ring */

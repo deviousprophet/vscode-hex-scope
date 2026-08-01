@@ -43,7 +43,7 @@ suite('pair URI encoding (D14)', () => {
     });
 
     test('spaces and unicode in paths survive round-trip', () => {
-        const a = 'C:\\my files\\vérsión 1.hex';
+        const a = 'C:\\my files\\vAcrsiA3n 1.hex';
         const b = 'C:\\my files\\v2.hex';
         const key = encodePairKey(a, b);
         const back = decodePairKey(key);
@@ -54,5 +54,11 @@ suite('pair URI encoding (D14)', () => {
         assert.ok(returned.includes(b), `expected ${b} in [${returned}]`);
         // Same key for swapped args.
         assert.strictEqual(encodePairKey(b, a), key);
+    });
+
+    test('malformed keys are rejected with a clear error', () => {
+        assert.throws(() => decodePairKey('%%%not-base64%%%'), /invalid pair key/);
+        const notAPair = encodeURIComponent(Buffer.from(JSON.stringify({ a: 1 }), 'utf8').toString('base64'));
+        assert.throws(() => decodePairKey(notAPair), /invalid pair key/);
     });
 });

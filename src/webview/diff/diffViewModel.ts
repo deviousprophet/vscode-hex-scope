@@ -36,20 +36,27 @@ export function groupVisualRows(meta: DiffMeta): DiffLightRow[] {
     return rows;
 }
 
-/** Index of the union row containing `address`, or -1 (gaps included). */
-export function rowIndexForAddress(meta: DiffMeta | null, address: number): number {
-    if (!meta) { return -1; }
-    const starts = meta.rowStarts;
+/**
+ * Index of the union row containing `address`, or -1 (gaps included).
+ * `rowStarts` are BPR-aligned; `baseAt(i)` returns the i-th row start.
+ */
+function binarySearchRow(baseAt: (i: number) => number, len: number, address: number): number {
     let lo = 0;
-    let hi = starts.length - 1;
+    let hi = len - 1;
     while (lo <= hi) {
         const mid = (lo + hi) >>> 1;
-        const base = starts[mid];
+        const base = baseAt(mid);
         if (address < base) { hi = mid - 1; }
         else if (address >= base + DIFF_ROW_BYTES) { lo = mid + 1; }
         else { return mid; }
     }
     return -1;
+}
+
+/** Index of the union row containing `address`, or -1 (gaps included). */
+export function rowIndexForAddress(meta: DiffMeta | null, address: number): number {
+    if (!meta) { return -1; }
+    return binarySearchRow(i => meta.rowStarts[i], meta.rowStarts.length, address);
 }
 
 /** Byte offset (0-15) of `address` inside its BPR-aligned row. */
@@ -69,21 +76,12 @@ export interface DiffFocus {
  * falls between rows is not part of any row.
  */
 export function visualRowIndexForAddress(rows: readonly { baseAddress: number }[], address: number): number {
-    let lo = 0;
-    let hi = rows.length - 1;
-    while (lo <= hi) {
-        const mid = (lo + hi) >>> 1;
-        const base = rows[mid].baseAddress;
-        if (address < base) { hi = mid - 1; }
-        else if (address >= base + DIFF_ROW_BYTES) { lo = mid + 1; }
-        else { return mid; }
-    }
-    return -1;
+    return binarySearchRow(i => rows[i].baseAddress, rows.length, address);
 }
 
-/** Wrap an index into [0, len) moving by `direction` from `current`; `current < 0` starts at 0. */
+/** Wrap an index into [0, len) moving by `direction` from `current`. No current (`< 0`) starts at the first (next) or last (prev) item. */
 function wrapIndex(len: number, current: number, direction: 1 | -1): number {
-    if (current < 0) { return 0; }
+    if (current < 0) { return direction === -1 ? len - 1 : 0; }
     return (current + direction + len) % len;
 }
 
