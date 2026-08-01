@@ -26,7 +26,7 @@
 }
 .diff-header .hcell {
     width: var(--cell-size); height: var(--cell-size); line-height: var(--cell-size);
-    text-align: center;
+    text-align: center; display: inline-block; border-radius: 2px; user-select: none;
 }
 .diff-header .side .hcell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 
@@ -63,7 +63,7 @@
 }
 
 /* ── Hex cells ────────────────────────────────────────────────── */
-.side { display: inline-flex; align-items: center; }
+.side { display: inline-flex; align-items: center; padding: 0 var(--cell-pad); }
 .side .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 .data-cell { cursor: default; }
 
