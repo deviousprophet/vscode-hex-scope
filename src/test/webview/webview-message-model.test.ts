@@ -115,6 +115,34 @@ suite('applyProviderMessageToModel()', () => {
         assert.deepStrictEqual(update.externalChange?.incoming.labels, labels);
         assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
+
+    test('diffInit/diffUpdate/diffSwap/diffSearch dispatch and apply passively', () => {
+        let initCalled = false;
+        let searchCalled = false;
+        const handlers = {
+            ...noOpHandlers(),
+            diffInit: msg => {
+                initCalled = true;
+                assert.strictEqual(msg.generation, 1);
+                assert.strictEqual(msg.aLabel, 'A');
+            },
+            diffSearch: msg => {
+                searchCalled = true;
+                assert.deepStrictEqual(msg.matches, [0x1000]);
+            },
+        } satisfies ProviderMessageHandlers;
+
+        const base = { rows: [], summary: { unchanged: 0, changed: 0, added: 0, removed: 0 }, runs: [], totalBytes: 0, identical: true };
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffInit', generation: 1, result: base, aLabel: 'A', bLabel: 'B', aFormat: 'ihex', bFormat: 'ihex' }, handlers), true);
+        assert.strictEqual(initCalled, true);
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffSearch', generation: 1, query: 'ff', matches: [0x1000] }, handlers), true);
+        assert.strictEqual(searchCalled, true);
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffSwap', generation: 1, swapped: true }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffUpdate', generation: 1, result: base }, handlers), true);
+
+        // Unknown diff-adjacent types stay rejected.
+        assert.strictEqual(dispatchProviderMessage({ type: 'diffBogus' }, handlers), false);
+    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -135,6 +163,10 @@ function noOpHandlers(): ProviderMessageHandlers {
         scriptResult: () => {},
         scriptOutput: () => {},
         activateScriptsTab: () => {},
+        diffInit: () => {},
+        diffUpdate: () => {},
+        diffSwap: () => {},
+        diffSearch: () => {},
     };
 }
 

@@ -24,6 +24,10 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'scriptResult',
     'scriptOutput',
     'activateScriptsTab',
+    'diffInit',
+    'diffUpdate',
+    'diffSwap',
+    'diffSearch',
 ];
 
 const PROVIDER_MESSAGE_TYPE_SET = new Set<string>(PROVIDER_MESSAGE_TYPES);

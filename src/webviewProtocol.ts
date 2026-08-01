@@ -1,4 +1,5 @@
 import type { CopyCommand } from './core/byte-tools/copyCommand';
+import type { DiffResult } from './core/diff';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
 import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
@@ -41,7 +42,11 @@ export type ProviderToWebviewMessage =
     | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[] }> }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
-    | { type: 'activateScriptsTab' };
+    | { type: 'activateScriptsTab' }
+    | { type: 'diffInit'; generation: number; result: DiffResult; aLabel: string; bLabel: string; aFormat: HexScopeFormat; bFormat: HexScopeFormat }
+    | { type: 'diffUpdate'; generation: number; result: DiffResult }
+    | { type: 'diffSwap'; generation: number; swapped: boolean }
+    | { type: 'diffSearch'; generation: number; query: string; matches: number[] };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -65,7 +70,10 @@ export type WebviewToProviderMessage =
     | { type: 'viewInNormalEditor' }
     | { type: 'requestScriptList' }
     | { type: 'runScript'; scriptPath: string; generation: number; selectionRange?: { start: number; end: number } }
-    | { type: 'cancelScript'; scriptPath: string };
+    | { type: 'cancelScript'; scriptPath: string }
+    | { type: 'diffReady' }
+    | { type: 'diffSwapRequest' }
+    | { type: 'diffSearchRequest'; generation: number; query: string };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

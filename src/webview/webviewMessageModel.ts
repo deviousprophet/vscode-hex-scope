@@ -73,6 +73,10 @@ const MODEL_APPLIERS: ModelAppliers = {
     scriptResult: applyPassiveMessage,
     scriptOutput: applyPassiveMessage,
     activateScriptsTab: applyPassiveMessage,
+    diffInit: applyPassiveMessage,
+    diffUpdate: applyPassiveMessage,
+    diffSwap: applyPassiveMessage,
+    diffSearch: applyPassiveMessage,
 };
 
 function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }
