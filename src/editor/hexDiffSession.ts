@@ -375,7 +375,9 @@ export class HexDiffSession {
         const nonce = getNonce();
         const cssFiles = [
             'src/webview/styles/base.css',
-            'src/webview/styles/toolbar.css',
+            // Search-bar styles come from the component; the diff chrome
+            // (.view-tabs/.tb-sep) lives in diff.css. toolbar.css is single-view
+            // only, so no duplicate search-box rules can drift apart.
             'src/webview/ui-components/search-bar/searchBarComponent.css',
             'src/webview/ui-components/hex-view/hexViewComponent.css',
             'src/webview/styles/diff.css',

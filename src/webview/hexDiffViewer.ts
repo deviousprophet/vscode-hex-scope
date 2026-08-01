@@ -291,6 +291,7 @@ function wireToolbar(): void {
 }
 
 function updateStatus(): void {
+    status.classList.remove('reloading');
     searchBar.setCount(searchMatches.length, searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0);
     if (error) {
         status.textContent = `Error: ${error}`;
@@ -362,6 +363,7 @@ const diffHandlers: Record<string, DiffHandler> = {
         if (!loaded) {
             updateLoadingProgress(msg);
         } else {
+            status.classList.add('reloading');
             status.textContent = `Reloading… (${msg.stage})`;
         }
     },
