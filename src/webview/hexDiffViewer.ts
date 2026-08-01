@@ -113,12 +113,6 @@ function labelRailHtml(): string {
     return `<div class="diff-rail">${items.join('')}</div>`;
 }
 
-function copyFormatOptionsHtml(): string {
-    return (['hex', 'c-array', 'ascii'] as const).map(f =>
-        `<option value="${f}"${f === 'hex' ? ' selected' : ''}>${f}</option>`
-    ).join('');
-}
-
 function searchPlaceholder(): string {
     const placeholders: Record<SearchMode, string> = {
         bytes: 'Bytes (e.g. DE AD BE EF)',
@@ -199,9 +193,6 @@ function rerender(): void {
             <button id="next-diff" class="nav-btn" title="Next difference">&#9660;</button>
             <button id="swap" class="nav-btn" title="Swap A/B">&#8646;</button>
             ${searchBoxHtml()}
-            <div class="tb-sep"></div>
-            <button id="copy-selection" class="nav-btn" title="Copy selected bytes">Copy</button>
-            <select id="diff-copy-format" title="Copy format">${copyFormatOptionsHtml()}</select>
         </div>
         <div class="diff-summary">${renderDiffSummaryHtml(renderState())}</div>
         ${labelRailHtml()}
@@ -318,8 +309,6 @@ function wireToolbar(): void {
         rerender();
     });
 
-    document.getElementById('copy-selection')!.addEventListener('click', () => copySelection());
-
     applySearchModeUi(searchInput);
     applyEndianUi();
 }
@@ -327,12 +316,7 @@ function wireToolbar(): void {
 function copySelection(format?: CopyCommand): void {
     const bytes = selectionBytes();
     if (bytes.length === 0) { return; }
-    let fmt = format;
-    if (!fmt) {
-        const sel = document.getElementById('diff-copy-format') as HTMLSelectElement | null;
-        fmt = (sel?.value as CopyCommand | undefined) ?? 'hex';
-    }
-    void navigator.clipboard.writeText(formatCopyCommand(fmt, bytes));
+    void navigator.clipboard.writeText(formatCopyCommand(format ?? 'hex', bytes));
 }
 
 function updateMatchCount(): void {

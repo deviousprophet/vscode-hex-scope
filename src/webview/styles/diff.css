@@ -30,10 +30,14 @@
     font-family: var(--font-ui); font-size: 11px;
     user-select: none; white-space: nowrap;
 }
-.diff-panel-labels .side { justify-content: center; }
+.diff-panel-labels .side {
+    /* Match the header/data side width (16 cells + 3 group gaps) so the
+       divider stays on the same column as the rows below. */
+    width: calc(16 * var(--cell-size) + 3 * var(--cell-size) * 0.4);
+}
 .diff-panel-labels .panel-name {
     overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-    padding: 0 6px; color: var(--fg);
+    padding-left: 2px; color: var(--fg);
 }
 
 /* ── Fixed column header: 00..0F offsets, sticky under the labels ─ */
@@ -148,13 +152,6 @@ body.swapped .diff-row .side.a,   .diff-header .side.a,   .diff-panel-labels .si
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
     min-height: 35px; padding: 4px 10px;
     background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
-}
-#diff-copy-format {
-    height: 24px;
-    background: var(--input-bg); color: var(--fg);
-    border: 1px solid var(--input-bdr); border-radius: 3px;
-    font-size: 11px; font-family: var(--font-ui);
-    cursor: pointer;
 }
 #swap { font-size: 17px; line-height: 1; flex-shrink: 0; }
 
