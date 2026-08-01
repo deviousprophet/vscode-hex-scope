@@ -1,41 +1,18 @@
 import * as vscode from 'vscode';
 import { HexDiffSession } from './hexDiffSession';
+import { ReadonlyEditorProviderBase } from './readonlyEditorProvider';
 import { encodePairKey } from '../core/pairUri';
 
-export class HexDiffProvider implements vscode.CustomReadonlyEditorProvider {
+export class HexDiffProvider extends ReadonlyEditorProviderBase {
     public static readonly viewType = 'hexScope.hexDiff';
 
-    private readonly _session: HexDiffSession;
-
-    constructor(context: vscode.ExtensionContext) {
-        this._session = new HexDiffSession(context);
+    private constructor(context: vscode.ExtensionContext) {
+        const session = new HexDiffSession(context);
+        super((d, w, t) => session.resolveCustomEditor(d, w, t));
     }
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
-        return vscode.window.registerCustomEditorProvider(
-            HexDiffProvider.viewType,
-            new HexDiffProvider(context),
-            {
-                webviewOptions: { retainContextWhenHidden: true },
-                supportsMultipleEditorsPerDocument: false,
-            }
-        );
-    }
-
-    async openCustomDocument(
-        uri: vscode.Uri,
-        _openContext: vscode.CustomDocumentOpenContext,
-        _token: vscode.CancellationToken,
-    ): Promise<vscode.CustomDocument> {
-        return { uri, dispose: () => {} };
-    }
-
-    async resolveCustomEditor(
-        document: vscode.CustomDocument,
-        webviewPanel: vscode.WebviewPanel,
-        token: vscode.CancellationToken,
-    ): Promise<void> {
-        await this._session.resolveCustomEditor(document, webviewPanel, token);
+        return ReadonlyEditorProviderBase.registerCustomEditor(HexDiffProvider.viewType, context, c => new HexDiffProvider(c));
     }
 }
 

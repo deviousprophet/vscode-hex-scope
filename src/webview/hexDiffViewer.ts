@@ -44,21 +44,28 @@ function visibleWindow(rowCount: number): [number, number] {
     return [first, last];
 }
 
+function searchRowIndexFor(): number {
+    return searchFocusAddr >= 0 && result ? rowIndexForAddress(result, searchFocusAddr) : -1;
+}
+
+function diffScrollHtml(rows: DiffResult['rows'], totalHeight: number): string {
+    const [start, end] = visibleWindow(rows.length);
+    return `<div id="diff-scroll" style="height:${esc(String(containerHeight))}px;overflow:auto">
+            ${renderDiffRowsHtml({ result, searchRowIndex: searchRowIndexFor() }, [start, end], totalHeight, scrollTop)}
+        </div>`;
+}
+
 function rerender(): void {
     const rows = result?.rows ?? [];
     const totalHeight = rows.length * ROW_HEIGHT;
-    const [start, end] = visibleWindow(rows.length);
-    const searchRowIndex = searchFocusAddr >= 0 && result ? rowIndexForAddress(result, searchFocusAddr) : -1;
 
     app.innerHTML = `
         <div class="diff-labels">
             <span class="label a">${esc(aLabel)}</span>
             <span class="label b">${esc(bLabel)}</span>
         </div>
-        <div class="diff-summary">${renderDiffSummaryHtml({ result, scrollTop, containerHeight, focusRowIndex: 0, focusVersion: 0, searchMatches, searchRowIndex })}</div>
-        <div id="diff-scroll" style="height:${esc(String(containerHeight))}px;overflow:auto">
-            ${renderDiffRowsHtml({ result, scrollTop, containerHeight, focusRowIndex: 0, focusVersion: 0, searchMatches, searchRowIndex }, [start, end], totalHeight)}
-        </div>
+        <div class="diff-summary">${renderDiffSummaryHtml({ result, searchRowIndex: searchRowIndexFor() })}</div>
+        ${diffScrollHtml(rows, totalHeight)}
         <div class="diff-toolbar">
             <button id="prev-diff">▲ Prev</button>
             <button id="next-diff">Next ▼</button>
@@ -76,24 +83,38 @@ function rerender(): void {
         rerender();
     });
 
-    const focusRow = (addr: number): void => {
-        if (!result) { return; }
-        const idx = rowIndexForAddress(result, addr);
-        if (idx < 0) { return; }
-        const rowTop = idx * ROW_HEIGHT;
-        const target = Math.max(0, rowTop - containerHeight / 2);
-        scrollTop = target;
-        rerender();
-    };
+    wireToolbar();
+    updateStatus();
+}
 
-    document.getElementById('prev-diff')!.addEventListener('click', () => {
-        const f = diffRunFocus(result!, diffFocusAddr >= 0 ? diffFocusAddr : (result?.runs[0]?.start ?? 0), -1);
-        if (f) { diffFocusAddr = f.address; focusRow(f.address); }
-    });
-    document.getElementById('next-diff')!.addEventListener('click', () => {
-        const f = diffRunFocus(result!, diffFocusAddr >= 0 ? diffFocusAddr : (result?.runs[0]?.start ?? 0), 1);
-        if (f) { diffFocusAddr = f.address; focusRow(f.address); }
-    });
+/** Navigate so the row containing `addr` is centered in the viewport. */
+function focusRow(addr: number): void {
+    const idx = rowIndexForAddress(result!, addr);
+    if (!result || idx < 0) { return; }
+    scrollTop = Math.max(0, idx * ROW_HEIGHT - containerHeight / 2);
+    rerender();
+}
+
+/** Address to start navigating from when nothing is focused yet. */
+function diffFocusBase(): number {
+    return diffFocusAddr >= 0 ? diffFocusAddr : (result?.runs[0]?.start ?? 0);
+}
+
+function gotoDiff(direction: 1 | -1): void {
+    if (!result) { return; }
+    const f = diffRunFocus(result, diffFocusBase(), direction);
+    if (f) { diffFocusAddr = f.address; focusRow(f.address); }
+}
+
+function gotoMatch(direction: 1 | -1): void {
+    if (!result) { return; }
+    const f = searchMatchFocus(result, searchMatches, searchFocusAddr >= 0 ? searchFocusAddr : -1, direction);
+    if (f) { searchFocusAddr = f.address; focusRow(f.address); }
+}
+
+function wireToolbar(): void {
+    document.getElementById('prev-diff')!.addEventListener('click', () => gotoDiff(-1));
+    document.getElementById('next-diff')!.addEventListener('click', () => gotoDiff(1));
     document.getElementById('swap')!.addEventListener('click', () => {
         swapped = !swapped;
         post({ type: 'diffSwapRequest' });
@@ -110,13 +131,11 @@ function rerender(): void {
         if (e.key === 'Enter') { doSearch(searchInput.value); }
     });
 
-    const gotoMatch = (dir: 1 | -1): void => {
-        const f = searchMatchFocus(result!, searchMatches, searchFocusAddr >= 0 ? searchFocusAddr : -1, dir);
-        if (f) { searchFocusAddr = f.address; focusRow(f.address); }
-    };
     document.getElementById('prev-match')!.addEventListener('click', () => gotoMatch(-1));
     document.getElementById('next-match')!.addEventListener('click', () => gotoMatch(1));
+}
 
+function updateStatus(): void {
     if (error) {
         status.textContent = `Error: ${error}`;
     } else if (!result) {
@@ -127,54 +146,64 @@ function rerender(): void {
 }
 
 // ── Message handling ──────────────────────────────────────────────
+type DiffHandler = (m: Extract<ProviderToWebviewMessage, { type: string }>) => void;
+
+/** True when `addr` is a real, present focus and still exists in `result`. */
+function focusExists(addr: number, result: DiffResult): boolean {
+    return addr >= 0 && rowIndexForAddress(result, addr) >= 0;
+}
+
+/** Drop stale focus addresses that no longer exist in the new result. */
+function dropInvalidFocus(result: DiffResult): void {
+    if (!focusExists(diffFocusAddr, result)) { diffFocusAddr = -1; }
+    if (!focusExists(searchFocusAddr, result)) { searchFocusAddr = -1; }
+}
+
 function applyDiff(result: DiffResult): void {
     if (error) { error = null; }
-    // keep focus addresses if still valid; otherwise drop
-    if (diffFocusAddr >= 0 && rowIndexForAddress(result, diffFocusAddr) < 0) { diffFocusAddr = -1; }
-    if (searchFocusAddr >= 0 && rowIndexForAddress(result, searchFocusAddr) < 0) { searchFocusAddr = -1; }
+    dropInvalidFocus(result);
     rerender();
 }
 
-window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage>) => {
-    const msg = event.data;
-    const type = messageType(msg);
-    if (type === 'diffInit') {
-        const m = msg as Extract<ProviderToWebviewMessage, { type: 'diffInit' }>;
-        generation = m.generation;
-        result = m.result;
-        aLabel = m.aLabel;
-        bLabel = m.bLabel;
+const diffHandlers: Record<string, DiffHandler> = {
+    diffInit: m => {
+        const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffInit' }>;
+        generation = msg.generation;
+        result = msg.result;
+        aLabel = msg.aLabel;
+        bLabel = msg.bLabel;
         searchMatches = [];
         searchFocusAddr = -1;
         diffFocusAddr = -1;
         error = null;
         rerender();
-        return;
-    }
-    if (type === 'diffUpdate') {
-        const m = msg as Extract<ProviderToWebviewMessage, { type: 'diffUpdate' }>;
-        result = m.result;
-        applyDiff(m.result);
-        return;
-    }
-    if (type === 'diffSwap') {
-        const m = msg as Extract<ProviderToWebviewMessage, { type: 'diffSwap' }>;
-        swapped = m.swapped;
+    },
+    diffUpdate: m => {
+        const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffUpdate' }>;
+        result = msg.result;
+        applyDiff(msg.result);
+    },
+    diffSwap: m => {
+        const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffSwap' }>;
+        swapped = msg.swapped;
         document.body.classList.toggle('swapped', swapped);
-        return;
-    }
-    if (type === 'diffSearch') {
-        const m = msg as Extract<ProviderToWebviewMessage, { type: 'diffSearch' }>;
-        searchMatches = m.matches;
+    },
+    diffSearch: m => {
+        const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffSearch' }>;
+        searchMatches = msg.matches;
         searchFocusAddr = searchMatches[0] ?? -1;
         rerender();
-        return;
-    }
-    if (type === 'loadError') {
-        const m = msg as Extract<ProviderToWebviewMessage, { type: 'loadError' }>;
-        error = m.message;
+    },
+    loadError: m => {
+        const msg = m as Extract<ProviderToWebviewMessage, { type: 'loadError' }>;
+        error = msg.message;
         rerender();
-    }
+    },
+};
+
+window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage>) => {
+    const handler = diffHandlers[messageType(event.data) ?? ''];
+    if (handler) { handler(event.data as Extract<ProviderToWebviewMessage, { type: string }>); }
 });
 
 // ── Bootstrap ─────────────────────────────────────────────────────

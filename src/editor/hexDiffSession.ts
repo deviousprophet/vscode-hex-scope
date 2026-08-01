@@ -11,17 +11,6 @@ import { detectFormatFromParts } from '../core/document';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
 
-// ── Staging state (D7: ephemeral, module-level, session only) ──────
-let stagedFirstPath: string | null = null;
-
-export function setStagedFirstPath(path: string | null): void {
-    stagedFirstPath = path;
-}
-
-export function getStagedFirstPath(): string | null {
-    return stagedFirstPath;
-}
-
 function formatForPath(path: string): HexScopeFormat {
     return detectFormatFromParts(path.split('.').pop()?.toLowerCase() ?? '', '');
 }
@@ -49,10 +38,6 @@ function labelFor(uri: vscode.Uri, side: 'A' | 'B'): string {
 
 export class HexDiffSession {
     private static _activePanel: vscode.WebviewPanel | undefined;
-
-    public static postToActive(msg: unknown): void {
-        HexDiffSession._activePanel?.webview.postMessage(msg);
-    }
 
     constructor(private readonly _context: vscode.ExtensionContext) {}
 
@@ -133,11 +118,12 @@ export class HexDiffSession {
         watch(bUri, 'b');
 
         const runSearch = (query: string, onComplete: (matches: number[]) => void): void => {
-            if (!aState && !bState) { onComplete([]); return; }
+            const hasAnyState = aState !== null || bState !== null;
+            if (!hasAnyState) { onComplete([]); return; }
             const engine = new SearchEngine();
             const done: { a: boolean; b: boolean } = { a: !aState, b: !bState };
             const merged: number[] = [];
-            const settle = (): void => {
+            const complete = (): void => {
                 if (done.a && done.b) {
                     merged.sort((x, y) => x - y);
                     onComplete(merged);
@@ -146,35 +132,38 @@ export class HexDiffSession {
             const runOne = (segments: Array<{ startAddress: number; data: ArrayLike<number> }>, mark: 'a' | 'b'): void => {
                 engine.search(
                     { mode: 'bytes', raw: query, segments },
-                    { onComplete: matches => { merged.push(...matches); done[mark] = true; settle(); } },
+                    { onComplete: matches => { merged.push(...matches); done[mark] = true; complete(); } },
                 );
             };
             if (aState) { runOne(aState.result.segments, 'a'); }
             if (bState) { runOne(bState.result.segments, 'b'); }
-            settle();
+            complete();
         };
 
-        webviewPanel.webview.onDidReceiveMessage((rawMsg: unknown) => {
+        /** Handle one message from the diff webview (dispatched by type). */
+        const onReady = (): void => {
+            webviewReady = true;
+            sendInit();
+        };
+        const onSwapRequest = (): void => {
+            swap = !swap;
+            post({ type: 'diffSwap', generation, swapped: swap });
+        };
+        const onSearchRequest = (rawMsg: unknown): void => {
+            const msg = rawMsg as Extract<WebviewToProviderMessage, { type: 'diffSearchRequest' }>;
+            if (msg.generation !== generation) { return; }
+            runSearch(String(msg.query), matches => {
+                post({ type: 'diffSearch', generation, query: String(msg.query), matches });
+            });
+        };
+        const handleMessage = (rawMsg: unknown): void => {
             const type = messageType(rawMsg);
-            if (type === 'diffReady') {
-                webviewReady = true;
-                sendInit();
-                return;
-            }
+            if (type === 'diffReady') { onReady(); return; }
             if (!webviewReady) { return; }
-            if (type === 'diffSwapRequest') {
-                swap = !swap;
-                post({ type: 'diffSwap', generation, swapped: swap });
-                return;
-            }
-            if (type === 'diffSearchRequest') {
-                const msg = rawMsg as Extract<WebviewToProviderMessage, { type: 'diffSearchRequest' }>;
-                if (msg.generation !== generation) { return; }
-                runSearch(String(msg.query), matches => {
-                    post({ type: 'diffSearch', generation, query: String(msg.query), matches });
-                });
-            }
-        }, undefined, [resources]);
+            if (type === 'diffSwapRequest') { onSwapRequest(); return; }
+            if (type === 'diffSearchRequest') { onSearchRequest(rawMsg); }
+        };
+        webviewPanel.webview.onDidReceiveMessage(handleMessage, undefined, [resources]);
 
         await new Promise<void>(r => setImmediate(r));
         generation++;
@@ -184,9 +173,8 @@ export class HexDiffSession {
             aState = aLoaded;
             bState = bLoaded;
         } catch (error) {
-            if (!disposed) {
-                post({ type: 'loadError', generation, message: error instanceof Error ? error.message : 'Failed to read pair.' });
-            }
+            const message = error instanceof Error ? error.message : 'Failed to read pair.';
+            post({ type: 'loadError', generation, message });
             return;
         }
 

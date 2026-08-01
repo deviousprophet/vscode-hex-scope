@@ -24,13 +24,17 @@ export interface DiffFocus {
     column: number;
 }
 
+/** Wrap an index into [0, len) moving by `direction` from `current`; `current < 0` starts at 0. */
+function wrapIndex(len: number, current: number, direction: 1 | -1): number {
+    if (current < 0) { return 0; }
+    return (current + direction + len) % len;
+}
+
 /** Next/prev difference run boundary relative to `current` address (wraps). */
 export function diffRunFocus(result: DiffResult, current: number, direction: 1 | -1): DiffFocus | null {
     if (!result || result.runs.length === 0) { return null; }
     const idx = result.runs.findIndex(r => r.start <= current && current < r.end);
-    let next = idx < 0 ? 0 : idx + direction;
-    if (next < 0) { next = result.runs.length - 1; }
-    if (next >= result.runs.length) { next = 0; }
+    const next = wrapIndex(result.runs.length, idx, direction);
     const address = result.runs[next].start;
     return { address, rowIndex: rowIndexForAddress(result, address), column: 0 };
 }
@@ -39,7 +43,7 @@ export function diffRunFocus(result: DiffResult, current: number, direction: 1 |
 export function searchMatchFocus(result: DiffResult, matches: number[], current: number, direction: 1 | -1): DiffFocus | null {
     if (!result || matches.length === 0) { return null; }
     const idx = matches.indexOf(current);
-    const next = idx < 0 ? 0 : (idx + direction + matches.length) % matches.length;
+    const next = wrapIndex(matches.length, idx, direction);
     const address = matches[next];
     const rowIndex = rowIndexForAddress(result, address);
     if (rowIndex < 0) { return null; }

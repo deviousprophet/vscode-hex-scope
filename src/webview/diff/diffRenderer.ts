@@ -1,17 +1,11 @@
 // Diff renderer — renders one aligned diff row as two byte panels.
-// Reuses the virtual-scroll geometry from render/virtualScroll.
 
 import type { DiffResult, DiffRow } from '../../core/diff';
 import { DIFF_ROW_BYTES, esc, formatAddress } from './diffViewModel';
 
 export interface DiffRenderState {
     result: DiffResult | null;
-    scrollTop: number;
-    containerHeight: number;
-    /** Row index the virtual scroller should center on. */
-    focusRowIndex: number;
-    focusVersion: number;
-    searchMatches: number[];
+    /** Row index that holds the current search focus. */
     searchRowIndex: number;
 }
 
@@ -44,13 +38,13 @@ export function renderDiffRowsHtml(
     state: DiffRenderState,
     visibleRange: [number, number],
     totalHeight: number,
+    scrollTop: number,
 ): string {
     const rows = state.result?.rows ?? [];
-    const parts: string[] = [];
-    for (let i = visibleRange[0]; i < visibleRange[1] && i < rows.length; i++) {
-        parts.push(rowHtml(rows[i], i === state.searchRowIndex));
-    }
-    return `<div class="diff-body" style="height:${totalHeight}px;transform:translateY(0)">${parts.join('')}</div>`;
+    const parts = rows
+        .slice(visibleRange[0], visibleRange[1])
+        .map((row, i) => rowHtml(row, visibleRange[0] + i === state.searchRowIndex));
+    return `<div class="diff-body" style="height:${totalHeight}px;transform:translateY(${scrollTop}px)">${parts.join('')}</div>`;
 }
 
 export function renderDiffSummaryHtml(state: DiffRenderState): string {
