@@ -1,4 +1,6 @@
-// Diff renderer — renders aligned 16-byte visual rows as two byte panels.
+// Diff renderer — renders one reusable "hexview component" per file.
+// A component = optional filename label + 00..0F header + (address gutter + cells).
+// The diff view places two components side by side with a single separator.
 
 import type { DiffResult } from '../../core/diff';
 import type { DiffCell } from '../../core/diff';
@@ -44,63 +46,53 @@ function sideError(error: string | null): string {
     return error ? ' panel-error' : '';
 }
 
-function rowHtml(vr: DiffVisualRow, isSearchRow: boolean, topPx: number, state: DiffRenderState): string {
+function cellHtml(cell: DiffCell | null, status: string, isMatch: boolean, selected: boolean, side: 'a' | 'b', addr: number): string {
+    return `<span class="${cellClass(cell, status, isMatch, selected)}" data-addr="${esc(formatAddress(addr))}" data-side="${side}">${byteText(cell)}</span>`;
+}
+
+function sideRowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, isSearchRow: boolean, state: DiffRenderState): string {
     const addr = esc(formatAddress(vr.baseAddress));
-    const aCols: string[] = [];
-    const bCols: string[] = [];
-    for (let i = 0; i < DIFF_ROW_BYTES; i++) {
-        const byteAddr = vr.baseAddress + i;
-        const addrText = esc(formatAddress(byteAddr));
-        const isMatch = state.matchSet.has(byteAddr);
-        aCols.push(`<span class="${cellClass(vr.a[i], vr.statuses[i], isMatch, isSelected(state.selection, 'a', byteAddr))}" data-addr="${addrText}" data-side="a">${byteText(vr.a[i])}</span>`);
-        bCols.push(`<span class="${cellClass(vr.b[i], vr.statuses[i], isMatch, isSelected(state.selection, 'b', byteAddr))}" data-addr="${addrText}" data-side="b">${byteText(vr.b[i])}</span>`);
+    const error = side === 'a' ? state.aError : state.bError;
+    const cells: string[] = [];
+    for (let j = 0; j < DIFF_ROW_BYTES; j++) {
+        const byteAddr = vr.baseAddress + j;
+        const cell = side === 'a' ? vr.a[j] : vr.b[j];
+        cells.push(cellHtml(cell, vr.statuses[j], state.matchSet.has(byteAddr), isSelected(state.selection, side, byteAddr), side, byteAddr));
     }
-    return `<div class="diff-row" data-addr="${addr}" style="top:${topPx}px">
-        <span class="addr a">${addr}</span>
-        <div class="side a${isSearchRow ? ' search-row' : ''}${sideError(state.aError)}">${aCols.join('')}</div>
-        <span class="diff-sep"></span>
-        <span class="addr b">${addr}</span>
-        <div class="side b${isSearchRow ? ' search-row' : ''}${sideError(state.bError)}">${bCols.join('')}</div>
+    return `<div class="diff-row" data-addr="${addr}" style="top:${index * DIFF_ROW_HEIGHT}px">
+        <span class="addr">${addr}</span>
+        <div class="side${isSearchRow ? ' search-row' : ''}${sideError(error)}">${cells.join('')}</div>
     </div>`;
 }
 
-/** Fixed column header: 00..0F byte offsets over each panel, sticky at the top. */
-export function renderDiffHeaderHtml(state: DiffRenderState): string {
+function headerSideHtml(): string {
     const cells: string[] = [];
     for (let i = 0; i < DIFF_ROW_BYTES; i++) {
         cells.push(`<span class="hcell">${esc(i.toString(16).toUpperCase().padStart(2, '0'))}</span>`);
     }
-    return `<div class="diff-header">
-        <span class="addr a"></span>
-        <div class="side a">${cells.join('')}</div>
-        <span class="diff-sep"></span>
-        <span class="addr b"></span>
-        <div class="side b">${cells.join('')}</div>
-    </div>`;
+    return `<span class="addr"></span><div class="side">${cells.join('')}</div>`;
 }
 
-/** Per-panel file-name labels, one above each panel (VS Code tab style). */
-export function renderDiffPanelLabelsHtml(aLabel: string, bLabel: string): string {
-    return `<div class="diff-panel-labels">
-        <span class="addr a"></span>
-        <div class="side a"><span class="panel-name">${esc(aLabel)}</span></div>
-        <span class="diff-sep"></span>
-        <span class="addr b"></span>
-        <div class="side b"><span class="panel-name">${esc(bLabel)}</span></div>
-    </div>`;
-}
-
-/** Build the visible window of visual rows using fixed-height windowing. */
-export function renderDiffRowsHtml(
+/**
+ * Render one reusable hexview component for a single side.
+ * `label` is optional: an empty string omits the filename row.
+ */
+export function renderDiffComponentHtml(
     state: DiffRenderState,
+    side: 'a' | 'b',
+    label: string,
     visibleRange: [number, number],
     totalHeight: number,
 ): string {
-    const parts = [];
+    const rows: string[] = [];
     for (let i = visibleRange[0]; i < visibleRange[1] && i < state.visualRows.length; i++) {
-        parts.push(rowHtml(state.visualRows[i], i === state.searchRowIndex, i * DIFF_ROW_HEIGHT, state));
+        rows.push(sideRowHtml(state.visualRows[i], side, i, i === state.searchRowIndex, state));
     }
-    return `<div class="diff-body" style="height:${totalHeight}px">${parts.join('')}</div>`;
+    return `<div class="diff-component ${side}">
+        ${label ? `<div class="panel-label">${esc(label)}</div>` : ''}
+        <div class="diff-header">${headerSideHtml()}</div>
+        <div class="diff-body" style="height:${totalHeight}px">${rows.join('')}</div>
+    </div>`;
 }
 
 export function renderDiffSummaryHtml(state: DiffRenderState): string {

@@ -19,7 +19,7 @@ import {
     visualRowIndexForAddress,
     type DiffVisualRow,
 } from './diff/diffViewModel';
-import { renderDiffSummaryHtml, renderDiffRowsHtml, renderDiffHeaderHtml, renderDiffPanelLabelsHtml, type DiffRenderState, type DiffSelection } from './diff/diffRenderer';
+import { renderDiffSummaryHtml, renderDiffComponentHtml, type DiffRenderState, type DiffSelection } from './diff/diffRenderer';
 
 // ── State ─────────────────────────────────────────────────────────
 let generation = 0;
@@ -161,17 +161,14 @@ function renderScroll(): void {
         scrollEl.addEventListener('scroll', () => rerender());
         return;
     }
-    scrollEl.innerHTML =
-        renderDiffPanelLabelsHtml(aLabel, bLabel)
-        + renderDiffHeaderHtml(renderState())
-        + renderDiffRowsHtml(renderState(), visibleWindow(rows.length), rows.length * ROW_HEIGHT);
-    // Absolute-positioned rows don't size the body; give the body the header's
-    // real width so it and the rows center as one block.
-    const header = scrollEl.querySelector('.diff-header') as HTMLElement | null;
-    const body = scrollEl.querySelector('.diff-body') as HTMLElement | null;
-    if (header && body) {
-        body.style.width = `${header.offsetWidth}px`;
-    }
+    const state = renderState();
+    const totalHeight = rows.length * ROW_HEIGHT;
+    const range = visibleWindow(rows.length);
+    scrollEl.innerHTML = `<div class="diff-grid">
+        ${renderDiffComponentHtml(state, 'a', aLabel, range, totalHeight)}
+        <span class="diff-sep"></span>
+        ${renderDiffComponentHtml(state, 'b', bLabel, range, totalHeight)}
+    </div>`;
     scrollEl.scrollTop = scrollTop;
     scrollEl.addEventListener('scroll', () => {
         scrollTop = scrollEl.scrollTop;

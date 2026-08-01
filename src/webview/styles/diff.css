@@ -16,32 +16,28 @@
 
 /* ── Scroll viewport ──────────────────────────────────────────── */
 #diff-scroll { flex: 1; min-height: 0; overflow: auto; }
-.diff-panel-labels,
-.diff-header,
-.diff-body { width: fit-content; margin: 0 auto; }
-.diff-body { position: relative; }
 
-/* ── Per-panel file labels (VS Code tab style, sticky) ────────── */
-.diff-panel-labels {
+/* ── Grid: component A ─ sep ─ component B, centered ──────────── */
+.diff-grid {
+    display: flex; flex-direction: row; align-items: stretch;
+    width: fit-content; margin: 0 auto;
+}
+
+.diff-component { display: flex; flex-direction: column; }
+
+/* Optional per-file label (the renderer omits it when absent). */
+.diff-component .panel-label {
     position: sticky; top: 0; z-index: 3;
-    display: flex; align-items: center;
     height: 24px;
+    display: flex; align-items: center;
+    padding: 0 10px;
     background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
-    font-family: var(--font-ui); font-size: 11px;
-    user-select: none; white-space: nowrap;
-}
-.diff-panel-labels .side {
-    /* Match the header/data side width (16 cells + 3 group gaps) so the
-       divider stays on the same column as the rows below. */
-    width: calc(16 * var(--cell-size) + 3 * var(--cell-size) * 0.4);
-}
-.diff-panel-labels .panel-name {
-    overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-    padding-left: 2px; color: var(--fg);
+    font-family: var(--font-ui); font-size: 11px; color: var(--fg);
+    white-space: nowrap;
 }
 
-/* ── Fixed column header: 00..0F offsets, sticky under the labels ─ */
-.diff-header {
+/* ── Fixed column header: 00..0F offsets, sticky under the label ─ */
+.diff-component .diff-header {
     position: sticky; top: 24px; z-index: 2;
     display: flex; align-items: center;
     height: 22px;
@@ -55,6 +51,9 @@
 }
 .diff-header .side .hcell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 
+/* ── Data body: rows absolute-positioned for virtual scroll ───── */
+.diff-component .diff-body { position: relative; }
+
 /* ── Data row (fixed row height = ROW_HEIGHT in hexDiffViewer) ── */
 .diff-row {
     position: absolute; left: 0; right: auto; top: 0;
@@ -64,42 +63,35 @@
 }
 .diff-row:hover { background: var(--hover-bg); }
 
-/* ── Address gutters (one per panel; mirrors .addr-cell) ──────── */
+/* ── Address gutter (inside each component; mirrors .addr-cell) ─ */
 .diff-row .addr,
-.diff-header .addr,
-.diff-panel-labels .addr {
+.diff-header .addr {
     font-family: var(--font-editor); font-size: var(--font-size);
     line-height: 22px; text-transform: uppercase;
     color: var(--addr-fg); white-space: nowrap;
     padding: 0 8px 0 6px; user-select: none;
     width: calc(8ch + 14px); flex-shrink: 0;
 }
-.diff-header .addr,
-.diff-panel-labels .addr { visibility: hidden; }
+.diff-header .addr { visibility: hidden; }
 .diff-row:hover .addr { color: var(--addr-active-fg); }
 
-/* ── Side panels ──────────────────────────────────────────────── */
+/* ── Hex cells ────────────────────────────────────────────────── */
 .side { display: inline-flex; align-items: center; }
 
-/* Fixed divider between the two panels; a flex item with a constant
-   order so it stays centered when A/B panels swap around it. */
+/* ── Single continuous separator between the two components ───── */
 .diff-sep {
     flex-shrink: 0; align-self: stretch;
+    position: sticky; top: 0; z-index: 2;
     width: 0; border-left: 2px solid var(--border);
     margin: 0 calc(var(--cell-size) * 0.45);
 }
 
-/* Swap exchanges panel positions only (identity stays file-bound).
-   The separator keeps order 2 in both states, so it does not jump. */
-.diff-row .addr.a, .diff-header .addr.a, .diff-panel-labels .addr.a { order: 0; }
-.diff-row .side.a,   .diff-header .side.a,   .diff-panel-labels .side.a   { order: 1; }
-.diff-row .diff-sep, .diff-header .diff-sep, .diff-panel-labels .diff-sep { order: 2; }
-.diff-row .addr.b,   .diff-header .addr.b,   .diff-panel-labels .addr.b   { order: 3; }
-.diff-row .side.b,   .diff-header .side.b,   .diff-panel-labels .side.b   { order: 4; }
-body.swapped .diff-row .addr.b, .diff-header .addr.b, .diff-panel-labels .addr.b { order: 0; }
-body.swapped .diff-row .side.b,   .diff-header .side.b,   .diff-panel-labels .side.b   { order: 1; }
-body.swapped .diff-row .addr.a,   .diff-header .addr.a,   .diff-panel-labels .addr.a   { order: 3; }
-body.swapped .diff-row .side.a,   .diff-header .side.a,   .diff-panel-labels .side.a   { order: 4; }
+/* Swap exchanges the two whole components around the fixed separator. */
+.diff-grid .diff-component.a { order: 0; }
+.diff-grid .diff-sep { order: 1; }
+.diff-grid .diff-component.b { order: 2; }
+body.swapped .diff-grid .diff-component.b { order: 0; }
+body.swapped .diff-grid .diff-component.a { order: 2; }
 
 /* ── Hex byte cell (geometry shared via base.css) ──────────────── */
 .data-cell { cursor: default; }

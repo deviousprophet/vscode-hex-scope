@@ -42,14 +42,13 @@ Dispatch + model handling for the new discriminators + unknown-message no-op are
 
 ## 5. Webview layout (hexDiffViewer.ts + diff.css)
 
-- Chrome: label rail (filenames, side chips), summary bar, label rail, error banners, `#diff-scroll` (rows + sticky header), toolbar, `#status`.
-- **Row = `[addr.a][side.a][addr.b][side.b]`** — dual address gutters (both panels show the row address, so a one-sided address stays visible). Swap reorders the four cells via `order` rules (rows and header identically).
-- **00..0F column header** (`renderDiffHeaderHtml`, `.hcell`) is `position: sticky; top: 0` inside `#diff-scroll`: fixed vertically, scrolls horizontally with content.
-- **Centered**: `.diff-header`/`.diff-body` are `width: fit-content; margin: 0 auto`.
-- **Gutter** between panels: `.side.a` `border-right: 2px solid var(--border)` + padding/margin.
-- `#diff-scroll` is `flex:1; min-height:0`, measured via `clientHeight` (not a hard `innerHeight - N`).
-- Status colors: changed = red `#ff6b6b`, added = green `#4ec9a0`, removed = magenta `#c586c0`; A/B accents blue `#9cdcfe` / orange `#e37933`.
-- Cells: `data-cell ${status}` (`base.css` geometry + `diff.css` status colors), per-cell `match` (search) and `sel` (selection), `panel-error` dims an invalid side.
+- Chrome: toolbar (top), summary bar, label rail, error banners, `#diff-scroll` (the grid), `#status`.
+- **Reusable hexview component** (`renderDiffComponentHtml`): optional filename label (`panel-label`, empty = omitted) + 00..0F header + (address gutter + hex cells). The diff renders `[component A] ┃ [component B]` in one `.diff-grid` flex row, **centered** (`width: fit-content; margin: 0 auto`).
+- Both components share **one `#diff-scroll`**; rows are absolute at the same `top: index × DIFF_ROW_HEIGHT`, so sides stay byte-aligned and scroll together (single scrollbar).
+- **Single continuous separator**: `.diff-sep` (2px, `align-self: stretch`, `position: sticky`) spans the full grid height; label + header are sticky (`top: 0` / `top: 24px`).
+- **Swap** reorders the two whole components around the fixed separator via `.diff-grid` `order` rules (`body.swapped`).
+- Per-panel errors: `aError`/`bError` → the affected component's side gets `panel-error` (dimmed cells) + a `.side-error` banner.
+- Status colors: changed = red `#ff6b6b`, added = green `#4ec9a0`, removed = magenta `#c586c0`; cells `data-cell ${status}`, per-cell `match` (search) and `sel` (selection).
 
 ## 6. Selection + copy
 

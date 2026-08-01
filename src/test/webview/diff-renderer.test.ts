@@ -3,8 +3,7 @@
 import * as assert from 'assert';
 import { computeDiff } from '../../core/diff';
 import type { CompactParseResult } from '../../core/parser/compact';
-import type { DiffRow } from '../../core/diff';
-import { renderDiffRowsHtml, renderDiffSummaryHtml, renderDiffPanelLabelsHtml } from '../../webview/diff/diffRenderer';
+import { renderDiffComponentHtml, renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
 import { groupVisualRows } from '../../webview/diff/diffViewModel';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
@@ -21,19 +20,14 @@ function seg(startAddress: number, bytes: number[]): { startAddress: number; dat
     return { startAddress, data: Uint8Array.from(bytes) };
 }
 
-function row(address: number, status: DiffRow['status'], byte?: number): DiffRow {
-    const present = byte !== undefined;
-    const a = status === 'removed' ? null : present ? { present: true, byte: byte! } : null;
-    const b = status === 'added' ? null : present ? { present: true, byte: byte! } : null;
-    return { address, a, b, status };
-}
-
-function render(overrides: Partial<Parameters<typeof renderDiffRowsHtml>[0]> = {}): string {
-    const rows = [row(0x1000, 'unchanged', 0x01)];
-    return renderDiffRowsHtml(
+function componentHtml(overrides: Partial<Parameters<typeof renderDiffComponentHtml>[0]> = {}, label = 'file.hex'): string {
+    const a = parse([seg(0x1000, [1, 2, 3, 4])]);
+    const b = parse([seg(0x1000, [1, 2, 3, 4])]);
+    const d = computeDiff(a, b);
+    return renderDiffComponentHtml(
         {
-            result: null,
-            visualRows: groupVisualRows(rows),
+            result: d,
+            visualRows: groupVisualRows(d.rows),
             searchRowIndex: -1,
             matchSet: new Set(),
             aError: null,
@@ -41,6 +35,8 @@ function render(overrides: Partial<Parameters<typeof renderDiffRowsHtml>[0]> = {
             selection: null,
             ...overrides,
         },
+        'a',
+        label,
         [0, 1],
         22,
     );
@@ -69,15 +65,8 @@ suite('diff visual-row grouping', () => {
         assert.strictEqual(vr.a[4], null, 'addresses past the file end are empty cells');
     });
 
-    test('rendered grid shows the real bytes, not a repeated first byte', () => {
-        const a = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const b = parse([seg(0x1000, [1, 2, 3, 4])]);
-        const d = computeDiff(a, b);
-        const html = renderDiffRowsHtml(
-            { result: d, visualRows: groupVisualRows(d.rows), searchRowIndex: -1, matchSet: new Set(), aError: null, bError: null, selection: null },
-            [0, 1],
-            22,
-        );
+    test('rendered component shows the real bytes, not a repeated first byte', () => {
+        const html = componentHtml();
         assert.ok(html.includes('>01<'), 'byte 01 present');
         assert.ok(html.includes('>04<'), 'byte 04 present');
         assert.ok(html.includes('>··<'), 'empty cells after the data');
@@ -95,55 +84,47 @@ suite('diff visual-row grouping', () => {
 });
 
 suite('diff renderer', () => {
-    test('match addresses get the match class on both panels', () => {
-        const html = render({ matchSet: new Set([0x1000]) });
-        const matches = html.match(/class="data-cell unchanged match"/g) ?? [];
-        assert.strictEqual(matches.length, 2, 'the match address should be highlighted on both A and B');
+    test('component = address gutter + one side panel, tagged with its side', () => {
+        const html = componentHtml();
+        const addr = html.indexOf('class="addr"');
+        const side = html.indexOf('class="side"');
+        assert.ok(addr >= 0 && side > addr, 'address gutter precedes the side cells');
+        assert.ok(html.includes('data-side="a"'), 'cells carry the side tag');
+        assert.ok(!html.includes('data-side="b"'), 'a component renders one side only');
     });
 
-    test('non-match cells are not highlighted', () => {
-        const html = render();
-        assert.strictEqual((html.match(/class="data-cell unchanged match"/g) ?? []).length, 0);
+    test('match addresses get the match class', () => {
+        const html = componentHtml({ matchSet: new Set([0x1003]) });
+        assert.strictEqual((html.match(/class="data-cell unchanged match"/g) ?? []).length, 1);
     });
 
     test('a side with a parse error is flagged panel-error', () => {
-        const html = render({ aError: 'parse error' });
-        assert.ok(html.includes('side a panel-error'), 'side A should carry the error flag');
-        assert.ok(!html.includes('side b panel-error'), 'side B should be unaffected');
+        const html = componentHtml({ aError: 'parse error' });
+        assert.ok(html.includes('side panel-error'), 'affected side carries the error flag');
     });
 
     test('selected cells get the sel class on the selected side only', () => {
-        const html = render({ selection: { side: 'a', start: 0x1000, end: 0x1000 } });
-        const selCells = html.match(/class="data-cell unchanged sel"/g) ?? [];
-        assert.strictEqual(selCells.length, 1, 'the single selected A cell should carry sel');
-        assert.ok(!/data-side="b" class="data-cell unchanged sel"/.test(html), 'B side must not be selected');
+        const html = componentHtml({ selection: { side: 'a', start: 0x1000, end: 0x1000 } });
+        assert.strictEqual((html.match(/class="data-cell unchanged sel"/g) ?? []).length, 1);
     });
 
-    test('row structure is addr.a, side.a, fixed separator, addr.b, side.b', () => {
-        const html = render();
-        const a = html.indexOf('class="addr a"');
-        const sa = html.indexOf('class="side a"');
-        const sep = html.indexOf('class="diff-sep"');
-        const ab = html.indexOf('class="addr b"');
-        const sb = html.indexOf('class="side b"');
-        assert.ok(a >= 0 && sa > a && sep > sa && ab > sep && sb > ab,
-            'separator must sit between the two panels (addr/side a | sep | addr/side b)');
-    });
-
-    test('panel labels render per side as plain filenames, no A/B tags', () => {
-        const html = renderDiffPanelLabelsHtml('a.hex', 'b.hex');
-        assert.ok(html.includes('>a.hex<') && html.includes('>b.hex<'), 'both filenames shown');
-        assert.ok(!/>[AB]<\/span>/.test(html), 'no A/B side tags');
-        const sa = html.indexOf('class="side a"');
-        const sep = html.indexOf('class="diff-sep"');
-        const sb = html.indexOf('class="side b"');
-        assert.ok(sa >= 0 && sep > sa && sb > sep, 'labels separated by the fixed divider');
+    test('label is optional: present when given, omitted when empty', () => {
+        assert.ok(componentHtml(undefined, 'a.hex').includes('class="panel-label"'));
+        assert.ok(!componentHtml(undefined, '').includes('class="panel-label"'));
     });
 
     test('identical files render an identical summary', () => {
         const a = parse([seg(0x1000, [1])]);
         const d = computeDiff(a, a);
-        const html = renderDiffSummaryHtml({ result: d, visualRows: groupVisualRows(d.rows), searchRowIndex: -1, matchSet: new Set(), aError: null, bError: null, selection: null });
+        const html = renderDiffSummaryHtml({
+            result: d,
+            visualRows: groupVisualRows(d.rows),
+            searchRowIndex: -1,
+            matchSet: new Set(),
+            aError: null,
+            bError: null,
+            selection: null,
+        });
         assert.ok(html.includes('Files are identical'));
     });
 });
