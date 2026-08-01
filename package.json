@@ -192,13 +192,8 @@
       "explorer/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
-        },
-        {
-          "command": "hexScope.compareSelected",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection",
-          "group": "navigation@1"
         }
       ],
       "editor/title": [
@@ -225,23 +220,28 @@
       "hexScope.actions": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
           "group": "navigation"
         },
         {
           "command": "hexScope.quickRepair",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
           "group": "navigation"
+        },
+        {
+          "command": "hexScope.compareSelected",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection",
+          "group": "navigation@1"
         },
         {
           "command": "hexScope.selectAsFirst",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "hexScope.compareToStaged",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst && !listMultiSelection",
-          "group": "navigation@2"
+          "group": "navigation@3"
         }
       ],
       "commandPalette": [

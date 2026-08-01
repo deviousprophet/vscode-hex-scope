@@ -108,8 +108,11 @@ function isSupportedDiffFile(uri: vscode.Uri): boolean {
     // Compare selected (2 URIs, explorer multi-select) — first selected is A
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.compareSelected', (first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri) => {
-            const picked = Array.isArray(first) ? first : first && second ? [first, second] : undefined;
-            if (!picked || picked.length < 2) { return; }
+            const picked = Array.isArray(first) ? first : Array.isArray(second) ? second : first && second ? [first, second] : undefined;
+            if (!picked || picked.length < 2) {
+                vscode.window.showWarningMessage('HexScope: select two HEX/SREC files to compare.');
+                return;
+            }
             const unsupported = picked.filter(u => !isSupportedDiffFile(u));
             if (unsupported.length > 0) {
                 const names = unsupported.map(u => u.fsPath.split(/[\\/]/).pop()).join(', ');
