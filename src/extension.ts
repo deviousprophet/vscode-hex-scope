@@ -46,24 +46,32 @@ function firstInvalid(pa: ParseResult, pb: ParseResult, a: vscode.Uri, b: vscode
     return undefined;
 }
 
-/** Validate pair: distinct URIs, both parse valid; then open. */
-async function validateAndOpenPair(a: vscode.Uri, b: vscode.Uri): Promise<void> {
+/** Clear the ephemeral staged-first state (D7: cleared after a diff opens). */
+function clearStaging(): void {
+    stagedFirstPath = null;
+    void vscode.commands.executeCommand('setContext', 'hexScope.hasStagedFirst', false);
+}
+
+/** Validate pair: distinct URIs, both parse valid; then open. Returns true when the diff opened. */
+async function validateAndOpenPair(a: vscode.Uri, b: vscode.Uri): Promise<boolean> {
     if (a.fsPath === b.fsPath) {
         vscode.window.showWarningMessage('HexScope: cannot diff a file with itself.');
-        return;
+        return false;
     }
     try {
         const [{ parseResult: pa }, { parseResult: pb }] = await Promise.all([loadHexDocument(a), loadHexDocument(b)]);
         const invalid = firstInvalid(pa, pb, a, b);
         if (invalid) {
             vscode.window.showWarningMessage(parseErrorWarning(invalid));
-            return;
+            return false;
         }
     } catch {
         vscode.window.showWarningMessage('HexScope: failed to read one of the selected files.');
-        return;
+        return false;
     }
     openDiff(a.fsPath, b.fsPath);
+    clearStaging();
+    return true;
 }
 
 function diffDecorationProvider(): vscode.FileDecorationProvider {

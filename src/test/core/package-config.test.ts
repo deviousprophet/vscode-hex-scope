@@ -7,6 +7,7 @@ import * as path from 'path';
 
 interface MenuItem { command?: string; submenu?: string; when?: string }
 interface Keybinding { command: string; key: string; when?: string }
+interface CommandDef { command: string; title: string }
 
 function readPackageJson(): Record<string, any> {
     const pkgPath = path.join(__dirname, '..', '..', '..', 'package.json');
@@ -33,6 +34,34 @@ suite('package.json diff wiring', () => {
             hasCompare,
             'hexScope.compareSelected must be in the hexScope.actions submenu (shown via explorer/context)'
         );
+    });
+
+    test('context menu switches: Compare only on 2 selected, staging only on single select', () => {
+        const items = new Map(
+            (contributes.menus?.['hexScope.actions'] ?? []).map(i => [i.command, i.when ?? ''])
+        );
+        assert.ok(
+            items.get('hexScope.compareSelected')?.includes('listDoubleSelection'),
+            'Compare Two Files must require exactly 2 selected (listDoubleSelection)'
+        );
+        assert.ok(
+            items.get('hexScope.selectAsFirst')?.includes('!listMultiSelection'),
+            'Set as 1st file must be hidden on multi-select (!listMultiSelection)'
+        );
+        const stagedWhen = items.get('hexScope.compareToStaged') ?? '';
+        assert.ok(
+            stagedWhen.includes('hasStagedFirst') && stagedWhen.includes('!listMultiSelection'),
+            'Compare with the 1st file requires staged state and single select'
+        );
+    });
+
+    test('diff command titles match the agreed wording', () => {
+        const titles = new Map(
+            (pkg.contributes as { commands: CommandDef[] }).commands.map(c => [c.command, c.title])
+        );
+        assert.strictEqual(titles.get('hexScope.compareSelected'), 'Compare Two Files');
+        assert.strictEqual(titles.get('hexScope.selectAsFirst'), 'Set as 1st file to compare');
+        assert.strictEqual(titles.get('hexScope.compareToStaged'), 'Compare with the 1st file');
     });
 
     test('bare Alt+Down/Up is reserved for diff navigation', () => {

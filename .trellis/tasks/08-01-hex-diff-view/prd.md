@@ -18,7 +18,7 @@ User value: firmware engineers diffing two build outputs, verifying flash images
 
 ## Requirements
 
-R1. **HexScope: Compare Selected** (multi-select of two supported files, explorer context menu, like VS Code built-in compare) and **HexScope: Select as 1st file to compare** / **HexScope: Compare to <name>** (staging flow) — all available from explorer context menu and editor title bar when supported files are involved. No file picker.
+R1. **HexScope: Compare Selected** (multi-select of two supported files, explorer context menu, like VS Code built-in compare) and **HexScope: Set as 1st file to compare** / **HexScope: Compare with the 1st file** (staging flow) — all available from explorer context menu and editor title bar when supported files are involved. No file picker.
 R2. Opens a dedicated, read-only diff editor separate from the single-file Memory/Records viewer.
 R3. Side-by-side hex grid showing both files aligned by address (unified mode explicitly out of scope, never planned).
 R4. Byte-level highlighting for:
@@ -86,9 +86,9 @@ D4. **Byte-level diff granularity.** Unified per-address status map (unchanged /
 D5. **Union-of-rows alignment.** Single row set = union of both files' row spans (per-file row collection merged, sorted, deduped). Each row rendered in both panels; a cell is `empty` when that side has no byte at that address. One shared virtual-scroll state, one scrollbar.
 D6. **Shared label rail.** Union of both files' `SegmentLabel`s rendered in one left rail (reusing the label-sidebar pattern); a label highlights across both panels where its range exists. Labels display-only, never editable from diff view.
 D7. **Beyond Compare-style staging, no picker.** Two entry paths, both open the diff immediately:
-    - Explorer multi-select of 2 supported files → context menu **Compare Selected** → diff.
-    - Explorer single file → **Select as 1st file to compare** (stages as left/base A) → another file's menu shows **Compare to `<A name>`** → diff opens immediately.
-    Staging state is **ephemeral** (session-only, cleared when diff opens or a different first file is picked; never persists across restarts). Editor title bar uses the same staging verbs (stage when nothing staged; "Compare to <A>" when A staged). No file-picker flow exists.
+    - Explorer multi-select of 2 supported files → context menu **Compare Two Files** → diff.
+    - Explorer single file → **Set as 1st file to compare** (stages as left/base A) → another file's menu shows **Compare with the 1st file** → diff opens immediately.
+    Staging state is **ephemeral** (session-only, cleared as soon as a diff opens or a different first file is picked; never persists across restarts). Editor title bar uses the same staging verbs. No file-picker flow exists.
 D8. **Refuse invalid pairs.** Opening is blocked (message shown) for same-file (same URI). Identical-content pairs are **not** blocked: they open and show the "identical files" state (D15 supersedes the earlier identical-content block idea). Pair identity is judged by **URI (fsPath), never by filename** — two same-named files in different folders are a valid, distinct pair.
 D9. **Refuse unparseable files.** Reuse the single-file gate (`parseResultIsValid`, src/extension.ts:26): if either file has checksum errors or malformed lines, opening is blocked with the existing Quick Repair message. The diff view never renders half-broken data.
 D10. **Minimal chrome.** Diff webview carries only: two side-by-side grids, summary bar, shared label rail, next/prev difference navigation, swap button, and byte-pattern search (D21). No tabs, edit controls, scripts, structs, inspector, bit view, or integrity. Read-only by construction.
@@ -111,5 +111,12 @@ D26. **Diff grid layout (user-specified, supersedes D5's single-gutter wording).
 D27. **Per-panel parse-error state (D15 live revalidation).** `diffInit`/`diffUpdate` carry `aError`/`bError` (`string | null`). When a side's parse result has checksum/malformed errors, the webview flags that panel (`panel-error`, dimmed cells) and shows a side error banner; the other panel keeps rendering. A live edit making a file unparseable surfaces this instead of silently showing partial bytes.
 D28. **Diff search = full search semantics.** `diffSearchRequest` carries `mode` (`bytes`/`value`/`ascii`/`addr`) + `endianness` (`le`/`be`/`auto`), passed straight to the core `SearchEngine` against both files; matches merge into a union. Matches highlight **per cell** on whichever panel holds data at that address; the current match also gets the search-focus row treatment. Toolbar exposes a mode select + endianness toggle.
 D29. **Per-panel copy (D11).** Click-drag selects a byte range within one panel (A or B; drag locked to the starting side). A toolbar copy control (format select: hex / C array / ASCII) and Ctrl+C copy the selected side's bytes via the shared `formatCopyCommand`. Clicking empty scroll space clears the selection; toolbar/rail clicks keep it.
+D30. **Explorer menu switch (single vs double select).** Inside the `hexScope.actions` submenu, per-item `when` clauses gate the diff flow on list selection:
+    - `compareSelected` (**Compare Two Files**) requires `listDoubleSelection` (exactly 2 selected) — hidden on single select.
+    - `selectAsFirst` (**Set as 1st file to compare**) requires `!listMultiSelection` (single select) — hidden on multi-select.
+    - `compareToStaged` (**Compare with the 1st file**) requires `hexScope.hasStagedFirst && !listMultiSelection`.
+    So single-select shows only the staging flow; exactly-2 shows only Compare Two Files; >2 shows neither. The same clauses make the staging items appear in the editor-title menus (single active editor, no list selection) while Compare Two Files stays explorer-only. The staged state is **cleared as soon as a diff opens** (either entry path), so the badge and "Compare with the 1st file" item disappear immediately (D7).
+
+
 
 
