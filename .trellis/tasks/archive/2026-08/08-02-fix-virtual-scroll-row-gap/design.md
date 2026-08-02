@@ -20,10 +20,11 @@ Memory grid = `memoryView.ts` renders a buffered slice of `S.memRows`; `render/v
 - `heightVersion` must include a label-derived signal (e.g. `S.labels.size` + `bannerHeight`) so adding/removing labels invalidates the height cache; otherwise phantom underestimates/overestimates after label changes.
 - Result: cumulative heights == real DOM height; non-compressed spacers + compressed mapping both align at segment rows.
 
-### 2.3 Cause 3 — anchor compressed buffer to exact offset
-- Replace `windowTop = physicalScrollTop + topOffset - virtualScrollTop` (`visibleRowsHtml`) with the physical position of the first rendered row's exact logical offset:
-  `windowTop = (calcRowOffset(startIdx, state) / calcTotalHeight(state)) * layout.physicalHeight` (guard `totalHeight === 0`).
-- This anchors rendered content to the phantom scale regardless of row-height pattern (gaps/banners), eliminating the re-render boundary sliver. Uniform rows reduce to the same value as today.
+### 2.3 Cause 3 — anchor compressed buffer to the scroll mapping (CORRECTED)
+> **CORRECTION (post-archive):** the original Cause-3 change scaled by `physicalHeight / totalHeight`, which is WRONG — it drifts the buffer below `scrollTop` by up to `~containerHeight` near the end (blank space at the viewport top). The regression was diagnosed and fixed; see `.trellis/spec/frontend/virtual-scroll.md` §7. Cause 3 was itself a misdiagnosis — the pre-fix additive anchor was already correct.
+- Correct anchor (kept after correction):
+  `windowTop = (calcRowOffset(startIdx, state) / layout.logicalScrollable) * layout.physicalScrollable` (guard `totalHeight <= 0`, non-compressed, or `logicalScrollable <= 0` → 0).
+- This uses the SAME compression factor as the scroll position (`physicalToLogicalScroll`/`logicalToPhysicalScroll`), so the buffer stays within one row of the viewport top at every scroll depth.
 - `renderMemory` passes the computed `windowTop` instead of deriving it inline.
 
 ### 2.4 Minor — `#mem-rows` padding

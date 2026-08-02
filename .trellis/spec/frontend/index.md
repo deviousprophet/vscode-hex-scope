@@ -20,6 +20,7 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Firmware Document Formats](./document-formats.md) | IHEX/SREC parse, segments, serialization, checksum repair |
 | [Editor Session and Protocol](./editor-lifecycle.md) | Activation, provider/session lifecycle, host-webview messages |
 | [Memory, Record, and Navigation](./memory-navigation.md) | Addressed memory, gaps, virtual scroll, records, segments, labels |
+| [Virtual Scroll](./virtual-scroll.md) | Buffered/compressed rendering geometry, row-height metric, scroll mapping, compressed anchor invariant |
 | [Search, Selection, Inspector, and Byte Tools](./search-inspect-copy.md) | Search modes, cancellation, selection, decode, context copy/analyze |
 | [Editing, Save, and External Change](./editing-save-external-change.md) | Transactions, undo, save confirmation, file-change conflicts |
 | [Integrity Checks and Profiles](./integrity-checks.md) | Algorithms, ranges, stored comparison, fixes, profiles |

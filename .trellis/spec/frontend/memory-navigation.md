@@ -27,7 +27,7 @@ Current `BPR` default/contract is 16.
 - Byte lookup checks pending edits first, then mapped segment data; unmapped bytes return `undefined`.
 - Memory data rows are BPR-aligned. Gaps become explicit gap rows; never allocate rows for every missing address.
 - Memory view virtualizes visible rows plus buffer and caps physical scroll height for large logical ranges.
-- Row geometry is integer-px: the runtime rounds `--cell-size` (`Math.round(editorFontSize * 1.6)`) to prevent fractional sub-pixel seams between rows; the height metric is label-aware (a data row with segment labels contributes banner height × label count) so the phantom height equals real DOM height; compressed-mode rendering anchors the visible buffer to the exact scaled logical offset.
+- Row geometry, the label-aware height metric, and the compressed-mode anchor invariant are owned by the dedicated [Virtual Scroll](./virtual-scroll.md) spec.
 - Rerendering the same Memory scroll container preserves its logical scroll position: convert the current physical position through the old layout before replacing virtual state, then map that logical position into the new layout.
 - Jump-to-address switches to Memory view, finds the containing row, scrolls it into view, and selects/highlights the intended range.
 - Record view represents every parsed record, including source errors/checksum status, but fetches only aligned 512-record pages for its visible window. It keeps an eight-page LRU cache, prefetches one adjacent page, and rejects stale generations.
