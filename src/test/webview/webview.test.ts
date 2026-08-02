@@ -486,17 +486,17 @@ suite('Memory View rerender stability', () => {
         buildMemRows();
         renderMemBody(() => {}, () => {});
         scrollTo(byteCount / 2);
-        const before = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
+        const before = document.querySelector<HTMLElement>('.diff-row')?.dataset.addr;
 
         S.labels = [{ id: 'new', name: 'New label', startAddress: byteCount / 2, length: 16, color: '#fff' }];
         buildMemRows();
         renderMemBody(() => {}, () => {});
-        const afterAdd = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
+        const afterAdd = document.querySelector<HTMLElement>('.diff-row')?.dataset.addr;
 
         S.labels = [];
         buildMemRows();
         renderMemBody(() => {}, () => {});
-        const afterDelete = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
+        const afterDelete = document.querySelector<HTMLElement>('.diff-row')?.dataset.addr;
 
         assert.ok(before);
         assert.strictEqual(afterAdd, before);
@@ -546,8 +546,8 @@ suite('Memory View navigation', () => {
         scrollTo(0x08010000);
 
         assert.strictEqual(document.getElementById('mem-scroll')!.scrollTop, 0);
-        assert.ok(document.querySelector('.data-row[data-row="134217728"]'), 'first row should remain rendered');
-        assert.ok(document.querySelector('.data-row[data-row="134283264"]'), 'target row should be rendered');
+        assert.ok(document.querySelector('.diff-row[data-addr="08000000"]'), 'first row should remain rendered');
+        assert.ok(document.querySelector('.diff-row[data-addr="08010000"]'), 'target row should be rendered');
     });
 });
 

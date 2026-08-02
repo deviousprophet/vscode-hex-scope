@@ -2,67 +2,17 @@
 #memory-view { flex: 1; min-height: 0; overflow: hidden; display: none; flex-direction: column; }
 #memory-view.visible { display: flex; }
 
-/* ── Column header (mirrors vscode-hexeditor DataHeader) ─────── */
-#mem-header {
-    flex-shrink: 0; display: flex; align-items: center;
-    background: var(--toolbar-bg); border-bottom: 2px solid var(--border);
-    font-family: var(--font-editor); font-weight: 700;
-    color: var(--addr-active-fg);
-    user-select: none;
-    overflow: hidden; white-space: nowrap;
-}
-#mem-header .addr-cell { visibility: hidden; }
-.mem-hdr-decoded {
-    /* 16 chars plus 3 inter-group gaps (after 4, 8, 12) to match .char-cell layout */
-    width: calc((var(--text-cell-width) * 16) + (var(--text-cell-width) * 0.3 * 3));
-    display: inline-block;
-    font-family: var(--font-editor);
-    font-size: var(--font-size);
-    line-height: var(--cell-size);
-    color: var(--addr-active-fg);
-    text-align: left;
-    text-transform: none;
-}
-
 /* ── Scroll viewport ─────────────────────────────────────────── */
 #mem-scroll { flex: 1; min-height: 0; overflow: auto; }
 #mem-rows   { padding: 2px 0; width: fit-content; min-width: 100%; }
 
-/* ── Data row (mirrors vscode-hexeditor DataRow) ─────────────── */
-.data-row { display: flex; align-items: center; height: var(--cell-size); white-space: nowrap; width: fit-content; }
-.data-row:hover { background: var(--hover-bg); }
+/* The component's sticky column header pins to the scrollport top
+   (no panel label in the single view). */
+#memory-view .diff-header { top: 0; }
 
-/* ── Cell group (mirrors DataCellGroup component) ─────────────── */
-.cell-group { display: inline-flex; padding: 0 var(--cell-pad); cursor: default; }
-.cell-group:last-child {
-    border-left: 2px solid rgba(255,255,255,.18);
-    border-right: 2px solid rgba(255,255,255,.18);
-    margin-left: calc(var(--cell-pad) * 1.5);
-    padding-left: calc(var(--cell-pad) * 1.5);
-    padding-right: calc(var(--cell-pad) * 1.5);
-}
-
-/* ── Address cell (mirrors Address component) ─────────────────── */
-.addr-cell {
-    font-family: var(--font-editor); font-size: var(--font-size);
-    line-height: var(--cell-size); text-transform: uppercase;
-    color: var(--addr-fg); white-space: nowrap;
-    padding: 0 3px;
-    border-radius: 2px;
-}
-.data-row:hover .addr-cell { color: var(--addr-active-fg); }
-
-/* ── Hex byte cell (mirrors DataCell — square, font-size driven) ─ */
-/* Base geometry lives in base.css; this view only sets the cursor. */
+/* ── Hex byte cell: grid/selection/match classes come from the component
+   css; this view only sets the single-view cursor. ──────────────── */
 .data-cell { cursor: pointer; }
-/* 4-byte group gap: add left margin to the 5th, 9th, 13th cell (1-indexed) */
-.cell-group .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
-.cell-group .char-cell:nth-child(4n+1):not(:first-child)  { margin-left: calc(var(--text-cell-width) * 0.3); }
-.data-cell.bz { color: var(--zero-color); }
-.data-cell.bp { color: var(--print-color); }
-.data-cell.bh { color: var(--high-color); }
-.data-cell.bn { color: var(--fg); }
-.data-cell.be { color: var(--non-graphic); cursor: default; }
 
 /* Edited / dirty byte — amber underline */
 .data-cell.dirty, .char-cell.dirty { text-decoration: underline; text-decoration-color: #e5a800; text-underline-offset: 2px; color: #e5a800; }
@@ -81,29 +31,6 @@
 }
 .data-cell.integrity-stored-unverified, .char-cell.integrity-stored-unverified {
     background: rgba(225, 165, 45, .32) !important;
-}
-
-/* ── Column hover highlight ───────────────────────────────────── */
-.data-cell.col-hi:not(.sel):not(.match) { background: rgba(255,255,255,.06); }
-.char-cell.col-hi:not(.sel):not(.match) { background: rgba(255,255,255,.06); }
-#mem-header .data-cell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
-
-/* ── Hover / selection / search highlight ────────────────────── */
-.data-cell:not(.be):hover, .char-cell:not(.cd):hover { background: var(--hover-bg); }
-
-.data-cell.match, .char-cell.match             { background: var(--match-bg) !important; }
-.data-cell.match.amatch, .char-cell.match.amatch{ background: var(--match-hi) !important; }
-
-.data-cell.sel.match,
-.char-cell.sel.match {
-    background: var(--match-hi) !important;
-    color: var(--fg);
-    box-shadow: inset 0 0 0 1px rgba(95, 207, 255, .95), 0 0 0 1px rgba(95, 207, 255, .5);
-}
-
-.data-cell.sel.match.amatch,
-.char-cell.sel.match.amatch {
-    box-shadow: inset 0 0 0 2px rgba(95, 207, 255, 1), 0 0 0 1px rgba(95, 207, 255, .8);
 }
 
 /* Struct field hover highlight */

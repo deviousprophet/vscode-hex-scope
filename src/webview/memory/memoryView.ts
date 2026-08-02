@@ -1,26 +1,44 @@
 //  Memory View
-// Renders the hex-grid memory view: column header, data rows, gap rows,
-// and segment label banners. Uses virtual scrolling to efficiently handle
-// large files by rendering only visible rows + a buffer.
+// Renders the hex-grid memory view through the shared HexViewComponent.
+// Host owns virtual scroll (slice + position), cell-state mapping, selection
+// state (S.selStart/S.selEnd), and the match set; the component owns markup,
+// CSS, and transient hover/column interaction. Mirrors the diff host
+// (diff/diffView.ts): host -> virtualScroll (slice + position) -> component.
 
 import { S, BPR } from '../state';
 import { getByte } from '../memory/memoryData';
-import { esc, fmtB, byteClass } from '../utils';
+import { byteClass } from '../utils';
 import {
     calcScrollLayout,
     calcVisibleRange,
-    calcTotalHeight,
     calcRowOffset,
+    calcCompressedWindowTop,
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollLayout,
     type VirtualScrollState,
 } from '../render/virtualScroll';
+import {
+    HexViewComponent,
+    renderHexViewComponentHtml,
+    type HexViewCell,
+    type HexViewRange,
+    type HexViewRow,
+} from '../ui-components/hex-view/hexViewComponent';
 
 //  Virtual scroll state 
 let vscrollState: VirtualScrollState | null = null;
 let vscrollContainer: HTMLElement | null = null;
-let vscrollRenderedRange: [number, number] = [0, 0];
+
+/** Rendered data-row height; must match the component ROW_HEIGHT + `.diff-row` css. */
+const ROW_HEIGHT = 22;
+/** Rendered segment-banner height; must match `.seg-banner` css. */
+const BANNER_HEIGHT = 18;
+const VIRTUAL_SCROLL_CONFIG = {
+    bufferSize: 10,           // render 10 rows above/below viewport
+    fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
+};
+
 type HexCellHandler = (e: MouseEvent, el: HTMLElement) => void;
 interface MemoryScrollElement extends HTMLElement {
     _hexDownCallback?: HexCellHandler;
@@ -31,17 +49,7 @@ interface MemoryInteractionCallbacks {
     onHexCtx?: HexCellHandler;
 }
 
-const VIRTUAL_SCROLL_CONFIG = {
-    fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
-    fallbackGapHeight: 35.2,  // CSS fallback: row * 1.5 + 2px vertical margins
-    bufferSize: 10,           // render 10 rows above/below viewport
-};
-
-function syncHeaderScroll(scrollLeft: number): void {
-    const header = document.getElementById('mem-header');
-    if (!header) { return; }
-    header.scrollLeft = scrollLeft;
-}
+const comp = new HexViewComponent('a');
 
 function parsePx(value: string | null | undefined): number | null {
     if (!value) { return null; }
@@ -65,73 +73,177 @@ function measureCssHeight(scrollContainer: HTMLElement, cssHeight: string, fallb
     return height > 0 ? height : fallback;
 }
 
-function getVirtualScrollMetrics(scrollContainer: HTMLElement): { rowHeight: number; gapHeight: number } {
+function getVirtualScrollMetrics(scrollContainer: HTMLElement): { gapHeight: number } {
     const rootStyle = getComputedStyle(document.documentElement);
     const editorFontSize = parsePx(rootStyle.getPropertyValue('--vscode-editor-font-size'));
 
     if (editorFontSize !== null) {
-        const rowHeight = editorFontSize * 1.6;
-        return {
-            rowHeight,
-            gapHeight: rowHeight * 1.5 + 4,
-        };
+        return { gapHeight: editorFontSize * 1.6 * 1.5 };
     }
 
     const rowHeight = measureCssHeight(scrollContainer, 'var(--cell-size)', VIRTUAL_SCROLL_CONFIG.fallbackRowHeight);
-    const gapBoxHeight = measureCssHeight(scrollContainer, 'calc(var(--cell-size) * 1.5)', rowHeight * 1.5);
-    return {
-        rowHeight,
-        gapHeight: gapBoxHeight + 4,
+    const gapHeight = measureCssHeight(scrollContainer, 'calc(var(--cell-size) * 1.5)', rowHeight * 1.5);
+    return { gapHeight };
+}
+
+//  Labels (banners above data rows) 
+
+let labelMap = new Map<number, typeof S.labels>();
+
+function buildLabelMap(): void {
+    const m = new Map<number, typeof S.labels>();
+    for (const lbl of S.labels) {
+        if (lbl.hidden) { continue; }
+        const ra = lbl.startAddress - (lbl.startAddress % BPR);
+        m.set(ra, [...(m.get(ra) ?? []), lbl]);
+    }
+    labelMap = m;
+}
+
+function labelSignature(): string {
+    return S.labels.filter(l => !l.hidden).map(l => l.startAddress.toString(16)).join(',');
+}
+
+function memoryRowHeightGetter(gapHeight: number): (rowIndex: number) => number {
+    return rowIndex => {
+        const row = S.memRows[rowIndex];
+        if (row?.type === 'gap') { return gapHeight; }
+        return ROW_HEIGHT + (row && labelMap.has(row.address) ? BANNER_HEIGHT : 0);
     };
 }
 
-function virtualScrollHeightVersion(rowHeight: number, gapHeight: number): string {
-    return `${rowHeight.toFixed(3)}:${gapHeight.toFixed(3)}`;
-}
-
-function memoryRowHeight(rowIndex: number, rowHeight: number, gapHeight: number): number {
-    return S.memRows[rowIndex]?.type === 'gap' ? gapHeight : rowHeight;
-}
-
-function memoryRowHeightGetter(rowHeight: number, gapHeight: number): (rowIndex: number) => number {
-    return rowIndex => memoryRowHeight(rowIndex, rowHeight, gapHeight);
+function virtualScrollHeightVersion(gapHeight: number): string {
+    return `r${ROW_HEIGHT}:g${gapHeight.toFixed(3)}:b${BANNER_HEIGHT}:l${labelSignature()}`;
 }
 
 function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     if (!vscrollState) { return; }
-    const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
+    const { gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const containerHeight = scrollContainer.clientHeight;
-    const heightVersion = virtualScrollHeightVersion(rowHeight, gapHeight);
-    const unchanged = [
-        vscrollState.heightVersion === heightVersion,
-        vscrollState.containerHeight === containerHeight,
-        vscrollState.rowCount === S.memRows.length,
-    ].every(Boolean);
-    if (unchanged) { return; }
-
+    const heightVersion = virtualScrollHeightVersion(gapHeight);
+    if (vscrollState.heightVersion === heightVersion
+        && vscrollState.containerHeight === containerHeight
+        && vscrollState.rowCount === S.memRows.length) { return; }
+    buildLabelMap();
     vscrollState.containerHeight = containerHeight;
     vscrollState.rowCount = S.memRows.length;
     vscrollState.heightVersion = heightVersion;
-    vscrollState.getRowHeight = memoryRowHeightGetter(rowHeight, gapHeight);
-    vscrollRenderedRange = [-1, -1];
-}
-
-//  Column header 
-
-export function renderMemHeader(): void {
-    const hiddenHtml = `<div class="cell-group"><span class="addr-cell">00000000</span></div>`;
-
-    const hexHeaderHtml = Array.from({ length: BPR }, (_, i) =>
-        `<span class="data-cell" data-col="${i}" style="cursor:default;color:var(--addr-active-fg)">${i.toString(16).toUpperCase().padStart(2, '0')}</span>`
-    ).join('');
-
-    document.getElementById('mem-header')!.innerHTML =
-        `${hiddenHtml}` +
-        `<div class="cell-group">${hexHeaderHtml}</div>` +
-        `<div class="cell-group"><span class="mem-hdr-decoded">Decoded text</span></div>`;
+    vscrollState.getRowHeight = memoryRowHeightGetter(gapHeight);
 }
 
 //  Virtual scroll rendering 
+
+function rowHeightsFor(startIdx: number, endIdx: number): number[] {
+    const get = vscrollState!.getRowHeight;
+    const heights: number[] = [];
+    for (let i = startIdx; i < endIdx; i++) { heights.push(get(i)); }
+    return heights;
+}
+
+function dataRowCells(base: number): HexViewCell[] {
+    const cells: HexViewCell[] = [];
+    for (let col = 0; col < BPR; col++) {
+        cells.push(cellForByte(base + col, getByte(base + col)));
+    }
+    return cells;
+}
+
+function cellForByte(addr: number, val: number | undefined): HexViewCell {
+    if (val === undefined) {
+        return { hex: '  ', char: ' ', cls: 'be cd' };
+    }
+    const dirty = S.edits.has(addr) ? ' dirty' : '';
+    const integrity = integrityHighlightClass(addr);
+    const hexCls = `${byteClass(val)}${dirty}${integrity}`;
+    const charCls = `${charCellClass(val)}${dirty}${integrity}`
+        + (S.editMode && !isPrintableMemoryByte(val) ? ' edit-placeholder' : '');
+    return {
+        hex: val.toString(16).toUpperCase().padStart(2, '0'),
+        char: charCellText(val),
+        cls: `${hexCls} ${charCls}`,
+    };
+}
+
+function isPrintableMemoryByte(val: number): boolean {
+    return val >= 0x20 && val < 0x7F;
+}
+
+function charCellClass(val: number): string {
+    return isPrintableMemoryByte(val) ? 'cp' : 'cd';
+}
+
+function charCellText(val: number): string {
+    if (isPrintableMemoryByte(val)) { return String.fromCharCode(val); }
+    return S.editMode ? '·' : '';
+}
+function buildHexRows(startIdx: number, endIdx: number): HexViewRow[] {
+    const rows: HexViewRow[] = [];
+    for (let i = startIdx; i < endIdx && i < S.memRows.length; i++) {
+        const row = S.memRows[i];
+        if (row.type === 'gap') {
+            rows.push({ address: row.from, kind: 'gap', cells: [], gap: { from: row.from, to: row.to, bytes: row.bytes } });
+            continue;
+        }
+        const banners = (labelMap.get(row.address) ?? []).map(lbl => ({
+            name: lbl.name,
+            start: lbl.startAddress,
+            length: lbl.length,
+            color: lbl.color,
+        }));
+        rows.push({ address: row.address, kind: 'data', cells: dataRowCells(row.address), banners });
+    }
+    return rows;
+}
+
+export function integrityHighlightClass(address: number): string {
+    const highlight = S.integrityHighlight;
+    if (!highlight) { return ''; }
+    if (isStoredIntegrityAddress(highlight, address)) { return ` integrity-stored-${highlight.status}`; }
+    if (isIntegrityRangeAddress(highlight, address)) { return ' integrity-range'; }
+    return '';
+}
+
+type IntegrityHighlight = NonNullable<typeof S.integrityHighlight>;
+
+function isStoredIntegrityAddress(highlight: IntegrityHighlight, address: number): boolean {
+    if (highlight.storedStart === undefined) { return false; }
+    if (highlight.storedLength === undefined) { return false; }
+    return address >= highlight.storedStart && address < highlight.storedStart + highlight.storedLength;
+}
+
+function isIntegrityRangeAddress(highlight: IntegrityHighlight, address: number): boolean {
+    return address >= highlight.rangeStart && address <= highlight.rangeEnd;
+}
+
+//  Selection + match (painted through the render input) 
+
+function selectionFromState(): HexViewRange | null {
+    return S.selStart !== null && S.selEnd !== null ? { start: S.selStart, end: S.selEnd } : null;
+}
+
+function buildMatchSet(): Set<number> {
+    const set = new Set<number>();
+    if (S.matchAddrs.length === 0) { return set; }
+    const nLen = getNeedleLen();
+    if (!nLen) { return set; }
+    for (const base of S.matchAddrs) {
+        for (let i = 0; i < nLen; i++) { set.add(base + i); }
+    }
+    return set;
+}
+
+function searchRowIndex(): number {
+    if (S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return -1; }
+    return findContainingRowIndex(S.matchAddrs[S.matchIdx]);
+}
+
+function findContainingRowIndex(addr: number): number {
+    for (let i = 0; i < S.memRows.length; i++) {
+        const row = S.memRows[i];
+        if (row.type === 'data' && addr >= row.address && addr < row.address + BPR) { return i; }
+    }
+    return -1;
+}
 
 function renderVisibleRows(): void {
     if (!vscrollState) { return; }
@@ -142,104 +254,27 @@ function renderVisibleRows(): void {
 
     const [startIdx, endIdx] = calcVisibleRange(vscrollState);
     const layout = calcScrollLayout(vscrollState);
+    const rows = buildHexRows(startIdx, endIdx);
+    const windowTop = layout.isCompressed
+        ? calcCompressedWindowTop(startIdx, vscrollState, layout)
+        : calcRowOffset(startIdx, vscrollState);
 
-    // No change in rendered range? Skip
-    if (shouldSkipVisibleRows(layout.isCompressed, startIdx, endIdx)) { return; }
-    vscrollRenderedRange = [startIdx, endIdx];
-
-    const labelMap = buildLabelMap();
-    const topOffset = calcRowOffset(startIdx, vscrollState);
-    const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState, !layout.isCompressed);
-
-    applyVisibleRowsContainerLayout(container, layout);
-    container.innerHTML = visibleRowsHtml(parts, layout.isCompressed, scrollContainer.scrollTop, topOffset, vscrollState.scrollTop);
+    container.innerHTML = renderHexViewComponentHtml('a', {
+        label: '',
+        rows,
+        rowOffset: startIdx,
+        searchRowIndex: searchRowIndex(),
+        matchSet: buildMatchSet(),
+        error: null,
+        totalHeight: layout.physicalHeight,
+        selection: selectionFromState(),
+        showChar: true,
+        windowTop,
+        rowHeights: rowHeightsFor(startIdx, endIdx),
+    });
 
     attachMemoryCellHandlers(container, getMemoryInteractionCallbacks(scrollContainer));
-    refreshMemoryHighlights();
-}
-
-function shouldSkipVisibleRows(compressed: boolean, startIdx: number, endIdx: number): boolean {
-    return !compressed && startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1];
-}
-
-function applyVisibleRowsContainerLayout(container: HTMLElement, layout: ReturnType<typeof calcScrollLayout>): void {
-    if (layout.isCompressed) {
-        container.style.position = 'relative';
-        container.style.height = `${layout.physicalHeight}px`;
-        return;
-    }
-    container.style.position = '';
-    container.style.height = '';
-}
-
-function visibleRowsHtml(parts: string[], compressed: boolean, physicalScrollTop: number, topOffset: number, virtualScrollTop: number): string {
-    if (!compressed) { return parts.join(''); }
-    const windowTop = physicalScrollTop + topOffset - virtualScrollTop;
-    return `<div style="position:absolute;top:${windowTop}px;left:0;width:max-content;min-width:100%">${parts.join('')}</div>`;
-}
-
-function buildVisibleRowsHtml(
-    startIdx: number,
-    endIdx: number,
-    labelMap: Map<number, typeof S.labels>,
-    state: VirtualScrollState,
-    includeSpacers = true,
-): string[] {
-    const parts: string[] = [];
-    if (includeSpacers) { appendSpacer(parts, calcRowOffset(startIdx, state)); }
-    appendVisibleMemoryRows(parts, startIdx, endIdx, labelMap);
-    if (includeSpacers) { appendSpacer(parts, calcTotalHeight(state) - calcRowOffset(endIdx, state)); }
-    return parts;
-}
-
-function appendVisibleMemoryRows(
-    parts: string[],
-    startIdx: number,
-    endIdx: number,
-    labelMap: Map<number, typeof S.labels>,
-): void {
-    for (let i = startIdx; i < endIdx && i < S.memRows.length; i++) {
-        appendMemoryRow(parts, S.memRows[i], labelMap);
-    }
-}
-
-function appendSpacer(parts: string[], height: number): void {
-    if (height > 0) {
-        parts.push(`<div style="height:${height}px"></div>`);
-    }
-}
-
-function appendMemoryRow(
-    parts: string[],
-    row: (typeof S.memRows)[number],
-    labelMap: Map<number, typeof S.labels>,
-): void {
-    if (row.type === 'gap') {
-        parts.push(renderGapRow(row));
-        return;
-    }
-
-    appendSegmentBanners(parts, labelMap.get(row.address) ?? []);
-    parts.push(renderRow(row.address));
-}
-
-function renderGapRow(row: Extract<(typeof S.memRows)[number], { type: 'gap' }>): string {
-    const f = row.from.toString(16).toUpperCase().padStart(8, '0');
-    const t = row.to.toString(16).toUpperCase().padStart(8, '0');
-    return `<div class="gap-row">
-        <span class="gap-dots"></span>
-        <span class="gap-range">0x${f}  0x${t}</span>
-        <span class="gap-size">${fmtB(row.bytes)} unmapped</span>
-    </div>`;
-}
-
-function appendSegmentBanners(parts: string[], labels: typeof S.labels): void {
-    for (const lbl of labels) {
-        parts.push(`<div class="seg-banner" style="border-color:${lbl.color};background:${lbl.color}14;color:${lbl.color}">
-            <span class="sb-name">${esc(lbl.name)}</span>
-            <span class="sb-meta">0x${lbl.startAddress.toString(16).toUpperCase().padStart(8, '0')}  ${fmtB(lbl.length)}</span>
-        </div>`);
-    }
+    comp.reapply();
 }
 
 function getMemoryInteractionCallbacks(scrollContainer: MemoryScrollElement): MemoryInteractionCallbacks {
@@ -284,13 +319,9 @@ function attachMemoryCellHandler(el: HTMLElement, callbacks: MemoryInteractionCa
     }
 }
 
-function refreshMemoryHighlights(): void {
-    applyMatchHighlights();
-    applySel();
-}
-
 function initializeMemoryScrollState(scrollContainer: MemoryScrollElement): void {
-    const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
+    buildLabelMap();
+    const { gapHeight } = getVirtualScrollMetrics(scrollContainer);
     const logicalScrollTop = vscrollState && vscrollContainer === scrollContainer
         ? physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState)
         : scrollContainer.scrollTop;
@@ -300,51 +331,25 @@ function initializeMemoryScrollState(scrollContainer: MemoryScrollElement): void
         bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
         visibleRowIndices: [0, 0],
         rowCount: S.memRows.length,
-        heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight),
-        getRowHeight: memoryRowHeightGetter(rowHeight, gapHeight),
+        heightVersion: virtualScrollHeightVersion(gapHeight),
+        getRowHeight: memoryRowHeightGetter(gapHeight),
     };
     vscrollContainer = scrollContainer;
     const layout = calcScrollLayout(vscrollState);
     vscrollState.scrollTop = Math.min(vscrollState.scrollTop, layout.logicalScrollable);
     scrollContainer.scrollTop = logicalToPhysicalScroll(vscrollState.scrollTop, vscrollState);
-    vscrollRenderedRange = [-1, -1];
-}
-
-function initializeColumnHover(container: HTMLElement): void {
-    if (container.dataset.colHoverInit) { return; }
-    container.dataset.colHoverInit = '1';
-    const header = document.getElementById('mem-header')!;
-    let activeColumn: string | null = null;
-    const setColumn = (column: string | null) => {
-        if (column === activeColumn) { return; }
-        toggleColumnHighlight(container, header, activeColumn, false);
-        activeColumn = column;
-        toggleColumnHighlight(container, header, column, true);
-    };
-    container.addEventListener('mouseover', event => {
-        setColumn((event.target as HTMLElement).closest<HTMLElement>('[data-col]')?.dataset.col ?? null);
-    });
-    container.addEventListener('mouseleave', () => setColumn(null));
-}
-
-function toggleColumnHighlight(container: HTMLElement, header: HTMLElement, column: string | null, active: boolean): void {
-    if (column === null) { return; }
-    const method = active ? 'add' : 'remove';
-    container.querySelectorAll<HTMLElement>(`[data-col="${column}"]`).forEach(el => el.classList[method]('col-hi'));
-    header.querySelectorAll<HTMLElement>(`[data-col="${column}"]`).forEach(el => el.classList[method]('col-hi'));
 }
 
 function initializeMemoryScrollListeners(scrollContainer: MemoryScrollElement): void {
     if (scrollContainer.dataset.vscrollInit) { return; }
     scrollContainer.dataset.vscrollInit = '1';
-    scrollContainer.addEventListener('scroll', () => refreshMemoryScrollPosition(scrollContainer, true));
-    window.addEventListener('resize', () => refreshMemoryScrollPosition(scrollContainer, false));
+    scrollContainer.addEventListener('scroll', () => refreshMemoryScrollPosition(scrollContainer));
+    window.addEventListener('resize', () => refreshMemoryScrollPosition(scrollContainer));
 }
 
-function refreshMemoryScrollPosition(scrollContainer: MemoryScrollElement, syncHeader: boolean): void {
+function refreshMemoryScrollPosition(scrollContainer: MemoryScrollElement): void {
     if (!vscrollState) { return; }
     vscrollState.scrollTop = physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState);
-    if (syncHeader) { syncHeaderScroll(scrollContainer.scrollLeft); }
     renderVisibleRows();
 }
 
@@ -364,302 +369,26 @@ export function renderMemBody(
     const scrollContainer = document.getElementById('mem-scroll') as MemoryScrollElement;
     initializeMemoryScrollState(scrollContainer);
     storeMemoryInteractionCallbacks(scrollContainer, onHexDown, onHexCtx);
-    syncHeaderScroll(scrollContainer.scrollLeft);
     renderVisibleRows();
-    initializeColumnHover(container);
     initializeMemoryScrollListeners(scrollContainer);
+    comp.mount();
 }
 
-//  Single data row 
-
-function renderRow(base: number): string {
-    const hexCells: string[] = [];
-    const chrCells: string[] = [];
-
-    for (let col = 0; col < BPR; col++) {
-        const addr = base + col;
-        const val  = getByte(addr);
-        const cells = rowCellHtml(addr, col, val);
-        hexCells.push(cells.hex);
-        chrCells.push(cells.char);
-    }
-
-    return `<div class="data-row" data-row="${base}">
-        <div class="cell-group"><span class="addr-cell">${base.toString(16).toUpperCase().padStart(8, '0')}</span></div>
-        <div class="cell-group">${hexCells.join('')}</div>
-        <div class="cell-group">${chrCells.join('')}</div>
-    </div>`;
-}
-
-function rowCellHtml(addr: number, col: number, val: number | undefined): { hex: string; char: string } {
-    if (val === undefined) {
-        return {
-            hex: `<span class="data-cell be" data-col="${col}" aria-hidden="true">  </span>`,
-            char: `<span class="char-cell cd" data-col="${col}" aria-hidden="true"> </span>`,
-        };
-    }
-    return dataRowCellHtml(addr, col, val);
-}
-
-function dataRowCellHtml(addr: number, col: number, val: number): { hex: string; char: string } {
-    const ah   = addr.toString(16).toUpperCase().padStart(8, '0');
-    const hex  = val.toString(16).toUpperCase().padStart(2, '0');
-    const dirty = S.edits.has(addr) ? ' dirty' : '';
-    const integrity = integrityHighlightClass(addr);
-    const charClass = charCellClass(val) + (S.editMode && !isPrintableMemoryByte(val) ? ' edit-placeholder' : '');
-    return {
-        hex: `<span class="data-cell ${byteClass(val)}${dirty}${integrity}" data-col="${col}" data-addr="${ah}" data-val="${val}">${hex}</span>`,
-        char: `<span class="char-cell ${charClass}${dirty}${integrity}" data-col="${col}" data-addr="${ah}">${charCellText(val)}</span>`,
-    };
-}
-
-function isPrintableMemoryByte(val: number): boolean {
-    return val >= 0x20 && val < 0x7F;
-}
-
-function charCellClass(val: number): string {
-    return isPrintableMemoryByte(val) ? 'cp' : 'cd';
-}
-
-function charCellText(val: number): string {
-    if (isPrintableMemoryByte(val)) { return esc(String.fromCharCode(val)); }
-    return S.editMode ? '·' : '';
-}
-
-export function integrityHighlightClass(address: number): string {
-    const highlight = S.integrityHighlight;
-    if (!highlight) { return ''; }
-    if (isStoredIntegrityAddress(highlight, address)) { return ` integrity-stored-${highlight.status}`; }
-    if (isIntegrityRangeAddress(highlight, address)) { return ' integrity-range'; }
-    return '';
-}
-
-type IntegrityHighlight = NonNullable<typeof S.integrityHighlight>;
-
-function isStoredIntegrityAddress(highlight: IntegrityHighlight, address: number): boolean {
-    if (highlight.storedStart === undefined) { return false; }
-    if (highlight.storedLength === undefined) { return false; }
-    return address >= highlight.storedStart && address < highlight.storedStart + highlight.storedLength;
-}
-
-function isIntegrityRangeAddress(highlight: IntegrityHighlight, address: number): boolean {
-    return address >= highlight.rangeStart && address <= highlight.rangeEnd;
-}
-
-//  Selection highlight 
+//  Selection + match triggers (re-render: the component paints from the input)
 
 export function applySel(): void {
-    const allAddrCells = document.querySelectorAll<HTMLElement>('[data-addr]');
-    const rowEls = document.querySelectorAll<HTMLElement>('.data-row.row-sel');
-    const headerSelCols = document.querySelectorAll<HTMLElement>('#mem-header .data-cell.sel-col');
-
-    rowEls.forEach(el => el.classList.remove('row-sel'));
-    headerSelCols.forEach(el => el.classList.remove('sel-col'));
-
-    if (S.selStart === null || S.selEnd === null) {
-        allAddrCells.forEach(el => el.classList.remove('sel'));
-        return;
-    }
-
-    allAddrCells.forEach(el => {
-        const a = parseInt(el.dataset.addr!, 16);
-        const isSelected = a >= S.selStart! && a <= S.selEnd!;
-        el.classList.toggle('sel', isSelected);
-        if (!isSelected) { return; }
-        const rowEl = el.closest<HTMLElement>('.data-row');
-        if (rowEl) {
-            rowEl.classList.add('row-sel');
-        }
-    });
-
-    const selectedCols = getSelectedColumns(S.selStart, S.selEnd);
-    for (const col of selectedCols) {
-        document
-            .querySelectorAll<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`)
-            .forEach(el => el.classList.add('sel-col'));
-    }
-}
-
-function getSelectedColumns(selStart: number, selEnd: number): Set<number> {
-    const cols = new Set<number>();
-    const startRow = Math.floor(selStart / BPR);
-    const endRow = Math.floor(selEnd / BPR);
-    const startCol = selStart % BPR;
-    const endCol = selEnd % BPR;
-
-    if (startRow === endRow) { return columnsInRange(cols, startCol, endCol); }
-
-    if (endRow - startRow > 1) { return columnsInRange(cols, 0, BPR - 1); }
-
-    columnsInRange(cols, startCol, BPR - 1);
-    return columnsInRange(cols, 0, endCol);
-}
-
-function columnsInRange(cols: Set<number>, start: number, end: number): Set<number> {
-    for (let c = start; c <= end; c++) {
-        cols.add(c);
-    }
-    return cols;
-}
-
-//  Match highlight 
-
-interface VisibleCellIndex {
-    cellsByAddr: Map<number, HTMLElement[]>;
-    visibleMin: number;
-    visibleMax: number;
+    renderVisibleRows();
 }
 
 export function applyMatchHighlights(): void {
-    const renderedCells = getRenderedAddressCells();
-    clearMatchClasses(renderedCells);
-    if (!S.matchAddrs.length) { return; }
-
-    const nLen = getNeedleLen();
-    if (!nLen) { return; }
-
-    const cellIndex = buildVisibleCellIndex(renderedCells);
-    if (!cellIndex) { return; }
-    highlightVisibleMatches(cellIndex, nLen);
+    renderVisibleRows();
 }
 
-function getRenderedAddressCells(): NodeListOf<HTMLElement> {
-    return document.querySelectorAll<HTMLElement>('.data-cell[data-addr], .char-cell[data-addr]');
-}
-
-function clearMatchClasses(renderedCells: NodeListOf<HTMLElement>): void {
-    renderedCells.forEach(el => el.classList.remove('match', 'amatch'));
-}
-
-function buildVisibleCellIndex(renderedCells: NodeListOf<HTMLElement>): VisibleCellIndex | null {
-    const cellIndex: VisibleCellIndex = {
-        cellsByAddr: new Map<number, HTMLElement[]>(),
-        visibleMin: Number.MAX_SAFE_INTEGER,
-        visibleMax: Number.MIN_SAFE_INTEGER,
-    };
-
-    renderedCells.forEach(el => addVisibleCell(cellIndex, el));
-    return cellIndex.cellsByAddr.size === 0 ? null : cellIndex;
-}
-
-function addVisibleCell(cellIndex: VisibleCellIndex, el: HTMLElement): void {
-    const addr = getElementAddress(el);
-    if (addr === null) { return; }
-
-    addCellAddress(cellIndex.cellsByAddr, addr, el);
-    cellIndex.visibleMin = Math.min(cellIndex.visibleMin, addr);
-    cellIndex.visibleMax = Math.max(cellIndex.visibleMax, addr);
-}
-
-function getElementAddress(el: HTMLElement): number | null {
-    const addrHex = el.dataset.addr;
-    if (!addrHex) { return null; }
-
-    const addr = parseInt(addrHex, 16);
-    return isNaN(addr) ? null : addr;
-}
-
-function addCellAddress(cellsByAddr: Map<number, HTMLElement[]>, addr: number, el: HTMLElement): void {
-    const existing = cellsByAddr.get(addr);
-    if (existing) {
-        existing.push(el);
-        return;
-    }
-
-    cellsByAddr.set(addr, [el]);
-}
-
-function highlightVisibleMatches(cellIndex: VisibleCellIndex, nLen: number): void {
-    const firstRelevant = lowerBound(S.matchAddrs, cellIndex.visibleMin - (nLen - 1));
-    for (let mi = firstRelevant; mi < S.matchAddrs.length; mi++) {
-        const matchBase = S.matchAddrs[mi];
-        if (matchBase > cellIndex.visibleMax) { break; }
-        if (matchBase + nLen - 1 < cellIndex.visibleMin) { continue; }
-        highlightMatchRange(cellIndex.cellsByAddr, matchBase, nLen, mi === S.matchIdx);
-    }
-}
-
-function highlightMatchRange(
-    cellsByAddr: Map<number, HTMLElement[]>,
-    matchBase: number,
-    nLen: number,
-    active: boolean,
-): void {
-    for (let i = 0; i < nLen; i++) {
-        const cells = cellsByAddr.get(matchBase + i);
-        if (!cells) { continue; }
-        highlightMatchCells(cells, active);
-    }
-}
-
-function highlightMatchCells(cells: HTMLElement[], active: boolean): void {
-    for (const el of cells) {
-        el.classList.add('match');
-        if (active) { el.classList.add('amatch'); }
-    }
-}
-
-function lowerBound(sorted: number[], value: number): number {
-    let lo = 0;
-    let hi = sorted.length;
-    while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (sorted[mid] < value) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    return lo;
-}
-
-type NeedleLenReader = (query: string) => number | null;
-
-const NEEDLE_LEN_BY_MODE: Record<typeof S.searchMode, NeedleLenReader> = {
-    addr: () => 1,
-    bytes: bytesNeedleLen,
-    value: valueNeedleLen,
-    ascii: asciiNeedleLen,
-};
-
-function getNeedleLen(): number | null {
-    const q = (document.getElementById('search-input') as HTMLInputElement)?.value ?? '';
-    if (!q.trim()) { return null; }
-    return NEEDLE_LEN_BY_MODE[S.searchMode](q);
-}
-
-function bytesNeedleLen(query: string): number | null {
-    const tokens = query.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
-    const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
-    return n || null;
-}
-
-function valueNeedleLen(query: string): number | null {
-    const raw = query.trim().replace(/_/g, '');
-    if (/^0x[0-9a-fA-F]+$/.test(raw)) {
-        return Math.max(1, Math.ceil(raw.slice(2).length / 2));
-    }
-    if (!/^\d+$/.test(raw)) { return null; }
-    try {
-        return decimalValueNeedleLen(BigInt(raw));
-    } catch {
-        return null;
-    }
-}
-
-function decimalValueNeedleLen(value: bigint): number | null {
-    if (value < 0n) { return null; }
-    return Math.min(8, Math.ceil(value.toString(16).length / 2));
-}
-
-function asciiNeedleLen(query: string): number | null {
-    return new TextEncoder().encode(query).length || null;
-}
-
-//  Scroll 
+//  Scroll
 
 function scrollRenderedRow(row: number): void {
-    const el = document.querySelector<HTMLElement>(`.data-row[data-row="${row}"]`);
+    const ah = row.toString(16).toUpperCase().padStart(8, '0');
+    const el = document.querySelector<HTMLElement>(`.diff-row[data-addr="${ah}"]`);
     if (!el) { return; }
     el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
@@ -710,14 +439,47 @@ function findRowIndex(rowBase: number): number {
     return -1;
 }
 
-//  Label map 
+//  Match needle length (from the search input, as main) 
 
-function buildLabelMap(): Map<number, typeof S.labels> {
-    const m = new Map<number, typeof S.labels>();
-    for (const lbl of S.labels) {
-        if (lbl.hidden) { continue; }
-        const ra = lbl.startAddress - (lbl.startAddress % BPR);
-        m.set(ra, [...(m.get(ra) ?? []), lbl]);
+type NeedleLenReader = (query: string) => number | null;
+
+const NEEDLE_LEN_BY_MODE: Record<typeof S.searchMode, NeedleLenReader> = {
+    addr: () => 1,
+    bytes: bytesNeedleLen,
+    value: valueNeedleLen,
+    ascii: asciiNeedleLen,
+};
+
+function getNeedleLen(): number | null {
+    const q = (document.getElementById('search-input') as HTMLInputElement)?.value ?? '';
+    if (!q.trim()) { return null; }
+    return NEEDLE_LEN_BY_MODE[S.searchMode](q);
+}
+
+function bytesNeedleLen(query: string): number | null {
+    const tokens = query.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
+    const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
+    return n || null;
+}
+
+function valueNeedleLen(query: string): number | null {
+    const raw = query.trim().replace(/_/g, '');
+    if (/^0x[0-9a-fA-F]+$/.test(raw)) {
+        return Math.max(1, Math.ceil(raw.slice(2).length / 2));
     }
-    return m;
+    if (!/^\d+$/.test(raw)) { return null; }
+    try {
+        return decimalValueNeedleLen(BigInt(raw));
+    } catch {
+        return null;
+    }
+}
+
+function decimalValueNeedleLen(value: bigint): number | null {
+    if (value < 0n) { return null; }
+    return Math.min(8, Math.ceil(value.toString(16).length / 2));
+}
+
+function asciiNeedleLen(query: string): number | null {
+    return new TextEncoder().encode(query).length || null;
 }

@@ -6,7 +6,7 @@ import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc } from './utils';
 import { rerender }                                   from './render/registry';
 import { parsePasteText }                             from './pasteUtils';
-import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
+import { renderMemBody, applySel, scrollTo } from './memory/memoryView';
 import { setupMemoryDragSelection as setupMemoryDragSelectionController } from './memory/dragSelection';
 import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
@@ -554,7 +554,6 @@ function render(): void {
         <div id="main-area">
             <div id="content-pane">
                 <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}">
-                    <div id="mem-header"></div>
                     <div id="mem-scroll"><div id="mem-rows"></div></div>
                 </div>
                 <div id="record-view" class="${visibleClass(S.currentView === 'record')}"></div>
@@ -737,7 +736,6 @@ function applySidebarState(): void {
 
 function renderInitialViews(): void {
     renderStatsBar();
-    renderMemHeader();
     renderInspector();
     renderBits();
     renderStructPins();

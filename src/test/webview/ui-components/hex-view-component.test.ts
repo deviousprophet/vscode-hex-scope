@@ -151,9 +151,12 @@ suite('hex view component interaction', () => {
         let fired = false;
         comp.setCallbacks({ onSelectionChange: () => { fired = true; } });
 
-        cellAt(0x1004).dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+        const empty = dom.window.document.querySelector<HTMLElement>('.data-cell.be');
+        assert.ok(empty, 'empty cell exists');
+        assert.ok(!empty!.hasAttribute('data-addr'), 'empty cells carry no data-addr');
+        empty!.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
         assert.strictEqual(fired, false, 'empty cell cannot start a selection');
-        assert.ok(!cellAt(0x1004).classList.contains('sel'), 'empty cell never carries sel');
+        assert.ok(!empty!.classList.contains('sel'), 'empty cell never carries sel');
     });
 
     test('setMirrorAddr mirrors the byte cell AND its row (cross-panel hover)', () => {
@@ -236,6 +239,24 @@ suite('hex view component render input', () => {
         assert.ok(html.includes('class="gap-size"') && html.includes('unmapped'), 'gap row renders the size');
     });
 
+    test('rowHeights position rows cumulatively and wrap banners with their row', () => {
+        setupDom();
+        const gap: HexViewRow = {
+            address: 0x1000,
+            kind: 'gap',
+            cells: [],
+            gap: { from: 0x1000, to: 0x100F, bytes: 16 },
+        };
+        const labeled = dataRow(0x1010, [1, 2, 3, 4]);
+        labeled.banners = [{ name: 'L', start: 0x1010, length: 4, color: '#fff' }];
+        const plain = dataRow(0x1020, [5, 6, 7, 8]);
+        const html = renderHexViewComponentHtml('a', input([gap, labeled, plain], { rowHeights: [30, 40, 22] }));
+        assert.ok(html.includes('class="gap-row" style="top:0px"'), 'gap row at its cumulative offset');
+        assert.ok(html.includes('class="row-anchor" style="top:30px"'), 'labeled row is a positioned anchor at its offset');
+        assert.ok(html.includes('class="seg-banner"'), 'banner renders inside the anchor');
+        assert.ok(html.includes('class="diff-row" data-addr="00001020" style="top:70px"'), 'plain row at 30+40');
+    });
+
     test('banners render above the data row with name + meta', () => {
         setupDom();
         const row = dataRow(0x1000, [1, 2, 3, 4]);
@@ -249,13 +270,13 @@ suite('hex view component render input', () => {
     test('showChar renders the decoded-text header and per-byte char cells', () => {
         setupDom();
         const html = renderHexViewComponentHtml('a', input(
-            [dataRow(0x1000, [0x41, 0x42])],
+            [dataRow(0x1000, [0x41, 0x3C])],
             { showChar: true },
         ));
         assert.ok(html.includes('class="hcell hcell-decoded"'), 'decoded-text header label renders');
         assert.ok(html.includes('Decoded text'), 'decoded-text header text');
         assert.ok(html.includes('class="char-cell bn"'), 'char cells render per byte');
-        assert.ok(html.includes('>A<') && html.includes('>B<'), 'char cells show the decoded glyphs');
+        assert.ok(html.includes('>A<') && html.includes('&lt;'), 'char glyphs are escaped (0x3C = <)');
         assert.ok(html.includes('class="side side-char"'), 'char cells live in their own side group');
     });
 

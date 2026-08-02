@@ -65,6 +65,13 @@ export interface HexViewRenderInput {
      * absolute indexing (non-compressed). The host owns the phantom + anchor.
      */
     windowTop?: number;
+    /**
+     * Height (px) of each rendered row, parallel to `rows`. When provided, rows
+     * are positioned at cumulative heights instead of the uniform ROW_HEIGHT
+     * (single view: gap rows and label banners have variable heights). The
+     * host's virtual-scroll getRowHeight must match these exactly.
+     */
+    rowHeights?: readonly number[];
 }
 
 /** Row width in bytes (BPR contract; single source is the core BPR constant). */
@@ -110,15 +117,19 @@ function dataValAttr(hex: string): string {
 }
 
 function cellHtml(cls: string, hex: string, addr: number, col: number, isMatch: boolean, isSel: boolean, side: 'a' | 'b'): string {
+    const empty = cls.includes('be');
     const match = isMatchedCell(cls, isMatch) ? ' match' : '';
-    const sel = isSel ? ' sel' : '';
-    return `<span class="data-cell ${cls}${match}${sel}" data-addr="${esc(formatAddress(addr))}" data-side="${side}" data-col="${col}"${dataValAttr(hex)}>${hex}</span>`;
+    const sel = isSel && !empty ? ' sel' : '';
+    const addrAttr = empty ? '' : ` data-addr="${esc(formatAddress(addr))}"`;
+    return `<span class="data-cell ${cls}${match}${sel}"${addrAttr} data-side="${side}" data-col="${col}"${dataValAttr(hex)}>${hex}</span>`;
 }
 
 function charCellHtml(cls: string, char: string, addr: number, col: number, isMatch: boolean, isSel: boolean): string {
+    const empty = cls.includes('be');
     const match = isMatchedCell(cls, isMatch) ? ' match' : '';
-    const sel = isSel ? ' sel' : '';
-    return `<span class="char-cell ${cls}${match}${sel}" data-addr="${esc(formatAddress(addr))}" data-col="${col}">${char}</span>`;
+    const sel = isSel && !empty ? ' sel' : '';
+    const addrAttr = empty ? '' : ` data-addr="${esc(formatAddress(addr))}"`;
+    return `<span class="char-cell ${cls}${match}${sel}"${addrAttr} data-col="${col}">${esc(char)}</span>`;
 }
 
 function rowModifiers(isSearchRow: boolean, error: string | null): string {
@@ -166,6 +177,13 @@ function bannerHtml(b: HexViewBanner): string {
     </div>`;
 }
 
+function rowTop(windowTop: number, index: number, rowOffset: number, rowHeights: readonly number[] | undefined): number {
+    if (!rowHeights) { return windowTop + (index + rowOffset) * ROW_HEIGHT; }
+    let offset = 0;
+    for (let k = 0; k < index; k++) { offset += rowHeights[k]; }
+    return windowTop + offset;
+}
+
 function rowHtml(
     row: HexViewRow,
     side: 'a' | 'b',
@@ -177,18 +195,25 @@ function rowHtml(
     sel: HexViewRange | null | undefined,
     showChar: boolean,
     windowTop: number,
+    rowHeights: readonly number[] | undefined,
 ): string {
-    const top = windowTop + (index + rowOffset) * ROW_HEIGHT;
+    const top = rowTop(windowTop, index, rowOffset, rowHeights);
     if (row.kind === 'gap') { return gapRowHtml(row, top); }
     const addr = esc(formatAddress(row.address));
     const banners = (row.banners ?? []).map(bannerHtml).join('');
     const cells = cellsForRow(row, side, matchSet, sel, showChar);
     const isRowSel = rowSelected(row, sel);
-    return `${banners}<div class="diff-row${isRowSel ? ' row-sel' : ''}" data-addr="${addr}" style="top:${top}px">
-        <span class="addr">${addr}</span>
+    const rowClass = `diff-row${isRowSel ? ' row-sel' : ''}`;
+    const inner = `<span class="addr">${addr}</span>
         <div class="side${rowModifiers(isSearchRow, error)}">${cells.hex}</div>
-        ${showChar ? `<div class="side side-char">${cells.char}</div>` : ''}
-    </div>`;
+        ${showChar ? `<div class="side side-char">${cells.char}</div>` : ''}`;
+    if (banners) {
+        // Labels render above their data row as one positioned unit (single view).
+        return `<div class="row-anchor" style="top:${top}px">${banners}<div class="${rowClass}" data-addr="${addr}">${inner}
+    </div></div>`;
+    }
+    return `<div class="${rowClass}" data-addr="${addr}" style="top:${top}px">${inner}
+</div>`;
 }
 
 function headerHtml(showChar: boolean, sel: HexViewRange | null | undefined): string {
@@ -218,6 +243,7 @@ export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRender
             input.selection,
             showChar,
             windowTop,
+            input.rowHeights,
         ));
     }
     return `<div class="diff-component ${side}">
