@@ -20,6 +20,8 @@ import {
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
 } from '../webviewProtocol';
+import { toWireSegments } from '../core/transfer';
+import { ProgressReporter } from './progressReporter';
 
 import { scanScripts, execute } from '../core/scripting/scriptRunner';
 import { VSCodeScriptHost } from '../scriptHost';
@@ -70,41 +72,6 @@ type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
 type StructDefIdentity = { id: string; name: string };
 type IncomingProviderMessage = WebviewToProviderMessage;
 type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecordPage' }>;
-
-class LoadProgressReporter {
-    private lastAt = 0;
-    private lastStage = '';
-    private pending: ProviderToWebviewMessage | null = null;
-    private flushed = false;
-
-    constructor(
-        private readonly webview: vscode.Webview,
-        private readonly generation: () => number,
-    ) {}
-
-    public post(stage: 'read' | 'parse' | 'build' | 'transfer', completed: number, total?: number): void {
-        const now = Date.now();
-        if (this.isThrottled(stage, completed, total, now)) { return; }
-        this.lastAt = now;
-        this.lastStage = stage;
-        this.pending = { type: 'loadProgress', generation: this.generation(), stage, completed, total };
-        if (this.flushed) {
-            void postToWebview(this.webview, this.pending);
-        }
-    }
-
-    public flush(): void {
-        if (this.pending) {
-            void postToWebview(this.webview, this.pending);
-            this.pending = null;
-        }
-        this.flushed = true;
-    }
-
-    private isThrottled(stage: string, completed: number, total: number | undefined, now: number): boolean {
-        return stage === this.lastStage && completed !== total && now - this.lastAt < 100;
-    }
-}
 
 function parseCompactByFormat(source: string, format: HexScopeFormat, options: Parameters<typeof parseIntelHexCompact>[1]): Promise<CompactParseResult> {
     return format === 'srec' ? parseSRecCompact(source, options) : parseIntelHexCompact(source, options);
@@ -358,9 +325,10 @@ export class HexEditorSession {
         });
         webviewPanel.onDidDispose(() => resources.dispose());
 
-        const progressReporter = new LoadProgressReporter(
+        const progressReporter = new ProgressReporter(
             webviewPanel.webview,
             () => generation,
+            'loadProgress',
         );
         flushProgress = () => progressReporter.flush();
         const postProgress = progressReporter.post.bind(progressReporter);
@@ -875,10 +843,7 @@ function messageString(value: unknown): string {
 function serializeParseResult(result: CompactParseResult, format: HexScopeFormat): WireParseResult {
     return {
         recordCount: result.records.length,
-        segments: result.segments.map(s => ({
-            startAddress: s.startAddress,
-            data: s.data.buffer.slice(s.data.byteOffset, s.data.byteOffset + s.data.byteLength) as ArrayBuffer,
-        })),
+        segments: toWireSegments(result.segments),
         totalDataBytes: result.totalDataBytes,
         checksumErrors: result.checksumErrors,
         malformedLines: result.malformedLines,

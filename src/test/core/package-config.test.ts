@@ -8,19 +8,50 @@ import * as path from 'path';
 interface MenuItem { command?: string; submenu?: string; when?: string }
 interface Keybinding { command: string; key: string; when?: string }
 interface CommandDef { command: string; title: string }
+type Contributes = {
+    submenus?: Array<{ id: string }>;
+    menus?: Record<string, MenuItem[]>;
+    keybindings?: Keybinding[];
+};
 
 function readPackageJson(): Record<string, any> {
     const pkgPath = path.join(__dirname, '..', '..', '..', 'package.json');
     return JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, any>;
 }
 
+function isNavKey(key: string): boolean {
+    return /^(arrow)?(down|up)$/.test(key);
+}
+
+function isBareAltNav(k: Keybinding, staging: ReadonlySet<string>): boolean {
+    if (!staging.has(k.command)) { return false; }
+    const parts = k.key.toLowerCase().split('+').map(p => p.trim());
+    const modifiers = parts.slice(0, -1);
+    const key = parts[parts.length - 1];
+    return modifiers.length === 1 && modifiers[0] === 'alt' && isNavKey(key);
+}
+
+function explorerContextSubmenus(contributes: Contributes): MenuItem[] {
+    return contributes.menus?.['explorer/context'] ?? [];
+}
+
+function submenuWhenFor(contributes: Contributes): string {
+    const item = explorerContextSubmenus(contributes).find(i => i.submenu === 'hexScope.actions');
+    return item?.when ?? '';
+}
+
+function multiSelectHidden(items: ReadonlyMap<string | undefined, string>): boolean {
+    return items.get('hexScope.selectAsFirst')?.includes('!listMultiSelection') ?? false;
+}
+
+function stagedCompareAllowed(items: ReadonlyMap<string | undefined, string>): boolean {
+    const stagedWhen = items.get('hexScope.compareToStaged') ?? '';
+    return stagedWhen.includes('hasStagedFirst') && stagedWhen.includes('!listMultiSelection');
+}
+
 suite('package.json diff wiring', () => {
     const pkg = readPackageJson();
-    const contributes = pkg.contributes as {
-        submenus?: Array<{ id: string }>;
-        menus?: Record<string, MenuItem[]>;
-        keybindings?: Keybinding[];
-    };
+    const contributes = pkg.contributes as Contributes;
 
     test('hexScope.actions submenu is declared', () => {
         const submenu = (contributes.submenus ?? []).find(s => s.id === 'hexScope.actions');
@@ -41,18 +72,16 @@ suite('package.json diff wiring', () => {
         const items = new Map(
             (contributes.menus?.['hexScope.actions'] ?? []).map(i => [i.command, i.when ?? ''])
         );
-        const submenuWhen = (contributes.menus?.['explorer/context'] ?? []).find(i => i.submenu === 'hexScope.actions')?.when ?? '';
         assert.ok(
-            submenuWhen.includes('resourceLangId'),
+            submenuWhenFor(contributes).includes('resourceLangId'),
             'the HexScope submenu must show for hex/srec files'
         );
         assert.ok(
-            items.get('hexScope.selectAsFirst')?.includes('!listMultiSelection'),
+            multiSelectHidden(items),
             'Set as 1st file must be hidden on multi-select (!listMultiSelection)'
         );
-        const stagedWhen = items.get('hexScope.compareToStaged') ?? '';
         assert.ok(
-            stagedWhen.includes('hasStagedFirst') && stagedWhen.includes('!listMultiSelection'),
+            stagedCompareAllowed(items),
             'Compare with the 1st file requires staged state and single select'
         );
     });
@@ -71,13 +100,7 @@ suite('package.json diff wiring', () => {
         const staging = new Set(['hexScope.selectAsFirst', 'hexScope.compareToStaged']);
         // Parse the chord: modifiers + the key. Bare "alt+down" (no ctrl/shift/meta)
         // would collide with diff-view navigation; ctrl+alt is fine.
-        const conflicts = keybindings.filter(k => {
-            if (!staging.has(k.command)) { return false; }
-            const parts = k.key.toLowerCase().split('+').map(p => p.trim());
-            const modifiers = parts.slice(0, -1);
-            const key = parts[parts.length - 1];
-            return modifiers.length === 1 && modifiers[0] === 'alt' && /^(arrow)?(down|up)$/.test(key);
-        });
+        const conflicts = keybindings.filter(k => isBareAltNav(k, staging));
         assert.deepStrictEqual(
             conflicts,
             [],

@@ -30,13 +30,38 @@ function placeholderFor(mode: SearchMode): string {
     return placeholders[mode];
 }
 
+function isSearchInput(k: KeyboardEvent): boolean {
+    return k.target instanceof HTMLInputElement && k.target.id === 'search-input';
+}
+
+function isFindShortcut(k: KeyboardEvent): boolean {
+    return (k.ctrlKey || k.metaKey) && k.key === 'f';
+}
+
+/** Canonical search key (mirrors the single view's Enter-nav key). */
+function searchKeyFor(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
+    const canonical = canonicalizeQuery(mode, raw);
+    const endianKey = mode === 'value' ? endianness : 'n/a';
+    return `${mode}|${endianKey}|${canonical}`;
+}
+
 export class SearchBarComponent {
+    /** Toolbar button id -> handler (data-driven click dispatch). */
+    private static readonly TOOLBAR_CLICK: Record<string, (c: SearchBarComponent) => void> = {
+        'btn-search': c => c.runSearch(),
+        'btn-prev': c => c.cb.onPrev(),
+        'btn-next': c => c.cb.onNext(),
+        'btn-clear-search': c => c.clearSearch(),
+        'search-btn-auto': c => c.applyEndian('auto'),
+        'search-btn-le': c => c.applyEndian('le'),
+        'search-btn-be': c => c.applyEndian('be'),
+    };
+
     private mode: SearchMode = 'bytes';
     private endianness: SearchEndianness = 'le';
     private query = '';
     private cb: SearchBarCallbacks;
     private _mounted = false;
-    private readonly _listeners: Array<[string, EventListener]> = [];
     // Enter-nav parity: Enter on an unchanged query whose search already
     // completed navigates matches instead of re-running.
     private _lastSearchKey = '';
@@ -46,8 +71,7 @@ export class SearchBarComponent {
         this.cb = cb;
     }
 
-    setCallbacks(cb: SearchBarCallbacks): void { this.cb = cb; }
-
+    // ponytail: setCallbacks() removed (unused; cb set once via constructor) — re-add when a host must swap the search callback set.
     /** HTML for the host to inject into its toolbar. */
     toHtml(): string {
         const modeOpts = (['bytes', 'value', 'ascii', 'addr'] as const).map(m =>
@@ -74,105 +98,123 @@ export class SearchBarComponent {
         </div>`;
     }
 
+    private searchInput(): HTMLInputElement {
+        return document.getElementById('search-input') as HTMLInputElement;
+    }
+
+    private runSearch(): void {
+        const q = this.searchInput().value.trim();
+        this._lastSearchKey = searchKeyFor(this.mode, q, this.endianness);
+        this._searchCompleted = false;
+        this.cb.onSearch(q, this.mode, this.endianness);
+    }
+
+    private clearSearch(): void {
+        this.query = '';
+        const inp = this.searchInput();
+        inp.value = '';
+        this.updateAddrOverlay(inp);
+        this._lastSearchKey = '';
+        this._searchCompleted = false;
+        this.cb.onClear();
+    }
+
+    private updateAddrOverlay(inp: HTMLInputElement): void {
+        const prefix = document.getElementById('search-addr-prefix') as HTMLElement | null;
+        const show = this.mode === 'addr' && inp.value.length > 0;
+        if (prefix) { prefix.style.display = show ? '' : 'none'; }
+        inp.classList.toggle('search-addr-mode', show);
+    }
+
+    private updateModeUi(): void {
+        const endianToggle = document.getElementById('search-endian-toggle') as HTMLElement | null;
+        if (endianToggle) { endianToggle.style.display = this.mode === 'value' ? 'inline-flex' : 'none'; }
+        const inp = this.searchInput();
+        inp.placeholder = placeholderFor(this.mode);
+        inp.maxLength = this.mode === 'addr' ? 8 : 100;
+        this.updateAddrOverlay(inp);
+    }
+
+    private updateEndianUi(): void {
+        for (const end of ['auto', 'le', 'be'] as const) {
+            document.getElementById(`search-btn-${end}`)?.classList.toggle('active', this.endianness === end);
+        }
+    }
+
+    private applyEndian(end: SearchEndianness): void {
+        this.endianness = end;
+        this.updateEndianUi();
+        this.runSearch();
+    }
+
+    private isSearchInputEnter(k: KeyboardEvent): boolean {
+        return k.key === 'Enter' && isSearchInput(k);
+    }
+
+    private shouldNavigate(k: KeyboardEvent, q: string, key: string): boolean {
+        if (q.length === 0) { return false; }
+        return key === this._lastSearchKey && this._searchCompleted;
+    }
+
+    private navigateMatches(shift: boolean): void {
+        if (shift) { this.cb.onPrev(); } else { this.cb.onNext(); }
+    }
+
+    private handleSearchEnter(k: KeyboardEvent): void {
+        k.preventDefault();
+        const inp = k.target as HTMLInputElement;
+        const q = inp.value.trim();
+        const key = searchKeyFor(this.mode, q, this.endianness);
+        if (this.shouldNavigate(k, q, key)) {
+            this.navigateMatches(k.shiftKey);
+            return;
+        }
+        this._lastSearchKey = key;
+        this._searchCompleted = false;
+        this.cb.onSearch(q, this.mode, this.endianness);
+        if (k.shiftKey) { this.cb.onPrev(); }
+    }
+
+    private onKeyDown(k: KeyboardEvent): void {
+        if (this.isSearchInputEnter(k)) {
+            this.handleSearchEnter(k);
+            return;
+        }
+        if (isFindShortcut(k)) {
+            k.preventDefault();
+            this.searchInput().focus();
+            this.searchInput().select();
+        }
+    }
+
+    private onToolbarClick(e: Event): void {
+        const handler = SearchBarComponent.TOOLBAR_CLICK[(e.target as HTMLElement).id];
+        if (handler) { handler(this); }
+    }
+
     /** Attach document-delegated listeners; survives host re-renders. */
     mount(): void {
         if (this._mounted) { return; }
         this._mounted = true;
-        const on = (type: string, fn: EventListener): void => {
-            document.addEventListener(type, fn);
-            this._listeners.push([type, fn]);
-        };
-        const input = (): HTMLInputElement => document.getElementById('search-input') as HTMLInputElement;
-        const run = (): void => {
-            const q = input().value.trim();
-            this._lastSearchKey = searchKeyFor(this.mode, q, this.endianness);
-            this._searchCompleted = false;
-            this.cb.onSearch(q, this.mode, this.endianness);
-        };
-        const updateAddrOverlay = (inp: HTMLInputElement): void => {
-            const prefix = document.getElementById('search-addr-prefix') as HTMLElement | null;
-            const show = this.mode === 'addr' && inp.value.length > 0;
-            if (prefix) { prefix.style.display = show ? '' : 'none'; }
-            inp.classList.toggle('search-addr-mode', show);
-        };
-        const updateModeUi = (): void => {
-            const endianToggle = document.getElementById('search-endian-toggle') as HTMLElement | null;
-            if (endianToggle) { endianToggle.style.display = this.mode === 'value' ? 'inline-flex' : 'none'; }
-            const inp = input();
-            inp.placeholder = placeholderFor(this.mode);
-            inp.maxLength = this.mode === 'addr' ? 8 : 100;
-            updateAddrOverlay(inp);
-        };
-        const updateEndianUi = (): void => {
-            for (const end of ['auto', 'le', 'be'] as const) {
-                document.getElementById(`search-btn-${end}`)?.classList.toggle('active', this.endianness === end);
-            }
-        };
 
-        on('change', e => {
+        document.addEventListener('change', e => {
             if ((e.target as HTMLElement).id !== 'search-mode') { return; }
             this.mode = (e.target as HTMLSelectElement).value as SearchMode;
-            updateModeUi();
-            run();
+            this.updateModeUi();
+            this.runSearch();
         });
-        on('input', e => {
+        document.addEventListener('input', e => {
             if ((e.target as HTMLElement).id !== 'search-input') { return; }
             const inp = e.target as HTMLInputElement;
             this.query = inp.value;
             if (this.mode === 'addr') { this.query = this.query.replace(/[^0-9a-fA-F]/g, ''); inp.value = this.query; }
-            updateAddrOverlay(inp);
+            this.updateAddrOverlay(inp);
         });
-        on('keydown', e => {
-            const k = e as KeyboardEvent;
-            if (k.target instanceof HTMLInputElement && (k.target as HTMLInputElement).id === 'search-input' && k.key === 'Enter') {
-                k.preventDefault();
-                const inp = k.target as HTMLInputElement;
-                const q = inp.value.trim();
-                const key = searchKeyFor(this.mode, q, this.endianness);
-                if (q.length > 0 && key === this._lastSearchKey && this._searchCompleted) {
-                    if (k.shiftKey) { this.cb.onPrev(); } else { this.cb.onNext(); }
-                    return;
-                }
-                this._lastSearchKey = key;
-                this._searchCompleted = false;
-                this.cb.onSearch(q, this.mode, this.endianness);
-                if (k.shiftKey) { this.cb.onPrev(); }
-                return;
-            }
-            if ((k.ctrlKey || k.metaKey) && k.key === 'f') {
-                k.preventDefault();
-                input().focus();
-                input().select();
-            }
-        });
-        on('click', e => {
-            const id = (e.target as HTMLElement).id;
-            if (id === 'btn-search') { run(); }
-            else if (id === 'btn-prev') { this.cb.onPrev(); }
-            else if (id === 'btn-next') { this.cb.onNext(); }
-            else if (id === 'btn-clear-search') {
-                this.query = '';
-                const inp = input();
-                inp.value = '';
-                updateAddrOverlay(inp);
-                this._lastSearchKey = '';
-                this._searchCompleted = false;
-                this.cb.onClear();
-            }
-            else if (id === 'search-btn-auto' || id === 'search-btn-le' || id === 'search-btn-be') {
-                this.endianness = id === 'search-btn-auto' ? 'auto' : id === 'search-btn-le' ? 'le' : 'be';
-                updateEndianUi();
-                run();
-            }
-        });
+        document.addEventListener('keydown', e => this.onKeyDown(e as KeyboardEvent));
+        document.addEventListener('click', e => this.onToolbarClick(e));
     }
 
-    destroy(): void {
-        for (const [type, fn] of this._listeners) { document.removeEventListener(type, fn); }
-        this._listeners.length = 0;
-        this._mounted = false;
-    }
-
+    // ponytail: destroy() removed (unused; sole user of _listeners registry) — re-add with a listener registry when a host must detach document listeners.
     /** Show "N / M" (blank when no query, "0 / 0" for a query with no hits). */
     setCount(count: number, current: number): void {
         const el = document.getElementById('match-count');
@@ -191,12 +233,3 @@ export class SearchBarComponent {
         if (!busy) { this._searchCompleted = true; }
     }
 }
-
-/** Canonical search key (mirrors the single view's Enter-nav key). */
-function searchKeyFor(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
-    const canonical = canonicalizeQuery(mode, raw);
-    const endianKey = mode === 'value' ? endianness : 'n/a';
-    return `${mode}|${endianKey}|${canonical}`;
-}
-
-

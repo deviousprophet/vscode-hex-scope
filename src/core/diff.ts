@@ -83,15 +83,15 @@ function lastRowOf(seg: SegmentInput): number {
     return seg.startAddress + seg.data.length - 1 - ((seg.startAddress + seg.data.length - 1) % DIFF_BPR);
 }
 
-function bothMissing(a: number | undefined, b: number | undefined): boolean {
-    return a === undefined && b === undefined;
+function missingSide(a: number | undefined, b: number | undefined): DiffByteStatus | null {
+    if (a === undefined) { return b === undefined ? 'empty' : 'added'; }
+    return b === undefined ? 'removed' : null;
 }
 
 /** Per-address status from both sides' bytes. */
-export function statusFor(a: number | undefined, b: number | undefined): DiffByteStatus {
-    if (bothMissing(a, b)) { return 'empty'; }
-    if (a === undefined) { return 'added'; }
-    if (b === undefined) { return 'removed'; }
+function statusFor(a: number | undefined, b: number | undefined): DiffByteStatus {
+    const missing = missingSide(a, b);
+    if (missing !== null) { return missing; }
     return a === b ? 'unchanged' : 'changed';
 }
 
@@ -101,7 +101,7 @@ function bumpSummary(summary: DiffSummary, status: DiffByteStatus): void {
     summary[key]++;
 }
 
-export function isChange(status: DiffByteStatus): boolean {
+function isChange(status: DiffByteStatus): boolean {
     return status !== 'unchanged' && status !== 'empty';
 }
 
@@ -109,7 +109,7 @@ function isIdentical(summary: DiffSummary): boolean {
     return summary.changed === 0 && summary.added === 0 && summary.removed === 0;
 }
 
-export function cellFor(byte: number | undefined): DiffCell | null {
+function cellFor(byte: number | undefined): DiffCell | null {
     return byte === undefined ? null : { present: true, byte };
 }
 
@@ -118,6 +118,36 @@ function closeRun(runs: DiffRun[], runStart: number, beforeAddr: number): number
     if (runStart < 0) { return -1; }
     runs.push({ start: runStart, end: beforeAddr - 1 });
     return -1;
+}
+
+/** Scan one BPR-aligned row; returns the new run start (-1). */
+function scanRow(
+    aResult: CompactParseResult | null,
+    aIndex: readonly SegmentIndexEntry[],
+    bResult: CompactParseResult | null,
+    bIndex: readonly SegmentIndexEntry[],
+    base: number,
+    summary: DiffSummary,
+    hasDiff: Uint8Array,
+    runs: DiffRun[],
+    row: number,
+    runStart: number,
+): number {
+    for (let i = 0; i < DIFF_BPR; i++) {
+        const addr = base + i;
+        const status = statusFor(
+            getByteAt(aResult, aIndex, NO_EDITS, addr),
+            getByteAt(bResult, bIndex, NO_EDITS, addr),
+        );
+        bumpSummary(summary, status);
+        if (isChange(status)) {
+            if (runStart < 0) { runStart = addr; }
+            hasDiff[row] = 1;
+        } else {
+            runStart = closeRun(runs, runStart, addr);
+        }
+    }
+    return runStart;
 }
 
 /**
@@ -138,19 +168,7 @@ export function buildDiffMeta(aResult: CompactParseResult | null, bResult: Compa
     for (let r = 0; r < starts.length; r++) {
         const base = starts[r];
         rowStarts[r] = base;
-        for (let i = 0; i < DIFF_BPR; i++) {
-            const addr = base + i;
-            const aByte = getByteAt(aResult, aIndex, NO_EDITS, addr);
-            const bByte = getByteAt(bResult, bIndex, NO_EDITS, addr);
-            const status = statusFor(aByte, bByte);
-            bumpSummary(summary, status);
-            if (isChange(status)) {
-                if (runStart < 0) { runStart = addr; }
-                hasDiff[r] = 1;
-            } else {
-                runStart = closeRun(runs, runStart, addr);
-            }
-        }
+        runStart = scanRow(aResult, aIndex, bResult, bIndex, base, summary, hasDiff, runs, r, runStart);
     }
     if (starts.length > 0) {
         runStart = closeRun(runs, runStart, starts[starts.length - 1] + DIFF_BPR);

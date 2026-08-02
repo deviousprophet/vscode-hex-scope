@@ -6,6 +6,7 @@
 
 import type { DiffMeta } from '../core/diff';
 import type { SerializedParseResult, WireParseResult } from '../core/types';
+import { hydrateParseResult } from '../core/transfer';
 import type { SegmentIndexEntry } from '../core/memory';
 import { formatCopyCommand } from '../core/byte-tools/copyFormatters';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
@@ -94,17 +95,6 @@ function post(msg: WebviewToProviderMessage): void {
 }
 
 /** Rehydrate the binary wire segments into byte-addressable segments. */
-function hydrateParseResult(result: WireParseResult): SerializedParseResult {
-    return {
-        ...result,
-        records: [],
-        segments: result.segments.map(segment => ({
-            startAddress: segment.startAddress,
-            data: new Uint8Array(segment.data),
-        })),
-    };
-}
-
 function applySides(aWire: WireParseResult, bWire: WireParseResult): void {
     aResult = hydrateParseResult(aWire);
     bResult = hydrateParseResult(bWire);
@@ -141,11 +131,15 @@ function errorBannersHtml(): string {
     return parts.length ? `<div class="diff-errors">${parts.join('')}</div>` : '';
 }
 
+function isEmptyDiffMode(rows: DiffLightRow[]): boolean {
+    return viewMode === 'diff' && rows.length === 0;
+}
+
 function renderScroll(): void {
     const scrollEl = document.getElementById('diff-scroll')!;
     containerHeight = Math.max(200, scrollEl.clientHeight);
     const rows = shownRows();
-    if (viewMode === 'diff' && rows.length === 0) {
+    if (isEmptyDiffMode(rows)) {
         scrollEl.innerHTML = '<div class="diff-no-diffs">No differences</div>';
         scrollEl.scrollTop = 0;
         return;
@@ -183,6 +177,10 @@ function renderScroll(): void {
     }
 }
 
+function tabClass(mode: 'all' | 'diff'): string {
+    return viewMode === mode ? 'active' : '';
+}
+
 function rerender(): void {
     if (!loaded) {
         if (error) { renderErrorCard(); }
@@ -192,8 +190,8 @@ function rerender(): void {
     app.innerHTML = `
         <div class="diff-toolbar">
             <div class="view-tabs">
-                <button id="view-all" class="${viewMode === 'all' ? 'active' : ''}">All</button>
-                <button id="view-diff" class="${viewMode === 'diff' ? 'active' : ''}">Diff</button>
+                <button id="view-all" class="${tabClass('all')}">All</button>
+                <button id="view-diff" class="${tabClass('diff')}">Diff</button>
             </div>
             <div class="tb-sep"></div>
             <button id="prev-diff" class="nav-btn" title="Previous difference">&#9650;</button>
@@ -269,20 +267,27 @@ function wireToolbar(): void {
     });
 }
 
+function currentMatchIndex(): number {
+    return searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0;
+}
+
+function selectionSuffix(): string {
+    const sel = selection as { side: 'a' | 'b'; start: number; end: number };
+    return ` · ${sel.side.toUpperCase()} 0x${sel.start.toString(16)}-0x${sel.end.toString(16)}`;
+}
+
+function statusText(): string {
+    if (error) { return `Error: ${error}`; }
+    if (!meta) { return 'Loading…'; }
+    let text = `A=${aLabel} ⇄ B=${bLabel} · ${visualRows.length} rows`;
+    if (selection) { text += selectionSuffix(); }
+    return text;
+}
+
 function updateStatus(): void {
     status.classList.remove('reloading');
-    searchBar.setCount(searchMatches.length, searchFocusAddr >= 0 ? searchMatches.indexOf(searchFocusAddr) : 0);
-    if (error) {
-        status.textContent = `Error: ${error}`;
-    } else if (!meta) {
-        status.textContent = 'Loading…';
-    } else {
-        let text = `A=${aLabel} ⇄ B=${bLabel} · ${visualRows.length} rows`;
-        if (selection) {
-            text += ` · ${selection.side.toUpperCase()} 0x${selection.start.toString(16)}-0x${selection.end.toString(16)}`;
-        }
-        status.textContent = text;
-    }
+    searchBar.setCount(searchMatches.length, currentMatchIndex());
+    status.textContent = statusText();
 }
 
 // ── Message handling ──────────────────────────────────────────────
@@ -352,11 +357,7 @@ const diffHandlers: Partial<ProviderMessageHandlers> = {
         const msg = m as Extract<ProviderToWebviewMessage, { type: 'diffSearch' }>;
         if (msg.query !== lastRequestedQuery) { return; }
         searchMatches = msg.matches;
-        if (!firstJumpDone && msg.matches.length > 0) {
-            firstJumpDone = true;
-            searchFocusAddr = msg.matches[0];
-            focusRow(searchFocusAddr);
-        }
+        applyFirstJump();
         if (msg.done) { searchBar.setBusy(false); }
         rerender();
     },
@@ -371,22 +372,48 @@ const diffHandlers: Partial<ProviderMessageHandlers> = {
     },
 };
 
+function applyFirstJump(): void {
+    if (!firstJumpDone && searchMatches.length > 0) {
+        firstJumpDone = true;
+        searchFocusAddr = searchMatches[0];
+        focusRow(searchFocusAddr);
+    }
+}
+
 window.addEventListener('message', (event: MessageEvent<ProviderToWebviewMessage>) => {
     dispatchProviderMessage(event.data, diffHandlers);
 });
 
 // ── Component wiring (two hexview components + cross-panel highlights) ─
-function copySide(side: 'a' | 'b', range: HexViewRange): void {
-    const result = side === 'a' ? aResult : bResult;
-    const index = side === 'a' ? aIndex : bIndex;
+function sideBytes(result: SerializedParseResult | null, index: SegmentIndexEntry[], range: HexViewRange): number[] {
     const noEdits = new Map<number, number>();
     const bytes: number[] = [];
     for (let addr = range.start; addr <= range.end; addr++) {
         const b = getByteAt(result, index, noEdits, addr);
         if (b !== undefined) { bytes.push(b); }
     }
+    return bytes;
+}
+
+function copySide(side: 'a' | 'b', range: HexViewRange): void {
+    const result = side === 'a' ? aResult : bResult;
+    const index = side === 'a' ? aIndex : bIndex;
+    const bytes = sideBytes(result, index, range);
     if (bytes.length === 0) { return; }
     void navigator.clipboard.writeText(formatCopyCommand('hex', bytes));
+}
+
+function isBlankScrollClick(target: EventTarget | null): boolean {
+    const t = target as HTMLElement;
+    return t.closest?.('#diff-scroll') !== null && t.closest?.('.data-cell') === null;
+}
+
+function clearAllSelection(): void {
+    compA.setSelection(null);
+    compB.setSelection(null);
+    selection = null;
+    compA.setMirrorRange(null);
+    compB.setMirrorRange(null);
 }
 
 function wireComponents(): void {
@@ -414,13 +441,7 @@ function wireComponents(): void {
 
     // Clicking empty scroll space clears the selection (toolbar/rail clicks leave it).
     document.addEventListener('mousedown', e => {
-        if ((e.target as HTMLElement).closest?.('#diff-scroll') && !(e.target as HTMLElement).closest?.('.data-cell')) {
-            compA.setSelection(null);
-            compB.setSelection(null);
-            selection = null;
-            compA.setMirrorRange(null);
-            compB.setMirrorRange(null);
-        }
+        if (isBlankScrollClick(e.target)) { clearAllSelection(); }
     });
 }
 

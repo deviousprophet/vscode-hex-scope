@@ -1,7 +1,6 @@
 /* Reusable search bar (mode select, endian toggle, input, nav buttons, count).
-   Self-contained: the host only needs base.css + this file. */
-
-#search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+   Self-contained: the host only needs base.css (shared search-box/nav/chrome
+   rules live there) + this file. */
 
 /* Endian toggle: segmented pill (Auto / LE / BE) like the single view */
 .search-endian-toggle {
@@ -18,64 +17,5 @@
 .search-endian-toggle button:hover:not(.active) { background: rgba(255,255,255,.07); }
 .search-endian-toggle button.active { background: var(--btn-bg); color: var(--btn-fg); }
 
-#search-mode {
-    background: var(--input-bg); color: var(--fg);
-    border: 1px solid var(--input-bdr); border-radius: 3px;
-    padding: 0 4px; height: 22px; font-size: 11px; cursor: pointer;
-}
-
-.search-addr-wrap { position: relative; display: inline-flex; align-items: center; }
-.search-addr-prefix {
-    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
-    color: var(--non-graphic); font-family: var(--font-editor); font-size: 12px;
-    pointer-events: none; z-index: 1; line-height: 1; user-select: none;
-}
-
-#search-input {
-    background: var(--input-bg); color: var(--fg);
-    border: 1px solid var(--input-bdr); border-radius: 3px;
-    padding: 0 7px; height: 26px; width: 180px; outline: none;
-    font-size: 12px; font-family: var(--font-editor); transition: border-color .12s;
-}
-#search-input.search-addr-mode { padding-left: 23px; }
-#search-input::placeholder { color: var(--non-graphic); }
-#search-input:focus { border-color: var(--focus-bdr); }
-
-.nav-btn {
-    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-    background: transparent; color: var(--fg);
-    border: 1px solid transparent; border-radius: 4px;
-    cursor: pointer; font-size: 13px; transition: background .12s, color .12s;
-}
-.nav-btn:hover { background: var(--hover-bg); color: var(--fg); border-color: var(--border); }
 /* button sizes mirror the single view exactly */
 .search-btn        { width: 24px; height: 24px; padding: 0; font-size: 12px; line-height: 1; }
-#btn-prev, #btn-next { width: 30px; height: 26px; font-size: 13px; border-radius: 4px; }
-#btn-clear-search { width: 24px; height: 24px; font-size: 12px; }
-
-.search-progress {
-    width: 16px; height: 16px;
-    display: inline-flex; align-items: center; justify-content: center;
-    visibility: hidden; opacity: 0;
-    transition: opacity .12s ease;
-}
-.search-progress::before {
-    content: '';
-    width: 11px; height: 11px;
-    border: 2px solid var(--input-bdr);
-    border-top-color: var(--high-color);
-    border-radius: 50%;
-    animation: hs-search-spin .8s linear infinite;
-}
-.search-progress.active { visibility: visible; opacity: 1; }
-@keyframes hs-search-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-#match-count {
-    color: var(--fg); font-size: 11px;
-    width: 14ch; text-align: right; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-    font-variant-numeric: tabular-nums;
-}

@@ -9,10 +9,11 @@ export interface DiffSummaryState {
     bError: string | null;
 }
 
+function isIdenticalState(state: DiffSummaryState): boolean {
+    return state.meta !== null && state.meta.identical && !state.aError && !state.bError;
+}
+
 export function renderDiffSummaryHtml(state: DiffSummaryState): string {
     if (!state.meta) { return ''; }
-    if (state.meta.identical && !state.aError && !state.bError) {
-        return '<div class="diff-summary identical">Files are identical</div>';
-    }
-    return '';
+    return isIdenticalState(state) ? '<div class="diff-summary identical">Files are identical</div>' : '';
 }

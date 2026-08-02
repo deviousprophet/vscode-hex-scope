@@ -8,7 +8,9 @@ import type { CompactParseResult } from '../core/parser/compact';
 import type { HexScopeFormat } from '../core/document';
 import { SearchEngine } from '../core/search';
 import type { SearchEndianness, SearchMode, WireParseResult } from '../core/types';
+import { toWireSegments } from '../core/transfer';
 import { detectFormatFromParts } from '../core/document';
+import { ProgressReporter } from './progressReporter';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
 
@@ -33,12 +35,17 @@ async function readAndParse(
 }
 
 function parseErrorFor(result: CompactParseResult): string | null {
-    if (result.checksumErrors > 0 && result.malformedLines > 0) {
-        return `Parse error: ${result.checksumErrors} checksum error(s), ${result.malformedLines} malformed line(s).`;
+    const checks = result.checksumErrors;
+    const malformed = result.malformedLines;
+    if (hasBothErrors(checks, malformed)) {
+        return `Parse error: ${checks} checksum error(s), ${malformed} malformed line(s).`;
     }
-    if (result.checksumErrors > 0) { return `Parse error: ${result.checksumErrors} checksum error(s).`; }
-    if (result.malformedLines > 0) { return `Parse error: ${result.malformedLines} malformed line(s).`; }
-    return null;
+    if (checks > 0) { return `Parse error: ${checks} checksum error(s).`; }
+    return malformed > 0 ? `Parse error: ${malformed} malformed line(s).` : null;
+}
+
+function hasBothErrors(checks: number, malformed: number): boolean {
+    return checks > 0 && malformed > 0;
 }
 
 function fileName(path: string): string {
@@ -65,48 +72,13 @@ function pairKeyFromUri(uri: vscode.Uri): string {
 function serializeParse(state: SideState): WireParseResult {
     return {
         recordCount: state.result.records.length,
-        segments: state.result.segments.map(s => ({
-            startAddress: s.startAddress,
-            data: s.data.buffer.slice(s.data.byteOffset, s.data.byteOffset + s.data.byteLength) as ArrayBuffer,
-        })),
+        segments: toWireSegments(state.result.segments),
         totalDataBytes: state.result.totalDataBytes,
         checksumErrors: state.result.checksumErrors,
         malformedLines: state.result.malformedLines,
         startAddress: state.result.startAddress,
         format: state.format,
     };
-}
-
-/** Throttled staged-load progress poster for the diff view (mirrors the single view's reporter). */
-class DiffProgressReporter {
-    private lastAt = 0;
-    private lastStage = '';
-    private pending: ProviderToWebviewMessage | null = null;
-    private flushed = false;
-
-    constructor(
-        private readonly webview: vscode.Webview,
-        private readonly generation: () => number,
-    ) {}
-
-    public post(stage: 'read' | 'parse' | 'build' | 'transfer', completed: number, total: number): void {
-        const now = Date.now();
-        if (stage === this.lastStage && completed !== total && now - this.lastAt < 100) { return; }
-        this.lastAt = now;
-        this.lastStage = stage;
-        this.pending = { type: 'diffProgress', generation: this.generation(), stage, completed, total };
-        if (this.flushed) {
-            void this.webview.postMessage(this.pending);
-        }
-    }
-
-    public flush(): void {
-        if (this.pending) {
-            void this.webview.postMessage(this.pending);
-            this.pending = null;
-        }
-        this.flushed = true;
-    }
 }
 
 export class HexDiffSession {
@@ -152,7 +124,7 @@ export class HexDiffSession {
             loadAbort = null;
         });
 
-        const progressReporter = new DiffProgressReporter(webviewPanel.webview, () => generation);
+        const progressReporter = new ProgressReporter(webviewPanel.webview, () => generation, 'diffProgress');
         const postProgress = progressReporter.post.bind(progressReporter);
 
         const aLabel = labelFor(aUri, fileName(bUri.fsPath));
@@ -160,9 +132,13 @@ export class HexDiffSession {
 
         let pendingInit: { a: WireParseResult; b: WireParseResult; meta: DiffMeta } | null = null;
 
+        const initNotReady = (): boolean => webviewReady === false || pendingInit === null || aState === null || bState === null;
+
         const sendInit = (): void => {
-            if (!webviewReady || !pendingInit || !aState || !bState) { return; }
-            const init = pendingInit;
+            if (initNotReady()) { return; }
+            const init = pendingInit as { a: WireParseResult; b: WireParseResult; meta: DiffMeta };
+            const a = aState as SideState;
+            const b = bState as SideState;
             pendingInit = null;
             post({
                 type: 'diffInit',
@@ -172,10 +148,10 @@ export class HexDiffSession {
                 meta: init.meta,
                 aLabel,
                 bLabel,
-                aFormat: aState.format,
-                bFormat: bState.format,
-                aError: parseErrorFor(aState.result),
-                bError: parseErrorFor(bState.result),
+                aFormat: a.format,
+                bFormat: b.format,
+                aError: parseErrorFor(a.result),
+                bError: parseErrorFor(b.result),
             });
         };
 
@@ -203,47 +179,72 @@ export class HexDiffSession {
         /** Sequential staged load: read A -> parse A -> read B -> parse B -> build -> transfer. */
         const startLoad = (gen: number): void => {
             const seq = ++loadSeq;
-            void (async (): Promise<void> => {
-                const controller = new AbortController();
-                loadAbort = controller;
-                loading = true;
-                const { signal } = controller;
-                const cancelled = (): boolean => signal.aborted || disposed;
-                try {
-                    postProgress('read', 5, 100);
-                    const aLoaded = await readAndParse(aUri, {
-                        signal,
-                        onProgress: p => postProgress('parse', Math.round(6 + 44 * fraction(p)), 100),
-                    });
-                    if (cancelled()) { return; }
-                    postProgress('read', 55, 100);
-                    const bLoaded = await readAndParse(bUri, {
-                        signal,
-                        onProgress: p => postProgress('parse', Math.round(56 + 39 * fraction(p)), 100),
-                    });
-                    if (cancelled()) { return; }
-                    postProgress('build', 97, 100);
-                    const meta = buildDiffMeta(aLoaded.result, bLoaded.result);
-                    if (cancelled()) { return; }
-                    postProgress('transfer', 100, 100);
-                    aState = aLoaded;
-                    bState = bLoaded;
-                    pendingInit = { a: serializeParse(aLoaded), b: serializeParse(bLoaded), meta };
-                    initialized = true;
-                    sendInit();
-                } catch (error) {
-                    if (cancelled() || disposed) { return; }
-                    const message = error instanceof Error ? error.message : 'Failed to read pair.';
-                    post({ type: 'loadError', generation: gen, message });
-                } finally {
-                    // Only the newest load may clear the loading flag: an aborted
-                    // load's finally must not clobber the restart that replaced it.
-                    if (seq === loadSeq) {
-                        loading = false;
-                        loadAbort = null;
-                    }
-                }
-            })();
+            void runLoad(gen, seq);
+        };
+
+        const runLoad = async (gen: number, seq: number): Promise<void> => {
+            const controller = new AbortController();
+            loadAbort = controller;
+            loading = true;
+            const { signal } = controller;
+            const cancelled = (): boolean => signal.aborted || disposed;
+            try {
+                await loadSides(signal, cancelled);
+            } catch (error) {
+                handleLoadError(error, gen, cancelled);
+            } finally {
+                finishLoading(seq);
+            }
+        };
+
+        const loadSide = async (side: 'a' | 'b', signal: AbortSignal): Promise<SideState> => {
+            if (side === 'a') {
+                postProgress('read', 5, 100);
+                return readAndParse(aUri, {
+                    signal,
+                    onProgress: p => postProgress('parse', Math.round(6 + 44 * fraction(p)), 100),
+                });
+            }
+            postProgress('read', 55, 100);
+            return readAndParse(bUri, {
+                signal,
+                onProgress: p => postProgress('parse', Math.round(56 + 39 * fraction(p)), 100),
+            });
+        };
+
+        const loadSides = async (signal: AbortSignal, cancelled: () => boolean): Promise<void> => {
+            const aLoaded = await loadSide('a', signal);
+            if (cancelled()) { return; }
+            const bLoaded = await loadSide('b', signal);
+            if (cancelled()) { return; }
+            await finishLoad(aLoaded, bLoaded, cancelled);
+        };
+
+        const finishLoad = async (aLoaded: SideState, bLoaded: SideState, cancelled: () => boolean): Promise<void> => {
+            postProgress('build', 97, 100);
+            const meta = buildDiffMeta(aLoaded.result, bLoaded.result);
+            if (cancelled()) { return; }
+            postProgress('transfer', 100, 100);
+            aState = aLoaded;
+            bState = bLoaded;
+            pendingInit = { a: serializeParse(aLoaded), b: serializeParse(bLoaded), meta };
+            initialized = true;
+            sendInit();
+        };
+
+        const handleLoadError = (error: unknown, gen: number, cancelled: () => boolean): void => {
+            if (cancelled()) { return; }
+            const message = error instanceof Error ? error.message : 'Failed to read pair.';
+            post({ type: 'loadError', generation: gen, message });
+        };
+
+        const finishLoading = (seq: number): void => {
+            // Only the newest load may clear the loading flag: an aborted
+            // load's finally must not clobber the restart that replaced it.
+            if (seq === loadSeq) {
+                loading = false;
+                loadAbort = null;
+            }
         };
 
         const reloadSide = async (uri: vscode.Uri, side: 'a' | 'b'): Promise<void> => {
@@ -349,6 +350,9 @@ export class HexDiffSession {
             const type = messageType(rawMsg);
             if (type === 'diffReady') { onReady(); return; }
             if (!webviewReady) { return; }
+            handleReadyMessage(type, rawMsg);
+        };
+        const handleReadyMessage = (type: string | undefined, rawMsg: unknown): void => {
             if (type === 'diffSwapRequest') {
                 swap = !swap;
                 post({ type: 'diffSwap', generation, swapped: swap });

@@ -6,13 +6,9 @@ import { encodePairKey } from '../core/pairUri';
 export class HexDiffProvider extends ReadonlyEditorProviderBase {
     public static readonly viewType = 'hexScope.hexDiff';
 
-    private constructor(context: vscode.ExtensionContext) {
+    public constructor(context: vscode.ExtensionContext) {
         const session = new HexDiffSession(context);
         super((d, w, t) => session.resolveCustomEditor(d, w, t));
-    }
-
-    public static register(context: vscode.ExtensionContext): vscode.Disposable {
-        return ReadonlyEditorProviderBase.registerCustomEditor(HexDiffProvider.viewType, context, c => new HexDiffProvider(c));
     }
 }
 

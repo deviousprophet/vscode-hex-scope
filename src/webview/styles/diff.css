@@ -45,23 +45,14 @@ body.swapped .diff-grid .diff-component.a { order: 2; }
     background: rgba(244,135,113,.12); border: 1px solid rgba(244,135,113,.4); color: var(--err);
 }
 
-/* ── Toolbar (top; search UI comes from SearchBarComponent.css) ─── */
+/* ── Toolbar (top; shared .view-tabs/.tb-sep and search UI live in base.css;
+   the search bar's component css) ─────────────────────────────── */
 .diff-toolbar {
     flex-shrink: 0;
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
     min-height: 35px; padding: 4px 10px;
     background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
 }
-.view-tabs { display: flex; gap: 1px; background: rgba(0,0,0,.22); border-radius: 4px; padding: 2px; }
-.view-tabs button {
-    padding: 2px 11px; border: none; border-radius: 3px; cursor: pointer;
-    background: transparent; color: var(--fg);
-    font-size: var(--font-ui-sz); font-family: var(--font-ui);
-    white-space: nowrap; transition: background .1s, color .1s;
-}
-.view-tabs button:hover:not(.active) { background: rgba(255,255,255,.07); }
-.view-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
-.tb-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
 #swap { font-size: 17px; line-height: 1; flex-shrink: 0; }
 
 /* ── Diff-mode empty state ─────────────────────────────────────── */

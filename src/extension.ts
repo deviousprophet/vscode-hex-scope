@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import { HexEditorProvider } from './editor/hexEditorProvider';
 import { HexDiffProvider, diffViewUri } from './editor/hexDiffProvider';
+import { ReadonlyEditorProviderBase } from './editor/readonlyEditorProvider';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
@@ -87,11 +88,11 @@ function diffDecorationProvider(): vscode.FileDecorationProvider {
 
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        HexEditorProvider.register(context)
+        ReadonlyEditorProviderBase.registerCustomEditor(HexEditorProvider.viewType, context, c => new HexEditorProvider(c))
     );
 
     context.subscriptions.push(
-        HexDiffProvider.register(context)
+        ReadonlyEditorProviderBase.registerCustomEditor(HexDiffProvider.viewType, context, c => new HexDiffProvider(c))
     );
 
     context.subscriptions.push(
@@ -105,18 +106,34 @@ function isSupportedDiffFile(uri: vscode.Uri): boolean {
     return SUPPORTED_DIFF_EXTS.some(ext => name.endsWith(ext));
 }
 
+function pickPair(first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri): vscode.Uri[] | undefined {
+    if (Array.isArray(first)) { return first; }
+    if (Array.isArray(second)) { return second; }
+    return bothPresent(first, second);
+}
+
+function bothPresent(a?: vscode.Uri | readonly vscode.Uri[], b?: vscode.Uri): [vscode.Uri, vscode.Uri] | undefined {
+    return a !== undefined && b !== undefined ? [a as vscode.Uri, b] : undefined;
+}
+
+function hasUnsupported(picked: readonly vscode.Uri[]): boolean {
+    return picked.some(u => !isSupportedDiffFile(u));
+}
+
+function unsupportedNames(picked: readonly vscode.Uri[]): string {
+    return picked.filter(u => !isSupportedDiffFile(u)).map(u => u.fsPath.split(/[\\/]/).pop()).join(', ');
+}
+
     // Compare selected (2 URIs, explorer multi-select) — first selected is A
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.compareSelected', (first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri) => {
-            const picked = Array.isArray(first) ? first : Array.isArray(second) ? second : first && second ? [first, second] : undefined;
+            const picked = pickPair(first, second);
             if (!picked || picked.length < 2) {
                 vscode.window.showWarningMessage('HexScope: select two HEX/SREC files to compare.');
                 return;
             }
-            const unsupported = picked.filter(u => !isSupportedDiffFile(u));
-            if (unsupported.length > 0) {
-                const names = unsupported.map(u => u.fsPath.split(/[\\/]/).pop()).join(', ');
-                vscode.window.showWarningMessage(`HexScope: only HEX/SREC files can be compared (unsupported: ${names}).`);
+            if (hasUnsupported(picked)) {
+                vscode.window.showWarningMessage(`HexScope: only HEX/SREC files can be compared (unsupported: ${unsupportedNames(picked)}).`);
                 return;
             }
             void validateAndOpenPair(picked[0], picked[1]);
