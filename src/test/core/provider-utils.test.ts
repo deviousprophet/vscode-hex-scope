@@ -8,7 +8,7 @@ import {
     serializeSRec,
     serializeSRecAsync,
 } from '../../core/document';
-import { migrateStructDefinitions } from '../../hexEditorProvider';
+import { migrateStructDefinitions } from '../../editor/hexEditorProvider';
 import { parseSRec } from '../../core/parser/srecParser';
 import { parseIntelHex } from '../../core/parser/intelHexParser';
 import type { StructDef } from '../../core/types';

@@ -1,6 +1,8 @@
 // The module 'vscode' contains the VS Code extensibility API
 import * as vscode from 'vscode';
-import { HexEditorProvider } from './hexEditorProvider';
+import { HexEditorProvider } from './editor/hexEditorProvider';
+import { HexDiffProvider, diffViewUri } from './editor/hexDiffProvider';
+import { ReadonlyEditorProviderBase } from './editor/readonlyEditorProvider';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
@@ -27,9 +29,135 @@ function parseResultIsValid(parseResult: ParseResult): boolean {
     return parseResult.checksumErrors === 0 && parseResult.malformedLines === 0;
 }
 
+// ── Diff staging (ephemeral, session only) ─────────────────────────
+let stagedFirstPath: string | null = null;
+
+function openDiff(aPath: string, bPath: string): void {
+    void vscode.commands.executeCommand('vscode.openWith', diffViewUri(aPath, bPath), HexDiffProvider.viewType);
+}
+
+function parseErrorWarning(uri: vscode.Uri): string {
+    return `HexScope: ${uri.fsPath.split(/[\\/]/).pop()} has parse errors; cannot diff.`;
+}
+
+/** Both files parse cleanly? Returns the invalid one, or undefined when both OK. */
+function firstInvalid(pa: ParseResult, pb: ParseResult, a: vscode.Uri, b: vscode.Uri): vscode.Uri | undefined {
+    if (!parseResultIsValid(pa)) { return a; }
+    if (!parseResultIsValid(pb)) { return b; }
+    return undefined;
+}
+
+/** Clear the ephemeral staged-first state (D7: cleared after a diff opens). */
+function clearStaging(): void {
+    stagedFirstPath = null;
+    void vscode.commands.executeCommand('setContext', 'hexScope.hasStagedFirst', false);
+}
+
+/** Validate pair: distinct URIs, both parse valid; then open. Returns true when the diff opened. */
+async function validateAndOpenPair(a: vscode.Uri, b: vscode.Uri): Promise<boolean> {
+    if (a.fsPath === b.fsPath) {
+        vscode.window.showWarningMessage('HexScope: cannot diff a file with itself.');
+        return false;
+    }
+    try {
+        const [{ parseResult: pa }, { parseResult: pb }] = await Promise.all([loadHexDocument(a), loadHexDocument(b)]);
+        const invalid = firstInvalid(pa, pb, a, b);
+        if (invalid) {
+            vscode.window.showWarningMessage(parseErrorWarning(invalid));
+            return false;
+        }
+    } catch {
+        vscode.window.showWarningMessage('HexScope: failed to read one of the selected files.');
+        return false;
+    }
+    openDiff(a.fsPath, b.fsPath);
+    clearStaging();
+    return true;
+}
+
+function diffDecorationProvider(): vscode.FileDecorationProvider {
+    return {
+        provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
+            if (stagedFirstPath !== null && uri.fsPath === stagedFirstPath) {
+                return { badge: 'A', color: new vscode.ThemeColor('charts.blue'), tooltip: 'HexScope diff: first file (A)' };
+            }
+            return undefined;
+        },
+    };
+}
+
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        HexEditorProvider.register(context)
+        ReadonlyEditorProviderBase.registerCustomEditor(HexEditorProvider.viewType, context, c => new HexEditorProvider(c))
+    );
+
+    context.subscriptions.push(
+        ReadonlyEditorProviderBase.registerCustomEditor(HexDiffProvider.viewType, context, c => new HexDiffProvider(c))
+    );
+
+    context.subscriptions.push(
+        vscode.window.registerFileDecorationProvider(diffDecorationProvider())
+    );
+
+const SUPPORTED_DIFF_EXTS = ['.hex', '.ihx', '.ihex', '.srec', '.mot', '.s19', '.s28', '.s37'];
+
+function isSupportedDiffFile(uri: vscode.Uri): boolean {
+    const name = uri.path.toLowerCase();
+    return SUPPORTED_DIFF_EXTS.some(ext => name.endsWith(ext));
+}
+
+function pickPair(first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri): vscode.Uri[] | undefined {
+    if (Array.isArray(first)) { return first; }
+    if (Array.isArray(second)) { return second; }
+    return bothPresent(first, second);
+}
+
+function bothPresent(a?: vscode.Uri | readonly vscode.Uri[], b?: vscode.Uri): [vscode.Uri, vscode.Uri] | undefined {
+    return a !== undefined && b !== undefined ? [a as vscode.Uri, b] : undefined;
+}
+
+function hasUnsupported(picked: readonly vscode.Uri[]): boolean {
+    return picked.some(u => !isSupportedDiffFile(u));
+}
+
+function unsupportedNames(picked: readonly vscode.Uri[]): string {
+    return picked.filter(u => !isSupportedDiffFile(u)).map(u => u.fsPath.split(/[\\/]/).pop()).join(', ');
+}
+
+    // Compare selected (2 URIs, explorer multi-select) — first selected is A
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.compareSelected', (first?: vscode.Uri | readonly vscode.Uri[], second?: vscode.Uri) => {
+            const picked = pickPair(first, second);
+            if (!picked || picked.length < 2) {
+                vscode.window.showWarningMessage('HexScope: select two HEX/SREC files to compare.');
+                return;
+            }
+            if (hasUnsupported(picked)) {
+                vscode.window.showWarningMessage(`HexScope: only HEX/SREC files can be compared (unsupported: ${unsupportedNames(picked)}).`);
+                return;
+            }
+            void validateAndOpenPair(picked[0], picked[1]);
+        })
+    );
+
+    // Stage current file as A
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.selectAsFirst', (uri?: vscode.Uri) => {
+            const target = commandTarget(uri);
+            if (!target) { return; }
+            stagedFirstPath = target.fsPath;
+            void vscode.commands.executeCommand('setContext', 'hexScope.hasStagedFirst', true);
+            vscode.window.showInformationMessage(`HexScope: staged ${target.fsPath.split(/[\\/]/).pop()} as first file (A).`);
+        })
+    );
+
+    // Compare current file vs staged A
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.compareToStaged', (uri?: vscode.Uri) => {
+            const target = commandTarget(uri);
+            if (!target || stagedFirstPath === null) { return; }
+            void validateAndOpenPair(vscode.Uri.file(stagedFirstPath), target);
+        })
     );
 
     context.subscriptions.push(

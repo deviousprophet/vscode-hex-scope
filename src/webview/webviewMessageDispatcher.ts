@@ -24,6 +24,11 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'scriptResult',
     'scriptOutput',
     'activateScriptsTab',
+    'diffInit',
+    'diffUpdate',
+    'diffProgress',
+    'diffSwap',
+    'diffSearch',
 ];
 
 const PROVIDER_MESSAGE_TYPE_SET = new Set<string>(PROVIDER_MESSAGE_TYPES);
@@ -32,11 +37,12 @@ function isProviderMessageType(type: string | undefined): type is ProviderMessag
     return typeof type === 'string' && PROVIDER_MESSAGE_TYPE_SET.has(type);
 }
 
-export function dispatchProviderMessage(message: unknown, handlers: ProviderMessageHandlers): boolean {
+export function dispatchProviderMessage(message: unknown, handlers: Partial<ProviderMessageHandlers>): boolean {
     const type = messageType(message);
     if (!isProviderMessageType(type)) { return false; }
 
-    const handler = handlers[type] as (msg: ProviderToWebviewMessage) => void;
+    const handler = handlers[type] as ((msg: ProviderToWebviewMessage) => void) | undefined;
+    if (!handler) { return false; }
     handler(message as ProviderToWebviewMessage);
     return true;
 }

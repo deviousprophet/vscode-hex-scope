@@ -268,6 +268,11 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     scriptResult: handleScriptResultMessage,
     scriptOutput: handleScriptOutputMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
+    diffInit: () => {},
+    diffUpdate: () => {},
+    diffProgress: () => {},
+    diffSwap: () => {},
+    diffSearch: () => {},
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [

@@ -1,0 +1,81 @@
+/* ── Diff view chrome + composition. The hex-view component's own
+   styles live in ui-components/hex-view/hexViewComponent.css. ─────── */
+
+/* ── Summary bar (mirrors #stats-bar) ─────────────────────────── */
+.diff-summary {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 14px;
+    padding: 2px 10px;
+    background: var(--panel-bg); border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--fg);
+}
+.diff-summary.identical { color: var(--ok); font-weight: 600; }
+.diff-summary b.d-changed { color: #ff6b6b; }
+.diff-summary b.d-added   { color: var(--ok); }
+.diff-summary b.d-removed { color: #c586c0; }
+
+/* ── Scroll viewport ──────────────────────────────────────────── */
+#diff-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* ── Grid: component A ─ sep ─ component B, centered ──────────── */
+.diff-grid {
+    display: flex; flex-direction: row; align-items: stretch;
+    width: fit-content; margin: 0 auto;
+}
+
+/* ── Single continuous separator between the two components ───── */
+.diff-sep {
+    flex-shrink: 0; align-self: stretch;
+    position: sticky; top: 0; z-index: 2;
+    width: 0; border-left: 2px solid var(--border);
+    margin: 0 calc(var(--cell-size) * 0.45);
+}
+
+/* Swap exchanges the two whole components around the fixed separator. */
+.diff-grid .diff-component.a { order: 0; }
+.diff-grid .diff-sep { order: 1; }
+.diff-grid .diff-component.b { order: 2; }
+body.swapped .diff-grid .diff-component.b { order: 0; }
+body.swapped .diff-grid .diff-component.a { order: 2; }
+
+/* ── Per-panel parse-error banners ────────────────────────────── */
+.diff-errors { flex-shrink: 0; display: flex; gap: 8px; padding: 3px 10px; }
+.diff-errors .side-error {
+    flex: 1; font-size: 11px; padding: 2px 8px; border-radius: 3px;
+    background: rgba(244,135,113,.12); border: 1px solid rgba(244,135,113,.4); color: var(--err);
+}
+
+/* ── Toolbar (top; shared .view-tabs/.tb-sep and search UI live in base.css;
+   the search bar's component css) ─────────────────────────────── */
+.diff-toolbar {
+    flex-shrink: 0;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+    min-height: 35px; padding: 4px 10px;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+}
+#swap { font-size: 17px; line-height: 1; flex-shrink: 0; }
+
+/* ── Diff-mode empty state ─────────────────────────────────────── */
+.diff-no-diffs {
+    display: grid; place-items: center; height: 100%;
+    color: var(--addr-fg); font-size: 12px; font-family: var(--font-ui);
+}
+
+/* ── Status bar (mirrors #stats-bar) ──────────────────────────── */
+#status {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 14px;
+    padding: 2px 10px;
+    background: var(--panel-bg); border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--fg);
+}
+
+/* In-place reload spinner (external change while the diff is open). */
+#status.reloading::before {
+    content: '';
+    width: 10px; height: 10px; flex-shrink: 0;
+    border: 2px solid var(--border); border-top-color: var(--fg);
+    border-radius: 50%;
+    animation: diff-spin .7s linear infinite;
+}
+@keyframes diff-spin { to { transform: rotate(360deg); } }

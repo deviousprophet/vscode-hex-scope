@@ -1,7 +1,10 @@
 import type { SegmentLabel, SerializedParseResult, WireParseResult } from '../core/types';
+import { hydrateParseResult } from '../core/transfer';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
 import { buildMemRows, initFlatBytes } from './memory/memoryData';
 import { S } from './state';
+
+export { hydrateParseResult };
 
 export type InitMessage = Extract<ProviderToWebviewMessage, { type: 'init' }>;
 export type IncomingFile = {
@@ -21,17 +24,6 @@ export function applyInitialState(msg: InitMessage): void {
     S.endian = msg.endian;
     S.currentView = 'memory';
     S.lastClickColumn = null;
-}
-
-export function hydrateParseResult(result: WireParseResult): SerializedParseResult {
-    return {
-        ...result,
-        records: [],
-        segments: result.segments.map(segment => ({
-            startAddress: segment.startAddress,
-            data: new Uint8Array(segment.data),
-        })),
-    };
 }
 
 function messageArray<T>(value: T[]): T[] {

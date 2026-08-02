@@ -81,10 +81,29 @@ async function main() {
 		],
 	});
 
+	// Diff webview bundle
+	const ctxDiffWebview = await esbuild.context({
+		entryPoints: [
+			'src/webview/hexDiffViewer.ts'
+		],
+		bundle: true,
+		format: 'iife',
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: 'browser',
+		outfile: 'dist/hexDiffViewer.js',
+		logLevel: 'silent',
+		plugins: [
+			esbuildProblemMatcherPlugin,
+		],
+	});
+
 	if (watch) {
 		await ctx.watch();
 		await ctxWorker.watch();
 		await ctxWebview.watch();
+		await ctxDiffWebview.watch();
 	} else {
 		await ctx.rebuild();
 		await ctx.dispose();
@@ -92,6 +111,8 @@ async function main() {
 		await ctxWorker.dispose();
 		await ctxWebview.rebuild();
 		await ctxWebview.dispose();
+		await ctxDiffWebview.rebuild();
+		await ctxDiffWebview.dispose();
 	}
 }
 

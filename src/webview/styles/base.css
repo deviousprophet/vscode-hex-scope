@@ -130,6 +130,15 @@ html, body {
 ::-webkit-scrollbar-thumb:hover { background: rgba(121,121,121,.7); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* ── Hex byte cell (shared base for memory-view and diff) ──────── */
+/* Geometry only; cursor + state modifiers live in the owning view. */
+.data-cell {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    width: var(--cell-size); height: var(--cell-size); line-height: var(--cell-size);
+    text-align: center; display: inline-block; border-radius: 2px;
+    user-select: none;
+}
+
 /* ── Shared action buttons (edit ✎ / delete 🗑) ────────────────── */
 /* Used in labels, struct instance cards, and manage-types rows.    */
 .act-btn {
@@ -202,3 +211,73 @@ html, body {
     color: var(--addr-fg);
 }
 .dcp-no:hover { background: rgba(255,255,255,.14); color: var(--fg); border-color: var(--fg); }
+
+/* ── Shared chrome: view tabs, separators, search box ───────────── */
+/* One owner for both views (single view loads this before toolbar.css;
+   the diff loads it before the search-bar component css). */
+.view-tabs { display: flex; gap: 1px; background: rgba(0,0,0,.22); border-radius: 4px; padding: 2px; }
+.view-tabs button {
+    padding: 2px 11px; border: none; border-radius: 3px; cursor: pointer;
+    background: transparent; color: var(--fg);
+    font-size: var(--font-ui-sz); font-family: var(--font-ui);
+    white-space: nowrap; transition: background .1s, color .1s;
+}
+.view-tabs button:hover:not(.active) { background: rgba(255,255,255,.07); }
+.view-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
+.tb-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+
+#search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+#search-mode {
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 0 4px; height: 22px; font-size: 11px; cursor: pointer;
+}
+.search-addr-wrap { position: relative; display: inline-flex; align-items: center; }
+.search-addr-prefix {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    color: var(--non-graphic); font-family: var(--font-editor); font-size: 12px;
+    pointer-events: none; z-index: 1; line-height: 1; user-select: none;
+}
+#search-input {
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 0 7px; height: 26px; width: 180px; outline: none;
+    font-size: 12px; font-family: var(--font-editor); transition: border-color .12s;
+}
+#search-input.search-addr-mode { padding-left: 23px; }
+#search-input::placeholder { color: var(--non-graphic); }
+#search-input:focus { border-color: var(--focus-bdr); }
+.nav-btn {
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    background: transparent; color: var(--fg);
+    border: 1px solid transparent; border-radius: 4px;
+    cursor: pointer; font-size: 13px; transition: background .12s, color .12s;
+}
+.nav-btn:hover { background: var(--hover-bg); color: var(--fg); border-color: var(--border); }
+#btn-prev, #btn-next { width: 30px; height: 26px; font-size: 13px; border-radius: 4px; }
+#btn-clear-search { width: 24px; height: 24px; font-size: 12px; }
+#match-count {
+    color: var(--fg); font-size: 11px;
+    width: 14ch; text-align: right; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+}
+.search-progress {
+    width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    visibility: hidden; opacity: 0;
+    transition: opacity .12s ease;
+}
+.search-progress::before {
+    content: '';
+    width: 11px; height: 11px;
+    border: 2px solid var(--input-bdr);
+    border-top-color: var(--high-color);
+    border-radius: 50%;
+    animation: hs-search-spin .8s linear infinite;
+}
+.search-progress.active { visibility: visible; opacity: 1; }
+@keyframes hs-search-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
