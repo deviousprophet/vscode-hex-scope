@@ -104,3 +104,24 @@ Completed the hexScope.hexDiff custom editor. Locked 8MB large-file design (gril
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Fix virtual scroll row-gap artifacts in memory view
+
+**Date**: 2026-08-02
+**Task**: Fix virtual scroll row-gap artifacts in memory view
+**Branch**: `fix/virtual-scroll-row-gap`
+
+### Summary
+
+Analyzed intermittent hairline gaps between virtual-scrolled memory rows (3 causes: fractional --cell-size sub-pixel seams; seg-banner height unmodeled by row-height metric; compressed-mode ratio mapping drift). Planned (grill Q1-Q4) and implemented: integer row geometry scoped to #memory-view, label-aware height metric with label-signature heightVersion, calcCompressedWindowTop exact-offset anchor. Code review (2-axis) found 1 hard test violation + 5 judgement calls; all fixed (pinned test value, integer gap rows, label relocation signature, two-line banner probe, scoped --cell-size, fallback const). Verified: 592 tests, fallow 0/0/0, compile+lint clean.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f1131f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
