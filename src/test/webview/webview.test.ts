@@ -7,6 +7,7 @@ import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memor
 import { integrityHighlightClass, renderMemBody, scrollTo } from '../../webview/memory/memoryView';
 import { rerender } from '../../webview/render/registry';
 import {
+    calcCompressedWindowTop,
     calcRowOffset,
     calcScrollLayout,
     calcTotalHeight,
@@ -379,6 +380,77 @@ suite('virtual scroll metrics', () => {
 
         assert.strictEqual(logicalToPhysicalScroll(layout.logicalScrollable, state), layout.physicalScrollable);
         assert.strictEqual(physicalToLogicalScroll(layout.physicalScrollable, state), layout.logicalScrollable);
+    });
+
+    test('compressed windowTop maps the slice start through the scroll compression (uniform rows)', () => {
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: 90,
+            heightVersion: '10',
+            getRowHeight: () => 10,
+        };
+        const layout = calcScrollLayout(state, 500);
+        assert.strictEqual(layout.totalHeight, 900);
+        assert.strictEqual(layout.physicalHeight, 500);
+        assert.strictEqual(layout.isCompressed, true);
+        assert.strictEqual(calcCompressedWindowTop(0, state, layout), 0);
+        // offset(50)=500 -> (500 / 800) * 400 = 250
+        assert.strictEqual(calcCompressedWindowTop(50, state, layout), 250);
+    });
+
+    test('compressed windowTop maps the slice start for mixed gap/banner rows', () => {
+        const heights = [20, 30, 40, 20];
+        const state: VirtualScrollState = {
+            containerHeight: 20,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: heights.length,
+            heightVersion: 'v1',
+            getRowHeight: i => heights[i],
+        };
+        const layout = calcScrollLayout(state, 100);
+        assert.strictEqual(layout.totalHeight, 110);
+        assert.strictEqual(layout.physicalHeight, 100);
+        // offset(3)=90 -> (90 / 90) * 80 = 80
+        assert.strictEqual(calcCompressedWindowTop(0, state, layout), 0);
+        assert.strictEqual(calcCompressedWindowTop(3, state, layout), 80);
+    });
+
+    test('compressed windowTop stays within one row of the scroll position at the bottom', () => {
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 800,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: 90,
+            heightVersion: '10',
+            getRowHeight: () => 10,
+        };
+        const layout = calcScrollLayout(state, 500);
+        assert.strictEqual(layout.isCompressed, true);
+        // Scrolled to the end: the first rendered row must start at (or within
+        // one row above) the physical scroll bottom — never below it (blank gap).
+        const windowTop = calcCompressedWindowTop(80, state, layout);
+        assert.ok(windowTop >= layout.physicalScrollable - 10 && windowTop <= layout.physicalScrollable);
+        assert.strictEqual(windowTop, layout.physicalScrollable);
+    });
+
+    test('compressed windowTop guards a zero-height layout', () => {
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: 0,
+            heightVersion: 'v1',
+            getRowHeight: () => 10,
+        };
+        const layout = calcScrollLayout(state);
+        assert.strictEqual(calcCompressedWindowTop(0, state, layout), 0);
     });
 });
 

@@ -58,6 +58,13 @@ export interface HexViewRenderInput {
     selection?: HexViewRange | null;
     /** Render the decoded-text (ASCII) column header + char cells. Diff passes false. */
     showChar?: boolean;
+    /**
+     * Vertical offset applied to every row position (px). Hosts use this for
+     * compressed-mode virtualization: `windowTop = calcCompressedWindowTop(firstIdx) - rowOffset*ROW_HEIGHT`
+     * anchors the buffered slice to its scaled phantom position. Omitted/0 = plain
+     * absolute indexing (non-compressed). The host owns the phantom + anchor.
+     */
+    windowTop?: number;
 }
 
 /** Row width in bytes (BPR contract; single source is the core BPR constant). */
@@ -169,8 +176,9 @@ function rowHtml(
     error: string | null,
     sel: HexViewRange | null | undefined,
     showChar: boolean,
+    windowTop: number,
 ): string {
-    const top = (index + rowOffset) * ROW_HEIGHT;
+    const top = windowTop + (index + rowOffset) * ROW_HEIGHT;
     if (row.kind === 'gap') { return gapRowHtml(row, top); }
     const addr = esc(formatAddress(row.address));
     const banners = (row.banners ?? []).map(bannerHtml).join('');
@@ -196,6 +204,7 @@ function headerHtml(showChar: boolean, sel: HexViewRange | null | undefined): st
 /** Pure HTML for one component (testable without DOM). */
 export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRenderInput): string {
     const showChar = input.showChar === true;
+    const windowTop = input.windowTop ?? 0;
     const rows: string[] = [];
     for (let i = 0; i < input.rows.length; i++) {
         rows.push(rowHtml(
@@ -208,6 +217,7 @@ export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRender
             input.error,
             input.selection,
             showChar,
+            windowTop,
         ));
     }
     return `<div class="diff-component ${side}">

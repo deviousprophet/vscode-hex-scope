@@ -148,3 +148,17 @@ export function logicalToPhysicalScroll(logicalScrollTop: number, state: Virtual
     const ratio = Math.max(0, Math.min(logicalScrollTop, layout.logicalScrollable)) / layout.logicalScrollable;
     return ratio * layout.physicalScrollable;
 }
+
+/**
+ * Top position (px in the phantom) of the first rendered row of a compressed
+ * buffer slice. Uses the SAME compression factor the scroll position uses
+ * (logicalScrollable -> physicalScrollable), so the buffer stays within one row
+ * of the viewport top at any scroll depth. NEVER scale by physicalHeight/totalHeight
+ * (that factor differs and drifts the buffer below scrollTop near the end).
+ */
+export function calcCompressedWindowTop(startIdx: number, state: VirtualScrollState, layout: VirtualScrollLayout): number {
+    if (layout.totalHeight <= 0 || layout.physicalHeight <= 0) { return 0; }
+    if (!layout.isCompressed || layout.logicalScrollable <= 0) { return 0; }
+    const offset = Math.max(0, Math.min(calcRowOffset(startIdx, state), layout.logicalScrollable));
+    return (offset / layout.logicalScrollable) * layout.physicalScrollable;
+}

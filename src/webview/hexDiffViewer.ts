@@ -26,6 +26,16 @@ import {
     type DiffVisualRow,
 } from './diff/diffViewModel';
 import { renderDiffSummaryHtml, type DiffSummaryState } from './diff/diffRenderer';
+import {
+    calcCompressedWindowTop,
+    calcRowOffset,
+    calcScrollLayout,
+    calcTotalHeight,
+    calcVisibleRange,
+    logicalToPhysicalScroll,
+    physicalToLogicalScroll,
+    type VirtualScrollState,
+} from './render/virtualScroll';
 import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewCell, type HexViewRange, type HexViewRow } from './ui-components/hex-view/hexViewComponent';
 import { SearchBarComponent } from './ui-components/search-bar/searchBarComponent';
 
@@ -78,11 +88,10 @@ const searchBar = new SearchBarComponent({
     },
 });
 
-let scrollTop = 0;
+let diffScrollState: VirtualScrollState | null = null;
 let containerHeight = 0;
 let visualRows: DiffLightRow[] = [];
 const ROW_HEIGHT = DIFF_ROW_HEIGHT;
-const RENDER_BUFFER = 20;
 
 const vscodeApi = vscode;
 
@@ -102,13 +111,7 @@ function applySides(aWire: WireParseResult, bWire: WireParseResult): void {
     bIndex = buildSegmentIndex(bResult);
 }
 
-// Fixed-height windowing: visible rows + buffer. Returns [start, end).
-function visibleWindow(rowCount: number): [number, number] {
-    if (rowCount === 0) { return [0, 0]; }
-    const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - RENDER_BUFFER);
-    const last = Math.min(rowCount, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + RENDER_BUFFER);
-    return [first, last];
-}
+// ── Buffered + compressed virtualization (mirrors memoryView + virtualScroll) ──
 
 /** Rows currently shown: all, or only rows containing differences. */
 function shownRows(): DiffLightRow[] {
@@ -167,36 +170,57 @@ function renderScroll(): void {
     if (isEmptyDiffMode(rows)) {
         scrollEl.innerHTML = '<div class="diff-no-diffs">No differences</div>';
         scrollEl.scrollTop = 0;
+        diffScrollState = null;
         return;
     }
-    const totalHeight = rows.length * ROW_HEIGHT;
-    const range = visibleWindow(rows.length);
+    // Logical scroll position is preserved across rerenders (physical->logical
+    // old state, logical->physical new state); clamped to the scrollable range.
+    diffScrollState = {
+        containerHeight,
+        scrollTop: Math.min(
+            diffScrollState ? diffScrollState.scrollTop : 0,
+            Math.max(0, rows.length * ROW_HEIGHT - containerHeight),
+        ),
+        bufferSize: 10,
+        visibleRowIndices: [0, 0],
+        rowCount: rows.length,
+        heightVersion: 'diff',
+        getRowHeight: () => ROW_HEIGHT,
+    };
+    const layout = calcScrollLayout(diffScrollState);
+    const [startIdx, endIdx] = calcVisibleRange(diffScrollState);
     const matchSet = new Set(searchMatches);
     const searchRowIndex = searchRowIndexFor();
     // Materialize only the visible window's cells from the segment indexes.
     const windowRows: DiffVisualRow[] = [];
-    for (let i = range[0]; i < range[1]; i++) {
+    for (let i = startIdx; i < endIdx; i++) {
         windowRows.push(diffCellWindow(aResult, aIndex, bResult, bIndex, rows[i].baseAddress));
     }
+    // Compressed anchor: place the slice at its scaled phantom position, offset
+    // so the component's absolute row indexing lines up (never physicalHeight/totalHeight).
+    const windowTop = layout.isCompressed
+        ? calcCompressedWindowTop(startIdx, diffScrollState, layout) - calcRowOffset(startIdx, diffScrollState)
+        : 0;
     const base = {
-        rowOffset: range[0],
+        rowOffset: startIdx,
         searchRowIndex,
         matchSet,
-        totalHeight,
+        totalHeight: layout.physicalHeight,
         showChar: false,
+        windowTop,
     };
     scrollEl.innerHTML = `<div class="diff-grid">
         ${renderHexViewComponentHtml('a', { ...base, label: aLabel, error: aError, rows: windowRows.map(vr => toHexViewRow(vr, 'a')), selection: selectionFor('a') })}
         <span class="diff-sep"></span>
         ${renderHexViewComponentHtml('b', { ...base, label: bLabel, error: bError, rows: windowRows.map(vr => toHexViewRow(vr, 'b')), selection: selectionFor('b') })}
     </div>`;
-    scrollEl.scrollTop = scrollTop;
+    scrollEl.scrollTop = logicalToPhysicalScroll(diffScrollState.scrollTop, diffScrollState);
     compA.reapply();
     compB.reapply();
     if (!scrollEl.dataset.vscrollInit) {
         scrollEl.dataset.vscrollInit = '1';
         scrollEl.addEventListener('scroll', () => {
-            scrollTop = scrollEl.scrollTop;
+            if (diffScrollState) { diffScrollState.scrollTop = physicalToLogicalScroll(scrollEl.scrollTop, diffScrollState); }
             rerender();
         });
     }
@@ -259,7 +283,9 @@ function updateLoadingProgress(msg: Extract<ProviderToWebviewMessage, { type: 'd
 function focusRow(addr: number): void {
     const idx = visualRowIndexForAddress(shownRows(), addr);
     if (idx < 0) { return; }
-    scrollTop = Math.max(0, idx * ROW_HEIGHT - containerHeight / 2);
+    if (diffScrollState) {
+        diffScrollState.scrollTop = Math.max(0, idx * ROW_HEIGHT - diffScrollState.containerHeight / 2);
+    }
     rerender();
 }
 
@@ -281,8 +307,8 @@ function gotoMatch(direction: 1 | -1): void {
 }
 
 function wireToolbar(): void {
-    document.getElementById('view-all')!.addEventListener('click', () => { viewMode = 'all'; scrollTop = 0; rerender(); });
-    document.getElementById('view-diff')!.addEventListener('click', () => { viewMode = 'diff'; scrollTop = 0; rerender(); });
+    document.getElementById('view-all')!.addEventListener('click', () => { viewMode = 'all'; diffScrollState = null; rerender(); });
+    document.getElementById('view-diff')!.addEventListener('click', () => { viewMode = 'diff'; diffScrollState = null; rerender(); });
     document.getElementById('prev-diff')!.addEventListener('click', () => gotoDiff(-1));
     document.getElementById('next-diff')!.addEventListener('click', () => gotoDiff(1));
     document.getElementById('swap')!.addEventListener('click', () => {
