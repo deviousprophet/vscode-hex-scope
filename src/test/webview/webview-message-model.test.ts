@@ -31,14 +31,6 @@ suite('webview message dispatcher', () => {
         assert.strictEqual(dispatchProviderMessage(null, handlers), false);
     });
 
-    test('partial handler maps: a valid type with no handler is a safe no-op', () => {
-        // The diff view passes a Partial<ProviderMessageHandlers>; a well-formed
-        // message whose type has no registered handler must be ignored, not crash.
-        const onlyDiffInit = { diffInit: () => {} };
-        assert.strictEqual(dispatchProviderMessage({ type: 'loadError', message: 'x' }, onlyDiffInit), false);
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffInit' } as never, onlyDiffInit), true);
-    });
-
     test('dispatches known provider message types', () => {
         let called = false;
         const handlers = {
@@ -123,43 +115,6 @@ suite('applyProviderMessageToModel()', () => {
         assert.deepStrictEqual(update.externalChange?.incoming.labels, labels);
         assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
-
-    test('diffInit/diffUpdate/diffProgress/diffSwap/diffSearch dispatch and apply passively', () => {
-        let initCalled = false;
-        let searchCalled = false;
-        const handlers = {
-            ...noOpHandlers(),
-            diffInit: msg => {
-                initCalled = true;
-                assert.strictEqual(msg.generation, 1);
-                assert.strictEqual(msg.aLabel, 'A');
-                assert.strictEqual(msg.meta.totalRows, 0);
-            },
-            diffSearch: msg => {
-                searchCalled = true;
-                assert.deepStrictEqual(msg.matches, [0x1000]);
-                assert.strictEqual(msg.done, true);
-            },
-        } satisfies ProviderMessageHandlers;
-
-        const meta = { rowStarts: new Uint32Array(), hasDiff: new Uint8Array(), summary: { unchanged: 0, changed: 0, added: 0, removed: 0 }, runs: [], identical: true, totalRows: 0 };
-        const parseResult = parseResultForTest();
-        assert.strictEqual(dispatchProviderMessage({ type:                         'diffInit', generation: 1, a:  
-                        parseResult, b: parseResult,   
-                        meta, aLabel: 'A', bLabel:     
-                        'B', aFormat: 'ihex', bFormat: 
-                        'ihex', aError: null, bError:  
-                        null }, handlers), true);
-        assert.strictEqual(initCalled, true);
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffSearch', generation: 1, query: 'ff', matches: [0x1000], done: true }, handlers), true);
-        assert.strictEqual(searchCalled, true);
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffProgress', generation: 1, stage: 'parse', completed: 50, total: 100 }, handlers), true);
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffSwap', generation: 1, swapped: true }, handlers), true);
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffUpdate', generation: 1, a: parseResult, b: parseResult, meta, aError: null, bError: null }, handlers), true);
-
-        // Unknown diff-adjacent types stay rejected.
-        assert.strictEqual(dispatchProviderMessage({ type: 'diffBogus' }, handlers), false);
-    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -180,11 +135,6 @@ function noOpHandlers(): ProviderMessageHandlers {
         scriptResult: () => {},
         scriptOutput: () => {},
         activateScriptsTab: () => {},
-        diffInit: () => {},
-        diffUpdate: () => {},
-        diffProgress: () => {},
-        diffSwap: () => {},
-        diffSearch: () => {},
     };
 }
 

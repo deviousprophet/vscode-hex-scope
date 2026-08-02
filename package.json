@@ -91,37 +91,6 @@
           }
         ],
         "priority": "option"
-      },
-      {
-        "viewType": "hexScope.hexDiff",
-        "displayName": "HexScope Diff",
-        "selector": [
-          {
-            "filenamePattern": "*.hex"
-          },
-          {
-            "filenamePattern": "*.ihx"
-          },
-          {
-            "filenamePattern": "*.ihex"
-          },
-          {
-            "filenamePattern": "*.srec"
-          },
-          {
-            "filenamePattern": "*.mot"
-          },
-          {
-            "filenamePattern": "*.s19"
-          },
-          {
-            "filenamePattern": "*.s28"
-          },
-          {
-            "filenamePattern": "*.s37"
-          }
-        ],
-        "priority": "option"
       }
     ],
     "submenus": [
@@ -171,21 +140,6 @@
         "command": "hexScope.runScript",
         "title": "Run Script",
         "category": "HexScope"
-      },
-      {
-        "command": "hexScope.compareSelected",
-        "title": "Compare Two Files",
-        "category": "HexScope"
-      },
-      {
-        "command": "hexScope.selectAsFirst",
-        "title": "Set as 1st file to compare",
-        "category": "HexScope"
-      },
-      {
-        "command": "hexScope.compareToStaged",
-        "title": "Compare with the 1st file",
-        "category": "HexScope"
       }
     ],
     "menus": {
@@ -220,42 +174,13 @@
       "hexScope.actions": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
         },
         {
           "command": "hexScope.quickRepair",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
-        },
-        {
-          "command": "hexScope.compareSelected",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection",
-          "group": "navigation@1"
-        },
-        {
-          "command": "hexScope.selectAsFirst",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection",
-          "group": "navigation@2"
-        },
-        {
-          "command": "hexScope.compareToStaged",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst && !listMultiSelection",
-          "group": "navigation@3"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "hexScope.compareSelected",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/"
-        },
-        {
-          "command": "hexScope.selectAsFirst",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/"
-        },
-        {
-          "command": "hexScope.compareToStaged",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && hexScope.hasStagedFirst"
         }
       ]
     },
@@ -397,7 +322,6 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
@@ -405,7 +329,7 @@
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run clean && npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "node eslint-rules/require-escaped-html.test.mjs && eslint src",
     "test": "vscode-test",

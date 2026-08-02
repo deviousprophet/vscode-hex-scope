@@ -1,30 +1,28 @@
 import * as crypto from 'crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { DisposableStore } from '../core/disposableStore';
-import { parseIntelHexCompact, parseIntelHexLine } from '../core/parser/intelHexParser';
-import { parseSRecCompact, parseSRecRecordLine } from '../core/parser/srecParser';
-import type { ParseResult } from '../core/parser/types';
-import type { CompactParseResult } from '../core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from '../core/types';
-import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from '../core/document';
+import { DisposableStore } from './core/disposableStore';
+import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
+import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
+import type { ParseResult } from './core/parser/types';
+import type { CompactParseResult } from './core/parser/compact';
+import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
+import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from './core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
     type IntegrityCheckSet,
     type IntegrityProfile,
-} from '../core/integrity';
+} from './core/integrity';
 import {
     messageType,
     RECORD_PAGE_SIZE,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
-} from '../webviewProtocol';
-import { toWireSegments } from '../core/transfer';
-import { ProgressReporter } from './progressReporter';
+} from './webviewProtocol';
 
-import { scanScripts, execute } from '../core/scripting/scriptRunner';
-import { VSCodeScriptHost } from '../scriptHost';
+import { scanScripts, execute } from './core/scripting/scriptRunner';
+import { VSCodeScriptHost } from './scriptHost';
 
 const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
@@ -72,6 +70,41 @@ type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
 type StructDefIdentity = { id: string; name: string };
 type IncomingProviderMessage = WebviewToProviderMessage;
 type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecordPage' }>;
+
+class LoadProgressReporter {
+    private lastAt = 0;
+    private lastStage = '';
+    private pending: ProviderToWebviewMessage | null = null;
+    private flushed = false;
+
+    constructor(
+        private readonly webview: vscode.Webview,
+        private readonly generation: () => number,
+    ) {}
+
+    public post(stage: 'read' | 'parse' | 'build' | 'transfer', completed: number, total?: number): void {
+        const now = Date.now();
+        if (this.isThrottled(stage, completed, total, now)) { return; }
+        this.lastAt = now;
+        this.lastStage = stage;
+        this.pending = { type: 'loadProgress', generation: this.generation(), stage, completed, total };
+        if (this.flushed) {
+            void postToWebview(this.webview, this.pending);
+        }
+    }
+
+    public flush(): void {
+        if (this.pending) {
+            void postToWebview(this.webview, this.pending);
+            this.pending = null;
+        }
+        this.flushed = true;
+    }
+
+    private isThrottled(stage: string, completed: number, total: number | undefined, now: number): boolean {
+        return stage === this.lastStage && completed !== total && now - this.lastAt < 100;
+    }
+}
 
 function parseCompactByFormat(source: string, format: HexScopeFormat, options: Parameters<typeof parseIntelHexCompact>[1]): Promise<CompactParseResult> {
     return format === 'srec' ? parseSRecCompact(source, options) : parseIntelHexCompact(source, options);
@@ -325,10 +358,9 @@ export class HexEditorSession {
         });
         webviewPanel.onDidDispose(() => resources.dispose());
 
-        const progressReporter = new ProgressReporter(
+        const progressReporter = new LoadProgressReporter(
             webviewPanel.webview,
             () => generation,
-            'loadProgress',
         );
         flushProgress = () => progressReporter.flush();
         const postProgress = progressReporter.post.bind(progressReporter);
@@ -843,7 +875,10 @@ function messageString(value: unknown): string {
 function serializeParseResult(result: CompactParseResult, format: HexScopeFormat): WireParseResult {
     return {
         recordCount: result.records.length,
-        segments: toWireSegments(result.segments),
+        segments: result.segments.map(s => ({
+            startAddress: s.startAddress,
+            data: s.data.buffer.slice(s.data.byteOffset, s.data.byteOffset + s.data.byteLength) as ArrayBuffer,
+        })),
         totalDataBytes: result.totalDataBytes,
         checksumErrors: result.checksumErrors,
         malformedLines: result.malformedLines,
