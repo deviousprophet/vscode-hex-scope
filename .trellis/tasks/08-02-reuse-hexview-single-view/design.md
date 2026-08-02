@@ -69,8 +69,12 @@ interface HexViewRenderInput {
 
 ## 5. Behavior Parity Checklist (single view, must stay — Q10)
 
-- Edit mode (#128): nibble buffer typing, decoded-text (char-column) editing, paste, fill, undo — unchanged; in-place cell mutations (nibble preview, dirty classes) don't get clobbered by renders.
-- Drag selection, shift-click, context menu (address-appropriate), inspector updates, search nav + highlight, record-view switch, `S.lastClickColumn` hex-vs-char copy format.
+- **Cell-state visuals:** per-cell classes as main — byte class, dirty (`S.edits`), integrity stored/range, char `cp`/`cd`, edit-placeholder — fed via `{hex, char, cls}`.
+- **Selection paint:** `.sel` on data+char cells in range, `.row-sel` on row containers, `.sel-col` on header column cells — painted from the `selection` render input (matches main `applySel`).
+- **Column hover:** `.col-hi` on body cells + header — component behavior matches main `initializeColumnHover`.
+- **Search matches:** `.search-row` on the match row — from `matchSet`/`searchRowIndex` input.
+- **Edit mode (#128):** nibble buffer typing, decoded-text (char-column) editing, paste, fill, undo — unchanged; in-place cell mutations (nibble preview, dirty classes) don't get clobbered by renders.
+- Drag selection, shift-click, context menu, inspector updates, search nav, record-view switch, `S.lastClickColumn` hex-vs-char copy format.
 - Gap rows + banners render identically; virtual scroll (uniform + label-aware heights) behaves per spec (no seams, no blank band, no boundary jump).
 - Decoded-text header + column render (single view only).
 
