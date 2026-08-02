@@ -104,3 +104,24 @@ Completed the hexScope.hexDiff custom editor. Locked 8MB large-file design (gril
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Reuse SearchBarComponent in single hex view
+
+**Date**: 2026-08-02
+**Task**: Reuse SearchBarComponent in single hex view
+**Branch**: `feat/reuse-ui-components-single-view`
+
+### Summary
+
+Planned (grill Q1-Q12) and implemented the single hex view adopting the shared SearchBarComponent: optional seed options + onSearch trigger arg, hexViewer host with S-mirroring adapter, Ctrl+Z undo re-homed to host keydown, searchEngine glue injects setCount/setBusy with single-owner searchKeyFor, all search-bar CSS consolidated into searchBarComponent.css, searchControls.ts deleted, component tests moved to src/test/webview/ui-components/. Restructured into parent task 08-02-reuse-ui-components-single-view with children (searchbar done; hex-view pending brainstorm) on branch feat/reuse-ui-components-single-view. Parity ground truth v2.17.1. Verified: compile, lint, 587 tests, fallow 0/0/0. Two-axis code review found 5 smells (key/trigger duplication, DOM boundary leak, state mismatch, minor); all fixed.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9990409` | (see git log) |
+
+### Status
+
+[OK] **Completed**
