@@ -16,7 +16,7 @@ CSS belongs under `src/webview/styles/` for host view styling, **and** under `sr
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |
 
-No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names. (A component's HTML may use inline `style="display:…"` only for runtime display toggles, matching `searchControls.ts` practice.)
+No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names. (A component's HTML may use inline `style="display:…"` only for runtime display toggles, matching the `SearchBarComponent` practice.)
 
 ## Design Tokens
 

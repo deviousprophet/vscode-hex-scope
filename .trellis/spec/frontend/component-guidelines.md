@@ -39,7 +39,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 - Context-menu opening selects only where the explicit feature contract requires it; struct rows intentionally do not select on menu open.
 - Keyboard paths must reach the same action owner as mouse paths.
 - Large memory rendering stays virtualized through `render/virtualScroll.ts`; never render the entire address space.
-- CSS belongs in the existing feature stylesheet under `src/webview/styles/`.
+- View-feature CSS belongs in the feature stylesheet under `src/webview/styles/`. Reusable UI components own their CSS beside the component under `src/webview/ui-components/<name>/` (e.g. `searchBarComponent.css`) — shared chrome stays in `base.css`.
 
 ## Accessibility
 
