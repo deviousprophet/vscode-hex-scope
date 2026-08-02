@@ -11,33 +11,5 @@
 #memory-view .diff-header { top: 0; }
 
 /* ── Hex byte cell: grid/selection/match classes come from the component
-   css; this view only sets the single-view cursor. ──────────────── */
+    css; this view only sets the single-view cursor. ──────────────── */
 .data-cell { cursor: pointer; }
-
-/* Edited / dirty byte — amber underline */
-.data-cell.dirty, .char-cell.dirty { text-decoration: underline; text-decoration-color: #e5a800; text-underline-offset: 2px; color: #e5a800; }
-
-/* Direct-typing nibble preview outline */
-.data-cell.editing { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-
-.data-cell.integrity-range, .char-cell.integrity-range {
-    background: rgba(70, 140, 255, .24) !important;
-}
-.data-cell.integrity-stored-match, .char-cell.integrity-stored-match {
-    background: rgba(55, 190, 105, .34) !important;
-}
-.data-cell.integrity-stored-mismatch, .char-cell.integrity-stored-mismatch {
-    background: rgba(235, 75, 85, .38) !important;
-}
-.data-cell.integrity-stored-unverified, .char-cell.integrity-stored-unverified {
-    background: rgba(225, 165, 45, .32) !important;
-}
-
-/* Struct field hover highlight */
-.data-cell.struct-h, .char-cell.struct-h {
-    background: rgba(255,200,60,.18) !important;
-    outline: 1px solid rgba(255,200,60,.5);
-}
-/* Array element boundary separator */
-.data-cell.struct-arr-sep { border-left: 2px solid rgba(255,200,60,.8); }
-.char-cell.struct-arr-sep { border-left: 2px solid rgba(255,200,60,.8); }
