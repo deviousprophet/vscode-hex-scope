@@ -2,7 +2,7 @@
 
 ## File Placement
 
-CSS belongs under `src/webview/styles/` for host view styling, **and** under `src/webview/ui-components/<name>/<name>Component.css` for reusable UI components (a component owns its own CSS — see `directory-structure.md`). One file per feature area:
+All CSS belongs under `src/webview/styles/`. One file per feature area:
 
 | File | Content |
 |---|---|
@@ -16,7 +16,7 @@ CSS belongs under `src/webview/styles/` for host view styling, **and** under `sr
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |
 
-No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names. (A component's HTML may use inline `style="display:…"` only for runtime display toggles, matching `searchControls.ts` practice.)
+No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names.
 
 ## Design Tokens
 
@@ -33,7 +33,7 @@ Before adding a new hardcoded color, check if an existing token covers the need.
 ## Selector Patterns
 
 - Prefer `#id` for unique singletons, `.class` for repeatable patterns
-- Avoid `!important`. The only exceptions: overrides in `.scripts-toolbar::before` (suppressing collapsible-triangle inheritance from `.sb-section .sb-hdr::before`), and the hex-view component's selection classes (`.data-cell.sel` etc.) where selection must beat hover during a drag (`hexViewComponent.css`; the cell-design spec requires sel to win — `!important` is the sanctioned mechanism there).
+- Avoid `!important`. The only exception is overrides in `.scripts-toolbar::before` (suppressing collapsible-triangle inheritance from `.sb-section .sb-hdr::before`).
 - Chain selectors no deeper than 3 levels (`.parent .child .grandchild`)
 - Use `--custom-property` scoped to a parent class instead of deep selector chains
 

@@ -3,9 +3,8 @@
   "entry": [
     "src/extension.ts",
     "src/webview/hexViewer.ts",
-    "src/webview/hexDiffViewer.ts",
     "src/test/**/*.test.ts",
-    "src/test/benchmarks/**/*.ts",
+    "src/test/benchmarks/*.ts",
     ".vscode-test.mjs",
     "esbuild.js"
   ],
@@ -14,7 +13,7 @@
     ".opencode/**"
   ],
   "dynamicallyLoaded": [
-    "src/webview/**/*.css",
+    "src/webview/styles/*.css",
     "src/core/scripting/scriptWorker.ts"
   ],
   "usedClassMembers": [

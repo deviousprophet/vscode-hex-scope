@@ -176,8 +176,7 @@
 .segment-item:hover,
 .segment-item:focus-visible { background: rgba(255,255,255,.06); outline: none; }
 .segment-nm  { font-size: 11px; font-weight: 600; }
-.segment-rng,
-.label-rng { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); margin-top: 1px; }
+.segment-rng { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); margin-top: 1px; }
 
 .label-item {
     display: flex; align-items: center; gap: 5px;
@@ -188,6 +187,7 @@
 .label-sw  { width: 3px; height: 28px; border-radius: 2px; flex-shrink: 0; }
 .label-inf { flex: 1; min-width: 0; }
 .label-nm  { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.label-rng { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); margin-top: 1px; }
 
 .label-act {
     cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
