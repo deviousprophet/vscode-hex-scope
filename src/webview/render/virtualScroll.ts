@@ -140,6 +140,19 @@ export function physicalToLogicalScrollForLayout(physicalScrollTop: number, layo
     return ratio * layout.logicalScrollable;
 }
 
+/**
+ * Physical top position (compressed phantom) of the first rendered row.
+ * Anchors the rendered slice to the phantom scale: the exact logical offset
+ * of the slice's first row, scaled to the capped physical height, so the
+ * buffer edge stays aligned across re-renders regardless of row-height
+ * pattern (gaps/banners). Guards an empty/zero-height layout (returns 0;
+ * the non-compressed path renders spacers instead of an absolute window).
+ */
+export function calcCompressedWindowTop(startIdx: number, state: VirtualScrollState, layout: VirtualScrollLayout): number {
+    if (layout.totalHeight <= 0 || layout.physicalHeight <= 0) { return 0; }
+    return (calcRowOffset(startIdx, state) / layout.totalHeight) * layout.physicalHeight;
+}
+
 export function logicalToPhysicalScroll(logicalScrollTop: number, state: VirtualScrollState): number {
     const layout = calcScrollLayout(state);
     if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {

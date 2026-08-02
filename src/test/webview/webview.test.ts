@@ -4,9 +4,10 @@ import { JSDOM } from 'jsdom';
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
 import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
-import { integrityHighlightClass, renderMemBody, scrollTo } from '../../webview/memory/memoryView';
+import { integrityHighlightClass, renderMemBody, scrollTo, buildLabelMap, memoryRowHeight } from '../../webview/memory/memoryView';
 import { rerender } from '../../webview/render/registry';
 import {
+    calcCompressedWindowTop,
     calcRowOffset,
     calcScrollLayout,
     calcTotalHeight,
@@ -380,6 +381,97 @@ suite('virtual scroll metrics', () => {
         assert.strictEqual(logicalToPhysicalScroll(layout.logicalScrollable, state), layout.physicalScrollable);
         assert.strictEqual(physicalToLogicalScroll(layout.physicalScrollable, state), layout.logicalScrollable);
     });
+
+    test('integer row heights produce integral cumulative offsets', () => {
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: 1000,
+            heightVersion: '21:36',
+            getRowHeight: i => i % 3 === 1 ? 36 : 21,
+        };
+        assert.ok(Number.isInteger(calcTotalHeight(state)));
+        assert.ok(Number.isInteger(calcRowOffset(500, state)));
+        assert.strictEqual(calcTotalHeight(state), 667 * 21 + 333 * 36);
+    });
+
+    test('compressed windowTop scales the exact offset of the slice start (uniform rows)', () => {
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: 100,
+            heightVersion: '10',
+            getRowHeight: () => 10,
+        };
+        const layout = calcScrollLayout(state, 500);
+        assert.strictEqual(layout.totalHeight, 1000);
+        assert.strictEqual(layout.physicalHeight, 500);
+        assert.strictEqual(layout.isCompressed, true);
+        assert.strictEqual(calcCompressedWindowTop(0, state, layout), 0);
+        assert.strictEqual(calcCompressedWindowTop(50, state, layout), 250);
+    });
+
+    test('compressed windowTop scales exact cumulative offset for mixed gap/banner rows', () => {
+        const heights = [20, 35, 39, 20];
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: heights.length,
+            heightVersion: 'v1',
+            getRowHeight: i => heights[i],
+        };
+        const layout = calcScrollLayout(state, 57);
+        assert.strictEqual(layout.totalHeight, 114);
+        assert.strictEqual(layout.physicalHeight, 57);
+        assert.ok(Math.abs(calcCompressedWindowTop(3, state, layout) - 47) < 1e-9);
+    });
+
+    test('compressed windowTop guards a zero-height layout', () => {
+        const state: VirtualScrollState = {
+            containerHeight: 100,
+            scrollTop: 0,
+            bufferSize: 10,
+            visibleRowIndices: [0, 0],
+            rowCount: 0,
+            heightVersion: 'v1',
+            getRowHeight: () => 10,
+        };
+        const layout = calcScrollLayout(state);
+        assert.strictEqual(calcCompressedWindowTop(0, state, layout), 0);
+    });
+});
+
+suite('memory row heights (label-aware)', () => {
+    setup(resetState);
+
+    test('data row with a label adds banner height; adjacent data and gap rows unchanged', () => {
+        S.memRows = [
+            { type: 'data', address: 0x0000 },
+            { type: 'data', address: 0x0010 },
+            { type: 'gap', from: 0x0020, to: 0x003F, bytes: 0x20 },
+        ];
+        S.labels = [{ id: 'l1', name: 'seg', startAddress: 0x0000, length: 16, color: '#fff' }];
+        const labelMap = buildLabelMap();
+        assert.strictEqual(memoryRowHeight(0, 20, 30, 19, labelMap), 39);
+        assert.strictEqual(memoryRowHeight(1, 20, 30, 19, labelMap), 20);
+        assert.strictEqual(memoryRowHeight(2, 20, 30, 19, labelMap), 30);
+    });
+
+    test('hidden labels do not contribute banner height', () => {
+        S.memRows = [{ type: 'data', address: 0x0000 }];
+        S.labels = [
+            { id: 'shown', name: 'shown', startAddress: 0x0000, length: 16, color: '#fff' },
+            { id: 'hidden', name: 'hidden', startAddress: 0x0000, length: 16, color: '#fff', hidden: true },
+        ];
+        const labelMap = buildLabelMap();
+        assert.strictEqual(memoryRowHeight(0, 20, 30, 19, labelMap), 39);
+    });
 });
 
 suite('Memory View rerender stability', () => {
@@ -388,8 +480,10 @@ suite('Memory View rerender stability', () => {
     setup(() => {
         resetState();
         dom = installWebviewDom(`<!doctype html><html style="--vscode-editor-font-size:12.5px"><body>
+            <div id="memory-view">
             <div id="mem-header"></div>
             <div id="mem-scroll"><div id="mem-rows"></div></div>
+            </div>
         </body></html>`);
         Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
             value: 600,
@@ -398,6 +492,27 @@ suite('Memory View rerender stability', () => {
     });
 
     teardown(() => cleanupWebviewDom(dom));
+
+    test('overrides --cell-size with an integer pixel value derived from the editor font', () => {
+        const byteCount = 4096;
+        S.parseResult = {
+            records: [],
+            recordCount: 0,
+            segments: [{ startAddress: 0, data: new Uint8Array(byteCount) }],
+            totalDataBytes: byteCount,
+            checksumErrors: 0,
+            malformedLines: 0,
+            format: 'ihex',
+        };
+        initFlatBytes();
+        buildMemRows();
+        renderMemBody(() => {}, () => {});
+        // setup installs --vscode-editor-font-size:12.5px → Math.round(20) = 20.
+        // Override is scoped to #memory-view so the diff/hex-view grids keep the global token.
+        const memoryView = document.getElementById('memory-view');
+        assert.ok(memoryView);
+        assert.strictEqual(memoryView.style.getPropertyValue('--cell-size'), '20px');
+    });
 
     test('preserves compressed scroll address when labels are added or deleted', () => {
         const byteCount = 13 * 1024 * 1024;

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/memory-navigation.md", "reason": "Virtual scroll contracts: buffered render, compressed physical-height cap, rerender preserves logical position across label/height changes"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "DOM rendering pattern, listener wiring, virtualization constraints"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "CSS custom properties/design tokens — --cell-size override source"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test placement + required checks (compile/lint/test/fallow)"}

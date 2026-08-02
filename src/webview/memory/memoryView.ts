@@ -11,6 +11,7 @@ import {
     calcVisibleRange,
     calcTotalHeight,
     calcRowOffset,
+    calcCompressedWindowTop,
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollLayout,
@@ -34,6 +35,7 @@ interface MemoryInteractionCallbacks {
 const VIRTUAL_SCROLL_CONFIG = {
     fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
     fallbackGapHeight: 35.2,  // CSS fallback: row * 1.5 + 2px vertical margins
+    fallbackBannerHeight: 19, // .seg-banner probe fallback (name + meta two-line row)
     bufferSize: 10,           // render 10 rows above/below viewport
 };
 
@@ -65,43 +67,109 @@ function measureCssHeight(scrollContainer: HTMLElement, cssHeight: string, fallb
     return height > 0 ? height : fallback;
 }
 
-function getVirtualScrollMetrics(scrollContainer: HTMLElement): { rowHeight: number; gapHeight: number } {
+// .seg-banner height is font-driven (11px text + 2px padding); measure once,
+// like getRecordRowHeight, and cache it — stable for the lifetime of a session.
+let cachedBannerHeight: number | null = null;
+
+function measureSegBannerHeight(scrollContainer: HTMLElement): number {
+    if (cachedBannerHeight !== null) { return cachedBannerHeight; }
+    const probe = document.createElement('div');
+    probe.className = 'seg-banner';
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.pointerEvents = 'none';
+    probe.style.width = '0';
+    const name = document.createElement('span');
+    name.className = 'sb-name';
+    name.textContent = 'Label';
+    probe.appendChild(name);
+    const meta = document.createElement('span');
+    meta.className = 'sb-meta';
+    meta.textContent = '0x00000000  0 B';
+    probe.appendChild(meta);
+    scrollContainer.appendChild(probe);
+    const height = parsePx(getComputedStyle(probe).height) ?? probe.getBoundingClientRect().height;
+    probe.remove();
+    cachedBannerHeight = height > 0 ? height : VIRTUAL_SCROLL_CONFIG.fallbackBannerHeight;
+    return cachedBannerHeight;
+}
+
+function getVirtualScrollMetrics(scrollContainer: HTMLElement): { rowHeight: number; gapHeight: number; bannerHeight: number } {
     const rootStyle = getComputedStyle(document.documentElement);
     const editorFontSize = parsePx(rootStyle.getPropertyValue('--vscode-editor-font-size'));
 
+    let rowHeight: number;
+    let gapHeight: number;
     if (editorFontSize !== null) {
-        const rowHeight = editorFontSize * 1.6;
-        return {
-            rowHeight,
-            gapHeight: rowHeight * 1.5 + 4,
-        };
+        // Integer geometry at the source: fractional row heights accumulate
+        // sub-pixel offsets that paint as hairline seams between rows.
+        rowHeight = Math.round(editorFontSize * 1.6);
+        gapHeight = Math.round(rowHeight * 1.5) + 4;
+    } else {
+        // Fallback measurement path: keep the value CSS actually renders
+        // (rounding here would mis-model the real DOM height).
+        rowHeight = measureCssHeight(scrollContainer, 'var(--cell-size)', VIRTUAL_SCROLL_CONFIG.fallbackRowHeight);
+        gapHeight = measureCssHeight(scrollContainer, 'calc(var(--cell-size) * 1.5)', rowHeight * 1.5) + 4;
     }
-
-    const rowHeight = measureCssHeight(scrollContainer, 'var(--cell-size)', VIRTUAL_SCROLL_CONFIG.fallbackRowHeight);
-    const gapBoxHeight = measureCssHeight(scrollContainer, 'calc(var(--cell-size) * 1.5)', rowHeight * 1.5);
-    return {
-        rowHeight,
-        gapHeight: gapBoxHeight + 4,
-    };
+    const bannerHeight = measureSegBannerHeight(scrollContainer);
+    return { rowHeight, gapHeight, bannerHeight };
 }
 
-function virtualScrollHeightVersion(rowHeight: number, gapHeight: number): string {
-    return `${rowHeight.toFixed(3)}:${gapHeight.toFixed(3)}`;
+function applyCellSizeOverride(rowHeight: number): void {
+    const cellSize = `${rowHeight}px`;
+    const target = document.getElementById('memory-view');
+    if (!target) { return; }
+    if (target.style.getPropertyValue('--cell-size') !== cellSize) {
+        target.style.setProperty('--cell-size', cellSize);
+    }
 }
 
-function memoryRowHeight(rowIndex: number, rowHeight: number, gapHeight: number): number {
-    return S.memRows[rowIndex]?.type === 'gap' ? gapHeight : rowHeight;
+function labelSignature(labelMap: Map<number, typeof S.labels>): string {
+    let sum = 0;
+    for (const k of labelMap.keys()) { sum += k; }
+    return `${labelMap.size}:${sum}`;
 }
 
-function memoryRowHeightGetter(rowHeight: number, gapHeight: number): (rowIndex: number) => number {
-    return rowIndex => memoryRowHeight(rowIndex, rowHeight, gapHeight);
+function virtualScrollHeightVersion(rowHeight: number, gapHeight: number, bannerHeight: number, labels: string): string {
+    return `${rowHeight.toFixed(3)}:${gapHeight.toFixed(3)}:${bannerHeight.toFixed(3)}:${labels}`;
+}
+
+/**
+ * Height a rendered memory row occupies. A data row carrying segment labels
+ * also renders one .seg-banner per label above it, so the phantom height
+ * metric must include those banners or scroll layout under/over-estimates
+ * wherever a banner sits.
+ */
+export function memoryRowHeight(
+    rowIndex: number,
+    rowHeight: number,
+    gapHeight: number,
+    bannerHeight: number,
+    labelMap: Map<number, typeof S.labels>,
+): number {
+    const row = S.memRows[rowIndex];
+    if (!row) { return rowHeight; }
+    if (row.type === 'gap') { return gapHeight; }
+    const labels = labelMap.get(row.address);
+    return rowHeight + (labels ? labels.length * bannerHeight : 0);
+}
+
+function memoryRowHeightGetter(
+    rowHeight: number,
+    gapHeight: number,
+    bannerHeight: number,
+    labelMap: Map<number, typeof S.labels>,
+): (rowIndex: number) => number {
+    return rowIndex => memoryRowHeight(rowIndex, rowHeight, gapHeight, bannerHeight, labelMap);
 }
 
 function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     if (!vscrollState) { return; }
-    const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
+    const { rowHeight, gapHeight, bannerHeight } = getVirtualScrollMetrics(scrollContainer);
+    applyCellSizeOverride(rowHeight);
     const containerHeight = scrollContainer.clientHeight;
-    const heightVersion = virtualScrollHeightVersion(rowHeight, gapHeight);
+    const labelMap = buildLabelMap();
+    const heightVersion = virtualScrollHeightVersion(rowHeight, gapHeight, bannerHeight, labelSignature(labelMap));
     const unchanged = [
         vscrollState.heightVersion === heightVersion,
         vscrollState.containerHeight === containerHeight,
@@ -112,7 +180,7 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     vscrollState.containerHeight = containerHeight;
     vscrollState.rowCount = S.memRows.length;
     vscrollState.heightVersion = heightVersion;
-    vscrollState.getRowHeight = memoryRowHeightGetter(rowHeight, gapHeight);
+    vscrollState.getRowHeight = memoryRowHeightGetter(rowHeight, gapHeight, bannerHeight, labelMap);
     vscrollRenderedRange = [-1, -1];
 }
 
@@ -148,11 +216,11 @@ function renderVisibleRows(): void {
     vscrollRenderedRange = [startIdx, endIdx];
 
     const labelMap = buildLabelMap();
-    const topOffset = calcRowOffset(startIdx, vscrollState);
     const parts = buildVisibleRowsHtml(startIdx, endIdx, labelMap, vscrollState, !layout.isCompressed);
 
     applyVisibleRowsContainerLayout(container, layout);
-    container.innerHTML = visibleRowsHtml(parts, layout.isCompressed, scrollContainer.scrollTop, topOffset, vscrollState.scrollTop);
+    const windowTop = layout.isCompressed ? calcCompressedWindowTop(startIdx, vscrollState, layout) : 0;
+    container.innerHTML = visibleRowsHtml(parts, layout.isCompressed, windowTop);
 
     attachMemoryCellHandlers(container, getMemoryInteractionCallbacks(scrollContainer));
     refreshMemoryHighlights();
@@ -172,9 +240,8 @@ function applyVisibleRowsContainerLayout(container: HTMLElement, layout: ReturnT
     container.style.height = '';
 }
 
-function visibleRowsHtml(parts: string[], compressed: boolean, physicalScrollTop: number, topOffset: number, virtualScrollTop: number): string {
+function visibleRowsHtml(parts: string[], compressed: boolean, windowTop: number): string {
     if (!compressed) { return parts.join(''); }
-    const windowTop = physicalScrollTop + topOffset - virtualScrollTop;
     return `<div style="position:absolute;top:${windowTop}px;left:0;width:max-content;min-width:100%">${parts.join('')}</div>`;
 }
 
@@ -290,7 +357,9 @@ function refreshMemoryHighlights(): void {
 }
 
 function initializeMemoryScrollState(scrollContainer: MemoryScrollElement): void {
-    const { rowHeight, gapHeight } = getVirtualScrollMetrics(scrollContainer);
+    const { rowHeight, gapHeight, bannerHeight } = getVirtualScrollMetrics(scrollContainer);
+    applyCellSizeOverride(rowHeight);
+    const labelMap = buildLabelMap();
     const logicalScrollTop = vscrollState && vscrollContainer === scrollContainer
         ? physicalToLogicalScroll(scrollContainer.scrollTop, vscrollState)
         : scrollContainer.scrollTop;
@@ -300,8 +369,8 @@ function initializeMemoryScrollState(scrollContainer: MemoryScrollElement): void
         bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
         visibleRowIndices: [0, 0],
         rowCount: S.memRows.length,
-        heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight),
-        getRowHeight: memoryRowHeightGetter(rowHeight, gapHeight),
+        heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight, bannerHeight, labelSignature(labelMap)),
+        getRowHeight: memoryRowHeightGetter(rowHeight, gapHeight, bannerHeight, labelMap),
     };
     vscrollContainer = scrollContainer;
     const layout = calcScrollLayout(vscrollState);
@@ -712,7 +781,7 @@ function findRowIndex(rowBase: number): number {
 
 //  Label map 
 
-function buildLabelMap(): Map<number, typeof S.labels> {
+export function buildLabelMap(): Map<number, typeof S.labels> {
     const m = new Map<number, typeof S.labels>();
     for (const lbl of S.labels) {
         if (lbl.hidden) { continue; }
