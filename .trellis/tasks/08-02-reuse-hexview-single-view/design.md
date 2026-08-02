@@ -22,6 +22,27 @@ Task: `08-02-reuse-hexview-single-view` · Branch: `feat/reuse-ui-components-sin
 - Host owns: virtual scroll (slice + position), editing, drag, context menu, inspector, search, record switch, `S` state.
 - Component renders the rows array it is given — never computes scroll; host feeds slice + `windowTop`/spacers.
 
+## 1a. Cross-view Architecture Parity (R11)
+
+Both views converge on one shape so their file/function/var naming and folder structure match:
+
+```text
+src/webview/
+├── hexViewer.ts                composition root (single view)
+├── hexDiffViewer.ts            composition root (diff view)   <- refactor toward split
+├── memory/                     single-view grid host modules (memoryView, drag, selection...)
+├── diff/                       diff host modules (diffViewModel already pure; add view host split)
+├── render/                     shared: virtualScroll.ts, registry.ts
+└── ui-components/              shared components (hex-view/, search-bar/)
+```
+
+Target invariants:
+- Same component wiring: host -> `virtualScroll` (slice + position) -> `HexViewComponent` render input; host keeps logic, component owns markup/CSS/intents.
+- Same naming conventions: e.g. `renderMemBody`/`renderScroll` mirror, `initSearchUi`/host-adapter pattern, `S`-equivalent per-view state object.
+- Both diff and single view expose the same seams (host state, model layer, render layer) even if a view is thinner.
+
+The concrete split for the diff host (one file today) is open — see grill.
+
 ## 2. Row Model (Phase 1 — generalize)
 
 ```typescript

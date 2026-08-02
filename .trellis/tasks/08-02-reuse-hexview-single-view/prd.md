@@ -26,6 +26,7 @@ Make `HexViewComponent` the shared, virtualization-agnostic grid renderer for BO
 - R8. **Search match highlight via render input** (host computes the match set; component paints), consistent with the component's existing `matchSet`/`searchRowIndex` inputs.
 - R9. `hex-view-component.test.ts` moves to `src/test/webview/ui-components/` (parent cross-child C1).
 - R10. Virtual-scroll contracts follow the dedicated `frontend/virtual-scroll.md` spec (anchor invariant, logical-position preservation).
+- R11. **Architecture + naming parity across the two views.** The single view and the diff view must have SIMILAR architecture, and consistent file/function/variable naming and folder structure. Both host the same component the same way (component + `virtualScroll` + host logic); whichever view diverges (today the diff host is a single large file vs the single view's split modules) is refactored to mirror the shared pattern. Rationale: one mental model, cheaper future changes, symmetric maintenance. (Concrete target shape TBD by grill — see design §1a.)
 
 ## Acceptance Criteria
 
