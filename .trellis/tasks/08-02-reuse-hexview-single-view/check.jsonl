@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/virtual-scroll.md", "reason": "Verify both hosts follow anchor invariant + logical-position preservation"}
+{"file": ".trellis/spec/frontend/hex-view-component.md", "reason": "Verify generalized API + diff visual unchanged"}
+{"file": ".trellis/spec/frontend/memory-navigation.md", "reason": "Verify single-view parity: selection, labels, virtual scroll"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Verify edit mode (#128) UX preserved after re-anchoring to component cells"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify gates: compile, lint, test, fallow 0/0/0"}

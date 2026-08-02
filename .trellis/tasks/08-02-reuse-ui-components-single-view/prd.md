@@ -19,7 +19,7 @@ Parent task. Adopt the reusable UI components (built for the diff view) as the s
 - C1. Component tests live in `src/test/webview/ui-components/` (isolated from view/model tests). Test glob `out/test/**/*.test.js` is recursive — subfolder is safe.
 - C2. Each component owns its own CSS (`ui-components/*/<name>Component.css`); shared non-component chrome stays in `base.css`; host-specific rules stay host-side.
 - C3. `S` (single-view state) stays the single source for host-derived values; components never write `S` directly (seed + callbacks only).
-- C4. Diff view behavior unchanged by both children.
+- C4. Diff view user-facing behavior unchanged by both children (search-bar swap; hex-view virtualization is internal performance work, visuals preserved).
 
 ## Acceptance Criteria
 

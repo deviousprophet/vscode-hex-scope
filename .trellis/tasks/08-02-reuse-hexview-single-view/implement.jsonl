@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/virtual-scroll.md", "reason": "Virtual-scroll contracts both hosts must follow (anchor invariant, logical-position preservation)"}
+{"file": ".trellis/spec/frontend/hex-view-component.md", "reason": "Component API being generalized; diff behavior + CSS ownership"}
+{"file": ".trellis/spec/frontend/memory-navigation.md", "reason": "Single-view memory grid, labels, selection contracts being re-homed into the component"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Edit mode (#128) must stay behavior-preserving; host edit listeners re-anchor to component cells"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "DOM rendering pattern, virtualization constraints, CSS ownership"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test placement + required gates"}
