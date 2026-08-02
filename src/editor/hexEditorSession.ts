@@ -751,6 +751,10 @@ export class HexEditorSession {
             'src/webview/styles/layout.css',
             'src/webview/styles/sidebar.css',
             'src/webview/styles/record-view.css',
+            // The hex-grid component owns the shared grid styles (gap/banner/
+            // char/selection); loaded before memory-view.css so the single-view
+            // remaining !important rules (match/sel.match) keep priority.
+            'src/webview/ui-components/hex-view/hexViewComponent.css',
             'src/webview/styles/memory-view.css',
             'src/webview/styles/context-menu.css',
             'src/webview/styles/struct.css',

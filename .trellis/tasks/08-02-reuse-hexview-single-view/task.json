@@ -3,7 +3,7 @@
   "name": "reuse-hexview-single-view",
   "title": "Reuse HexViewComponent in single hex view",
   "description": "Child task: adopt the reusable HexViewComponent (built for the diff view) as the single-file hex editor's memory grid — interaction layer and/or full grid rebuild (previously scope B/C of reuse-searchbar-single-view). Needs its own brainstorm before design/implement. Owns the hex-view-component.test.ts move to src/test/webview/ui-components/.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

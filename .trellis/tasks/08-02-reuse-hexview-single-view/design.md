@@ -41,7 +41,7 @@ Target invariants:
 - Same naming conventions: e.g. `renderMemBody`/`renderScroll` mirror, `initSearchUi`/host-adapter pattern, `S`-equivalent per-view state object.
 - Both diff and single view expose the same seams (host state, model layer, render layer) even if a view is thinner.
 
-The concrete split for the diff host (one file today) is open — see grill.
+The concrete split (Q11 = Option A): refactor `hexDiffViewer.ts` into a thin composition root (mirrors `hexViewer.ts`) + `src/webview/diff/diffView.ts` (grid render + interaction host, mirrors `memoryView.ts`). Keep `diff/diffViewModel.ts` (pure model) and `diff/diffRenderer.ts`. Naming mirrors the single view: `renderDiffBody` ~ `renderMemBody`, `diffScrollState` ~ `vscrollState`, `initDiffUi` ~ `initSearchUi`. Same component wiring: host -> `virtualScroll` -> `HexViewComponent` render input.
 
 ## 2. Row Model (Phase 1 — generalize)
 

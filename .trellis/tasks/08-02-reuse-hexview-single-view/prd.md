@@ -60,4 +60,5 @@ Make `HexViewComponent` the shared, virtualization-agnostic grid renderer for BO
 | Q8 | Diff: **one shared virtualScroll** state, uniform `DIFF_ROW_HEIGHT`, viewMode filter before slicing |
 | Q9 | **ASCII column in component** — decoded-text header + char cells, `showChar` flag; diff off (unchanged); host feeds char text/classes |
 | Q10 | **Hard parity** — behavior-preserving adoption, #128 edit mode identical UX, host-compatible cell markup |
+| Q11 | **Architecture parity = Option A** — split the diff host to mirror the single view: `hexDiffViewer.ts` thin composition root + `diff/diffView.ts` render/interaction host (mirrors `memoryView`), keep `diffViewModel` (pure) + `diffRenderer`; same naming (`renderDiffBody` mirrors `renderMemBody`) |
 | — | Single-view header replaced by component header (incl. decoded-text label); host horizontal scroll-sync adapts |

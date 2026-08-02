@@ -30,6 +30,19 @@
 }
 .diff-header .side .hcell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 
+/* ── Decoded-text column header (single view; diff passes showChar=false) ─ */
+.diff-header .side-char {
+    border-left: 2px solid rgba(255,255,255,.18);
+    border-right: 2px solid rgba(255,255,255,.18);
+    margin-left: calc(var(--cell-pad) * 1.5);
+}
+.diff-header .hcell.hcell-decoded {
+    /* 16 chars plus 3 inter-group gaps (after 4, 8, 12) to match .char-cell layout */
+    width: calc((var(--text-cell-width) * 16) + (var(--text-cell-width) * 0.3 * 3));
+    text-align: left;
+    color: var(--addr-active-fg);
+}
+
 /* ── Data body: rows absolute-positioned for virtual scroll ───── */
 .diff-component .diff-body { position: relative; }
 
@@ -56,7 +69,8 @@
 .diff-header .addr { visibility: hidden; }
 .diff-row:hover .addr { color: var(--addr-active-fg); }
 /* selected rows highlight their address gutter (single-view .row-sel) */
-.diff-row.row-sel .addr {
+.diff-row.row-sel .addr,
+.data-row.row-sel .addr-cell {
     color: var(--fg);
     background: rgba(255,255,255,.07);
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
@@ -66,6 +80,18 @@
 .side { display: inline-flex; align-items: center; padding: 0 var(--cell-pad); }
 .side .data-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--cell-size) * 0.4); }
 .data-cell { cursor: default; }
+
+/* ── Decoded-text char cells (showChar host; single-view parity) ──────── */
+.char-cell {
+    font-family: var(--font-editor); font-size: var(--font-size);
+    width: var(--text-cell-width); height: var(--cell-size); line-height: var(--cell-size);
+    text-align: center; display: inline-block; border-radius: 2px;
+    user-select: none; cursor: pointer;
+}
+.char-cell.cp { color: var(--fg); }
+.char-cell.cd { color: var(--non-graphic); cursor: default; }
+.char-cell.cd.edit-placeholder { opacity: 0.25; cursor: pointer; }
+.side-char .char-cell:nth-child(4n+1):not(:first-child) { margin-left: calc(var(--text-cell-width) * 0.3); }
 
 /* ── Byte-cell component design ──────────────────────────────── */
 /* Value/status classes (single-view naming): bn/bz/bp/bh/be/bd.  */
@@ -87,11 +113,12 @@
 /* Column hover: faint white on normal, faint red tint on diff */
 .col-hi { background: rgba(255,255,255,.06); }
 .data-cell.bd.col-hi { background: rgba(255,90,90,.14); }
-.diff-header .hcell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
+.diff-header .hcell.col-hi,
+#mem-header .data-cell.col-hi { background: rgba(255,255,255,.08); color: var(--fg) !important; }
 
 /* Selection: bn-style fill; diff keeps red text. `!important` so hover
    never overwrites the selection during drag (single-view parity). */
-.data-cell.sel { background: var(--sel-bg) !important; color: var(--sel-fg, var(--fg)); outline: none; }
+.data-cell.sel, .char-cell.sel { background: var(--sel-bg) !important; color: var(--sel-fg, var(--fg)); outline: none; }
 .data-cell.bd.sel { background: var(--sel-bg) !important; color: #ff6b6b; }
 /* cross-panel selection → dashed outline (host paints it) */
 .data-cell.sel-mirror { outline: 1px dashed rgba(95,207,255,.5); outline-offset: -1px; }
@@ -104,7 +131,8 @@
 .data-cell.bd.sel.match { color: #ff6b6b; }
 
 /* Selected columns highlight in the header (single-view .sel-col) */
-.diff-header .hcell.sel-col {
+.diff-header .hcell.sel-col,
+#mem-header .data-cell.sel-col {
     background: rgba(255,255,255,.07);
     color: var(--fg) !important;
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
@@ -114,3 +142,29 @@
 .side.panel-error { opacity: .45; }
 .side.panel-error .data-cell { background: transparent; }
 .side.search-row { box-shadow: inset 0 0 0 1px rgba(95,207,255,.9); border-radius: 2px; }
+
+/* ── Gap rows (single-view .gap-row; diff hosts never render them) ─── */
+.gap-row {
+    display: flex; align-items: center; padding: 0 10px;
+    height: calc(var(--cell-size) * 1.5); margin: 2px 0;
+    background: var(--gap-color);
+    border-top: 1px dashed var(--gap-bdr); border-bottom: 1px dashed var(--gap-bdr);
+    border-radius: 3px;
+    user-select: none; white-space: nowrap;
+}
+/* In the component the host positions rows absolutely; the single-view
+   flow margins do not apply. */
+.diff-body .gap-row { position: absolute; left: 0; right: 0; margin: 0; }
+.gap-dots  { font-family: var(--font-editor); color: var(--gap-bdr); margin-right: 10px; letter-spacing: 4px; }
+.gap-range { font-family: var(--font-editor); font-size: var(--font-size); color: var(--addr-fg); }
+.gap-size  { font-size: 11px; color: var(--non-graphic); margin-left: 10px; }
+
+/* ── Segment label banners (single-view labels, above the data row) ─── */
+.seg-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 10px 2px calc(var(--cell-pad) + 6px);
+    border-left: 3px solid;
+    user-select: none;
+}
+.seg-banner .sb-name { font-size: 11px; font-weight: 700; }
+.seg-banner .sb-meta { font-family: var(--font-editor); font-size: 10px; opacity: .65; }

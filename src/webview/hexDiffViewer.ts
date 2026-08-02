@@ -26,7 +26,7 @@ import {
     type DiffVisualRow,
 } from './diff/diffViewModel';
 import { renderDiffSummaryHtml, type DiffSummaryState } from './diff/diffRenderer';
-import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewRange } from './ui-components/hex-view/hexViewComponent';
+import { HexViewComponent, renderHexViewComponentHtml, type HexViewCallbacks, type HexViewCell, type HexViewRange, type HexViewRow } from './ui-components/hex-view/hexViewComponent';
 import { SearchBarComponent } from './ui-components/search-bar/searchBarComponent';
 
 // ── State ─────────────────────────────────────────────────────────
@@ -131,6 +131,31 @@ function errorBannersHtml(): string {
     return parts.length ? `<div class="diff-errors">${parts.join('')}</div>` : '';
 }
 
+// ── Component row mapping (DiffVisualRow -> HexViewRow) ────────────────
+
+/** Status -> byte-cell class (diff collapse: all differences -> bd). */
+const STATUS_CLASS: Record<string, string> = {
+    unchanged: 'bn',
+    empty: 'be',
+    changed: 'bd',
+    added: 'bd',
+    removed: 'bd',
+};
+
+/** Map one diff window to the component's host-agnostic row for one side. */
+function toHexViewRow(vr: DiffVisualRow, side: 'a' | 'b'): HexViewRow {
+    const cells: HexViewCell[] = [];
+    for (let j = 0; j < DIFF_ROW_BYTES; j++) {
+        const cell = vr[side][j];
+        cells.push({
+            hex: cell && cell.present ? cell.byte.toString(16).toUpperCase().padStart(2, '0') : '··',
+            char: '',
+            cls: STATUS_CLASS[vr.statuses[j]] ?? vr.statuses[j],
+        });
+    }
+    return { address: vr.baseAddress, kind: 'data', cells };
+}
+
 function isEmptyDiffMode(rows: DiffLightRow[]): boolean {
     return viewMode === 'diff' && rows.length === 0;
 }
@@ -153,17 +178,17 @@ function renderScroll(): void {
     for (let i = range[0]; i < range[1]; i++) {
         windowRows.push(diffCellWindow(aResult, aIndex, bResult, bIndex, rows[i].baseAddress));
     }
-    const input = {
-        rows: windowRows,
+    const base = {
         rowOffset: range[0],
         searchRowIndex,
         matchSet,
         totalHeight,
+        showChar: false,
     };
     scrollEl.innerHTML = `<div class="diff-grid">
-        ${renderHexViewComponentHtml('a', { ...input, label: aLabel, error: aError })}
+        ${renderHexViewComponentHtml('a', { ...base, label: aLabel, error: aError, rows: windowRows.map(vr => toHexViewRow(vr, 'a')), selection: selectionFor('a') })}
         <span class="diff-sep"></span>
-        ${renderHexViewComponentHtml('b', { ...input, label: bLabel, error: bError })}
+        ${renderHexViewComponentHtml('b', { ...base, label: bLabel, error: bError, rows: windowRows.map(vr => toHexViewRow(vr, 'b')), selection: selectionFor('b') })}
     </div>`;
     scrollEl.scrollTop = scrollTop;
     compA.reapply();
@@ -408,12 +433,16 @@ function isBlankScrollClick(target: EventTarget | null): boolean {
     return t.closest?.('#diff-scroll') !== null && t.closest?.('.data-cell') === null;
 }
 
+/** Selection range to paint in one panel (only the owning side paints `.sel`). */
+function selectionFor(side: 'a' | 'b'): HexViewRange | null {
+    return selection && selection.side === side ? { start: selection.start, end: selection.end } : null;
+}
+
 function clearAllSelection(): void {
-    compA.setSelection(null);
-    compB.setSelection(null);
     selection = null;
     compA.setMirrorRange(null);
     compB.setMirrorRange(null);
+    rerender();
 }
 
 function wireComponents(): void {
@@ -425,9 +454,10 @@ function wireComponents(): void {
             selection = range ? { side: from === compA ? 'a' : 'b', start: range.start, end: range.end } : null;
             // Single-active selection: the other component clears its own,
             // and this side drops its own mirror (it now holds the selection).
-            to.setSelection(null);
+            // The owning side's `.sel` paint comes from the render input.
             to.setMirrorRange(range);
             from.setMirrorRange(null);
+            rerender();
         },
         onColumnHover: col => to.setColumn(col),
         onColumnLeave: () => to.setColumn(-1),

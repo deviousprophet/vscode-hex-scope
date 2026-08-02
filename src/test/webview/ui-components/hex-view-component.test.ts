@@ -1,29 +1,42 @@
-// jsdom-driven tests for HexViewComponent interaction (hover, selection, column).
+// jsdom-driven tests for the generalized HexViewComponent interaction
+// (hover, drag-selection reporting, column hover, copy) + render-input
+// painting (selection, match) and the host-agnostic row model (gap/banner/
+// showChar). Selection is painted from the render input; the component only
+// reports user changes via onSelectionChange.
 
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import { diffCellWindow } from '../../core/diff';
-import type { SerializedParseResult } from '../../core/types';
-import { buildSegmentIndex } from '../../core/memory';
-import { HexViewComponent, renderHexViewComponentHtml } from '../../webview/ui-components/hex-view/hexViewComponent';
+import {
+    HexViewComponent,
+    renderHexViewComponentHtml,
+    type HexViewCell,
+    type HexViewRange,
+    type HexViewRenderInput,
+    type HexViewRow,
+} from '../../../webview/ui-components/hex-view/hexViewComponent';
 
-function seg(startAddress: number, bytes: number[]): { startAddress: number; data: Uint8Array } {
-    return { startAddress, data: Uint8Array.from(bytes) };
-}
-
-function serialized(segments: Array<{ startAddress: number; data: Uint8Array }>): SerializedParseResult {
+/** One data row with BPR-aligned cells; null bytes become empty (`be`) cells. */
+function dataRow(address: number, bytes: Array<number | null>): HexViewRow {
     return {
-        records: [],
-        segments,
-        totalDataBytes: segments.reduce((n, s) => n + s.data.length, 0),
-        checksumErrors: 0,
-        malformedLines: 0,
-        format: 'ihex',
+        address,
+        kind: 'data',
+        cells: bytes.map<HexViewCell>(b => b === null
+            ? { hex: '··', char: ' ', cls: 'be' }
+            : { hex: b.toString(16).toUpperCase().padStart(2, '0'), char: String.fromCharCode(b), cls: 'bn' }),
     };
 }
 
-function windowRowFor(a: SerializedParseResult, b: SerializedParseResult, baseAddress: number): ReturnType<typeof diffCellWindow> {
-    return diffCellWindow(a, buildSegmentIndex(a), b, buildSegmentIndex(b), baseAddress);
+function input(rows: readonly HexViewRow[], overrides: Partial<HexViewRenderInput> = {}): HexViewRenderInput {
+    return {
+        label: 'file.hex',
+        rows,
+        rowOffset: 0,
+        searchRowIndex: -1,
+        matchSet: new Set<number>(),
+        error: null,
+        totalHeight: 22,
+        ...overrides,
+    };
 }
 
 let dom: JSDOM;
@@ -41,18 +54,8 @@ function setupDom(): void {
 }
 
 function mountComponent(side: 'a' | 'b' = 'a'): HexViewComponent {
-    const a = serialized([seg(0x1000, [1, 2, 3, 4])]);
-    const b = serialized([seg(0x1000, [1, 2, 3, 4])]);
-    const rows = [windowRowFor(a, b, 0x1000)];
-    dom.window.document.body.innerHTML = renderHexViewComponentHtml(side, {
-        label: 'file.hex',
-        rows,
-        rowOffset: 0,
-        searchRowIndex: -1,
-        matchSet: new Set(),
-        error: null,
-        totalHeight: 22,
-    });
+    const rows = [dataRow(0x1000, [1, 2, 3, 4, null])];
+    dom.window.document.body.innerHTML = renderHexViewComponentHtml(side, input(rows));
     const comp = new HexViewComponent(side);
     comp.mount();
     return comp;
@@ -125,30 +128,21 @@ suite('hex view component interaction', () => {
         });
     });
 
-    test('mousedown selects a byte and fires onSelectionChange; drag extends', () => {
+    test('mousedown reports onSelectionChange; drag extends; no internal sel paint', () => {
         setupDom();
         const comp = mountComponent();
-        let range: { start: number; end: number } | null = null;
+        let range: HexViewRange | null = null;
         comp.setCallbacks({ onSelectionChange: r => { range = r; } });
 
         cellAt(0x1000).dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
-        assert.deepStrictEqual(range, { start: 0x1000, end: 0x1000 }, 'single click selects one byte');
-        assert.ok(cellAt(0x1000).classList.contains('sel'), 'selected cell carries sel');
+        assert.deepStrictEqual(range, { start: 0x1000, end: 0x1000 }, 'single click reports one byte');
 
         cellAt(0x1003).dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
-        assert.deepStrictEqual(range, { start: 0x1000, end: 0x1003 }, 'drag extends the range');
-        [0x1000, 0x1001, 0x1002, 0x1003].forEach(a => {
-            assert.ok(cellAt(a).classList.contains('sel'), `0x${a.toString(16)} selected`);
-        });
+        assert.deepStrictEqual(range, { start: 0x1000, end: 0x1003 }, 'drag extends the reported range');
 
-        // single-view parity: selected row + selected header columns
-        const row = cellAt(0x1000).closest('.diff-row');
-        assert.ok(row?.classList.contains('row-sel'), 'selected row carries row-sel');
-        [0, 1, 2, 3].forEach(col => {
-            const hcell = dom.window.document.querySelector<HTMLElement>(`.diff-header .hcell[data-col="${col}"]`);
-            assert.ok(hcell?.classList.contains('sel-col'), `header column ${col} carries sel-col`);
-        });
-        assert.ok(!(dom.window.document.querySelector<HTMLElement>('.diff-header .hcell[data-col="5"]'))!.classList.contains('sel-col'), 'unselected column not marked');
+        // The component never paints selection itself: the host rerenders with
+        // the range in the render input (Q7).
+        assert.ok(!cellAt(0x1000).classList.contains('sel'), 'no internal sel paint after drag');
     });
 
     test('mousedown on an empty cell does not start a selection', () => {
@@ -176,17 +170,10 @@ suite('hex view component interaction', () => {
 
     test('match cells render the match class', () => {
         setupDom();
-        const a = serialized([seg(0x1000, [1, 2, 3, 4])]);
-        const b = serialized([seg(0x1000, [1, 2, 3, 4])]);
-        const html = renderHexViewComponentHtml('a', {
-            label: 'f.hex',
-            rows: [windowRowFor(a, b, 0x1000)],
-            rowOffset: 0,
-            searchRowIndex: -1,
-            matchSet: new Set([0x1001, 0x1003]),
-            error: null,
-            totalHeight: 22,
-        });
+        const html = renderHexViewComponentHtml('a', input(
+            [dataRow(0x1000, [1, 2, 3, 4])],
+            { matchSet: new Set([0x1001, 0x1003]) },
+        ));
         assert.ok(html.includes('data-cell bn match'), 'match cells carry match');
         assert.ok(!html.includes('amatch'), 'no amatch state');
     });
@@ -213,3 +200,72 @@ suite('hex view component interaction', () => {
     });
 });
 
+suite('hex view component render input', () => {
+    test('selection paints sel/row-sel/sel-col cells from the render input', () => {
+        setupDom();
+        const html = renderHexViewComponentHtml('a', input(
+            [dataRow(0x1000, [1, 2, 3, 4])],
+            { selection: { start: 0x1000, end: 0x1002 } },
+        ));
+        assert.strictEqual((html.match(/data-cell bn sel/g) ?? []).length, 3, 'selected cells carry sel');
+        assert.ok(html.includes('diff-row row-sel'), 'selected row carries row-sel');
+        assert.strictEqual((html.match(/hcell sel-col/g) ?? []).length, 3, 'header columns 0..2 carry sel-col');
+        assert.ok(!html.includes('data-addr="00001003" class="data-cell bn sel"'), 'out-of-range cell not selected');
+    });
+
+    test('no selection input paints no selection classes', () => {
+        setupDom();
+        const html = renderHexViewComponentHtml('a', input([dataRow(0x1000, [1, 2, 3, 4])]));
+        assert.ok(!html.includes(' sel'), 'no sel classes without a selection input');
+        assert.ok(!html.includes('row-sel'), 'no row-sel without a selection input');
+        assert.ok(!html.includes('sel-col'), 'no sel-col without a selection input');
+    });
+
+    test('gap rows render the single-view gap-row structure', () => {
+        setupDom();
+        const gap: HexViewRow = {
+            address: 0x1000,
+            kind: 'gap',
+            cells: [],
+            gap: { from: 0x1000, to: 0xFFFF, bytes: 61440 },
+        };
+        const html = renderHexViewComponentHtml('a', input([gap]));
+        assert.ok(html.includes('class="gap-row"'), 'gap row carries gap-row');
+        assert.ok(html.includes('class="gap-dots"'), 'gap row renders gap-dots');
+        assert.ok(html.includes('class="gap-range"') && html.includes('0x00001000  0x0000FFFF'), 'gap row renders the range');
+        assert.ok(html.includes('class="gap-size"') && html.includes('unmapped'), 'gap row renders the size');
+    });
+
+    test('banners render above the data row with name + meta', () => {
+        setupDom();
+        const row = dataRow(0x1000, [1, 2, 3, 4]);
+        row.banners = [{ name: 'Code & Data', start: 0x1000, length: 16, color: '#ff6600' }];
+        const html = renderHexViewComponentHtml('a', input([row]));
+        assert.ok(html.indexOf('class="seg-banner"') < html.indexOf('class="diff-row"'), 'banner precedes its data row');
+        assert.ok(html.includes('class="sb-name"') && html.includes('Code &amp; Data'), 'banner name is escaped');
+        assert.ok(html.includes('class="sb-meta"') && html.includes('0x00001000'), 'banner meta shows the start address');
+    });
+
+    test('showChar renders the decoded-text header and per-byte char cells', () => {
+        setupDom();
+        const html = renderHexViewComponentHtml('a', input(
+            [dataRow(0x1000, [0x41, 0x42])],
+            { showChar: true },
+        ));
+        assert.ok(html.includes('class="hcell hcell-decoded"'), 'decoded-text header label renders');
+        assert.ok(html.includes('Decoded text'), 'decoded-text header text');
+        assert.ok(html.includes('class="char-cell bn"'), 'char cells render per byte');
+        assert.ok(html.includes('>A<') && html.includes('>B<'), 'char cells show the decoded glyphs');
+        assert.ok(html.includes('class="side side-char"'), 'char cells live in their own side group');
+    });
+
+    test('cells keep host-compatible attributes: data-addr, data-col, data-val', () => {
+        setupDom();
+        const html = renderHexViewComponentHtml('a', input([dataRow(0x1000, [0xAB, null])]));
+        assert.ok(html.includes('data-addr="00001000"'), 'hex cell carries data-addr');
+        assert.ok(html.includes('data-col="0"'), 'hex cell carries data-col');
+        assert.ok(html.includes('data-val="171"'), 'hex cell carries the decimal data-val (0xAB = 171)');
+        assert.ok(html.includes('data-cell be'), 'empty cell renders the be class');
+        assert.ok(!html.includes('data-val=') || (html.match(/data-val=/g) ?? []).length === 1, 'empty cells carry no data-val');
+    });
+});

@@ -1,11 +1,11 @@
-// Reusable hexview component: optional filename label + 00..0F header +
-// (address gutter + hex cells), with its own hover / selection / column-hover
-// interaction. Emits callbacks so a host (e.g. the diff view) can paint
-// cross-panel highlights. Reusable later by the single-file hex view.
+// Reusable hex-grid component: optional filename label + 00..0F header +
+// (address gutter + hex cells) + optional decoded-text column. Host-agnostic
+// row model (HexViewRow): the host feeds the slice it wants rendered plus
+// selection/match data; the component owns markup + CSS + transient
+// interaction (hover / column hover / drag-selection reporting / copy intent).
+// Used by the diff view (showChar:false, hex-only) and the single memory view.
 
-import type { DiffCell } from '../../../core/diff';
-import { DIFF_ROW_BYTES, DIFF_ROW_HEIGHT, formatAddress, type DiffVisualRow } from '../../diff/diffViewModel';
-import { esc } from '../../utils';
+import { esc, fmtB } from '../../utils';
 
 export interface HexViewRange { start: number; end: number }
 
@@ -19,82 +19,200 @@ export interface HexViewCallbacks {
     onCopy?: (range: HexViewRange) => void;
 }
 
+/** One rendered byte cell: hex glyph + decoded-text glyph + host-computed classes. */
+export interface HexViewCell {
+    hex: string;
+    char: string;
+    cls: string;
+}
+
+/** Label banner rendered above a data row (single-view segment labels). */
+export interface HexViewBanner {
+    name: string;
+    start: number;
+    length: number;
+    color: string;
+}
+
+/** Host-agnostic visual row: a data row (BPR cells) or an explicit gap row. */
+export interface HexViewRow {
+    address: number;
+    kind: 'data' | 'gap';
+    /** Data rows only: one cell per byte of the row. */
+    cells: HexViewCell[];
+    /** Gap rows only. */
+    gap?: { from: number; to: number; bytes: number };
+    banners?: HexViewBanner[];
+}
+
 export interface HexViewRenderInput {
     label: string;
-    rows: readonly DiffVisualRow[];
+    rows: readonly HexViewRow[];
     /** Index of `rows[0]` within the full row list (absolute positioning). */
     rowOffset: number;
     searchRowIndex: number;
     matchSet: ReadonlySet<number>;
     error: string | null;
     totalHeight: number;
+    /** Selection to paint, from host state (single source of truth). */
+    selection?: HexViewRange | null;
+    /** Render the decoded-text (ASCII) column header + char cells. Diff passes false. */
+    showChar?: boolean;
 }
 
-function byteText(cell: DiffCell | null): string {
-    return cell && cell.present ? cell.byte.toString(16).toUpperCase().padStart(2, '0') : '··';
+/** Row width in bytes (BPR contract; single source is the core BPR constant). */
+const ROW_BYTES = 16;
+/** Fixed data-row height in px; must match `.diff-row` height in the component css. */
+const ROW_HEIGHT = 22;
+
+function formatAddress(address: number): string {
+    return address.toString(16).toUpperCase().padStart(8, '0');
 }
 
-/** Status -> byte-cell class: unchanged=bn, empty=be, all differences=bd. */
-const STATUS_CLASS: Record<string, string> = {
-    unchanged: 'bn',
-    empty: 'be',
-    changed: 'bd',
-    added: 'bd',
-    removed: 'bd',
-};
-
-function isMatchedCell(cell: DiffCell | null, isMatch: boolean): boolean {
-    return isMatch && cell !== null && cell.present;
+function cellSelected(addr: number, sel: HexViewRange | null | undefined): boolean {
+    return !!sel && addr >= sel.start && addr <= sel.end;
 }
 
-function cellClass(cell: DiffCell | null, status: string, isMatch: boolean): string {
-    const cls = `data-cell ${STATUS_CLASS[status] ?? status}`;
-    return isMatchedCell(cell, isMatch) ? `${cls} match` : cls;
+function rowSelected(row: HexViewRow, sel: HexViewRange | null | undefined): boolean {
+    return !!sel && row.kind === 'data'
+        && row.address + ROW_BYTES > sel.start && row.address <= sel.end;
 }
 
-function cellHtml(cell: DiffCell | null, status: string, isMatch: boolean, side: 'a' | 'b', addr: number): string {
-    return `<span class="${cellClass(cell, status, isMatch)}" data-addr="${esc(formatAddress(addr))}" data-side="${side}">${byteText(cell)}</span>`;
+/** Header columns spanned by a selection (single-view parity). */
+function selectedColumns(sel: HexViewRange | null | undefined): Set<number> {
+    const cols = new Set<number>();
+    if (!sel) { return cols; }
+    const addRange = (a: number, b: number) => { for (let c = a; c <= b; c++) { cols.add(c); } };
+    const startRow = Math.floor(sel.start / ROW_BYTES);
+    const endRow = Math.floor(sel.end / ROW_BYTES);
+    if (startRow === endRow) { addRange(sel.start % ROW_BYTES, sel.end % ROW_BYTES); return cols; }
+    if (endRow - startRow > 1) { addRange(0, ROW_BYTES - 1); return cols; }
+    addRange(sel.start % ROW_BYTES, ROW_BYTES - 1);
+    addRange(0, sel.end % ROW_BYTES);
+    return cols;
+}
+
+/** Empty (`be`) cells hold no byte: they never carry match or selection. */
+function isMatchedCell(cls: string, isMatch: boolean): boolean {
+    return isMatch && !cls.includes('be');
+}
+
+/** `data-val` is the decimal byte value (single-view host reads it); empty cells omit it. */
+function dataValAttr(hex: string): string {
+    return /^[0-9a-fA-F]{2}$/.test(hex) ? ` data-val="${parseInt(hex, 16)}"` : '';
+}
+
+function cellHtml(cls: string, hex: string, addr: number, col: number, isMatch: boolean, isSel: boolean, side: 'a' | 'b'): string {
+    const match = isMatchedCell(cls, isMatch) ? ' match' : '';
+    const sel = isSel ? ' sel' : '';
+    return `<span class="data-cell ${cls}${match}${sel}" data-addr="${esc(formatAddress(addr))}" data-side="${side}" data-col="${col}"${dataValAttr(hex)}>${hex}</span>`;
+}
+
+function charCellHtml(cls: string, char: string, addr: number, col: number, isMatch: boolean, isSel: boolean): string {
+    const match = isMatchedCell(cls, isMatch) ? ' match' : '';
+    const sel = isSel ? ' sel' : '';
+    return `<span class="char-cell ${cls}${match}${sel}" data-addr="${esc(formatAddress(addr))}" data-col="${col}">${char}</span>`;
 }
 
 function rowModifiers(isSearchRow: boolean, error: string | null): string {
     return `${isSearchRow ? ' search-row' : ''}${error ? ' panel-error' : ''}`;
 }
 
-function cellsForRow(vr: DiffVisualRow, side: 'a' | 'b', matchSet: ReadonlySet<number>): string[] {
-    const cells: string[] = [];
-    for (let j = 0; j < DIFF_ROW_BYTES; j++) {
-        const byteAddr = vr.baseAddress + j;
-        cells.push(cellHtml(side === 'a' ? vr.a[j] : vr.b[j], vr.statuses[j], matchSet.has(byteAddr), side, byteAddr));
+function cellsForRow(
+    row: HexViewRow,
+    side: 'a' | 'b',
+    matchSet: ReadonlySet<number>,
+    sel: HexViewRange | null | undefined,
+    showChar: boolean,
+): { hex: string; char: string } {
+    let hex = '';
+    let char = '';
+    for (let j = 0; j < row.cells.length; j++) {
+        const c = row.cells[j];
+        const addr = row.address + j;
+        const isMatch = matchSet.has(addr);
+        const isSel = cellSelected(addr, sel);
+        hex += cellHtml(c.cls, c.hex, addr, j, isMatch, isSel, side);
+        if (showChar) {
+            char += charCellHtml(c.cls, c.char, addr, j, isMatch, isSel);
+        }
     }
-    return cells;
+    return { hex, char };
 }
 
-function rowHtml(vr: DiffVisualRow, side: 'a' | 'b', index: number, rowOffset: number, isSearchRow: boolean, matchSet: ReadonlySet<number>, error: string | null): string {
-    const addr = esc(formatAddress(vr.baseAddress));
-    const top = (index + rowOffset) * DIFF_ROW_HEIGHT;
-    return `<div class="diff-row" data-addr="${addr}" style="top:${top}px">
-        <span class="addr">${addr}</span>
-        <div class="side${rowModifiers(isSearchRow, error)}">${cellsForRow(vr, side, matchSet).join('')}</div>
+function gapRowHtml(row: HexViewRow, top: number): string {
+    const gap = row.gap ?? { from: row.address, to: row.address, bytes: 0 };
+    const f = gap.from.toString(16).toUpperCase().padStart(8, '0');
+    const t = gap.to.toString(16).toUpperCase().padStart(8, '0');
+    return `<div class="gap-row" style="top:${top}px">
+        <span class="gap-dots"></span>
+        <span class="gap-range">0x${f}  0x${t}</span>
+        <span class="gap-size">${fmtB(gap.bytes)} unmapped</span>
     </div>`;
 }
 
-function headerHtml(): string {
+function bannerHtml(b: HexViewBanner): string {
+    const start = b.start.toString(16).toUpperCase().padStart(8, '0');
+    return `<div class="seg-banner" style="border-color:${b.color};background:${b.color}14;color:${b.color}">
+        <span class="sb-name">${esc(b.name)}</span>
+        <span class="sb-meta">0x${start}  ${fmtB(b.length)}</span>
+    </div>`;
+}
+
+function rowHtml(
+    row: HexViewRow,
+    side: 'a' | 'b',
+    index: number,
+    rowOffset: number,
+    isSearchRow: boolean,
+    matchSet: ReadonlySet<number>,
+    error: string | null,
+    sel: HexViewRange | null | undefined,
+    showChar: boolean,
+): string {
+    const top = (index + rowOffset) * ROW_HEIGHT;
+    if (row.kind === 'gap') { return gapRowHtml(row, top); }
+    const addr = esc(formatAddress(row.address));
+    const banners = (row.banners ?? []).map(bannerHtml).join('');
+    const cells = cellsForRow(row, side, matchSet, sel, showChar);
+    const isRowSel = rowSelected(row, sel);
+    return `${banners}<div class="diff-row${isRowSel ? ' row-sel' : ''}" data-addr="${addr}" style="top:${top}px">
+        <span class="addr">${addr}</span>
+        <div class="side${rowModifiers(isSearchRow, error)}">${cells.hex}</div>
+        ${showChar ? `<div class="side side-char">${cells.char}</div>` : ''}
+    </div>`;
+}
+
+function headerHtml(showChar: boolean, sel: HexViewRange | null | undefined): string {
+    const selCols = selectedColumns(sel);
     const cells: string[] = [];
-    for (let i = 0; i < DIFF_ROW_BYTES; i++) {
-        cells.push(`<span class="hcell" data-col="${i}">${esc(i.toString(16).toUpperCase().padStart(2, '0'))}</span>`);
+    for (let i = 0; i < ROW_BYTES; i++) {
+        cells.push(`<span class="hcell${selCols.has(i) ? ' sel-col' : ''}" data-col="${i}">${esc(i.toString(16).toUpperCase().padStart(2, '0'))}</span>`);
     }
-    return `<span class="addr"></span><div class="side">${cells.join('')}</div>`;
+    const char = showChar ? `<div class="side side-char"><span class="hcell hcell-decoded">Decoded text</span></div>` : '';
+    return `<span class="addr"></span><div class="side">${cells.join('')}</div>${char}`;
 }
 
 /** Pure HTML for one component (testable without DOM). */
 export function renderHexViewComponentHtml(side: 'a' | 'b', input: HexViewRenderInput): string {
+    const showChar = input.showChar === true;
     const rows: string[] = [];
     for (let i = 0; i < input.rows.length; i++) {
-        rows.push(rowHtml(input.rows[i], side, i, input.rowOffset, i + input.rowOffset === input.searchRowIndex, input.matchSet, input.error));
+        rows.push(rowHtml(
+            input.rows[i],
+            side,
+            i,
+            input.rowOffset,
+            i + input.rowOffset === input.searchRowIndex,
+            input.matchSet,
+            input.error,
+            input.selection,
+            showChar,
+        ));
     }
     return `<div class="diff-component ${side}">
         ${input.label ? `<div class="panel-label">${esc(input.label)}</div>` : ''}
-        <div class="diff-header">${headerHtml()}</div>
+        <div class="diff-header">${headerHtml(showChar, input.selection)}</div>
         <div class="diff-body" style="height:${input.totalHeight}px">${rows.join('')}</div>
     </div>`;
 }
@@ -145,51 +263,17 @@ function insideComponent(el: HTMLElement | null, scope: string): boolean {
     return el !== null && el.closest(scope) !== null;
 }
 
-function inRange(a: number, start: number, end: number): boolean {
-    return a >= start && a <= end;
-}
-
 function rowOverlaps(base: number, start: number, end: number): boolean {
-    return Number.isFinite(base) && base + DIFF_ROW_BYTES > start && base <= end;
+    return Number.isFinite(base) && base + ROW_BYTES > start && base <= end;
 }
 
 function rowContains(base: number, addr: number): boolean {
-    return Number.isFinite(base) && addr >= base && addr < base + DIFF_ROW_BYTES;
-}
-
-function clearSelectionClasses(scope: string): void {
-    document.querySelectorAll(`${scope} .data-cell.sel`).forEach(el => el.classList.remove('sel'));
-    document.querySelectorAll(`${scope} .diff-row.row-sel`).forEach(el => el.classList.remove('row-sel'));
-    document.querySelectorAll(`${scope} .diff-header .hcell.sel-col`).forEach(el => el.classList.remove('sel-col'));
-}
-
-function paintSelectedCells(scope: string, sel: HexViewRange): Set<number> {
-    const cols = new Set<number>();
-    for (const el of document.querySelectorAll<HTMLElement>(`${scope} .data-cell[data-addr]`)) {
-        const a = addrOf(el);
-        if (inRange(a, sel.start, sel.end)) {
-            el.classList.add('sel');
-            cols.add(a & 0xF);
-        }
-    }
-    return cols;
-}
-
-function paintSelectedRows(scope: string, sel: HexViewRange): void {
-    for (const el of document.querySelectorAll<HTMLElement>(`${scope} .diff-row[data-addr]`)) {
-        const base = addrOf(el);
-        if (rowOverlaps(base, sel.start, sel.end)) { el.classList.add('row-sel'); }
-    }
-}
-
-function paintSelectedColumns(scope: string, cols: ReadonlySet<number>): void {
-    for (const el of document.querySelectorAll<HTMLElement>(`${scope} .diff-header .hcell[data-col]`)) {
-        if (cols.has(colOf(el))) { el.classList.add('sel-col'); }
-    }
+    return Number.isFinite(base) && addr >= base && addr < base + ROW_BYTES;
 }
 
 function clearColumnHighlight(scope: string): void {
     document.querySelectorAll(`${scope} .data-cell.col-hi`).forEach(el => el.classList.remove('col-hi'));
+    document.querySelectorAll(`${scope} .char-cell.col-hi`).forEach(el => el.classList.remove('col-hi'));
     document.querySelectorAll(`${scope} .diff-header .hcell.col-hi`).forEach(el => el.classList.remove('col-hi'));
 }
 
@@ -198,7 +282,7 @@ function isColumnCell(el: HTMLElement, column: number): boolean {
 }
 
 function paintColumnCells(scope: string, column: number): void {
-    for (const el of document.querySelectorAll<HTMLElement>(`${scope} .data-cell[data-addr]`)) {
+    for (const el of document.querySelectorAll<HTMLElement>(`${scope} .data-cell[data-addr], ${scope} .char-cell[data-addr]`)) {
         if (isColumnCell(el, column)) { el.classList.add('col-hi'); }
     }
 }
@@ -217,13 +301,15 @@ function paintMirrorRow(scope: string, addr: number): void {
 
 function paintMirrorRange(scope: string, range: HexViewRange): void {
     for (const el of document.querySelectorAll<HTMLElement>(`${scope} .data-cell[data-addr]`)) {
-        if (inRange(addrOf(el), range.start, range.end)) { el.classList.add('sel-mirror'); }
+        if (addrOf(el) >= range.start && addrOf(el) <= range.end) { el.classList.add('sel-mirror'); }
     }
 }
 
-/** Interaction controller: owns its own hover/selection, emits callbacks. */
+/** Interaction controller: owns transient hover/column/mirror, reports selection. */
 export class HexViewComponent {
-    private _selection: HexViewRange | null = null;
+    // Transient drag range, reported via onSelectionChange; the HOST owns the
+    // selection state and repaints it through the render input (Q7).
+    private _dragRange: HexViewRange | null = null;
     private _hoverAddr = -1;
     private _mirrorAddr = -1;
     private _mirrorRange: HexViewRange | null = null;
@@ -264,8 +350,7 @@ export class HexViewComponent {
     }
 
     // ponytail: destroy() removed (unused; sole user of _listeners registry) — re-add with a listener registry when a host must detach document listeners.
-    // ponytail: getSelection() removed (unused) — re-add when a host needs to read this component's selection range.
-    setSelection(range: HexViewRange | null): void { this._selection = range; this.applySel(); }
+    // ponytail: getSelection() removed (unused) — selection lives in host state; re-add if a host must read this component's drag range.
 
     /** Paint the hovered-by-the-other-side byte in this component (cell + row + column). */
     setMirrorAddr(addr: number): void {
@@ -280,7 +365,6 @@ export class HexViewComponent {
 
     /** Re-apply transient paints after the DOM is rebuilt. */
     reapply(): void {
-        this.applySel();
         this.applyHover();
         this.applyMirror();
         this.applyMirrorRow(this._mirrorAddr);
@@ -290,9 +374,8 @@ export class HexViewComponent {
 
     private startSelection(addr: number): void {
         this._dragging = true;
-        this._selection = { start: addr, end: addr };
-        this.applySel();
-        this.cb.onSelectionChange?.(this._selection);
+        this._dragRange = { start: addr, end: addr };
+        this.cb.onSelectionChange?.(this._dragRange);
     }
 
     private onMouseOver(e: MouseEvent): void {
@@ -303,13 +386,12 @@ export class HexViewComponent {
     }
 
     private extendDrag(c: { addr: number } | null): void {
-        if (!c || !this._selection) { return; }
-        this._selection = {
-            start: Math.min(this._selection.start, c.addr),
-            end: Math.max(this._selection.end, c.addr),
+        if (!c || !this._dragRange) { return; }
+        this._dragRange = {
+            start: Math.min(this._dragRange.start, c.addr),
+            end: Math.max(this._dragRange.end, c.addr),
         };
-        this.applySel();
-        this.cb.onSelectionChange?.(this._selection);
+        this.cb.onSelectionChange?.(this._dragRange);
     }
 
     private paintByteHover(addr: number): void {
@@ -347,9 +429,9 @@ export class HexViewComponent {
     private handleCopyKey(k: KeyboardEvent): boolean {
         if (!isCopyShortcut(k)) { return false; }
         if (isEditableTarget(k)) { return false; }
-        if (!this._selection) { return false; }
+        if (!this._dragRange) { return false; }
         k.preventDefault();
-        this.emitCopy(this._selection);
+        this.emitCopy(this._dragRange);
         return true;
     }
 
@@ -371,15 +453,6 @@ export class HexViewComponent {
         if (this._hoverAddr < 0) { return; }
         const el = document.querySelector(`${scope} .data-cell[data-addr="${esc(formatAddress(this._hoverAddr))}"]`);
         el?.classList.add('cell-hover');
-    }
-
-    private applySel(): void {
-        clearSelectionClasses(this.rootSel);
-        const sel = this._selection;
-        if (!sel) { return; }
-        const cols = paintSelectedCells(this.rootSel, sel);
-        paintSelectedRows(this.rootSel, sel);
-        paintSelectedColumns(this.rootSel, cols);
     }
 
     private applyMirror(): void {

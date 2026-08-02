@@ -6,7 +6,7 @@ import type { CompactParseResult } from '../../core/parser/compact';
 import type { SerializedParseResult } from '../../core/types';
 import { buildSegmentIndex } from '../../core/memory';
 import { renderDiffSummaryHtml } from '../../webview/diff/diffRenderer';
-import { renderHexViewComponentHtml } from '../../webview/ui-components/hex-view/hexViewComponent';
+import { renderHexViewComponentHtml, type HexViewCell, type HexViewRow } from '../../webview/ui-components/hex-view/hexViewComponent';
 
 function parse(segments: Array<{ startAddress: number; data: Uint8Array }>): CompactParseResult {
     return {
@@ -42,6 +42,22 @@ function windowsFor(segmentsA: Array<{ startAddress: number; data: Uint8Array }>
     return Array.from(meta.rowStarts, base => diffCellWindow(a, aIndex, b, bIndex, base));
 }
 
+/** The diff host's DiffVisualRow -> HexViewRow mapping, for the a side. */
+function toRow(vr: ReturnType<typeof diffCellWindow>): HexViewRow {
+    const cells: HexViewCell[] = [];
+    for (let j = 0; j < vr.a.length; j++) {
+        const cell = vr.a[j];
+        const status = vr.statuses[j];
+        const cls = status === 'unchanged' ? 'bn' : status === 'empty' ? 'be' : 'bd';
+        cells.push({
+            hex: cell && cell.present ? cell.byte.toString(16).toUpperCase().padStart(2, '0') : '··',
+            char: '',
+            cls,
+        });
+    }
+    return { address: vr.baseAddress, kind: 'data', cells };
+}
+
 function componentHtml(
     overrides: Partial<Omit<Parameters<typeof renderHexViewComponentHtml>[1], 'label'>> = {},
     label = 'file.hex',
@@ -49,7 +65,7 @@ function componentHtml(
     const windows = windowsFor([seg(0x1000, [1, 2, 3, 4])], [seg(0x1000, [1, 2, 3, 4])]);
     return renderHexViewComponentHtml('a', {
         label,
-        rows: windows,
+        rows: windows.map(toRow),
         rowOffset: 0,
         searchRowIndex: -1,
         matchSet: new Set(),
@@ -125,7 +141,7 @@ suite('diff renderer', () => {
         const windows = windowsFor([seg(0x1000, [1, 2, 3, 4])], [seg(0x1000, [1, 9, 3, 4])]);
         const html = renderHexViewComponentHtml('a', {
             label: 'f.hex',
-            rows: windows,
+            rows: windows.map(toRow),
             rowOffset: 0,
             searchRowIndex: -1,
             matchSet: new Set(),
