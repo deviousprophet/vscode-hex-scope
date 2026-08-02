@@ -125,3 +125,25 @@ Planned (grill Q1-Q12) and implemented the single hex view adopting the shared S
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Hex-view reuse: plan + Phase 1+2 (component generalize, diff virtualize+split)
+
+**Date**: 2026-08-02
+**Task**: Hex-view reuse: plan + Phase 1+2 (component generalize, diff virtualize+split)
+**Branch**: `feat/reuse-ui-components-single-view`
+
+### Summary
+
+Grilled hex-view child (Q1-Q11): generalized HexViewComponent to HexViewRow model (hex/char/gap/banner, showChar, selection via render input, own CSS); virtualized the diff host via shared virtualScroll (calcCompressedWindowTop anchor added per virtual-scroll.md spec); split diff host into root hexDiffViewer.ts + diff/diffView.ts (Q11 parity, mirrors memoryView). All committed, 597 tests, fallow 0/0/0. PHASE 3 PENDING: single-view adoption (memoryView rendering swap, behavior-preserving, edit #128/drag/ctx-menu/inspector/search/header). Task in_progress on feat/reuse-ui-components-single-view. Resume with trellis-continue.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a1f6123` | (see git log) |
+| `bcb5ef9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
