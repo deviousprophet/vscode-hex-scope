@@ -1,42 +1,44 @@
 // Search UI glue
 import { S } from '../state';
 import { applyMatchHighlights, applySel, scrollTo } from '../memory/memoryView';
-import { SearchEngine, buildNeedles, canonicalizeQuery } from '../../core/search';
+import { SearchEngine, buildNeedles } from '../../core/search';
+import { searchKeyFor, type SearchTrigger } from '../ui-components/search-bar/searchBarComponent';
 import type { SearchEndianness, SearchMode } from '../../core/types';
 
 // -------------------- UI glue (previously in search.ts) --------------------
 
 let _switchToMemory: (() => void) | null = null;
 const engine = new SearchEngine();
-let _lastCompletedSearchKey = '';
 let _streamFirstJumpDone = false;
 let _searchRunning = false;
 let _activeSearchKey = '';
 let _activeMatchSpan = 1;
 
-type SearchTrigger = 'enter-next' | 'enter-prev' | 'button';
+// DOM writes for component-owned elements (#match-count / #search-progress) go
+// through the search bar component; injected by the host so this glue never
+// touches the component directly.
+type SearchBarUi = {
+    setCount: (count: number, current: number) => void;
+    setBusy: (busy: boolean) => void;
+};
+let _searchBarUi: SearchBarUi | null = null;
 
 export function initSearch(switchToMemory: () => void): void {
     _switchToMemory = switchToMemory;
 }
 
-export function runSearch(trigger: SearchTrigger = 'button'): void {
+export function initSearchUi(ui: SearchBarUi): void {
+    _searchBarUi = ui;
+}
+
+export function runSearch(query: string, trigger: SearchTrigger = 'button'): void {
     if (S.currentView !== 'memory') { return; }
 
-    const q = currentSearchQuery();
-    const searchKey = makeSearchKey(S.searchMode, q, S.searchEndianness);
+    const q = query.trim();
+    const searchKey = searchKeyFor(S.searchMode, q, S.searchEndianness);
 
-    if (handleSearchNavigation(q, searchKey, trigger)) { return; }
+    if (handleRunningSearch(q, searchKey, trigger)) { return; }
     startFreshSearch(q, searchKey);
-}
-
-function currentSearchQuery(): string {
-    return ((document.getElementById('search-input') as HTMLInputElement | null)?.value ?? '').trim();
-}
-
-function handleSearchNavigation(q: string, searchKey: string, trigger: SearchTrigger): boolean {
-    return handleRunningSearch(q, searchKey, trigger) ||
-        handleCompletedSearchNavigation(q, searchKey, trigger);
 }
 
 function startFreshSearch(q: string, searchKey: string): void {
@@ -75,15 +77,6 @@ function handleRunningSearch(q: string, searchKey: string, trigger: SearchTrigge
     return false;
 }
 
-function handleCompletedSearchNavigation(q: string, searchKey: string, trigger: SearchTrigger): boolean {
-    if (q.length === 0 || searchKey !== _lastCompletedSearchKey || trigger === 'button') {
-        return false;
-    }
-
-    navigateBySearchTrigger(trigger);
-    return true;
-}
-
 function navigateBySearchTrigger(trigger: SearchTrigger): void {
     if (trigger === 'enter-prev') {
         prevMatch();
@@ -93,15 +86,14 @@ function navigateBySearchTrigger(trigger: SearchTrigger): void {
 }
 
 function clearEmptySearchQuery(): void {
-    _lastCompletedSearchKey = '';
     engine.clear();
-    setSearchBusy(false);
+    _searchBarUi?.setBusy(false);
     applyMatchHighlights();
-    updMC();
+    _searchBarUi?.setCount(S.matchAddrs.length, S.matchIdx);
 }
 
 function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; endianness: SearchEndianness }): void {
-    setSearchBusy(true);
+    _searchBarUi?.setBusy(true);
     _streamFirstJumpDone = false;
     _searchRunning = true;
     _activeSearchKey = req.searchKey;
@@ -111,7 +103,7 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
     if (!S.parseResult) {
         _searchRunning = false;
         _activeSearchKey = '';
-        setSearchBusy(false);
+        _searchBarUi?.setBusy(false);
         return;
     }
 
@@ -127,7 +119,7 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
                 onSearchProgress(matches);
             },
             onComplete: (matches: number[]) => {
-                onSearchComplete(req.searchKey, matches);
+                onSearchComplete(matches);
             },
         }
     );
@@ -139,7 +131,7 @@ function onSearchProgress(matches: number[]): void {
         initStreamingMatchIndex();
     }
     applyMatchHighlights();
-    updMC();
+    _searchBarUi?.setCount(S.matchAddrs.length, S.matchIdx);
 }
 
 function initStreamingMatchIndex(): void {
@@ -150,18 +142,17 @@ function initStreamingMatchIndex(): void {
     scrollToMatch();
 }
 
-function onSearchComplete(searchKey: string, matches: number[]): void {
-    _lastCompletedSearchKey = searchKey;
+function onSearchComplete(matches: number[]): void {
     const activeAddr = activeMatchAddress();
     S.matchAddrs = matches;
     S.matchIdx = completedMatchIndex(matches, activeAddr);
     _searchRunning = false;
     _activeSearchKey = '';
-    setSearchBusy(false);
+    _searchBarUi?.setBusy(false);
     selectCurrentMatch();
     applyMatchHighlights();
     scrollToMatch();
-    updMC();
+    _searchBarUi?.setCount(S.matchAddrs.length, S.matchIdx);
 }
 
 function activeMatchAddress(): number | null {
@@ -179,16 +170,14 @@ function completedMatchIndex(matches: number[], activeAddr: number | null): numb
 
 export function clearSearch(): void {
     engine.clear();
-    setSearchBusy(false);
+    _searchBarUi?.setBusy(false);
     _searchRunning = false;
     _activeSearchKey = '';
     _activeMatchSpan = 1;
     S.matchAddrs = [];
     S.matchIdx   = -1;
-    const inp = document.getElementById('search-input') as HTMLInputElement | null;
-    if (inp) { inp.value = ''; }
     applyMatchHighlights();
-    updMC();
+    _searchBarUi?.setCount(S.matchAddrs.length, S.matchIdx);
 }
 
 export function nextMatch(): void {
@@ -203,25 +192,6 @@ export function prevMatch(): void {
     goToMatch();
 }
 
-function updMC(): void {
-    const el = document.getElementById('match-count');
-    if (!el) { return; }
-    el.textContent = matchCountText(currentSearchQuery(), S.matchAddrs.length, S.matchIdx);
-}
-
-function matchCountText(query: string, count: number, index: number): string {
-    if (query.length > 0 && count === 0) { return '0 / 0'; }
-    if (count === 0) { return ''; }
-    return `${index + 1} / ${count}`;
-}
-
-function setSearchBusy(isBusy: boolean): void {
-    const el = document.getElementById('search-progress');
-    if (!el) { return; }
-    el.classList.toggle('active', isBusy);
-    el.setAttribute('aria-hidden', String(!isBusy));
-}
-
 function goToMatch(): void {
     if (S.currentView !== 'memory') {
         if (_switchToMemory) { _switchToMemory(); }
@@ -230,7 +200,7 @@ function goToMatch(): void {
     }
     selectCurrentMatch();
     scrollToMatch();
-    updMC();
+    _searchBarUi?.setCount(S.matchAddrs.length, S.matchIdx);
 }
 
 function scrollToMatch(): void {
@@ -267,10 +237,4 @@ function getMatchSpan(mode: SearchMode, raw: string, endianness: SearchEndiannes
     const needles = buildNeedles(mode, raw, endianness);
     const span = needles[0]?.length ?? 1;
     return Math.max(1, span);
-}
-
-function makeSearchKey(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
-    const canonical = canonicalizeQuery(mode, raw);
-    const endianKey = mode === 'value' ? endianness : 'n/a';
-    return `${mode}|${endianKey}|${canonical}`;
 }

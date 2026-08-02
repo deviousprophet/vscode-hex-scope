@@ -77,32 +77,8 @@
 }
 .eeb-close:hover { background: rgba(244,135,113,.25); border-color: var(--err); }
 
-/* Shared chrome (.view-tabs/.tb-sep/#search-box/#search-mode/#search-input/.nav-btn/
-   #btn-prev/#btn-next/#btn-clear-search/#match-count/.search-progress) moved to
-   base.css — loaded first by every view. */
-
-.search-endian-toggle {
-    flex-shrink: 0;
-}
-
-.search-endian-toggle button {
-    min-width: 42px;
-    height: 22px;
-    font-size: 10px;
-}
-
-.search-btn {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    font-size: 12px;
-    line-height: 1;
-    background: transparent;
-    color: var(--fg);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    cursor: pointer;
-}
+/* Shared chrome (.view-tabs/.tb-sep/.nav-btn) lives in base.css; all
+   search-bar control styles live in the search-bar component css. */
 
 /* ── Stats bar ───────────────────────────────────────────────── */
 #stats-bar {

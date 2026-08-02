@@ -11,6 +11,7 @@ import type { SearchEndianness, SearchMode, WireParseResult } from '../core/type
 import { toWireSegments } from '../core/transfer';
 import { detectFormatFromParts } from '../core/document';
 import { ProgressReporter } from './progressReporter';
+import { cssLinkTags } from './webviewAssets';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { messageType } from '../webviewProtocol';
 
@@ -371,17 +372,14 @@ export class HexDiffSession {
         const nonce = getNonce();
         const cssFiles = [
             'src/webview/styles/base.css',
-            // Search-bar styles come from the component; the diff chrome
-            // (.view-tabs/.tb-sep) lives in diff.css. toolbar.css is single-view
-            // only, so no duplicate search-box rules can drift apart.
+            // The component owns ALL search-bar control styles; the diff chrome
+            // (.view-tabs/.tb-sep/.nav-btn) comes from base.css. toolbar.css is
+            // single-view only, so no duplicate search-box rules can drift apart.
             'src/webview/ui-components/search-bar/searchBarComponent.css',
             'src/webview/ui-components/hex-view/hexViewComponent.css',
             'src/webview/styles/diff.css',
         ];
-        const cssLinks = cssFiles.map(rel => {
-            const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, rel));
-            return `    <link rel="stylesheet" href="${uri}">`;
-        }).join('\n');
+        const cssLinks = cssLinkTags(webview, this._context.extensionUri, cssFiles);
 
         return `<!DOCTYPE html>
 <html lang="en">

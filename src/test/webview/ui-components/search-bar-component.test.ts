@@ -2,7 +2,7 @@
 
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import { SearchBarComponent } from '../../webview/ui-components/search-bar/searchBarComponent';
+import { SearchBarComponent } from '../../../webview/ui-components/search-bar/searchBarComponent';
 
 let dom: JSDOM;
 
@@ -21,14 +21,14 @@ function setupDom(): void {
     g.Event = dom.window.Event;
 }
 
-function calls(): { search: Array<[string, string, string]>; prev: number; next: number; clear: number } {
-    const c = { search: [] as Array<[string, string, string]>, prev: 0, next: 0, clear: 0 };
+function calls(): { search: Array<[string, string, string, string | undefined]>; prev: number; next: number; clear: number } {
+    const c = { search: [] as Array<[string, string, string, string | undefined]>, prev: 0, next: 0, clear: 0 };
     return c;
 }
 
 function mount(c: ReturnType<typeof calls>): SearchBarComponent {
     const comp = new SearchBarComponent({
-        onSearch: (q, mode, endian) => { c.search.push([q, mode, endian]); },
+        onSearch: (q, mode, endian, trigger) => { c.search.push([q, mode, endian, trigger]); },
         onPrev: () => { c.prev++; },
         onNext: () => { c.next++; },
         onClear: () => { c.clear++; },
@@ -71,7 +71,7 @@ suite('search bar component', () => {
         input().value = '0x1234';
         dom.window.document.getElementById('search-btn-le')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         const last = c.search[c.search.length - 1];
-        assert.deepStrictEqual(last, ['0x1234', 'value', 'le'], 'endian click re-runs with the new endianness');
+        assert.deepStrictEqual(last, ['0x1234', 'value', 'le', 'button'], 'endian click re-runs with the new endianness');
     });
 
     test('addr mode shows 0x prefix overlay and strips non-hex input', () => {
@@ -154,5 +154,42 @@ suite('search bar component', () => {
         assert.strictEqual(progress.getAttribute('aria-hidden'), 'false');
         comp.setBusy(false);
         assert.ok(!progress.classList.contains('active'), 'spinner off when idle');
+    });
+
+    test('constructor seed restores mode, endianness, and query in the rendered HTML', () => {
+        setupDom();
+        const comp = new SearchBarComponent({
+            onSearch: () => {},
+            onPrev: () => {},
+            onNext: () => {},
+            onClear: () => {},
+        }, { mode: 'value', endianness: 'be', query: 'DE AD' });
+        dom.window.document.body.innerHTML = comp.toHtml();
+
+        const mode = dom.window.document.getElementById('search-mode') as HTMLSelectElement;
+        assert.strictEqual(mode.value, 'value', 'seeded mode selected');
+        assert.ok(dom.window.document.getElementById('search-btn-be')!.classList.contains('active'), 'seeded endian active');
+        assert.strictEqual(input().value, 'DE AD', 'seeded query prefilled');
+        assert.strictEqual(
+            (dom.window.document.getElementById('search-endian-toggle') as HTMLElement).style.display,
+            'inline-flex',
+            'value mode shows the endian pill'
+        );
+    });
+
+    test('onSearch receives the UI trigger (enter-next / enter-prev / button)', () => {
+        setupDom();
+        const c = calls();
+        mount(c);
+
+        input().value = 'DE AD';
+        enterOnInput();
+        assert.deepStrictEqual(c.search[0], ['DE AD', 'bytes', 'le', 'enter-next']);
+
+        enterOnInput(true);
+        assert.deepStrictEqual(c.search[1], ['DE AD', 'bytes', 'le', 'enter-prev']);
+
+        dom.window.document.getElementById('btn-search')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.deepStrictEqual(c.search[2], ['DE AD', 'bytes', 'le', 'button']);
     });
 });

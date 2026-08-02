@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/search-bar-component.md", "reason": "Verify component seed API matches spec and diff-view default unchanged"}
+{"file": ".trellis/spec/frontend/search-inspect-copy.md", "reason": "Verify search orchestration survives trim (streaming, first-jump, selection, switch-to-memory)"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Verify Ctrl+Z undo still functional after re-home"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify required checks: compile, lint, test, fallow"}

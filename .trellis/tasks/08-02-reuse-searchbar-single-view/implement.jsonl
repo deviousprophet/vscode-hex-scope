@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/search-bar-component.md", "reason": "Component API being extended with seed option; implementer must preserve existing behavior"}
+{"file": ".trellis/spec/frontend/search-inspect-copy.md", "reason": "Single-view search orchestration glue in searchEngine.ts being trimmed; ownership contracts for selection/count"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Ctrl+Z undo shortcut re-homed from searchControls.ts to hexViewer host keydown; keep undo contract"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "DOM rendering, listener wiring, mount pattern for webview UI changes"}

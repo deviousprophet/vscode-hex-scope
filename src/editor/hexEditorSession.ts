@@ -22,6 +22,7 @@ import {
 } from '../webviewProtocol';
 import { toWireSegments } from '../core/transfer';
 import { ProgressReporter } from './progressReporter';
+import { cssLinkTags } from './webviewAssets';
 
 import { scanScripts, execute } from '../core/scripting/scriptRunner';
 import { VSCodeScriptHost } from '../scriptHost';
@@ -745,15 +746,19 @@ export class HexEditorSession {
         );
 
         const cssFiles = [
-            'base', 'toolbar', 'layout', 'sidebar',
-            'record-view', 'memory-view', 'context-menu', 'struct', 'integrity',
+            'src/webview/styles/base.css',
+            'src/webview/styles/toolbar.css',
+            'src/webview/styles/layout.css',
+            'src/webview/styles/sidebar.css',
+            'src/webview/styles/record-view.css',
+            'src/webview/styles/memory-view.css',
+            'src/webview/styles/context-menu.css',
+            'src/webview/styles/struct.css',
+            'src/webview/styles/integrity.css',
+            // Search-bar styles come from the shared component (like the diff view).
+            'src/webview/ui-components/search-bar/searchBarComponent.css',
         ];
-        const cssLinks = cssFiles.map(name => {
-            const uri = webview.asWebviewUri(
-                vscode.Uri.joinPath(this._context.extensionUri, 'src', 'webview', 'styles', `${name}.css`)
-            );
-            return `    <link rel="stylesheet" href="${uri}">`;
-        }).join('\n');
+        const cssLinks = cssLinkTags(webview, this._context.extensionUri, cssFiles);
 
         const nonce = getNonce();
 

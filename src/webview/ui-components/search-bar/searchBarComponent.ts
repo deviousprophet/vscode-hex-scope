@@ -1,16 +1,27 @@
 // Reusable search-bar UI component. Owns the search box (mode select,
 // endian toggle, input, run/prev/next/clear, match count) and its input
 // behaviours; the host runs the actual search and applies/navigates matches.
+// Optional seed options let a host restore its own mode/endianness/query on boot.
 
 import type { SearchEndianness, SearchMode } from '../../../core/types';
 import { canonicalizeQuery } from '../../../core/search';
 import { esc } from '../../utils';
 
+/** UI gesture that triggered a search; hosts use it for running-search navigation. */
+export type SearchTrigger = 'button' | 'enter-next' | 'enter-prev';
+
 export interface SearchBarCallbacks {
-    onSearch: (query: string, mode: SearchMode, endianness: SearchEndianness) => void;
+    onSearch: (query: string, mode: SearchMode, endianness: SearchEndianness, trigger?: SearchTrigger) => void;
     onPrev: () => void;
     onNext: () => void;
     onClear: () => void;
+}
+
+/** Optional initial UI state; hosts seed from their own state on boot. */
+export interface SearchBarSeedOptions {
+    mode?: SearchMode;
+    endianness?: SearchEndianness;
+    query?: string;
 }
 
 const MODE_LABELS: Record<SearchMode, string> = {
@@ -38,8 +49,9 @@ function isFindShortcut(k: KeyboardEvent): boolean {
     return (k.ctrlKey || k.metaKey) && k.key === 'f';
 }
 
-/** Canonical search key (mirrors the single view's Enter-nav key). */
-function searchKeyFor(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
+/** Canonical search key. Single owner — hosts reuse it to agree on "same query"
+ *  (the single view's glue imports this for running-search / completed-nav parity). */
+export function searchKeyFor(mode: SearchMode, raw: string, endianness: SearchEndianness): string {
     const canonical = canonicalizeQuery(mode, raw);
     const endianKey = mode === 'value' ? endianness : 'n/a';
     return `${mode}|${endianKey}|${canonical}`;
@@ -67,8 +79,11 @@ export class SearchBarComponent {
     private _lastSearchKey = '';
     private _searchCompleted = false;
 
-    constructor(cb: SearchBarCallbacks) {
+    constructor(cb: SearchBarCallbacks, seed: SearchBarSeedOptions = {}) {
         this.cb = cb;
+        if (seed.mode !== undefined) { this.mode = seed.mode; }
+        if (seed.endianness !== undefined) { this.endianness = seed.endianness; }
+        if (seed.query !== undefined) { this.query = seed.query; }
     }
 
     // ponytail: setCallbacks() removed (unused; cb set once via constructor) — re-add when a host must swap the search callback set.
@@ -106,7 +121,7 @@ export class SearchBarComponent {
         const q = this.searchInput().value.trim();
         this._lastSearchKey = searchKeyFor(this.mode, q, this.endianness);
         this._searchCompleted = false;
-        this.cb.onSearch(q, this.mode, this.endianness);
+        this.cb.onSearch(q, this.mode, this.endianness, 'button');
     }
 
     private clearSearch(): void {
@@ -171,8 +186,9 @@ export class SearchBarComponent {
         }
         this._lastSearchKey = key;
         this._searchCompleted = false;
-        this.cb.onSearch(q, this.mode, this.endianness);
-        if (k.shiftKey) { this.cb.onPrev(); }
+        // The trigger carries the shift intent so hosts can navigate a running
+        // search; completed-query navigation goes through navigateMatches above.
+        this.cb.onSearch(q, this.mode, this.endianness, k.shiftKey ? 'enter-prev' : 'enter-next');
     }
 
     private onKeyDown(k: KeyboardEvent): void {
