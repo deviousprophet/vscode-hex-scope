@@ -20,18 +20,26 @@ if (!nodeRequire.extensions['.css']) {
 const srcWebview = path.resolve(__dirname, '..', '..', '..', 'src', 'webview');
 const outWebview = path.resolve(__dirname, '..', '..', 'webview');
 
+function isCssFile(entry: fs.Dirent, full: string): boolean {
+    return entry.isFile() && full.endsWith('.css');
+}
+
+function writeEmptyCss(full: string): void {
+    const rel = path.relative(srcWebview, full);
+    const target = path.join(outWebview, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (!fs.existsSync(target)) {
+        fs.writeFileSync(target, '');
+    }
+}
+
 function mirrorCss(dir: string): void {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
             mirrorCss(full);
-        } else if (entry.isFile() && full.endsWith('.css')) {
-            const rel = path.relative(srcWebview, full);
-            const target = path.join(outWebview, rel);
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            if (!fs.existsSync(target)) {
-                fs.writeFileSync(target, '');
-            }
+        } else if (isCssFile(entry, full)) {
+            writeEmptyCss(full);
         }
     }
 }
