@@ -3516,8 +3516,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             _selectedPinId = pin.id;
             sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
             card.classList.add('si-card-selected');
-            rerender.toMemory();
-            import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(pin.addr); });
+            rerender.jumpTo(pin.addr);
             import('../sidebar.js').then(m => m.updateInspector());
         });
     });
@@ -3997,7 +3996,7 @@ function selectStructFieldRow(row: HTMLElement, start: number, cnt: number): voi
     _selectedFieldAddr = start;
     _selectedArrKey = null;
     _selectedArrElemKey = null;
-    import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    rerender.jumpTo(start);
     import('../sidebar.js').then(m => m.updateInspector());
     renderStructPins();
 }
@@ -4521,8 +4520,7 @@ function selectCreatedPointerPin(pin: StructPin, state: Extract<StructPointerCre
 function selectPointerTarget(addr: number, byteCount: number): void {
     S.selStart = addr;
     S.selEnd = addr + Math.max(1, byteCount) - 1;
-    rerender.toMemory();
-    import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(addr); });
+    rerender.jumpTo(addr);
     import('../sidebar.js').then(m => m.updateInspector());
 }
 
@@ -4728,7 +4726,7 @@ function selectStructRange(el: HTMLElement, start: number, count: number): void 
     S.selStart = start;
     S.selEnd = start + count - 1;
     el.classList.add('si-selected');
-    import('../../memory/memoryView.js').then(m => { m.applySel(); m.scrollTo(start); });
+    rerender.jumpTo(start);
     import('../sidebar.js').then(m => m.updateInspector());
 }
 

@@ -6,11 +6,20 @@ import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc } from './utils';
 import { rerender }                                   from './render/registry';
 import { parsePasteText }                             from './pasteUtils';
-import { renderMemHeader, renderMemBody, applySel, scrollTo } from './memory/memoryView';
-import { setupMemoryDragSelection as setupMemoryDragSelectionController } from './memory/dragSelection';
+import {
+    getShowAscii,
+    invalidateGridRender,
+    memRerender,
+    mountHexView,
+    paintCell,
+    paintMemoryMatchHighlights,
+    paintMemorySelection,
+    scrollTo,
+    setShowAscii as setGridShowAscii,
+} from './memory/memoryGrid';
 import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
-import { selectByteForContextMenu, selectByteFromClick } from './memory/selectionClick';
+import type { HexViewRange } from './components/HexView/HexView';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
 import { setupSidebarResize } from './sidebar/sidebarResize';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
@@ -80,27 +89,12 @@ const searchBar = new SearchBar(
     { mode: S.searchMode, endianness: S.searchEndianness },
 );
 
-function dataCellAt(addr: number): HTMLElement | null {
-    return document.querySelector<HTMLElement>(
-        `.data-cell[data-addr="${addr.toString(16).toUpperCase().padStart(8, '0')}"]`
-    );
-}
-
 function clearNibbleBuffer(): void {
     nibbleBuffer = null;
     if (nibbleBufferAddr !== null) {
-        const el = dataCellAt(nibbleBufferAddr);
-        if (el) {
-            el.classList.remove('editing');
-            el.textContent = parseInt(el.dataset.val!, 10).toString(16).toUpperCase().padStart(2, '0');
-        }
+        paintCell(nibbleBufferAddr, null);
         nibbleBufferAddr = null;
     }
-}
-
-function showNibblePreview(el: HTMLElement, char: string): void {
-    el.classList.add('editing');
-    el.textContent = char + '-';
 }
 
 function applyTypedEdit(addr: number, value: number): void {
@@ -132,7 +126,7 @@ function handleEditEscape(): void {
     clearNibbleBuffer();
     S.selStart = null;
     S.selEnd = null;
-    applySel();
+    paintMemorySelection();
     updateInspector();
 }
 
@@ -140,8 +134,7 @@ function handleEditBufferChar(selStart: number, char: string): void {
     if (nibbleBuffer === null) {
         nibbleBuffer = char;
         nibbleBufferAddr = selStart;
-        const el = dataCellAt(selStart);
-        if (el) {showNibblePreview(el, char);}
+        paintCell(selStart, `${char}-`);
     } else if (nibbleBufferAddr === selStart) {
         const value = parseInt(nibbleBuffer + char, 16);
         applyTypedEdit(selStart, value);
@@ -552,6 +545,10 @@ function render(): void {
                 <button id="btn-rec" class="${activeClass(S.currentView === 'record')}">Records</button>
             </div>
             <div class="tb-sep"></div>
+            <div id="mem-ascii-toggle" class="compact-tabs tb-ascii-toggle">
+                <button id="btn-ascii-hex" class="${activeClass(!getShowAscii())}" type="button" title="Show hex bytes only">Hex</button>
+                <button id="btn-ascii-both" class="${activeClass(getShowAscii())}" type="button" title="Show hex bytes and decoded ASCII">Hex+ASCII</button>
+            </div>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode">&#11041; Edit</button>
             <div id="edit-mode-group" style="display:none">
                 <span class="tb-editing-pill">&#9679; EDITING</span>
@@ -604,6 +601,7 @@ function render(): void {
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
 
+    invalidateGridRender();
     setupRenderedUi();
 }
 
@@ -620,7 +618,12 @@ function setupRenderedUi(): void {
         setCount: (count, current) => searchBar.setCount(count, current),
         setBusy: (busy) => searchBar.setBusy(busy),
     });
-    setupMemoryDragSelection();
+    mountHexView({
+        onCellClick: onHexViewClick,
+        onCellContext: onHexViewContext,
+        onSelectionChange: onHexViewSelectionChange,
+        onCopy: doCopySelection,
+    });
     setupSideTabs();
     renderInitialViews();
     document.addEventListener('keydown', onEditKeydown, { capture: true });
@@ -646,7 +649,16 @@ function setFileEndian(endian: 'le' | 'be'): void {
 function setupToolbarButtons(): void {
     document.getElementById('btn-mem')!.addEventListener('click', () => switchView('memory'));
     document.getElementById('btn-rec')!.addEventListener('click', () => switchView('record'));
+    document.getElementById('btn-ascii-hex')!.addEventListener('click', () => setShowAscii(false));
+    document.getElementById('btn-ascii-both')!.addEventListener('click', () => setShowAscii(true));
     updateEditControls();
+}
+
+function setShowAscii(value: boolean): void {
+    if (getShowAscii() === value) { return; }
+    setGridShowAscii(value);
+    document.getElementById('btn-ascii-hex')?.classList.toggle('active', !value);
+    document.getElementById('btn-ascii-both')?.classList.toggle('active', value);
 }
 
 function setupLockInterception(): void {
@@ -680,16 +692,6 @@ function setupRerenderCallbacks(): void {
     rerender.labels   = () => renderLabels();
     rerender.toMemory = () => switchView('memory');
     rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
-}
-
-function setupMemoryDragSelection(): void {
-    setupMemoryDragSelectionController(currentSelectionRange, (start, end) => {
-        S.selStart = start;
-        S.selEnd = end;
-        applySel();
-        updateInspector();
-        updateLabelFormSel();
-    });
 }
 
 function reloadDiscardingEdits(incoming: IncomingFile): void {
@@ -735,7 +737,6 @@ function applySidebarState(): void {
 
 function renderInitialViews(): void {
     renderStatsBar();
-    renderMemHeader();
     renderInspector();
     renderBits();
     renderStructPins();
@@ -764,29 +765,42 @@ function renderStatsBar(): void {
 
 // ── Memory view ───────────────────────────────────────────────────
 
-function memRerender(): void {
-    renderMemBody(onByteDown, onByteCtx);
-}
-
 function updateByteSelection(start: number, end: number): void {
     clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
-    applySel();
+    paintMemorySelection();
     updateInspector();
     updateLabelFormSel();
     onSelectionChangeForStruct();
 }
 
-function onByteDown(e: MouseEvent, el: HTMLElement): void {
+function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): void {
     clearNibbleBuffer();
-    S.lastClickColumn = el.classList.contains('char-cell') ? 'char' : 'hex';
-    selectByteFromClick(e, el, updateByteSelection);
+    S.lastClickColumn = column;
+    const range = shift && S.selStart !== null
+        ? (addr < S.selStart ? { start: addr, end: S.selStart } : { start: S.selStart, end: addr })
+        : { start: addr, end: addr };
+    updateByteSelection(range.start, range.end);
 }
 
-function onByteCtx(e: MouseEvent, el: HTMLElement): void {
-    selectByteForContextMenu(el, updateByteSelection);
-    showCtxMenu(e.clientX, e.clientY);
+function onHexViewContext(addr: number, x: number, y: number): void {
+    if (!isAddressInSelection(addr)) {
+        updateByteSelection(addr, addr);
+    }
+    showCtxMenu(x, y);
+}
+
+function isAddressInSelection(addr: number): boolean {
+    return S.selStart !== null && S.selEnd !== null && addr >= S.selStart && addr <= S.selEnd;
+}
+
+function onHexViewSelectionChange(range: HexViewRange): void {
+    S.selStart = range.start;
+    S.selEnd = range.end;
+    paintMemorySelection();
+    updateInspector();
+    updateLabelFormSel();
 }
 
 function selLen(): number {
@@ -816,6 +830,7 @@ function updateViewVisibility(v: ViewName): void {
 function updateMemoryOnlyControls(visible: boolean): void {
     setDisplayById('btn-edit-mode', visible);
     setDisplayById('edit-mode-group', visible && S.editMode);
+    setDisplayById('mem-ascii-toggle', visible);
     setDisplayById('sidebar', visible);
     setDisplayById('side-tabs', visible);
     setDisplayById('search-box', visible);
