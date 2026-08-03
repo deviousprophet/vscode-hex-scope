@@ -103,7 +103,7 @@ export class HexView {
 - Empty rows state: "No data records found." placeholder.
 - Selection/match: `.sel`/`.row-sel`/`.sel-col`/`.match`/`.amatch` painted from render input + `paintSelection`/`paintMatch` (multi-byte span via `length`).
 - Hover/column-hover: transient `.col-hi`/hover paints, reported.
-- ASCII toggle (small feature): toolbar button flips `showAscii` (default true); single **Show ASCII** label with an active/pressed state; host owns state, component honors input.
+- ASCII toggle (small feature): toolbar button flips `showAscii` (default true); single **ASCII** label with an active/pressed state; host owns state, component honors input.
 
 ## Validation & Error Matrix
 

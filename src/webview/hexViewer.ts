@@ -545,7 +545,7 @@ function render(): void {
                 <button id="btn-rec" class="${activeClass(S.currentView === 'record')}">Records</button>
             </div>
             <div class="tb-sep"></div>
-            <button id="btn-ascii-toggle" class="${activeClass(getShowAscii())} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column">Show ASCII</button>
+            <button id="btn-ascii-toggle" class="${activeClass(getShowAscii())} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column">ASCII</button>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode">&#11041; Edit</button>
             <div id="edit-mode-group" style="display:none">
                 <span class="tb-editing-pill">&#9679; EDITING</span>
