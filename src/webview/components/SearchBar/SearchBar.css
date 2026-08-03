@@ -4,11 +4,11 @@
 .search-endian-toggle {
     flex-shrink: 0;
 }
+.search-endian-toggle[hidden] { display: none; }
 
 .search-endian-toggle button {
     min-width: 42px;
     height: 22px;
-    font-size: 10px;
 }
 
 #search-mode {
@@ -22,6 +22,7 @@
     color: var(--non-graphic); font-family: var(--font-editor); font-size: 12px;
     pointer-events: none; z-index: 1; line-height: 1; user-select: none;
 }
+.search-addr-prefix[hidden] { display: none; }
 #search-input {
     background: var(--input-bg); color: var(--fg);
     border: 1px solid var(--input-bdr); border-radius: 3px;

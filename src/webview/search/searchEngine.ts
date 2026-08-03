@@ -81,12 +81,22 @@ function handleRunningSearch(q: string, searchKey: string, trigger: SearchTrigge
 }
 
 function handleCompletedSearchNavigation(q: string, searchKey: string, trigger: SearchTrigger): boolean {
-    if (q.length === 0 || searchKey !== _lastCompletedSearchKey || trigger === 'button') {
+    if (!shouldNavigateCompletedSearch(q, searchKey, trigger, _lastCompletedSearchKey)) {
         return false;
     }
 
     navigateBySearchTrigger(trigger);
     return true;
+}
+
+/** Pure decision: should Enter navigate an unchanged completed search instead of re-running it? */
+export function shouldNavigateCompletedSearch(
+    q: string,
+    searchKey: string,
+    trigger: SearchTrigger,
+    lastCompletedSearchKey: string,
+): boolean {
+    return q.length > 0 && searchKey === lastCompletedSearchKey && trigger !== 'button';
 }
 
 function navigateBySearchTrigger(trigger: SearchTrigger): void {

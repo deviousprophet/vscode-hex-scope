@@ -26,6 +26,7 @@ function initSearch(switchToMemory: () => void, ui?: { setCount(count: number, c
 function clearSearch(): void;
 function nextMatch(): void;
 function prevMatch(): void;
+function shouldNavigateCompletedSearch(q: string, searchKey: string, trigger: SearchTrigger, lastCompletedSearchKey: string): boolean;
 ```
 
 ### 3. Contracts

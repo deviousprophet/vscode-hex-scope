@@ -77,14 +77,14 @@ export class SearchBar {
         const showAddr = isAddr && this.query.length > 0;
         return `
             <div id="search-box">
-                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:${this.mode === 'value' ? 'inline-flex' : 'none'}">
+                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle"${this.mode === 'value' ? '' : ' hidden'}>
                     <button id="search-btn-auto" class="${activeClass(this.endianness === 'auto')}" type="button">Auto</button>
                     <button id="search-btn-le" class="${activeClass(this.endianness === 'le')}" type="button">LE</button>
                     <button id="search-btn-be" class="${activeClass(this.endianness === 'be')}" type="button">BE</button>
                 </div>
                 <select id="search-mode">${modeOptions(this.mode)}</select>
                 <div class="search-addr-wrap">
-                    <span id="search-addr-prefix" class="search-addr-prefix" style="display:${showAddr ? '' : 'none'}">0x</span>
+                    <span id="search-addr-prefix" class="search-addr-prefix"${showAddr ? '' : ' hidden'}>0x</span>
                     <input id="search-input" type="text" placeholder="${PLACEHOLDERS[this.mode]}" autocomplete="off" spellcheck="false" maxlength="${isAddr ? 8 : 100}" value="${esc(this.query)}" class="${showAddr ? 'search-addr-mode' : ''}">
                 </div>
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
@@ -197,14 +197,14 @@ export class SearchBar {
         const show = this.mode === 'addr' && this.query.length > 0;
         const prefix = document.getElementById('search-addr-prefix');
         const input = document.getElementById('search-input') as HTMLInputElement | null;
-        if (prefix) { prefix.style.display = show ? '' : 'none'; }
+        if (prefix) { prefix.hidden = !show; }
         input?.classList.toggle('search-addr-mode', show);
     }
 
     private applyModeUi(): void {
         const toggle = document.getElementById('search-endian-toggle');
         const input = document.getElementById('search-input') as HTMLInputElement | null;
-        if (toggle) { toggle.style.display = this.mode === 'value' ? 'inline-flex' : 'none'; }
+        if (toggle) { toggle.hidden = this.mode !== 'value'; }
         if (input) {
             input.placeholder = PLACEHOLDERS[this.mode];
             input.maxLength = this.mode === 'addr' ? 8 : 100;

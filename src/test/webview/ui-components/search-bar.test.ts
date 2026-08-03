@@ -77,18 +77,12 @@ suite('webview SearchBar component', () => {
 
     test('endian pill hidden outside value mode, visible in value mode', () => {
         const bytesDom = createHarness({ mode: 'bytes' }).dom;
-        assert.strictEqual(
-            (bytesDom.window.document.getElementById('search-endian-toggle') as HTMLElement).style.display,
-            'none',
-        );
+        assert.ok((bytesDom.window.document.getElementById('search-endian-toggle') as HTMLElement).hidden);
         cleanupDom(bytesDom);
         currentDom = null;
 
         const valueDom = createHarness({ mode: 'value' }).dom;
-        assert.strictEqual(
-            (valueDom.window.document.getElementById('search-endian-toggle') as HTMLElement).style.display,
-            'inline-flex',
-        );
+        assert.ok(!(valueDom.window.document.getElementById('search-endian-toggle') as HTMLElement).hidden);
     });
 
     test('endian pill click updates active endian without re-running search', () => {
@@ -102,8 +96,7 @@ suite('webview SearchBar component', () => {
     test('addr mode shows 0x overlay and strips non-hex input', () => {
         const { dom, calls } = createHarness({ mode: 'addr', query: '1A' });
         const input = dom.window.document.getElementById('search-input') as HTMLInputElement;
-        const prefix = dom.window.document.getElementById('search-addr-prefix') as HTMLElement;
-        assert.strictEqual(prefix.style.display, '');
+        assert.ok(!(dom.window.document.getElementById('search-addr-prefix') as HTMLElement).hidden);
         assert.ok(input.classList.contains('search-addr-mode'));
 
         input.value = '1G2!F';
@@ -200,7 +193,7 @@ suite('webview SearchBar component', () => {
         assert.strictEqual((doc.getElementById('search-mode') as HTMLSelectElement).value, 'addr');
         assert.ok((doc.getElementById('search-btn-be') as HTMLButtonElement).classList.contains('active'));
         assert.strictEqual((doc.getElementById('search-input') as HTMLInputElement).value, '1A');
-        assert.strictEqual((doc.getElementById('search-addr-prefix') as HTMLElement).style.display, '');
+        assert.ok(!(doc.getElementById('search-addr-prefix') as HTMLElement).hidden);
     });
 
     test('mount is idempotent and toHtml regenerates from internal state', () => {
