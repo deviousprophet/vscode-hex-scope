@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to `core/search.ts` (deep module) and the webview glue `src/webview/search/searchEngine.ts`. The search bar UI unit is owned by [SearchBar Component Code-Spec](./search-bar-component.md); selection/inspector/copy contracts by [Selection, Inspector, and Byte Tools Code-Spec](./selection-inspect-copy.md).
+Applies to `core/search.ts` (deep module) and the webview glue `src/webview/search/searchEngine.ts`. The search bar UI unit is owned by [SearchBar Component Code-Spec](./component-search-bar.md); selection/inspector/copy contracts by [Selection, Inspector, and Byte Tools Code-Spec](./selection-inspect-copy.md).
 
 ### 2. Signatures
 
