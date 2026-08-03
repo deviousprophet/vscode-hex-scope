@@ -177,6 +177,16 @@ suite('HexView header render', () => {
         assert.ok(html.includes('data-col="0"'));
         assert.ok(html.includes('data-col="15"'));
     });
+
+    test('decoded column carries col-decoded class so the separator stays on the ASCII column', () => {
+        const header = renderHexViewHeader();
+        assert.ok(header.includes('class="cell-group col-decoded"'), 'header decoded group tagged');
+        assert.ok(!renderHexViewHeader(false).includes('col-decoded'), 'no decoded group when ascii off');
+        const row = renderHexViewHtml(standardInput());
+        assert.ok(row.includes('class="cell-group col-decoded"'), 'row char group tagged');
+        const hexOnly = renderHexViewHtml(standardInput({ showAscii: false }));
+        assert.ok(!hexOnly.includes('col-decoded'), 'hex-only row has no decoded group');
+    });
 });
 
 // ── Body render ───────────────────────────────────────────────────

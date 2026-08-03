@@ -34,7 +34,10 @@
 
 /* ── Cell group (mirrors DataCellGroup component) ─────────────── */
 .cell-group { display: inline-flex; padding: 0 var(--cell-pad); cursor: default; }
-.cell-group:last-child {
+/* Decoded-ASCII column separator — explicit class, not :last-child, so it
+   stays on the ASCII column when showAscii toggles it off (hex-only would
+   otherwise move the separator between address and hex). */
+.cell-group.col-decoded {
     border-left: 2px solid rgba(255,255,255,.18);
     border-right: 2px solid rgba(255,255,255,.18);
     margin-left: calc(var(--cell-pad) * 1.5);

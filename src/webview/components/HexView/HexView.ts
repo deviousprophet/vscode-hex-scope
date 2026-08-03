@@ -93,7 +93,7 @@ export function renderHexViewHeader(showAscii = true): string {
     ).join('');
     return hiddenHtml
         + `<div class="cell-group">${hexHeaderHtml}</div>`
-        + (showAscii ? `<div class="cell-group"><span class="mem-hdr-decoded">Decoded text</span></div>` : '');
+        + (showAscii ? `<div class="cell-group col-decoded"><span class="mem-hdr-decoded">Decoded text</span></div>` : '');
 }
 
 export function renderHexViewHtml(input: HexViewRenderInput): string {
@@ -159,7 +159,7 @@ function renderDataRow(row: HexViewRow, input: HexViewRenderInput, showAscii: bo
     return `<div class="data-row" data-row="${row.address}">` +
         `<div class="cell-group"><span class="addr-cell">${addrHex(row.address)}</span></div>` +
         `<div class="cell-group">${hexCells.join('')}</div>` +
-        (showAscii ? `<div class="cell-group">${charCells.join('')}</div>` : '') +
+        (showAscii ? `<div class="cell-group col-decoded">${charCells.join('')}</div>` : '') +
         `</div>`;
 }
 
