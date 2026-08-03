@@ -11,10 +11,20 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 | `sidebar.css` | Inspector, scripts, label form, shared section patterns |
 | `struct.css` | Struct editor, instance cards, field rows |
 | `integrity.css` | Integrity checks panel, profile library, comparison UI |
-| `toolbar.css` | Top toolbar, search box, view tabs |
+| `toolbar.css` | Top toolbar, view tabs |
 | `memory-view.css` | Memory hex grid |
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |
+
+Extracted self-contained components move their component-specific rules out of `styles/` into a colocated CSS file imported by the component's `.ts`:
+
+```text
+src/webview/components/SearchBar/
+    SearchBar.ts     import './SearchBar.css';
+    SearchBar.css    all .search-* / #search-* rules
+```
+
+Once a component's rules are extracted, `styles/` holds only shared/global concerns. See [SearchBar Component](./search-bar-component.md).
 
 No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names.
 

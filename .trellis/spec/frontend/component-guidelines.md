@@ -21,6 +21,16 @@ The webview uses TypeScript modules that generate HTML strings and attach DOM li
 
 `src/webview/webviewMessageModel.ts` demonstrates the model/effect split: each provider message returns `WebviewInvalidations`; `hexViewer.ts` applies DOM effects.
 
+## Self-Contained Components
+
+A component under `src/webview/components/<Name>/` owns its markup, UI state, input behaviours, and styles as one unit. Contract (see [SearchBar Component](./search-bar-component.md)):
+
+- `toHtml()` returns markup; `mount()` attaches document-delegated listeners idempotently (survives host re-renders); feedback setters (`setCount`, `setBusy`, …) let the host push data in.
+- The component holds its UI state internally, seeded via constructor options. It never reads or writes the `S` global and never calls feature/engine functions directly — it reports through callbacks the host wires.
+- The host syncs shared state from callbacks (e.g. `S.searchMode`/`S.searchEndianness` in `onSearch`) when other renderers depend on it.
+- Component CSS is imported by the component's `.ts` and bundled via esbuild; global CSS (tokens/resets/layout) stays in `src/webview/styles/`.
+- A component extraction is behavior-preserving: UI gestures the pre-refactor code only used to update shared state must not start triggering new actions.
+
 ## Rerender Registry
 
 `src/webview/render/registry.ts` breaks a real circular dependency between feature modules and the composition root. `hexViewer.ts` assigns:
@@ -39,7 +49,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 - Context-menu opening selects only where the explicit feature contract requires it; struct rows intentionally do not select on menu open.
 - Keyboard paths must reach the same action owner as mouse paths.
 - Large memory rendering stays virtualized through `render/virtualScroll.ts`; never render the entire address space.
-- CSS belongs in the existing feature stylesheet under `src/webview/styles/`.
+- Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) — see [SearchBar Component](./search-bar-component.md). Shared/global CSS stays under `src/webview/styles/` (tokens, resets, layout); it does not contain component-specific rules once that component is extracted.
 
 ## Accessibility
 

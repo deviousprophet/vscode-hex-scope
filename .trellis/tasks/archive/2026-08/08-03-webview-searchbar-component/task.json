@@ -1,0 +1,30 @@
+{
+  "id": "webview-searchbar-component",
+  "name": "webview-searchbar-component",
+  "title": "Extract SearchBar into self-contained component",
+  "description": "Child of webview-component-refactor (#151). SearchBar component: src/webview/components/SearchBar/ owns markup, UI state, input behaviours, styles. Behavior-preserving: no functional/visual change. Engine glue takes explicit params.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "deviousprophet",
+  "assignee": "deviousprophet",
+  "createdAt": "2026-08-03",
+  "completedAt": "2026-08-03",
+  "branch": "feat/webview-searchbar-component",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-03-webview-component-refactor",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "commit": "4d86d6f",
+    "status-note": "implemented, checked, committed; manual smoke + PR pending",
+    "pr_url": "https://github.com/deviousprophet/vscode-hex-scope/pull/152"
+  }
+}

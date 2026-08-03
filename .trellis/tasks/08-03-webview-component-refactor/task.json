@@ -1,0 +1,28 @@
+{
+  "id": "webview-component-refactor",
+  "name": "webview-component-refactor",
+  "title": "Refactor webview UI into self-contained components",
+  "description": "Issue #151: Move webview UI to component-based structure, each component owns its logic + styles. Target: src/webview/components/ComponentA/{ComponentA.ts,ComponentA.css}. AC: per-component .ts/.css, colocated styles, shared styles only global concerns, no functional/visual change.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "deviousprophet",
+  "assignee": "deviousprophet",
+  "createdAt": "2026-08-03",
+  "completedAt": null,
+  "branch": "feat/webview-searchbar-component",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-03-webview-searchbar-component"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

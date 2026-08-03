@@ -48,3 +48,34 @@ Fixed issue #142: selectedBytes() now skips unmapped gap addresses instead of ze
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Extract SearchBar into self-contained component (#151)
+
+**Date**: 2026-08-03
+**Task**: Extract SearchBar into self-contained component (#151)
+**Branch**: `feat/webview-searchbar-component`
+
+### Summary
+
+Planned (grilled decisions: component owns UI state, explicit-param engine, undo to host, CSS via esbuild, hidden-attr, single-instance), implemented SearchBar component src/webview/components/SearchBar/, ran two-axis code review (standards + spec) twice, fallow-fix complexity (all axes 0), fixed CI css-import-hook isolation, split search specs (search-engine/search-bar-component/selection-inspect-copy), restructured parent+child tasks, created PR #152. All gates green: check-types, lint, 541 tests, fallow 0/0/0.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d86d6f` | (see git log) |
+| `b56da8e` | (see git log) |
+| `22ed4c6` | (see git log) |
+| `b107096` | (see git log) |
+| `3d2cdbb` | (see git log) |
+| `4d2a5e3` | (see git log) |
+| `09f21ae` | (see git log) |
+| `93c3e82` | (see git log) |
+| `49f2ba9` | (see git log) |
+| `863b2e4` | (see git log) |
+| `f82dd68` | (see git log) |
+
+### Status
+
+[OK] **Completed**
