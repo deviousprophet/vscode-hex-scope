@@ -85,6 +85,7 @@ export class HexView {
 - **Host builds cells:** host loops `BPR` per row calling `getByte`, computes `byteClass`/char text/`dirty`/integrity/struct classes → fills `HexViewCell`. Component composites only match/sel/col-hi from declarative input.
 - **Interaction = report:** hover/column-hover/drag-selection/click/context/copy via callbacks; host applies selection state, context menu, edits. Drag range transient in component, persistent in host `S`.
 - **Container-wrapper positioning (current parity):** rows container full virtual height + inner wrapper `top: windowTop`; no per-row absolute. Gap rows + banners in-flow.
+- **Compressed mode emits NO spacers:** `windowTop` already equals `physicalScrollTop + topSpacer - logicalScrollTop`, so the wrapper subsumes the top offset. Emitting top/bottom spacers inside the wrapper would double-offset and grow blank space above rows as the user scrolls down. Spacers are rendered only in uncompressed (in-flow) mode.
 - **Virtualization:** component owns scroll listener → `onVisibleWindowChange(scrollTop)`; host computes slice via `render/virtualScroll.ts` (shared with record view) and feeds new render input. Component does not import virtualScroll math.
 - **Header:** component renders it (hidden addr gutter + 00..0F hex cells always + "Decoded text" gated by `showAscii`); header scrollLeft sync is component-internal.
 - **Zero size math:** all sizing from CSS (`--cell-size`, `--text-cell-width`, `.cell-group` `4n+1` gaps, `.data-row` height). No inline size styles in component.
