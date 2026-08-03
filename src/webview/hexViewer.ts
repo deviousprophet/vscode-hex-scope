@@ -80,10 +80,6 @@ const searchBar = new SearchBar(
     { mode: S.searchMode, endianness: S.searchEndianness },
 );
 
-function searchBarHtml(): string {
-    return searchBar.toHtml();
-}
-
 function dataCellAt(addr: number): HTMLElement | null {
     return document.querySelector<HTMLElement>(
         `.data-cell[data-addr="${addr.toString(16).toUpperCase().padStart(8, '0')}"]`
@@ -563,7 +559,7 @@ function render(): void {
                 <button id="btn-save"   class="tb-save-btn"   title="Save edits to file">&#128190; Save</button>
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
-            ${searchBarHtml()}
+            ${searchBar.toHtml()}
         </div>
         <div id="stats-bar"></div>
         <div id="main-area">

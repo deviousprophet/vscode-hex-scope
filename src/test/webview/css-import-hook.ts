@@ -16,7 +16,6 @@ const nodeRequire = require as unknown as {
 if (!nodeRequire.extensions['.css']) {
     nodeRequire.extensions['.css'] = () => {};
 }
-
 const srcWebview = path.resolve(__dirname, '..', '..', '..', 'src', 'webview');
 const outWebview = path.resolve(__dirname, '..', '..', 'webview');
 
