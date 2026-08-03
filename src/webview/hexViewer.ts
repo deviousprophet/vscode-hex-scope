@@ -823,7 +823,7 @@ function updateViewVisibility(v: ViewName): void {
 }
 
 function updateMemoryOnlyControls(visible: boolean): void {
-    setDisplayById('btn-edit-mode', visible);
+    setDisplayById('btn-edit-mode', visible && !S.editMode);
     setDisplayById('edit-mode-group', visible && S.editMode);
     setDisplayById('btn-ascii-toggle', visible);
     setDisplayById('sidebar', visible);

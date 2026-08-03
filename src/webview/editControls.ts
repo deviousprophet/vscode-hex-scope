@@ -2,7 +2,7 @@ import { S } from './state';
 
 export function updateEditControls(): void {
     const inMemory = S.currentView === 'memory';
-    document.getElementById('btn-edit-mode')!.style.display = inMemory ? '' : 'none';
+    document.getElementById('btn-edit-mode')!.style.display = inMemory && !S.editMode ? '' : 'none';
     document.getElementById('edit-mode-group')!.style.display = inMemory && S.editMode ? '' : 'none';
 }
 
