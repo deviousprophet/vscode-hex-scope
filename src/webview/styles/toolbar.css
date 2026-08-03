@@ -116,6 +116,16 @@
     color: var(--high-color); background: rgba(156,220,254,.12); border: 1px solid rgba(156,220,254,.3);
 }
 
+/* Memory-view "Show ASCII" toggle (active when ASCII column visible) */
+.tb-ascii-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 3px;
+    color: var(--addr-fg); font-size: 11px; font-family: var(--font-ui);
+    padding: 1px 8px; cursor: pointer; white-space: nowrap;
+    transition: color .1s, border-color .1s, background .1s;
+}
+.tb-ascii-btn:hover { color: var(--fg); border-color: rgba(255,255,255,.35); }
+.tb-ascii-btn.active { background: var(--btn-bg); color: var(--btn-fg); }
+
 /* Edit mode toggle button (visible when NOT in edit mode) */
 .tb-edit-btn,
 .tb-cancel-btn {

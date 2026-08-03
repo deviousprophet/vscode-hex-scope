@@ -545,10 +545,7 @@ function render(): void {
                 <button id="btn-rec" class="${activeClass(S.currentView === 'record')}">Records</button>
             </div>
             <div class="tb-sep"></div>
-            <div id="mem-ascii-toggle" class="compact-tabs tb-ascii-toggle">
-                <button id="btn-ascii-hex" class="${activeClass(!getShowAscii())}" type="button" title="Show hex bytes only">Hex</button>
-                <button id="btn-ascii-both" class="${activeClass(getShowAscii())}" type="button" title="Show hex bytes and decoded ASCII">Hex+ASCII</button>
-            </div>
+            <button id="btn-ascii-toggle" class="${activeClass(getShowAscii())} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column">Show ASCII</button>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode">&#11041; Edit</button>
             <div id="edit-mode-group" style="display:none">
                 <span class="tb-editing-pill">&#9679; EDITING</span>
@@ -649,16 +646,14 @@ function setFileEndian(endian: 'le' | 'be'): void {
 function setupToolbarButtons(): void {
     document.getElementById('btn-mem')!.addEventListener('click', () => switchView('memory'));
     document.getElementById('btn-rec')!.addEventListener('click', () => switchView('record'));
-    document.getElementById('btn-ascii-hex')!.addEventListener('click', () => setShowAscii(false));
-    document.getElementById('btn-ascii-both')!.addEventListener('click', () => setShowAscii(true));
+    document.getElementById('btn-ascii-toggle')!.addEventListener('click', () => setShowAscii(!getShowAscii()));
     updateEditControls();
 }
 
 function setShowAscii(value: boolean): void {
     if (getShowAscii() === value) { return; }
     setGridShowAscii(value);
-    document.getElementById('btn-ascii-hex')?.classList.toggle('active', !value);
-    document.getElementById('btn-ascii-both')?.classList.toggle('active', value);
+    document.getElementById('btn-ascii-toggle')?.classList.toggle('active', value);
 }
 
 function setupLockInterception(): void {
@@ -830,7 +825,7 @@ function updateViewVisibility(v: ViewName): void {
 function updateMemoryOnlyControls(visible: boolean): void {
     setDisplayById('btn-edit-mode', visible);
     setDisplayById('edit-mode-group', visible && S.editMode);
-    setDisplayById('mem-ascii-toggle', visible);
+    setDisplayById('btn-ascii-toggle', visible);
     setDisplayById('sidebar', visible);
     setDisplayById('side-tabs', visible);
     setDisplayById('search-box', visible);
