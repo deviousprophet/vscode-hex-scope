@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import './css-import-hook';
 import { shouldNavigateCompletedSearch } from '../../webview/search/searchEngine';
 
 suite('search engine glue — completed-query navigation decision', () => {
