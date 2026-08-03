@@ -14,8 +14,8 @@ import { selectByteForContextMenu, selectByteFromClick } from './memory/selectio
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
 import { setupSidebarResize } from './sidebar/sidebarResize';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
-import { initSearch } from './search/searchEngine';
-import { setupSearchControls } from './search/searchControls';
+import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
+import { SearchBar } from './components/SearchBar/SearchBar';
 import type { SerializedParseResult } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
 import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
@@ -63,6 +63,26 @@ import { setupContextMenu, showContextMenu } from './contextMenuController';
 // ── Direct-typing edit buffer ─────────────────────────────────────
 let nibbleBuffer: string | null = null;
 let nibbleBufferAddr: number | null = null;
+
+// ── Search bar component ──────────────────────────────────────────
+// Component owns search markup/UI state; host owns execution + feedback.
+const searchBar = new SearchBar(
+    {
+        onSearch: (query, mode, endianness, trigger) => {
+            S.searchMode = mode;
+            S.searchEndianness = endianness;
+            runSearch(query, mode, endianness, trigger);
+        },
+        onPrev: () => prevMatch(),
+        onNext: () => nextMatch(),
+        onClear: () => clearSearch(),
+    },
+    { mode: S.searchMode, endianness: S.searchEndianness },
+);
+
+function searchBarHtml(): string {
+    return searchBar.toHtml();
+}
 
 function dataCellAt(addr: number): HTMLElement | null {
     return document.querySelector<HTMLElement>(
@@ -283,6 +303,14 @@ window.addEventListener('message', (e: MessageEvent) => {
     dispatchProviderMessage(e.data, MESSAGE_HANDLERS);
 });
 
+// Ctrl+Z undo lives in the host (not the search component), gated on edit mode.
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
+        e.preventDefault();
+        undoLastEdit();
+    }
+});
+
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
     resetRecordPages(msg.generation);
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
@@ -490,10 +518,6 @@ function activeClass(isActive: boolean): string {
     return isActive ? 'active' : '';
 }
 
-function selectedAttr(isSelected: boolean): string {
-    return isSelected ? 'selected' : '';
-}
-
 function visibleClass(isVisible: boolean): string {
     return isVisible ? 'visible' : '';
 }
@@ -533,29 +557,7 @@ function render(): void {
                 <button id="btn-save"   class="tb-save-btn"   title="Save edits to file">&#128190; Save</button>
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
-            <div id="search-box">
-                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle" style="display:none">
-                    <button id="search-btn-auto" class="${activeClass(S.searchEndianness === 'auto')}" type="button">Auto</button>
-                    <button id="search-btn-le" class="${activeClass(S.searchEndianness === 'le')}" type="button">LE</button>
-                    <button id="search-btn-be" class="${activeClass(S.searchEndianness === 'be')}" type="button">BE</button>
-                </div>
-                <select id="search-mode">
-                    <option value="bytes" ${selectedAttr(S.searchMode === 'bytes')}>Bytes</option>
-                    <option value="value" ${selectedAttr(S.searchMode === 'value')}>Value</option>
-                    <option value="ascii" ${selectedAttr(S.searchMode === 'ascii')}>ASCII</option>
-                    <option value="addr"  ${selectedAttr(S.searchMode === 'addr')}>Addr</option>
-                </select>
-                <div class="search-addr-wrap">
-                    <span id="search-addr-prefix" class="search-addr-prefix">0x</span>
-                    <input id="search-input" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
-                </div>
-                <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
-                <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
-                <button class="nav-btn" id="btn-next"         title="Next match">▼</button>
-                <button class="nav-btn" id="btn-clear-search" title="Clear">✕</button>
-                <span id="search-progress" class="search-progress" aria-hidden="true"></span>
-                <span id="match-count"></span>
-            </div>
+            ${searchBarHtml()}
         </div>
         <div id="stats-bar"></div>
         <div id="main-area">
@@ -609,10 +611,13 @@ function setupRenderedUi(): void {
     setupSidebarResize();
     setupEndianControl();
     setupEditButtons();
-    setupSearchControls(undoLastEdit);
+    searchBar.mount();
     setupRerenderCallbacks();
     setIntegrityEditHandler(stageIntegrityEdits);
-    initSearch(() => switchView('memory'));
+    initSearch(() => switchView('memory'), {
+        setCount: (count, current) => searchBar.setCount(count, current),
+        setBusy: (busy) => searchBar.setBusy(busy),
+    });
     setupMemoryDragSelection();
     setupSideTabs();
     renderInitialViews();

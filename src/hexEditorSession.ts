@@ -808,6 +808,7 @@ body{margin:0;padding:0;height:100vh;background:var(--vscode-editor-background,#
 @keyframes loading-slide{0%{transform:translateX(-120%)}100%{transform:translateX(300%)}}
     </style>
 ${cssLinks}
+    <link rel="stylesheet" href="${webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'dist', 'webview.css'))}">
     <title>HexScope</title>
 </head>
 <body>

@@ -6,11 +6,14 @@
 
 Applies to `core/search.ts`, `webview/search/`, memory selection/drag behavior, Inspector, context commands/menu, and `core/byte-tools/`.
 
+Search UI state (mode/endianness/query) is owned by the `SearchBar` component (`src/webview/components/SearchBar/SearchBar.ts`); the engine glue takes explicit params (`runSearch(query, mode, endianness, trigger)`) and never reads `S.searchMode`/`S.searchEndianness`/the input DOM for its decision. `S.searchMode`/`S.searchEndianness` are kept in sync by the host for renderers that read them (e.g. memory needle-length).
+
 ### 2. Signatures
 
 ```typescript
 type SearchMode = 'bytes' | 'value' | 'ascii' | 'addr';
 type SearchEndianness = 'auto' | 'be' | 'le';
+type SearchTrigger = 'button' | 'enter-next' | 'enter-prev';
 
 class SearchEngine {
     search(req: SearchRequest, handlers: SearchHandlers): void;
@@ -19,6 +22,12 @@ class SearchEngine {
 
 function buildNeedles(mode, raw, endianness): number[][];
 function canonicalizeQuery(mode: SearchMode, raw: string): string;
+// webview glue: src/webview/search/searchEngine.ts
+function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness, trigger?: SearchTrigger): void;
+function initSearch(switchToMemory: () => void, ui?: { setCount(count: number, current: number): void; setBusy(busy: boolean): void }): void;
+function clearSearch(): void;
+function nextMatch(): void;
+function prevMatch(): void;
 type SelectionRange = { start: number; end: number };
 function selectedBytes(): number[];
 function formatCopyCommand(cmd: CopyCommand, bytes: number[]): string;

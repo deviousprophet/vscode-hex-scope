@@ -32,6 +32,8 @@ src/
    |- state.ts                  state shape/defaults only
    |- webviewMessage*.ts        provider dispatch and typed model updates
    |- memory/, search/, render/ view-specific modules
+   |- components/               self-contained UI components (issue #151)
+   |  `- SearchBar/             SearchBar.ts + SearchBar.css, one unit each
    `- sidebar/{inspector,integrity,struct}/ feature modules
 ```
 
@@ -41,6 +43,8 @@ src/
 - Put extension-host filesystem, VS Code storage, clipboard, and watcher effects in `HexEditorSession` or the smallest host adapter.
 - Add cross-runtime messages only in `src/webviewProtocol.ts`, then update both session handling and webview dispatch/model handling.
 - Put shared state mutation in `appModel.ts`; feature modules may own transient UI state when it has one owner, as integrity and struct modules do.
+- Self-contained UI components live in `src/webview/components/<Name>/<Name>.ts` + `<Name>.css`. A component owns its markup, UI state, input behaviours, and styles; the host (`hexViewer.ts`) owns execution, data, and feedback. A component never reads/writes the `S` global — it is seeded on construction and reports through callbacks. See [SearchBar Component](./search-bar-component.md) for the contract.
+- Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) so esbuild emits a bundled `dist/webview.css`; `styles/*.css` holds only shared/global concerns (tokens, resets, layout) during the transition.
 - `hexViewer.ts` is the composition root. It wires `rerender` callbacks and effects; it must not become a second owner for parsing or feature rules.
 - Tests mirror ownership under `src/test/core`, `src/test/webview`, and `src/test/extension`.
 
