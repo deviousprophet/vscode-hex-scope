@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": "src/webview/memory/memoryView.ts", "reason": "source grid module to extract"}
+{"file": "src/webview/memory/dragSelection.ts", "reason": "drag interaction to absorb"}
+{"file": "src/webview/memory/selectionClick.ts", "reason": "click/context selection to absorb"}
+{"file": "src/webview/render/virtualScroll.ts", "reason": "shared virtual scroll math"}
+{"file": "src/webview/state.ts", "reason": "S shape"}
+{"file": "src/webview/styles/memory-view.css", "reason": "grid css to move"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "component pattern"}
