@@ -205,7 +205,12 @@ function replaceRecordViewContent(el: HTMLElement, table: HTMLTableElement, win:
     wrapper.style.height = `${win.layout.physicalHeight}px`;
     const topOffset = win.firstVisibleIdx * win.rowHeight;
     table.style.position = 'absolute';
-    table.style.top = `${win.physicalScrollTop + topOffset - win.scrollTop}px`;
+    // Clamp so the rendered table never overflows the fixed physical-height container:
+    // near the bottom the buffer rows below the viewport would push it past physicalHeight,
+    // growing the scroll area and fighting the browser clamp (end-of-scroll shaking).
+    const renderedHeight = Math.max(0, win.lastVisibleIdx - win.firstVisibleIdx + 1) * win.rowHeight;
+    const clampedTop = Math.max(0, Math.min(win.physicalScrollTop + topOffset - win.scrollTop, win.layout.physicalHeight - renderedHeight));
+    table.style.top = `${clampedTop}px`;
     table.style.left = '0';
     wrapper.appendChild(table);
     el.replaceChildren(wrapper);

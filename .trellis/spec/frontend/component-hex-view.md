@@ -114,6 +114,7 @@ export class HexView {
 | `showAscii:false` | Hex + addr only; char cells + "Decoded text" header omitted. |
 | Compressed (huge file) | Container full physical height + wrapper `top: windowTop` + spacers; slice rerender on scroll. |
 | Scroll during selection | Selection repainted from host state after slice rerender (`activeMatch` preserves `.amatch`). |
+| Scroll past the end (compressed) | `windowTop` is clamped to `physicalHeight − sliceHeight` so the slice never overflows the fixed-height container; otherwise the scroll area grows and the scroll handler fights the browser clamp (end-of-scroll shaking). |
 | Nibble preview active | `paintCell(addr, text)` shows preview; `paintCell(addr, null)` restores from own data-val. |
 | Two instances (future diff) | Root-scoped listeners filter by selector; no id collisions. |
 

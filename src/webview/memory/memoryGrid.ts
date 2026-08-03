@@ -165,6 +165,11 @@ function applyMemoryContainerLayout(container: HTMLElement, layout: VirtualScrol
     container.style.height = '';
 }
 
+/** Pure clamp: keep the rendered slice inside the fixed physical-height container. */
+export function clampWindowTop(windowTop: number, physicalHeight: number, sliceHeight: number): number {
+    return Math.max(0, Math.min(windowTop, physicalHeight - sliceHeight));
+}
+
 function buildHexViewInput(
     startIdx: number,
     endIdx: number,
@@ -177,6 +182,12 @@ function buildHexViewInput(
     const topSpacer = calcRowOffset(startIdx, state);
     const bottomSpacer = calcTotalHeight(state) - calcRowOffset(endIdx, state);
     const windowTop = scrollContainer.scrollTop + topSpacer - state.scrollTop;
+    // Clamp so the rendered slice never overflows the fixed physical-height container:
+    // near the bottom, the buffer rows below the viewport would push the wrapper past
+    // physicalHeight, the scroll area grows, and the scroll handler fights the browser
+    // clamp — visible as end-of-scroll shaking.
+    const sliceHeight = calcRowOffset(endIdx, state) - calcRowOffset(startIdx, state);
+    const clampedWindowTop = clampWindowTop(windowTop, layout.physicalHeight, sliceHeight);
     const matchPaint = buildVisibleMatchPaint(visibleRows.visibleMin, visibleRows.visibleMax);
     return {
         rows: visibleRows.rows,
@@ -184,7 +195,7 @@ function buildHexViewInput(
         bottomSpacer,
         compressed: layout.isCompressed,
         containerHeight: layout.physicalHeight,
-        windowTop,
+        windowTop: clampedWindowTop,
         matchSet: matchPaint.matchSet,
         selection: currentSelectionRange(),
         activeMatch: matchPaint.activeMatch,
