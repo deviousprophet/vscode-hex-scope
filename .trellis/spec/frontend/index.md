@@ -20,7 +20,8 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Firmware Document Formats](./document-formats.md) | IHEX/SREC parse, segments, serialization, checksum repair |
 | [Editor Session and Protocol](./editor-lifecycle.md) | Activation, provider/session lifecycle, host-webview messages |
 | [Memory, Record, and Navigation](./memory-navigation.md) | Addressed memory, gaps, virtual scroll, records, segments, labels |
-| [Search, Selection, Inspector, and Byte Tools](./search-inspect-copy.md) | Search modes, cancellation, selection, decode, context copy/analyze |
+| [Search Engine](./search-engine.md) | Cancellable/chunked search, modes, match navigation |
+| [Selection, Inspector, and Byte Tools](./search-inspect-copy.md) | Selection ranges, gap-filtered copy/analyze, Inspector decode, byte tools |
 | [SearchBar Component](./search-bar-component.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
 | [Editing, Save, and External Change](./editing-save-external-change.md) | Transactions, undo, save confirmation, file-change conflicts |
 | [Integrity Checks and Profiles](./integrity-checks.md) | Algorithms, ranges, stored comparison, fixes, profiles |
