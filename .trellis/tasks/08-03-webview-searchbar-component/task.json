@@ -24,6 +24,7 @@
   "notes": "",
   "meta": {
     "commit": "4d86d6f",
-    "status-note": "implemented, checked, committed; manual smoke + PR pending"
+    "status-note": "implemented, checked, committed; manual smoke + PR pending",
+    "pr_url": "https://github.com/deviousprophet/vscode-hex-scope/pull/152"
   }
 }

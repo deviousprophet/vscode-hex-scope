@@ -304,12 +304,18 @@ window.addEventListener('message', (e: MessageEvent) => {
 });
 
 // Ctrl+Z undo lives in the host (not the search component), gated on edit mode.
-document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode) {
+function isUndoShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode;
+}
+
+function onUndoKeydown(e: KeyboardEvent): void {
+    if (isUndoShortcut(e)) {
         e.preventDefault();
         undoLastEdit();
     }
-});
+}
+
+document.addEventListener('keydown', onUndoKeydown);
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
     resetRecordPages(msg.generation);

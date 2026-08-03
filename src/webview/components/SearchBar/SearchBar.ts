@@ -73,19 +73,17 @@ export class SearchBar {
 
     /** Markup; host injects into the toolbar. Regenerated from internal state on each render. */
     toHtml(): string {
-        const isAddr = this.mode === 'addr';
-        const showAddr = isAddr && this.query.length > 0;
         return `
             <div id="search-box">
-                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle"${this.mode === 'value' ? '' : ' hidden'}>
+                <div id="search-endian-toggle" class="compact-tabs search-endian-toggle"${this.endianToggleHiddenAttr()}>
                     <button id="search-btn-auto" class="${activeClass(this.endianness === 'auto')}" type="button">Auto</button>
                     <button id="search-btn-le" class="${activeClass(this.endianness === 'le')}" type="button">LE</button>
                     <button id="search-btn-be" class="${activeClass(this.endianness === 'be')}" type="button">BE</button>
                 </div>
                 <select id="search-mode">${modeOptions(this.mode)}</select>
                 <div class="search-addr-wrap">
-                    <span id="search-addr-prefix" class="search-addr-prefix"${showAddr ? '' : ' hidden'}>0x</span>
-                    <input id="search-input" type="text" placeholder="${PLACEHOLDERS[this.mode]}" autocomplete="off" spellcheck="false" maxlength="${isAddr ? 8 : 100}" value="${esc(this.query)}" class="${showAddr ? 'search-addr-mode' : ''}">
+                    <span id="search-addr-prefix" class="search-addr-prefix"${this.addrPrefixHiddenAttr()}>0x</span>
+                    <input id="search-input" type="text" placeholder="${PLACEHOLDERS[this.mode]}" autocomplete="off" spellcheck="false" maxlength="${this.addrInputMaxLength()}" value="${esc(this.query)}" class="${this.addrInputClass()}">
                 </div>
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
                 <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
@@ -125,16 +123,21 @@ export class SearchBar {
         return `${current + 1} / ${count}`;
     }
 
+    private static readonly CLICK_ACTIONS: ReadonlyArray<readonly [string, (bar: SearchBar) => void]> = [
+        ['#btn-search', b => b.cb.onSearch(b.query, b.mode, b.endianness, 'button')],
+        ['#btn-prev', b => b.cb.onPrev()],
+        ['#btn-next', b => b.cb.onNext()],
+        ['#btn-clear-search', b => b.clear()],
+        ['#search-btn-auto', b => b.setEndianness('auto')],
+        ['#search-btn-le', b => b.setEndianness('le')],
+        ['#search-btn-be', b => b.setEndianness('be')],
+    ];
+
     private onDocumentClick(e: Event): void {
         const target = e.target as HTMLElement | null;
         if (!target || typeof target.closest !== 'function') { return; }
-        if (target.closest('#btn-search')) { this.cb.onSearch(this.query, this.mode, this.endianness, 'button'); return; }
-        if (target.closest('#btn-prev')) { this.cb.onPrev(); return; }
-        if (target.closest('#btn-next')) { this.cb.onNext(); return; }
-        if (target.closest('#btn-clear-search')) { this.clear(); return; }
-        if (target.closest('#search-btn-auto')) { this.setEndianness('auto'); return; }
-        if (target.closest('#search-btn-le')) { this.setEndianness('le'); return; }
-        if (target.closest('#search-btn-be')) { this.setEndianness('be'); }
+        const action = SearchBar.CLICK_ACTIONS.find(([selector]) => target.closest(selector) !== null);
+        if (action) { action[1](this); }
     }
 
     private onDocumentInput(e: Event): void {
@@ -153,14 +156,21 @@ export class SearchBar {
         this.setMode(target.value as SearchMode);
     }
 
+    private isSearchInputEnter(e: KeyboardEvent): boolean {
+        return (e.target as HTMLElement | null)?.id === 'search-input' && e.key === 'Enter';
+    }
+
+    private isFindShortcut(e: KeyboardEvent): boolean {
+        return (e.ctrlKey || e.metaKey) && e.key === 'f';
+    }
+
     private onDocumentKeydown(e: KeyboardEvent): void {
-        const target = e.target as HTMLElement | null;
-        if (target?.id === 'search-input' && e.key === 'Enter') {
+        if (this.isSearchInputEnter(e)) {
             e.preventDefault();
             this.cb.onSearch(this.query, this.mode, this.endianness, e.shiftKey ? 'enter-prev' : 'enter-next');
             return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        if (this.isFindShortcut(e)) {
             e.preventDefault();
             this.focusInput();
         }
@@ -193,8 +203,28 @@ export class SearchBar {
         input.select();
     }
 
+    private addrPrefixVisible(): boolean {
+        return this.mode === 'addr' && this.query.length > 0;
+    }
+
+    private endianToggleHiddenAttr(): string {
+        return this.mode === 'value' ? '' : ' hidden';
+    }
+
+    private addrPrefixHiddenAttr(): string {
+        return this.addrPrefixVisible() ? '' : ' hidden';
+    }
+
+    private addrInputMaxLength(): number {
+        return this.mode === 'addr' ? 8 : 100;
+    }
+
+    private addrInputClass(): string {
+        return this.addrPrefixVisible() ? 'search-addr-mode' : '';
+    }
+
     private updateAddrOverlay(): void {
-        const show = this.mode === 'addr' && this.query.length > 0;
+        const show = this.addrPrefixVisible();
         const prefix = document.getElementById('search-addr-prefix');
         const input = document.getElementById('search-input') as HTMLInputElement | null;
         if (prefix) { prefix.hidden = !show; }

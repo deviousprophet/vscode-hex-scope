@@ -25,8 +25,12 @@ export function initSearch(
     },
 ): void {
     _switchToMemory = switchToMemory;
-    _setCount = ui?.setCount ?? null;
-    _setBusy = ui?.setBusy ?? null;
+    _setCount = setOrDefault(ui?.setCount);
+    _setBusy = setOrDefault(ui?.setBusy);
+}
+
+function setOrDefault<T>(value: T | undefined): T | null {
+    return value ?? null;
 }
 
 export function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness, trigger: SearchTrigger = 'button'): void {
