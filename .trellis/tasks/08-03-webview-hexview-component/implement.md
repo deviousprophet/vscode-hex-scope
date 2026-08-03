@@ -20,10 +20,10 @@ Task: `.trellis/tasks/08-03-webview-hexview-component`. Complex (PRD + design + 
    - Keep nibble-edit typing (hexViewer.ts): host calls `paintCell(addr, 'D-')` / `paintCell(addr, null)`; delete `dataCellAt` + `dataset.val` DOM reads (component owns restore). Copy keyboard, context menu, `render/virtualScroll.ts`, `memory/memoryData.ts`, `memory/selection.ts` stay host-side.
 5. **Delete** `memory/dragSelection.ts` + `memory/selectionClick.ts` (behavior absorbed into component reports + host handlers).
 6. **Update `searchEngine.ts`** — replace `applyMatchHighlights`/`applySel`/`scrollTo` imports with host-provided actions (paint/scroll seams), e.g. via `initSearch`'s ui callbacks or host `rerender`; `runSearch` signature unchanged.
-7. **Tests** `src/test/webview/ui-components/hex-view.test.ts` (mocha + jsdom + css-import-hook): pure render paint + positioning, interaction reports, paint methods, empty-cell/match/sel exclusions.
+7. **Tests** `src/test/webview/components/hex-view.test.ts` (mocha + jsdom + css-import-hook): pure render paint + positioning, interaction reports, paint methods, empty-cell/match/sel exclusions.
 8. **Validate**
    - `npm run lint`, `npm run check-types`, `npm run compile-tests`.
-   - `npx mocha --ui tdd out/test/webview/ui-components/hex-view.test.js` and full jsdom batch.
+   - `npx mocha --ui tdd out/test/webview/components/hex-view.test.js` and full jsdom batch.
    - `npm test` (full, launches VS Code).
    - Fallow all-axes green (dead-code 0, complexity findings 0, dupes 0).
 

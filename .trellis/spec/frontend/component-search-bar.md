@@ -16,7 +16,7 @@ src/webview/search/searchEngine.ts   explicit-param runSearch; no S/DOM reads in
 src/webview/hexViewer.ts             host wiring; undo keydown; no inline search markup
 src/webview/styles/toolbar.css       toolbar chrome only (search rules removed)
 src/hexEditorSession.ts              links dist/webview.css (bundled)
-src/test/webview/ui-components/search-bar.test.ts
+src/test/webview/components/search-bar.test.ts
 ```
 
 ## Contracts
@@ -83,7 +83,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 
 ## Tests Required
 
-`src/test/webview/ui-components/search-bar.test.ts` (mocha + jsdom): mode labels; endian pill visibility + click re-run; addr overlay + hex strip; Enter run vs completed-query navigate parity; Ctrl+F focus; clear empties + `onClear`; `setCount`/`setBusy`; seed restore; trigger passthrough (`enter-next`/`enter-prev`/`button`); Ctrl+Z does not fire any search callback.
+`src/test/webview/components/search-bar.test.ts` (mocha + jsdom): mode labels; endian pill visibility + click re-run; addr overlay + hex strip; Enter run vs completed-query navigate parity; Ctrl+F focus; clear empties + `onClear`; `setCount`/`setBusy`; seed restore; trigger passthrough (`enter-next`/`enter-prev`/`button`); Ctrl+Z does not fire any search callback.
 
 ## Anti-patterns
 

@@ -15,8 +15,10 @@ src/webview/components/<ComponentName>/
     <ComponentName>.ts       types + pure render fn(s) + interaction controller class
     <ComponentName>.css      colocated styles (imported from the .ts; bundled via esbuild)
 src/webview/<host>.ts        host wiring (render input, callbacks, state)
-src/test/webview/ui-components/<component-name>.test.ts   (mocha + jsdom)
+src/test/webview/components/<component-name>.test.ts   (mocha + jsdom)
 ```
+
+> **Test location:** component tests live under `src/test/webview/components/` (mirrors the source `src/webview/components/` directory). Use that path for every component test.
 
 ## Contract
 
@@ -58,7 +60,7 @@ export class <ComponentName> {
 
 ## Tests Required
 
-`src/test/webview/ui-components/<component-name>.test.ts` (mocha + jsdom + css-import-hook): pure render, interaction reports, paint methods, root scoping. Existing `webview.test.ts` assertions touching the component must pass unchanged (parity gate).
+`src/test/webview/components/<component-name>.test.ts` (mocha + jsdom + css-import-hook): pure render, interaction reports, paint methods, root scoping. Existing `webview.test.ts` assertions touching the component must pass unchanged (parity gate).
 
 ## Anti-patterns
 

@@ -114,7 +114,7 @@ export class HexView {
 
 ## Tests
 
-- `src/test/webview/ui-components/hex-view.test.ts` (mocha + jsdom, css-import-hook): pure render (header, data rows, gap rows, banners, `showAscii` true/false with `true` byte-identical to current, selection/match/col-hi paint, container-wrapper positioning incl. `windowTop` + spacers), interaction reports (hover, column hover, drag range, click+shift, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch`, `scrollTo`), root-scoped instance queries (no global ids).
+- `src/test/webview/components/hex-view.test.ts` (mocha + jsdom, css-import-hook): pure render (header, data rows, gap rows, banners, `showAscii` true/false with `true` byte-identical to current, selection/match/col-hi paint, container-wrapper positioning incl. `windowTop` + spacers), interaction reports (hover, column hover, drag range, click+shift, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch`, `scrollTo`), root-scoped instance queries (no global ids).
 - Existing `webview.test.ts` grid assertions must still pass unchanged (parity gate).
 
 ## Rollback

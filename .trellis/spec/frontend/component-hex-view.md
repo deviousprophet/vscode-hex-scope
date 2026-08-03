@@ -16,7 +16,7 @@ src/webview/components/HexView/
     HexView.css      moved verbatim from styles/memory-view.css (bundled via esbuild)
 src/webview/memory/memoryGrid.ts     host grid controller (slice computation, render-input build, vscroll state)
 src/webview/hexViewer.ts             composition root: wires callbacks + ASCII toggle
-src/test/webview/ui-components/hex-view.test.ts   (mocha + jsdom)
+src/test/webview/components/hex-view.test.ts   (mocha + jsdom)
 ```
 
 ## Contract
@@ -119,7 +119,7 @@ export class HexView {
 
 ## Tests Required
 
-`src/test/webview/ui-components/hex-view.test.ts` (mocha + jsdom + css-import-hook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
+`src/test/webview/components/hex-view.test.ts` (mocha + jsdom + css-import-hook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
 
 ## Anti-patterns
 
