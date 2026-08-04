@@ -10,7 +10,7 @@ Task: `.trellis/tasks/08-04-webview-context-menu-component`. Design decisions lo
 1. **Study baseline** — read `src/webview/contextMenu.ts` (render), `contextMenuController.ts` (show/hide/wiring), `contextCommands.ts` (cmd → result mapping), `utils.ts` (`positionContextMenu`/`wireHoverSubmenus`), `styles/context-menu.css`, `hexViewer.ts` (`showCtxMenu`/`handleCtxCommand`/`applyContextCommandResult`), `webview.test.ts` context-menu assertions.
 2. **Create component** `src/webview/components/ContextMenu/ContextMenu.ts`
    - Types `ContextMenuState`, `ContextMenuCallbacks`; pure `renderContextMenuHtml(state)`; `class ContextMenu(cb)` with idempotent `mount()` (doc-delegated click-outside/Escape/hover-submenu), `show(x,y,state)`, `hide()`, `setCallbacks`. NO `S`, no command execution, no postProviderMessage.
-   - New layout per design: direct Copy Hex/ASCII/(C Array multi); Copy as… submenu; Analyze (multi); Go address (4B, endian preview, valid-gate); Select all/segment; Create label inline input; Patch (edit mode).
+   - New layout per design: direct Copy Hex/ASCII/(C Array multi); Copy as… submenu; Analyze (multi); Go address (4B, endian preview, valid-gate); Select all/segment; Create label row (no auto-focus, click activates inline input + Apply, Enter/Apply confirm, Apply disabled on empty name + always-visible short hint, closes on create); Patch (edit mode).
    - Single-byte: no Analyze, no Go.
 3. **Create `ContextMenu.css`** — move `styles/context-menu.css` verbatim + add new rules (go-address preview, label input, disabled state).
 4. **Update `hexEditorSession.ts`** — remove `'context-menu'` from static CSS link list.
