@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added memory-view **ASCII** toolbar toggle to show or hide the decoded-ASCII column
+
+### Fixed
+
+- Fixed end-of-scroll shaking when scrolling to the bottom of large (virtualized) files in memory and record views
+- Fixed the Edit button remaining visible after entering edit mode, showing alongside the EDITING controls
+
 ## [2.17.1] - 2026-08-01
 
 ### Fixed

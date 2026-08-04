@@ -1,10 +1,11 @@
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
+import './css-import-hook';
 
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
-import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
-import { integrityHighlightClass, renderMemBody, scrollTo } from '../../webview/memory/memoryView';
+import { initFlatBytes, buildMemRows, getByte, integrityHighlightClass } from '../../webview/memory/memoryData';
+import { memRerender, mountHexView, scrollTo } from '../../webview/memory/memoryGrid';
 import { rerender } from '../../webview/render/registry';
 import {
     calcRowOffset,
@@ -388,13 +389,16 @@ suite('Memory View rerender stability', () => {
     setup(() => {
         resetState();
         dom = installWebviewDom(`<!doctype html><html style="--vscode-editor-font-size:12.5px"><body>
-            <div id="mem-header"></div>
-            <div id="mem-scroll"><div id="mem-rows"></div></div>
+            <div id="memory-view">
+                <div id="mem-header"></div>
+                <div id="mem-scroll"><div id="mem-rows"></div></div>
+            </div>
         </body></html>`);
         Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
             value: 600,
             configurable: true,
         });
+        mountHexView({});
     });
 
     teardown(() => cleanupWebviewDom(dom));
@@ -412,18 +416,18 @@ suite('Memory View rerender stability', () => {
         };
         initFlatBytes();
         buildMemRows();
-        renderMemBody(() => {}, () => {});
+        memRerender();
         scrollTo(byteCount / 2);
         const before = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
 
         S.labels = [{ id: 'new', name: 'New label', startAddress: byteCount / 2, length: 16, color: '#fff' }];
         buildMemRows();
-        renderMemBody(() => {}, () => {});
+        memRerender();
         const afterAdd = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
 
         S.labels = [];
         buildMemRows();
-        renderMemBody(() => {}, () => {});
+        memRerender();
         const afterDelete = document.querySelector<HTMLElement>('.data-row')?.dataset.row;
 
         assert.ok(before);
@@ -438,13 +442,16 @@ suite('Memory View navigation', () => {
     setup(() => {
         resetState();
         dom = installWebviewDom(`<!doctype html><html><body>
-            <div id="mem-header"></div>
-            <div id="mem-scroll"><div id="mem-rows"></div></div>
+            <div id="memory-view">
+                <div id="mem-header"></div>
+                <div id="mem-scroll"><div id="mem-rows"></div></div>
+            </div>
         </body></html>`);
         Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
             value: 600,
             configurable: true,
         });
+        mountHexView({});
 
         S.parseResult = {
             records: [],
@@ -468,8 +475,8 @@ suite('Memory View navigation', () => {
     });
 
     test('keeps all rows rendered when jumping in a viewport taller than the content', async () => {
-        const { renderMemBody, scrollTo } = await import('../../webview/memory/memoryView.js');
-        renderMemBody(() => {}, () => {});
+        const { memRerender, scrollTo } = await import('../../webview/memory/memoryGrid.js');
+        memRerender();
 
         scrollTo(0x08010000);
 

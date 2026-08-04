@@ -9,10 +9,7 @@
 3. **Persist everything** — research, decisions, and lessons all go to files; conversations get compacted, files don't
 4. **Incremental development** — one task at a time
 5. **Capture learnings** — after each task, review and write new knowledge back to spec
-## Repository Conventions
 
-- **Branch naming**: `feat/<slug>` (features), `fix/<slug>` (bug fixes), `chore/<slug>` (tooling/config/docs/skills), `refactor/<slug>` (restructuring, no behavior change), `perf/<slug>` (performance), `test/<slug>` (test-only). Always branch from `main` unless user specifies different base. `<slug>` is the task slug — do **not** include issue/PR numbers or `MM-DD-` prefixes in branch names or task slugs; task directories get `MM-DD-` automatically.
-- **Encoding**: Save all source files as UTF-8 (no BOM). Non-UTF-8 breaks fallow's AST parser, producing false-positive findings.
 ---
 
 ## Trellis System
@@ -320,7 +317,7 @@ Create the task directory only after task-creation consent. The command sets sta
 python ./.trellis/scripts/task.py create "<task title>" --slug <name>
 ```
 
-`--slug` is the human-readable name only. Do **not** include the `MM-DD-` date prefix; `task.py create` adds that prefix automatically. Do **not** include issue/PR numbers in the slug — branch and task names stay issue-number-free; link the issue in the PR description instead.
+`--slug` is the human-readable name only. Do **not** include the `MM-DD-` date prefix; `task.py create` adds that prefix automatically.
 
 For task trees, create the parent task first and then create each child with `--parent <parent-dir>`. Do not start the parent just because children exist; start the child that owns the next independently verifiable deliverable.
 

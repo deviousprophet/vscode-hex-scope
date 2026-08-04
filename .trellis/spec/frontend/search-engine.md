@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to `core/search.ts` (deep module) and the webview glue `src/webview/search/searchEngine.ts`. The search bar UI unit is owned by [SearchBar Component Code-Spec](./search-bar-component.md); selection/inspector/copy contracts by [Selection, Inspector, and Byte Tools Code-Spec](./selection-inspect-copy.md).
+Applies to `core/search.ts` (deep module) and the webview glue `src/webview/search/searchEngine.ts`. The search bar UI unit is owned by [SearchBar Component Code-Spec](./component-search-bar.md); selection/inspector/copy contracts by [Selection, Inspector, and Byte Tools Code-Spec](./selection-inspect-copy.md).
 
 ### 2. Signatures
 
@@ -65,7 +65,7 @@ function shouldNavigateCompletedSearch(q: string, searchKey: string, trigger: Se
 
 - Search: every mode, endian candidate construction, canonicalization, empty/invalid input, gap isolation, progress, cancellation/latest-token, match navigation.
 - Large search regression: exercise the real debounced `SearchEngine` on `Uint8Array`; assert identical matches and a budget that detects per-byte clock reads.
-- Search bar UI behaviour lives in `src/test/webview/ui-components/search-bar.test.ts` (see SearchBar Component spec).
+- Search bar UI behaviour lives in `src/test/webview/components/search-bar.test.ts` (see SearchBar Component spec).
 
 ### 7. Wrong vs Correct
 

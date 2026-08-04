@@ -77,6 +77,21 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
     });
 }
 
+/** Index of the first element >= value in a sorted array (binary search). */
+export function lowerBound(sorted: readonly number[], value: number): number {
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (sorted[mid] < value) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
 /** CSS class for a hex byte cell based on its value. */
 function isPrintableByte(v: number): boolean {
     return v >= 0x20 && v < 0x7F;

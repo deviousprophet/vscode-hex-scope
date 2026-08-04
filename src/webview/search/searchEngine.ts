@@ -1,6 +1,6 @@
 // Search UI glue
 import { S } from '../state';
-import { applyMatchHighlights, applySel, scrollTo } from '../memory/memoryView';
+import { paintMemoryMatchHighlights, paintMemorySelection, scrollTo } from '../memory/memoryGrid';
 import { SearchEngine, buildNeedles } from '../../core/search';
 import type { SearchEndianness, SearchMode } from '../../core/types';
 import { searchKeyFor, type SearchTrigger } from '../components/SearchBar/SearchBar';
@@ -111,7 +111,7 @@ function clearEmptySearchQuery(): void {
     _lastCompletedSearchKey = '';
     engine.clear();
     notifySearchBusy(false);
-    applyMatchHighlights();
+    paintMemoryMatchHighlights();
     notifySearchCount();
 }
 
@@ -121,7 +121,7 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
     _searchRunning = true;
     _activeSearchKey = req.searchKey;
     _activeMatchSpan = getMatchSpan(req.mode, req.raw, req.endianness);
-    applyMatchHighlights();
+    paintMemoryMatchHighlights();
 
     if (!S.parseResult) {
         _searchRunning = false;
@@ -153,7 +153,7 @@ function onSearchProgress(matches: number[]): void {
     if (matches.length > 0) {
         initStreamingMatchIndex();
     }
-    applyMatchHighlights();
+    paintMemoryMatchHighlights();
     notifySearchCount();
 }
 
@@ -174,7 +174,7 @@ function onSearchComplete(searchKey: string, matches: number[]): void {
     _activeSearchKey = '';
     notifySearchBusy(false);
     selectCurrentMatch();
-    applyMatchHighlights();
+    paintMemoryMatchHighlights();
     scrollToMatch();
     notifySearchCount();
 }
@@ -200,7 +200,7 @@ export function clearSearch(): void {
     _activeMatchSpan = 1;
     S.matchAddrs = [];
     S.matchIdx   = -1;
-    applyMatchHighlights();
+    paintMemoryMatchHighlights();
     notifySearchCount();
 }
 
@@ -228,7 +228,7 @@ function goToMatch(): void {
     if (S.currentView !== 'memory') {
         if (_switchToMemory) { _switchToMemory(); }
     } else {
-        applyMatchHighlights();
+        paintMemoryMatchHighlights();
     }
     selectCurrentMatch();
     scrollToMatch();
@@ -252,7 +252,7 @@ function selectCurrentMatch(): void {
 
     S.selStart = start;
     S.selEnd = end;
-    applySel();
+    paintMemorySelection();
     import('../sidebar/sidebar.js').then(m => m.updateInspector());
 }
 

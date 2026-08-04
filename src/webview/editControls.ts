@@ -1,9 +1,20 @@
 import { S } from './state';
 
+function inMemoryView(): boolean {
+    return S.currentView === 'memory';
+}
+
+function editControlsVisible(): boolean {
+    return inMemoryView() && S.editMode;
+}
+
+function editButtonVisible(): boolean {
+    return inMemoryView() && !S.editMode;
+}
+
 export function updateEditControls(): void {
-    const inMemory = S.currentView === 'memory';
-    document.getElementById('btn-edit-mode')!.style.display = inMemory ? '' : 'none';
-    document.getElementById('edit-mode-group')!.style.display = inMemory && S.editMode ? '' : 'none';
+    document.getElementById('btn-edit-mode')!.style.display = editButtonVisible() ? '' : 'none';
+    document.getElementById('edit-mode-group')!.style.display = editControlsVisible() ? '' : 'none';
 }
 
 export function updateDirtyBar(): void {

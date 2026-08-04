@@ -13,6 +13,16 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Quality Test Contracts](./quality-guidelines.md) | Required checks, test placement, coverage expectations, fallow-fix skill |
 | [CSS Guidelines](./css-guidelines.md) | File placement, design tokens, selector patterns, button standards |
 
+## Component Code-Specs
+
+Every self-contained webview component has one spec at `component-<name>.md` (naming rule; new components copy [component-template.md](./component-template.md)). Each spec owns the component's contract, markup parity, interaction, and tests.
+
+| Spec | Owns |
+|---|---|
+| [Component Template](./component-template.md) | Starting point for any new component spec; naming + boundary rules |
+| [HexView Component](./component-hex-view.md) | Virtualized hex grid: header/rows/gaps/banners, match/sel paint, interaction |
+| [SearchBar Component](./component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
+
 ## Feature Code-Specs
 
 | Spec | Owns |
@@ -22,7 +32,6 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 | [Memory, Record, and Navigation](./memory-navigation.md) | Addressed memory, gaps, virtual scroll, records, segments, labels |
 | [Search Engine](./search-engine.md) | Cancellable/chunked search, modes, match navigation |
 | [Selection, Inspector, and Byte Tools](./selection-inspect-copy.md) | Selection ranges, gap-filtered copy/analyze, Inspector decode, byte tools |
-| [SearchBar Component](./search-bar-component.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
 | [Editing, Save, and External Change](./editing-save-external-change.md) | Transactions, undo, save confirmation, file-change conflicts |
 | [Integrity Checks and Profiles](./integrity-checks.md) | Algorithms, ranges, stored comparison, fixes, profiles |
 | [Struct Definitions, Decode, Pins, and Persistence](./struct-model.md) | Layout, validation, C text, decode, pins, migration |
@@ -33,9 +42,10 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 
 1. Read [Frontend and Core Architecture](./directory-structure.md).
 2. Read the feature code-spec for every touched flow.
-3. Read [State, Persistence, and Invalidation](./state-management.md) plus [Type and Validation Contracts](./type-safety.md) for protocol/persistence/model changes.
-4. Read [DOM Rendering and Interaction](./component-guidelines.md) for webview UI changes.
-5. Read [Quality and Test Contracts](./quality-guidelines.md) before writing tests or finishing.
+3. Read the component spec for every touched component (`component-<name>.md`); when creating a component, copy [component-template.md](./component-template.md) into `component-<name>.md`.
+4. Read [State, Persistence, and Invalidation](./state-management.md) plus [Type and Validation Contracts](./type-safety.md) for protocol/persistence/model changes.
+5. Read [DOM Rendering and Interaction](./component-guidelines.md) for webview UI changes.
+6. Read [Quality and Test Contracts](./quality-guidelines.md) before writing tests or finishing.
 
 ## Quality Check
 

@@ -19,7 +19,8 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "08-03-webview-searchbar-component"
+    "08-03-webview-searchbar-component",
+    "08-03-webview-hexview-component"
   ],
   "parent": null,
   "relatedFiles": [],

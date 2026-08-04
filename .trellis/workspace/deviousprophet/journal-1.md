@@ -79,3 +79,34 @@ Planned (grilled decisions: component owns UI state, explicit-param engine, undo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Extract HexView grid into self-contained component (#151)
+
+**Date**: 2026-08-04
+**Task**: Extract HexView grid into self-contained component (#151)
+**Branch**: `feat/webview-searchbar-component`
+
+### Summary
+
+Planned (B presentational component, host builds cells, container-wrapper positioning, showAscii toggle, root-scoped, paintCell/paintSelection/paintMatch seams), implemented HexView component + memoryGrid host controller, fixed 2 bugs (end-of-scroll clamp both views; Edit button hide-while-editing), fallow-fix clean (0/0/0), component spec + template added, changelog Unreleased (ASCII toggle + 2 real fixes), two-axis review PASS, PR #153 open.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98619b4` | (see git log) |
+| `5dac230` | (see git log) |
+| `4a8c4cc` | (see git log) |
+| `8e416ec` | (see git log) |
+| `9ed8ac8` | (see git log) |
+| `c831bf4` | (see git log) |
+| `36d66f9` | (see git log) |
+| `386c240` | (see git log) |
+| `effb809` | (see git log) |
+| `d671b8e` | (see git log) |
+| `965b3f0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
