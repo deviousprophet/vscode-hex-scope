@@ -30,9 +30,10 @@ src/
 |---|---|---|
 | SearchBar | done (merged #152) | archived `08-03-webview-searchbar-component` |
 | HexView grid | done (merged #153) | archived `08-03-webview-hexview-component` |
-| Toolbar | pending | `08-04-webview-toolbar-component` |
+| Toolbar | done (PR pending) | archived `08-04-webview-toolbar-component` |
 | ContextMenu | pending | `08-04-webview-context-menu-component` |
 | RecordView | pending | `08-04-webview-recordview-component` |
+| External-change banners | pending | `08-04-webview-external-change-component` |
 | Sidebar (parent) | pending | `08-04-webview-sidebar-component` |
 | ├─ Inspector panel | pending | `08-04-webview-inspector-panel-component` |
 | ├─ Struct panel | pending | `08-04-webview-struct-panel-component` |

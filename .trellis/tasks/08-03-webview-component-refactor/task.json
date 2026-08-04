@@ -24,7 +24,8 @@
     "08-04-webview-toolbar-component",
     "08-04-webview-context-menu-component",
     "08-04-webview-recordview-component",
-    "08-04-webview-sidebar-component"
+    "08-04-webview-sidebar-component",
+    "08-04-webview-external-change-component"
   ],
   "parent": null,
   "relatedFiles": [],
