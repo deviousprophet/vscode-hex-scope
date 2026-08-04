@@ -176,3 +176,27 @@ ExternalChange PR #155 merged to main; task archived (spec component-external-ch
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Rework ContextMenu into self-contained component (#151)
+
+**Date**: 2026-08-04
+**Task**: Rework ContextMenu into self-contained component (#151)
+**Branch**: `feat/webview-context-menu-component`
+
+### Summary
+
+Planned (B rework scope, A direct+submenus layout, system-endian Go address 4B/valid-gate, deferred create-label), implemented ContextMenu component (render+position+dismiss+fill input), host go-address/select actions, review caught dead copy buttons (normalize copy-* in contextCommandResult) + go-address title-tooltip + dead import, two-axis review PASS, spec added, label task deferred+removed, PR #157 open.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5b46607` | (see git log) |
+| `9c73bfd` | (see git log) |
+| `015da96` | (see git log) |
+| `18d064e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
