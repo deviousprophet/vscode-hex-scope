@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-08-03
+- **Total Sessions**: 4
+- **Last Active**: 2026-08-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~81 | Active |
+| `journal-1.md` | ~112 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-08-04 | Extract HexView grid into self-contained component (#151) | `98619b4`, `5dac230`, `4a8c4cc`, `8e416ec`, `9ed8ac8`, `c831bf4`, `36d66f9`, `386c240`, `effb809`, `d671b8e`, `965b3f0` | `feat/webview-searchbar-component` |
 | 3 | 2026-08-03 | Extract SearchBar into self-contained component (#151) | `4d86d6f`, `b56da8e`, `22ed4c6`, `b107096`, `3d2cdbb`, `4d2a5e3`, `09f21ae`, `93c3e82`, `49f2ba9`, `863b2e4`, `f82dd68` | `feat/webview-searchbar-component` |
 | 2 | 2026-08-01 | Fix gap copy zero + webview test suite nesting repair | `dc02597` | `fix/gap-copy-zero` |
 | 1 | 2026-07-30 | Bootstrap guidelines + finish-work | `b9ced7d`, `b0a8e58` | `main` |
