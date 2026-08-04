@@ -117,6 +117,12 @@ export class SearchBar {
         el.setAttribute('aria-hidden', String(!busy));
     }
 
+    /** Memory-view visibility (host-called; #search-box is component-owned DOM). */
+    setVisible(visible: boolean): void {
+        const el = document.getElementById('search-box');
+        if (el) { el.style.display = visible ? '' : 'none'; }
+    }
+
     private matchCountText(count: number, current: number): string {
         if (this.query.trim().length > 0 && count === 0) { return '0 / 0'; }
         if (count === 0) { return ''; }

@@ -38,8 +38,9 @@ class SearchBar {
     constructor(cb: SearchBarCallbacks, seed?: SearchBarSeedOptions);
     toHtml(): string;                              // markup; host injects into toolbar
     mount(): void;                                 // document-delegated listeners
-    setCount(count: number, current: number): void;
-    setBusy(busy: boolean): void;
+setCount(count: number, current: number): void;
+setBusy(busy: boolean): void;
+setVisible(visible: boolean): void;              // toggles #search-box display; host calls on view switch
 }
 function searchKeyFor(mode: SearchMode, raw: string, endianness: SearchEndianness): string;
 
@@ -69,6 +70,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Run button triggers `onSearch(..., 'button')`; prev/next navigate; clear empties input + `onClear`.
 - `setCount(n, m)` renders `m+1 / n` when query non-empty and matches exist, `0 / 0` when a query has no hits, blank when the query is empty.
 - `setBusy(true/false)` toggles the spinner (`#search-progress.active`) and `aria-hidden`.
+- `setVisible(true/false)` shows/hides the `#search-box` (host switches toggles it when leaving the memory view; SearchBar is unaware of which view is active). Ctrl+F may still focus a hidden input — existing no-op.
 
 ## Validation & Error Matrix
 

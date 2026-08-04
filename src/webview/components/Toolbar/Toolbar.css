@@ -1,0 +1,61 @@
+/* ── Toolbar ──────────────────────────────────────────────────── */
+#toolbar {
+    height: 35px; min-height: 35px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px; flex-shrink: 0;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+}
+
+.view-tabs { display: flex; gap: 1px; background: rgba(0,0,0,.22); border-radius: 4px; padding: 2px; }
+.view-tabs button {
+    padding: 2px 11px; border: none; border-radius: 3px; cursor: pointer;
+    background: transparent; color: var(--fg);
+    font-size: var(--font-ui-sz); font-family: var(--font-ui);
+    white-space: nowrap; transition: background .1s, color .1s;
+}
+.view-tabs button:hover:not(.active) { background: rgba(255,255,255,.07); }
+.view-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
+
+.tb-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+
+/* Toolbar ghost buttons: ASCII toggle + edit mode toggle (active states differ) */
+.tb-ascii-btn,
+.tb-edit-btn,
+.tb-cancel-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 3px;
+    color: var(--addr-fg); font-size: 11px; font-family: var(--font-ui);
+    padding: 1px 8px; cursor: pointer; white-space: nowrap;
+    transition: color .1s, border-color .1s, background .1s;
+}
+.tb-ascii-btn:hover,
+.tb-edit-btn:hover { color: var(--fg); border-color: rgba(255,255,255,.35); }
+.tb-ascii-btn.active { background: var(--btn-bg); color: var(--btn-fg); }
+
+/* Edit mode group (visible when IN edit mode) */
+#edit-mode-group {
+    display: flex; align-items: center; gap: 6px;
+}
+.tb-editing-pill {
+    font-size: 10px; font-family: var(--font-ui); font-weight: 700;
+    color: #e5a800; letter-spacing: .04em; white-space: nowrap;
+    padding: 1px 7px; border-radius: 10px;
+    background: rgba(229,168,0,.12); border: 1px solid rgba(229,168,0,.35);
+}
+
+/* Dirty count inside the group */
+#edit-dirty-count {
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
+    white-space: nowrap; opacity: .8;
+}
+
+/* Save button */
+.tb-save-btn {
+    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.45); border-radius: 3px;
+    color: var(--high-color); font-size: 11px; font-family: var(--font-ui);
+    padding: 1px 8px; cursor: pointer; white-space: nowrap;
+    transition: background .1s, border-color .1s, opacity .1s;
+}
+.tb-save-btn:hover:not(:disabled) { background: rgba(79,195,247,.25); border-color: var(--high-color); }
+.tb-save-btn:disabled { opacity: .35; cursor: default; }
+
+.tb-cancel-btn:hover { color: #f48771; border-color: #f48771; background: rgba(244,135,113,.08); }
