@@ -21,7 +21,7 @@ export interface VirtualScrollLayout {
     isCompressed: boolean;
 }
 
-export const MAX_VIRTUAL_SCROLL_HEIGHT = 16_000_000;
+const MAX_VIRTUAL_SCROLL_HEIGHT = 16_000_000;
 
 let cacheRowCount = -1;
 let cacheHeightVersion: string | number | null = null;
@@ -132,7 +132,7 @@ export function physicalToLogicalScroll(physicalScrollTop: number, state: Virtua
     return physicalToLogicalScrollForLayout(physicalScrollTop, layout);
 }
 
-export function physicalToLogicalScrollForLayout(physicalScrollTop: number, layout: VirtualScrollLayout): number {
+function physicalToLogicalScrollForLayout(physicalScrollTop: number, layout: VirtualScrollLayout): number {
     if (!layout.isCompressed || layout.physicalScrollable <= 0 || layout.logicalScrollable <= 0) {
         return Math.max(0, Math.min(physicalScrollTop, layout.logicalScrollable));
     }
@@ -147,4 +147,9 @@ export function logicalToPhysicalScroll(logicalScrollTop: number, state: Virtual
     }
     const ratio = Math.max(0, Math.min(logicalScrollTop, layout.logicalScrollable)) / layout.logicalScrollable;
     return ratio * layout.physicalScrollable;
+}
+
+/** Pure clamp: keep the rendered slice inside the fixed physical-height container. */
+export function clampWindowTop(windowTop: number, physicalHeight: number, sliceHeight: number): number {
+    return Math.max(0, Math.min(windowTop, physicalHeight - sliceHeight));
 }

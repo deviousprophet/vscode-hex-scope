@@ -32,7 +32,7 @@ src/
    |- state.ts                  state shape/defaults only
    |- webviewMessage*.ts        provider dispatch and typed model updates
    |- memory/, search/, render/ view-specific modules
-   |- components/               self-contained UI components (issue #151)
+   |- components/               self-contained UI components
    |  `- SearchBar/             SearchBar.ts + SearchBar.css, one unit each
    `- sidebar/{inspector,integrity,struct}/ feature modules
 ```

@@ -6,7 +6,7 @@
 
 Owns `src/webview/components/HexView/HexView.ts` + `HexView.css`: the virtualized hex-grid (column header, data rows, gap rows, segment banners) as a pure presentational component. Host owns data (`S.memRows`, selection, matches, edits, integrity), virtual-scroll math, and all domain decisions.
 
-Boundary rule (issue #151 AC): the component owns markup, transient interaction, and styles. It never reads/writes `S`, never calls feature/engine functions, never posts provider messages — it reports through callbacks and paints host-invoked state.
+Boundary rule: the component owns markup, transient interaction, and styles. It never reads/writes `S`, never calls feature/engine functions, never posts provider messages — it reports through callbacks and paints host-invoked state.
 
 ## Layout
 

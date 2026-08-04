@@ -6,7 +6,7 @@
 
 Owns `src/webview/components/Toolbar/Toolbar.ts` + `Toolbar.css`: the `#toolbar` element (view tabs Memory/Records, ASCII toggle, edit-mode group Edit/Save/Cancel/dirty count). Host owns all state (`S.currentView`, `S.editMode`, edits), edit/save/cancel logic, and view switching.
 
-Boundary rule (issue #151 AC): the component owns markup, transient button active/edit-group state, and styles. It never reads/writes `S`, never posts provider messages, never runs edit logic — it reports clicks and renders host-pushed state.
+Boundary rule: the component owns markup, transient button active/edit-group state, and styles. It never reads/writes `S`, never posts provider messages, never runs edit logic — it reports clicks and renders host-pushed state.
 
 ## Layout
 

@@ -13,6 +13,7 @@ import {
     calcRowOffset,
     calcTotalHeight,
     calcVisibleRange,
+    clampWindowTop,
     logicalToPhysicalScroll,
     physicalToLogicalScroll,
     type VirtualScrollLayout,
@@ -163,11 +164,6 @@ function applyMemoryContainerLayout(container: HTMLElement, layout: VirtualScrol
     }
     container.style.position = '';
     container.style.height = '';
-}
-
-/** Pure clamp: keep the rendered slice inside the fixed physical-height container. */
-export function clampWindowTop(windowTop: number, physicalHeight: number, sliceHeight: number): number {
-    return Math.max(0, Math.min(windowTop, physicalHeight - sliceHeight));
 }
 
 function buildHexViewInput(
