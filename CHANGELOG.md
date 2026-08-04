@@ -6,6 +6,10 @@
 
 - Added memory-view **ASCII** toolbar toggle to show or hide the decoded-ASCII column
 
+### Changed
+
+- Record view columns now use fixed widths (address, type, count, checksum) with the data column filling the remaining space; address styling matches the hex view and the checksum column aligns left
+
 ### Fixed
 
 - Fixed end-of-scroll shaking when scrolling to the bottom of large (virtualized) files in memory and record views
