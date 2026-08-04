@@ -20,7 +20,11 @@
   "subtasks": [],
   "children": [
     "08-03-webview-searchbar-component",
-    "08-03-webview-hexview-component"
+    "08-03-webview-hexview-component",
+    "08-04-webview-toolbar-component",
+    "08-04-webview-context-menu-component",
+    "08-04-webview-recordview-component",
+    "08-04-webview-sidebar-component"
   ],
   "parent": null,
   "relatedFiles": [],

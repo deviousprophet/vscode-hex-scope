@@ -28,14 +28,18 @@ src/
 
 | Component | Status | Task |
 |---|---|---|
-| SearchBar | done (committed) | `08-03-webview-searchbar-component` |
-| HexView grid | pending | future child task |
-| RecordView | pending | future |
-| Toolbar / stats | pending | future |
-| Sidebar (inspector/integrity/scripts/struct) | pending | future |
-| ContextMenu | pending | future |
+| SearchBar | done (merged #152) | archived `08-03-webview-searchbar-component` |
+| HexView grid | done (merged #153) | archived `08-03-webview-hexview-component` |
+| Toolbar | pending | `08-04-webview-toolbar-component` |
+| ContextMenu | pending | `08-04-webview-context-menu-component` |
+| RecordView | pending | `08-04-webview-recordview-component` |
+| Sidebar (parent) | pending | `08-04-webview-sidebar-component` |
+| ├─ Inspector panel | pending | `08-04-webview-inspector-panel-component` |
+| ├─ Struct panel | pending | `08-04-webview-struct-panel-component` |
+| ├─ Integrity panel | pending | `08-04-webview-integrity-panel-component` |
+| └─ Scripts panel | pending | `08-04-webview-scripts-panel-component` |
 
-Only the SearchBar component is scoped in this parent task's children so far. Remaining components are separate child tasks; the SearchBar child's `design.md`/`implement.md` document the pattern (component owns markup/UI-state/behaviours/styles, CSS imported in `.ts`, engine logic stays host-side).
+Execution order (adopted from architecture review): Toolbar + ContextMenu first (small, clean seams), then RecordView (mirrors the established HexView deep-module pattern), then Sidebar as a parent task decomposed into per-panel children. SearchBar/HexView done; remaining components are separate child tasks; the established pattern is documented in `.trellis/spec/frontend/component-template.md` + per-component code-specs.
 
 ## Parent responsibilities
 - Owns the issue #151 requirement set and cross-component acceptance criteria (above).
