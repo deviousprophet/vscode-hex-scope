@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import '../css-import-hook';
 
 import { byteClass } from '../../../webview/utils';
-import { clampWindowTop } from '../../../webview/memory/memoryGrid';
+import { clampWindowTop } from '../../../webview/render/virtualScroll';
 import {
     HexView,
     renderHexViewHeader,

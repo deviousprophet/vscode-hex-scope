@@ -36,7 +36,7 @@ export class RecordView {
 
 - Container: `#record-view` (host keeps `visibleClass` toggle; component root via `rootSelector`).
 - Table: `table.rtbl` with `thead` (Addr/Type/Cnt/Data/CHK) + `tbody`. Uncompressed: rows in flow w/ top/bottom spacers. Compressed: wrapper `position:relative; height:containerHeight` + absolute `table` at `top:windowTop` (parity with current `replaceRecordViewContent` + clamp fix).
-- Row (data): `tr` → `.raddr` (address, format-classed), `.rtype` (type label + badge class), `.rcnt` (byte count), `.rdata` (data cells; SREC groups), `.rchk` (checksum cell, error class if invalid). IHEX/SREC labels + class maps live in component (moved from `recordView.ts`).
+- Row (data): `tr` → `.raddr` (8-hex uppercase `resolvedAddress`; `raddr-empty` + `—` dash for non-data record types), `.rtype` (type label + badge class), `.rcnt` (byte count), `.rdata` (hex bytes space-joined; error text when record error), `.rchk` (checksum cell: `—` on error, checksum hex + `.cok`/`.cerr`/`.cerr-tag`). IHEX/SREC labels + class maps live in component (moved from `recordView.ts`).
 - Row (placeholder, unloaded): `tr.record-loading` single cell "Loading…" — parity.
 - Empty/unavailable: `renderRecordEmptyHtml(msg)` renders `recordViewUnavailableNode` equivalent.
 - All text via `textContent`/esc; no inline unescaped record data.

@@ -39,10 +39,17 @@ Out:
 - Moving shared `virtualScroll` into component — stays shared.
 
 ## Acceptance Criteria
-- [ ] `components/RecordView/RecordView.ts` + `RecordView.css` exist; component owns table markup, format row rendering, scroll reporting, styles. Zero `S` reads; no paging-cache logic.
-- [ ] Renders byte-identical table (same `#record-view` container, `table.rtbl`, `thead` Addr/Type/Cnt/Data/CHK, row cells `.raddr`/`.rtype`/`.rcnt`/`.rdata`/`.rchk`, placeholder + unavailable nodes) as pre-refactor.
-- [ ] `onNeedPage` fires for unloaded visible range; host fills cache; re-render shows real rows (null → placeholder).
-- [ ] Uses shared `render/virtualScroll.ts` for slice math (bespoke record scroll math removed); end-of-scroll clamp preserved (from external-change/clamp work — verify record clamp still applied).
-- [ ] `styles/record-view.css` moved verbatim into `RecordView.css`; static link list updated.
-- [ ] `npm run lint`, `npm run check-types`, `npm run test` pass. Fallow green.
-- [ ] No functional/visual change to record view (render, paging, scroll, format display) in running extension. `webview.test.ts` "Record View rendering" suite passes unchanged.
+- [x] `components/RecordView/RecordView.ts` + `RecordView.css` exist; component owns table markup, format row rendering, scroll reporting, styles. Zero `S` reads; no paging-cache logic.
+- [x] Renders byte-identical table structure (`#record-view` container, `table.rtbl`, `thead` Addr/Type/Cnt/Data/CHK, row cells `.raddr`/`.rtype`/`.rcnt`/`.rdata`/`.rchk`, placeholder + unavailable nodes) as pre-refactor.
+- [x] `onNeedPage` fires for unloaded visible range; host fills cache; re-render shows real rows (null → placeholder).
+- [x] Uses shared `render/virtualScroll.ts` for slice math (bespoke record scroll math removed); end-of-scroll clamp preserved.
+- [x] `styles/record-view.css` moved into `RecordView.css`; static link list updated.
+- [x] `npm run lint`, `npm run check-types`, `npm run test` pass. Fallow green.
+- [x] `webview.test.ts` "Record View rendering" suite passes unchanged.
+
+## CSS deltas (intentional, user-requested — NOT verbatim CSS move)
+RecordView.css differs from the deleted `styles/record-view.css` by explicit user direction (column layout parity for the record table):
+- Column widths: fixed px for Addr (90) / Type (110) / Cnt (45) / CHK (80); Data flexible.
+- `.raddr` restyled to match the hex-view address gutter (`--addr-fg`, `font-editor`, uppercase, `--font-size`/`--cell-size` line-height); dash (`raddr-empty`) no longer centered.
+- `.cok`/`.cerr` checksum cells explicit `text-align: left`.
+These are the only intentional deviations from "moved verbatim"; thead structure + row cell classes are byte-identical.

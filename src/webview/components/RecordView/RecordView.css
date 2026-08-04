@@ -16,11 +16,11 @@
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .05em; color: var(--addr-active-fg); font-family: var(--font-ui);
 }
-.rtbl th:nth-child(1) { width: 15%; }   /* Addr */
-.rtbl th:nth-child(2) { width: 15%; }   /* Type */
-.rtbl th:nth-child(3) { width: 8%; }    /* Cnt */
-.rtbl th:nth-child(4) { width: 52%; }   /* Data - takes most space */
-.rtbl th:nth-child(5) { width: 10%; }   /* CHK */
+.rtbl th:nth-child(1) { width: 90px; }   /* Addr — 9ch max (FFFF:0000) + td padding */
+.rtbl th:nth-child(2) { width: 110px; }  /* Type — widest badge (e.g. Ext Lin / Start Seg) + padding, no ellipsis */
+.rtbl th:nth-child(3) { width: 45px; }   /* Cnt — 1-3 digit byte count */
+.rtbl th:nth-child(4) { width: auto; }   /* Data — flexible, fills remaining space */
+.rtbl th:nth-child(5) { width: 80px; }   /* CHK — checksum byte + error tag */
 
 .rtbl td {
     padding: 3px 10px; border-bottom: 1px solid rgba(255,255,255,.04);
@@ -42,12 +42,13 @@
 .rb-start { background: rgba(255,183,77,.13);  color: #ffb74d; }
 .rb-bad   { background: rgba(244,135,113,.18); color: var(--err); }
 
-.raddr       { color: var(--addr-active-fg); font-family: var(--font-editor); font-weight: 600; }
-.raddr-empty { color: var(--non-graphic); text-align: center; }
+.raddr       { color: var(--addr-fg); font-family: var(--font-editor); font-size: var(--font-size);
+               line-height: var(--cell-size); text-transform: uppercase; }
+.raddr-empty { color: var(--non-graphic); }
 .rdata { font-family: var(--font-editor); letter-spacing: .02em; }
 .rcnt  { color: var(--addr-fg); font-family: var(--font-editor); text-align: left; }
-.cok        { color: var(--ok);  font-family: var(--font-editor); }
-.cerr       { color: var(--err); font-family: var(--font-editor); font-weight: 700; }
+.cok        { color: var(--ok);  font-family: var(--font-editor); text-align: left; }
+.cerr       { color: var(--err); font-family: var(--font-editor); font-weight: 700; text-align: left; }
 .cerr-tag   { margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase;
               letter-spacing: .04em; color: var(--err); font-family: var(--font-ui); opacity: .85; }
 .rerr-msg   { color: var(--err); font-style: italic; font-family: var(--font-ui); font-size: 11px; }

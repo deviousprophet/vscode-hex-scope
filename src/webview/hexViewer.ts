@@ -26,15 +26,26 @@ import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } fr
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/SearchBar/SearchBar';
 import { Toolbar } from './components/Toolbar/Toolbar';
-import type { SerializedParseResult } from '../core/types';
+import type { SerializedParseResult, SerializedRecord } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
-import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
+import { RecordView, type RecordViewRenderInput } from './components/RecordView/RecordView';
+import { RecordPageCache } from './recordPageCache';
+import { RECORD_PAGE_SIZE } from '../webviewProtocol';
+import {
+    calcRowOffset,
+    calcScrollLayout,
+    calcVisibleRange,
+    clampWindowTop,
+    logicalToPhysicalScroll,
+    physicalToLogicalScroll,
+    type VirtualScrollLayout,
+    type VirtualScrollState,
+} from './render/virtualScroll';
 import { renderStats } from './statsBar';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
 import { ExternalChange } from './components/ExternalChange/ExternalChange';
 import { updateExternalChangeLockState } from './lock';
 
-export { renderRecordView } from './recordView';
 import {
     clearEditModel,
     loadIncomingFile,
@@ -63,6 +74,200 @@ import {
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { formatCopyCommand } from '../core/byte-tools/copy';
 import { setupContextMenu, showContextMenu } from './contextMenuController';
+
+// ── Record view component ────────────────────────────────────────
+// Component owns table markup, format-specific row formatting, scroll
+// reporting, and styles. Host owns the paging cache (RecordPageCache),
+// slice computation (shared render/virtualScroll.ts), page requests,
+// and page-arrival re-renders.
+
+const RECORD_BUFFER_ROWS = 5;
+const RECORD_FALLBACK_ROW_HEIGHT = 28;
+const RECORD_EMPTY_MESSAGE = 'Record details are not loaded in the webview. Use Memory view for navigation and editing.';
+
+const recordPages = new RecordPageCache(8);
+let recordRenderSignature = '';
+let recordVscrollState: VirtualScrollState | null = null;
+let recordRowHeight = RECORD_FALLBACK_ROW_HEIGHT;
+const recordRowHeightGetter = (): number => recordRowHeight;
+
+const recordView = new RecordView('#record-view', {
+    onScrollTop: refreshRecordSlice,
+    onNeedPage: (first, last) => requestRecordWindow(first, last, recordCountOfCurrentParse()),
+});
+
+export function resetRecordPages(generation: number): void {
+    recordPages.reset(generation);
+    recordRenderSignature = '';
+}
+
+export function acceptRecordPage(generation: number, start: number, records: SerializedRecord[]): void {
+    if (!recordPages.accept(generation, start, records)) { return; }
+    recordRenderSignature = '';
+    renderRecordView();
+}
+
+export function renderRecordView(): void {
+    const parseResult = S.parseResult;
+    if (!parseResult) { return; }
+    const el = document.getElementById('record-view');
+    if (!el) { return; }
+    if (recordCountOf(parseResult) === 0) {
+        recordView.renderEmpty(RECORD_EMPTY_MESSAGE);
+        return;
+    }
+    refreshRecordSlice();
+}
+
+function requestRecordPage(start: number, recordCount: number): void {
+    if (!recordPages.request(start, recordCount)) { return; }
+    postProviderMessage({
+        type: 'requestRecordPage',
+        generation: recordPages.generation,
+        start,
+        count: Math.min(RECORD_PAGE_SIZE, recordCount - start),
+    });
+}
+
+function requestRecordWindow(first: number, last: number, recordCount: number): void {
+    const firstPage = Math.floor(first / RECORD_PAGE_SIZE) * RECORD_PAGE_SIZE;
+    const lastPage = Math.floor(last / RECORD_PAGE_SIZE) * RECORD_PAGE_SIZE;
+    for (let start = firstPage; start <= lastPage; start += RECORD_PAGE_SIZE) { requestRecordPage(start, recordCount); }
+    requestRecordPage(firstPage - RECORD_PAGE_SIZE, recordCount);
+    requestRecordPage(lastPage + RECORD_PAGE_SIZE, recordCount);
+}
+
+function cachedRecord(index: number): SerializedRecord | undefined {
+    return recordPages.get(index) ?? S.parseResult?.records[index];
+}
+
+function recordCountOfCurrentParse(): number {
+    return recordCountOf(S.parseResult);
+}
+
+function recordCountOf(parseResult: SerializedParseResult | null | undefined): number {
+    return parseResult ? (parseResult.recordCount ?? parseResult.records.length) : 0;
+}
+
+function getRecordRowHeight(el: HTMLElement): number {
+    const table = document.createElement('table');
+    table.className = 'rtbl';
+    table.style.position = 'absolute';
+    table.style.visibility = 'hidden';
+    table.style.pointerEvents = 'none';
+    table.style.width = '100%';
+
+    const tbody = document.createElement('tbody');
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.className = 'raddr';
+    cell.textContent = '00000000';
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    table.appendChild(tbody);
+    el.appendChild(table);
+
+    const height = row.getBoundingClientRect().height;
+    table.remove();
+    return height > 0 ? height : RECORD_FALLBACK_ROW_HEIGHT;
+}
+
+function recordWindowSignature(recordCount: number, first: number, last: number, physicalScrollTop: number, layout: VirtualScrollLayout): string {
+    const physicalPart = layout.isCompressed ? Math.floor(physicalScrollTop) : '';
+    return `${recordCount}:${first}:${last}:${physicalPart}`;
+}
+
+function refreshRecordSlice(): void {
+    const ctx = recordViewContext();
+    if (!ctx) { return; }
+    const { parseResult, el, recordCount } = ctx;
+
+    const state = syncRecordVscrollState(el, recordCount);
+    const layout = calcScrollLayout(state);
+    const [startIdx, endIdx] = calcVisibleRange(state);
+    const lastVisibleIdx = Math.min(recordCount - 1, endIdx - 1);
+    requestRecordWindow(startIdx, lastVisibleIdx, recordCount);
+
+    const signature = recordWindowSignature(recordCount, startIdx, lastVisibleIdx, el.scrollTop, layout);
+    if (signature === recordRenderSignature) { return; }
+    recordRenderSignature = signature;
+
+    recordView.render(buildRecordInput(parseResult, state, layout, startIdx, endIdx, el.scrollTop));
+}
+
+function recordViewContext(): { parseResult: SerializedParseResult; el: HTMLElement; recordCount: number } | null {
+    const parseResult = S.parseResult;
+    const el = document.getElementById('record-view');
+    if (!parseResult || !el) { return null; }
+    const recordCount = recordCountOf(parseResult);
+    if (recordCount === 0) { return null; }
+    return { parseResult, el, recordCount };
+}
+
+function syncRecordVscrollState(el: HTMLElement, recordCount: number): VirtualScrollState {
+    recordRowHeight = getRecordRowHeight(el);
+    const state = recordVscrollState ??= {
+        containerHeight: 0,
+        scrollTop: 0,
+        bufferSize: RECORD_BUFFER_ROWS,
+        visibleRowIndices: [0, 0],
+        rowCount: 0,
+        heightVersion: 0,
+        getRowHeight: recordRowHeightGetter,
+    };
+    state.containerHeight = el.clientHeight;
+    state.rowCount = recordCount;
+    state.heightVersion = recordRowHeight;
+    state.scrollTop = physicalToLogicalScroll(el.scrollTop, state);
+    return state;
+}
+
+function buildRecordInput(
+    parseResult: SerializedParseResult,
+    state: VirtualScrollState,
+    layout: VirtualScrollLayout,
+    startIdx: number,
+    endIdx: number,
+    physicalScrollTop: number,
+): RecordViewRenderInput {
+    const records = sliceRecordRecords(startIdx, endIdx);
+    const { windowTop, topSpacer, bottomSpacer } = recordLayoutSpacers(state, layout, startIdx, endIdx, physicalScrollTop);
+
+    return {
+        format: parseResult.format,
+        records,
+        recordOffset: startIdx,
+        totalHeight: layout.physicalHeight,
+        containerHeight: state.containerHeight,
+        windowTop,
+        compressed: layout.isCompressed,
+        topSpacer,
+        bottomSpacer,
+    };
+}
+
+function sliceRecordRecords(startIdx: number, endIdx: number): Array<SerializedRecord | null> {
+    const records: Array<SerializedRecord | null> = [];
+    for (let i = startIdx; i < endIdx; i++) { records.push(cachedRecord(i) ?? null); }
+    return records;
+}
+
+function recordLayoutSpacers(
+    state: VirtualScrollState,
+    layout: VirtualScrollLayout,
+    startIdx: number,
+    endIdx: number,
+    physicalScrollTop: number,
+): { windowTop: number; topSpacer: number; bottomSpacer: number } {
+    const topOffset = calcRowOffset(startIdx, state);
+    const renderedHeight = Math.max(0, endIdx - startIdx) * recordRowHeight;
+    if (layout.isCompressed) {
+        const windowTop = clampWindowTop(physicalScrollTop + topOffset - state.scrollTop, layout.physicalHeight, renderedHeight);
+        return { windowTop, topSpacer: 0, bottomSpacer: 0 };
+    }
+    const bottomSpacer = Math.max(0, (state.rowCount - endIdx) * recordRowHeight);
+    return { windowTop: 0, topSpacer: topOffset, bottomSpacer };
+}
 
 // ── Direct-typing edit buffer ─────────────────────────────────────
 let nibbleBuffer: string | null = null;
@@ -629,6 +834,7 @@ function setupRenderedUi(): void {
     setupEndianControl();
     searchBar.mount();
     toolbar.mount();
+    recordView.mount();
     toolbar.setView(S.currentView);
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
