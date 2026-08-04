@@ -25,6 +25,7 @@ Every self-contained webview component has one spec at `component-<name>.md` (na
 | [ExternalChange Component](./component-external-change.md) | External-change banners: conflict/reload/error + dismiss wiring |
 | [SearchBar Component](./component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
 | [RecordView Component](./component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting |
+| [ContextMenu Component](./component-context-menu.md) | Right-click byte menu: copy/analyze/patch, go-address, select |
 
 ## Feature Code-Specs
 
