@@ -154,8 +154,7 @@ function refreshProfileLibrary(): void {
     wireProfileControls();
 }
 
-export function renderIntegrity(): void {
-    const panel = document.getElementById('s-integrity');
+export function renderIntegrity(panel: HTMLElement | null = document.getElementById('s-integrity')): void {
     if (!panel) { return; }
     panel.innerHTML = integrityShellHtml();
     wireRenderedIntegrity(panel);

@@ -10,7 +10,27 @@ import type { SerializedSegment } from '../../core/types';
 
 // ── Inspector ────────────────────────────────────────────────────
 
-export { renderBits, renderInspector, updateInspector } from './inspector/index';
+import { renderBits, renderInspector, updateInspector } from './inspector/index';
+export { renderBits, renderInspector, updateInspector };
+
+/**
+ * Inspector panel content: renders the four section shells into the
+ * panel slot root, then fills them (defaults resolve the section ids).
+ * Used by the host's panel descriptor; the Inspector child task deepens
+ * this into a real component later.
+ */
+export function renderInspectorSections(root: HTMLElement): void {
+    root.innerHTML = `
+        <div class="sb-section" id="s-insp"></div>
+        <div class="sb-section" id="s-bits"></div>
+        <div class="sb-section" id="s-segments"></div>
+        <div class="sb-section" id="s-labels"></div>`;
+    renderInspector();
+    renderBits();
+    renderSegments();
+    renderLabels();
+    updateInspector();
+}
 
 function segmentAddress(address: number): string {
     return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
@@ -70,8 +90,9 @@ function wireSegmentNavigation(sec: HTMLElement): void {
     });
 }
 
-export function renderSegments(): void {
-    const sec = document.getElementById('s-segments')!;
+export function renderSegments(root: HTMLElement | null = document.getElementById('s-segments')): void {
+    if (!root) { return; }
+    const sec = root;
     const segments = sortedSegments();
     sec.innerHTML = `
         <div class="sb-hdr">Segments ${segmentBadgeHtml(segments)}</div>
@@ -82,8 +103,9 @@ export function renderSegments(): void {
 
 // ── Labels ────────────────────────────────────────────────────────
 
-export function renderLabels(): void {
-    const sec   = document.getElementById('s-labels')!;
+export function renderLabels(root: HTMLElement | null = document.getElementById('s-labels')): void {
+    if (!root) { return; }
+    const sec   = root;
     const badgeHtml = labelBadgeHtml();
     const itemsHtml = labelItemsHtml(S.labels);
 

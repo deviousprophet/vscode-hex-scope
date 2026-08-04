@@ -2,8 +2,9 @@ import { S } from '../../state';
 import { postProviderMessage } from '../../vscodeApi';
 import { getByte } from '../../memory/memoryData';
 import { esc, formatDecimal, formatHex } from '../../utils';
-export function renderInspector(): void {
-    const sec = document.getElementById('s-insp')!;
+export function renderInspector(root: HTMLElement | null = document.getElementById('s-insp')): void {
+    if (!root) { return; }
+    const sec = root;
     sec.innerHTML =
         `<div class="sb-hdr">Inspector</div>
          <div class="sb-body">
@@ -154,8 +155,9 @@ function renderInspectorSelection(valsEl: HTMLElement, val: number, len: number)
 // ── Bit viewer ────────────────────────────────────────────────────
 
 /** Single-byte bit view. */
-export function renderBits(val?: number): void {
-    const sec = document.getElementById('s-bits')!;
+export function renderBits(val?: number, root: HTMLElement | null = document.getElementById('s-bits')): void {
+    if (!root) { return; }
+    const sec = root;
     if (val === undefined) {
         sec.innerHTML =
             `<div class="sb-hdr">Bit View</div>` +
