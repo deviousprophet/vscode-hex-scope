@@ -110,3 +110,25 @@ Planned (B presentational component, host builds cells, container-wrapper positi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Extract Toolbar into self-contained component (#151)
+
+**Date**: 2026-08-04
+**Task**: Extract Toolbar into self-contained component (#151)
+**Branch**: `feat/webview-toolbar-component`
+
+### Summary
+
+Planned (scope=#toolbar only, report-only callbacks, host setters setView/setEditMode/setAscii/setDirty, SearchBar slot + setVisible, CSS chrome move, A-lite rerender), implemented Toolbar component + tests, fixed ASCII active lost on record->memory re-entry (review catch), two-axis review PASS, spec added, task archived. PR pending.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5cf9913` | (see git log) |
+| `5b236ec` | (see git log) |
+
+### Status
+
+[OK] **Completed**

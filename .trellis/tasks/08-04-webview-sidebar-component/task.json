@@ -1,0 +1,31 @@
+{
+  "id": "webview-sidebar-component",
+  "name": "webview-sidebar-component",
+  "title": "Extract Sidebar into self-contained component",
+  "description": "Parent of per-panel Sidebar children (#151). Sidebar shell: tabs, resizer, common settings, panel slots.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "deviousprophet",
+  "assignee": "deviousprophet",
+  "createdAt": "2026-08-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-04-webview-struct-panel-component",
+    "08-04-webview-integrity-panel-component",
+    "08-04-webview-scripts-panel-component",
+    "08-04-webview-inspector-panel-component"
+  ],
+  "parent": "08-03-webview-component-refactor",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

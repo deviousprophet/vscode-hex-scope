@@ -21,6 +21,7 @@ Every self-contained webview component has one spec at `component-<name>.md` (na
 |---|---|
 | [Component Template](./component-template.md) | Starting point for any new component spec; naming + boundary rules |
 | [HexView Component](./component-hex-view.md) | Virtualized hex grid: header/rows/gaps/banners, match/sel paint, interaction |
+| [Toolbar Component](./component-toolbar.md) | Top toolbar chrome: view tabs, ASCII toggle, edit-mode group, SearchBar slot |
 | [SearchBar Component](./component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
 
 ## Feature Code-Specs

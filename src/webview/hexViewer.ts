@@ -25,12 +25,12 @@ import { setupSidebarResize } from './sidebar/sidebarResize';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/SearchBar/SearchBar';
+import { Toolbar } from './components/Toolbar/Toolbar';
 import type { SerializedParseResult } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
 import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
 import { renderStats } from './statsBar';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
-import { updateDirtyBar, updateEditControls } from './editControls';
 import {
     removeAllExternalChangeBanners,
     showExternalChangeConflict,
@@ -89,6 +89,38 @@ const searchBar = new SearchBar(
     { mode: S.searchMode, endianness: S.searchEndianness },
 );
 
+// ── Toolbar component ────────────────────────────────────────────
+// Component owns #toolbar chrome + button wiring; host owns all state
+// and edit/save/cancel/view logic (pushed back via setters).
+const toolbar = new Toolbar({
+    onViewChange: v => switchView(v),
+    onAsciiToggle: () => setShowAscii(!getShowAscii()),
+    onEditStart: enterEditMode,
+    onSave: saveEdits,
+    onCancel: cancelEdits,
+});
+
+function enterEditMode(): void {
+    S.editMode = true;
+    toolbar.setEditMode(true);
+    toolbar.setDirty(S.edits.size);
+    if (S.currentView === 'memory') { memRerender(); }
+}
+
+function saveEdits(): void {
+    if (S.edits.size === 0) { return; }
+    postProviderMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()) });
+}
+
+function cancelEdits(): void {
+    clearNibbleBuffer();
+    clearEditState('discard');
+    toolbar.setEditMode(false);
+    toolbar.setDirty(S.edits.size);
+    if (S.currentView === 'memory') { memRerender(); }
+    updateInspector();
+}
+
 function clearNibbleBuffer(): void {
     nibbleBuffer = null;
     if (nibbleBufferAddr !== null) {
@@ -103,8 +135,8 @@ function applyTypedEdit(addr: number, value: number): void {
     if (!prior) {return;}
     S.undoStack.push([prior]);
     S.editMode = true;
-    updateDirtyBar();
-    updateEditControls();
+    toolbar.setDirty(S.edits.size);
+    toolbar.setEditMode(S.editMode);
     memRerender();
     updateInspector();
     renderStructPins();
@@ -222,8 +254,8 @@ function stagePasteFromText(range: { start: number; end: number }, clipText: str
 function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
     const edits = stagePasteFromText(range, clipText);
     if (edits.length > 0 && stageIntegrityEditTransaction(edits)) {
-        updateDirtyBar();
-        updateEditControls();
+        toolbar.setDirty(S.edits.size);
+        toolbar.setEditMode(S.editMode);
         memRerender();
         updateInspector();
         renderStructPins();
@@ -483,8 +515,8 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
     const effects: readonly InvalidationEffect[] = [
         ['labelsAndMemory', rebuildLabelsAndMemory],
         ['lockState', updateLockState],
-        ['editControls', updateEditControls],
-        ['dirtyBar', updateDirtyBar],
+        ['editControls', () => toolbar.setEditMode(S.editMode)],
+        ['dirtyBar', () => toolbar.setDirty(S.edits.size)],
         ['stats', renderStatsBar],
         ['segments', renderSegments],
         ['structPins', renderStructPins],
@@ -539,22 +571,7 @@ function preventClickWhenLocked(e: Event): void {
 
 function render(): void {
     document.getElementById('app')!.innerHTML = `
-        <div id="toolbar">
-            <div class="view-tabs">
-                <button id="btn-mem" class="${activeClass(S.currentView === 'memory')}">Memory</button>
-                <button id="btn-rec" class="${activeClass(S.currentView === 'record')}">Records</button>
-            </div>
-            <div class="tb-sep"></div>
-            <button id="btn-ascii-toggle" class="${activeClass(getShowAscii())} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column">ASCII</button>
-            <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode">&#11041; Edit</button>
-            <div id="edit-mode-group" style="display:none">
-                <span class="tb-editing-pill">&#9679; EDITING</span>
-                <span id="edit-dirty-count"></span>
-                <button id="btn-save"   class="tb-save-btn"   title="Save edits to file">&#128190; Save</button>
-                <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
-            </div>
-            ${searchBar.toHtml()}
-        </div>
+        ${toolbar.toHtml(searchBar.toHtml())}
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
@@ -603,12 +620,15 @@ function render(): void {
 }
 
 function setupRenderedUi(): void {
-    setupToolbarButtons();
     setupLockInterception();
     setupSidebarResize();
     setupEndianControl();
-    setupEditButtons();
     searchBar.mount();
+    toolbar.mount();
+    toolbar.setView(S.currentView);
+    toolbar.setEditMode(S.editMode);
+    toolbar.setAscii(getShowAscii());
+    toolbar.setDirty(S.edits.size);
     setupRerenderCallbacks();
     setIntegrityEditHandler(stageIntegrityEdits);
     initSearch(() => switchView('memory'), {
@@ -643,43 +663,15 @@ function setFileEndian(endian: 'le' | 'be'): void {
     notifyIntegrityEndianChanged();
 }
 
-function setupToolbarButtons(): void {
-    document.getElementById('btn-mem')!.addEventListener('click', () => switchView('memory'));
-    document.getElementById('btn-rec')!.addEventListener('click', () => switchView('record'));
-    document.getElementById('btn-ascii-toggle')!.addEventListener('click', () => setShowAscii(!getShowAscii()));
-    updateEditControls();
-}
-
 function setShowAscii(value: boolean): void {
     if (getShowAscii() === value) { return; }
     setGridShowAscii(value);
-    document.getElementById('btn-ascii-toggle')?.classList.toggle('active', value);
+    toolbar.setAscii(value);
 }
 
 function setupLockInterception(): void {
     document.getElementById('main-area')?.addEventListener('click', preventClickWhenLocked, { capture: true });
     document.getElementById('toolbar')?.addEventListener('click', preventClickWhenLocked, { capture: true });
-}
-
-function setupEditButtons(): void {
-    document.getElementById('btn-edit-mode')!.addEventListener('click', () => {
-        S.editMode = true;
-        updateEditControls();
-        updateDirtyBar();
-        if (S.currentView === 'memory') { memRerender(); }
-    });
-    document.getElementById('btn-cancel')!.addEventListener('click', () => {
-        clearNibbleBuffer();
-        clearEditState('discard');
-        updateEditControls();
-        updateDirtyBar();
-        if (S.currentView === 'memory') { memRerender(); }
-        updateInspector();
-    });
-    document.getElementById('btn-save')!.addEventListener('click', () => {
-        if (S.edits.size === 0) { return; }
-        postProviderMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()) });
-    });
 }
 
 function setupRerenderCallbacks(): void {
@@ -818,17 +810,12 @@ function setDisplayById(id: string, visible: boolean): void {
 function updateViewVisibility(v: ViewName): void {
     toggleClassById('record-view', 'visible', v === 'record');
     toggleClassById('memory-view', 'visible', v === 'memory');
-    toggleClassById('btn-mem', 'active', v === 'memory');
-    toggleClassById('btn-rec', 'active', v === 'record');
 }
 
 function updateMemoryOnlyControls(visible: boolean): void {
-    setDisplayById('btn-edit-mode', visible && !S.editMode);
-    setDisplayById('edit-mode-group', visible && S.editMode);
-    setDisplayById('btn-ascii-toggle', visible);
     setDisplayById('sidebar', visible);
     setDisplayById('side-tabs', visible);
-    setDisplayById('search-box', visible);
+    searchBar.setVisible(visible);
 }
 
 function renderCurrentView(v: ViewName): void {
@@ -838,6 +825,7 @@ function renderCurrentView(v: ViewName): void {
 
 function switchView(v: ViewName): void {
     S.currentView = v;
+    toolbar.setView(v);
     updateViewVisibility(v);
     updateMemoryOnlyControls(v === 'memory');
     renderCurrentView(v);
@@ -854,8 +842,8 @@ function stageIntegrityEdits(edits: Array<[number, number]>): void {
 }
 
 function refreshAfterIntegrityEdits(): void {
-    updateEditControls();
-    updateDirtyBar();
+    toolbar.setEditMode(S.editMode);
+    toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
     renderStructPins();
@@ -866,7 +854,7 @@ function refreshAfterIntegrityEdits(): void {
 
 function applyFill(fillVal: number): void {
     fillSelectionTransaction(currentSelectionRange(), fillVal);
-    updateDirtyBar();
+    toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
     renderStructPins();
@@ -876,7 +864,7 @@ function applyFill(fillVal: number): void {
 function undoLastEdit(): void {
     clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
-    updateDirtyBar();
+    toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     updateInspector();
     renderStructPins();
