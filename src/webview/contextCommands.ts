@@ -28,11 +28,17 @@ export function copyCommandResult(cmd: string, bytes: number[]): ContextCommandR
 
 export function contextCommandResult(cmd: string, bytes: number[], editMode: boolean): ContextCommandResult {
     if (bytes.length === 0) { return { type: 'none' }; }
+    const normalized = normalizeContextCommand(cmd);
     for (const handler of CONTEXT_COMMAND_HANDLERS) {
-        const result = handler(cmd, bytes, editMode);
+        const result = handler(normalized, bytes, editMode);
         if (result.type !== 'none') { return result; }
     }
     return { type: 'none' };
+}
+
+/** Maps top-level context-menu copy cmds (copy-hex etc.) to contextCommandResult args. */
+function normalizeContextCommand(cmd: string): string {
+    return cmd === 'copy-c-array' ? 'c-array' : cmd.replace(/^copy-/, '');
 }
 
 function copyCommandHandler(cmd: string, bytes: number[]): ContextCommandResult {

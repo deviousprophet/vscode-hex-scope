@@ -40,7 +40,7 @@ src/
 | ├─ Integrity panel | pending | `08-04-webview-integrity-panel-component` |
 | └─ Scripts panel | pending | `08-04-webview-scripts-panel-component` |
 
-Execution order (adopted from architecture review): Toolbar + ContextMenu first (small, clean seams), then RecordView (mirrors the established HexView deep-module pattern), then Sidebar as a parent task decomposed into per-panel children. SearchBar/HexView done; remaining components are separate child tasks; the established pattern is documented in `.trellis/spec/frontend/component-template.md` + per-component code-specs.
+Execution order (adopted from architecture review): Toolbar + ContextMenu first (small, clean seams), then RecordView (mirrors the established HexView deep-module pattern), then Sidebar as a parent task decomposed into per-panel children. SearchBar/HexView done; remaining components are separate child tasks; the established pattern is documented in `.trellis/spec/frontend/components/component-template.md` + per-component code-specs.
 
 ## Known issues to fix during component splits
 - Inspector panel: endian toggle wipes inspector data (`setFileEndian` calls shell-rebuild `renderInspector()` instead of data-path `updateInspector()`). Tracked on `08-04-webview-inspector-panel-component` (meta `known-bug`).

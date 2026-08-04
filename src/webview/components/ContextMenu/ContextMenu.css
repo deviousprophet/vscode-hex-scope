@@ -83,3 +83,10 @@
     transition: color .1s, border-color .1s;
 }
 .ctx-fill-apply:hover { color: var(--fg); border-color: var(--high-color); }
+
+/* go-address target preview */
+.ctx-go { color: var(--high-color); opacity: .9; }
+
+/* inert rows (invalid go-address target) */
+.ctx-row.ctx-disabled { opacity: .45; cursor: default; }
+.ctx-row.ctx-disabled:hover { background: transparent; }

@@ -23,7 +23,7 @@ The webview uses TypeScript modules that generate HTML strings and attach DOM li
 
 ## Self-Contained Components
 
-A component under `src/webview/components/<Name>/` owns its markup, UI state, input behaviours, and styles as one unit. Contract (see [SearchBar Component](./component-search-bar.md)):
+A component under `src/webview/components/<Name>/` owns its markup, UI state, input behaviours, and styles as one unit. Contract (see [SearchBar Component](./components/component-search-bar.md)):
 
 - `toHtml()` returns markup; `mount()` attaches document-delegated listeners idempotently (survives host re-renders); feedback setters (`setCount`, `setBusy`, …) let the host push data in.
 - The component holds its UI state internally, seeded via constructor options. It never reads or writes the `S` global and never calls feature/engine functions directly — it reports through callbacks the host wires.
@@ -49,7 +49,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 - Context-menu opening selects only where the explicit feature contract requires it; struct rows intentionally do not select on menu open.
 - Keyboard paths must reach the same action owner as mouse paths.
 - Large memory rendering stays virtualized through `render/virtualScroll.ts`; never render the entire address space.
-- Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) — see [SearchBar Component](./component-search-bar.md). Shared/global CSS stays under `src/webview/styles/` (tokens, resets, layout); it does not contain component-specific rules once that component is extracted.
+- Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) — see [SearchBar Component](./components/component-search-bar.md). Shared/global CSS stays under `src/webview/styles/` (tokens, resets, layout); it does not contain component-specific rules once that component is extracted.
 
 ## Accessibility
 

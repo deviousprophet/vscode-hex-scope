@@ -15,16 +15,17 @@ Project-specific contracts for the VS Code extension host, direct-DOM webview, a
 
 ## Component Code-Specs
 
-Every self-contained webview component has one spec at `component-<name>.md` (naming rule; new components copy [component-template.md](./component-template.md)). Each spec owns the component's contract, markup parity, interaction, and tests.
+Every self-contained webview component has one spec at `components/component-<name>.md` (naming rule; new components copy [component-template.md](./components/component-template.md)). Each spec owns the component's contract, markup parity, interaction, and tests.
 
 | Spec | Owns |
 |---|---|
-| [Component Template](./component-template.md) | Starting point for any new component spec; naming + boundary rules |
-| [HexView Component](./component-hex-view.md) | Virtualized hex grid: header/rows/gaps/banners, match/sel paint, interaction |
-| [Toolbar Component](./component-toolbar.md) | Top toolbar chrome: view tabs, ASCII toggle, edit-mode group, SearchBar slot |
-| [ExternalChange Component](./component-external-change.md) | External-change banners: conflict/reload/error + dismiss wiring |
-| [SearchBar Component](./component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
-| [RecordView Component](./component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting |
+| [Component Template](./components/component-template.md) | Starting point for any new component spec; naming + boundary rules |
+| [HexView Component](./components/component-hex-view.md) | Virtualized hex grid: header/rows/gaps/banners, match/sel paint, interaction |
+| [Toolbar Component](./components/component-toolbar.md) | Top toolbar chrome: view tabs, ASCII toggle, edit-mode group, SearchBar slot |
+| [ExternalChange Component](./components/component-external-change.md) | External-change banners: conflict/reload/error + dismiss wiring |
+| [SearchBar Component](./components/component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
+| [RecordView Component](./components/component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting |
+| [ContextMenu Component](./components/component-context-menu.md) | Right-click byte menu: copy/analyze/patch, go-address, select |
 
 ## Feature Code-Specs
 
@@ -45,7 +46,7 @@ Every self-contained webview component has one spec at `component-<name>.md` (na
 
 1. Read [Frontend and Core Architecture](./directory-structure.md).
 2. Read the feature code-spec for every touched flow.
-3. Read the component spec for every touched component (`component-<name>.md`); when creating a component, copy [component-template.md](./component-template.md) into `component-<name>.md`.
+3. Read the component spec for every touched component (`component-<name>.md`); when creating a component, copy [component-template.md](./components/component-template.md) into `component-<name>.md`.
 4. Read [State, Persistence, and Invalidation](./state-management.md) plus [Type and Validation Contracts](./type-safety.md) for protocol/persistence/model changes.
 5. Read [DOM Rendering and Interaction](./component-guidelines.md) for webview UI changes.
 6. Read [Quality and Test Contracts](./quality-guidelines.md) before writing tests or finishing.

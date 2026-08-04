@@ -73,7 +73,7 @@ import {
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { formatCopyCommand } from '../core/byte-tools/copy';
-import { setupContextMenu, showContextMenu } from './contextMenuController';
+import { ContextMenu, type ContextMenuState } from './components/ContextMenu/ContextMenu';
 
 // ── Record view component ────────────────────────────────────────
 // Component owns table markup, format-specific row formatting, scroll
@@ -305,6 +305,14 @@ const toolbar = new Toolbar({
 // error) + colocated styles; host owns reload/repair/view logic and
 // lock-state transitions (lock.ts).
 const externalChange = new ExternalChange();
+
+// ── ContextMenu component ────────────────────────────────────────
+// Component owns menu markup, positioning, dismiss, hover-submenus and
+// the transient inline-input state; host owns all command execution +
+// the new action logic (go-address, select-all, select-segment).
+const contextMenu = new ContextMenu({
+    onCommand: cmd => handleCtxCommand(cmd),
+});
 
 function enterEditMode(): void {
     S.editMode = true;
@@ -835,6 +843,7 @@ function setupRenderedUi(): void {
     searchBar.mount();
     toolbar.mount();
     recordView.mount();
+    contextMenu.mount();
     toolbar.setView(S.currentView);
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
@@ -941,7 +950,6 @@ function renderInitialViews(): void {
     renderScripts();
     renderSegments();
     renderLabels();
-    setupCtxMenu();
     renderCurrentDataView();
 }
 
@@ -1085,6 +1093,9 @@ function undoLastEdit(): void {
 // ── Context menu ──────────────────────────────────────────────────
 
 function handleCtxCommand(cmd: string): void {
+    if (cmd === 'go-address') { goToContextAddress(); return; }
+    if (cmd === 'select-all') { selectAllMappedBytes(); return; }
+    if (cmd === 'select-segment') { selectSegmentAtSelection(); return; }
     applyContextCommandResult(contextCommandResult(cmd, selectedBytes(), S.editMode));
 }
 
@@ -1095,15 +1106,55 @@ function applyContextCommandResult(result: ReturnType<typeof contextCommandResul
     if (result.type === 'fill') { applyFill(result.value); }
 }
 
-function setupCtxMenu(): void {
-    setupContextMenu();
+function ctxMenuState(): ContextMenuState {
+    const len = selLen();
+    return {
+        selectionActive: S.selStart !== null && len > 0,
+        len,
+        bytes: selectedBytes(),
+        editMode: S.editMode,
+        endian: S.endian,
+        goAddress: computeGoAddress(len),
+    };
 }
 
 function showCtxMenu(x: number, y: number): void {
-    showContextMenu(x, y, {
-        selectionActive: () => S.selStart !== null && selLen() > 0,
-        selectionLength: selLen,
-        selectionBytes: selectedBytes,
-        editMode: () => S.editMode,
-    }, handleCtxCommand);
+    contextMenu.show(x, y, ctxMenuState());
 }
+
+/** Go-address target: uint32 read from the 4 selected bytes in system endian. */
+function computeGoAddress(len: number): ContextMenuState['goAddress'] {
+    if (len !== 4 || S.selStart === null) { return null; }
+    const bytes = selectedBytes();
+    if (bytes.length !== 4) { return null; }
+    const address = joinEndianBytes(bytes, S.endian);
+    return { address, valid: getByte(address) !== undefined };
+}
+
+function joinEndianBytes(bytes: number[], endian: 'le' | 'be'): number {
+    const raw = endian === 'le'
+        ? bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24)
+        : (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+    return raw >>> 0;
+}
+
+function goToContextAddress(): void {
+    const go = computeGoAddress(selLen());
+    if (!go || !go.valid) { return; }
+    scrollTo(go.address);
+    updateByteSelection(go.address, go.address);
+}
+
+function selectAllMappedBytes(): void {
+    const idx = S.segmentIndex;
+    if (idx.length === 0) { return; }
+    updateByteSelection(idx[0].startAddr, idx[idx.length - 1].endAddr);
+}
+
+function selectSegmentAtSelection(): void {
+    if (S.selStart === null) { return; }
+    const seg = S.segmentIndex.find(s => S.selStart! >= s.startAddr && S.selStart! <= s.endAddr);
+    if (!seg) { return; }
+    updateByteSelection(seg.startAddr, seg.endAddr);
+}
+
