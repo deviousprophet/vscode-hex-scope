@@ -24,7 +24,7 @@ src/webview/components/SearchBar/
     SearchBar.css    all .search-* / #search-* rules
 ```
 
-Once a component's rules are extracted, `styles/` holds only shared/global concerns. See [SearchBar Component](./component-search-bar.md).
+Once a component's rules are extracted, `styles/` holds only shared/global concerns. See [SearchBar Component](./components/component-search-bar.md).
 
 No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names.
 

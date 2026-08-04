@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to memory selection/drag behavior, Inspector, context commands/menu, and `core/byte-tools/`. Search engine behavior is owned by [Search Engine Code-Spec](./search-engine.md); search bar UI by [SearchBar Component Code-Spec](./component-search-bar.md).
+Applies to memory selection/drag behavior, Inspector, context commands/menu, and `core/byte-tools/`. Search engine behavior is owned by [Search Engine Code-Spec](./search-engine.md); search bar UI by [SearchBar Component Code-Spec](./components/component-search-bar.md).
 
 ### 2. Signatures
 
