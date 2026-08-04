@@ -67,10 +67,9 @@ function goAddressRow(state: ContextMenuState): string {
     if (!state.goAddress) { return ''; }
     const { address, valid } = state.goAddress;
     const preview = `0x${address.toString(16).toUpperCase().padStart(8, '0')} ${state.endian.toUpperCase()}`;
-    const hint = valid ? preview : `${preview} · Not mapped`;
-    return `<div class="ctx-row ctx-go-row${valid ? '' : ' ctx-disabled'}" data-cmd="go-address">` +
+    return `<div class="ctx-row ctx-go-row${valid ? '' : ' ctx-disabled'}" data-cmd="go-address"${valid ? '' : ' title="Not mapped"'}>` +
         `<span class="ctx-label">Go address</span>` +
-        `<span class="ctx-hint ctx-go">${esc(hint)}</span>` +
+        `<span class="ctx-hint ctx-go">${esc(preview)}</span>` +
         `</div>`;
 }
 

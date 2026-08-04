@@ -245,4 +245,11 @@ suite('webview ContextMenu component', () => {
         assert.strictEqual(contextCommandResult('fill-00', bytes, true).type, 'fill');
         assert.strictEqual(contextCommandResult('fill-00', bytes, false).type, 'none');
     });
+
+    test('wire: contextCommandResult normalizes copy-hex/ascii/c-array menu cmds', () => {
+        const bytes = [0xDE, 0xAD, 0xBE, 0xEF];
+        assert.strictEqual(contextCommandResult('copy-hex', bytes, false).type, 'copyText');
+        assert.strictEqual(contextCommandResult('copy-ascii', bytes, false).type, 'copyText');
+        assert.strictEqual(contextCommandResult('copy-c-array', bytes, false).type, 'copyText');
+    });
 });

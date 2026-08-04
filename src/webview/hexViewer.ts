@@ -17,7 +17,7 @@ import {
     scrollTo,
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
-import { buildMemRows, getByte } from './memory/memoryData';
+import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/HexView/HexView';
 import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
