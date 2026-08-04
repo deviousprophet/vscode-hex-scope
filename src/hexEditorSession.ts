@@ -777,7 +777,7 @@ export class HexEditorSession {
         );
 
         const cssFiles = [
-            'base', 'toolbar', 'layout', 'sidebar',
+            'base', 'stats-bar', 'layout', 'sidebar',
             'record-view', 'context-menu', 'struct', 'integrity',
         ];
         const cssLinks = cssFiles.map(name => {

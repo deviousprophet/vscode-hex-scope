@@ -4,7 +4,7 @@
 Child of `08-03-webview-component-refactor` (issue #151: "Refactor webview UI into self-contained components"). ACs: per-component `.ts`+`.css`, colocated styles, shared styles only global, no functional/visual change.
 
 ## Problem
-`externalChangeUi.ts` (166 lines) mixes two concerns with no colocated CSS: (1) three external-change banners (conflict/reload/error) rendered at `#app` top; (2) an app-wide lock-state (disable/enable interactive elements in `#main-area`/`#toolbar`). Banner CSS lives in shared `styles/toolbar.css`. Untested, coupled to composition root.
+`externalChangeUi.ts` (166 lines) mixes two concerns with no colocated CSS: (1) three external-change banners (conflict/reload/error) rendered at `#app` top; (2) an app-wide lock-state (disable/enable interactive elements in `#main-area`/`#toolbar`). Banner CSS lives in shared `styles/stats-bar.css`. Untested, coupled to composition root.
 
 ## Goal
 Self-contained `ExternalChange` component owning the three banner renderers + their dismiss wiring + colocated banner CSS. Lock-state split out to a small host util. Host owns reload/repair/view logic + lock-state transitions.
@@ -31,7 +31,7 @@ In:
 - `src/webview/components/ExternalChange/ExternalChange.ts` + `ExternalChange.css`.
 - `src/webview/lock.ts` — lock-state util (moved from externalChangeUi.ts).
 - `hexViewer.ts` — replace `externalChangeUi.ts` imports with `ExternalChange` instance + `lock.ts`.
-- `styles/toolbar.css` — banner rules moved to `ExternalChange.css`.
+- `styles/stats-bar.css` — banner rules moved to `ExternalChange.css`.
 
 Out:
 - Lock-state folded into component — stays host util.
@@ -42,6 +42,6 @@ Out:
 - [ ] Renders 3 banner types byte-identical (same ids `ext-conflict-banner`/`ext-reload-banner`/`ext-error-banner`, classes `.ext-conflict-banner`/`.ext-reload-banner`/`.ext-error-banner`/`.ecb-*`/`.erb-*`/`.eeb-*`, same text incl entity icons) as pre-refactor; inserted at `#app` top.
 - [ ] Dismiss: conflict/reload remove banner + call host `onReload`; error calls `onRepair`/`onViewText` (no remove) — parity.
 - [ ] `externalChangeUi.ts` deleted; lock-state extracted to `src/webview/lock.ts`, behavior identical.
-- [ ] `styles/toolbar.css` banner rules moved verbatim to `ExternalChange.css`.
+- [ ] `styles/stats-bar.css` banner rules moved verbatim to `ExternalChange.css`.
 - [ ] `npm run lint`, `npm run check-types`, `npm run test` pass. Fallow green.
 - [ ] No functional/visual change to external-change banners or lock-state in the running extension.

@@ -14,7 +14,7 @@ src/webview/components/SearchBar/
     SearchBar.css     extracted search styles
 src/webview/search/searchEngine.ts   explicit-param runSearch; no S/DOM reads in decision path
 src/webview/hexViewer.ts             host wiring; undo keydown; no inline search markup
-src/webview/styles/toolbar.css       toolbar chrome only (search rules removed)
+src/webview/styles/stats-bar.css    stats bar (chrome/search/banners extracted to components)
 src/hexEditorSession.ts              links dist/webview.css (bundled)
 src/test/webview/components/search-bar.test.ts
 ```
@@ -56,7 +56,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Engine match-count/busy feedback goes through host-registered callbacks, not `#match-count`/`#search-progress` DOM writes from the engine. (Transition note: `clearSearch`/`clearEmptySearchQuery` still touch DOM via the same setter hook.)
 - Ctrl+F (focus/select input) belongs to the component. Ctrl+Z undo belongs to the host (`hexViewer.ts`), gated on `S.editMode`.
 - Search bar markup lives only in `SearchBar.toHtml()`. `#search-box` id/class structure unchanged from the pre-refactor template.
-- All styles specific to search UI live in `SearchBar.css` (moved verbatim from `toolbar.css`). `toolbar.css` keeps only toolbar chrome (`#toolbar`, `.view-tabs`, `.tb-sep`, edit/save/cancel buttons, external-change banners). Design tokens stay in `base.css`.
+- All styles specific to search UI live in `SearchBar.css` (moved verbatim from `toolbar.css`). `toolbar.css` is now `stats-bar.css` (only `#stats-bar`/`.si*` rules); toolbar chrome lives in `components/Toolbar/Toolbar.css`, search in `SearchBar.css`, banners in `ExternalChange.css`. Design tokens stay in `base.css`.
 - Global DOM IDs (`#search-input`, `#match-count`, `#search-mode`, …), single instance. Multi-instance/scoped selectors are out of scope (diff view, future).
 - Component HTML/behaviour escapes untrusted input with `esc()`; no inline `<style>`.
 
@@ -92,5 +92,5 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Engine reading `S.searchMode`/`S.searchEndianness`/DOM input in the run-decision path.
 - Component writing `S` or calling engine functions directly (must go through callbacks).
 - Undo handler inside the search component.
-- Search styles split between `toolbar.css` and `SearchBar.css`.
+- Search styles split between `toolbar.css`/`SearchBar.css` (historical; now all in `SearchBar.css`).
 - Duplicate `#search-box` markup in the host template.

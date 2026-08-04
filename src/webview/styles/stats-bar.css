@@ -1,0 +1,18 @@
+/* ── Stats bar ───────────────────────────────────────────────── */
+#stats-bar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 14px;
+    padding: 2px 10px; flex-shrink: 0;
+    background: var(--panel-bg); border-bottom: 1px solid var(--border);
+    font-size: 11px;
+}
+.si   { display: flex; align-items: center; gap: 4px; }
+.slb  { color: var(--addr-fg); }
+.svl  { font-family: var(--font-editor); font-weight: 600; }
+.s-ok      { color: var(--ok);  margin-left: auto; }
+.s-err     { color: var(--err); font-weight: 700; }
+.s-invalid { color: var(--err); margin-left: auto; }
+.si-fmt .svl {
+    font-family: var(--font-ui); font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    padding: 1px 6px; border-radius: 3px;
+    color: var(--high-color); background: rgba(156,220,254,.12); border: 1px solid rgba(156,220,254,.3);
+}

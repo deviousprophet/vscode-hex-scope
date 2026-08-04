@@ -17,6 +17,7 @@ export class ExternalChange {
         onViewText: () => void,
     ): void;
     clearAll(): void;                    // remove all three banner ids
+    clearError(): void;                  // remove only the error banner (host update path)
 }
 ```
 
@@ -45,8 +46,8 @@ Moved verbatim from `externalChangeUi.ts`. Host `hexViewer.ts` keeps calling it 
 
 ## CSS
 
-- `src/webview/components/ExternalChange/ExternalChange.css` = `.ext-conflict-banner`, `.ext-reload-banner`, `.ext-error-banner`, `.ecb-*`, `.erb-*`, `.eeb-*` (+ related) rules moved verbatim from `styles/toolbar.css`.
-- `styles/toolbar.css` keeps toolbar-chrome + stats rules only.
+- `src/webview/components/ExternalChange/ExternalChange.css` = `.ext-conflict-banner`, `.ext-reload-banner`, `.ext-error-banner`, `.ecb-*`, `.erb-*`, `.eeb-*` (+ related) rules moved verbatim from `styles/stats-bar.css`.
+- `styles/stats-bar.css` keeps toolbar-chrome + stats rules only.
 - `ExternalChange.ts` imports `./ExternalChange.css` → bundled into `dist/webview.css`.
 
 ## Host wiring (hexViewer.ts)

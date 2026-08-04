@@ -11,7 +11,7 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 | `sidebar.css` | Inspector, scripts, label form, shared section patterns |
 | `struct.css` | Struct editor, instance cards, field rows |
 | `integrity.css` | Integrity checks panel, profile library, comparison UI |
-| `toolbar.css` | Top toolbar, view tabs |
+| `stats-bar.css` | Stats bar (bytes/records/segments/format) |
 | `HexView.css` (in components/HexView/) | Memory hex grid (component-owned) |
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |

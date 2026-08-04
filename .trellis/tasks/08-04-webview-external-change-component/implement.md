@@ -7,10 +7,10 @@ Task: `.trellis/tasks/08-04-webview-external-change-component`. Design decisions
 
 ## Checklist
 
-1. **Study baseline** — read `src/webview/externalChangeUi.ts` (all 166 lines); its callers in `hexViewer.ts` (`applyExternalChangeUpdate`/`applyExternalChangeErrorUpdate`/lock invalidation); banner CSS rules in `styles/toolbar.css`; `webview.test.ts` external-change assertions. Catalog ids/classes (ext-conflict-banner/ext-reload-banner/ext-error-banner, ecb-*/erb-*/eeb-* classes, ecb-reload/erb-reload/eeb-repair/eeb-view-text ids).
+1. **Study baseline** — read `src/webview/externalChangeUi.ts` (all 166 lines); its callers in `hexViewer.ts` (`applyExternalChangeUpdate`/`applyExternalChangeErrorUpdate`/lock invalidation); banner CSS rules in `styles/stats-bar.css`; `webview.test.ts` external-change assertions. Catalog ids/classes (ext-conflict-banner/ext-reload-banner/ext-error-banner, ecb-*/erb-*/eeb-* classes, ecb-reload/erb-reload/eeb-repair/eeb-view-text ids).
 2. **Create component** `src/webview/components/ExternalChange/ExternalChange.ts`
    - `class ExternalChange` with `showConflict(incoming, count, onReload)`, `showReload(incoming, onReload)`, `showError(errors, malformed, canRepair, onRepair, onViewText)`, `clearAll()`. NO `S` import, no reload/repair logic, no `IncomingFile` mutation.
-3. **Create `ExternalChange.css`** — move banner rules verbatim from `styles/toolbar.css`; `import './ExternalChange.css'` in ExternalChange.ts.
+3. **Create `ExternalChange.css`** — move banner rules verbatim from `styles/stats-bar.css`; `import './ExternalChange.css'` in ExternalChange.ts.
 4. **Create `src/webview/lock.ts`** — move `updateExternalChangeLockState` + disable/enable + forEachLockableRoot verbatim.
 5. **Rewrite host** `hexViewer.ts` — replace externalChangeUi imports with `const externalChange = new ExternalChange()` calls; lock-state from `lock.ts`.
 6. **Delete** `src/webview/externalChangeUi.ts`.
