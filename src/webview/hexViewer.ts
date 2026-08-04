@@ -31,13 +31,8 @@ import type { SidebarTab } from './sidebar/sidebarTypes';
 import { acceptRecordPage, renderRecordView, resetRecordPages } from './recordView';
 import { renderStats } from './statsBar';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
-import {
-    removeAllExternalChangeBanners,
-    showExternalChangeConflict,
-    showExternalChangeError,
-    showExternalChangeReloadBanner,
-    updateExternalChangeLockState,
-} from './externalChangeUi';
+import { ExternalChange } from './components/ExternalChange/ExternalChange';
+import { updateExternalChangeLockState } from './lock';
 
 export { renderRecordView } from './recordView';
 import {
@@ -99,6 +94,12 @@ const toolbar = new Toolbar({
     onSave: saveEdits,
     onCancel: cancelEdits,
 });
+
+// ── ExternalChange component ────────────────────────────────────
+// Component owns the three external-change banners (conflict/reload/
+// error) + colocated styles; host owns reload/repair/view logic and
+// lock-state transitions (lock.ts).
+const externalChange = new ExternalChange();
 
 function enterEditMode(): void {
     S.editMode = true;
@@ -479,22 +480,25 @@ function applyCopyCommandUpdate(update: WebviewModelUpdate): void {
 }
 
 function applyExternalBannerUpdate(update: WebviewModelUpdate): void {
-    if (update.removeExternalChangeBanners) { removeAllExternalChangeBanners(); }
-    if (update.removeExternalChangeErrorBanner) { document.getElementById('ext-error-banner')?.remove(); }
+    if (update.removeExternalChangeBanners) { externalChange.clearAll(); }
+    // ponytail: host still owns the single error-banner removal (model-driven
+    // repair-complete path); if a dedicated clearError API is ever needed it
+    // can move into the component.
+    if (update.removeExternalChangeErrorBanner) { externalChange.clearError(); }
 }
 
 function applyExternalChangeUpdate(update: WebviewModelUpdate): void {
     if (!update.externalChange) { return; }
     if (update.externalChange.hasUnsavedEdits) {
-        showExternalChangeConflict(update.externalChange.incoming, S.edits.size, reloadDiscardingEdits);
+        externalChange.showConflict(update.externalChange.incoming, S.edits.size, reloadDiscardingEdits);
     } else {
-        showExternalChangeReloadBanner(update.externalChange.incoming, applyExternalChangeAndUnlock);
+        externalChange.showReload(update.externalChange.incoming, applyExternalChangeAndUnlock);
     }
 }
 
 function applyExternalChangeErrorUpdate(update: WebviewModelUpdate): void {
     if (!update.externalChangeError) { return; }
-    showExternalChangeError(
+    externalChange.showError(
         update.externalChangeError.checksumErrors,
         update.externalChangeError.malformedLines,
         update.externalChangeError.canQuickRepair,
