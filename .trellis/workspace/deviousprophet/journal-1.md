@@ -132,3 +132,26 @@ Planned (scope=#toolbar only, report-only callbacks, host setters setView/setEdi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Extract RecordView into self-contained component (#151)
+
+**Date**: 2026-08-04
+**Task**: Extract RecordView into self-contained component (#151)
+**Branch**: `feat/webview-recordview-component`
+
+### Summary
+
+Planned (host-paging scope, render-input + onNeedPage, shared virtualScroll, null placeholder, table chrome + CSS, format in component, A-lite visibility, empty/resize host), implemented RecordView component + host paging via shared virtualScroll + clamp relocation to render/virtualScroll, column layout polish (fixed Addr/Type/Cnt/CHK, hex-view addr style, left checksum), changelog Changed entry, two-axis review PASS (F1 CSS-delta PRD addendum, F2 design format corrected), spec added + ExternalChange spec restored (was post-PR), PR #156 open.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2698443` | (see git log) |
+| `67f971f` | (see git log) |
+| `799a3ab` | (see git log) |
+
+### Status
+
+[OK] **Completed**
