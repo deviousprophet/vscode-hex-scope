@@ -1,4 +1,4 @@
-ï»¿# Component Spec Î“Ã‡Ã¶ ExternalChange
+# Component Spec GÇö ExternalChange
 
 > Built from `component-template.md`. Owns the external-change banners as a self-contained presentational component.
 
@@ -6,7 +6,7 @@
 
 Owns `src/webview/components/ExternalChange/ExternalChange.ts` + `ExternalChange.css`: the three external-change banners (conflict / reload / error) rendered at the top of `#app`. Host owns reload/repair/view logic and lock-state transitions. Lock-state (disabling interactive elements) is a separate host util (`src/webview/lock.ts`), NOT part of this component.
 
-Boundary rule (issue #151 AC): the component owns banner markup, per-banner dismiss wiring, and styles. It never reads/writes `S`, never reloads/repairs files, never mutates `IncomingFile` Î“Ã‡Ã¶ it renders and reports.
+Boundary rule: the component owns banner markup, per-banner dismiss wiring, and styles. It never reads/writes `S`, never reloads/repairs files, never mutates `IncomingFile` GÇö it renders and reports.
 
 ## Layout
 
@@ -43,16 +43,16 @@ export class ExternalChange {
 ## Rules
 
 - **Three banner types**, each: removes its own kind's prior banner, builds byte-identical markup, `document.getElementById('app')!.prepend(banner)`.
-- **Dismiss parity:** conflict/reload buttons Î“Ã¥Ã† `banner.remove()` then host `onReload(incoming)`; error buttons Î“Ã¥Ã† host `onRepair()`/`onViewText()` only (host reload flow removes the banner).
-- **Host never writes banner DOM** Î“Ã‡Ã¶ uses `clearAll()`/`clearError()`.
-- **Lock-state is NOT in this component** Î“Ã‡Ã¶ `src/webview/lock.ts` (`updateExternalChangeLockState` + disable/enable of `button/input/[role=button]` in `#main-area`/`#toolbar`, `data-was-enabled` round-trip). Host owns lock-state transitions.
+- **Dismiss parity:** conflict/reload buttons GåÆ `banner.remove()` then host `onReload(incoming)`; error buttons GåÆ host `onRepair()`/`onViewText()` only (host reload flow removes the banner).
+- **Host never writes banner DOM** GÇö uses `clearAll()`/`clearError()`.
+- **Lock-state is NOT in this component** GÇö `src/webview/lock.ts` (`updateExternalChangeLockState` + disable/enable of `button/input/[role=button]` in `#main-area`/`#toolbar`, `data-was-enabled` round-trip). Host owns lock-state transitions.
 - Markup byte-identical to pre-refactor (ids `ext-conflict-banner`/`ext-reload-banner`/`ext-error-banner`/`ecb-reload`/`erb-reload`/`eeb-repair`/`eeb-view-text`, classes `ecb-*`/`erb-*`/`eeb-*`); untrusted count/message escaped via `esc()` (conflict/reload innerHTML) or `textContent` (error).
 
 ## Behaviour
 
-- Conflict: `#ext-conflict-banner.ext-conflict-banner` Î“Ã‡Ã¶ Î“ÃœÃ¡ icon, "File changed externally. You have N unsaved edit(s). Changes must be reloaded.", "Reload & discard my edits" button Î“Ã¥Ã† remove + `onReload`.
-- Reload: `#ext-reload-banner.ext-reload-banner` Î“Ã‡Ã¶ â‰¡Æ’Ã¶Ã¤ icon, "File changed externally. Reloading...", "Reload" button Î“Ã¥Ã† remove + `onReload`.
-- Error: `#ext-error-banner.ext-error-banner` Î“Ã‡Ã¶ Î“Â¥Ã® icon, "File changed externally and is now invalid: N checksum error(s) and/or N malformed line(s)", "Quick Repair & reload" (`canQuickRepair`) else "View in text editor" Î“Ã¥Ã† `onRepair`/`onViewText`.
+- Conflict: `#ext-conflict-banner.ext-conflict-banner` GÇö GÜá icon, "File changed externally. You have N unsaved edit(s). Changes must be reloaded.", "Reload & discard my edits" button GåÆ remove + `onReload`.
+- Reload: `#ext-reload-banner.ext-reload-banner` GÇö =ƒöä icon, "File changed externally. Reloading...", "Reload" button GåÆ remove + `onReload`.
+- Error: `#ext-error-banner.ext-error-banner` GÇö G¥î icon, "File changed externally and is now invalid: N checksum error(s) and/or N malformed line(s)", "Quick Repair & reload" (`canQuickRepair`) else "View in text editor" GåÆ `onRepair`/`onViewText`.
 
 ## Validation & Error Matrix
 

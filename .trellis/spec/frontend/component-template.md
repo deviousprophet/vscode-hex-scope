@@ -6,7 +6,7 @@
 
 Owns `src/webview/components/<ComponentName>/<ComponentName>.ts` + `<ComponentName>.css`: the self-contained UI unit that owns its markup, UI state, input behaviours, and styles. Host (`hexViewer.ts`) owns data, domain logic, and persistent state.
 
-Boundary rule (issue #151 AC): each component owns its markup, UI state, input behaviours, and styles as one unit. The component never reads/writes the `S` global, never calls feature/engine functions, and never posts provider messages — it reports through callbacks the host wires.
+Boundary rule: each component owns its markup, UI state, input behaviours, and styles as one unit. The component never reads/writes the `S` global, never calls feature/engine functions, and never posts provider messages — it reports through callbacks the host wires.
 
 ## Layout
 

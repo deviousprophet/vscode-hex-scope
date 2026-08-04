@@ -6,7 +6,7 @@
 
 Owns `src/webview/components/RecordView/RecordView.ts` + `RecordView.css`: the record table (thead Addr/Type/Cnt/Data/CHK + rows), IHEX/SREC row formatting, scroll reporting, and colocated styles. Host owns paging (`RecordPageCache` + `requestRecordWindow/requestRecordPage` + provider post), slice computation (shared `render/virtualScroll.ts`), and page-arrival re-renders.
 
-Boundary rule (issue #151 AC): the component owns table markup, row formatting, and scroll reporting. It never reads/writes `S`, never touches the paging cache, never posts provider messages — it renders host-fed slices and reports.
+Boundary rule: the component owns table markup, row formatting, and scroll reporting. It never reads/writes `S`, never touches the paging cache, never posts provider messages — it renders host-fed slices and reports.
 
 ## Layout
 

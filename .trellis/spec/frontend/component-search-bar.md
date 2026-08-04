@@ -4,7 +4,7 @@
 
 Owns `src/webview/components/SearchBar/SearchBar.ts` + `SearchBar.css`: the self-contained search bar UI unit extracted from `search/searchControls.ts` (wiring), `search/searchEngine.ts` (decision glue), and `hexViewer.ts` (markup). The search engine itself lives in `core/search.ts` (deep module) and the search glue stays in `webview/search/searchEngine.ts`.
 
-Component boundary (from issue #151 AC): each component owns its markup, UI state, input behaviours, and styles. Host owns search execution, match data, navigation, and match-count/busy feedback.
+Component boundary : each component owns its markup, UI state, input behaviours, and styles. Host owns search execution, match data, navigation, and match-count/busy feedback.
 
 ## Layout
 
