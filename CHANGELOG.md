@@ -8,6 +8,7 @@
 
 ### Changed
 
+- Context menu reworked: frequent copy formats (Hex, ASCII, C Array) are now one-click; Go address jumps to a 4-byte selection's target address (follows the sidebar endian, preview shown, disabled when unmapped); Select all / Select segment added
 - Record view columns now use fixed widths (address, type, count, checksum) with the data column filling the remaining space; address styling matches the hex view and the checksum column aligns left
 
 ### Fixed
