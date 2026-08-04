@@ -155,3 +155,24 @@ Planned (host-paging scope, render-input + onNeedPage, shared virtualScroll, nul
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: Finish ExternalChange task + spec cleanup
+
+**Date**: 2026-08-04
+**Task**: Finish ExternalChange task + spec cleanup
+**Branch**: `feat/webview-recordview-component`
+
+### Summary
+
+ExternalChange PR #155 merged to main; task archived (spec component-external-change.md + index row, code 0684a08 landed earlier). Stripped issue-number mentions from all component specs (Boundary rule wording cleaned).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1d536b7` | (see git log) |
+
+### Status
+
+[OK] **Completed**

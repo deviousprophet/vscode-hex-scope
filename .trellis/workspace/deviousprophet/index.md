@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-08-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~157 | Active |
+| `journal-1.md` | ~178 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-08-04 | Finish ExternalChange task + spec cleanup | `1d536b7` | `feat/webview-recordview-component` |
 | 6 | 2026-08-04 | Extract RecordView into self-contained component (#151) | `2698443`, `67f971f`, `799a3ab` | `feat/webview-recordview-component` |
 | 5 | 2026-08-04 | Extract Toolbar into self-contained component (#151) | `5cf9913`, `5b236ec` | `feat/webview-toolbar-component` |
 | 4 | 2026-08-04 | Extract HexView grid into self-contained component (#151) | `98619b4`, `5dac230`, `4a8c4cc`, `8e416ec`, `9ed8ac8`, `c831bf4`, `36d66f9`, `386c240`, `effb809`, `d671b8e`, `965b3f0` | `feat/webview-searchbar-component` |
