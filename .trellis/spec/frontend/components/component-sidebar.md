@@ -52,8 +52,8 @@ class Sidebar {
 - `mount()` is idempotent (document-delegated listeners attach once); header slot + `--sidebar-w` init rerun per full render.
 - `setTab(tab)`: toggles `.active` on `#stab-*` + `.active`/visibility on `#sbp-*`; calls `onPanelActivate(tab)` only when the tab changes; default tab = first configured panel.
 - Tab click reports `onTabChange(tab)`; the host owns `S.sidebarTab` and per-tab activation side effects.
-- Panel content mounts lazily on first activation (host `onPanelActivate`); the shell never calls `panel.mount` itself.
-- Resizer: reads `--sidebar-w` css default (fallback 360), restores saved `localStorage` width `hexScope.sidebarWidth`, clamps to `[260, 900]` (and viewport fit), persists on mouseup, sets `document.body` cursor/userSelect during drag.
+- Panel content mounts lazily **once per rendered shell** (host `onPanelActivate` guards `if (!root.hasChildNodes())`); switching away and back toggles visibility only, so panel collapse state and script output survive. Behavior-preserving (pre-refactor tab switch was side effects + `applySidebarState` class toggles, no content re-render).
+- Resizer: reads `--sidebar-w` css default (fallback 360), restores saved `localStorage` width `hexScope.sidebarWidth`, clamps to a viewport-fit max (pre-refactor `sidebarResize.ts` parity), persists on mouseup, sets `document.body` cursor/userSelect during drag.
 - Header slot renders feature-specific chrome (endian LE/BE toggle) into `#sidebar-common-settings`; the shell is feature-blind.
 - Markup is byte-identical to pre-refactor (same ids/classes: `#sidebar`, `#sidebar-resizer` + `.dragging`, `#side-tabs`/`.stab`, `#sidebar-common-settings`, `#sbp-<id>` slots, `.sb-tab-panel(.active)`).
 - Untrusted labels escaped with `esc()` from `src/webview/utils.ts`.

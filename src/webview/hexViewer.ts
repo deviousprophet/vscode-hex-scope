@@ -909,12 +909,15 @@ function onSidebarTabChange(tab: SidebarTab): void {
     SIDEBAR_TAB_EFFECTS[tab]();
 }
 
-/** Mounts-or-rerenders the lazy panel content into its slot root. */
+/** Lazy-mounts the panel content into its slot root, once per rendered shell. */
 function mountSidebarPanel(tab: SidebarTab): void {
     const panel = sidebarPanels.find(p => p.id === tab);
     if (!panel) { return; }
     const root = document.getElementById(`sbp-${tab}`);
-    if (!root) { return; }
+    // Behavior-preserving: tab switching toggles visibility only (matches
+    // pre-refactor applySidebarState). A panel's content is built once so
+    // collapse state / script output survive switching away and back.
+    if (!root || root.hasChildNodes()) { return; }
     panel.mount(root);
 }
 

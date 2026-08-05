@@ -625,6 +625,18 @@ suite('Record View rendering', () => {
                 'endian toggle does not wipe inspector selection data');
             assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x0102'),
                 'multi-byte interpreter re-decodes with new endian');
+
+            // Tab round-trip must not re-mount content (mount-once parity): collapse
+            // state and selection data survive switching away and back.
+            const inspSection = document.getElementById('s-insp')!;
+            inspSection.querySelector<HTMLElement>('.sb-hdr')!.click();
+            assert.ok(inspSection.classList.contains('collapsed'), 'inspector section collapsed');
+            document.getElementById('stab-struct')!.click();
+            document.getElementById('stab-inspector')!.click();
+            assert.ok(document.getElementById('s-insp')!.classList.contains('collapsed'),
+                'collapse state survives tab round-trip');
+            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
+                'selection data survives tab round-trip');
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }

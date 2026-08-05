@@ -43,7 +43,7 @@ export class Sidebar {
    - inspector → `renderInspectorSections(root)` (labels/segments/bits; `sidebar.ts` + `inspector/index.ts`)
    - struct → `renderStructPins(root)`; integrity → `renderIntegrity(root)`; scripts → `renderScripts(root)` (activation via host side effects)
 3. `onTabChange(tab)` → `S.sidebarTab = tab`; `sidebar.setTab(tab)`; run per-tab side-effect switch (moved from `setupSideTabs`): resetStructViewState/renderLabels/activateIntegrity/activateScripts.
-4. `onPanelActivate(tab)` → lazy-mount map: first activation calls panel.mount(slotRoot); subsequent calls rerender via same `renderX`.
+4. `onPanelActivate(tab)` → lazy-mount map: mount the panel content **once per rendered shell** (`if (!root.hasChildNodes())`). Tab switching toggles visibility only — behavior-preserving (pre-refactor `applySidebarState` never re-rendered panel content; re-rendering on every switch would wipe inspector collapse state and script output).
 5. Replace inline `#sidebar`/`#side-tabs` markup in render() with `${sidebar.toHtml()}`; remove `setupSideTabs`/`applySidebarState`/`setupSidebarResize`.
 6. Record-view sidebar visibility stays host (`updateMemoryOnlyControls` toggles `#sidebar`/`#side-tabs` display — shell unaware of view).
 
