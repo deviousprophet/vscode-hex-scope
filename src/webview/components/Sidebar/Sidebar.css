@@ -77,7 +77,6 @@
 .sb-tab-panel.active { display: block; }
 
 /* ── Collapsible section support (shared section pattern) ──────── */
-.sb-body { /* body always visible */ }
 .sb-section.collapsed .sb-body { display: none; }
 .sb-section .sb-hdr {
     cursor: pointer;  user-select: none;

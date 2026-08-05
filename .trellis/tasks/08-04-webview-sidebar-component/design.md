@@ -49,7 +49,7 @@ export class Sidebar {
 
 ## CSS
 
-- `src/webview/components/Sidebar/Sidebar.css` = shell rules moved verbatim from `styles/sidebar.css`: `#sidebar`, `#sidebar-resizer` (+`.dragging`), `#side-tabs`/`.stab`, `#sidebar-common-settings`, shared `.sb-section/.sb-hdr/.sb-body` pattern.
+- `src/webview/components/Sidebar/Sidebar.css` = shell rules moved verbatim from `styles/layout.css` (`#sidebar`, resizer+`.dragging`, `#side-tabs`/`.stab`, `#sidebar-common-settings`) plus the shared `.sb-section/.sb-hdr/.sb-body` collapsible pattern from `styles/sidebar.css`.
 - `styles/sidebar.css` keeps panel-content rules (`.insp-*`, bits, labels, struct, integrity, scripts) — children claim later.
 - `import './Sidebar.css'` in Sidebar.ts; bundled via esbuild.
 

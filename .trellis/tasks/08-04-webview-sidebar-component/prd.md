@@ -49,7 +49,7 @@ Out:
 
 ## Acceptance Criteria
 - [ ] `components/Sidebar/Sidebar.ts` + `Sidebar.css` exist; generic config-driven shell (panels + headerSlot), owns markup, tab switching/visibility, resizer+persistence, styles. Zero `S` reads; no panel module imports; no feature logic.
-- [ ] Renders byte-identical shell (`#sidebar`, `#side-tabs`/`#stab-*`, panel `#sbp-*` slots, `#sidebar-common-settings`) as pre-refactor.
+- [ ] Renders the shell (`#sidebar`, `#side-tabs`/`#stab-*`, panel `#sbp-*` slots, `#sidebar-common-settings`) matching pre-refactor markup, except the inspector slot/tab ids derive from the config id (`#sbp-inspector`/`#stab-inspector` vs pre-refactor `#sbp-insp`/`#stab-insp`) — intentional, config-driven, no in-repo consumers.
 - [ ] Panel descriptors wire existing render fns into `root` param; lazy mount on first activation; active tab runs host side effects (`activateIntegrity` etc.).
 - [ ] Resizer persists width via `--sidebar-w`/localStorage identically; default tab inspector; record-view visibility host-managed.
 - [ ] `styles/sidebar.css` shell rules moved verbatim to `Sidebar.css`; `sidebarResize.ts` deleted.

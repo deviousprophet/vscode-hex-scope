@@ -55,7 +55,7 @@ class Sidebar {
 - Panel content mounts lazily **once per rendered shell** (host `onPanelActivate` guards `if (!root.hasChildNodes())`); switching away and back toggles visibility only, so panel collapse state and script output survive. Behavior-preserving (pre-refactor tab switch was side effects + `applySidebarState` class toggles, no content re-render).
 - Resizer: reads `--sidebar-w` css default (fallback 360), restores saved `localStorage` width `hexScope.sidebarWidth`, clamps to a viewport-fit max (pre-refactor `sidebarResize.ts` parity), persists on mouseup, sets `document.body` cursor/userSelect during drag.
 - Header slot renders feature-specific chrome (endian LE/BE toggle) into `#sidebar-common-settings`; the shell is feature-blind.
-- Markup is byte-identical to pre-refactor (same ids/classes: `#sidebar`, `#sidebar-resizer` + `.dragging`, `#side-tabs`/`.stab`, `#sidebar-common-settings`, `#sbp-<id>` slots, `.sb-tab-panel(.active)`).
+- Markup matches pre-refactor (same ids/classes: `#sidebar`, `#sidebar-resizer` + `.dragging`, `#side-tabs`/`.stab`, `#sidebar-common-settings`, `#sbp-<id>` slots, `.sb-tab-panel(.active)`). Sole deviation: slot/tab ids derive from the panel config id, so the inspector becomes `#sbp-inspector`/`#stab-inspector` (pre-refactor: `#sbp-insp`/`#stab-insp`); intentional, config-driven, and consumers of the old ids (none in-repo) are unaffected.
 - Untrusted labels escaped with `esc()` from `src/webview/utils.ts`.
 
 ## Behaviour

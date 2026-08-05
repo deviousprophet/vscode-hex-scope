@@ -146,11 +146,14 @@ export class Sidebar {
 
     // ── Resizer ─────────────────────────────────────────────────
 
+    private currentCssWidth(): number {
+        return parseSidebarWidth(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) ?? 360;
+    }
+
     private initSidebarWidth(): void {
         const root = document.documentElement;
-        const cssDefaultWidth = parseSidebarWidth(getComputedStyle(root).getPropertyValue('--sidebar-w')) ?? 360;
         const savedWidth = parseSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY));
-        const sidebarWidth = savedWidth ?? cssDefaultWidth;
+        const sidebarWidth = savedWidth ?? this.currentCssWidth();
         root.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
     }
 
@@ -160,8 +163,7 @@ export class Sidebar {
         if (!resizer) { return; }
         ev.preventDefault();
 
-        const root = document.documentElement;
-        let sidebarWidth = parseSidebarWidth(getComputedStyle(root).getPropertyValue('--sidebar-w')) ?? 360;
+        let sidebarWidth = this.currentCssWidth();
         let dragging = true;
         resizer.classList.add('dragging');
         document.body.style.cursor = 'col-resize';
@@ -173,7 +175,7 @@ export class Sidebar {
             const tabsWidth = tabs ? tabs.getBoundingClientRect().width : 0;
             const maxAllowed = Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - tabsWidth - 220);
             sidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxAllowed, window.innerWidth - moveEv.clientX - tabsWidth));
-            root.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
+            document.documentElement.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
         };
         const stopDrag = (): void => {
             if (!dragging) { return; }
