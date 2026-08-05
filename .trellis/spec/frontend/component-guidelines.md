@@ -4,7 +4,7 @@
 
 The webview uses TypeScript modules that generate HTML strings and attach DOM listeners. `src/webview/hexViewer.ts` is the composition root. Rendering owners include:
 
-- `components/HexView/HexView.ts` (+ `memory/memoryGrid.ts` host controller): virtualized memory header/body and selection paint.
+- `components/HexView/HexViewRender.ts` (+ `components/HexView/HexView.ts` interaction, `components/HexView/HexViewPaint.ts` DOM paint, `memory/memoryGrid.ts` host controller): virtualized memory header/body and selection paint.
 - `recordView.ts`: parsed-record table.
 - `sidebar/sidebar.ts` and `sidebar/inspector/index.ts`: sidebar shell, labels, segments, Inspector.
 - `sidebar/integrity/index.ts`: integrity cards and actions.

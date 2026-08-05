@@ -4,7 +4,7 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/HexView/HexView.ts` + `HexView.css`: the virtualized hex-grid (column header, data rows, gap rows, segment banners) as a pure presentational component. Host owns data (`S.memRows`, selection, matches, edits, integrity), virtual-scroll math, and all domain decisions.
+Owns `src/webview/components/HexView/` (`HexView.ts` interaction controller, `HexViewRender.ts` pure render layer, `HexViewPaint.ts` DOM paint utilities, `HexView.css`): the virtualized hex-grid (column header, data rows, gap rows, segment banners) as a pure presentational component. Host owns data (`S.memRows`, selection, matches, edits, integrity), virtual-scroll math, and all domain decisions.
 
 Boundary rule: the component owns markup, transient interaction, and styles. It never reads/writes `S`, never calls feature/engine functions, never posts provider messages — it reports through callbacks and paints host-invoked state.
 
@@ -12,10 +12,12 @@ Boundary rule: the component owns markup, transient interaction, and styles. It 
 
 ```text
 src/webview/components/HexView/
-    HexView.ts       types + pure render fns + interaction controller class
-    HexView.css      moved verbatim from styles/memory-view.css (bundled via esbuild)
-src/webview/memory/memoryGrid.ts     host grid controller (slice computation, render-input build, vscroll state)
-src/webview/hexViewer.ts             composition root: wires callbacks + ASCII toggle
+    HexView.ts          interaction controller class + HexViewCallbacks
+    HexViewRender.ts    pure DOM-free render layer: types (HexViewCell/Banner/Row/Range/RenderInput), renderHexViewHeader, renderHexViewHtml, row/cell markup builders
+    HexViewPaint.ts     DOM paint/match utilities: cellAddress, selectedColumns, match highlighting, paintMatchesInRoot, clearCellPreview, columnFor, copy/editable guards
+    HexView.css         moved verbatim from styles/memory-view.css (bundled via esbuild)
+src/webview/memory/memoryGrid.ts     host grid controller (slice computation, render-input build, vscroll state); imports class from HexView, render from HexViewRender
+src/webview/hexViewer.ts             composition root: wires callbacks + ASCII toggle; imports HexViewRange from HexViewRender
 src/test/webview/components/hex-view.test.ts   (mocha + jsdom)
 ```
 

@@ -10,9 +10,10 @@ Component boundary : each component owns its markup, UI state, input behaviours,
 
 ```text
 src/webview/components/SearchBar/
-    SearchBar.ts      class SearchBar + pure helpers
-    SearchBar.css     extracted search styles
-src/webview/search/searchEngine.ts   explicit-param runSearch; no S/DOM reads in decision path
+    SearchBar.ts         class SearchBar + SearchBarCallbacks + SearchBarSeedOptions
+    searchBarRender.ts   pure helpers: MODE_LABELS, PLACEHOLDERS, searchKeyFor, SearchTrigger, activeClass, modeOptions
+    SearchBar.css        extracted search styles
+src/webview/search/searchEngine.ts   explicit-param runSearch; imports searchKeyFor/SearchTrigger from searchBarRender; no S/DOM reads in decision path
 src/webview/hexViewer.ts             host wiring; undo keydown; no inline search markup
 src/webview/styles/stats-bar.css    stats bar (chrome/search/banners extracted to components)
 src/hexEditorSession.ts              links dist/webview.css (bundled)
