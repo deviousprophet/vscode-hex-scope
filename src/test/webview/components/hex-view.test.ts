@@ -6,12 +6,14 @@ import { byteClass } from '../../../webview/utils';
 import { clampWindowTop } from '../../../webview/render/virtualScroll';
 import {
     HexView,
+    type HexViewCallbacks,
+} from '../../../webview/components/HexView/HexView';
+import {
     renderHexViewHeader,
     renderHexViewHtml,
-    type HexViewCallbacks,
     type HexViewCell,
     type HexViewRenderInput,
-} from '../../../webview/components/HexView/HexView';
+} from '../../../webview/components/HexView/HexViewRender';
 
 let currentDom: JSDOM | null = null;
 

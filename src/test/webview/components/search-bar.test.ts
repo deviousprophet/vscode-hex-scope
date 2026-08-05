@@ -2,7 +2,8 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import '../css-import-hook';
 
-import { SearchBar, searchKeyFor } from '../../../webview/components/SearchBar/SearchBar';
+import { SearchBar } from '../../../webview/components/SearchBar/SearchBar';
+import { searchKeyFor } from '../../../webview/components/SearchBar/searchBarRender';
 import type { SearchBarSeedOptions } from '../../../webview/components/SearchBar/SearchBar';
 
 interface SearchCall {

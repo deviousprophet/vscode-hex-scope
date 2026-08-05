@@ -3,7 +3,7 @@ import { S } from '../state';
 import { paintMemoryMatchHighlights, paintMemorySelection, scrollTo } from '../memory/memoryGrid';
 import { SearchEngine, buildNeedles } from '../../core/search';
 import type { SearchEndianness, SearchMode } from '../../core/types';
-import { searchKeyFor, type SearchTrigger } from '../components/SearchBar/SearchBar';
+import { searchKeyFor, type SearchTrigger } from '../components/SearchBar/searchBarRender';
 
 // -------------------- UI glue (previously in search.ts) --------------------
 
