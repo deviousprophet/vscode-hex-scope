@@ -183,6 +183,51 @@ suite('Inspector labels', () => {
         assert.deepStrictEqual(cb.labels[0], []);
     });
 
+    test('visibility toggle reports onLabelsChange', () => {
+        inspector.setLabels(labels);
+        document.querySelector<HTMLElement>('.label-vis')!.click();
+        assert.strictEqual(cb.labels[0][0].hidden, true);
+        inspector.setLabels(cb.labels[0]);
+        document.querySelector<HTMLElement>('.label-vis')!.click();
+        assert.strictEqual(cb.labels[1][0].hidden, false);
+    });
+
+    test('move up/down reports onLabelsChange', () => {
+        const three = [
+            { id: 'a', name: 'A', startAddress: 0x1000, length: 4, color: '#4fc3f7' },
+            { id: 'b', name: 'B', startAddress: 0x2000, length: 4, color: '#81c784' },
+            { id: 'c', name: 'C', startAddress: 0x3000, length: 4, color: '#ffb74d' },
+        ];
+        inspector.setLabels(three);
+        document.querySelectorAll<HTMLElement>('.label-dn')[0].click();
+        assert.deepStrictEqual(cb.labels[0].map(l => l.id), ['b', 'a', 'c']);
+        document.querySelectorAll<HTMLElement>('.label-up')[2].click();
+        assert.deepStrictEqual(cb.labels[1].map(l => l.id), ['b', 'c', 'a']);
+    });
+
+    test('edit form saves updates via onLabelsChange', () => {
+        inspector.setLabels(labels);
+        document.querySelector<HTMLElement>('.act-btn-edit')!.click();
+        (document.getElementById('lf-name') as HTMLInputElement).value = 'Renamed';
+        document.getElementById('lf-save')!.click();
+        assert.strictEqual(cb.labels[0][0].name, 'Renamed');
+        assert.strictEqual(cb.labels[0][0].id, 'l1');
+    });
+
+    test('confirm-on-warning requires a second save click', () => {
+        inspector.setLabels(labels);
+        document.getElementById('btn-add-lbl')!.click();
+        (document.getElementById('lf-name') as HTMLInputElement).value = 'Overlap';
+        (document.getElementById('lf-start') as HTMLInputElement).value = '0x1000';
+        (document.getElementById('lf-range') as HTMLInputElement).value = '4';
+        document.getElementById('lf-save')!.click();
+        assert.strictEqual(cb.labels.length, 0, 'no change on first save with warning');
+        assert.ok(document.getElementById('lf-warn')!.textContent?.includes('Overlaps with'));
+        document.getElementById('lf-save')!.click();
+        assert.strictEqual(cb.labels.length, 1, 'second save confirms');
+        assert.strictEqual(cb.labels[0].at(-1)!.name, 'Overlap');
+    });
+
     test('add form saves a new label via onLabelsChange', () => {
         inspector.setLabels([]);
         document.getElementById('btn-add-lbl')!.click();

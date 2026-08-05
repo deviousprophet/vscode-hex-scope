@@ -33,8 +33,15 @@ src/
    |- webviewMessage*.ts        provider dispatch and typed model updates
    |- memory/, search/, render/ view-specific modules
    |- components/               self-contained UI components
-   |  `- SearchBar/             SearchBar.ts + SearchBar.css, one unit each
-   `- sidebar/{inspector,integrity,struct}/ feature modules
+   |  |- SearchBar/             SearchBar.ts + searchBarRender.ts + SearchBar.css
+   |  |- HexView/               HexView.ts + HexViewRender.ts + HexViewPaint.ts + HexView.css
+   |  |- Toolbar/               Toolbar.ts + Toolbar.css
+   |  |- ExternalChange/        ExternalChange.ts + ExternalChange.css
+   |  |- RecordView/            RecordView.ts + RecordView.css
+   |  |- ContextMenu/           ContextMenu.ts + ContextMenu.css
+   |  |- Sidebar/               Sidebar.ts + Sidebar.css (shell; panels injected)
+   |  `- Inspector/             Inspector.ts + InspectorLabels.ts + Inspector.css
+   `- sidebar/{integrity,struct,scripts}/ feature modules (Inspector panel extracted)
 ```
 
 ## Placement Rules

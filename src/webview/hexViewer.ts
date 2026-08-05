@@ -985,6 +985,7 @@ function updateByteSelection(start: number, end: number): void {
     S.selEnd   = end;
     paintMemorySelection();
     inspector.setSelection(S.selStart, S.selEnd);
+    inspector.syncLabelForm();
     onSelectionChangeForStruct();
 }
 
@@ -1013,6 +1014,7 @@ function onHexViewSelectionChange(range: HexViewRange): void {
     S.selEnd = range.end;
     paintMemorySelection();
     inspector.setSelection(S.selStart, S.selEnd);
+    inspector.syncLabelForm();
 }
 
 function selLen(): number {

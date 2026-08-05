@@ -44,7 +44,6 @@ export class Inspector {
     private segments: SerializedSegment[] = [];
     private labels: SegmentLabel[] = [];
     private root: HTMLElement | null = null;
-    private mounted = false;
 
     constructor(cb: InspectorCallbacks) {
         this.cb = cb;
@@ -65,10 +64,14 @@ export class Inspector {
         this.paintInspectorData();
     }
 
-    /** Data path (was host updateInspector + updateLabelFormSel). */
+    /** Data path (was host updateInspector). */
     setSelection(start: number | null, end: number | null): void {
         this.selection = { start, end };
         this.paintInspectorData();
+    }
+
+    /** Hex-view selection → live-update an open label form (parity: old updateLabelFormSel). */
+    syncLabelForm(): void {
         this.updateLabelFormSel();
     }
 
@@ -329,20 +332,10 @@ export class Inspector {
             <div class="sb-hdr">Segments ${segmentBadgeHtml(segments)}</div>
             <div class="sb-body">${segmentItemsHtml(segments)}</div>`;
 
-        this.setupSegmentCollapse(sec);
+        this.applyCollapsibleSection(sec, false);
         sec.querySelectorAll<HTMLElement>('.segment-item').forEach(item => {
             item.addEventListener('click', () => this.jumpToSegment(item));
             item.addEventListener('keydown', event => this.handleSegmentKeydown(event, item));
-        });
-    }
-
-    private setupSegmentCollapse(sec: HTMLElement): void {
-        if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = 'false'; }
-        sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
-        sec.querySelector<HTMLElement>('.sb-hdr')!.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
         });
     }
 
