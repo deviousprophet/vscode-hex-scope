@@ -896,13 +896,17 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 }
 
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
+const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
+    inspector: resetStructViewState,
+    struct: renderLabels,
+    integrity: activateIntegrity,
+    scripts: activateScripts,
+};
+
 function onSidebarTabChange(tab: SidebarTab): void {
     S.sidebarTab = tab;
     sidebar.setTab(tab);
-    if (tab === 'inspector') { resetStructViewState(); }
-    if (tab === 'struct') { renderLabels(); }
-    if (tab === 'integrity') { activateIntegrity(); }
-    if (tab === 'scripts') { activateScripts(); }
+    SIDEBAR_TAB_EFFECTS[tab]();
 }
 
 /** Mounts-or-rerenders the lazy panel content into its slot root. */

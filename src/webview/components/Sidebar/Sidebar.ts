@@ -46,6 +46,7 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
 
 export class Sidebar {
     private readonly panels: SidebarPanel[];
+    private readonly tabByButtonId: ReadonlyMap<string, SidebarTab>;
     private readonly headerSlot: ((root: HTMLElement) => void) | undefined;
     private cb: SidebarCallbacks;
     private activeTab: SidebarTab | null;
@@ -55,6 +56,7 @@ export class Sidebar {
         this.panels = options.panels;
         this.headerSlot = options.headerSlot;
         this.cb = options.cb ?? {};
+        this.tabByButtonId = new Map(this.panels.map(panel => [`stab-${panel.id}`, panel.id] as const));
         // Default = first configured panel (host passes inspector first).
         this.activeTab = options.panels[0]?.id ?? null;
     }
@@ -104,13 +106,18 @@ export class Sidebar {
     // ── Tab switching ───────────────────────────────────────────
 
     private readonly handleTabClick = (ev: Event): void => {
-        const btn = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.stab');
-        if (!btn) { return; }
-        const tab = this.panels.find(panel => `stab-${panel.id}` === btn.id)?.id;
-        if (!tab) { return; }
-        this.setTab(tab);
-        this.cb.onTabChange?.(tab);
+        const tab = this.tabFromEvent(ev);
+        if (tab !== null) {
+            this.setTab(tab);
+            this.cb.onTabChange?.(tab);
+        }
     };
+
+    private tabFromEvent(ev: Event): SidebarTab | null {
+        const btn = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.stab');
+        if (!btn) { return null; }
+        return this.tabByButtonId.get(btn.id) ?? null;
+    }
 
     private paintTabState(): void {
         for (const panel of this.panels) {
