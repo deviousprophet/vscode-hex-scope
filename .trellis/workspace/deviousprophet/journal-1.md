@@ -221,3 +221,25 @@ Started sidebar task (`task.py start`), took over known-bug meta from inspector 
 ### Status
 
 [OK] **Completed — PR #160 merged (58d4847)**
+
+
+## Session 10: Fallow split targets
+
+**Date**: 2026-08-05
+**Task**: Split high-impact files flagged by fallow
+**Branch**: `refactor/fallow-split-targets`
+
+### Summary
+
+Split the three fallow `split_high_impact` targets into focused modules, behavior-preserving (no signature/behavior change): `memoryData.ts` → `memory/integrityHighlight.ts`; `SearchBar.ts` → `searchBarRender.ts` (`searchKeyFor`/`SearchTrigger`/pure helpers, consumers moved); `HexView.ts` (627→333 LOC) → `HexViewRender.ts` (pure DOM-free render + types) + `HexViewPaint.ts` (DOM paint/match utilities). Consumers import from the owning module (no re-export barrels) so class modules' fan-in drops to class consumers. Fallow now 0 issues / 0 findings / 0 dupes / 0 targets. Two-axis review: no code violations; fixed stale module headers + prd/design re-export text. Spec layout blocks (component-hex-view/search-bar .md) deliberately deferred to another branch. PR #161 draft.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bf81a07` | refactor(webview): split high-impact fallow files |
+| `(follow-up)` | docs: reconcile module headers + artifacts |
+
+### Status
+
+[OK] **Completed — PR #161 open (draft), awaiting merge review**
