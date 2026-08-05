@@ -35,7 +35,7 @@ src/
 | RecordView | done (merged #156) | archived `08-04-webview-recordview-component` |
 | ContextMenu | done (merged #157) | archived `08-04-webview-context-menu-component` |
 | Sidebar (shell) | done (merged #160) | archived `08-04-webview-sidebar-component` |
-| ├─ Inspector panel | planning (next) | `08-04-webview-inspector-panel-component` |
+| ├─ Inspector panel | done (PR #163) | `08-04-webview-inspector-panel-component` |
 | ├─ Struct panel | planning | `08-04-webview-struct-panel-component` |
 | ├─ Integrity panel | planning | `08-04-webview-integrity-panel-component` |
 | └─ Scripts panel | planning | `08-04-webview-scripts-panel-component` |
