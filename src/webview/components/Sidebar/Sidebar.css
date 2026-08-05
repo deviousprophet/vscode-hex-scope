@@ -75,3 +75,25 @@
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
 .sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; }
 .sb-tab-panel.active { display: block; }
+
+/* ── Collapsible section support (shared section pattern) ──────── */
+.sb-body { /* body always visible */ }
+.sb-section.collapsed .sb-body { display: none; }
+.sb-section .sb-hdr {
+    cursor: pointer;  user-select: none;
+    position: relative;
+}
+.sb-section .sb-hdr::before {
+    content: '\25B6'; /* right-pointing triangle */
+    position: absolute;
+    left: 0;
+    top: 50%;
+    margin-top: -6px;
+    font-size: 12px;
+    line-height: 1;
+    transition: transform .15s;
+    color: var(--addr-fg);
+}
+.sb-section:not(.collapsed) .sb-hdr::before {
+    transform: rotate(90deg);
+}

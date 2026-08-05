@@ -40,6 +40,7 @@ function resetState(): void {
     S.integrityHighlight = null;
     S.sidebarTab       = 'inspector';
     S.lastClickColumn  = null;
+    S.endian           = 'le';
 }
 
 function installWebviewDom(markup: string): JSDOM {
@@ -606,9 +607,24 @@ suite('Record View rendering', () => {
             assert.strictEqual(document.getElementById('sa-btn-le'), null);
             assert.strictEqual(document.getElementById('integrity-btn-le'), null);
             assert.ok(document.getElementById('search-btn-auto'), 'Value Search keeps its own endian control');
+
+            // Select the first two segment bytes and render inspector data before the toggle.
+            S.selStart = 0x08000000;
+            S.selEnd = 0x08000001;
+            const { updateInspector } = await import('../../webview/sidebar/sidebar.js');
+            updateInspector();
+            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
+                'inspector shows selected byte data before toggle');
+            assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x0201'),
+                'little-endian uint16 renders 0x0201');
+
             document.getElementById('sidebar-btn-be')!.click();
             assert.strictEqual(S.endian, 'be');
             assert.deepStrictEqual(posted.at(-1), { type: 'saveEndian', endian: 'be' });
+            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
+                'endian toggle does not wipe inspector selection data');
+            assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x0102'),
+                'multi-byte interpreter re-decodes with new endian');
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }

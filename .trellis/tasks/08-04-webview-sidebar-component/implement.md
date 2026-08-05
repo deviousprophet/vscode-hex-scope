@@ -27,6 +27,9 @@ Task: `.trellis/tasks/08-04-webview-sidebar-component` (parent; panels = child t
    - `npm test` (full).
    - Fallow all-axes green.
 
+8. **Known-bug fix (taken over from `08-03`)** — endian toggle wiped inspector data: `setFileEndian` used `renderInspector()` (shell rebuild → `#insp-vals` empty placeholder) instead of data-path `updateInspector()`. Fix: `setFileEndian` → `updateInspector()`; drop now-unused `renderInspector` import in `hexViewer.ts`. Regression test: endian toggle preserves inspector selection + multi-byte uint16 re-decodes (in `webview.test.ts`).
+   - Also fixed test-state leaks found while verifying: `webview-message-model.test.ts` left `S.endian='be'` and `S.lockedDueToExternalChange=true` (added `teardown(resetState)` + endian in its resetState); `struct-ui.test.ts` scalar-endian test now restores `S.endian='le'`; `webview.test.ts` resetState resets `S.endian`.
+
 ## Review gates
 - `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity).
 - `rg "S\.|panel|renderStruct|renderInspector|renderIntegrity|renderScripts" src/webview/components/Sidebar/` — empty.

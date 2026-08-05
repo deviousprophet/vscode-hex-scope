@@ -27,5 +27,7 @@
   "parent": "08-03-webview-component-refactor",
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "known-bug": "Endian toggle wipes inspector data: hexViewer.ts setFileEndian calls renderInspector() (shell rebuild -> 'Click a byte to inspect' placeholder) not updateInspector() (reads selection). Fix in Sidebar host wiring: endian-change handler must call data-path updateInspector(). Only Inspector affected (struct/integrity use data-path already)."
+  }
 }

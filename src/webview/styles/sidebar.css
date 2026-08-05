@@ -54,7 +54,6 @@
 .insp-dump-ellipsis { color: var(--addr-fg); opacity: .5; }
 
 /* ── Bit viewer ──────────────────────────────────────────────── */
-.sb-body { /* body always visible */ }
 
 /* Inspector inline multi-byte */
 #insp-multi { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -102,27 +101,6 @@
 
 /* popcount footer */
 .bit-pc  { display: block; text-align: right; font-size: 11px; color: var(--fg); opacity: .9; margin-top: 4px; font-family: var(--font-editor); font-weight: 600; }
-
-/* Collapsible section support: hide body when collapsed */
-.sb-section.collapsed .sb-body { display: none; }
-.sb-section .sb-hdr {
-    cursor: pointer;  user-select: none;
-    position: relative;
-}
-.sb-section .sb-hdr::before {
-    content: '\25B6'; /* right-pointing triangle */
-    position: absolute;
-    left: 0;
-    top: 50%;
-    margin-top: -6px;
-    font-size: 12px;
-    line-height: 1;
-    transition: transform .15s;
-    color: var(--addr-fg);
-}
-.sb-section:not(.collapsed) .sb-hdr::before {
-    transform: rotate(90deg);
-}
 
 /* ── Multi-byte interpreter ──────────────────────────────────── */
 .compact-tabs {

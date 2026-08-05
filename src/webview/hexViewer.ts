@@ -20,7 +20,8 @@ import {
 import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/HexView/HexView';
-import { renderInspector, renderSegments, renderLabels, renderInspectorSections, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
+import { renderSegments, renderLabels, renderInspectorSections, updateInspector,
+    updateLabelFormSel } from './sidebar/sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/SearchBar/SearchBar';
@@ -864,7 +865,7 @@ function setFileEndian(endian: 'le' | 'be'): void {
     const settings = document.getElementById('sidebar-common-settings');
     if (settings) { renderEndianToggle(settings); }
     postProviderMessage({ type: 'saveEndian', endian });
-    renderInspector();
+    updateInspector();
     renderStructPins();
     notifyIntegrityEndianChanged();
 }

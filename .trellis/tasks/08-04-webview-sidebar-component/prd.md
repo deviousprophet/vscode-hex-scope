@@ -44,6 +44,9 @@ Out:
 - Panel-content CSS in `sidebar.css` — stays until children claim.
 - Tab persistence, labels rework — not this task.
 
+## Known issue (taken over from parent refactor task)
+- Endian toggle wipes inspector data: `hexViewer.ts setFileEndian` called shell-rebuild `renderInspector()` (reset `#insp-vals` to the empty placeholder) instead of data-path `updateInspector()` (re-decodes current selection). Fixed in this task: `setFileEndian` now calls `updateInspector()`; multi-byte interpretation re-decodes per new endian. Regression test added in `webview.test.ts` (endian toggle preserves inspector selection + re-decodes uint16).
+
 ## Acceptance Criteria
 - [ ] `components/Sidebar/Sidebar.ts` + `Sidebar.css` exist; generic config-driven shell (panels + headerSlot), owns markup, tab switching/visibility, resizer+persistence, styles. Zero `S` reads; no panel module imports; no feature logic.
 - [ ] Renders byte-identical shell (`#sidebar`, `#side-tabs`/`#stab-*`, panel `#sbp-*` slots, `#sidebar-common-settings`) as pre-refactor.
