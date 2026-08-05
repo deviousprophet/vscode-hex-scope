@@ -9,6 +9,9 @@ export const rerender = {
     /** Re-render the labels sidebar section. */
     labels: () => { /* wired by hexViewer.ts */ },
 
+    /** Re-render the Inspector panel selection data (was updateInspector). */
+    inspector: () => { /* wired by hexViewer.ts */ },
+
     /** Switch to memory view (and re-render). */
     toMemory: () => { /* wired by hexViewer.ts */ },
 
