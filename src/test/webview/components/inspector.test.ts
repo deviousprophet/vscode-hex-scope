@@ -20,7 +20,7 @@ function installDom(): { dom: JSDOM; inspector: Inspector; cb: { jumps: number[]
     g.document = dom.window.document as unknown as Document;
     g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window) as typeof getComputedStyle;
     (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame =
-        cb => setTimeout(() => cb(Date.now()), 0) as unknown as number;
+        () => 0;
 
     const bytes = new Map<number, number>([
         [0x1000, 0x12],
@@ -173,10 +173,12 @@ suite('Inspector labels', () => {
         assert.deepStrictEqual(cb.jumps, [0x1000]);
     });
 
-    test('delete reports onLabelsChange', () => {
+    test('delete reports onLabelsChange', async () => {
         inspector.setLabels(labels);
         document.querySelector<HTMLElement>('.act-btn-del')!.click();
         document.querySelector<HTMLElement>('#del-confirm-pop .dcp-yes')!.click();
+        // Let inlineConfirm's deferred outside-click listener register before teardown.
+        await new Promise(resolve => setTimeout(resolve, 0));
         assert.strictEqual(cb.labels.length, 1);
         assert.deepStrictEqual(cb.labels[0], []);
     });
