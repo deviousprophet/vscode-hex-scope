@@ -1,0 +1,28 @@
+{
+  "id": "fallow-split-targets",
+  "name": "fallow-split-targets",
+  "title": "Split high-impact files flagged by fallow",
+  "description": "Split the three fallow health.targets split_high_impact files: memoryData.ts (38 LOC/11 deps), SearchBar.ts (260 LOC), HexView.ts (627 LOC). Behavior-preserving splits; reduce per-change blast radius.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P3",
+  "creator": "deviousprophet",
+  "assignee": "deviousprophet",
+  "createdAt": "2026-08-05",
+  "completedAt": null,
+  "branch": "refactor/fallow-split-targets",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "known": ""
+  }
+}

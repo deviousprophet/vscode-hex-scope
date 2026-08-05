@@ -216,8 +216,8 @@ Started sidebar task (`task.py start`), took over known-bug meta from inspector 
 
 | Hash | Message |
 |------|---------|
-| (pending) | (see git log) |
+| `58d4847` | refactor(webview): extract Sidebar into self-contained component (#160) — merged to main |
 
 ### Status
 
-[WIP] **In progress — ready for commit + review**
+[OK] **Completed — PR #160 merged (58d4847)**
