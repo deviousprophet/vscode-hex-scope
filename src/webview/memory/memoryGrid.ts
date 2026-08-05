@@ -5,7 +5,8 @@
 // (S.memRows, labels, selection, matches, edits) stays here.
 
 import { S, BPR } from '../state';
-import { getByte, integrityHighlightClass } from './memoryData';
+import { getByte } from './memoryData';
+import { integrityHighlightClass } from './integrityHighlight';
 import { currentSelectionRange } from './selection';
 import { esc, byteClass, lowerBound } from '../utils';
 import {
@@ -21,14 +22,16 @@ import {
 } from '../render/virtualScroll';
 import {
     HexView,
+    type HexViewCallbacks,
+} from '../components/HexView/HexView';
+import {
     renderHexViewHeader,
     renderHexViewHtml,
-    type HexViewCallbacks,
     type HexViewCell,
     type HexViewRange,
     type HexViewRenderInput,
     type HexViewRow,
-} from '../components/HexView/HexView';
+} from '../components/HexView/HexViewRender';
 import type { MemRow, SegmentLabel } from '../../core/types';
 
 const VIRTUAL_SCROLL_CONFIG = {

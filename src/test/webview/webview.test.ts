@@ -4,7 +4,8 @@ import './css-import-hook';
 
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
-import { initFlatBytes, buildMemRows, getByte, integrityHighlightClass } from '../../webview/memory/memoryData';
+import { initFlatBytes, buildMemRows, getByte } from '../../webview/memory/memoryData';
+import { integrityHighlightClass } from '../../webview/memory/integrityHighlight';
 import { memRerender, mountHexView, scrollTo } from '../../webview/memory/memoryGrid';
 import { rerender } from '../../webview/render/registry';
 import {

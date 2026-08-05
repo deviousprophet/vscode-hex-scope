@@ -19,7 +19,7 @@ import {
 } from './memory/memoryGrid';
 import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
-import type { HexViewRange } from './components/HexView/HexView';
+import type { HexViewRange } from './components/HexView/HexViewRender';
 import { renderSegments, renderLabels, renderInspectorSections, updateInspector,
     updateLabelFormSel } from './sidebar/sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
