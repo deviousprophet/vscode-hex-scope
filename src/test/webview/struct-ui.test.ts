@@ -1010,6 +1010,7 @@ suite('struct UI array header summary', () => {
         binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
         assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'BE binary should display the same numeric value bits for the same decoded value');
+        S.endian = 'le';
     });
 
     test('renders typed pointer value and disables follow for unmapped target', async () => {

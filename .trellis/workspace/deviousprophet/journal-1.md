@@ -200,3 +200,24 @@ Planned (B rework scope, A direct+submenus layout, system-endian Go address 4B/v
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: Sidebar task — verify shell + fix endian-wipe known bug (#151)
+
+**Date**: 2026-08-05
+**Task**: Extract Sidebar into self-contained component + known-bug takeover
+**Branch**: `feat/webview-sidebar-component`
+
+### Summary
+
+Started sidebar task (`task.py start`), took over known-bug meta from inspector child (endian toggle wipes inspector data), verified committed shell (2aa9217) — lint/check-types/266 webview tests/`npm test` green, gates pass. Closed a CSS gap: shared collapsible-section pattern (`.sb-section`/`.sb-hdr`/`.sb-body` + `::before` triangle + `.collapsed`) split between `Sidebar.css` and `styles/sidebar.css` — deduped into `Sidebar.css`. Fixed known bug via diagnose-bugs loop: `setFileEndian` called shell-rebuild `renderInspector()` instead of data-path `updateInspector()` (wiped `#insp-vals` to placeholder); regression test first (red on live-DOM wipe), one-line fix, green. Also fixed pre-existing cross-file test-state leaks found while verifying the batch: `webview-message-model.test.ts` leaked `S.endian='be'` + `S.lockedDueToExternalChange=true` (added `teardown(resetState)` + endian reset); `struct-ui.test.ts` scalar-endian test now restores `S.endian='le'`; `webview.test.ts` resetState resets `S.endian`. Added `component-sidebar.md` spec + index row. Fallow not installed — skipped.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (pending) | (see git log) |
+
+### Status
+
+[WIP] **In progress — ready for commit + review**

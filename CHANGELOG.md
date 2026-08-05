@@ -15,6 +15,7 @@
 
 - Fixed end-of-scroll shaking when scrolling to the bottom of large (virtualized) files in memory and record views
 - Fixed the Edit button remaining visible after entering edit mode, showing alongside the EDITING controls
+- Fixed toggling byte order clearing the Inspector's decoded value for the current selection
 
 ## [2.17.1] - 2026-08-01
 

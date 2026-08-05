@@ -3,7 +3,7 @@
   "name": "webview-sidebar-component",
   "title": "Extract Sidebar into self-contained component",
   "description": "Parent of per-panel Sidebar children (#151). Sidebar shell: tabs, resizer, common settings, panel slots.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -12,11 +12,11 @@
   "assignee": "deviousprophet",
   "createdAt": "2026-08-04",
   "completedAt": null,
-  "branch": null,
+  "branch": "feat/webview-sidebar-component",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "dd2d14e",
+  "pr_url": "https://github.com/deviousprophet/vscode-hex-scope/pull/160",
   "subtasks": [],
   "children": [
     "08-04-webview-struct-panel-component",
@@ -27,5 +27,7 @@
   "parent": "08-03-webview-component-refactor",
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "known-bug": "FIXED dd2d14e: Endian toggle no longer wipes inspector data. setFileEndian now calls data-path updateInspector() (re-decodes selection) instead of shell-rebuild renderInspector(). Regression test in webview.test.ts."
+  }
 }

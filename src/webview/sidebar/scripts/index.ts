@@ -33,8 +33,7 @@ export function updateScriptOutput(scriptPath: string, text: string): void {
     appendOutput(text);
 }
 
-export function renderScripts(): void {
-    const sec = document.getElementById('s-scripts');
+export function renderScripts(sec: HTMLElement | null = document.getElementById('s-scripts')): void {
     if (!sec) { return; }
     sec.innerHTML = `
         <div class="sb-hdr script-toolbar">

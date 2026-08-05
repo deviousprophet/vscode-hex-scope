@@ -20,8 +20,8 @@ import {
 import { getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/HexView/HexView';
-import { renderInspector, renderBits, renderSegments, renderLabels, updateInspector, updateLabelFormSel } from './sidebar/sidebar';
-import { setupSidebarResize } from './sidebar/sidebarResize';
+import { renderSegments, renderLabels, renderInspectorSections, updateInspector,
+    updateLabelFormSel } from './sidebar/sidebar';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/SearchBar/SearchBar';
@@ -74,6 +74,7 @@ import {
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { formatCopyCommand } from '../core/byte-tools/copy';
 import { ContextMenu, type ContextMenuState } from './components/ContextMenu/ContextMenu';
+import { Sidebar, type SidebarPanel } from './components/Sidebar/Sidebar';
 
 // ── Record view component ────────────────────────────────────────
 // Component owns table markup, format-specific row formatting, scroll
@@ -94,6 +95,25 @@ const recordRowHeightGetter = (): number => recordRowHeight;
 const recordView = new RecordView('#record-view', {
     onScrollTop: refreshRecordSlice,
     onNeedPage: (first, last) => requestRecordWindow(first, last, recordCountOfCurrentParse()),
+});
+
+// ── Sidebar component ────────────────────────────────────────────
+// Generic config-driven tabbed shell. The host wires panel descriptors
+// (wrapping existing render fns; each mounts lazily on first activation)
+// and the header slot (endian toggle). Per-tab activation side effects
+// run host-side in onSidebarTabChange; shell never imports panel modules.
+
+const sidebarPanels: SidebarPanel[] = [
+    { id: 'inspector', label: 'Inspector', mount: root => renderInspectorSections(root) },
+    { id: 'struct', label: 'Struct', mount: root => { root.innerHTML = '<div id="s-struct-pins"></div>'; renderStructPins(); } },
+    { id: 'integrity', label: 'Integrity', mount: root => { root.innerHTML = '<div id="s-integrity"></div>'; renderIntegrity(); } },
+    { id: 'scripts', label: 'Scripts', mount: root => { root.innerHTML = '<div id="s-scripts"></div>'; renderScripts(); } },
+];
+
+const sidebar = new Sidebar({
+    panels: sidebarPanels,
+    headerSlot: renderEndianToggle,
+    cb: { onTabChange: onSidebarTabChange, onPanelActivate: mountSidebarPanel },
 });
 
 export function resetRecordPages(generation: number): void {
@@ -645,7 +665,7 @@ function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): v
 
 function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScriptsTab'>): void {
     S.sidebarTab = 'scripts';
-    applySidebarState();
+    syncSidebarTab();
     activateScripts();
 }
 
@@ -766,14 +786,6 @@ function visibleClass(isVisible: boolean): string {
     return isVisible ? 'visible' : '';
 }
 
-function tabPanelClass(tab: SidebarTab): string {
-    return S.sidebarTab === tab ? 'sb-tab-panel active' : 'sb-tab-panel';
-}
-
-function sideTabClass(tab: SidebarTab): string {
-    return S.sidebarTab === tab ? 'stab active' : 'stab';
-}
-
 // ── Lock click interception ──────────────────────────────────────
 
 function preventClickWhenLocked(e: Event): void {
@@ -798,37 +810,7 @@ function render(): void {
                 </div>
                 <div id="record-view" class="${visibleClass(S.currentView === 'record')}"></div>
             </div>
-            <div id="sidebar-resizer" aria-label="Resize sidebar" title="Drag to resize sidebar"></div>
-            <div id="sidebar">
-                <div id="sidebar-common-settings">
-                    <span>Byte order</span>
-                    <div class="compact-tabs sidebar-endian-tabs">
-                        <button id="sidebar-btn-le" class="${activeClass(S.endian === 'le')}" type="button">LE</button>
-                        <button id="sidebar-btn-be" class="${activeClass(S.endian === 'be')}" type="button">BE</button>
-                    </div>
-                </div>
-                <div class="${tabPanelClass('inspector')}" id="sbp-insp">
-                    <div class="sb-section" id="s-insp"></div>
-                    <div class="sb-section" id="s-bits"></div>
-                    <div class="sb-section" id="s-segments"></div>
-                    <div class="sb-section" id="s-labels"></div>
-                </div>
-                <div class="${tabPanelClass('struct')}" id="sbp-struct">
-                    <div id="s-struct-pins"></div>
-                </div>
-                <div class="${tabPanelClass('integrity')}" id="sbp-integrity">
-                    <div id="s-integrity"></div>
-                </div>
-                <div class="${tabPanelClass('scripts')}" id="sbp-scripts">
-                    <div id="s-scripts"></div>
-                </div>
-            </div>
-            <div id="side-tabs">
-                <button class="${sideTabClass('inspector')}" id="stab-insp">Inspector</button>
-                <button class="${sideTabClass('struct')}" id="stab-struct">Struct</button>
-                <button class="${sideTabClass('integrity')}" id="stab-integrity">Integrity</button>
-                <button class="${sideTabClass('scripts')}" id="stab-scripts">Scripts</button>
-            </div>
+            ${sidebar.toHtml()}
         </div>
         <div id="ctx-menu" style="display:none"></div>`;
 
@@ -838,8 +820,8 @@ function render(): void {
 
 function setupRenderedUi(): void {
     setupLockInterception();
-    setupSidebarResize();
-    setupEndianControl();
+    sidebar.mount();
+    syncSidebarTab();
     searchBar.mount();
     toolbar.mount();
     recordView.mount();
@@ -860,24 +842,30 @@ function setupRenderedUi(): void {
         onSelectionChange: onHexViewSelectionChange,
         onCopy: doCopySelection,
     });
-    setupSideTabs();
     renderInitialViews();
     document.addEventListener('keydown', onEditKeydown, { capture: true });
     document.addEventListener('keydown', onCopyPasteKeydown);
 }
 
-function setupEndianControl(): void {
-    document.getElementById('sidebar-btn-le')?.addEventListener('click', () => setFileEndian('le'));
-    document.getElementById('sidebar-btn-be')?.addEventListener('click', () => setFileEndian('be'));
+/** Header-slot render: feature-specific endian toggle inside #sidebar-common-settings. */
+function renderEndianToggle(root: HTMLElement): void {
+    root.innerHTML = `
+        <span>Byte order</span>
+        <div class="compact-tabs sidebar-endian-tabs">
+            <button id="sidebar-btn-le" class="${activeClass(S.endian === 'le')}" type="button">LE</button>
+            <button id="sidebar-btn-be" class="${activeClass(S.endian === 'be')}" type="button">BE</button>
+        </div>`;
+    root.querySelector('#sidebar-btn-le')?.addEventListener('click', () => setFileEndian('le'));
+    root.querySelector('#sidebar-btn-be')?.addEventListener('click', () => setFileEndian('be'));
 }
 
 function setFileEndian(endian: 'le' | 'be'): void {
     if (S.endian === endian) { return; }
     S.endian = endian;
-    document.getElementById('sidebar-btn-le')?.classList.toggle('active', endian === 'le');
-    document.getElementById('sidebar-btn-be')?.classList.toggle('active', endian === 'be');
+    const settings = document.getElementById('sidebar-common-settings');
+    if (settings) { renderEndianToggle(settings); }
     postProviderMessage({ type: 'saveEndian', endian });
-    renderInspector();
+    updateInspector();
     renderStructPins();
     notifyIntegrityEndianChanged();
 }
@@ -907,49 +895,40 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
     applyExternalChangeAndUnlock(incoming);
 }
 
-function setupSideTabs(): void {
-    document.getElementById('stab-insp')!.addEventListener('click', () => {
-        resetStructViewState();
-        S.sidebarTab = 'inspector';
-        applySidebarState();
-    });
-    document.getElementById('stab-struct')!.addEventListener('click', () => {
-        renderLabels();
-        S.sidebarTab = 'struct';
-        applySidebarState();
-    });
-    document.getElementById('stab-integrity')!.addEventListener('click', () => {
-        S.sidebarTab = 'integrity';
-        applySidebarState();
-        activateIntegrity();
-    });
-    document.getElementById('stab-scripts')!.addEventListener('click', () => {
-        S.sidebarTab = 'scripts';
-        applySidebarState();
-        activateScripts();
-    });
+/** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
+const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
+    inspector: resetStructViewState,
+    struct: renderLabels,
+    integrity: activateIntegrity,
+    scripts: activateScripts,
+};
+
+function onSidebarTabChange(tab: SidebarTab): void {
+    S.sidebarTab = tab;
+    sidebar.setTab(tab);
+    SIDEBAR_TAB_EFFECTS[tab]();
 }
 
-function applySidebarState(): void {
-    document.getElementById('sbp-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
-    document.getElementById('sbp-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
-    document.getElementById('sbp-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
-    document.getElementById('sbp-scripts')!.classList.toggle('active', S.sidebarTab === 'scripts');
-    document.getElementById('stab-insp')!.classList.toggle('active', S.sidebarTab === 'inspector');
-    document.getElementById('stab-struct')!.classList.toggle('active', S.sidebarTab === 'struct');
-    document.getElementById('stab-integrity')!.classList.toggle('active', S.sidebarTab === 'integrity');
-    document.getElementById('stab-scripts')!.classList.toggle('active', S.sidebarTab === 'scripts');
+/** Lazy-mounts the panel content into its slot root, once per rendered shell. */
+function mountSidebarPanel(tab: SidebarTab): void {
+    const panel = sidebarPanels.find(p => p.id === tab);
+    if (!panel) { return; }
+    const root = document.getElementById(`sbp-${tab}`);
+    // Behavior-preserving: tab switching toggles visibility only (matches
+    // pre-refactor applySidebarState). A panel's content is built once so
+    // collapse state / script output survive switching away and back.
+    if (!root || root.hasChildNodes()) { return; }
+    panel.mount(root);
+}
+
+/** After a full render: sync component active tab to host truth + mount active panel. */
+function syncSidebarTab(): void {
+    sidebar.setTab(S.sidebarTab);
+    mountSidebarPanel(S.sidebarTab);
 }
 
 function renderInitialViews(): void {
     renderStatsBar();
-    renderInspector();
-    renderBits();
-    renderStructPins();
-    renderIntegrity();
-    renderScripts();
-    renderSegments();
-    renderLabels();
     renderCurrentDataView();
 }
 

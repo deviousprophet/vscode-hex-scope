@@ -1122,8 +1122,8 @@ function clearDraftBitFields(draft: StructDef, row: HTMLElement): void {
 }
 
 // ── Main render function ───────────────────────────────────────────
-export function renderStructPins(): void {
-    const sec = document.getElementById('s-struct-pins');
+export function renderStructPins(root: HTMLElement | null = document.getElementById('s-struct-pins')): void {
+    const sec = root;
     if (!sec) { return; }
 
     const all = allStructs(S.structs);

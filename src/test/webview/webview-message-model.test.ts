@@ -18,6 +18,7 @@ function resetState(): void {
     S.structs = [];
     S.structPins = [];
     S.lockedDueToExternalChange = false;
+    S.endian = 'le';
 }
 
 suite('webview message dispatcher', () => {
@@ -48,6 +49,7 @@ suite('webview message dispatcher', () => {
 
 suite('applyProviderMessageToModel()', () => {
     setup(resetState);
+    teardown(resetState);
 
     test('init loads parse state and requests a full render', () => {
         const parseResult = parseResultForTest({
