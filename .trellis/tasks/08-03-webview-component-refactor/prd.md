@@ -30,20 +30,20 @@ src/
 |---|---|---|
 | SearchBar | done (merged #152) | archived `08-03-webview-searchbar-component` |
 | HexView grid | done (merged #153) | archived `08-03-webview-hexview-component` |
-| Toolbar | done (PR pending) | archived `08-04-webview-toolbar-component` |
-| ContextMenu | pending | `08-04-webview-context-menu-component` |
-| RecordView | pending | `08-04-webview-recordview-component` |
-| External-change banners | pending | `08-04-webview-external-change-component` |
-| Sidebar (parent) | pending | `08-04-webview-sidebar-component` |
-| ├─ Inspector panel | pending | `08-04-webview-inspector-panel-component` |
-| ├─ Struct panel | pending | `08-04-webview-struct-panel-component` |
-| ├─ Integrity panel | pending | `08-04-webview-integrity-panel-component` |
-| └─ Scripts panel | pending | `08-04-webview-scripts-panel-component` |
+| Toolbar | done (merged #154) | archived `08-04-webview-toolbar-component` |
+| External-change banners | done (merged #155) | archived `08-04-webview-external-change-component` |
+| RecordView | done (merged #156) | archived `08-04-webview-recordview-component` |
+| ContextMenu | done (merged #157) | archived `08-04-webview-context-menu-component` |
+| Sidebar (shell) | done (merged #160) | archived `08-04-webview-sidebar-component` |
+| ├─ Inspector panel | planning (next) | `08-04-webview-inspector-panel-component` |
+| ├─ Struct panel | planning | `08-04-webview-struct-panel-component` |
+| ├─ Integrity panel | planning | `08-04-webview-integrity-panel-component` |
+| └─ Scripts panel | planning | `08-04-webview-scripts-panel-component` |
 
-Execution order (adopted from architecture review): Toolbar + ContextMenu first (small, clean seams), then RecordView (mirrors the established HexView deep-module pattern), then Sidebar as a parent task decomposed into per-panel children. SearchBar/HexView done; remaining components are separate child tasks; the established pattern is documented in `.trellis/spec/frontend/components/component-template.md` + per-component code-specs.
+Execution order (adopted from architecture review): Toolbar + ContextMenu first (small, clean seams), then RecordView (mirrors the established HexView deep-module pattern), then Sidebar as a parent task decomposed into per-panel children. SearchBar/HexView/Toolbar/ExternalChange/RecordView/ContextMenu/Sidebar done; the four sidebar panels remain as separate child tasks. The established pattern is documented in `.trellis/spec/frontend/components/component-template.md` + per-component code-specs.
 
 ## Known issues to fix during component splits
-- Inspector panel: endian toggle wipes inspector data (`setFileEndian` calls shell-rebuild `renderInspector()` instead of data-path `updateInspector()`). Tracked on `08-04-webview-inspector-panel-component` (meta `known-bug`).
+- ~~Inspector panel: endian toggle wipes inspector data~~ — FIXED in `08-04-webview-sidebar-component` (#160): `setFileEndian` now calls data-path `updateInspector()`; regression test added. The Inspector child task re-verifies via its own component tests.
 
 ## Parent responsibilities
 - Owns the issue #151 requirement set and cross-component acceptance criteria (above).

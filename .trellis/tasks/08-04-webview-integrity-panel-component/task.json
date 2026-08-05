@@ -19,7 +19,7 @@
   "pr_url": null,
   "subtasks": [],
   "children": [],
-  "parent": null,
+  "parent": "08-03-webview-component-refactor",
   "relatedFiles": [],
   "notes": "",
   "meta": {}
