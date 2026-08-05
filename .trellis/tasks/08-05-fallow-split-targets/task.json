@@ -15,14 +15,12 @@
   "branch": "refactor/fallow-split-targets",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "bf81a07",
+  "pr_url": "https://github.com/deviousprophet/vscode-hex-scope/pull/161",
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {
-    "known": ""
-  }
+  "meta": {}
 }
