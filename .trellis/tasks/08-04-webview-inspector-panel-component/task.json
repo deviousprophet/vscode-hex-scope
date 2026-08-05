@@ -2,8 +2,8 @@
   "id": "webview-inspector-panel-component",
   "name": "webview-inspector-panel-component",
   "title": "Extract Inspector panel into self-contained component",
-  "description": "Child of sidebar parent. Inspector: labels, segments, byte order, bits.",
-  "status": "planning",
+  "description": "Child of 08-03 refactor. Inspector panel: labels, segments, byte order, bits.",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -12,17 +12,17 @@
   "assignee": "deviousprophet",
   "createdAt": "2026-08-04",
   "completedAt": null,
-  "branch": null,
+  "branch": "feat/webview-inspector-component",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "37f5d1d",
+  "pr_url": "https://github.com/deviousprophet/vscode-hex-scope/pull/163",
   "subtasks": [],
   "children": [],
-  "parent": null,
+  "parent": "08-03-webview-component-refactor",
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "known-bug": "Moved to parent 08-04-webview-sidebar-component (endian toggle lives in sidebar header slot)."
+    "known-bug": "Endian-wipe known-bug FIXED in parent sidebar task (#160); Inspector child re-verifies via its component tests."
   }
 }

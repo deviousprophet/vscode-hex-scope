@@ -73,6 +73,7 @@ function cleanupWebviewDom(dom: JSDOM): void {
     resetState();
     rerender.memory = () => {};
     rerender.labels = () => {};
+    rerender.inspector = () => {};
     rerender.toMemory = () => {};
     rerender.jumpTo = () => {};
     dom.window.close();
@@ -494,7 +495,7 @@ suite('Parsed Segment Navigator', () => {
 
     setup(() => {
         resetState();
-        dom = installWebviewDom('<!doctype html><html><body><div class="sb-section" id="s-segments"></div></body></html>');
+        dom = installWebviewDom('<!doctype html><html><body><div id="host"></div></body></html>');
         originalJumpTo = rerender.jumpTo;
     });
 
@@ -502,6 +503,18 @@ suite('Parsed Segment Navigator', () => {
         rerender.jumpTo = originalJumpTo;
         cleanupWebviewDom(dom);
     });
+
+    async function mountInspector(): Promise<{ setSegments: (s: import('../../core/types').SerializedSegment[]) => void }> {
+        const { Inspector } = await import('../../webview/components/Inspector/Inspector.js');
+        const inspector = new Inspector({
+            readByte: getByte,
+            onJumpTo: address => rerender.jumpTo(address),
+        });
+        inspector.mount(document.getElementById('host')!);
+        return {
+            setSegments: segments => inspector.setSegments(segments),
+        };
+    }
 
     test('sorts segments, renders inclusive ranges and size, and jumps to start', async () => {
         S.parseResult = {
@@ -518,8 +531,8 @@ suite('Parsed Segment Navigator', () => {
         let jumpedTo: number | null = null;
         rerender.jumpTo = address => { jumpedTo = address; };
 
-        const { renderSegments } = await import('../../webview/sidebar/sidebar.js');
-        renderSegments();
+        const { setSegments } = await mountInspector();
+        setSegments(S.parseResult?.segments ?? []);
 
         const items = document.querySelectorAll<HTMLElement>('.segment-item');
         assert.strictEqual(items.length, 2);
@@ -533,8 +546,8 @@ suite('Parsed Segment Navigator', () => {
     });
 
     test('renders empty state and preserves collapsed state', async () => {
-        const { renderSegments } = await import('../../webview/sidebar/sidebar.js');
-        renderSegments();
+        const { setSegments } = await mountInspector();
+        setSegments([]);
 
         const section = document.getElementById('s-segments')!;
         assert.strictEqual(section.dataset.collapsed, 'false');
@@ -543,7 +556,7 @@ suite('Parsed Segment Navigator', () => {
 
         section.querySelector<HTMLElement>('.sb-hdr')!.click();
         assert.strictEqual(section.dataset.collapsed, 'true');
-        renderSegments();
+        setSegments([]);
         assert.strictEqual(section.dataset.collapsed, 'true');
         assert.ok(section.classList.contains('collapsed'));
     });
@@ -612,8 +625,7 @@ suite('Record View rendering', () => {
             // Select the first two segment bytes and render inspector data before the toggle.
             S.selStart = 0x08000000;
             S.selEnd = 0x08000001;
-            const { updateInspector } = await import('../../webview/sidebar/sidebar.js');
-            updateInspector();
+            rerender.inspector();
             assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
                 'inspector shows selected byte data before toggle');
             assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x0201'),

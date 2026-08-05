@@ -1,5 +1,6 @@
 // Search UI glue
 import { S } from '../state';
+import { rerender } from '../render/registry';
 import { paintMemoryMatchHighlights, paintMemorySelection, scrollTo } from '../memory/memoryGrid';
 import { SearchEngine, buildNeedles } from '../../core/search';
 import type { SearchEndianness, SearchMode } from '../../core/types';
@@ -253,7 +254,7 @@ function selectCurrentMatch(): void {
     S.selStart = start;
     S.selEnd = end;
     paintMemorySelection();
-    import('../sidebar/sidebar.js').then(m => m.updateInspector());
+    rerender.inspector();
 }
 
 function hasCurrentMatch(): boolean {

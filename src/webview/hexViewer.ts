@@ -17,11 +17,10 @@ import {
     scrollTo,
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
-import { getByte } from './memory/memoryData';
+import { buildMemRows, getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/HexView/HexViewRender';
-import { renderSegments, renderLabels, renderInspectorSections, updateInspector,
-    updateLabelFormSel } from './sidebar/sidebar';
+import { Inspector } from './components/Inspector/Inspector';
 import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/SearchBar/SearchBar';
@@ -103,8 +102,37 @@ const recordView = new RecordView('#record-view', {
 // and the header slot (endian toggle). Per-tab activation side effects
 // run host-side in onSidebarTabChange; shell never imports panel modules.
 
+// ── Inspector component ───────────────────────────────────────────
+// Self-contained Inspector panel (labels/segments/bits/byte order).
+// The host pushes data via setters; the panel reports actions via
+// callbacks (jump, label changes, copy).
+
+const inspector = new Inspector({
+    readByte: getByte,
+    onJumpTo: address => rerender.jumpTo(address),
+    onLabelsChange: applyInspectorLabels,
+    onCopy: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
+});
+
+/** Persist label mutations from the Inspector component and invalidate. */
+function applyInspectorLabels(labels: typeof S.labels): void {
+    S.labels = labels;
+    postProviderMessage({ type: 'saveLabels', labels });
+    buildMemRows();
+    rerender.labels();
+    if (S.currentView === 'memory') { rerender.memory(); }
+}
+
+/** Push the full Inspector data snapshot after a mount/full render. */
+function pushInspectorState(): void {
+    inspector.setEndian(S.endian);
+    inspector.setSegments(S.parseResult?.segments ?? []);
+    inspector.setLabels(S.labels);
+    inspector.setSelection(S.selStart, S.selEnd);
+}
+
 const sidebarPanels: SidebarPanel[] = [
-    { id: 'inspector', label: 'Inspector', mount: root => renderInspectorSections(root) },
+    { id: 'inspector', label: 'Inspector', mount: root => inspector.mount(root) },
     { id: 'struct', label: 'Struct', mount: root => { root.innerHTML = '<div id="s-struct-pins"></div>'; renderStructPins(); } },
     { id: 'integrity', label: 'Integrity', mount: root => { root.innerHTML = '<div id="s-integrity"></div>'; renderIntegrity(); } },
     { id: 'scripts', label: 'Scripts', mount: root => { root.innerHTML = '<div id="s-scripts"></div>'; renderScripts(); } },
@@ -352,7 +380,7 @@ function cancelEdits(): void {
     toolbar.setEditMode(false);
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    updateInspector();
+    inspector.setSelection(S.selStart, S.selEnd);
 }
 
 function clearNibbleBuffer(): void {
@@ -372,7 +400,7 @@ function applyTypedEdit(addr: number, value: number): void {
     toolbar.setDirty(S.edits.size);
     toolbar.setEditMode(S.editMode);
     memRerender();
-    updateInspector();
+    inspector.setSelection(S.selStart, S.selEnd);
     renderStructPins();
     notifyIntegrityBytesChanged();
 }
@@ -393,7 +421,7 @@ function handleEditEscape(): void {
     S.selStart = null;
     S.selEnd = null;
     paintMemorySelection();
-    updateInspector();
+    inspector.setSelection(S.selStart, S.selEnd);
 }
 
 function handleEditBufferChar(selStart: number, char: string): void {
@@ -491,7 +519,7 @@ function applyPasteBytes(range: { start: number; end: number }, clipText: string
         toolbar.setDirty(S.edits.size);
         toolbar.setEditMode(S.editMode);
         memRerender();
-        updateInspector();
+        inspector.setSelection(S.selStart, S.selEnd);
         renderStructPins();
         notifyIntegrityBytesChanged();
     }
@@ -755,7 +783,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['editControls', () => toolbar.setEditMode(S.editMode)],
         ['dirtyBar', () => toolbar.setDirty(S.edits.size)],
         ['stats', renderStatsBar],
-        ['segments', renderSegments],
+        ['segments', () => inspector.setSegments(S.parseResult?.segments ?? [])],
         ['structPins', renderStructPins],
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', notifyIntegrityBytesChanged],
@@ -865,7 +893,7 @@ function setFileEndian(endian: 'le' | 'be'): void {
     const settings = document.getElementById('sidebar-common-settings');
     if (settings) { renderEndianToggle(settings); }
     postProviderMessage({ type: 'saveEndian', endian });
-    updateInspector();
+    inspector.setEndian(S.endian);
     renderStructPins();
     notifyIntegrityEndianChanged();
 }
@@ -883,7 +911,8 @@ function setupLockInterception(): void {
 
 function setupRerenderCallbacks(): void {
     rerender.memory   = () => memRerender();
-    rerender.labels   = () => renderLabels();
+    rerender.labels   = () => inspector.setLabels(S.labels);
+    rerender.inspector = () => inspector.setSelection(S.selStart, S.selEnd);
     rerender.toMemory = () => switchView('memory');
     rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
 }
@@ -898,7 +927,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: resetStructViewState,
-    struct: renderLabels,
+    struct: () => inspector.setLabels(S.labels),
     integrity: activateIntegrity,
     scripts: activateScripts,
 };
@@ -928,6 +957,7 @@ function syncSidebarTab(): void {
 }
 
 function renderInitialViews(): void {
+    pushInspectorState();
     renderStatsBar();
     renderCurrentDataView();
 }
@@ -954,8 +984,8 @@ function updateByteSelection(start: number, end: number): void {
     S.selStart = start;
     S.selEnd   = end;
     paintMemorySelection();
-    updateInspector();
-    updateLabelFormSel();
+    inspector.setSelection(S.selStart, S.selEnd);
+    inspector.syncLabelForm();
     onSelectionChangeForStruct();
 }
 
@@ -983,8 +1013,8 @@ function onHexViewSelectionChange(range: HexViewRange): void {
     S.selStart = range.start;
     S.selEnd = range.end;
     paintMemorySelection();
-    updateInspector();
-    updateLabelFormSel();
+    inspector.setSelection(S.selStart, S.selEnd);
+    inspector.syncLabelForm();
 }
 
 function selLen(): number {
@@ -1042,7 +1072,7 @@ function refreshAfterIntegrityEdits(): void {
     toolbar.setEditMode(S.editMode);
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    updateInspector();
+    inspector.setSelection(S.selStart, S.selEnd);
     renderStructPins();
     notifyIntegrityBytesChanged();
 }
@@ -1053,7 +1083,7 @@ function applyFill(fillVal: number): void {
     fillSelectionTransaction(currentSelectionRange(), fillVal);
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    updateInspector();
+    inspector.setSelection(S.selStart, S.selEnd);
     renderStructPins();
     notifyIntegrityBytesChanged();
 }
@@ -1063,7 +1093,7 @@ function undoLastEdit(): void {
     if (!undoLastEditTransaction()) { return; }
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    updateInspector();
+    inspector.setSelection(S.selStart, S.selEnd);
     renderStructPins();
     notifyIntegrityBytesChanged();
 }

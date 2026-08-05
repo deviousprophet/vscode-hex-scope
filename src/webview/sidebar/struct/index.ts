@@ -3517,7 +3517,7 @@ function wireInstanceCards(sec: HTMLElement): void {
             sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
             card.classList.add('si-card-selected');
             rerender.jumpTo(pin.addr);
-            import('../sidebar.js').then(m => m.updateInspector());
+            rerender.inspector();
         });
     });
 
@@ -3997,7 +3997,7 @@ function selectStructFieldRow(row: HTMLElement, start: number, cnt: number): voi
     _selectedArrKey = null;
     _selectedArrElemKey = null;
     rerender.jumpTo(start);
-    import('../sidebar.js').then(m => m.updateInspector());
+    rerender.inspector();
     renderStructPins();
 }
 
@@ -4521,7 +4521,7 @@ function selectPointerTarget(addr: number, byteCount: number): void {
     S.selStart = addr;
     S.selEnd = addr + Math.max(1, byteCount) - 1;
     rerender.jumpTo(addr);
-    import('../sidebar.js').then(m => m.updateInspector());
+    rerender.inspector();
 }
 
 function showScalarFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
@@ -4727,7 +4727,7 @@ function selectStructRange(el: HTMLElement, start: number, count: number): void 
     S.selEnd = start + count - 1;
     el.classList.add('si-selected');
     rerender.jumpTo(start);
-    import('../sidebar.js').then(m => m.updateInspector());
+    rerender.inspector();
 }
 
 function fallbackCopyText(text: string): void {
