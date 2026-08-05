@@ -15,8 +15,8 @@
   "branch": "feat/webview-sidebar-component",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "dd2d14e",
+  "pr_url": "https://github.com/deviousprophet/vscode-hex-scope/pull/160",
   "subtasks": [],
   "children": [
     "08-04-webview-struct-panel-component",
@@ -28,6 +28,6 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "known-bug": "Endian toggle wipes inspector data: hexViewer.ts setFileEndian calls renderInspector() (shell rebuild -> 'Click a byte to inspect' placeholder) not updateInspector() (reads selection). Fix in Sidebar host wiring: endian-change handler must call data-path updateInspector(). Only Inspector affected (struct/integrity use data-path already)."
+    "known-bug": "FIXED dd2d14e: Endian toggle no longer wipes inspector data. setFileEndian now calls data-path updateInspector() (re-decodes selection) instead of shell-rebuild renderInspector(). Regression test in webview.test.ts."
   }
 }
