@@ -1,8 +1,9 @@
 // ── HexView component ────────────────────────────────────────────
-// Self-contained presentational hex grid: owns the grid markup
-// (renderHexViewHeader / renderHexViewHtml), transient pointer
+// Self-contained presentational hex grid: owns the transient pointer
 // interaction (hover, column hover, drag-selection reporting,
-// click/context/copy reporting), and styles (HexView.css).
+// click/context/copy reporting) and styles (HexView.css). The grid
+// markup is built by the pure render layer in HexViewRender.ts; DOM
+// paint/match utilities live in HexViewPaint.ts.
 // The host owns all data and state: it builds the row model and the
 // paint inputs, applies selection/matches/edits, and runs search,
 // copy, and context-menu logic. This module never imports the `S`

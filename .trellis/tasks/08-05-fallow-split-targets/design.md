@@ -44,10 +44,10 @@ src/webview/components/HexView/HexViewPaint.ts       DOM paint/match utilities (
 
 ## Tests
 
-Existing coverage is the parity gate:
-- `src/test/webview/components/hex-view.test.ts` (imports from `HexView`) — must pass unchanged.
-- `src/test/webview/components/search-bar.test.ts` (imports `searchKeyFor` from `SearchBar`) — must pass unchanged.
-- `src/test/webview/webview.test.ts` (`integrityHighlightClass` from new module) — updated import only.
+Existing coverage is the parity gate; import paths change to the owning module, assertions stay identical:
+- `src/test/webview/components/hex-view.test.ts` — class/callbacks from `HexView`, render fns/types from `HexViewRender`; assertions unchanged.
+- `src/test/webview/components/search-bar.test.ts` — class from `SearchBar`, `searchKeyFor` from `searchBarRender`; assertions unchanged.
+- `src/test/webview/webview.test.ts` — `integrityHighlightClass` from `memory/integrityHighlight`; assertions unchanged.
 - No new behavior; no new tests required beyond running the full suite.
 
 ## Rollback

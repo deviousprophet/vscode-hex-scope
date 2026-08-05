@@ -19,14 +19,15 @@ Split each into two cohesive modules. Public exported surface must stay availabl
 - Importers of `integrityHighlightClass` (`memoryGrid.ts`, `webview.test.ts`) switch to the new module.
 
 ### 2. SearchBar
-- `src/webview/components/SearchBar/SearchBar.ts` keeps the `SearchBar` class.
-- New `src/webview/components/SearchBar/searchBarRender.ts` owns the pure helpers: `MODE_LABELS`, `PLACEHOLDERS`, `searchKeyFor`, `activeClass`, `modeOptions`.
-- `SearchBar.ts` re-exports `searchKeyFor` (callers `searchEngine.ts`, `search-bar.test.ts` import from `SearchBar`).
+- `src/webview/components/SearchBar/SearchBar.ts` keeps the `SearchBar` class + `SearchBarCallbacks` + `SearchBarSeedOptions`.
+- New `src/webview/components/SearchBar/searchBarRender.ts` owns the pure helpers: `MODE_LABELS`, `PLACEHOLDERS`, `searchKeyFor`, `SearchTrigger`, `activeClass`, `modeOptions`.
+- No re-export barrel: `searchEngine.ts` / `search-bar.test.ts` import `searchKeyFor`/`SearchTrigger` from `searchBarRender` (keeps `SearchBar.ts` fan-in to its class consumers).
 
 ### 3. HexView
-- `src/webview/components/HexView/HexView.ts` keeps the `HexView` class + interaction helpers + `HexViewCallbacks`.
-- New `src/webview/components/HexView/HexViewRender.ts` owns the pure DOM-free render layer: `BYTES_PER_ROW`, `EMPTY_ROWS_HTML`, types (`HexViewCell`, `HexViewBanner`, `HexViewRow`, `HexViewRange`, `HexViewRenderInput`), `renderHexViewHeader`, `renderHexViewHtml`, and row/cell render helpers (`buildRowParts`, `appendSpacer`, `appendHexViewRow`, `renderGapRow`, `renderBanner`, `renderDataRow`, `renderHexCell`, `renderCharCell`, `compositedClasses`, `isMatchAddress`, `isActiveMatchAddress`, `inRange`, `addrHex`).
-- `HexView.ts` re-exports the render types + functions so existing importers (`memoryGrid.ts`, `hex-view.test.ts`) keep working.
+- `src/webview/components/HexView/HexView.ts` keeps the `HexView` class + `HexViewCallbacks` + interaction helpers.
+- New `src/webview/components/HexView/HexViewRender.ts` owns the pure DOM-free render layer: `BYTES_PER_ROW`, `EMPTY_ROWS_HTML`, types (`HexViewCell`, `HexViewBanner`, `HexViewRow`, `HexViewRange`, `HexViewRenderInput`), `renderHexViewHeader`, `renderHexViewHtml`, and row/cell render helpers.
+- New `src/webview/components/HexView/HexViewPaint.ts` owns the DOM paint/match utilities (`cellAddress`, `selectedColumns`, `buildCellAddressIndex`, `highlightVisibleMatches`, `highlightMatchRange`, `highlightMatchCells`, `paintMatchesInRoot`, `clearCellPreview`, `columnFor`, `isCopyShortcut`, `isEditableTarget`, plus index helpers).
+- No re-export barrel: `memoryGrid.ts` / `hex-view.test.ts` import render fns + types from `HexViewRender` and only the class/callbacks from `HexView`; `hexViewer.ts` pulls `HexViewRange` from `HexViewRender`.
 
 Out of scope: changing any exported signature, moving interaction helpers, altering behavior, or updating `component-search-bar.md` / `component-hex-view.md` specs (contracts are unchanged; spec refresh deferred to another branch if ever needed).
 

@@ -1,7 +1,7 @@
 // ── HexView pure render layer ───────────────────────────────────
 // DOM-free markup builders for the hex grid (split out of HexView.ts).
-// The HexView class consumes this render surface; memoryGrid imports it
-// via HexView's re-export so existing importers keep working.
+// The HexView class and the grid host (memoryGrid) consume this surface
+// directly; no re-export barrel in HexView.ts.
 
 import { esc, fmtB } from '../../utils';
 
