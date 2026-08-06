@@ -36,7 +36,6 @@ function resetState(): void {
     S.undoStack.length = 0;
     S.structs          = [];
 
-    S.activeStructAddr = null;
     S.structPins       = [];
     S.integrityHighlight = null;
     S.sidebarTab       = 'inspector';

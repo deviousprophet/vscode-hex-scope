@@ -11,7 +11,6 @@ import { setBytesInSegment } from '../shared/struct-test-helpers';
 
 function resetStructState(): void {
     S.structs           = [];
-    S.activeStructAddr  = null;
     S.parseResult       = null;
     S.segmentIndex      = [];
 }

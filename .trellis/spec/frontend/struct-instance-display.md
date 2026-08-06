@@ -17,7 +17,7 @@ contract to current code boundaries and executable checks.
 
 - Trigger: any change to Struct Overlay decoded rows, grouping, pointer following,
   hover/selection sync, context menus, value modes, keyboard behavior, or row CSS.
-- UI owner: `src/webview/sidebar/struct/index.ts`.
+- UI owner: `src/webview/components/Struct/StructPanel.ts`.
 - Decode owner: `src/core/struct-codec.ts`.
 - Shared domain types: `src/core/types.ts`.
 - Cross-layer flow:
@@ -94,7 +94,7 @@ export function decodeStruct(
 
 Renderer-side source/target separation is represented by `StructRenderContext`,
 `PointerDerefTarget`, `pointerDerefTarget`, and pointer row/header render helpers in
-`src/webview/sidebar/struct/index.ts`. If these names change, update this anchor while
+`src/webview/components/Struct/StructPanel.ts`. If these names change, update this anchor while
 preserving the behavior contracts below.
 
 ### 3. Contracts

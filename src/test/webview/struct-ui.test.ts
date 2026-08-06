@@ -2,13 +2,13 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 
 import { S } from '../../webview/state';
+import { getByte } from '../../webview/memory/memoryData';
 import type { StructDef, StructPin } from '../../core/types';
 import { setBytesInSegment } from '../shared/struct-test-helpers';
 
 function resetStructState(): void {
     S.structs = [];
     S.structPins = [];
-    S.activeStructAddr = null;
     S.parseResult = null;
     S.segmentIndex = [];
     S.endian = 'le';
@@ -77,8 +77,19 @@ suite('struct UI array header summary', () => {
     });
 
     async function renderPinsAndExpandCard(): Promise<HTMLElement> {
-        const { renderStructPins } = await import('../../webview/sidebar/struct/index.js');
-        renderStructPins();
+        const { StructPanel } = await import('../../webview/components/Struct/StructPanel.js');
+        const panel = new StructPanel({
+            readByte: getByte,
+            onStateChange: (structs, pins) => { S.structs = structs; S.structPins = pins; },
+            onStructsChange: structs => { S.structs = structs; },
+            onPinsChange: pins => { S.structPins = pins; },
+            onSelectRange: (start, count) => { S.selStart = start; S.selEnd = start + count - 1; },
+        });
+        panel.setData(S.structs, S.structPins);
+        panel.setEndian(S.endian);
+        panel.setBitFieldAllocation(S.bitFieldAllocation);
+        panel.setTabActive(true);
+        panel.mount(document.getElementById('s-struct-pins')!);
 
         const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
         assert.ok(expandCard, 'expand button should render');

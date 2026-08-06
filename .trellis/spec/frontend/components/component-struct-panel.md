@@ -1,0 +1,87 @@
+# Component Spec — Struct Panel
+
+## Scope / Trigger
+
+Owns `src/webview/components/Struct/StructPanel.ts` (+ `structPinsModel.ts`) + `StructPanel.css`: the sidebar Struct panel — both tracks (pins/instances + types/editor). The component owns all panel markup, expansion state, bit-field allocation toggle, editor draft state, pin add/edit state, field-value menus, pointer follow/create, and the bit-layout toggle. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
+
+Host (`hexViewer.ts`) owns: `S` state, struct/pin persistence (`saveStructs`/`saveStructPins`), selection, endian, bit-field allocation, hex-view highlight, and jumps.
+
+## Layout
+
+```text
+src/webview/components/Struct/
+    StructPanel.ts         interaction controller: mount/render/setData/setEndian/setBitFieldAllocation/setSelection/setTabActive/resetViewState
+    structPinsModel.ts     pure pin-model helpers (makeStructPin, withEditedStructPin, upsertPointerStructPin, ...)
+    StructPanel.css        all panel rules (moved verbatim from styles/struct.css)
+src/webview/hexViewer.ts   host wiring (panel descriptor, applyStructs/applyPins/applyStructState, selectStructRangeHost, highlight)
+src/test/webview/components/struct.test.ts   (mocha + jsdom)
+```
+
+Panel shell (`Sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `Sidebar.ts`/`Sidebar.css`. `core/struct-codec.ts` is unchanged (pure, shared).
+
+## Contract
+
+```typescript
+interface StructCallbacks {
+    readByte: (addr: number) => number | undefined;        // required — host memory adapter
+    onStructsChange?: (structs: StructDef[]) => void;      // save/delete struct
+    onPinsChange?: (pins: StructPin[]) => void;            // add/edit/delete/pointer-create pin
+    onStateChange?: (structs: StructDef[], pins: StructPin[]) => void;  // both at once (e.g. delete struct cascades pins)
+    onSelectRange?: (start: number, count: number) => void; // struct row/range selection → host S.selStart/S.selEnd + jumpTo + inspector
+    onHighlightHex?: (addrs: number[], cls: string) => void; // hover/array-sep class on hex rows
+    onClearHighlightHex?: (cls: string) => void;
+}
+
+class StructPanel {
+    constructor(cb: StructCallbacks);
+    mount(root: HTMLElement): void;                          // renders both tracks; idempotent
+    render(): void;                                          // was renderStructPins; re-renders from pushed state
+    setData(structs: StructDef[], pins: StructPin[]): void;  // host pushes S.structs/S.structPins
+    setEndian(endian: 'le' | 'be'): void;                    // decode source
+    setBitFieldAllocation(alloc: BitFieldAllocation): void;  // 'lsb' | 'msb'
+    setSelection(start: number | null): void;                // was onSelectionChangeForStruct
+    setTabActive(active: boolean): void;                     // host pushes sidebarTab==='struct'
+    resetViewState(): void;                                  // was resetStructViewState
+}
+```
+
+## Rules
+
+- Component holds only UI/transient state (expansion Sets, `_fieldValTypes`, `_activeStructAddr`, add/edit-form flags, `_applyStructId`, bit-range selection, `_tabActive`). Persistent/domain state lives in the host.
+- Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte` is injected (host passes `getByte` from `memory/memoryData`) so byte access stays host-owned — the component must NOT import `memory/memoryData`.
+- Struct/pin mutations report `onStructsChange`/`onPinsChange`/`onStateChange`; the host syncs `S` + persists (`saveStructs`/`saveStructPins`). Selection → `onSelectRange`; hex-row highlight/array separators → `onHighlightHex`/`onClearHighlightHex` (never poke `[data-addr]` directly).
+- `S.activeStructAddr` was removed from `state.ts` (had no external push/read sites); the component keeps `_activeStructAddr` internally.
+- Markup is byte-identical to pre-refactor (same ids/classes); all CSS moved verbatim from `styles/struct.css`. Untrusted text escaped with `esc()`.
+- Pin model helpers stay pure and unit-tested (`structPinsModel.ts`); no DOM, no `S`.
+
+## Behaviour
+
+- Pins track: add-pin form (hex address, struct picker), instance cards (expand/collapse, edit, delete w/ inline confirm), decoded rows incl. scalar/array/struct/bitfield/pointer rows + pointer follow/create; bit-layout LSB/MSB toggle.
+- Types track: type list, struct editor (name/packed/fields incl. bit-fields, arrays, pointers, move/delete), C preview.
+- Hex-view selection clears stale struct selection and syncs add/edit-form address inputs (`setSelection`); the `S.sidebarTab === 'struct'` guard is replaced by `setTabActive`.
+- Row/header click selects the corresponding byte range → `onSelectRange`; hover highlights hex rows via callback.
+- Field-value context menus: sticky `View as` per row identity, `Copy as`, pointer jump/create — all report-only.
+
+## Validation & Error Matrix
+
+| Condition | Behaviour |
+|---|---|
+| Empty pins | "No instances yet" empty state |
+| Empty types | "No types defined yet" empty state |
+| Pin address invalid/partial/overflow | Rejected (`parseStructPinAddressInput` → null) |
+| Struct editor invalid (name/count/type/bitfield) | Inline `se-error`; no `onStructsChange` |
+| Pointer target unmapped | `(unmapped)` status, no arrow/expansion |
+| Selected range disappears after remap | Selection cleared, no stale state |
+| Missing bytes | `??`; never decode as zero |
+
+## Tests Required
+
+`src/test/webview/components/struct.test.ts`: mount (both tracks + empty states), `setData` renders instance cards + decoded rows + expansion persistence, `setEndian` re-decode, `setBitFieldAllocation` re-render + LSB/MSB toggle, row click → `onSelectRange`, pointer follow/create → `onSelectRange` + `onPinsChange`, editor save → `onStructsChange`, C preview, delete cascade → `onStateChange`, add/edit/delete pin → `onPinsChange`, `setSelection` → add-form address. Existing `struct-ui.test.ts` (setup-only re-point to the component, assertions unchanged) + `struct-pins-model.test.ts` (import re-point) + `webview.test.ts` struct suites pass unchanged (parity gate).
+
+## Anti-patterns
+
+- `StructPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, or `rerender`.
+- Component poking `[data-addr]` hex rows directly (must use `onHighlightHex`).
+- Host mutating `S.structs`/`S.structPins` without a `setData` push.
+- Global-DOM-id queries outside the component root.
+- Weakening `struct-ui.test.ts` assertions during the extraction (parity gate).

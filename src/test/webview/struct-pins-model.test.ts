@@ -10,7 +10,7 @@ import {
     withEditedStructPin,
     withoutStructDefinition,
     withoutStructPin,
-} from '../../webview/sidebar/struct/structPinsModel';
+} from '../../webview/components/Struct/structPinsModel';
 
 suite('struct pin model', () => {
     test('parses full hex address input only', () => {
