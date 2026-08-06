@@ -1628,20 +1628,23 @@ private wireBitLayoutTabs(sec: HTMLElement): void {
 }
 
 private confirmAddStructPin(): void {
-    if (!this._applyStructId) { return; }
     const addrInp = this._root?.querySelector<HTMLInputElement>('#sa-addr');
     const nameInp = this._root?.querySelector<HTMLInputElement>('#sa-name');
-    if (!addrInp || !nameInp) { return; }
-    const addr = this.parseStructApplyAddress(addrInp);
+    if (!this.canAddPin(addrInp, nameInp)) { return; }
+    const addr = this.parseStructApplyAddress(addrInp!);
     if (addr === null) { return; }
-    const name = this.structApplyName(nameInp);
-    const pin = makeStructPin({ structId: this._applyStructId, addr, name }, this.makePinId);
+    const name = this.structApplyName(nameInp!);
+    const pin = makeStructPin({ structId: this._applyStructId!, addr, name }, this.makePinId);
     this._pins       = [...this._pins, pin];
     this._activeStructAddr = addr;
     this._expanded.add(pin.id);
     this._addingPin = false;
     this.cb.onPinsChange?.(this._pins);
     this.render();
+}
+
+private canAddPin(addrInp: HTMLInputElement | null | undefined, nameInp: HTMLInputElement | null | undefined): boolean {
+    return !!this._applyStructId && !!addrInp && !!nameInp;
 }
 
 private parseStructApplyAddress(addrInp: HTMLInputElement): number | null {
@@ -2531,10 +2534,20 @@ private structGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: 
 }
 
 private preservePendingStructAddress(): void {
-    const curAddrInp = this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
-    if (!curAddrInp?.value) { return; }
+    const value = this.pendingStructAddressValue();
+    if (value !== null) { this._activeStructAddr = value; }
+}
+
+private pendingStructAddressValue(): number | null {
+    const curAddrInp = this.pendingAddrInput();
+    if (!curAddrInp) { return null; }
     const value = parseInt(curAddrInp.value, 16);
-    if (!isNaN(value)) { this._activeStructAddr = value; }
+    if (isNaN(value)) { return null; }
+    return value;
+}
+
+private pendingAddrInput(): HTMLInputElement | null {
+    return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
 }
 
 private describeStructGroup(def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
@@ -3625,30 +3638,7 @@ private wireInstanceCards(sec: HTMLElement): void {
     });
 
     sec.querySelectorAll<HTMLElement>('.si-card-hdr').forEach(hdr => {
-        hdr.addEventListener('click', e => {
-            if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions, .si-type-btn')) { return; }
-            this.clearArrSep();
-            this.clearSelRow();
-            this._selectedBitRange = null;
-            this._hoveredBitRange = null;
-            this._selectedBitRowKey = null;
-            this._hoveredBitRowKey = null;
-            this._selectedFieldAddr = null;
-            this._selectedArrKey    = null;
-            this._selectedArrElemKey = null;
-            const card = hdr.closest<HTMLElement>('.si-card')!;
-            const idx  = parseInt(card.dataset.idx!);
-            const pin  = this._pins[idx];
-            if (!pin) { return; }
-            const def  = allStructs(this._structs).find(d => d.id === pin.structId);
-            if (!def)  { return; }
-            const size = structByteSize(def, this._structs);
-            this._activeStructAddr = pin.addr;
-            this._selectedPinId = pin.id;
-            sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
-            card.classList.add('si-card-selected');
-            this.cb.onSelectRange?.(pin.addr, size);
-        });
+        hdr.addEventListener('click', e => this.onCardHeaderClick(sec, hdr, e));
     });
 
     // Wire edit + delete action buttons on each instance card
@@ -3754,6 +3744,38 @@ private wireInstanceCards(sec: HTMLElement): void {
 
     this.applyBitHighlightsInPlace(sec);
     this.restoreStructSelection(sec);
+}
+
+private onCardHeaderClick(sec: HTMLElement, hdr: HTMLElement, e: Event): void {
+    if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions, .si-type-btn')) { return; }
+    this.clearArrSep();
+    this.clearSelRow();
+    this._selectedBitRange = null;
+    this._hoveredBitRange = null;
+    this._selectedBitRowKey = null;
+    this._hoveredBitRowKey = null;
+    this._selectedFieldAddr = null;
+    this._selectedArrKey    = null;
+    this._selectedArrElemKey = null;
+    const sel = this.cardSelection(hdr);
+    if (!sel) { return; }
+    const size = structByteSize(sel.def, this._structs);
+    this._activeStructAddr = sel.pin.addr;
+    this._selectedPinId = sel.pin.id;
+    sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
+    sel.card.classList.add('si-card-selected');
+    this.cb.onSelectRange?.(sel.pin.addr, size);
+}
+
+private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: StructPin; def: StructDef } | null {
+    const card = hdr.closest<HTMLElement>('.si-card');
+    if (!card) { return null; }
+    const idx = parseInt(card.dataset.idx!);
+    const pin = this._pins[idx];
+    if (!pin) { return null; }
+    const def = allStructs(this._structs).find(d => d.id === pin.structId);
+    if (!def) { return null; }
+    return { card, pin, def };
 }
 
 private wireTypePreviewButtons(sec: HTMLElement): void {
@@ -4602,7 +4624,11 @@ private resolvedStructPointerCreateState(row: DecodedField): Exclude<StructPoint
 
 private createStructInstanceFromPointer(source: PointerMenuSource | null): void {
     const state = this.structPointerCreateState(source);
-    if (!state?.ok || !source) { return; }
+    if (!source || !state?.ok) { return; }
+    this.applyPointerInstance(source, state);
+}
+
+private applyPointerInstance(source: PointerMenuSource, state: Extract<StructPointerCreateState, { ok: true }>): void {
     const result = upsertPointerStructPin(this._pins, {
         sourcePin: source.pin,
         sourceStructId: source.sourceStructId,
@@ -4862,11 +4888,19 @@ private updateStructAddressInputs(addr: number): void {
 }
 
 private updateAddPinAddressInput(addrHex: string): void {
-    const inp = this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
+    const inp = this.addPinAddressInput();
     if (!inp) { return; }
     inp.value = addrHex;
-    const confirmBtn = this._root?.querySelector<HTMLButtonElement>('#sa-confirm') ?? null;
+    const confirmBtn = this.addPinConfirmButton();
     if (confirmBtn) { confirmBtn.disabled = !this._applyStructId; }
+}
+
+private addPinAddressInput(): HTMLInputElement | null {
+    return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
+}
+
+private addPinConfirmButton(): HTMLButtonElement | null {
+    return this._root?.querySelector<HTMLButtonElement>('#sa-confirm') ?? null;
 }
 
 private updateEditPinAddressInput(addrHex: string): void {
