@@ -35,14 +35,14 @@ jobs:
         id: run-tests
         run: |
           set -o pipefail
-          xvfb-run -a npm test 2>&1 | tee ut-test-output.log
+          xvfb-run -a npm test 2>&1 | tee unit-test-output.log
 
       - name: Upload Test Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          path: ut-test-output.log
-          name: ut-test-output-${{ github.sha }}
+          path: unit-test-output.log
+          name: unit-test-output-${{ github.sha }}
           overwrite: true
 
   Benchmarks:
@@ -109,7 +109,7 @@ jobs:
         if: always()
         uses: actions/download-artifact@v4
         with:
-          name: ut-test-output-${{ github.sha }}
+          name: unit-test-output-${{ github.sha }}
           path: .
 
       - name: Download Benchmark Log
@@ -123,7 +123,7 @@ jobs:
         if: always()
         env:
           RUN_TESTS_OUTCOME: ${{ needs.UT_Test.outputs.run-tests-outcome }}
-          LOG_FILE: ut-test-output.log
+          LOG_FILE: unit-test-output.log
           SUITE_NAME: Unit Test Results
         run: node .github/scripts/summarize-tests.mjs
 
@@ -134,13 +134,3 @@ jobs:
           LOG_FILE: benchmark-output.log
           SUITE_NAME: Benchmark
         run: node .github/scripts/summarize-tests.mjs
-
-      - name: Upload Combined Test Results Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          path: |
-            ut-test-output.log
-            benchmark-output.log
-          name: test-results-${{ github.sha }}
-          overwrite: true
