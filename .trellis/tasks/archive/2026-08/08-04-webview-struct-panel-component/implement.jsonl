@@ -1,5 +1,5 @@
 {"file": ".trellis/spec/frontend/components/component-template.md", "reason": "Component contract, boundary rules, test location for the new StructPanel component."}
-{"file": ".trellis/spec/frontend/components/component-inspector.md", "reason": "Most recent sibling extraction at the same sidebar-panel seam; mirrors the setter/callback contract pattern."}
+{"file": ".trellis/spec/frontend/components/component-sidebar-inspector.md", "reason": "Most recent sibling extraction at the same sidebar-panel seam; mirrors the setter/callback contract pattern."}
 {"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Sidebar shell that owns the panel descriptor seam; struct panel must fit it unchanged."}
 {"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Colocated CSS conventions for Struct.css."}
 {"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Decoded instance row / bit unit / pointer display behavior the component must preserve."}

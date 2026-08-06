@@ -26,8 +26,8 @@ Every self-contained webview component has one spec at `components/component-<na
 | [SearchBar Component](./components/component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
 | [RecordView Component](./components/component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting |
 | [Sidebar Component](./components/component-sidebar.md) | Generic tabbed sidebar shell: tabs, resizer+persistence, header slot, injected panels |
-| [Inspector Component](./components/component-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
-| [StructPanel Component](./components/component-struct-panel.md) | Sidebar Struct panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
+| [Inspector Component](./components/component-sidebar-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
+| [StructPanel Component](./components/component-sidebar-struct-panel.md) | Sidebar Struct panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
 | [ContextMenu Component](./components/component-context-menu.md) | Right-click byte menu: copy/analyze/patch, go-address, select |
 
 ## Feature Code-Specs
