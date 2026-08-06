@@ -243,3 +243,24 @@ Split the three fallow `split_high_impact` targets into focused modules, behavio
 ### Status
 
 [OK] **Completed — PR #161 open (draft), awaiting merge review**
+
+
+## Session 9: Extract Struct panel into self-contained component
+
+**Date**: 2026-08-06
+**Task**: Extract Struct panel into self-contained component
+**Branch**: `feat/webview-struct-component`
+
+### Summary
+
+Extracted the Struct sidebar panel into src/webview/components/Struct/ (StructPanel.ts + StructPanel.css + structPinsModel.ts). Host hexViewer.ts rewired: injected readByte accessor, persistence via onStructsChange/onPinsChange/onStateChange callbacks, selection via onSelectRange, hex highlight via onHighlightHex. Deleted sidebar/struct/ and styles/struct.css; removed dead S.activeStructAddr. Added component spec + struct.test.ts; review findings (getByte injection, dead state) fixed. lint/check-types/671 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1b2b0f0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
