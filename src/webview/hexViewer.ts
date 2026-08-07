@@ -21,11 +21,11 @@ import { buildMemRows, getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/HexView/HexViewRender';
 import { Inspector } from './components/Inspector/Inspector';
-import { renderStructPins, onSelectionChangeForStruct, resetStructViewState } from './sidebar/struct/index';
+import { StructPanel } from './components/Struct/StructPanel';
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/SearchBar/SearchBar';
 import { Toolbar } from './components/Toolbar/Toolbar';
-import type { SerializedParseResult, SerializedRecord } from '../core/types';
+import type { SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
 import type { SidebarTab } from './sidebar/sidebarTypes';
 import { RecordView, type RecordViewRenderInput } from './components/RecordView/RecordView';
 import { RecordPageCache } from './recordPageCache';
@@ -131,9 +131,68 @@ function pushInspectorState(): void {
     inspector.setSelection(S.selStart, S.selEnd);
 }
 
+// ── Struct panel component ────────────────────────────────────────
+// Self-contained Struct panel (pins/instances + types/editor tracks).
+// Data flows via setters; mutations/selection/highlight report via
+// callbacks. Persistence (saveStructs/saveStructPins) lives here; hex
+// [data-addr] highlight moves from the component to host-owned helpers.
+
+const structPanel = new StructPanel({
+    readByte: getByte,
+    onStructsChange: applyStructs,
+    onPinsChange: applyPins,
+    onStateChange: applyStructState,
+    onSelectRange: selectStructRangeHost,
+    onHighlightHex: (addrs, cls) => {
+        for (const addr of addrs) { highlightHexAddress(addr, cls); }
+    },
+    onClearHighlightHex: cls => {
+        document.querySelectorAll<HTMLElement>(`.${cls}`).forEach(el => el.classList.remove(cls));
+    },
+});
+
+/** Persist struct-definition mutations from the Struct panel. */
+function applyStructs(structs: StructDef[]): void {
+    S.structs = structs;
+    postProviderMessage({ type: 'saveStructs', structs });
+}
+
+/** Persist struct-pin mutations from the Struct panel. */
+function applyPins(pins: StructPin[]): void {
+    S.structPins = pins;
+    postProviderMessage({ type: 'saveStructPins', pins });
+}
+
+/** Both changed in one action (delete struct cascades pins). */
+function applyStructState(structs: StructDef[], pins: StructPin[]): void {
+    applyStructs(structs);
+    applyPins(pins);
+}
+
+/** Struct row/range selection → hex selection + jump + inspector sync (moved from struct module). */
+function selectStructRangeHost(start: number, count: number): void {
+    S.selStart = start;
+    S.selEnd = start + count - 1;
+    rerender.jumpTo(start);
+    rerender.inspector();
+}
+
+/** Apply a highlight class to hex-view rows at the address (moved highlightAddress). */
+function highlightHexAddress(addr: number, cls: string): void {
+    const ah = addr.toString(16).toUpperCase().padStart(8, '0');
+    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`).forEach(el => el.classList.add(cls));
+}
+
+/** Push the full Struct panel snapshot after a mount/full render. */
+function pushStructState(): void {
+    structPanel.setData(S.structs, S.structPins);
+    structPanel.setEndian(S.endian);
+    structPanel.setBitFieldAllocation(S.bitFieldAllocation);
+}
+
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspector.mount(root) },
-    { id: 'struct', label: 'Struct', mount: root => { root.innerHTML = '<div id="s-struct-pins"></div>'; renderStructPins(); } },
+    { id: 'struct', label: 'Struct', mount: root => structPanel.mount(root) },
     { id: 'integrity', label: 'Integrity', mount: root => { root.innerHTML = '<div id="s-integrity"></div>'; renderIntegrity(); } },
     { id: 'scripts', label: 'Scripts', mount: root => { root.innerHTML = '<div id="s-scripts"></div>'; renderScripts(); } },
 ];
@@ -391,18 +450,23 @@ function clearNibbleBuffer(): void {
     }
 }
 
+/** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
+function refreshAfterLocalEdit(): void {
+    toolbar.setDirty(S.edits.size);
+    toolbar.setEditMode(S.editMode);
+    memRerender();
+    inspector.setSelection(S.selStart, S.selEnd);
+    structPanel.render();
+    notifyIntegrityBytesChanged();
+}
+
 function applyTypedEdit(addr: number, value: number): void {
     clearNibbleBuffer();
     const prior = stageIntegrityEdit(addr, value);
     if (!prior) {return;}
     S.undoStack.push([prior]);
     S.editMode = true;
-    toolbar.setDirty(S.edits.size);
-    toolbar.setEditMode(S.editMode);
-    memRerender();
-    inspector.setSelection(S.selStart, S.selEnd);
-    renderStructPins();
-    notifyIntegrityBytesChanged();
+    refreshAfterLocalEdit();
 }
 
 function advanceSel(addr: number): void {
@@ -516,12 +580,7 @@ function stagePasteFromText(range: { start: number; end: number }, clipText: str
 function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
     const edits = stagePasteFromText(range, clipText);
     if (edits.length > 0 && stageIntegrityEditTransaction(edits)) {
-        toolbar.setDirty(S.edits.size);
-        toolbar.setEditMode(S.editMode);
-        memRerender();
-        inspector.setSelection(S.selStart, S.selEnd);
-        renderStructPins();
-        notifyIntegrityBytesChanged();
+        refreshAfterLocalEdit();
     }
 }
 
@@ -784,7 +843,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['dirtyBar', () => toolbar.setDirty(S.edits.size)],
         ['stats', renderStatsBar],
         ['segments', () => inspector.setSegments(S.parseResult?.segments ?? [])],
-        ['structPins', renderStructPins],
+        ['structPins', () => structPanel.setData(S.structs, S.structPins)],
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', notifyIntegrityBytesChanged],
     ];
@@ -894,7 +953,7 @@ function setFileEndian(endian: 'le' | 'be'): void {
     if (settings) { renderEndianToggle(settings); }
     postProviderMessage({ type: 'saveEndian', endian });
     inspector.setEndian(S.endian);
-    renderStructPins();
+    structPanel.setEndian(S.endian);
     notifyIntegrityEndianChanged();
 }
 
@@ -926,7 +985,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
-    inspector: resetStructViewState,
+    inspector: () => structPanel.resetViewState(),
     struct: () => inspector.setLabels(S.labels),
     integrity: activateIntegrity,
     scripts: activateScripts,
@@ -935,6 +994,7 @@ const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
 function onSidebarTabChange(tab: SidebarTab): void {
     S.sidebarTab = tab;
     sidebar.setTab(tab);
+    structPanel.setTabActive(tab === 'struct');
     SIDEBAR_TAB_EFFECTS[tab]();
 }
 
@@ -953,11 +1013,13 @@ function mountSidebarPanel(tab: SidebarTab): void {
 /** After a full render: sync component active tab to host truth + mount active panel. */
 function syncSidebarTab(): void {
     sidebar.setTab(S.sidebarTab);
+    structPanel.setTabActive(S.sidebarTab === 'struct');
     mountSidebarPanel(S.sidebarTab);
 }
 
 function renderInitialViews(): void {
     pushInspectorState();
+    pushStructState();
     renderStatsBar();
     renderCurrentDataView();
 }
@@ -986,7 +1048,7 @@ function updateByteSelection(start: number, end: number): void {
     paintMemorySelection();
     inspector.setSelection(S.selStart, S.selEnd);
     inspector.syncLabelForm();
-    onSelectionChangeForStruct();
+    structPanel.setSelection(S.selStart);
 }
 
 function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): void {
@@ -1073,7 +1135,7 @@ function refreshAfterIntegrityEdits(): void {
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     inspector.setSelection(S.selStart, S.selEnd);
-    renderStructPins();
+    structPanel.render();
     notifyIntegrityBytesChanged();
 }
 
@@ -1084,7 +1146,7 @@ function applyFill(fillVal: number): void {
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     inspector.setSelection(S.selStart, S.selEnd);
-    renderStructPins();
+    structPanel.render();
     notifyIntegrityBytesChanged();
 }
 
@@ -1094,7 +1156,7 @@ function undoLastEdit(): void {
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     inspector.setSelection(S.selStart, S.selEnd);
-    renderStructPins();
+    structPanel.render();
     notifyIntegrityBytesChanged();
 }
 

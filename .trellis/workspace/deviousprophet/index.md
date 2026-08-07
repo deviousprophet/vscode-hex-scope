@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-08-04
+- **Total Sessions**: 9
+- **Last Active**: 2026-08-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~202 | Active |
+| `journal-1.md` | ~266 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-08-06 | Extract Struct panel into self-contained component | `1b2b0f0` | `feat/webview-struct-component` |
 | 8 | 2026-08-04 | Rework ContextMenu into self-contained component (#151) | `5b46607`, `9c73bfd`, `015da96`, `18d064e` | `feat/webview-context-menu-component` |
 | 7 | 2026-08-04 | Finish ExternalChange task + spec cleanup | `1d536b7` | `feat/webview-recordview-component` |
 | 6 | 2026-08-04 | Extract RecordView into self-contained component (#151) | `2698443`, `67f971f`, `799a3ab` | `feat/webview-recordview-component` |

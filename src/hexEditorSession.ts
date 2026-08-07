@@ -778,7 +778,7 @@ export class HexEditorSession {
 
         const cssFiles = [
             'base', 'stats-bar', 'layout', 'sidebar',
-            'struct', 'integrity',
+            'integrity',
         ];
         const cssLinks = cssFiles.map(name => {
             const uri = webview.asWebviewUri(

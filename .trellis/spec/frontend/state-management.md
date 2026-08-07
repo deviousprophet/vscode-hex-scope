@@ -35,7 +35,7 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 - Per-file state: labels, struct pins, endian, active integrity check set.
 - Shared/global state: struct definitions and integrity profiles.
-- Persistence adapters: `structPersistence.ts`, `integrityPersistence.ts`, and session message handlers.
+- Persistence adapters: host `hexViewer.ts` struct callbacks (`saveStructs`/`saveStructPins`), `integrityPersistence.ts`, and session message handlers.
 - Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use.
 - Struct migration/deduplication belongs in `HexEditorSession` (`migrateStructDefinitions` and legacy merge helpers), not render code.
 
