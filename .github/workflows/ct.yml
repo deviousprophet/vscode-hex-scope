@@ -134,3 +134,4 @@ jobs:
           LOG_FILE: benchmark-output.log
           SUITE_NAME: Benchmark
         run: node .github/scripts/summarize-tests.mjs
+
