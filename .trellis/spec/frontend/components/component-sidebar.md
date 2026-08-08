@@ -4,7 +4,7 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Sidebar/Sidebar.ts` + `Sidebar.css`: the generic tabbed sidebar shell — `#sidebar` + `#side-tabs` + `#sidebar-resizer` + `#sidebar-common-settings` markup, tab switching/visibility, and the resizer drag (with width persistence). Panels are **injected** via a `panels` config; the shell never imports panel modules, never reads/writes the `S` global, never posts provider messages, and holds no feature/panel logic.
+Owns `src/webview/components/sidebar/sidebar.ts` + `sidebar.css`: the generic tabbed sidebar shell — `#sidebar` + `#side-tabs` + `#sidebar-resizer` + `#sidebar-common-settings` markup, tab switching/visibility, and the resizer drag (with width persistence). Panels are **injected** via a `panels` config; the shell never imports panel modules, never reads/writes the `S` global, never posts provider messages, and holds no feature/panel logic.
 
 Host (`hexViewer.ts`) owns: panel descriptors (wrapping existing render fns), the header slot (endian toggle), per-tab activation side effects, `S.sidebarTab`, and record-view sidebar visibility (`updateMemoryOnlyControls`).
 
@@ -13,9 +13,9 @@ Boundary rule: each component owns its markup, UI state, input behaviours, and s
 ## Layout
 
 ```text
-src/webview/components/Sidebar/
-    Sidebar.ts       types + class Sidebar (generic tabbed shell: panels + headerSlot config)
-    Sidebar.css      shell rules (moved from styles/layout.css + styles/sidebar.css)
+src/webview/components/sidebar/
+    sidebar.ts       types + class Sidebar (generic tabbed shell: panels + headerSlot config)
+    sidebar.css      shell rules (moved from styles/layout.css + styles/sidebar.css)
 src/webview/hexViewer.ts    host wiring (panel config + tab orchestration + activation side effects)
 src/test/webview/components/sidebar.test.ts   (mocha + jsdom)
 ```
@@ -25,7 +25,7 @@ Panel-content CSS stays in `src/webview/styles/sidebar.css` until each panel chi
 ## Contract
 
 ```typescript
-// src/webview/components/Sidebar/Sidebar.ts
+// src/webview/components/sidebar/sidebar.ts
 interface SidebarPanel {
     id: SidebarTab;                       // 'inspector' | 'struct' | 'integrity' | 'scripts'
     label: string;                        // tab label
@@ -62,7 +62,7 @@ class Sidebar {
 
 - Default tab is `inspector` (matches pre-refactor); no tab persistence.
 - Record-view sidebar visibility stays host-managed (`updateMemoryOnlyControls` toggles `#sidebar`/`#side-tabs` display); the shell is unaware of the view.
-- The shared collapsible-section pattern (`.sb-section`/`.sb-hdr`/`.sb-body` + `.sb-section .sb-hdr::before` triangle + `.sb-section.collapsed`) lives in `Sidebar.css`; panel sections use it.
+- The shared collapsible-section pattern (`.sb-section`/`.sb-hdr`/`.sb-body` + `.sb-section .sb-hdr::before` triangle + `.sb-section.collapsed`) lives in `sidebar.css`; panel sections use it.
 
 ## Known-bug (fixed in this task)
 
@@ -82,11 +82,11 @@ Endian toggle previously wiped inspector data: host `setFileEndian` called shell
 
 ## Tests Required
 
-`src/test/webview/components/sidebar.test.ts` (mocha + jsdom + css-import-hook): generic render (tabs/slots/header slot from config, arbitrary panel ids/labels verbatim), tab switch (active classes + slot visibility + `onTabChange`/`onPanelActivate`), lazy first-activation mount once, idempotent mount, `setCallbacks`, resizer (width init/restore/drag/persist/clamp). Existing `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity gate).
+`src/test/webview/components/sidebar.test.ts` (mocha + jsdom + cssImportHook): generic render (tabs/slots/header slot from config, arbitrary panel ids/labels verbatim), tab switch (active classes + slot visibility + `onTabChange`/`onPanelActivate`), lazy first-activation mount once, idempotent mount, `setCallbacks`, resizer (width init/restore/drag/persist/clamp). Existing `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity gate).
 
 ## Anti-patterns
 
-- `Sidebar.ts` importing `S`, panel modules, feature logic, or `postProviderMessage`.
+- `sidebar.ts` importing `S`, panel modules, feature logic, or `postProviderMessage`.
 - Hardcoded panel id/label inside the shell.
 - Host writing shell DOM directly instead of `toHtml()`/`setTab()`.
 - Resizer logic living outside the component (`sidebarResize.ts` was deleted; drag + persistence moved in).

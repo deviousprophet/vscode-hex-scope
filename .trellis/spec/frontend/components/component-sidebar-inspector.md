@@ -2,22 +2,22 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Inspector/Inspector.ts` (+ `InspectorLabels.ts`) + `Inspector.css`: the sidebar Inspector panel — Inspector address/values, Bit View, the Multi-Byte interpreter, Parsed Segments, and Segment Labels (including the inline add/edit form). The component owns the four section shells, their collapse state, bit-hover highlight, label-form UI state, and interaction. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
+Owns `src/webview/components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`) + `inspectorPanel.css`: the sidebar Inspector panel — Inspector address/values, Bit View, the Multi-Byte interpreter, Parsed Segments, and Segment Labels (including the inline add/edit form). The component owns the four section shells, their collapse state, bit-hover highlight, label-form UI state, and interaction. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
 
 Host (`hexViewer.ts`) owns: `S` state, label persistence (`saveLabels` + memory rebuild + invalidation), selection, endian, segment data, and jumps.
 
 ## Layout
 
 ```text
-src/webview/components/Inspector/
-    Inspector.ts          interaction controller: mount/setSelection/setSegments/setLabels/setEndian/syncLabelForm
-    InspectorLabels.ts    DOM-free label markup/validation helpers (labelItemHtml, labelFormHtml, range parsing, LABEL_COLORS)
-    Inspector.css         panel rules (insp-*, bit-*, mi-*, segment-*, label-*, lf-*)
+src/webview/components/sidebar/inspectorPanel/
+    inspectorPanel.ts          interaction controller: mount/setSelection/setSegments/setLabels/setEndian/syncLabelForm
+    inspectorLabels.ts    DOM-free label markup/validation helpers (labelItemHtml, labelFormHtml, range parsing, LABEL_COLORS)
+    inspectorPanel.css         panel rules (insp-*, bit-*, mi-*, segment-*, label-*, lf-*)
 src/webview/hexViewer.ts  host wiring (panel descriptor, applyInspectorLabels, pushInspectorState)
-src/test/webview/components/inspector.test.ts   (mocha + jsdom)
+src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`Sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `Sidebar.ts`/`Sidebar.css`.
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`.
 
 ## Contract
 
@@ -29,7 +29,7 @@ interface InspectorCallbacks {
     onCopy?: (text: string, label: string) => void;        // copy chip
 }
 
-class Inspector {
+class InspectorPanel {
     constructor(cb: InspectorCallbacks);
     mount(root: HTMLElement): void;                        // renders 4 sections; idempotent
     setSelection(start: number | null, end: number | null): void;   // data path (was updateInspector)
@@ -71,11 +71,11 @@ class Inspector {
 
 ## Tests Required
 
-`src/test/webview/components/inspector.test.ts`: mount (4 sections, empty states), `setSelection` single + multi (chips, raw dump, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (sort/badge/jump/collapse-preserve), `setLabels` (rows/badge/jump), visibility/move/delete, add form save + validation + confirm-on-warning, edit form. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
+`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (4 sections, empty states), `setSelection` single + multi (chips, raw dump, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (sort/badge/jump/collapse-preserve), `setLabels` (rows/badge/jump), visibility/move/delete, add form save + validation + confirm-on-warning, edit form. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
 
 ## Anti-patterns
 
-- `Inspector.ts` importing `S`, `state.ts`, `postProviderMessage`, or feature modules.
+- `inspectorPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, or feature modules.
 - `setSelection` also driving the label form (parity drift — `syncLabelForm` is host-driven from hex-view selection only).
 - Global-DOM-id queries outside the component root.
 - Duplicate collapse-toggle blocks (use `applyCollapsibleSection`).

@@ -1,13 +1,13 @@
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import '../css-import-hook';
+import '../cssImportHook';
 
 import {
     Toolbar,
     renderToolbarHtml,
     type ToolbarCallbacks,
     type ToolbarView,
-} from '../../../webview/components/Toolbar/Toolbar';
+} from '../../../webview/components/toolbar/toolbar';
 
 interface HarnessCalls {
     viewChanges: ToolbarView[];

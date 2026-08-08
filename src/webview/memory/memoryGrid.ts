@@ -23,7 +23,7 @@ import {
 import {
     HexView,
     type HexViewCallbacks,
-} from '../components/HexView/HexView';
+} from '../components/hexView/hexView';
 import {
     renderHexViewHeader,
     renderHexViewHtml,
@@ -31,7 +31,7 @@ import {
     type HexViewRange,
     type HexViewRenderInput,
     type HexViewRow,
-} from '../components/HexView/HexViewRender';
+} from '../components/hexView/hexViewRender';
 import type { MemRow, SegmentLabel } from '../../core/types';
 
 const VIRTUAL_SCROLL_CONFIG = {

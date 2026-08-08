@@ -2,22 +2,26 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Integrity/IntegrityPanel.ts` (+ `integrityCheckModel.ts`) + `IntegrityPanel.css`: the sidebar Integrity panel — check list (add/edit/delete, algorithm selection, address/stored-value inputs, auto-fix toggle), per-check result display (calculated/stored comparison, copy), and the profile library (select/create/rename/update/delete, save-as, fix-all). The component owns all panel markup, check/form/profile UI state, debounced calculation scheduling, and auto-fix suppression. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads/selection/endian go through injected accessors, and actions report via callbacks.
+Owns `src/webview/components/sidebar/integrityPanel/integrityPanel.ts` (+ `integrityCheckModel.ts`) + `integrityPanel.css`: the sidebar Integrity panel — check list (add/edit/delete, algorithm selection, address/stored-value inputs, auto-fix toggle), per-check result display (calculated/stored comparison, copy), and the profile library (select/create/rename/update/delete, save-as, fix-all). The component owns all panel markup, check/form/profile UI state, debounced calculation scheduling, and auto-fix suppression. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads/selection/endian go through injected accessors, and actions report via callbacks.
 
 Host (`hexViewer.ts`) owns: `S` state, checks/profile persistence (`saveIntegrityChecks`, `create/update/rename/deleteIntegrityProfile`), edit staging (`stageIntegrityEdits`), `S.integrityHighlight` + `rerender.memory()`, and the endian/bytes-changed/discard event fan-out.
 
 ## Layout
 
 ```text
-src/webview/components/Integrity/
-    IntegrityPanel.ts       interaction controller: mount/render/setProfiles/setChecks/notifyBytesChanged/notifyEditsDiscarded/notifyEndianChanged/setTabActive
+src/webview/components/sidebar/integrityPanel/
+    integrityPanel.ts       interaction controller: mount/render/setProfiles/setChecks/notifyBytesChanged/notifyEditsDiscarded/notifyEndianChanged/setTabActive
     integrityCheckModel.ts  pure check-model helpers (makeIntegrityCheck, draftFromIntegrityConfig, integrityCheckSetFromStates, ...)
-    IntegrityPanel.css      all panel rules (moved verbatim from styles/integrity.css)
+    integrityResultRender.ts  pure result/card markup (checkCardHtml, resultBodyHtml, checkStatusLabel, ...)
+    integrityCalculation.ts   debounced scheduling + async calculate pipeline (readByte/endian/hooks injected)
+    integrityProfiles.ts      profile-library logic (wireProfileControls, applySelectedProfile, name-form state machine, ...)
+    integrityHighlight.ts     range/stored highlight derivation + reporting hooks
+    integrityPanel.css      all panel rules (moved verbatim from styles/integrity.css)
 src/webview/hexViewer.ts    host wiring (panel descriptor, applyIntegrityHighlight, persistence callbacks, notify fan-out)
-src/test/webview/components/integrity.test.ts   (mocha + jsdom)
+src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`Sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `Sidebar.ts`/`Sidebar.css`. `core/integrity.ts` is unchanged (pure, shared).
+Panel shell (`sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar.ts`/`sidebar.css`. `core/integrity.ts` is unchanged (pure, shared).
 
 ## Contract
 
@@ -84,11 +88,11 @@ class IntegrityPanel {
 
 ## Tests Required
 
-`src/test/webview/components/integrity.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setProfiles` apply/persist, profile CRUD callbacks, save-as validation, `setTabActive` lazy-init. Existing `integrity-check-model.test.ts` (import re-point) + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate).
+`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setProfiles` apply/persist, profile CRUD callbacks, save-as validation, `setTabActive` lazy-init. Existing `integrityCheckModel.test.ts` (import re-point) + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate).
 
 ## Anti-patterns
 
-- `IntegrityPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, `render/registry` (`rerender`), or `integrityPersistence`.
+- `integrityPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, `render/registry` (`rerender`), or `integrityPersistence`.
 - Component setting `S.integrityHighlight` / calling `rerender.memory()` directly (must use `onHighlightChange`).
 - Component calling `getByte` directly (must use injected `readByte`).
 - Host calling stale `renderIntegrity`/`activateIntegrity`/`setIntegrity*`/`notifyIntegrity*` module functions.

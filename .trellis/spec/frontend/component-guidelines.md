@@ -4,11 +4,11 @@
 
 The webview uses TypeScript modules that generate HTML strings and attach DOM listeners. `src/webview/hexViewer.ts` is the composition root. Rendering owners include:
 
-- `components/HexView/HexViewRender.ts` (+ `components/HexView/HexView.ts` interaction, `components/HexView/HexViewPaint.ts` DOM paint, `memory/memoryGrid.ts` host controller): virtualized memory header/body and selection paint.
+- `components/hexView/hexViewRender.ts` (+ `components/hexView/hexView.ts` interaction, `components/hexView/hexViewPaint.ts` DOM paint, `memory/memoryGrid.ts` host controller): virtualized memory header/body and selection paint.
 - `recordView.ts`: parsed-record table.
-- `components/Inspector/Inspector.ts` (+ `InspectorLabels.ts`): Inspector, bit view, multi-byte, segments, labels.
-- `sidebar/integrity/index.ts`: integrity cards and actions.
-- `sidebar/struct/index.ts`: struct editor, pins, decoded instance rows.
+- `components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`): Inspector, bit view, multi-byte, segments, labels.
+- `components/sidebar/integrityPanel/integrityPanel.ts`: integrity cards and actions.
+- `components/sidebar/structPanel/structPanel.ts`: struct editor, pins, decoded instance rows.
 - `contextMenuController.ts`: menu lifecycle; `contextCommands.ts`: command results.
 
 ## Required Pattern
@@ -70,6 +70,6 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 ## Test Anchors
 
 - `src/test/webview/webview.test.ts`: memory/record/sidebar/virtual-scroll behavior.
-- `src/test/webview/struct-ui.test.ts`: complex row rendering and actions.
-- `src/test/webview/webview-message-model.test.ts`: model/invalidation split.
+- `src/test/webview/structPanel.test.ts`: complex row rendering and actions.
+- `src/test/webview/webviewMessageModel.test.ts`: model/invalidation split.
 - `src/test/webview/utils.test.ts`: escaping and formatting.

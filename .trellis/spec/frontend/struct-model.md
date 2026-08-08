@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to shared struct types, `core/struct-codec.ts`, struct editor/import/export, pin model, pointer-created pins, persistence/migration, and decode inputs. Row rendering details live in `struct-instance-display.md`.
+Applies to shared struct types, `core/structCodec.ts`, struct editor/import/export, pin model, pointer-created pins, persistence/migration, and decode inputs. Row rendering details live in `struct-instance-display.md`.
 
 ### 2. Signatures
 
@@ -69,9 +69,9 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 
 ### 6. Tests Required
 
-- `src/test/core/struct.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, bitfields, pointers, path resolution, parser/text/C export round-trips.
-- `src/test/webview/struct-pins-model.test.ts`: full address parsing, injected IDs, uniqueness, immutable edit/remove, dependent removal, pointer reuse/source dedupe.
-- `src/test/webview/struct-ui.test.ts` plus `struct-instance-display.md`: visible rendering/action matrix.
+- `src/test/core/structPanel.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, bitfields, pointers, path resolution, parser/text/C export round-trips.
+- `src/test/webview/structPinsModel.test.ts`: full address parsing, injected IDs, uniqueness, immutable edit/remove, dependent removal, pointer reuse/source dedupe.
+- `src/test/webview/structPanel.test.ts` plus `struct-instance-display.md`: visible rendering/action matrix.
 - `src/test/core/provider-utils.test.ts`: legacy/global definition migration.
 
 ### 7. Wrong vs Correct

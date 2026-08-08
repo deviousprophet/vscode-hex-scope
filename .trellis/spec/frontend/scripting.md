@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to `src/core/scripting/` (pure core), `src/scriptHost.ts` (VS Code host adapter), `src/hexEditorSession.ts` (provider-side orchestration), `src/webview/components/Scripts/` (sidebar UI), `src/core/scripting/scriptWorker.ts` (Worker entry point), and protocol messages in `src/webviewProtocol.ts`.
+Applies to `src/core/scripting/` (pure core), `src/scriptHost.ts` (VS Code host adapter), `src/hexEditorSession.ts` (provider-side orchestration), `src/webview/components/sidebar/scriptsPanel/` (sidebar UI), `src/core/scripting/scriptWorker.ts` (Worker entry point), and protocol messages in `src/webviewProtocol.ts`.
 
 ### 2. Signatures
 
@@ -337,7 +337,7 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
 ### 11. Tests Required
 
 - `src/test/core/scripting-runner.test.ts` — core runner with mock ScriptHost, compile + execute round-trip
-- Protocol tests: new message types tested in `webview-message-model.test.ts`
+- Protocol tests: new message types tested in `webviewMessageModel.test.ts`
 - Integration: manual test with sample .js/.ts scripts run from sidebar
 - `VSCodeScriptHost` tests: edit passthrough, unmapped address, totalSize
 

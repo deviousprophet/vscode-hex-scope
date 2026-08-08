@@ -26,7 +26,7 @@ Both reports must contain zero dead-code issues, clone groups, health findings, 
 - Pure algorithms/models: `src/test/core/`.
 - DOM rendering, model transitions, and feature interaction: `src/test/webview/` with JSDOM helpers.
 - Extension registration: `src/test/extension/`.
-- Realistic IHEX/SREC samples: `src/test/shared/parser-fixtures.ts` plus format sample suites.
+- Realistic IHEX/SREC samples: `src/test/shared/parserFixtures.ts` plus format sample suites.
 
 ## Required Coverage by Change
 

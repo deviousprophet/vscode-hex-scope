@@ -2,22 +2,22 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Struct/StructPanel.ts` (+ `structPinsModel.ts`) + `StructPanel.css`: the sidebar Struct panel — both tracks (pins/instances + types/editor). The component owns all panel markup, expansion state, bit-field allocation toggle, editor draft state, pin add/edit state, field-value menus, pointer follow/create, and the bit-layout toggle. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
+Owns `src/webview/components/sidebar/structPanel/structPanel.ts` (+ `structPinsModel.ts`) + `structPanel.css`: the sidebar Struct panel — both tracks (pins/instances + types/editor). The component owns all panel markup, expansion state, bit-field allocation toggle, editor draft state, pin add/edit state, field-value menus, pointer follow/create, and the bit-layout toggle. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
 
 Host (`hexViewer.ts`) owns: `S` state, struct/pin persistence (`saveStructs`/`saveStructPins`), selection, endian, bit-field allocation, hex-view highlight, and jumps.
 
 ## Layout
 
 ```text
-src/webview/components/Struct/
+src/webview/components/sidebar/structPanel/
     StructPanel.ts         interaction controller: mount/render/setData/setEndian/setBitFieldAllocation/setSelection/setTabActive/resetViewState
     structPinsModel.ts     pure pin-model helpers (makeStructPin, withEditedStructPin, upsertPointerStructPin, ...)
-    StructPanel.css        all panel rules (moved verbatim from styles/struct.css)
+    structPanel.css        all panel rules (moved verbatim from styles/struct.css)
 src/webview/hexViewer.ts   host wiring (panel descriptor, applyStructs/applyPins/applyStructState, selectStructRangeHost, highlight)
-src/test/webview/components/struct.test.ts   (mocha + jsdom)
+src/test/webview/components/sidebar/structPanel/structPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`Sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `Sidebar.ts`/`Sidebar.css`. `core/struct-codec.ts` is unchanged (pure, shared).
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is unchanged (pure, shared).
 
 ## Contract
 
@@ -76,7 +76,7 @@ class StructPanel {
 
 ## Tests Required
 
-`src/test/webview/components/struct.test.ts`: mount (both tracks + empty states), `setData` renders instance cards + decoded rows + expansion persistence, `setEndian` re-decode, `setBitFieldAllocation` re-render + LSB/MSB toggle, row click → `onSelectRange`, pointer follow/create → `onSelectRange` + `onPinsChange`, editor save → `onStructsChange`, C preview, delete cascade → `onStateChange`, add/edit/delete pin → `onPinsChange`, `setSelection` → add-form address. Existing `struct-ui.test.ts` (setup-only re-point to the component, assertions unchanged) + `struct-pins-model.test.ts` (import re-point) + `webview.test.ts` struct suites pass unchanged (parity gate).
+`src/test/webview/components/sidebar/structPanel/structPanel.test.ts`: mount (both tracks + empty states), `setData` renders instance cards + decoded rows + expansion persistence, `setEndian` re-decode, `setBitFieldAllocation` re-render + LSB/MSB toggle, row click → `onSelectRange`, pointer follow/create → `onSelectRange` + `onPinsChange`, editor save → `onStructsChange`, C preview, delete cascade → `onStateChange`, add/edit/delete pin → `onPinsChange`, `setSelection` → add-form address, plus the deep-render suite (array headers, offsets, pointers, bit-field grouping, copy formats, byte order). `structPinsModel.test.ts` (import re-point) + `webview.test.ts` struct suites pass unchanged (parity gate).
 
 ## Anti-patterns
 
@@ -84,4 +84,4 @@ class StructPanel {
 - Component poking `[data-addr]` hex rows directly (must use `onHighlightHex`).
 - Host mutating `S.structs`/`S.structPins` without a `setData` push.
 - Global-DOM-id queries outside the component root.
-- Weakening `struct-ui.test.ts` assertions during the extraction (parity gate).
+- Weakening `structPanel.test.ts` assertions during the extraction (parity gate).

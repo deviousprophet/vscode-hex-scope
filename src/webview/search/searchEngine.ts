@@ -4,7 +4,7 @@ import { rerender } from '../render/registry';
 import { paintMemoryMatchHighlights, paintMemorySelection, scrollTo } from '../memory/memoryGrid';
 import { SearchEngine, buildNeedles } from '../../core/search';
 import type { SearchEndianness, SearchMode } from '../../core/types';
-import { searchKeyFor, type SearchTrigger } from '../components/SearchBar/searchBarRender';
+import { searchKeyFor, type SearchTrigger } from '../components/searchBar/searchBarRender';
 
 // -------------------- UI glue (previously in search.ts) --------------------
 

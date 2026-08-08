@@ -8,22 +8,22 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 |---|---|
 | `base.css` | Reset, design tokens (`:root` vars), shared utility classes |
 | `layout.css` | Two-pane layout |
-| `sidebar.css` | Shared sidebar panel rules (Scripts rules moved to `ScriptsPanel.css`) |
+| `sidebar.css` | Shared sidebar panel rules (Scripts rules moved to `scriptsPanel.css`) |
 | `struct.css` | Struct editor, instance cards, field rows |
-| `stats-bar.css` | Stats bar (bytes/records/segments/format) |
-| `HexView.css` (in components/HexView/) | Memory hex grid (component-owned) |
-| `Sidebar.css` (in components/Sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern |
-| `Inspector.css` (in components/Inspector/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
-| `ScriptsPanel.css` (in components/Scripts/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
+| `statsBar.css` | Stats bar (bytes/records/segments/format) |
+| `hexView.css` (in components/hexView/) | Memory hex grid (component-owned) |
+| `sidebar.css` (in components/sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern |
+| `inspectorPanel.css` (in components/sidebar/inspectorPanel/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
+| `scriptsPanel.css` (in components/sidebar/scriptsPanel/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |
 
 Extracted self-contained components move their component-specific rules out of `styles/` into a colocated CSS file imported by the component's `.ts`:
 
 ```text
-src/webview/components/SearchBar/
-    SearchBar.ts     import './SearchBar.css';
-    SearchBar.css    all .search-* / #search-* rules
+src/webview/components/searchBar/
+    searchBar.ts     import './searchBar.css';
+    searchBar.css    all .search-* / #search-* rules
 ```
 
 Once a component's rules are extracted, `styles/` holds only shared/global concerns. See [SearchBar Component](./components/component-search-bar.md).

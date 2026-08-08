@@ -1,7 +1,7 @@
-import { formatAnalyzeCommand, isAnalyzeCommand } from '../core/byte-tools/analysis';
-import { formatCopyCommand } from '../core/byte-tools/copy';
-import { isCopyCommand } from '../core/byte-tools/copyCommand';
-import { hexByte } from '../core/byte-tools/hex';
+import { formatAnalyzeCommand, isAnalyzeCommand } from '../core/byteTools/analysis';
+import { formatCopyCommand } from '../core/byteTools/copy';
+import { isCopyCommand } from '../core/byteTools/copyCommand';
+import { hexByte } from '../core/byteTools/hex';
 
 export type ContextCommandResult =
     | { type: 'none' }

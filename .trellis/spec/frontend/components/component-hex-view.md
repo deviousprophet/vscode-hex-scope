@@ -4,21 +4,21 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/HexView/` (`HexView.ts` interaction controller, `HexViewRender.ts` pure render layer, `HexViewPaint.ts` DOM paint utilities, `HexView.css`): the virtualized hex-grid (column header, data rows, gap rows, segment banners) as a pure presentational component. Host owns data (`S.memRows`, selection, matches, edits, integrity), virtual-scroll math, and all domain decisions.
+Owns `src/webview/components/hexView/` (`hexView.ts` interaction controller, `hexViewRender.ts` pure render layer, `hexViewPaint.ts` DOM paint utilities, `hexView.css`): the virtualized hex-grid (column header, data rows, gap rows, segment banners) as a pure presentational component. Host owns data (`S.memRows`, selection, matches, edits, integrity), virtual-scroll math, and all domain decisions.
 
 Boundary rule: the component owns markup, transient interaction, and styles. It never reads/writes `S`, never calls feature/engine functions, never posts provider messages — it reports through callbacks and paints host-invoked state.
 
 ## Layout
 
 ```text
-src/webview/components/HexView/
-    HexView.ts          interaction controller class + HexViewCallbacks
-    HexViewRender.ts    pure DOM-free render layer: types (HexViewCell/Banner/Row/Range/RenderInput), renderHexViewHeader, renderHexViewHtml, row/cell markup builders
-    HexViewPaint.ts     DOM paint/match utilities: cellAddress, selectedColumns, match highlighting, paintMatchesInRoot, clearCellPreview, columnFor, copy/editable guards
-    HexView.css         moved verbatim from styles/memory-view.css (bundled via esbuild)
+src/webview/components/hexView/
+    hexView.ts          interaction controller class + HexViewCallbacks
+    hexViewRender.ts    pure DOM-free render layer: types (HexViewCell/Banner/Row/Range/RenderInput), renderHexViewHeader, renderHexViewHtml, row/cell markup builders
+    hexViewPaint.ts     DOM paint/match utilities: cellAddress, selectedColumns, match highlighting, paintMatchesInRoot, clearCellPreview, columnFor, copy/editable guards
+    hexView.css         moved verbatim from styles/memory-view.css (bundled via esbuild)
 src/webview/memory/memoryGrid.ts     host grid controller (slice computation, render-input build, vscroll state); imports class from HexView, render from HexViewRender
 src/webview/hexViewer.ts             composition root: wires callbacks + ASCII toggle; imports HexViewRange from HexViewRender
-src/test/webview/components/hex-view.test.ts   (mocha + jsdom)
+src/test/webview/components/hexView.test.ts   (mocha + jsdom)
 ```
 
 ## Contract
@@ -91,7 +91,7 @@ export class HexView {
 - **Virtualization:** component owns scroll listener → `onVisibleWindowChange(scrollTop)`; host computes slice via `render/virtualScroll.ts` (shared with record view) and feeds new render input. Component does not import virtualScroll math.
 - **Header:** component renders it (hidden addr gutter + 00..0F hex cells always + "Decoded text" gated by `showAscii`); header scrollLeft sync is component-internal.
 - **Zero size math:** all sizing from CSS (`--cell-size`, `--text-cell-width`, `.cell-group` `4n+1` gaps, `.data-row` height). No width/height computation in TS. Positioning attributes (`top: windowTop` on the wrapper, spacer heights) are host-computed values emitted as inline `style` — pre-existing parity, not size math.
-- **CSS debt (documented, not new):** `HexView.css` carries ~10 `!important` rules (integrity/match/sel/col-hi overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
+- **CSS debt (documented, not new):** `hexView.css` carries ~10 `!important` rules (integrity/match/sel/col-hi overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
 - **Root-scoped (single-instance today):** constructor takes `rootSelector`; the component queries only within its root. Note the shell still uses the pre-existing global ids `#memory-view`/`#mem-header`/`#mem-scroll` (single-instance webview). Diff-view two-panel reuse will need those ids turned into class-scoped root markup (a future diff task).
 - **Host never writes component DOM directly:** nibble-edit preview via `paintCell(addr, text|null)`; component owns `.editing` class + `textContent`, restores from own `data-val`.
 - **showAscii boolean** (default true = byte-identical current); `false` gates only char cells + "Decoded text" header label.
@@ -123,7 +123,7 @@ export class HexView {
 
 ## Tests Required
 
-`src/test/webview/components/hex-view.test.ts` (mocha + jsdom + css-import-hook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
+`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
 
 ## Anti-patterns
 

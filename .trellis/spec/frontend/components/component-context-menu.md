@@ -4,18 +4,18 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/ContextMenu/ContextMenu.ts` + `ContextMenu.css`: the byte-selection context menu (menu markup, positioning at cursor, dismiss, submenu + custom-fill inline-input behavior). Host owns command execution (`handleCtxCommand`) + new actions (go-address, select-all, select-segment). Create-label is deferred to a future label rework (not part of this component).
+Owns `src/webview/components/contextMenu/contextMenu.ts` + `contextMenu.css`: the byte-selection context menu (menu markup, positioning at cursor, dismiss, submenu + custom-fill inline-input behavior). Host owns command execution (`handleCtxCommand`) + new actions (go-address, select-all, select-segment). Create-label is deferred to a future label rework (not part of this component).
 
 Boundary rule: the component owns menu markup, positioning, dismiss, submenu + transient input behavior, and styles. It never reads/writes `S`, never posts provider messages, never executes commands — it reports via `onCommand`.
 
 ## Layout
 
 ```text
-src/webview/components/ContextMenu/
-    ContextMenu.ts    pure render fns + class ContextMenu (mount/show/hide)
-    ContextMenu.css   context-menu rules (moved from styles/context-menu.css + new go/disabled rules)
+src/webview/components/contextMenu/
+    contextMenu.ts    pure render fns + class ContextMenu (mount/show/hide)
+    contextMenu.css   context-menu rules (moved from styles/context-menu.css + new go/disabled rules)
 src/webview/hexViewer.ts    host wiring (cmd dispatch + go-address/select actions)
-src/test/webview/components/context-menu.test.ts   (mocha + jsdom)
+src/test/webview/components/contextMenu.test.ts   (mocha + jsdom)
 ```
 
 ## Contract
@@ -57,7 +57,7 @@ export class ContextMenu {
 ## Behaviour
 
 - Menu opens only when `selectionActive`; header shows "N bytes selected" (+ "✏ Editing" badge in edit mode).
-- Copy/analyze/fill outputs unchanged — formatting lives in `core/byte-tools` (`formatCopyCommand`/`formatAnalyzeCommand`), command mapping in `contextCommands.ts`.
+- Copy/analyze/fill outputs unchanged — formatting lives in `core/byteTools` (`formatCopyCommand`/`formatAnalyzeCommand`), command mapping in `contextCommands.ts`.
 - Single-byte menu excludes Analyze (low signal) and Go address (needs 4 bytes).
 
 ## Validation & Error Matrix
@@ -73,7 +73,7 @@ export class ContextMenu {
 
 ## Tests Required
 
-`src/test/webview/components/context-menu.test.ts` (mocha + jsdom + css-import-hook): render layout variants (multi/single-byte/editMode/goAddress valid+invalid), interaction (onCommand on direct cmd, click-outside/Escape hide, hover-submenu, fill invalid toggle), copy cmd normalization wire (`contextCommandResult('copy-hex'…)` → copyText). Existing `webview.test.ts` context-menu assertions pass (updated cmd mapping).
+`src/test/webview/components/contextMenu.test.ts` (mocha + jsdom + cssImportHook): render layout variants (multi/single-byte/editMode/goAddress valid+invalid), interaction (onCommand on direct cmd, click-outside/Escape hide, hover-submenu, fill invalid toggle), copy cmd normalization wire (`contextCommandResult('copy-hex'…)` → copyText). Existing `webview.test.ts` context-menu assertions pass (updated cmd mapping).
 
 ## Anti-patterns
 

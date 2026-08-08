@@ -2,21 +2,21 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Scripts/ScriptsPanel.ts` + `ScriptsPanel.css`: the sidebar Scripts panel — toolbar (title/count/refresh), script cards (name/ext/capability badges/status dot/run-cancel button state machine), and embedded result areas (output streaming with realtime-first-100 + debounced batching, collapse/expand, error-type headers, writes-pending notice). The component owns all panel markup and UI state (`currentScripts`, `trusted`, `scriptStatus`, `runningPath`, `pendingTimer`, output batching state, `initialized`). It never reads/writes the `S` global and never posts provider messages: the list/run/cancel requests exit via callbacks, and selection/generation snapshots go through injected accessors.
+Owns `src/webview/components/sidebar/scriptsPanel/scriptsPanel.ts` + `scriptsPanel.css`: the sidebar Scripts panel — toolbar (title/count/refresh), script cards (name/ext/capability badges/status dot/run-cancel button state machine), and embedded result areas (output streaming with realtime-first-100 + debounced batching, collapse/expand, error-type headers, writes-pending notice). The component owns all panel markup and UI state (`currentScripts`, `trusted`, `scriptStatus`, `runningPath`, `pendingTimer`, output batching state, `initialized`). It never reads/writes the `S` global and never posts provider messages: the list/run/cancel requests exit via callbacks, and selection/generation snapshots go through injected accessors.
 
 Host (`hexViewer.ts`) owns: `S` state, `S.documentGeneration`, `currentSelectionRange()`, and `postProviderMessage` for `requestScriptList`/`runScript`/`cancelScript`; host message handlers fan into component setters.
 
 ## Layout
 
 ```text
-src/webview/components/Scripts/
-    ScriptsPanel.ts       interaction controller: mount/render/setScripts/showResult/appendOutput/setTabActive
-    ScriptsPanel.css      all panel rules (moved verbatim from styles/sidebar.css)
+src/webview/components/sidebar/scriptsPanel/
+    scriptsPanel.ts       interaction controller: mount/render/setScripts/showResult/appendOutput/setTabActive
+    scriptsPanel.css      all panel rules (moved verbatim from styles/sidebar.css)
 src/webview/hexViewer.ts  host wiring (panel descriptor, callbacks, message fan-out)
-src/test/webview/components/scripts.test.ts   (mocha + jsdom)
+src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`Sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `Sidebar.ts`/`Sidebar.css`. `core/scripting/` is unchanged (pure, shared).
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/scripting/` is unchanged (pure, shared).
 
 ## Contract
 
@@ -88,7 +88,7 @@ class ScriptsPanel {
 
 ## Tests Required
 
-`src/test/webview/components/scripts.test.ts`: mount/render (toolbar + empty state + idempotent), refresh → `onRequestList`, `setScripts` (cards: name/ext/cap badges/status dots, count badge, trusted vs untrusted disabled, `.ts` `disabled-ts`), run/cancel state machine (payload shape with generation/selection, play→spinner→stop→play, cancel during pending, second-run ignored), `showResult` (success/compile/runtime/timeout/cancel headers, results rows, log, writes notice, auto-expand + collapse toggle, re-run replaces, escaping, unknown-path no-op), `appendOutput` (realtime + first-100-then-batched flush, escaping, no-run no-op), `setTabActive` lazy-init gate. Existing `webview-message-model.test.ts` script protocol rows + `webview.test.ts` pass unchanged (parity gate).
+`src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts`: mount/render (toolbar + empty state + idempotent), refresh → `onRequestList`, `setScripts` (cards: name/ext/cap badges/status dots, count badge, trusted vs untrusted disabled, `.ts` `disabled-ts`), run/cancel state machine (payload shape with generation/selection, play→spinner→stop→play, cancel during pending, second-run ignored), `showResult` (success/compile/runtime/timeout/cancel headers, results rows, log, writes notice, auto-expand + collapse toggle, re-run replaces, escaping, unknown-path no-op), `appendOutput` (realtime + first-100-then-batched flush, escaping, no-run no-op), `setTabActive` lazy-init gate. Existing `webviewMessageModel.test.ts` script protocol rows + `webview.test.ts` pass unchanged (parity gate).
 
 ## Anti-patterns
 
@@ -96,5 +96,5 @@ class ScriptsPanel {
 - Component calling `currentSelectionRange()` / reading `S.documentGeneration` directly (must use `getSelection`/`getGeneration`).
 - Component posting `requestScriptList`/`runScript`/`cancelScript` (must use `onRequestList`/`onRunScript`/`onCancelScript`).
 - Host calling stale `renderScripts`/`activateScripts`/`updateScriptList`/`updateScriptResult`/`updateScriptOutput` module functions.
-- Weakening `webview-message-model.test.ts` script protocol assertions during the extraction (parity gate).
-- Adding `.script-*` rules back to `styles/sidebar.css` (they live in `ScriptsPanel.css`).
+- Weakening `webviewMessageModel.test.ts` script protocol assertions during the extraction (parity gate).
+- Adding `.script-*` rules back to `styles/sidebar.css` (they live in `scriptsPanel.css`).

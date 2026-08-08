@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import '../css-import-hook';
+import '../cssImportHook';
 
-import { Sidebar, type SidebarPanel } from '../../../webview/components/Sidebar/Sidebar';
+import { Sidebar, type SidebarPanel } from '../../../webview/components/sidebar/sidebar';
 
 let currentDom: JSDOM | null = null;
 

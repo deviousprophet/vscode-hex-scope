@@ -19,15 +19,15 @@ import {
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
 import { currentSelectionRange, selectedBytes } from './memory/selection';
-import type { HexViewRange } from './components/HexView/HexViewRender';
-import { Inspector } from './components/Inspector/Inspector';
-import { StructPanel } from './components/Struct/StructPanel';
+import type { HexViewRange } from './components/hexView/hexViewRender';
+import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
+import { StructPanel } from './components/sidebar/structPanel/structPanel';
 import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
-import { SearchBar } from './components/SearchBar/SearchBar';
-import { Toolbar } from './components/Toolbar/Toolbar';
+import { SearchBar } from './components/searchBar/searchBar';
+import { Toolbar } from './components/toolbar/toolbar';
 import type { SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
-import type { SidebarTab } from './sidebar/sidebarTypes';
-import { RecordView, type RecordViewRenderInput } from './components/RecordView/RecordView';
+import type { SidebarTab } from './components/sidebar/sidebar';
+import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
 import { RECORD_PAGE_SIZE } from '../webviewProtocol';
 import {
@@ -42,7 +42,7 @@ import {
 } from './render/virtualScroll';
 import { renderStats } from './statsBar';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
-import { ExternalChange } from './components/ExternalChange/ExternalChange';
+import { ExternalChange } from './components/externalChange/externalChange';
 import { updateExternalChangeLockState } from './lock';
 
 import {
@@ -53,8 +53,8 @@ import {
     type IncomingFile,
     unlockExternalChange,
 } from './appModel';
-import { IntegrityPanel, type IntegrityHighlight } from './components/Integrity/IntegrityPanel';
-import { ScriptsPanel } from './components/Scripts/ScriptsPanel';
+import { IntegrityPanel, type IntegrityHighlight } from './components/sidebar/integrityPanel/integrityPanel';
+import { ScriptsPanel } from './components/sidebar/scriptsPanel/scriptsPanel';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
@@ -63,9 +63,9 @@ import {
     type WebviewModelUpdate,
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
-import { formatCopyCommand } from '../core/byte-tools/copy';
-import { ContextMenu, type ContextMenuState } from './components/ContextMenu/ContextMenu';
-import { Sidebar, type SidebarPanel } from './components/Sidebar/Sidebar';
+import { formatCopyCommand } from '../core/byteTools/copy';
+import { ContextMenu, type ContextMenuState } from './components/contextMenu/contextMenu';
+import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
 
 // ── Record view component ────────────────────────────────────────
 // Component owns table markup, format-specific row formatting, scroll
@@ -99,7 +99,7 @@ const recordView = new RecordView('#record-view', {
 // The host pushes data via setters; the panel reports actions via
 // callbacks (jump, label changes, copy).
 
-const inspector = new Inspector({
+const inspectorPanel = new InspectorPanel({
     readByte: getByte,
     onJumpTo: address => rerender.jumpTo(address),
     onLabelsChange: applyInspectorLabels,
@@ -117,10 +117,10 @@ function applyInspectorLabels(labels: typeof S.labels): void {
 
 /** Push the full Inspector data snapshot after a mount/full render. */
 function pushInspectorState(): void {
-    inspector.setEndian(S.endian);
-    inspector.setSegments(S.parseResult?.segments ?? []);
-    inspector.setLabels(S.labels);
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setEndian(S.endian);
+    inspectorPanel.setSegments(S.parseResult?.segments ?? []);
+    inspectorPanel.setLabels(S.labels);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
 
 // ── Struct panel component ────────────────────────────────────────
@@ -217,7 +217,7 @@ const scriptsPanel = new ScriptsPanel({
 });
 
 const sidebarPanels: SidebarPanel[] = [
-    { id: 'inspector', label: 'Inspector', mount: root => inspector.mount(root) },
+    { id: 'inspector', label: 'Inspector', mount: root => inspectorPanel.mount(root) },
     { id: 'struct', label: 'Struct', mount: root => structPanel.mount(root) },
     { id: 'integrity', label: 'Integrity', mount: root => integrityPanel.mount(root) },
     { id: 'scripts', label: 'Scripts', mount: root => scriptsPanel.mount(root) },
@@ -465,7 +465,7 @@ function cancelEdits(): void {
     toolbar.setEditMode(false);
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
 
 function clearNibbleBuffer(): void {
@@ -481,7 +481,7 @@ function refreshAfterLocalEdit(): void {
     toolbar.setDirty(S.edits.size);
     toolbar.setEditMode(S.editMode);
     memRerender();
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
 }
@@ -511,7 +511,7 @@ function handleEditEscape(): void {
     S.selStart = null;
     S.selEnd = null;
     paintMemorySelection();
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
 
 function handleEditBufferChar(selStart: number, char: string): void {
@@ -868,7 +868,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['editControls', () => toolbar.setEditMode(S.editMode)],
         ['dirtyBar', () => toolbar.setDirty(S.edits.size)],
         ['stats', renderStatsBar],
-        ['segments', () => inspector.setSegments(S.parseResult?.segments ?? [])],
+        ['segments', () => inspectorPanel.setSegments(S.parseResult?.segments ?? [])],
         ['structPins', () => structPanel.setData(S.structs, S.structPins)],
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
@@ -977,7 +977,7 @@ function setFileEndian(endian: 'le' | 'be'): void {
     const settings = document.getElementById('sidebar-common-settings');
     if (settings) { renderEndianToggle(settings); }
     postProviderMessage({ type: 'saveEndian', endian });
-    inspector.setEndian(S.endian);
+    inspectorPanel.setEndian(S.endian);
     structPanel.setEndian(S.endian);
     integrityPanel.notifyEndianChanged();
 }
@@ -995,8 +995,8 @@ function setupLockInterception(): void {
 
 function setupRerenderCallbacks(): void {
     rerender.memory   = () => memRerender();
-    rerender.labels   = () => inspector.setLabels(S.labels);
-    rerender.inspector = () => inspector.setSelection(S.selStart, S.selEnd);
+    rerender.labels   = () => inspectorPanel.setLabels(S.labels);
+    rerender.inspector = () => inspectorPanel.setSelection(S.selStart, S.selEnd);
     rerender.toMemory = () => switchView('memory');
     rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
 }
@@ -1011,7 +1011,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => structPanel.resetViewState(),
-    struct: () => inspector.setLabels(S.labels),
+    struct: () => inspectorPanel.setLabels(S.labels),
     integrity: () => integrityPanel.setTabActive(true),
     scripts: () => scriptsPanel.setTabActive(true),
 };
@@ -1071,8 +1071,8 @@ function updateByteSelection(start: number, end: number): void {
     S.selStart = start;
     S.selEnd   = end;
     paintMemorySelection();
-    inspector.setSelection(S.selStart, S.selEnd);
-    inspector.syncLabelForm();
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.syncLabelForm();
     structPanel.setSelection(S.selStart);
 }
 
@@ -1100,8 +1100,8 @@ function onHexViewSelectionChange(range: HexViewRange): void {
     S.selStart = range.start;
     S.selEnd = range.end;
     paintMemorySelection();
-    inspector.setSelection(S.selStart, S.selEnd);
-    inspector.syncLabelForm();
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.syncLabelForm();
 }
 
 function selLen(): number {
@@ -1159,7 +1159,7 @@ function refreshAfterIntegrityEdits(): void {
     toolbar.setEditMode(S.editMode);
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
 }
@@ -1170,7 +1170,7 @@ function applyFill(fillVal: number): void {
     fillSelectionTransaction(currentSelectionRange(), fillVal);
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
 }
@@ -1180,7 +1180,7 @@ function undoLastEdit(): void {
     if (!undoLastEditTransaction()) { return; }
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
-    inspector.setSelection(S.selStart, S.selEnd);
+    inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
 }

@@ -66,8 +66,8 @@ When adding state:
 
 ## Test Anchors
 
-- `src/test/webview/webview-message-model.test.ts`
+- `src/test/webview/webviewMessageModel.test.ts`
 - `src/test/webview/webview.test.ts` (`initFlatBytes`, defaults, memory rows)
 - `src/test/core/provider-utils.test.ts` (format detection and struct migration)
-- `src/test/webview/integrity-check-model.test.ts`
-- `src/test/webview/struct-pins-model.test.ts`
+- `src/test/webview/integrityCheckModel.test.ts`
+- `src/test/webview/structPinsModel.test.ts`
