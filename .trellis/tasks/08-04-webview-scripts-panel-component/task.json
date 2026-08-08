@@ -3,7 +3,7 @@
   "name": "webview-scripts-panel-component",
   "title": "Extract Scripts panel into self-contained component",
   "description": "Child of sidebar parent. Scripts list + result display panel.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

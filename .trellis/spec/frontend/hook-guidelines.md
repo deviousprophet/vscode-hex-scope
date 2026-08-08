@@ -24,6 +24,7 @@
 | `components/Inspector/` | Inspector panel state + rendering |
 | `components/Integrity/` | Integrity check state + UI |
 | `components/Struct/` | Struct overlay state + rendering |
+| `components/Scripts/` | Script runner panel state + rendering |
 
 ---
 

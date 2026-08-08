@@ -8,12 +8,13 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 |---|---|
 | `base.css` | Reset, design tokens (`:root` vars), shared utility classes |
 | `layout.css` | Two-pane layout |
-| `sidebar.css` | Scripts panel-content rules (Inspector rules moved to `Inspector.css`) |
+| `sidebar.css` | Shared sidebar panel rules (Scripts rules moved to `ScriptsPanel.css`) |
 | `struct.css` | Struct editor, instance cards, field rows |
 | `stats-bar.css` | Stats bar (bytes/records/segments/format) |
 | `HexView.css` (in components/HexView/) | Memory hex grid (component-owned) |
 | `Sidebar.css` (in components/Sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern |
 | `Inspector.css` (in components/Inspector/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
+| `ScriptsPanel.css` (in components/Scripts/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |
 
