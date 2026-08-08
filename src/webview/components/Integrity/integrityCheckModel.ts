@@ -35,6 +35,9 @@ export interface IntegrityDraft {
     storedRaw: string;
 }
 
+/** Auto-fix/fix-all write target: a stored field to overwrite with calculated bytes. */
+export type StoredValueUpdate = { address: number; expected: Uint8Array };
+
 type IntegrityConfigValidation = { ok: true; value: IntegrityCheckConfig } | { ok: false; error: string };
 type IntegrityConfigListValidation = { ok: true; value: IntegrityCheckConfig[] } | { ok: false; error: string };
 type IntegrityCheckSetValidation = { ok: true; value: IntegrityCheckSet } | { ok: false; error: string };
