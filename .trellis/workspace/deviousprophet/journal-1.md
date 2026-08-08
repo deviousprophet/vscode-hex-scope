@@ -264,3 +264,24 @@ Extracted the Struct sidebar panel into src/webview/components/Struct/ (StructPa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: Session 11: Extract Integrity panel into self-contained component
+
+**Date**: 2026-08-08
+**Task**: Session 11: Extract Integrity panel into self-contained component
+**Branch**: `feat/webview-integrity-component`
+
+### Summary
+
+Extracted the Integrity sidebar panel into src/webview/components/IntegrityPanel/ (IntegrityPanel.ts + IntegrityPanel.css + integrityCheckModel.ts). Host hexViewer.ts rewired: byte reads via injected readByte, shared endian via getEndian, selection via getSelection, auto-fix edits via onStoredValueEdits (stageIntegrityEdits), highlight via onHighlightChange (S.integrityHighlight + rerender.memory), persistence/copy/profile CRUD via callbacks. setIntegrityEditHandler dropped; activateIntegrity lazy-init became setTabActive. Deleted sidebar/integrity/ + styles/integrity.css. Added component spec + integrity.test.ts; model + CSS moved byte-identical. lint/check-types/688 tests green; check agent APPROVED (justified deviation: getEndian pull callback). Branch feat/webview-integrity-component, PR pending.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `532f869` | (see git log) |
+
+### Status
+
+[OK] **Completed**
