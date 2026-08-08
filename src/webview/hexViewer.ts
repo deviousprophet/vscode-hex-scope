@@ -53,7 +53,7 @@ import {
     type IncomingFile,
     unlockExternalChange,
 } from './appModel';
-import { IntegrityPanel, type IntegrityHighlight } from './components/IntegrityPanel/IntegrityPanel';
+import { IntegrityPanel, type IntegrityHighlight } from './components/Integrity/IntegrityPanel';
 import { updateScriptList, updateScriptResult, updateScriptOutput, activateScripts, renderScripts } from './sidebar/scripts/index';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';

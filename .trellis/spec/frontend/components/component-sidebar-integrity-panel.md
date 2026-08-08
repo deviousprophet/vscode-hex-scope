@@ -2,14 +2,14 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/IntegrityPanel/IntegrityPanel.ts` (+ `integrityCheckModel.ts`) + `IntegrityPanel.css`: the sidebar Integrity panel — check list (add/edit/delete, algorithm selection, address/stored-value inputs, auto-fix toggle), per-check result display (calculated/stored comparison, copy), and the profile library (select/create/rename/update/delete, save-as, fix-all). The component owns all panel markup, check/form/profile UI state, debounced calculation scheduling, and auto-fix suppression. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads/selection/endian go through injected accessors, and actions report via callbacks.
+Owns `src/webview/components/Integrity/IntegrityPanel.ts` (+ `integrityCheckModel.ts`) + `IntegrityPanel.css`: the sidebar Integrity panel — check list (add/edit/delete, algorithm selection, address/stored-value inputs, auto-fix toggle), per-check result display (calculated/stored comparison, copy), and the profile library (select/create/rename/update/delete, save-as, fix-all). The component owns all panel markup, check/form/profile UI state, debounced calculation scheduling, and auto-fix suppression. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads/selection/endian go through injected accessors, and actions report via callbacks.
 
 Host (`hexViewer.ts`) owns: `S` state, checks/profile persistence (`saveIntegrityChecks`, `create/update/rename/deleteIntegrityProfile`), edit staging (`stageIntegrityEdits`), `S.integrityHighlight` + `rerender.memory()`, and the endian/bytes-changed/discard event fan-out.
 
 ## Layout
 
 ```text
-src/webview/components/IntegrityPanel/
+src/webview/components/Integrity/
     IntegrityPanel.ts       interaction controller: mount/render/setProfiles/setChecks/notifyBytesChanged/notifyEditsDiscarded/notifyEndianChanged/setTabActive
     integrityCheckModel.ts  pure check-model helpers (makeIntegrityCheck, draftFromIntegrityConfig, integrityCheckSetFromStates, ...)
     IntegrityPanel.css      all panel rules (moved verbatim from styles/integrity.css)

@@ -22,7 +22,7 @@
 | `editTransactions.ts` | Undo stack: fillSelectionTransaction, stageIntegrityEdit, undoLastEditTransaction |
 | `search/searchEngine.ts` | Search state + execution |
 | `components/Inspector/` | Inspector panel state + rendering |
-| `components/IntegrityPanel/` | Integrity check state + UI |
+| `components/Integrity/` | Integrity check state + UI |
 | `components/Struct/` | Struct overlay state + rendering |
 
 ---

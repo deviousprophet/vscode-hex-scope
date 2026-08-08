@@ -42,7 +42,7 @@ src/
     |  |- Sidebar/               Sidebar.ts + Sidebar.css (shell; panels injected)
     |  |- Inspector/             Inspector.ts + InspectorLabels.ts + Inspector.css
     |  |- Struct/                StructPanel.ts + structPinsModel.ts + StructPanel.css
-    |  `- IntegrityPanel/        IntegrityPanel.ts + integrityCheckModel.ts + IntegrityPanel.css
+     |  `- Integrity/             IntegrityPanel.ts + integrityCheckModel.ts + IntegrityPanel.css
     `- sidebar/scripts/          feature module (script runner panel)
 
 ```

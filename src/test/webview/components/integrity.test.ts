@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import '../css-import-hook';
 
-import { IntegrityPanel, type IntegrityHighlight } from '../../../webview/components/IntegrityPanel/IntegrityPanel';
+import { IntegrityPanel, type IntegrityHighlight } from '../../../webview/components/Integrity/IntegrityPanel';
 import { getByte } from '../../../webview/memory/memoryData';
 import { setBytesInSegment } from '../../shared/struct-test-helpers';
 import { S } from '../../../webview/state';

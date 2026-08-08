@@ -712,7 +712,7 @@ suite('Integrity Checks sidebar', () => {
         api.vscode.postMessage = msg => { posted.push(msg); };
 
         try {
-            const { IntegrityPanel } = await import('../../webview/components/IntegrityPanel/IntegrityPanel.js');
+            const { IntegrityPanel } = await import('../../webview/components/Integrity/IntegrityPanel.js');
             const { calculateIntegrity } = await import('../../core/integrity.js');
             const stagedTransactions: Array<Array<[number, number]>> = [];
             const panel = new IntegrityPanel({
