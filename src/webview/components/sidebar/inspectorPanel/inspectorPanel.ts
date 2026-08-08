@@ -287,7 +287,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         if (!this.hasMultiInlineStart()) {
             el.innerHTML = ''; return;
         }
-        const selLen = this.multiInlineSelectionLength();
+        const selLen = inspectorSelectionLength(this.selection);
         if (selLen < 2) { el.innerHTML = ''; return; }
 
         const width = multiWidth(selLen);
@@ -308,13 +308,6 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     private hasMultiInlineStart(): boolean {
         return this.selection.start !== null && this.cb.readByte(this.selection.start) !== undefined;
-    }
-
-    private multiInlineSelectionLength(): number {
-        const { start, end } = this.selection;
-        return (start !== null && end !== null && end >= start)
-            ? end - start + 1
-            : 1;
     }
 
     private selectedPaddedBytes(width: number, selLen: number): number[] {
