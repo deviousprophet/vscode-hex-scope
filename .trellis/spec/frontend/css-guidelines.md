@@ -4,19 +4,19 @@
 
 All CSS belongs under `src/webview/styles/`. One file per feature area:
 
-  File   Content  
- --- --- 
-  `base.css`   Reset, design tokens (`:root` vars), shared utility classes  
-  `layout.css`   Two-pane layout  
-  `sidebar.css`   Shared sidebar panel rules (Scripts rules moved to `scriptsPanel.css`)  
-  `struct.css`   Struct editor, instance cards, field rows  
-  `statsBar.css`   Stats bar (bytes/records/segments/format)  
-  `hexView.css` (in components/hexView/)   Memory hex grid (component-owned)  
-  `sidebar.css` (in components/sidebar/)   Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern  
-  `InspectorPanel.css` (in components/sidebar/inspectorPanel/)   Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form  
-  `scriptsPanel.css` (in components/sidebar/scriptsPanel/)   Scripts panel: toolbar, cards, run/cancel button, result blocks, output log  
-  `record-view.css`   Record table  
-  `context-menu.css`   Right-click menu  
+| File | Content |
+|---|---|
+| `base.css` | Reset, design tokens (`:root` vars), shared utility classes |
+| `layout.css` | Two-pane layout |
+| `sidebar.css` | Shared sidebar panel rules (Scripts rules moved to `scriptsPanel.css`) |
+| `struct.css` | Struct editor, instance cards, field rows |
+| `statsBar.css` | Stats bar (bytes/records/segments/format) |
+| `hexView.css` (in components/hexView/) | Memory hex grid (component-owned) |
+| `sidebar.css` (in components/sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern |
+| `inspectorPanel.css` (in components/sidebar/inspectorPanel/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
+| `scriptsPanel.css` (in components/sidebar/scriptsPanel/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
+| `record-view.css` | Record table |
+| `context-menu.css` | Right-click menu |
 
 Extracted self-contained components move their component-specific rules out of `styles/` into a colocated CSS file imported by the component's `.ts`:
 
