@@ -29,7 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 12 | 2026-08-08 | Session 13: Fix IntegrityPanel review smells (final cleanup for 08-03) | `cfb028c` | `main` |
+| 12 | 2026-08-08 | Session 13: Fix IntegrityPanel review smells (final cleanup for 08-03) | `cfb028c` | `fix/webview-integrity-review-smells` |
 | 11 | 2026-08-08 | Session 12: Extract Scripts panel into self-contained component | `cb4662c` | `feat/webview-scripts-component` |
 | 10 | 2026-08-08 | Session 11: Extract Integrity panel into self-contained component | `532f869` | `feat/webview-integrity-component` |
 | 9 | 2026-08-06 | Extract Struct panel into self-contained component | `1b2b0f0` | `feat/webview-struct-component` |
