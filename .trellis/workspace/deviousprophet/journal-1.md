@@ -308,10 +308,10 @@ Extracted the Scripts sidebar panel into src/webview/components/Scripts/ (Script
 [OK] **Completed**
 
 
-## Session 12: Session 14: Close webview component refactor
+## Session 14: Close webview component refactor
 
 **Date**: 2026-08-08
-**Task**: Session 14: Close webview component refactor
+**Task**: Close webview component refactor
 **Branch**: `chore/close-webview-refactor-tasks`
 
 ### Summary
