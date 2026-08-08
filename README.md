@@ -7,6 +7,8 @@
 
 Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SREC files as address-aware memory, inspect binary data, decode C structs, verify integrity values, and patch bytes without leaving the editor.
 
+![Demo](https://raw.githubusercontent.com/deviousprophet/vscode-hex-scope/main/images/demo.gif)
+
 ## Core features
 
 ### View and navigate
