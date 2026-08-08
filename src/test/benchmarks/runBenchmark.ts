@@ -5,7 +5,7 @@ const path = require('node:path') as typeof import('node:path');
 const { buildSync } = require('esbuild') as typeof import('esbuild');
 
 const allBenchmarks = readdirSync(__dirname)
-    .filter(f => f.endsWith('-benchmark.ts') && f !== 'runBenchmark.ts')
+    .filter(f => f.endsWith('Benchmark.ts') && f !== 'runBenchmark.ts')
     .map(f => path.join(__dirname, f));
 
 const args = process.argv.slice(2);
