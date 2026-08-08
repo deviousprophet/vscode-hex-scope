@@ -43,6 +43,7 @@ import {
     makeIntegrityCheck,
     type IntegrityCheckState,
     type IntegrityDraft,
+    type StoredValueUpdate,
 } from './integrityCheckModel';
 import './IntegrityPanel.css';
 
@@ -540,8 +541,8 @@ export class IntegrityPanel {
 
     // ── Fix all ────────────────────────────────────────────────────
 
-    private fixableChecks(): Array<{ check: IntegrityCheckState; update: { address: number; expected: Uint8Array } }> {
-        const fixable: Array<{ check: IntegrityCheckState; update: { address: number; expected: Uint8Array } }> = [];
+    private fixableChecks(): Array<{ check: IntegrityCheckState; update: StoredValueUpdate }> {
+        const fixable: Array<{ check: IntegrityCheckState; update: StoredValueUpdate }> = [];
         for (const check of this.checks) {
             if (!this.isMismatchedCheck(check)) { continue; }
             const update = this.storedValueUpdate(check);
@@ -566,14 +567,14 @@ export class IntegrityPanel {
         this.syncHighlight();
     }
 
-    private applyStoredWrites(fixable: Array<{ check: IntegrityCheckState; update: { address: number; expected: Uint8Array } }>): void {
+    private applyStoredWrites(fixable: Array<{ check: IntegrityCheckState; update: StoredValueUpdate }>): void {
         for (const item of fixable) {
             item.check.storedBytes = Uint8Array.from(item.update.expected);
             this.updateCheckCard(item.check);
         }
     }
 
-    private fixableCheckEdits(item: { check: IntegrityCheckState; update: { address: number; expected: Uint8Array } }): Array<[number, number]> {
+    private fixableCheckEdits(item: { check: IntegrityCheckState; update: StoredValueUpdate }): Array<[number, number]> {
         return Array.from(item.update.expected, (value, offset) => [item.update.address + offset, value]);
     }
 
@@ -817,7 +818,6 @@ export class IntegrityPanel {
     private checkStatusLabel(check: IntegrityCheckState): string {
         if (check.error) { return 'Error'; }
         if (check.calculating) { return 'Calculating'; }
-        if (check.result) { return this.completedCheckStatus(check); }
         return this.completedCheckStatus(check);
     }
 
@@ -879,10 +879,10 @@ export class IntegrityPanel {
         <div class="integrity-comparison${this.singleComparisonClass(stored)}">
             <div class="integrity-value-pane calculated">
                 <div class="integrity-value-hdr">
-                    <span title="${display.title}">${display.label}</span>
+                    <span>${display.label}</span>
                     <button class="integrity-copy-btn" type="button" data-copy-calculated data-check-id="${check.id}" title="Copy calculated value" aria-label="Copy calculated value">⧉</button>
                 </div>
-                <code title="${display.title}">${formatHexHtml(`0x${display.value}`)}</code>
+                <code>${formatHexHtml(`0x${display.value}`)}</code>
             </div>
             ${stored}
         </div>
@@ -891,8 +891,8 @@ export class IntegrityPanel {
 
     private calculatedDisplay(
         result: IntegrityResult,
-    ): { label: string; value: string; title: string } {
-        return { label: 'Calculated', value: result.value, title: '' };
+    ): { label: string; value: string } {
+        return { label: 'Calculated', value: result.value };
     }
 
     private hasStoredChecksum(check: IntegrityCheckState): boolean {
@@ -1010,7 +1010,7 @@ export class IntegrityPanel {
         this.cb.onHighlightChange?.(null);
     }
 
-    private storedValueUpdate(check: IntegrityCheckState): { address: number; expected: Uint8Array } | null {
+    private storedValueUpdate(check: IntegrityCheckState): StoredValueUpdate | null {
         if (!check.expectedBytes) { return null; }
         if (!check.storedRaw) { return null; }
         const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');

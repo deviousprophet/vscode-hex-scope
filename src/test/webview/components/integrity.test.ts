@@ -6,7 +6,7 @@ import { IntegrityPanel, type IntegrityHighlight } from '../../../webview/compon
 import { getByte } from '../../../webview/memory/memoryData';
 import { setBytesInSegment } from '../../shared/struct-test-helpers';
 import { S } from '../../../webview/state';
-import { calculateIntegrity } from '../../../core/integrity';
+import { calculateIntegrity, integrityValueToBytes } from '../../../core/integrity';
 
 let currentDom: JSDOM | null = null;
 
@@ -140,6 +140,15 @@ suite('IntegrityPanel mount + render', () => {
         panel.render();
         assert.strictEqual(document.querySelectorAll('.integrity-shell').length, 1);
         assert.strictEqual(document.getElementById('integrity-check-list')?.textContent, 'No integrity checks configured.');
+    });
+
+    test('fresh check without a result renders Not configured status', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        panel.setChecks({ schemaVersion: 1, checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }] });
+        panel.render();
+        const status = integrityCard().querySelector<HTMLElement>('[data-check-status]')!;
+        assert.strictEqual(status.title, 'Not configured');
+        assert.strictEqual(status.textContent, '?');
     });
 
     test('add form opens with selection defaults from getSelection', () => {
@@ -302,7 +311,8 @@ suite('IntegrityPanel results + auto fix', () => {
         autoFix.checked = true;
         autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         assert.strictEqual(cb.staged.length, 1, 'toggle stages the mismatched stored value');
-        assert.strictEqual(cb.staged[0][0][0], 0x1002);
+        const expectedBytes = integrityValueToBytes((await calculateIntegrity('crc16-ccitt-false', new Uint8Array([1, 2]))).value, 'le');
+        assert.deepStrictEqual(cb.staged[0], Array.from(expectedBytes, (byte, offset): [number, number] => [0x1002 + offset, byte]));
         await waitForCalculation();
         assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '✓');
 
