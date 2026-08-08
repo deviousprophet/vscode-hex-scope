@@ -287,10 +287,10 @@ Extracted the Integrity sidebar panel into src/webview/components/IntegrityPanel
 [OK] **Completed**
 
 
-## Session 11: Session 12: Extract Scripts panel into self-contained component
+## Session 12: Extract Scripts panel into self-contained component
 
 **Date**: 2026-08-08
-**Task**: Session 12: Extract Scripts panel into self-contained component
+**Task**: Extract Scripts panel into self-contained component
 **Branch**: `feat/webview-scripts-component`
 
 ### Summary
@@ -301,7 +301,7 @@ Extracted the Scripts sidebar panel into src/webview/components/Scripts/ (Script
 
 | Hash | Message |
 |------|---------|
-| `b2e98f8` | (see git log) |
+| `cb4662c` | refactor(webview): extract Scripts panel into self-contained component |
 
 ### Status
 

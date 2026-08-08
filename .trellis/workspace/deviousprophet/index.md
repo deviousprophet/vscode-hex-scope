@@ -29,7 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 11 | 2026-08-08 | Session 12: Extract Scripts panel into self-contained component | `b2e98f8` | `feat/webview-scripts-component` |
+| 11 | 2026-08-08 | Session 12: Extract Scripts panel into self-contained component | `cb4662c` | `feat/webview-scripts-component` |
 | 10 | 2026-08-08 | Session 11: Extract Integrity panel into self-contained component | `532f869` | `feat/webview-integrity-component` |
 | 9 | 2026-08-06 | Extract Struct panel into self-contained component | `1b2b0f0` | `feat/webview-struct-component` |
 | 8 | 2026-08-04 | Rework ContextMenu into self-contained component (#151) | `5b46607`, `9c73bfd`, `015da96`, `18d064e` | `feat/webview-context-menu-component` |
