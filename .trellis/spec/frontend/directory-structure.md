@@ -41,9 +41,9 @@ src/
    |  |- ContextMenu/           ContextMenu.ts + ContextMenu.css
     |  |- Sidebar/               Sidebar.ts + Sidebar.css (shell; panels injected)
     |  |- Inspector/             Inspector.ts + InspectorLabels.ts + Inspector.css
-    |  |- Struct/                StructPanel.ts + structPinsModel.ts + StructPanel.css
-     |  `- Integrity/             IntegrityPanel.ts + integrityCheckModel.ts + IntegrityPanel.css
-    `- sidebar/scripts/          feature module (script runner panel)
+     |  |- Struct/                StructPanel.ts + structPinsModel.ts + StructPanel.css
+     |  |- Integrity/             IntegrityPanel.ts + integrityCheckModel.ts + IntegrityPanel.css
+     |  `- Scripts/               ScriptsPanel.ts + ScriptsPanel.css (script runner panel)
 
 ```
 

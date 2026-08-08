@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/components/component-template.md", "reason": "Component contract, boundary rules, test location for the new ScriptsPanel component."}
+{"file": ".trellis/spec/frontend/components/component-sidebar-integrity-panel.md", "reason": "Most recent sibling extraction at the same sidebar-panel seam; mirrors the setter/callback contract pattern."}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Sidebar shell that owns the panel descriptor seam; scripts panel must fit it unchanged."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Colocated CSS conventions for ScriptsPanel.css."}
+{"file": ".trellis/spec/frontend/scripting.md", "reason": "UI component states, button state machine, output streaming, error headers, Windows-backslash gotcha the component must preserve."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "S-global boundary: component must not read/write it; provider flow for scriptInfo/scriptResult/scriptOutput."}

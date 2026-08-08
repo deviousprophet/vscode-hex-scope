@@ -285,3 +285,24 @@ Extracted the Integrity sidebar panel into src/webview/components/IntegrityPanel
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: Extract Scripts panel into self-contained component
+
+**Date**: 2026-08-08
+**Task**: Extract Scripts panel into self-contained component
+**Branch**: `feat/webview-scripts-component`
+
+### Summary
+
+Extracted the Scripts sidebar panel into src/webview/components/Scripts/ (ScriptsPanel.ts + ScriptsPanel.css). Host hexViewer.ts rewired: list request/run/cancel via onRequestList/onRunScript/onCancelScript callbacks, selection via getSelection (currentSelectionRange), generation via getGeneration (S.documentGeneration). setRunStartCallback cross-module seam collapsed into the class. Deleted sidebar/scripts/ + removed 42 .script-* rules from styles/sidebar.css. Added component spec + scripts.test.ts (27 tests). lint/check-types/715 tests green; check agent APPROVED (2 justified deviations: render() also updates count+wires list, appendOutput resolves target from running button). Branch feat/webview-scripts-component, PR #167 draft.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb4662c` | refactor(webview): extract Scripts panel into self-contained component |
+
+### Status
+
+[OK] **Completed**

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/components/component-template.md", "reason": "Component contract + anti-patterns checklist for the verification pass."}
+{"file": ".trellis/spec/frontend/components/component-sidebar-integrity-panel.md", "reason": "Sibling extraction that passed the same review gates; parity expectations."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Lint/type/test gate requirements."}
+{"file": ".trellis/spec/frontend/scripting.md", "reason": "Behavior (UI states, state machine, output streaming, gotchas) the parity tests must verify is unchanged."}

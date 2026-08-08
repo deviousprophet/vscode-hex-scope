@@ -54,7 +54,7 @@ import {
     unlockExternalChange,
 } from './appModel';
 import { IntegrityPanel, type IntegrityHighlight } from './components/Integrity/IntegrityPanel';
-import { updateScriptList, updateScriptResult, updateScriptOutput, activateScripts, renderScripts } from './sidebar/scripts/index';
+import { ScriptsPanel } from './components/Scripts/ScriptsPanel';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
@@ -208,11 +208,19 @@ function applyIntegrityHighlight(highlight: IntegrityHighlight | null): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
+const scriptsPanel = new ScriptsPanel({
+    onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
+    onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
+    onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
+    getSelection: () => currentSelectionRange(),
+    getGeneration: () => S.documentGeneration,
+});
+
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspector.mount(root) },
     { id: 'struct', label: 'Struct', mount: root => structPanel.mount(root) },
     { id: 'integrity', label: 'Integrity', mount: root => integrityPanel.mount(root) },
-    { id: 'scripts', label: 'Scripts', mount: root => { root.innerHTML = '<div id="s-scripts"></div>'; renderScripts(); } },
+    { id: 'scripts', label: 'Scripts', mount: root => scriptsPanel.mount(root) },
 ];
 
 const sidebar = new Sidebar({
@@ -757,21 +765,21 @@ function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>
 }
 
 function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void {
-    updateScriptList(msg);
+    scriptsPanel.setScripts(msg.scripts, msg.trusted);
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
-    updateScriptResult(msg.scriptPath, msg.result, msg.error, msg.errorType, msg.pendingWriteCount);
+    scriptsPanel.showResult(msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType, msg.pendingWriteCount);
 }
 
 function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): void {
-    updateScriptOutput(msg.scriptPath, msg.text);
+    scriptsPanel.appendOutput(msg.scriptPath, msg.text);
 }
 
 function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScriptsTab'>): void {
     S.sidebarTab = 'scripts';
     syncSidebarTab();
-    activateScripts();
+    scriptsPanel.setTabActive(true);
 }
 
 function clearLoadProgress(): void {
@@ -1005,7 +1013,7 @@ const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => structPanel.resetViewState(),
     struct: () => inspector.setLabels(S.labels),
     integrity: () => integrityPanel.setTabActive(true),
-    scripts: activateScripts,
+    scripts: () => scriptsPanel.setTabActive(true),
 };
 
 function onSidebarTabChange(tab: SidebarTab): void {

@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to `src/core/scripting/` (pure core), `src/scriptHost.ts` (VS Code host adapter), `src/hexEditorSession.ts` (provider-side orchestration), `src/webview/sidebar/scripts/` (sidebar UI), `src/core/scripting/scriptWorker.ts` (Worker entry point), and protocol messages in `src/webviewProtocol.ts`.
+Applies to `src/core/scripting/` (pure core), `src/scriptHost.ts` (VS Code host adapter), `src/hexEditorSession.ts` (provider-side orchestration), `src/webview/components/Scripts/` (sidebar UI), `src/core/scripting/scriptWorker.ts` (Worker entry point), and protocol messages in `src/webviewProtocol.ts`.
 
 ### 2. Signatures
 
