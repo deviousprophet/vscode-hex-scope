@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-integrity-panel.md", "reason": "Component contract + markup parity rules; the calculatedDisplay title removal must be reflected here."}
+{"file": ".trellis/spec/frontend/integrity-checks.md", "reason": "Auto-fix / stored-value / fix-all semantics the StoredValueUpdate extraction must preserve."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Boundary rules: fixes stay within the component + pure model; no S/state changes."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test placement and required coverage for the two new assertions."}

@@ -29,7 +29,8 @@
     "08-04-webview-inspector-panel-component",
     "08-04-webview-struct-panel-component",
     "08-04-webview-integrity-panel-component",
-    "08-04-webview-scripts-panel-component"
+    "08-04-webview-scripts-panel-component",
+    "08-08-webview-integrity-review-smells"
   ],
   "parent": null,
   "relatedFiles": [],
