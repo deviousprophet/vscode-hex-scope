@@ -482,12 +482,18 @@ export class IntegrityPanel {
     }
 
     private copyCalculatedValue(event: MouseEvent): void {
+        const target = this.calculatedCopyTarget(event);
+        if (!target) { return; }
+        const display = this.calculatedDisplay(target.result);
+        this.cb.onCopyText?.(`0x${display.value}`, `${this.algorithmLabel(target.algorithm)} calculated value`);
+    }
+
+    private calculatedCopyTarget(event: MouseEvent): { result: IntegrityResult; algorithm: IntegrityAlgorithm } | null {
         const button = (event.target as HTMLElement).closest<HTMLElement>('[data-copy-calculated]');
-        if (!button) { return; }
+        if (!button) { return null; }
         const check = this.checks.find(item => item.id === Number(button.dataset.checkId));
-        if (!check?.result) { return; }
-        const display = this.calculatedDisplay(check.result);
-        this.cb.onCopyText?.(`0x${display.value}`, `${this.algorithmLabel(check.algorithm)} calculated value`);
+        if (!check?.result) { return null; }
+        return { result: check.result, algorithm: check.algorithm };
     }
 
     private toggleHighlightedCheck(id: number): void {
@@ -556,11 +562,15 @@ export class IntegrityPanel {
         this.setActionError('');
         fixable.forEach(item => this.clearAutoFixSuppression(item.check));
         this.cb.onStoredValueEdits?.(edits.value);
+        this.applyStoredWrites(fixable);
+        this.syncHighlight();
+    }
+
+    private applyStoredWrites(fixable: Array<{ check: IntegrityCheckState; update: { address: number; expected: Uint8Array } }>): void {
         for (const item of fixable) {
             item.check.storedBytes = Uint8Array.from(item.update.expected);
             this.updateCheckCard(item.check);
         }
-        this.syncHighlight();
     }
 
     private fixableCheckEdits(item: { check: IntegrityCheckState; update: { address: number; expected: Uint8Array } }): Array<[number, number]> {
@@ -1134,15 +1144,23 @@ export class IntegrityPanel {
     }
 
     private renameProfileTo(name: string): void {
-        const current = this.profiles.find(profile => profile.id === this.selectedProfileId);
-        if (!current || name === current.name) { this.closeProfileNameForm(); return; }
+        const current = this.selectedProfile();
+        if (!this.isDistinctProfileName(current, name)) { this.closeProfileNameForm(); return; }
         if (this.profileNameExists(name, current.id)) { this.setProfileError(`A profile named “${name}” already exists.`); return; }
         this.profileNameMode = null;
         this.cb.onRenameProfile?.(current.id, name);
     }
 
+    private isDistinctProfileName(current: IntegrityProfile | undefined, name: string): current is IntegrityProfile {
+        return !!current && name !== current.name;
+    }
+
+    private selectedProfile(): IntegrityProfile | undefined {
+        return this.profiles.find(profile => profile.id === this.selectedProfileId);
+    }
+
     private deleteSelectedProfile(): void {
-        const current = this.profiles.find(profile => profile.id === this.selectedProfileId);
+        const current = this.selectedProfile();
         if (!current) { return; }
         this.cb.onDeleteProfile?.(current.id);
     }
