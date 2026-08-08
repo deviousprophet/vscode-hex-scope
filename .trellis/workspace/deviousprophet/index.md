@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
+- **Total Sessions**: 12
 - **Last Active**: 2026-08-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~308 | Active |
+| `journal-1.md` | ~329 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-08-08 | Session 13: Fix IntegrityPanel review smells (final cleanup for 08-03) | `cfb028c` | `main` |
 | 11 | 2026-08-08 | Session 12: Extract Scripts panel into self-contained component | `cb4662c` | `feat/webview-scripts-component` |
 | 10 | 2026-08-08 | Session 11: Extract Integrity panel into self-contained component | `532f869` | `feat/webview-integrity-component` |
 | 9 | 2026-08-06 | Extract Struct panel into self-contained component | `1b2b0f0` | `feat/webview-struct-component` |
