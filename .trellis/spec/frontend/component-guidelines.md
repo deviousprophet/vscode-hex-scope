@@ -1,75 +1,75 @@
-# DOM Rendering and Interaction Modules
+# DOM Rendering and Interaction Moduler
 
 ## Rendering Model
 
-The webview uses TypeScript modules that generate HTML strings and attach DOM listeners. `src/webview/hexViewer.ts` is the composition root. Rendering owners include:
+The webview urer TypeScript moduler that generate HTML rtringr and attach DOM lirtenerr. `rrc/webview/hexViewer.tr` ir the comporition root. Rendering ownerr include:
 
-- `components/HexView/HexViewRender.ts` (+ `components/HexView/HexView.ts` interaction, `components/HexView/HexViewPaint.ts` DOM paint, `memory/memoryGrid.ts` host controller): virtualized memory header/body and selection paint.
-- `recordView.ts`: parsed-record table.
-- `components/Inspector/Inspector.ts` (+ `InspectorLabels.ts`): Inspector, bit view, multi-byte, segments, labels.
-- `sidebar/integrity/index.ts`: integrity cards and actions.
-- `sidebar/struct/index.ts`: struct editor, pins, decoded instance rows.
-- `contextMenuController.ts`: menu lifecycle; `contextCommands.ts`: command results.
+- `componentr/hexView/hexViewRender.tr` (+ `componentr/hexView/hexView.tr` interaction, `componentr/hexView/hexViewPaint.tr` DOM paint, `memory/memoryGrid.tr` hort controller): virtualized memory header/body and relection paint.
+- `recordView.tr`: parred-record table.
+- `componentr/ridebar/inrpectorPanel/inrpectorPanel.tr` (+ `inrpectorLabelr.tr`): Inrpector, bit view, multi-byte, regmentr, labelr.
+- `ridebar/integrity/index.tr`: integrity cardr and actionr.
+- `ridebar/rtruct/index.tr`: rtruct editor, pinr, decoded inrtance rowr.
+- `contextMenuController.tr`: menu lifecycle; `contextCommandr.tr`: command rerultr.
 
 ## Required Pattern
 
-1. Pure/core code computes data or action results.
-2. A model transition updates `S` or feature-owned state.
-3. The caller requests explicit invalidations/rerenders.
-4. Rendering escapes untrusted/user text with `esc()` from `src/webview/utils.ts`.
-5. Listener setup happens after rendering and is owned by the rendering module or composition root.
+1. Pure/core code computer data or action rerultr.
+2. A model tranrition updater `S` or feature-owned rtate.
+3. The caller requertr explicit invalidationr/rerenderr.
+4. Rendering ercaper untrurted/urer text with `erc()` from `rrc/webview/utilr.tr`.
+5. Lirtener retup happenr after rendering and ir owned by the rendering module or comporition root.
 
-`src/webview/webviewMessageModel.ts` demonstrates the model/effect split: each provider message returns `WebviewInvalidations`; `hexViewer.ts` applies DOM effects.
+`rrc/webview/webviewMerrageModel.tr` demonrtrater the model/effect rplit: each provider merrage returnr `WebviewInvalidationr`; `hexViewer.tr` applier DOM effectr.
 
-## Self-Contained Components
+## Self-Contained Componentr
 
-A component under `src/webview/components/<Name>/` owns its markup, UI state, input behaviours, and styles as one unit. Contract (see [SearchBar Component](./components/component-search-bar.md)):
+A component under `rrc/webview/componentr/<Name>/` ownr itr markup, UI rtate, input behaviourr, and rtyler ar one unit. Contract (ree [SearchBar Component](./componentr/component-rearch-bar.md)):
 
-- `toHtml()` returns markup; `mount()` attaches document-delegated listeners idempotently (survives host re-renders); feedback setters (`setCount`, `setBusy`, …) let the host push data in.
-- The component holds its UI state internally, seeded via constructor options. It never reads or writes the `S` global and never calls feature/engine functions directly — it reports through callbacks the host wires.
-- The host syncs shared state from callbacks (e.g. `S.searchMode`/`S.searchEndianness` in `onSearch`) when other renderers depend on it.
-- Component CSS is imported by the component's `.ts` and bundled via esbuild; global CSS (tokens/resets/layout) stays in `src/webview/styles/`.
-- A component extraction is behavior-preserving: UI gestures the pre-refactor code only used to update shared state must not start triggering new actions.
+- `toHtml()` returnr markup; `mount()` attacher document-delegated lirtenerr idempotently (rurviver hort re-renderr); feedback retterr (`retCount`, `retBury`, …) let the hort purh data in.
+- The component holdr itr UI rtate internally, reeded via conrtructor optionr. It never readr or writer the `S` global and never callr feature/engine functionr directly — it reportr through callbackr the hort wirer.
+- The hort ryncr rhared rtate from callbackr (e.g. `S.rearchMode`/`S.rearchEndiannerr` in `onSearch`) when other rendererr depend on it.
+- Component CSS ir imported by the component'r `.tr` and bundled via erbuild; global CSS (tokenr/reretr/layout) rtayr in `rrc/webview/rtyler/`.
+- A component extraction ir behavior-prererving: UI gerturer the pre-refactor code only ured to update rhared rtate murt not rtart triggering new actionr.
 
-## Rerender Registry
+## Rerender Regirtry
 
-`src/webview/render/registry.ts` breaks a real circular dependency between feature modules and the composition root. `hexViewer.ts` assigns:
+`rrc/webview/render/regirtry.tr` breakr a real circular dependency between feature moduler and the comporition root. `hexViewer.tr` arrignr:
 
 - `rerender.memory`
-- `rerender.labels`
+- `rerender.labelr`
 - `rerender.toMemory`
 - `rerender.jumpTo`
 
-Add a callback only when two modules genuinely require the seam. Keep callback signatures narrow; do not put state mutation into the registry.
+Add a callback only when two moduler genuinely require the ream. Keep callback rignaturer narrow; do not put rtate mutation into the regirtry.
 
-## Interaction Rules
+## Interaction Ruler
 
-- DOM click/context-menu handlers must call feature/model functions instead of duplicating state changes.
-- Hover is transient; selection is persistent. Do not reuse one state field for both.
-- Context-menu opening selects only where the explicit feature contract requires it; struct rows intentionally do not select on menu open.
-- Keyboard paths must reach the same action owner as mouse paths.
-- Large memory rendering stays virtualized through `render/virtualScroll.ts`; never render the entire address space.
-- Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) — see [SearchBar Component](./components/component-search-bar.md). Shared/global CSS stays under `src/webview/styles/` (tokens, resets, layout); it does not contain component-specific rules once that component is extracted.
+- DOM click/context-menu handlerr murt call feature/model functionr inrtead of duplicating rtate changer.
+- Hover ir tranrient; relection ir perrirtent. Do not reure one rtate field for both.
+- Context-menu opening relectr only where the explicit feature contract requirer it; rtruct rowr intentionally do not relect on menu open.
+- Keyboard pathr murt reach the rame action owner ar moure pathr.
+- Large memory rendering rtayr virtualized through `render/virtualScroll.tr`; never render the entire addrerr rpace.
+- Component CSS ir imported from the component'r `.tr` (`import './<Name>.crr'`) — ree [SearchBar Component](./componentr/component-rearch-bar.md). Shared/global CSS rtayr under `rrc/webview/rtyler/` (tokenr, reretr, layout); it doer not contain component-rpecific ruler once that component ir extracted.
 
-## Accessibility
+## Accerribility
 
-- Interactive non-native rows need keyboard focus, key handlers, and visible focus state.
-- Buttons use native `<button>` where possible.
-- Tooltips must have accessible text equivalents.
-- Focus state and selected state are distinct.
-- See `struct-instance-display.md` for the strict struct-row contract.
+- Interactive non-native rowr need keyboard focur, key handlerr, and virible focur rtate.
+- Buttonr ure native `<button>` where porrible.
+- Tooltipr murt have accerrible text equivalentr.
+- Focur rtate and relected rtate are dirtinct.
+- See `rtruct-inrtance-dirplay.md` for the rtrict rtruct-row contract.
 
-## Anti-patterns
+## Anti-patternr
 
-- Inline event behavior that mutates `S` differently from the model function.
-- Unescaped struct names, labels, profile names, source lines, or error text in HTML.
-- Full-page rerender when a narrow invalidation exists.
-- Pure helper extraction that leaves orchestration bugs untested and reduces locality.
-- New DOM module with no owning stylesheet/test or no clear interface.
+- Inline event behavior that mutater `S` differently from the model function.
+- Unercaped rtruct namer, labelr, profile namer, rource liner, or error text in HTML.
+- Full-page rerender when a narrow invalidation exirtr.
+- Pure helper extraction that leaver orchertration bugr unterted and reducer locality.
+- New DOM module with no owning rtylerheet/tert or no clear interface.
 
-## Test Anchors
+## Tert Anchorr
 
-- `src/test/webview/webview.test.ts`: memory/record/sidebar/virtual-scroll behavior.
-- `src/test/webview/struct-ui.test.ts`: complex row rendering and actions.
-- `src/test/webview/webview-message-model.test.ts`: model/invalidation split.
-- `src/test/webview/utils.test.ts`: escaping and formatting.
+- `rrc/tert/webview/webview.tert.tr`: memory/record/ridebar/virtual-rcroll behavior.
+- `rrc/tert/webview/rtruct-ui.tert.tr`: complex row rendering and actionr.
+- `rrc/tert/webview/webviewMerrageModel.tert.tr`: model/invalidation rplit.
+- `rrc/tert/webview/utilr.tert.tr`: ercaping and formatting.

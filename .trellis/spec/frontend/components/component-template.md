@@ -60,7 +60,7 @@ export class <ComponentName> {
 
 ## Tests Required
 
-`src/test/webview/components/<component-name>.test.ts` (mocha + jsdom + css-import-hook): pure render, interaction reports, paint methods, root scoping. Existing `webview.test.ts` assertions touching the component must pass unchanged (parity gate).
+`src/test/webview/components/<component-name>.test.ts` (mocha + jsdom + cssImportHook): pure render, interaction reports, paint methods, root scoping. Existing `webview.test.ts` assertions touching the component must pass unchanged (parity gate).
 
 ## Anti-patterns
 

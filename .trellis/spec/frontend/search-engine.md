@@ -65,7 +65,7 @@ function shouldNavigateCompletedSearch(q: string, searchKey: string, trigger: Se
 
 - Search: every mode, endian candidate construction, canonicalization, empty/invalid input, gap isolation, progress, cancellation/latest-token, match navigation.
 - Large search regression: exercise the real debounced `SearchEngine` on `Uint8Array`; assert identical matches and a budget that detects per-byte clock reads.
-- Search bar UI behaviour lives in `src/test/webview/components/search-bar.test.ts` (see SearchBar Component spec).
+- Search bar UI behaviour lives in `src/test/webview/components/searchBar.test.ts` (see SearchBar Component spec).
 
 ### 7. Wrong vs Correct
 

@@ -1,4 +1,4 @@
-import { crc8 as coreCrc8, crc16 as coreCrc16, crc32 as coreCrc32 } from '../../byte-tools/crc';
+import { crc8 as coreCrc8, crc16 as coreCrc16, crc32 as coreCrc32 } from '../../byteTools/crc';
 
 function toNumbers(data: Uint8Array | number[]): number[] {
     return data instanceof Uint8Array ? [...data] : data;

@@ -333,7 +333,7 @@
     "check-types": "tsc --noEmit",
     "lint": "node eslint-rules/require-escaped-html.test.mjs && eslint src",
     "test": "vscode-test",
-    "benchmark": "node src/test/benchmarks/run-benchmark.ts"
+    "benchmark": "node src/test/benchmarks/runBenchmark.ts"
   },
   "devDependencies": {
     "@types/vscode": "^1.125.0",

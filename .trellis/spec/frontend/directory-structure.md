@@ -24,8 +24,8 @@ src/
 |  |- memory.ts                 indexed byte lookup and memory-row model
 |  |- search.ts                 cancellable/chunked search engine
 |  |- integrity.ts              validation, algorithms, stored-value conversion
-|  |- struct-codec.ts           struct layout, parse/export, decode
-|  `- byte-tools/               pure copy/analyze/format helpers
+|  |- structCodec.ts           struct layout, parse/export, decode
+|  `- byteTools/               pure copy/analyze/format helpers
 `- webview/
    |- hexViewer.ts              composition root and DOM effect wiring
    |- appModel.ts               authoritative UI model transitions
@@ -33,17 +33,17 @@ src/
    |- webviewMessage*.ts        provider dispatch and typed model updates
    |- memory/, search/, render/ view-specific modules
    |- components/               self-contained UI components
-   |  |- SearchBar/             SearchBar.ts + searchBarRender.ts + SearchBar.css
-   |  |- HexView/               HexView.ts + HexViewRender.ts + HexViewPaint.ts + HexView.css
-   |  |- Toolbar/               Toolbar.ts + Toolbar.css
-   |  |- ExternalChange/        ExternalChange.ts + ExternalChange.css
-   |  |- RecordView/            RecordView.ts + RecordView.css
-   |  |- ContextMenu/           ContextMenu.ts + ContextMenu.css
-    |  |- Sidebar/               Sidebar.ts + Sidebar.css (shell; panels injected)
-    |  |- Inspector/             Inspector.ts + InspectorLabels.ts + Inspector.css
-     |  |- Struct/                StructPanel.ts + structPinsModel.ts + StructPanel.css
-     |  |- Integrity/             IntegrityPanel.ts + integrityCheckModel.ts + IntegrityPanel.css
-     |  `- Scripts/               ScriptsPanel.ts + ScriptsPanel.css (script runner panel)
+    |  |- searchBar/             searchBar.ts + searchBarRender.ts + searchBar.css
+    |  |- hexView/               hexView.ts + hexViewRender.ts + hexViewPaint.ts + hexView.css
+    |  |- toolbar/               toolbar.ts + toolbar.css
+    |  |- externalChange/        externalChange.ts + externalChange.css
+    |  |- recordView/            recordView.ts + recordView.css
+    |  |- contextMenu/           contextMenu.ts + contextMenu.css
+     |  |- sidebar/               sidebar.ts + sidebar.css (shell; exports SidebarTab; panels injected)
+     |  |  |- inspectorPanel/     inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
+     |  |  |- structPanel/        structPanel.ts + structPinsModel.ts + structPanel.css
+     |  |  |- integrityPanel/     integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityProfiles.ts + integrityHighlight.ts + integrityPanel.css
+     |  |  `- scriptsPanel/       scriptsPanel.ts + scriptsPanel.css (script runner panel)
 
 ```
 
@@ -63,7 +63,7 @@ src/
 - `src/core/document.ts` hides record rewriting/checksum preservation behind format-level functions.
 - `src/core/search.ts` hides debounce, chunking, cancellation tokens, and match parsing behind `SearchEngine`.
 - `src/core/integrity.ts` owns validation and algorithms; DOM code does not reproduce them.
-- `src/core/struct-codec.ts` owns struct syntax/layout/decode; render code consumes decoded rows.
+- `src/core/structCodec.ts` owns struct syntax/layout/decode; render code consumes decoded rows.
 - `src/webviewProtocol.ts` is the interface between host and browser runtimes.
 
 Preserve these seams. Applying the deletion test, removing a forwarding adapter is useful only if it concentrates complexity behind an existing owner; do not scatter its behavior into callers.

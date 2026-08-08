@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import './css-import-hook';
+import './cssImportHook';
 
 import { esc, fmtB, byteClass } from '../../webview/utils';
 import { S, BPR } from '../../webview/state';
@@ -504,8 +504,8 @@ suite('Parsed Segment Navigator', () => {
     });
 
     async function mountInspector(): Promise<{ setSegments: (s: import('../../core/types').SerializedSegment[]) => void }> {
-        const { Inspector } = await import('../../webview/components/Inspector/Inspector.js');
-        const inspector = new Inspector({
+        const { InspectorPanel } = await import('../../webview/components/sidebar/inspectorPanel/inspectorPanel.js');
+        const inspector = new InspectorPanel({
             readByte: getByte,
             onJumpTo: address => rerender.jumpTo(address),
         });
@@ -712,7 +712,7 @@ suite('Integrity Checks sidebar', () => {
         api.vscode.postMessage = msg => { posted.push(msg); };
 
         try {
-            const { IntegrityPanel } = await import('../../webview/components/Integrity/IntegrityPanel.js');
+            const { IntegrityPanel } = await import('../../webview/components/sidebar/integrityPanel/integrityPanel.js');
             const { calculateIntegrity } = await import('../../core/integrity.js');
             const stagedTransactions: Array<Array<[number, number]>> = [];
             const panel = new IntegrityPanel({

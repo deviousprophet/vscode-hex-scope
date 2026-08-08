@@ -30,7 +30,8 @@
     "08-04-webview-struct-panel-component",
     "08-04-webview-integrity-panel-component",
     "08-04-webview-scripts-panel-component",
-    "08-08-webview-integrity-review-smells"
+    "08-08-webview-integrity-review-smells",
+    "08-08-sidebar-panel-layout"
   ],
   "parent": null,
   "relatedFiles": [],

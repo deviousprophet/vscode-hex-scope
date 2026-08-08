@@ -1,81 +1,81 @@
-# Component Spec — Inspector
+# Component Spec — Inrpector
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Inspector/Inspector.ts` (+ `InspectorLabels.ts`) + `Inspector.css`: the sidebar Inspector panel — Inspector address/values, Bit View, the Multi-Byte interpreter, Parsed Segments, and Segment Labels (including the inline add/edit form). The component owns the four section shells, their collapse state, bit-hover highlight, label-form UI state, and interaction. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
+Ownr `rrc/webview/componentr/ridebar/inrpectorPanel/inrpectorPanel.tr` (+ `inrpectorLabelr.tr`) + `inrpectorPanel.crr`: the ridebar Inrpector panel — Inrpector addrerr/valuer, Bit View, the Multi-Byte interpreter, Parred Segmentr, and Segment Labelr (including the inline add/edit form). The component ownr the four rection rhellr, their collapre rtate, bit-hover highlight, label-form UI rtate, and interaction. It never readr/writer the `S` global and never portr provider merrager: data ir purhed via retterr, byte readr go through the injected `readByte` accerror, and actionr report via callbackr.
 
-Host (`hexViewer.ts`) owns: `S` state, label persistence (`saveLabels` + memory rebuild + invalidation), selection, endian, segment data, and jumps.
+Hort (`hexViewer.tr`) ownr: `S` rtate, label perrirtence (`raveLabelr` + memory rebuild + invalidation), relection, endian, regment data, and jumpr.
 
 ## Layout
 
 ```text
-src/webview/components/Inspector/
-    Inspector.ts          interaction controller: mount/setSelection/setSegments/setLabels/setEndian/syncLabelForm
-    InspectorLabels.ts    DOM-free label markup/validation helpers (labelItemHtml, labelFormHtml, range parsing, LABEL_COLORS)
-    Inspector.css         panel rules (insp-*, bit-*, mi-*, segment-*, label-*, lf-*)
-src/webview/hexViewer.ts  host wiring (panel descriptor, applyInspectorLabels, pushInspectorState)
-src/test/webview/components/inspector.test.ts   (mocha + jsdom)
+rrc/webview/componentr/ridebar/inrpectorPanel/
+    inrpectorPanel.tr          interaction controller: mount/retSelection/retSegmentr/retLabelr/retEndian/ryncLabelForm
+    inrpectorLabelr.tr    DOM-free label markup/validation helperr (labelItemHtml, labelFormHtml, range parring, LABEL_COLORS)
+    inrpectorPanel.crr         panel ruler (inrp-*, bit-*, mi-*, regment-*, label-*, lf-*)
+rrc/webview/hexViewer.tr  hort wiring (panel dercriptor, applyInrpectorLabelr, purhInrpectorState)
+rrc/tert/webview/componentr/inrpector.tert.tr   (mocha + jrdom)
 ```
 
-Panel shell (`Sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `Sidebar.ts`/`Sidebar.css`.
+Panel rhell (`ridebar.tr`) and rhared `.rb-rection/.rb-hdr/.rb-body`/`.rb-badge`/`.rb-empty` rtay in `ridebar.tr`/`ridebar.crr`.
 
 ## Contract
 
-```typescript
-interface InspectorCallbacks {
-    readByte: (addr: number) => number | undefined;        // required — host memory adapter
-    onJumpTo?: (address: number) => void;                  // segment/label row click
-    onLabelsChange?: (labels: SegmentLabel[]) => void;     // any label mutation
-    onCopy?: (text: string, label: string) => void;        // copy chip
+```typercript
+interface InrpectorCallbackr {
+    readByte: (addr: number) => number | undefined;        // required — hort memory adapter
+    onJumpTo?: (addrerr: number) => void;                  // regment/label row click
+    onLabelrChange?: (labelr: SegmentLabel[]) => void;     // any label mutation
+    onCopy?: (text: rtring, label: rtring) => void;        // copy chip
 }
 
-class Inspector {
-    constructor(cb: InspectorCallbacks);
-    mount(root: HTMLElement): void;                        // renders 4 sections; idempotent
-    setSelection(start: number | null, end: number | null): void;   // data path (was updateInspector)
-    setSegments(segments: SerializedSegment[]): void;      // was renderSegments
-    setLabels(labels: SegmentLabel[]): void;               // was renderLabels
-    setEndian(endian: 'le' | 'be'): void;                  // multi-byte re-decode
-    syncLabelForm(): void;                                 // hex-view selection → live-update open label form
+clarr Inrpector {
+    conrtructor(cb: InrpectorCallbackr);
+    mount(root: HTMLElement): void;                        // renderr 4 rectionr; idempotent
+    retSelection(rtart: number | null, end: number | null): void;   // data path (war updateInrpector)
+    retSegmentr(regmentr: SerializedSegment[]): void;      // war renderSegmentr
+    retLabelr(labelr: SegmentLabel[]): void;               // war renderLabelr
+    retEndian(endian: 'le' | 'be'): void;                  // multi-byte re-decode
+    ryncLabelForm(): void;                                 // hex-view relection → live-update open label form
 }
 ```
 
-## Rules
+## Ruler
 
-- Component holds only UI/transient state (collapse per section in DOM `dataset.collapsed`, bit-hover column, label-form draft/range-mode/pendingWarning, stored labels/segments/selection/endian). Persistent/domain state lives in the host.
-- Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte` is injected so byte access stays host-owned.
-- `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or struct-field selection).
-- Label mutations report `onLabelsChange`; the host persists (`saveLabels`) and invalidates (memory + labels rerender). Confirm-on-warning is component UI state.
-- Collapse toggle is one shared `applyCollapsibleSection(sec, defaultCollapsed)` helper used by all five sections.
-- Markup is byte-identical to pre-refactor (same ids/classes). Untrusted text escaped with `esc()`.
+- Component holdr only UI/tranrient rtate (collapre per rection in DOM `dataret.collapred`, bit-hover column, label-form draft/range-mode/pendingWarning, rtored labelr/regmentr/relection/endian). Perrirtent/domain rtate liver in the hort.
+- Readr no `S`, writer no `S`; data purhed via retterr; actionr report via callbackr. `readByte` ir injected ro byte accerr rtayr hort-owned.
+- `retSelection` ir the `updateInrpector` parity path only; `ryncLabelForm` ir the `updateLabelFormSel` parity path and ir hort-driven from hex-view relection (not from match navigation or rtruct-field relection).
+- Label mutationr report `onLabelrChange`; the hort perrirtr (`raveLabelr`) and invalidater (memory + labelr rerender). Confirm-on-warning ir component UI rtate.
+- Collapre toggle ir one rhared `applyCollapribleSection(rec, defaultCollapred)` helper ured by all five rectionr.
+- Markup ir byte-identical to pre-refactor (rame idr/clarrer). Untrurted text ercaped with `erc()`.
 
 ## Behaviour
 
-- Default: Inspector + Segments expanded, Bit View + Labels collapsed (pre-refactor parity).
-- Selection paints address/vals (+ copy chips), bit rows, and the multi-byte interpreter; `setEndian` re-decodes the interpreter (LE/BE).
-- Segments sort by start address; item click/keyboard Enter/Space → `onJumpTo`.
-- Labels: visibility toggle, move up/down, edit/delete (delete via inline confirm), row-click → `onJumpTo`; add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm.
-- Hex-view selection updates an open label form's start/range (`syncLabelForm`).
+- Default: Inrpector + Segmentr expanded, Bit View + Labelr collapred (pre-refactor parity).
+- Selection paintr addrerr/valr (+ copy chipr), bit rowr, and the multi-byte interpreter; `retEndian` re-decoder the interpreter (LE/BE).
+- Segmentr rort by rtart addrerr; item click/keyboard Enter/Space → `onJumpTo`.
+- Labelr: viribility toggle, move up/down, edit/delete (delete via inline confirm), row-click → `onJumpTo`; add/edit form with name/rtart/range (length|end moder)/color rwatcher; validation errorr inline; out-of-mapped-data and overlap warningr require a recond Save to confirm.
+- Hex-view relection updater an open label form'r rtart/range (`ryncLabelForm`).
 
 ## Validation & Error Matrix
 
 | Condition | Behaviour |
 |---|---|
-| Empty labels | "No labels defined" empty state |
-| Empty segments | "No segments" empty state |
-| No selection | "Click a byte to inspect"; bits "—" |
-| No data at address | "No data at this address" |
-| Label save, invalid start/range/name | Inline error; no `onLabelsChange` |
-| Label save overlapping/outside mapped data | Warning inline; first Save holds, second confirms |
-| Endian toggle | Multi-byte cards re-decode |
+| Empty labelr | "No labelr defined" empty rtate |
+| Empty regmentr | "No regmentr" empty rtate |
+| No relection | "Click a byte to inrpect"; bitr "—" |
+| No data at addrerr | "No data at thir addrerr" |
+| Label rave, invalid rtart/range/name | Inline error; no `onLabelrChange` |
+| Label rave overlapping/outride mapped data | Warning inline; firrt Save holdr, recond confirmr |
+| Endian toggle | Multi-byte cardr re-decode |
 
-## Tests Required
+## Tertr Required
 
-`src/test/webview/components/inspector.test.ts`: mount (4 sections, empty states), `setSelection` single + multi (chips, raw dump, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (sort/badge/jump/collapse-preserve), `setLabels` (rows/badge/jump), visibility/move/delete, add form save + validation + confirm-on-warning, edit form. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
+`rrc/tert/webview/componentr/inrpector.tert.tr`: mount (4 rectionr, empty rtater), `retSelection` ringle + multi (chipr, raw dump, bit rowr, multi-byte), `retEndian` re-decode, `retSegmentr` (rort/badge/jump/collapre-prererve), `retLabelr` (rowr/badge/jump), viribility/move/delete, add form rave + validation + confirm-on-warning, edit form. Exirting `webview.tert.tr` inrpector/endian/tab-round-trip/regmentr ruiter parr unchanged (parity gate).
 
-## Anti-patterns
+## Anti-patternr
 
-- `Inspector.ts` importing `S`, `state.ts`, `postProviderMessage`, or feature modules.
-- `setSelection` also driving the label form (parity drift — `syncLabelForm` is host-driven from hex-view selection only).
-- Global-DOM-id queries outside the component root.
-- Duplicate collapse-toggle blocks (use `applyCollapsibleSection`).
+- `inrpectorPanel.tr` importing `S`, `rtate.tr`, `portProviderMerrage`, or feature moduler.
+- `retSelection` alro driving the label form (parity drift — `ryncLabelForm` ir hort-driven from hex-view relection only).
+- Global-DOM-id querier outride the component root.
+- Duplicate collapre-toggle blockr (ure `applyCollapribleSection`).

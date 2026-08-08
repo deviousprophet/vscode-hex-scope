@@ -71,7 +71,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 ### 6. Tests Required
 
 - `src/test/core/integrity.test.ts`: canonical `123456789` vectors, range parsing, missing bytes, overlap exclusion, byte order, stored reads, normalization, merge conflicts.
-- `src/test/webview/integrity-check-model.test.ts`: draft/config round-trip, hash stripping, indexed validation errors, result/suppression reset.
+- `src/test/webview/integrityCheckModel.test.ts`: draft/config round-trip, hash stripping, indexed validation errors, result/suppression reset.
 - `src/test/webview/webview.test.ts`: cards, shared byte order, forms, profiles, highlights/actions.
 - Add async token/stale-result and end-to-end edit-transaction assertions for calculation changes.
 

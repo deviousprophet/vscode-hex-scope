@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Sidebar shell owns panel descriptors + (now) the SidebarTab type; panels move under it."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Documented component layout must be updated to Sidebar/<Panel>/ after the move."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "File-placement table references the moved panel CSS files."}
+{"file": ".trellis/spec/frontend/components/component-sidebar-integrity-panel.md", "reason": "Integrity panel spec Layout section path must reflect Sidebar/IntegrityPanel/ + new integrity* modules."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test placement + parity gate requirements; fallow-fix full-scan gate."}
+{"file": ".trellis/spec/frontend/components/component-template.md", "reason": "Component boundary rules apply to the new *Render.ts extraction modules (pure/DOM-free)."}

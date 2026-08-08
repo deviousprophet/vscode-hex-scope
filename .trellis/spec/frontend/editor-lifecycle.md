@@ -62,7 +62,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 ### 6. Tests Required
 
 - `src/test/extension/extension.test.ts`: activation and command registration.
-- `src/test/webview/webview-message-model.test.ts`: unknown-message rejection, known dispatch, init and invalidations.
+- `src/test/webview/webviewMessageModel.test.ts`: unknown-message rejection, known dispatch, init and invalidations.
 - `src/test/core/provider-utils.test.ts`: format detection and legacy struct migration.
 - Any new discriminator needs host-to-browser or browser-to-host handling assertions and a no-op unknown-message assertion.
 - Paging tests cover alignment, maximum page size, cache eviction, stale generations, and compressed record scrolling.

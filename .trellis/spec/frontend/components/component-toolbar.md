@@ -4,16 +4,16 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/Toolbar/Toolbar.ts` + `Toolbar.css`: the `#toolbar` element (view tabs Memory/Records, ASCII toggle, edit-mode group Edit/Save/Cancel/dirty count). Host owns all state (`S.currentView`, `S.editMode`, edits), edit/save/cancel logic, and view switching.
+Owns `src/webview/components/toolbar/toolbar.ts` + `toolbar.css`: the `#toolbar` element (view tabs Memory/Records, ASCII toggle, edit-mode group Edit/Save/Cancel/dirty count). Host owns all state (`S.currentView`, `S.editMode`, edits), edit/save/cancel logic, and view switching.
 
 Boundary rule: the component owns markup, transient button active/edit-group state, and styles. It never reads/writes `S`, never posts provider messages, never runs edit logic — it reports clicks and renders host-pushed state.
 
 ## Layout
 
 ```text
-src/webview/components/Toolbar/
-    Toolbar.ts       types + pure render fn + controller class
-    Toolbar.css      toolbar chrome rules (moved from styles/toolbar.css)
+src/webview/components/toolbar/
+    toolbar.ts       types + pure render fn + controller class
+    toolbar.css      toolbar chrome rules (moved from styles/toolbar.css)
 src/webview/hexViewer.ts     host wiring (callbacks + setters)
 src/test/webview/components/toolbar.test.ts   (mocha + jsdom)
 ```
@@ -83,7 +83,7 @@ export class Toolbar {
 
 ## Tests Required
 
-`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + css-import-hook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount. Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate).
+`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount. Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate).
 
 ## Anti-patterns
 

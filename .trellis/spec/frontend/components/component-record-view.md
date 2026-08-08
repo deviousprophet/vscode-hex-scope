@@ -4,19 +4,19 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/RecordView/RecordView.ts` + `RecordView.css`: the record table (thead Addr/Type/Cnt/Data/CHK + rows), IHEX/SREC row formatting, scroll reporting, and colocated styles. Host owns paging (`RecordPageCache` + `requestRecordWindow/requestRecordPage` + provider post), slice computation (shared `render/virtualScroll.ts`), and page-arrival re-renders.
+Owns `src/webview/components/recordView/recordView.ts` + `recordView.css`: the record table (thead Addr/Type/Cnt/Data/CHK + rows), IHEX/SREC row formatting, scroll reporting, and colocated styles. Host owns paging (`RecordPageCache` + `requestRecordWindow/requestRecordPage` + provider post), slice computation (shared `render/virtualScroll.ts`), and page-arrival re-renders.
 
 Boundary rule: the component owns table markup, row formatting, and scroll reporting. It never reads/writes `S`, never touches the paging cache, never posts provider messages — it renders host-fed slices and reports.
 
 ## Layout
 
 ```text
-src/webview/components/RecordView/
-    RecordView.ts       types + pure render fns + controller class
-    RecordView.css      record-table rules (moved from styles/record-view.css)
+src/webview/components/recordView/
+    recordView.ts       types + pure render fns + controller class
+    recordView.css      record-table rules (moved from styles/record-view.css)
 src/webview/hexViewer.ts    host wiring (paging, slice via virtualScroll, page requests)
 src/webview/recordPageCache.ts  host data util (unchanged)
-src/test/webview/components/record-view.test.ts   (mocha + jsdom)
+src/test/webview/components/recordView.test.ts   (mocha + jsdom)
 ```
 
 ## Contract
@@ -79,7 +79,7 @@ export class RecordView {
 
 ## Tests Required
 
-`src/test/webview/components/record-view.test.ts` (mocha + jsdom + css-import-hook): render parity (thead, data row cells, `rerr`, IHEX/SREC labels/badges), placeholder for `null`, unavailable, compressed wrapper + clamp, `onScrollTop`, `onNeedPage`, `setCallbacks`. Existing `webview.test.ts` "Record View rendering" suite passes unchanged (parity gate).
+`src/test/webview/components/recordView.test.ts` (mocha + jsdom + cssImportHook): render parity (thead, data row cells, `rerr`, IHEX/SREC labels/badges), placeholder for `null`, unavailable, compressed wrapper + clamp, `onScrollTop`, `onNeedPage`, `setCallbacks`. Existing `webview.test.ts` "Record View rendering" suite passes unchanged (parity gate).
 
 ## Anti-patterns
 

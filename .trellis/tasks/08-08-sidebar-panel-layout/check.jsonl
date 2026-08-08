@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify updated component layout matches the new Sidebar/<Panel>/ structure."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Lint/type/test gate requirements, fallow full-scan (incl. refactoring_targets) expectations."}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Verify Sidebar shell + SidebarTab type placement after the move."}
+{"file": ".trellis/spec/frontend/components/component-template.md", "reason": "Verify the new *Render.ts modules respect the pure/DOM-free boundary rules."}

@@ -2,22 +2,22 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/SearchBar/SearchBar.ts` + `SearchBar.css`: the self-contained search bar UI unit extracted from `search/searchControls.ts` (wiring), `search/searchEngine.ts` (decision glue), and `hexViewer.ts` (markup). The search engine itself lives in `core/search.ts` (deep module) and the search glue stays in `webview/search/searchEngine.ts`.
+Owns `src/webview/components/searchBar/searchBar.ts` + `searchBar.css`: the self-contained search bar UI unit extracted from `search/searchControls.ts` (wiring), `search/searchEngine.ts` (decision glue), and `hexViewer.ts` (markup). The search engine itself lives in `core/search.ts` (deep module) and the search glue stays in `webview/search/searchEngine.ts`.
 
 Component boundary : each component owns its markup, UI state, input behaviours, and styles. Host owns search execution, match data, navigation, and match-count/busy feedback.
 
 ## Layout
 
 ```text
-src/webview/components/SearchBar/
-    SearchBar.ts         class SearchBar + SearchBarCallbacks + SearchBarSeedOptions
+src/webview/components/searchBar/
+    searchBar.ts         class SearchBar + SearchBarCallbacks + SearchBarSeedOptions
     searchBarRender.ts   pure helpers: MODE_LABELS, PLACEHOLDERS, searchKeyFor, SearchTrigger, activeClass, modeOptions
-    SearchBar.css        extracted search styles
+    searchBar.css        extracted search styles
 src/webview/search/searchEngine.ts   explicit-param runSearch; imports searchKeyFor/SearchTrigger from searchBarRender; no S/DOM reads in decision path
 src/webview/hexViewer.ts             host wiring; undo keydown; no inline search markup
-src/webview/styles/stats-bar.css    stats bar (chrome/search/banners extracted to components)
+src/webview/styles/statsBar.css    stats bar (chrome/search/banners extracted to components)
 src/hexEditorSession.ts              links dist/webview.css (bundled)
-src/test/webview/components/search-bar.test.ts
+src/test/webview/components/searchBar.test.ts
 ```
 
 ## Contracts
@@ -57,7 +57,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Engine match-count/busy feedback goes through host-registered callbacks, not `#match-count`/`#search-progress` DOM writes from the engine. (Transition note: `clearSearch`/`clearEmptySearchQuery` still touch DOM via the same setter hook.)
 - Ctrl+F (focus/select input) belongs to the component. Ctrl+Z undo belongs to the host (`hexViewer.ts`), gated on `S.editMode`.
 - Search bar markup lives only in `SearchBar.toHtml()`. `#search-box` id/class structure unchanged from the pre-refactor template.
-- All styles specific to search UI live in `SearchBar.css` (moved verbatim from `toolbar.css`). `toolbar.css` is now `stats-bar.css` (only `#stats-bar`/`.si*` rules); toolbar chrome lives in `components/Toolbar/Toolbar.css`, search in `SearchBar.css`, banners in `ExternalChange.css`. Design tokens stay in `base.css`.
+- All styles specific to search UI live in `searchBar.css` (moved verbatim from `toolbar.css`). `toolbar.css` is now `statsBar.css` (only `#stats-bar`/`.si*` rules); toolbar chrome lives in `components/toolbar/toolbar.css`, search in `searchBar.css`, banners in `externalChange.css`. Design tokens stay in `base.css`.
 - Global DOM IDs (`#search-input`, `#match-count`, `#search-mode`, …), single instance. Multi-instance/scoped selectors are out of scope (diff view, future).
 - Component HTML/behaviour escapes untrusted input with `esc()`; no inline `<style>`.
 
@@ -86,12 +86,12 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 
 ## Tests Required
 
-`src/test/webview/components/search-bar.test.ts` (mocha + jsdom): mode labels; endian pill visibility + click re-run; addr overlay + hex strip; Enter run vs completed-query navigate parity; Ctrl+F focus; clear empties + `onClear`; `setCount`/`setBusy`; seed restore; trigger passthrough (`enter-next`/`enter-prev`/`button`); Ctrl+Z does not fire any search callback.
+`src/test/webview/components/searchBar.test.ts` (mocha + jsdom): mode labels; endian pill visibility + click re-run; addr overlay + hex strip; Enter run vs completed-query navigate parity; Ctrl+F focus; clear empties + `onClear`; `setCount`/`setBusy`; seed restore; trigger passthrough (`enter-next`/`enter-prev`/`button`); Ctrl+Z does not fire any search callback.
 
 ## Anti-patterns
 
 - Engine reading `S.searchMode`/`S.searchEndianness`/DOM input in the run-decision path.
 - Component writing `S` or calling engine functions directly (must go through callbacks).
 - Undo handler inside the search component.
-- Search styles split between `toolbar.css`/`SearchBar.css` (historical; now all in `SearchBar.css`).
+- Search styles split between `toolbar.css`/`searchBar.css` (historical; now all in `searchBar.css`).
 - Duplicate `#search-box` markup in the host template.

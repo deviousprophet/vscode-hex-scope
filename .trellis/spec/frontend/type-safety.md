@@ -55,5 +55,5 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 ## Verification
 
 - `npm run check-types`
-- Protocol tests: `src/test/webview/webview-message-model.test.ts`
+- Protocol tests: `src/test/webview/webviewMessageModel.test.ts`
 - Boundary tests: parser, integrity, struct, and provider-utils suites under `src/test/core/`.
