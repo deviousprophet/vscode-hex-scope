@@ -53,15 +53,7 @@ import {
     type IncomingFile,
     unlockExternalChange,
 } from './appModel';
-import {
-    activateIntegrity,
-    notifyIntegrityBytesChanged,
-    notifyIntegrityEditsDiscarded,
-    notifyIntegrityEndianChanged,
-    renderIntegrity,
-    setIntegrityEditHandler,
-    setIntegrityProfiles,
-} from './sidebar/integrity/index';
+import { IntegrityPanel, type IntegrityHighlight } from './components/IntegrityPanel/IntegrityPanel';
 import { updateScriptList, updateScriptResult, updateScriptOutput, activateScripts, renderScripts } from './sidebar/scripts/index';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
@@ -190,10 +182,36 @@ function pushStructState(): void {
     structPanel.setBitFieldAllocation(S.bitFieldAllocation);
 }
 
+// ── Integrity panel component ────────────────────────────────────
+// Self-contained Integrity panel (checks + profiles). Data flows via
+// setters; byte reads / selection / endian are pulled via callbacks;
+// mutations, persistence, and highlights report via callbacks. Edit
+// staging and highlight application stay host-owned.
+
+const integrityPanel = new IntegrityPanel({
+    readByte: getByte,
+    onStoredValueEdits: stageIntegrityEdits,
+    getSelection: () => (S.selStart !== null && S.selEnd !== null ? { start: S.selStart, end: S.selEnd } : null),
+    getEndian: () => S.endian,
+    onHighlightChange: applyIntegrityHighlight,
+    onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
+    onPersistChecks: state => postProviderMessage({ type: 'saveIntegrityChecks', state }),
+    onCreateProfile: profile => postProviderMessage({ type: 'createIntegrityProfile', profile }),
+    onUpdateProfile: profile => postProviderMessage({ type: 'updateIntegrityProfile', profile }),
+    onRenameProfile: (id, name) => postProviderMessage({ type: 'renameIntegrityProfile', id, name }),
+    onDeleteProfile: id => postProviderMessage({ type: 'deleteIntegrityProfile', id }),
+});
+
+/** Integrity check range/stored-field highlight (was S.integrityHighlight + rerender.memory in the module). */
+function applyIntegrityHighlight(highlight: IntegrityHighlight | null): void {
+    S.integrityHighlight = highlight;
+    if (S.currentView === 'memory') { rerender.memory(); }
+}
+
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspector.mount(root) },
     { id: 'struct', label: 'Struct', mount: root => structPanel.mount(root) },
-    { id: 'integrity', label: 'Integrity', mount: root => { root.innerHTML = '<div id="s-integrity"></div>'; renderIntegrity(); } },
+    { id: 'integrity', label: 'Integrity', mount: root => integrityPanel.mount(root) },
     { id: 'scripts', label: 'Scripts', mount: root => { root.innerHTML = '<div id="s-scripts"></div>'; renderScripts(); } },
 ];
 
@@ -457,7 +475,7 @@ function refreshAfterLocalEdit(): void {
     memRerender();
     inspector.setSelection(S.selStart, S.selEnd);
     structPanel.render();
-    notifyIntegrityBytesChanged();
+    integrityPanel.notifyBytesChanged();
 }
 
 function applyTypedEdit(addr: number, value: number): void {
@@ -771,8 +789,8 @@ function rebuildLabelsAndMemory(): void {
 
 function clearEditState(reason: ClearEditReason = 'refresh'): void {
     clearEditModel();
-    if (reason === 'discard') { notifyIntegrityEditsDiscarded(); }
-    else { notifyIntegrityBytesChanged(); }
+    if (reason === 'discard') { integrityPanel.notifyEditsDiscarded(); }
+    else { integrityPanel.notifyBytesChanged(); }
 }
 
 function renderCurrentDataView(): void {
@@ -787,7 +805,7 @@ function applyWebviewModelUpdate(update: WebviewModelUpdate): void {
 
 function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
     if (update.integrityProfiles) {
-        setIntegrityProfiles(update.integrityProfiles, update.integrityProfileError ?? '');
+        integrityPanel.setProfiles(update.integrityProfiles, update.integrityProfileError ?? '');
     }
 }
 
@@ -845,7 +863,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['segments', () => inspector.setSegments(S.parseResult?.segments ?? [])],
         ['structPins', () => structPanel.setData(S.structs, S.structPins)],
         ['currentDataView', renderCurrentDataView],
-        ['integrityBytesChanged', notifyIntegrityBytesChanged],
+        ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
     ];
     for (const [key, effect] of effects) {
         if (invalidations[key]) { effect(); }
@@ -918,7 +936,6 @@ function setupRenderedUi(): void {
     toolbar.setAscii(getShowAscii());
     toolbar.setDirty(S.edits.size);
     setupRerenderCallbacks();
-    setIntegrityEditHandler(stageIntegrityEdits);
     initSearch(() => switchView('memory'), {
         setCount: (count, current) => searchBar.setCount(count, current),
         setBusy: (busy) => searchBar.setBusy(busy),
@@ -954,7 +971,7 @@ function setFileEndian(endian: 'le' | 'be'): void {
     postProviderMessage({ type: 'saveEndian', endian });
     inspector.setEndian(S.endian);
     structPanel.setEndian(S.endian);
-    notifyIntegrityEndianChanged();
+    integrityPanel.notifyEndianChanged();
 }
 
 function setShowAscii(value: boolean): void {
@@ -987,7 +1004,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => structPanel.resetViewState(),
     struct: () => inspector.setLabels(S.labels),
-    integrity: activateIntegrity,
+    integrity: () => integrityPanel.setTabActive(true),
     scripts: activateScripts,
 };
 
@@ -1136,7 +1153,7 @@ function refreshAfterIntegrityEdits(): void {
     if (S.currentView === 'memory') { memRerender(); }
     inspector.setSelection(S.selStart, S.selEnd);
     structPanel.render();
-    notifyIntegrityBytesChanged();
+    integrityPanel.notifyBytesChanged();
 }
 
 // ── Edit helpers ──────────────────────────────────────────────────
@@ -1147,7 +1164,7 @@ function applyFill(fillVal: number): void {
     if (S.currentView === 'memory') { memRerender(); }
     inspector.setSelection(S.selStart, S.selEnd);
     structPanel.render();
-    notifyIntegrityBytesChanged();
+    integrityPanel.notifyBytesChanged();
 }
 
 function undoLastEdit(): void {
@@ -1157,7 +1174,7 @@ function undoLastEdit(): void {
     if (S.currentView === 'memory') { memRerender(); }
     inspector.setSelection(S.selStart, S.selEnd);
     structPanel.render();
-    notifyIntegrityBytesChanged();
+    integrityPanel.notifyBytesChanged();
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────

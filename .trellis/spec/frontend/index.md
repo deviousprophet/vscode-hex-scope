@@ -28,6 +28,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | [Sidebar Component](./components/component-sidebar.md) | Generic tabbed sidebar shell: tabs, resizer+persistence, header slot, injected panels |
 | [Inspector Component](./components/component-sidebar-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
 | [StructPanel Component](./components/component-sidebar-struct-panel.md) | Sidebar Struct panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
+| [IntegrityPanel Component](./components/component-sidebar-integrity-panel.md) | Sidebar Integrity panel: checks + results, auto fix, profile library, fix-all |
 | [ContextMenu Component](./components/component-context-menu.md) | Right-click byte menu: copy/analyze/patch, go-address, select |
 
 ## Feature Code-Specs

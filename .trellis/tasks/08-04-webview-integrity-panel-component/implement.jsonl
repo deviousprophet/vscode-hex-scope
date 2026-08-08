@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/components/component-template.md", "reason": "Component contract, boundary rules, test location for the new IntegrityPanel component."}
+{"file": ".trellis/spec/frontend/components/component-sidebar-inspector.md", "reason": "Most recent sibling extraction at the same sidebar-panel seam; mirrors the setter/callback contract pattern."}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Sidebar shell that owns the panel descriptor seam; integrity panel must fit it unchanged."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Colocated CSS conventions for IntegrityPanel.css."}
+{"file": ".trellis/spec/frontend/integrity-checks.md", "reason": "Algorithms, ranges, stored comparison, fixes, profiles domain semantics the component manipulates."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "S-global boundary: component must not read/write it."}

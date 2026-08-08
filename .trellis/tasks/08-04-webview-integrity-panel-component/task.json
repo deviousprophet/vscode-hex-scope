@@ -3,7 +3,7 @@
   "name": "webview-integrity-panel-component",
   "title": "Extract Integrity panel into self-contained component",
   "description": "Child of sidebar parent. Integrity checks panel, profile library, comparison UI. Colocated integrity.css.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

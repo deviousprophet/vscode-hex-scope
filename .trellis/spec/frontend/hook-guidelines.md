@@ -21,9 +21,9 @@
 | `memory/dragSelection.ts` | Drag-selection controller |
 | `editTransactions.ts` | Undo stack: fillSelectionTransaction, stageIntegrityEdit, undoLastEditTransaction |
 | `search/searchEngine.ts` | Search state + execution |
-| `sidebar/inspector/` | Inspector panel state + rendering |
-| `sidebar/integrity/` | Integrity check state + UI |
-| `sidebar/struct/` | Struct overlay state + rendering |
+| `components/Inspector/` | Inspector panel state + rendering |
+| `components/IntegrityPanel/` | Integrity check state + UI |
+| `components/Struct/` | Struct overlay state + rendering |
 
 ---
 

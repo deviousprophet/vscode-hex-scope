@@ -39,9 +39,12 @@ src/
    |  |- ExternalChange/        ExternalChange.ts + ExternalChange.css
    |  |- RecordView/            RecordView.ts + RecordView.css
    |  |- ContextMenu/           ContextMenu.ts + ContextMenu.css
-   |  |- Sidebar/               Sidebar.ts + Sidebar.css (shell; panels injected)
-   |  `- Inspector/             Inspector.ts + InspectorLabels.ts + Inspector.css
-   `- sidebar/{integrity,struct,scripts}/ feature modules (Inspector panel extracted)
+    |  |- Sidebar/               Sidebar.ts + Sidebar.css (shell; panels injected)
+    |  |- Inspector/             Inspector.ts + InspectorLabels.ts + Inspector.css
+    |  |- Struct/                StructPanel.ts + structPinsModel.ts + StructPanel.css
+    |  `- IntegrityPanel/        IntegrityPanel.ts + integrityCheckModel.ts + IntegrityPanel.css
+    `- sidebar/scripts/          feature module (script runner panel)
+
 ```
 
 ## Placement Rules
