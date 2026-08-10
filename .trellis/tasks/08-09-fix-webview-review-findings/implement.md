@@ -39,6 +39,7 @@ Ordered checklist. Decisions confirmed in `design.md` (D1â€“D7). Validate a
 - [x] `npm run compile-tests && npm run lint && npm test`
 - [x] Re-run UI/UX review on changed areas; confirm no regressions introduced.
 - [x] Fallow scan clean.
-- [ ] Commit on `fix/webview-review-findings`, push, open PR against protected `main`.
-- [ ] File M-level UI/UX findings as separate Trellis follow-up tasks; L-level grouped into one.
+- [x] Commit on `fix/webview-review-findings`, push, open PR against protected `main`.
+- [x] File M-level UI/UX findings as separate Trellis follow-up tasks; L-level grouped into one.
+
 
