@@ -208,17 +208,24 @@ export function clearSearch(): void {
     notifySearchCount();
 }
 
-/** Drop completed-match state when the visible query/mode/endian diverges from the executed search. */
+/** Drop search state when the visible query/mode/endian diverges from the running or completed search. */
 export function invalidateSearchIfDiverged(query: string, mode: SearchMode, endianness: SearchEndianness): void {
-    if (_searchRunning) { return; }
-    if (S.matchAddrs.length === 0) { return; }
-    if (!isDivergedFromCompletedSearch(query.trim(), mode, endianness)) { return; }
+    if (S.matchAddrs.length === 0 && !_searchRunning) { return; }
+    if (!isDivergedFromSearch(query.trim(), mode, endianness)) { return; }
+    engine.clear();
+    _searchRunning = false;
     _lastCompletedSearchKey = '';
     clearSearch();
 }
 
-function isDivergedFromCompletedSearch(q: string, mode: SearchMode, endianness: SearchEndianness): boolean {
-    return q.length > 0 && searchKeyFor(mode, q, endianness) !== _lastCompletedSearchKey;
+/** Empty query, or a visible key differing from the active/completed search, counts as diverged. */
+function isDivergedFromSearch(q: string, mode: SearchMode, endianness: SearchEndianness): boolean {
+    return q.length === 0 || !matchesCurrentSearchKey(q, mode, endianness);
+}
+
+function matchesCurrentSearchKey(q: string, mode: SearchMode, endianness: SearchEndianness): boolean {
+    const key = searchKeyFor(mode, q, endianness);
+    return key === _activeSearchKey || key === _lastCompletedSearchKey;
 }
 
 export function nextMatch(): void {

@@ -488,7 +488,7 @@ function clearNibbleBuffer(): void {
 }
 
 /** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
-function refreshAfterLocalEdit(): void {
+export function refreshAfterLocalEdit(): void {
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
     inspectorPanel.setSelection(S.selStart, S.selEnd);

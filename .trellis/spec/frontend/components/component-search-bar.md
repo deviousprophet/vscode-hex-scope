@@ -54,7 +54,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Component owns UI state (`mode`, `endianness`, `query`) internally. It never reads or writes the `S` global.
 - Host seeds from `S.searchMode`/`S.searchEndianness` on boot via constructor `seed`, and writes `S.searchMode`/`S.searchEndianness` in the `onSearch` handler.
 - Match-highlight truth = executed search: the engine glue stores the executed needle byte-span in `S.searchMatchSpan` alongside `S.matchAddrs`; the memory grid reads only that for highlight width. It never derives width from the live input or `S.searchMode` (removed `NEEDLE_LEN_BY_MODE`).
-- On any UI-only query/mode/endian change the component reports `onQueryChanged(query, mode, endianness)`; the host calls `invalidateSearchIfDiverged`, which clears the completed match set + resets the count (`0 / 0`) when the visible query diverges from the executed search key. Stale matches never masquerade as current.
+- On any UI-only query/mode/endian change the component reports `onQueryChanged(query, mode, endianness)`; the host calls `invalidateSearchIfDiverged`, which cancels a diverged in-flight search or clears the completed match set + resets the count (`0 / 0`) when the visible query diverges from the running/completed search key. Emptying the query counts as diverged. Stale matches never masquerade as current.
 - `runSearch(query, mode, endianness, trigger)` takes explicit params; search-decision path never reads `#search-input` value or `S.searchMode`/`S.searchEndianness`. Match state (`S.matchAddrs`/`S.matchIdx`) writes stay in the engine glue.
 - Engine match-count/busy feedback goes through host-registered callbacks, not `#match-count`/`#search-progress` DOM writes from the engine. (Transition note: `clearSearch`/`clearEmptySearchQuery` still touch DOM via the same setter hook.)
 - Ctrl+F (focus/select input) belongs to the component. Ctrl+Z undo belongs to the host (`hexViewer.ts`), gated on `S.editMode`.
@@ -66,7 +66,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 
 ## Behaviour (user-visible parity with pre-refactor)
 
-- Mode select (Bytes/Value/ASCII/Addr) shows value endian pill only in Value mode; mode change updates the UI and component state only — it does not re-run the search. If the visible mode/query now diverges from the executed search, the host drops the stale match set + count (`0 / 0`) until re-run (deliberate B2 behavior change; the pre-refactor code repainted old matches with the new needle width).
+- Mode select (Bytes/Value/ASCII/Addr) shows value endian pill only in Value mode; mode change updates the UI and component state only — it does not re-run the search. If the visible mode/query now diverges from the running/completed search, the host drops the stale match set + count (`0 / 0`) or cancels the in-flight search until re-run (deliberate B2 behavior change; the pre-refactor code repainted old matches with the new needle width).
 - Endian pills Auto/LE/BE; clicking updates the active pill and component state only — it does not re-run the search; divergence invalidation applies as above.
 - Addr mode strips non-hex input and shows `0x` prefix overlay when non-empty.
 - Enter runs a fresh search; Enter on an unchanged completed query navigates (Shift+Enter → prev, Enter → next).
@@ -83,7 +83,8 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 | Empty/whitespace query | Engine clears matches, completes immediately; no callback search work. |
 | Addr mode non-hex chars | Stripped from input; no unsafe parse. |
 | Non-value mode | Endian pill hidden; endianness not part of search key (`n/a`). |
-| Mode/endian change | UI + component state only; no `onSearch` emitted; host invalidates a diverged completed match set. |
+| Mode/endian change | UI + component state only; no `onSearch` emitted; host invalidates a diverged completed match set or cancels a diverged in-flight search. |
+| Input emptied (backspace) | Counts as diverged — host clears the completed match set + count (`0 / 0`). |
 | Search while not in memory view | Engine no-ops (host view gate). |
 | Mode change while search running | Cancels via engine token; component just emits a fresh `onSearch`. |
 

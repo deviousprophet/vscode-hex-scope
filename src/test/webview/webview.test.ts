@@ -1337,6 +1337,72 @@ suite('search match truth follows the executed search (B2)', () => {
             invalidateSearchIfDiverged('AA', 'bytes', 'auto');
             assert.strictEqual(S.matchAddrs.length, 0, 'diverged query clears the match set');
             assert.strictEqual(S.searchMatchSpan, 0, 'span clears with the match set');
+
+            runSearch('DE AD', 'bytes', 'auto', 'button');
+            await new Promise(resolve => setTimeout(resolve, 400));
+            assert.ok(S.matchAddrs.length >= 1, 're-run after divergence re-searches');
+            invalidateSearchIfDiverged('', 'bytes', 'auto');
+            assert.strictEqual(S.matchAddrs.length, 0, 'emptied query clears the stale match set');
+            assert.strictEqual(S.searchMatchSpan, 0, 'span clears when the query is emptied');
+        } finally {
+            cleanupWebviewDom(dom);
+        }
+    });
+
+    test('mid-run divergence cancels the in-flight search; a matching key keeps it running', async () => {
+        resetState();
+        const dom = installWebviewDom('<!doctype html><html><body><div id="app"></div></body></html>');
+        try {
+            S.parseResult = {
+                records: [], recordCount: 0,
+                segments: [{ startAddress: 0x08000000, data: [0xDE, 0xAD, 0xDE, 0xAD] }],
+                totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+            };
+            const { initSearch, runSearch, invalidateSearchIfDiverged } = await import('../../webview/search/searchEngine.js');
+            initSearch(() => {});
+
+            runSearch('DE AD', 'bytes', 'auto', 'button');
+            invalidateSearchIfDiverged('AA', 'bytes', 'auto'); // inside the debounce window
+            await new Promise(resolve => setTimeout(resolve, 400));
+            assert.strictEqual(S.matchAddrs.length, 0, 'diverged query cancels the in-flight search');
+
+            runSearch('DE AD', 'bytes', 'auto', 'button');
+            invalidateSearchIfDiverged('DE AD', 'bytes', 'auto'); // same key, still running
+            await new Promise(resolve => setTimeout(resolve, 400));
+            assert.ok(S.matchAddrs.length >= 1, 'matching key does not cancel the running search');
+        } finally {
+            cleanupWebviewDom(dom);
+        }
+    });
+});
+
+// ── Regression: edit refresh re-renders the grid only in memory view (C1) ─
+
+suite('edit refresh gate (C1)', () => {
+    test('refreshAfterLocalEdit re-renders the grid only in memory view', async () => {
+        resetState();
+        const dom = installWebviewDom(`<!doctype html><html><body><div id="app">
+            <div id="memory-view"><div id="mem-header"></div><div id="mem-scroll"><div id="mem-rows"></div></div></div>
+        </div></body></html>`);
+        try {
+            S.parseResult = {
+                records: [], recordCount: 0,
+                segments: [{ startAddress: 0x08000000, data: Uint8Array.from({ length: 64 }, (_, i) => i) }],
+                totalDataBytes: 64, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+            };
+            const { initFlatBytes, buildMemRows } = await import('../../webview/memory/memoryData.js');
+            initFlatBytes();
+            buildMemRows();
+            const { refreshAfterLocalEdit } = await import('../../webview/hexViewer.js');
+            const rows = document.getElementById('mem-rows')!;
+
+            S.currentView = 'record';
+            refreshAfterLocalEdit();
+            assert.strictEqual(rows.innerHTML, '', 'no grid re-render while in record view');
+
+            S.currentView = 'memory';
+            refreshAfterLocalEdit();
+            assert.ok(rows.innerHTML.includes('data-row'), 'grid re-renders in memory view');
         } finally {
             cleanupWebviewDom(dom);
         }
