@@ -22,6 +22,8 @@ export const S = {
     searchEndianness: 'auto' as SearchEndianness,
     matchAddrs:   []     as number[],
     matchIdx:     -1,
+    /** Byte-span of the needle for the completed/running search (0 = no active match set). */
+    searchMatchSpan: 0 as number,
     memRows:      []     as MemRow[],
     editMode:     false  as boolean,
     edits:        new Map<number, number>(),   // addr → new value (pending saves)

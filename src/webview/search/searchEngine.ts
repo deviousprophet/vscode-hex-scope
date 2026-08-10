@@ -112,6 +112,7 @@ function clearEmptySearchQuery(): void {
     _lastCompletedSearchKey = '';
     engine.clear();
     notifySearchBusy(false);
+    S.searchMatchSpan = 0;
     paintMemoryMatchHighlights();
     notifySearchCount();
 }
@@ -122,6 +123,7 @@ function startSearch(req: { searchKey: string; mode: SearchMode; raw: string; en
     _searchRunning = true;
     _activeSearchKey = req.searchKey;
     _activeMatchSpan = getMatchSpan(req.mode, req.raw, req.endianness);
+    S.searchMatchSpan = _activeMatchSpan;
     paintMemoryMatchHighlights();
 
     if (!S.parseResult) {
@@ -199,10 +201,22 @@ export function clearSearch(): void {
     _searchRunning = false;
     _activeSearchKey = '';
     _activeMatchSpan = 1;
+    S.searchMatchSpan = 0;
     S.matchAddrs = [];
     S.matchIdx   = -1;
     paintMemoryMatchHighlights();
     notifySearchCount();
+}
+
+/** Drop completed-match state when the visible query/mode/endian diverges from the executed search. */
+export function invalidateSearchIfDiverged(query: string, mode: SearchMode, endianness: SearchEndianness): void {
+    if (_searchRunning) { return; }
+    if (S.matchAddrs.length === 0) { return; }
+    const q = query.trim();
+    if (q.length === 0) { return; }
+    if (searchKeyFor(mode, q, endianness) === _lastCompletedSearchKey) { return; }
+    _lastCompletedSearchKey = '';
+    clearSearch();
 }
 
 export function nextMatch(): void {

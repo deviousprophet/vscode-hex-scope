@@ -15,6 +15,8 @@ export interface SearchBarCallbacks {
     onPrev: () => void;
     onNext: () => void;
     onClear: () => void;
+    /** Query/mode/endian UI changed without running — host drops stale matches if diverged. */
+    onQueryChanged?: (query: string, mode: SearchMode, endianness: SearchEndianness) => void;
 }
 
 export interface SearchBarSeedOptions {
@@ -50,14 +52,14 @@ export class SearchBar {
                 <select id="search-mode">${modeOptions(this.mode)}</select>
                 <div class="search-addr-wrap">
                     <span id="search-addr-prefix" class="search-addr-prefix"${this.addrPrefixHiddenAttr()}>0x</span>
-                    <input id="search-input" type="text" placeholder="${PLACEHOLDERS[this.mode]}" autocomplete="off" spellcheck="false" maxlength="${this.addrInputMaxLength()}" value="${esc(this.query)}" class="${this.addrInputClass()}">
+                    <input id="search-input" type="text" placeholder="${PLACEHOLDERS[this.mode]}" autocomplete="off" spellcheck="false" maxlength="${this.addrInputMaxLength()}" value="${esc(this.query)}" class="${this.addrInputClass()}" aria-label="Search">
                 </div>
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
                 <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
                 <button class="nav-btn" id="btn-next"         title="Next match">▼</button>
                 <button class="nav-btn" id="btn-clear-search" title="Clear">✕</button>
                 <span id="search-progress" class="search-progress" aria-hidden="true"></span>
-                <span id="match-count"></span>
+                <span id="match-count" aria-live="polite"></span>
             </div>`;
     }
 
@@ -121,6 +123,7 @@ export class SearchBar {
         }
         this.query = target.value;
         this.updateAddrOverlay();
+        this.notifyQueryChanged();
     }
 
     private onDocumentChange(e: Event): void {
@@ -153,12 +156,14 @@ export class SearchBar {
         if (mode === this.mode) { return; }
         this.mode = mode;
         this.applyModeUi();
+        this.notifyQueryChanged();
     }
 
     private setEndianness(endianness: SearchEndianness): void {
         if (endianness === this.endianness) { return; }
         this.endianness = endianness;
         this.applyEndianUi();
+        this.notifyQueryChanged();
     }
 
     private clear(): void {
@@ -167,6 +172,11 @@ export class SearchBar {
         if (input) { input.value = ''; }
         this.updateAddrOverlay();
         this.cb.onClear();
+    }
+
+    /** Report a UI-only change so the host can drop stale matches when the visible query diverges. */
+    private notifyQueryChanged(): void {
+        this.cb.onQueryChanged?.(this.query, this.mode, this.endianness);
     }
 
     private focusInput(): void {

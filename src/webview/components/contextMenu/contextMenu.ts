@@ -144,8 +144,12 @@ function buildMultiByteBody(state: ContextMenuState): string {
 
 function buildSingleByteBody(state: ContextMenuState): string {
     const value = state.bytes[0] ?? 0;
+    const ascii = formatAsciiByte(value);
+    const asciiRow = ascii !== '.'
+        ? ctxItem('copy-ascii', 'Copy ASCII', `'${ascii}'`)
+        : '';
     return ctxItem('copy-hex', 'Copy Hex', `0x${hexByte(value)}`) +
-        ctxItem('copy-ascii', 'Copy ASCII', `'${formatAsciiByte(value)}'`) +
+        asciiRow +
         ctxSubmenu('Copy as\u2026', 'copy', buildSingleCopyAsMenu(value)) +
         CTX_SEP +
         interactionRows(state) +

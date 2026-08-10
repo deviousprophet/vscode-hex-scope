@@ -30,6 +30,7 @@ function resetState(): void {
     S.selEnd       = null;
     S.matchAddrs   = [];
     S.matchIdx     = -1;
+    S.searchMatchSpan = 0;
     S.currentView  = 'memory';
     S.editMode     = false;
     S.edits.clear();
@@ -1259,6 +1260,86 @@ suite('selectedBytes() - gap filtering', () => {
         assert.strictEqual(result.type, 'copyText');
         const text = (result as { type: 'copyText'; text: string }).text;
         assert.strictEqual(text, '0x04'); // 0x01 ^ 0x02 ^ 0x03 ^ 0x04
+    });
+});
+
+// ── Regression: container resize re-slices the memory grid (B1) ─────
+
+class FakeResizeObserver {
+    static instances: FakeResizeObserver[] = [];
+    observed: HTMLElement[] = [];
+    constructor(private cb: () => void) { FakeResizeObserver.instances.push(this); }
+    observe(el: HTMLElement): void { this.observed.push(el); }
+    disconnect(): void { this.observed = []; }
+    fire(): void { this.cb(); }
+}
+
+suite('memory grid container-resize handling (regression B1)', () => {
+    test('a container height change re-renders the visible slice via ResizeObserver', async () => {
+        resetState();
+        const dom = installWebviewDom(`<!doctype html><html><body>
+            <div id="memory-view"><div id="mem-header"></div><div id="mem-scroll"><div id="mem-rows"></div></div></div>
+        </body></html>`);
+        try {
+            (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver;
+            FakeResizeObserver.instances = [];
+            S.parseResult = {
+                records: [], recordCount: 0,
+                segments: [{ startAddress: 0x08000000, data: Uint8Array.from({ length: 256 }, (_, i) => i) }],
+                totalDataBytes: 256, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+            };
+            const { initFlatBytes, buildMemRows } = await import('../../webview/memory/memoryData.js');
+            initFlatBytes();
+            buildMemRows();
+            const { memRerender } = await import('../../webview/memory/memoryGrid.js');
+            memRerender();
+
+            const obs = FakeResizeObserver.instances.find(o => o.observed.some(el => el.id === 'mem-scroll'));
+            assert.ok(obs, 'resize observer targets the memory scroll container');
+            const rows = document.getElementById('mem-rows');
+            assert.ok(rows, 'memory rows rendered');
+            const before = rows!.innerHTML;
+
+            Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', { value: 600, configurable: true });
+            obs!.fire();
+            assert.notStrictEqual(rows!.innerHTML, before, 'slice re-renders after a container height change');
+        } finally {
+            delete (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver;
+            cleanupWebviewDom(dom);
+        }
+    });
+});
+
+// ── Regression: match highlight truth = executed search (B2) ───────
+
+suite('search match truth follows the executed search (B2)', () => {
+    test('span comes from the executed search; a diverged query clears stale matches', async () => {
+        resetState();
+        const dom = installWebviewDom('<!doctype html><html><body><div id="app"></div></body></html>');
+        try {
+            S.parseResult = {
+                records: [], recordCount: 0,
+                segments: [{ startAddress: 0x08000000, data: [0xDE, 0xAD, 0xDE, 0xAD] }],
+                totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+            };
+            const { initSearch, runSearch, invalidateSearchIfDiverged } = await import('../../webview/search/searchEngine.js');
+            initSearch(() => {});
+            runSearch('DE AD', 'bytes', 'auto', 'button');
+            // debounce (120ms) + chunked scan must fully complete before invalidation asserts.
+            await new Promise(resolve => setTimeout(resolve, 400));
+
+            assert.ok(S.matchAddrs.length >= 1, 'bytes search finds the pattern');
+            assert.strictEqual(S.searchMatchSpan, 2, 'span is the executed needle length');
+
+            invalidateSearchIfDiverged('DE AD', 'bytes', 'auto');
+            assert.ok(S.matchAddrs.length >= 1, 'unchanged query keeps its match set');
+
+            invalidateSearchIfDiverged('AA', 'bytes', 'auto');
+            assert.strictEqual(S.matchAddrs.length, 0, 'diverged query clears the match set');
+            assert.strictEqual(S.searchMatchSpan, 0, 'span clears with the match set');
+        } finally {
+            cleanupWebviewDom(dom);
+        }
     });
 });
 
