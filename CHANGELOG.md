@@ -10,12 +10,15 @@
 
 - Context menu reworked: frequent copy formats (Hex, ASCII, C Array) are now one-click; Go address jumps to a 4-byte selection's target address (follows the sidebar endian, preview shown, disabled when unmapped); Select all / Select segment added
 - Record view columns now use fixed widths (address, type, count, checksum) with the data column filling the remaining space; address styling matches the hex view and the checksum column aligns left
+- Search match highlighting now tracks the executed search: changing the query, mode, or byte order clears stale matches (and cancels a diverged in-flight search) until the search is re-run
+- Search bar controls now carry accessible names and the match count is announced to screen readers
 
 ### Fixed
 
 - Fixed end-of-scroll shaking when scrolling to the bottom of large (virtualized) files in memory and record views
 - Fixed the Edit button remaining visible after entering edit mode, showing alongside the EDITING controls
 - Fixed toggling byte order clearing the Inspector's decoded value for the current selection
+- Fixed the external-change unlock re-enabling buttons that were already disabled for state reasons (e.g. `Save` with no edits)
 
 ## [2.17.1] - 2026-08-01
 

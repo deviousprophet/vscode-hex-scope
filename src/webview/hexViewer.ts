@@ -12,8 +12,10 @@ import {
     memRerender,
     mountHexView,
     paintCell,
+    paintClearStructHighlight,
     paintMemoryMatchHighlights,
     paintMemorySelection,
+    paintStructHighlight,
     scrollTo,
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
@@ -22,7 +24,7 @@ import { currentSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
 import { StructPanel } from './components/sidebar/structPanel/structPanel';
-import { clearSearch, initSearch, nextMatch, prevMatch, runSearch } from './search/searchEngine';
+import { clearSearch, initSearch, invalidateSearchIfDiverged, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/searchBar/searchBar';
 import { Toolbar } from './components/toolbar/toolbar';
 import type { SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
@@ -81,6 +83,7 @@ const recordPages = new RecordPageCache(8);
 let recordRenderSignature = '';
 let recordVscrollState: VirtualScrollState | null = null;
 let recordRowHeight = RECORD_FALLBACK_ROW_HEIGHT;
+let recordResizeObserver: ResizeObserver | null = null;
 const recordRowHeightGetter = (): number => recordRowHeight;
 
 const recordView = new RecordView('#record-view', {
@@ -136,10 +139,10 @@ const structPanel = new StructPanel({
     onStateChange: applyStructState,
     onSelectRange: selectStructRangeHost,
     onHighlightHex: (addrs, cls) => {
-        for (const addr of addrs) { highlightHexAddress(addr, cls); }
+        paintStructHighlight(addrs, cls);
     },
     onClearHighlightHex: cls => {
-        document.querySelectorAll<HTMLElement>(`.${cls}`).forEach(el => el.classList.remove(cls));
+        paintClearStructHighlight(cls);
     },
 });
 
@@ -167,12 +170,6 @@ function selectStructRangeHost(start: number, count: number): void {
     S.selEnd = start + count - 1;
     rerender.jumpTo(start);
     rerender.inspector();
-}
-
-/** Apply a highlight class to hex-view rows at the address (moved highlightAddress). */
-function highlightHexAddress(addr: number, cls: string): void {
-    const ah = addr.toString(16).toUpperCase().padStart(8, '0');
-    document.querySelectorAll<HTMLElement>(`[data-addr="${ah}"]`).forEach(el => el.classList.add(cls));
 }
 
 /** Push the full Struct panel snapshot after a mount/full render. */
@@ -250,6 +247,19 @@ export function renderRecordView(): void {
         return;
     }
     refreshRecordSlice();
+}
+
+/** Re-target the record-view resize observer (full renders recreate the DOM). */
+function observeRecordResize(el: HTMLElement): void {
+    recordResizeObserver?.disconnect();
+    if (typeof ResizeObserver === 'undefined') { return; }
+    recordResizeObserver = new ResizeObserver(() => {
+        if (S.currentView !== 'record') { return; }
+        if (recordCountOf(S.parseResult) === 0) { return; }
+        recordRenderSignature = '';
+        refreshRecordSlice();
+    });
+    recordResizeObserver.observe(el);
 }
 
 function requestRecordPage(start: number, recordCount: number): void {
@@ -418,6 +428,7 @@ const searchBar = new SearchBar(
         onPrev: () => prevMatch(),
         onNext: () => nextMatch(),
         onClear: () => clearSearch(),
+        onQueryChanged: (query, mode, endianness) => invalidateSearchIfDiverged(query, mode, endianness),
     },
     { mode: S.searchMode, endianness: S.searchEndianness },
 );
@@ -477,10 +488,9 @@ function clearNibbleBuffer(): void {
 }
 
 /** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
-function refreshAfterLocalEdit(): void {
+export function refreshAfterLocalEdit(): void {
     toolbar.setDirty(S.edits.size);
-    toolbar.setEditMode(S.editMode);
-    memRerender();
+    if (S.currentView === 'memory') { memRerender(); }
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
@@ -492,6 +502,7 @@ function applyTypedEdit(addr: number, value: number): void {
     if (!prior) {return;}
     S.undoStack.push([prior]);
     S.editMode = true;
+    toolbar.setEditMode(S.editMode);
     refreshAfterLocalEdit();
 }
 
@@ -938,6 +949,8 @@ function setupRenderedUi(): void {
     searchBar.mount();
     toolbar.mount();
     recordView.mount();
+    const recordRoot = document.getElementById('record-view');
+    if (recordRoot) { observeRecordResize(recordRoot); }
     contextMenu.mount();
     toolbar.setView(S.currentView);
     toolbar.setEditMode(S.editMode);
@@ -1047,6 +1060,7 @@ function renderInitialViews(): void {
     pushStructState();
     renderStatsBar();
     renderCurrentDataView();
+    searchBar.setCount(S.matchAddrs.length, S.matchIdx);
 }
 
 function renderLoadError(message: string): void {
@@ -1156,33 +1170,21 @@ function stageIntegrityEdits(edits: Array<[number, number]>): void {
 }
 
 function refreshAfterIntegrityEdits(): void {
+    refreshAfterLocalEdit();
     toolbar.setEditMode(S.editMode);
-    toolbar.setDirty(S.edits.size);
-    if (S.currentView === 'memory') { memRerender(); }
-    inspectorPanel.setSelection(S.selStart, S.selEnd);
-    structPanel.render();
-    integrityPanel.notifyBytesChanged();
 }
 
 // ── Edit helpers ──────────────────────────────────────────────────
 
 function applyFill(fillVal: number): void {
     fillSelectionTransaction(currentSelectionRange(), fillVal);
-    toolbar.setDirty(S.edits.size);
-    if (S.currentView === 'memory') { memRerender(); }
-    inspectorPanel.setSelection(S.selStart, S.selEnd);
-    structPanel.render();
-    integrityPanel.notifyBytesChanged();
+    refreshAfterLocalEdit();
 }
 
 function undoLastEdit(): void {
     clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
-    toolbar.setDirty(S.edits.size);
-    if (S.currentView === 'memory') { memRerender(); }
-    inspectorPanel.setSelection(S.selStart, S.selEnd);
-    structPanel.render();
-    integrityPanel.notifyBytesChanged();
+    refreshAfterLocalEdit();
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────

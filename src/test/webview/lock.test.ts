@@ -89,4 +89,21 @@ suite('webview external-change lock state', () => {
         currentDom = dom;
         assert.doesNotThrow(() => updateExternalChangeLockState(true));
     });
+
+    test('unlock restores each element to its own prior disabled state (regression)', () => {
+        const dom = installDom(appMarkup());
+        currentDom = dom;
+        const doc = dom.window.document;
+        const maBtn = doc.getElementById('ma-btn') as HTMLButtonElement;
+        const tbBtn = doc.getElementById('tb-btn') as HTMLButtonElement;
+        maBtn.disabled = true; // already disabled for state reasons before the lock
+
+        updateExternalChangeLockState(true);
+        assert.strictEqual(maBtn.getAttribute('data-was-enabled'), 'false', 'disabled button recorded as not-enabled');
+
+        updateExternalChangeLockState(false);
+        assert.ok(maBtn.disabled, 'previously-disabled button stays disabled after unlock');
+        assert.ok(!tbBtn.disabled, 'enabled button is restored enabled');
+        assert.strictEqual(maBtn.getAttribute('data-was-enabled'), null, 'mark cleared');
+    });
 });

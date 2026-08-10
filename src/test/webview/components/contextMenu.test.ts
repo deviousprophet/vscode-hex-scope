@@ -124,6 +124,14 @@ suite('webview ContextMenu component', () => {
         assert.ok(!html.includes('ctx-label-input'));
     });
 
+    test('single-byte Copy ASCII is gated on printable bytes (regression C2)', () => {
+        const printable = renderContextMenuHtml(baseState({ len: 1, bytes: [0x42], goAddress: null }));
+        assert.ok(printable.includes('data-cmd="copy-ascii"'));
+        assert.ok(printable.includes("'B'"));
+        const nonPrintable = renderContextMenuHtml(baseState({ len: 1, bytes: [0x00], goAddress: null }));
+        assert.ok(!nonPrintable.includes('data-cmd="copy-ascii"'), 'non-printable byte hides Copy ASCII');
+    });
+
     test('edit mode renders patch/fill submenu with custom input and editing badge', () => {
         const html = renderContextMenuHtml(baseState({ editMode: true }));
         assert.ok(html.includes('data-sub="fill"'));

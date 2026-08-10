@@ -46,6 +46,7 @@ let vscrollContainer: HTMLElement | null = null;
 let vscrollRenderedRange: [number, number] = [0, 0];
 let injectedHeaderAscii: boolean | null = null;
 let showAscii = true;
+let memResizeObserver: ResizeObserver | null = null;
 
 // ── Host-facing actions ───────────────────────────────────────────
 
@@ -87,6 +88,7 @@ export function memRerender(): void {
     if (!scrollContainer) { return; }
     initializeMemoryScrollState(scrollContainer);
     renderMemoryGrid(scrollContainer);
+    observeMemScrollResize(scrollContainer);
 }
 
 /** Scroll so `addr` is visible (precise virtual-scroll position; reveal when uncompressed). */
@@ -119,6 +121,16 @@ export function paintMemoryMatchHighlights(): void {
 
 export function paintCell(addr: number, previewText: string | null): void {
     hexView?.paintCell(addr, previewText);
+}
+
+/** Struct-field highlight via the HexView paint seam (host never pokes cell DOM). */
+export function paintStructHighlight(addrs: readonly number[], cls: string): void {
+    hexView?.paintStructHighlight(addrs, cls);
+}
+
+/** Struct-field clear: remove `cls` from all grid cells (class-wide parity). */
+export function paintClearStructHighlight(cls: string): void {
+    hexView?.paintClearStructHighlight(cls);
 }
 
 /** Called after a full page render (DOM recreated): forces header re-injection. */
@@ -437,6 +449,17 @@ function applyGridScrollTop(top: number): void {
 
 // ── Scroll / slice lifecycle ──────────────────────────────────────
 
+/** Re-target the container-height observer after each render (full renders recreate the DOM). */
+function observeMemScrollResize(scrollContainer: HTMLElement): void {
+    memResizeObserver?.disconnect();
+    if (typeof ResizeObserver === 'undefined') { return; }
+    memResizeObserver = new ResizeObserver(() => {
+        if (S.memRows.length === 0 || !vscrollState) { return; }
+        refreshMemoryScrollPosition(getGridScrollTop());
+    });
+    memResizeObserver.observe(scrollContainer);
+}
+
 function refreshMemoryScrollPosition(scrollTop: number): void {
     if (!vscrollState) { return; }
     vscrollState.scrollTop = physicalToLogicalScroll(scrollTop, vscrollState);
@@ -484,48 +507,11 @@ function injectMemoryHeader(): void {
     }
 }
 
-// ── Search needle length (host-side) ─────────────────────────────
-
-type NeedleLenReader = (query: string) => number | null;
-
-const NEEDLE_LEN_BY_MODE: Record<typeof S.searchMode, NeedleLenReader> = {
-    addr: () => 1,
-    bytes: bytesNeedleLen,
-    value: valueNeedleLen,
-    ascii: asciiNeedleLen,
-};
+// ── Search needle span ─────────────────────────────────────────────
+// Match-highlight width comes from the executed search (S.searchMatchSpan),
+// never from the live input/mode — a mode/endian change without re-running
+// cannot mispaint the existing match set.
 
 function getNeedleLen(): number | null {
-    const input = document.getElementById('search-input') as HTMLInputElement | null;
-    const q = input?.value ?? '';
-    if (!q.trim()) { return null; }
-    return NEEDLE_LEN_BY_MODE[S.searchMode](q);
-}
-
-function bytesNeedleLen(query: string): number | null {
-    const tokens = query.replace(/\s/g, '').match(/.{1,2}/g) ?? [];
-    const n = tokens.filter(t => !isNaN(parseInt(t, 16))).length;
-    return n || null;
-}
-
-function valueNeedleLen(query: string): number | null {
-    const raw = query.trim().replace(/_/g, '');
-    if (/^0x[0-9a-fA-F]+$/.test(raw)) {
-        return Math.max(1, Math.ceil(raw.slice(2).length / 2));
-    }
-    if (!/^\d+$/.test(raw)) { return null; }
-    try {
-        return decimalValueNeedleLen(BigInt(raw));
-    } catch {
-        return null;
-    }
-}
-
-function decimalValueNeedleLen(value: bigint): number | null {
-    if (value < 0n) { return null; }
-    return Math.min(8, Math.ceil(value.toString(16).length / 2));
-}
-
-function asciiNeedleLen(query: string): number | null {
-    return new TextEncoder().encode(query).length || null;
+    return S.searchMatchSpan > 0 ? S.searchMatchSpan : null;
 }

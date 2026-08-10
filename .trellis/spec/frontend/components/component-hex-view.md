@@ -78,6 +78,8 @@ export class HexView {
     paintSelection(range: HexViewRange | null): void;      // incremental class paint
     paintMatch(matchAddrs: readonly number[], index: number, length: number): void;
     paintCell(addr: number, previewText: string | null): void;  // nibble preview; null restores from data-val
+    paintStructHighlight(addrs: readonly number[], cls: string): void;   // struct-field class on cells (root-scoped)
+    paintClearStructHighlight(cls: string): void;            // remove `cls` from all cells in the root
 }
 ```
 
@@ -93,7 +95,7 @@ export class HexView {
 - **Zero size math:** all sizing from CSS (`--cell-size`, `--text-cell-width`, `.cell-group` `4n+1` gaps, `.data-row` height). No width/height computation in TS. Positioning attributes (`top: windowTop` on the wrapper, spacer heights) are host-computed values emitted as inline `style` — pre-existing parity, not size math.
 - **CSS debt (documented, not new):** `hexView.css` carries ~10 `!important` rules (integrity/match/sel/col-hi overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
 - **Root-scoped (single-instance today):** constructor takes `rootSelector`; the component queries only within its root. Note the shell still uses the pre-existing global ids `#memory-view`/`#mem-header`/`#mem-scroll` (single-instance webview). Diff-view two-panel reuse will need those ids turned into class-scoped root markup (a future diff task).
-- **Host never writes component DOM directly:** nibble-edit preview via `paintCell(addr, text|null)`; component owns `.editing` class + `textContent`, restores from own `data-val`.
+- **Host never writes component DOM directly:** nibble-edit preview via `paintCell(addr, text|null)`; struct-field highlight via `paintStructHighlight(addrs, cls)` / `paintClearStructHighlight(cls)` (root-scoped, class-wide clear); component owns `.editing` class + `textContent`, restores from own `data-val`. No host `querySelectorAll('[data-addr]')` pokes.
 - **showAscii boolean** (default true = byte-identical current); `false` gates only char cells + "Decoded text" header label.
 - Untrusted text escaped with `esc()`.
 

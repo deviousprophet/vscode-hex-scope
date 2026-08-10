@@ -46,7 +46,7 @@ export class ContextMenu {
 ## Rules
 
 - **Report-only:** every row click → `onCommand(cmd)` (stopPropagation so menu doesn't dismiss); component never executes commands, never touches `S`, never posts.
-- **Layout:** direct Copy Hex (`copy-hex`), Copy ASCII (`copy-ascii`), Copy C Array (`copy-c-array`, multi only); submenus Copy as… (raw/binary/arrays/Base64/Decimal), Analyze (Sum/XOR/CRC-8/16/32, multi only), Patch/Fill (edit mode only). Single-byte variant: Copy Hex/ASCII, Copy as…(Decimal/Binary), Patch — NO Analyze, NO Go address.
+- **Layout:** direct Copy Hex (`copy-hex`), Copy ASCII (`copy-ascii`), Copy C Array (`copy-c-array`, multi only); submenus Copy as… (raw/binary/arrays/Base64/Decimal), Analyze (Sum/XOR/CRC-8/16/32, multi only), Patch/Fill (edit mode only). Single-byte variant: Copy Hex, Copy ASCII **only when the byte is printable** (`formatAsciiByte(b) !== '.'`), Copy as…(Decimal/Binary), Patch — NO Analyze, NO Go address.
 - **Go address:** only when `len===4`, follows `S.endian` (host-computed), preview `0x… + endian`; invalid (unmapped) row is `.ctx-disabled` inert + `title="Not mapped"` tooltip (no inline hint).
 - **Copy cmd normalization:** direct cmds `copy-hex`/`copy-ascii`/`copy-c-array` are normalized by host `contextCommandResult` (`copy-c-array → c-array`); Analyze/fill cmds unchanged.
 - **Interaction:** doc-delegated mount; click-outside → hide; Escape → hide; hover `.ctx-has-sub` → submenu (reuse `wireHoverSubmenus`); custom-fill input Enter applies / Escape dismisses / `.ctx-fill-invalid` on invalid (`.ctx-fill-apply` button). Inline inputs stopPropagation on click/mousedown.

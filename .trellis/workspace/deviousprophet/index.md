@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
-- **Last Active**: 2026-08-08
+- **Total Sessions**: 13
+- **Last Active**: 2026-08-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~329 | Active |
+| `journal-1.md` | ~354 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-08-10 | Fix webview review findings + UI/UX heuristic review (PR #175) | `32cff4d`, `80a1378`, `3c0c998`, `494999f`, `111ad7d` | `fix/webview-review-findings` |
 | 12 | 2026-08-08 | Session 14: Close webview component refactor | `6f0a10e` | `chore/close-webview-refactor-tasks` |
 | 11 | 2026-08-08 | Session 12: Extract Scripts panel into self-contained component | `cb4662c` | `feat/webview-scripts-component` |
 | 10 | 2026-08-08 | Session 11: Extract Integrity panel into self-contained component | `532f869` | `feat/webview-integrity-component` |

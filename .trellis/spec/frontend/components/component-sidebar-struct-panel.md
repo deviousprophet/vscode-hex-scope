@@ -49,7 +49,7 @@ class StructPanel {
 
 - Component holds only UI/transient state (expansion Sets, `_fieldValTypes`, `_activeStructAddr`, add/edit-form flags, `_applyStructId`, bit-range selection, `_tabActive`). Persistent/domain state lives in the host.
 - Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte` is injected (host passes `getByte` from `memory/memoryData`) so byte access stays host-owned — the component must NOT import `memory/memoryData`.
-- Struct/pin mutations report `onStructsChange`/`onPinsChange`/`onStateChange`; the host syncs `S` + persists (`saveStructs`/`saveStructPins`). Selection → `onSelectRange`; hex-row highlight/array separators → `onHighlightHex`/`onClearHighlightHex` (never poke `[data-addr]` directly).
+- Struct/pin mutations report `onStructsChange`/`onPinsChange`/`onStateChange`; the host syncs `S` + persists (`saveStructs`/`saveStructPins`). Selection → `onSelectRange`; hex-row highlight/array separators → `onHighlightHex`/`onClearHighlightHex`. The host applies them through the HexView paint seam (`memoryGrid.paintStructHighlight`/`paintClearStructHighlight` → `HexView.paintStructHighlight`/`paintClearStructHighlight`, root-scoped) — never a host `[data-addr]` DOM poke.
 - `S.activeStructAddr` was removed from `state.ts` (had no external push/read sites); the component keeps `_activeStructAddr` internally.
 - Markup is byte-identical to pre-refactor (same ids/classes); all CSS moved verbatim from `styles/struct.css`. Untrusted text escaped with `esc()`.
 - Pin model helpers stay pure and unit-tested (`structPinsModel.ts`); no DOM, no `S`.
