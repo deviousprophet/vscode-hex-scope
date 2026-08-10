@@ -61,8 +61,8 @@ export class ExternalChange {
 | Show while same kind visible | Prior same-kind banner removed first. |
 | Conflict/Reload dismiss | Banner removed, host callback invoked with `incoming`. |
 | Error dismiss | Host callback only; host reload flow clears banner. |
-| Lock on | `#app` gets `locked-due-to-external-change`; interactive elements in lockable roots disabled (`data-was-enabled` marked). |
-| Lock off | Elements restored; marks cleared. |
+| Lock on | `#app` gets `locked-due-to-external-change`; interactive elements in lockable roots disabled (`data-was-enabled` records each element's actual prior enabled state). |
+| Lock off | Elements restored to their prior enabled state (`data-was-enabled` snapshot, not force-enabled); marks cleared. |
 
 ## Tests Required
 
