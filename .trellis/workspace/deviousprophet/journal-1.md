@@ -327,3 +327,28 @@ Extracted the Scripts sidebar panel into src/webview/components/Scripts/ (Script
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: Fix webview review findings + UI/UX heuristic review (PR #175)
+
+**Date**: 2026-08-10
+**Task**: Fix webview review findings + UI/UX heuristic review (PR #175)
+**Branch**: `fix/webview-review-findings`
+
+### Summary
+
+Implemented D1-D7 fixes on branch fix/webview-review-findings: ResizeObserver re-slice (B1), executed-search match truth + divergence invalidation incl empty-query/mid-run cancel (B2), dead CSS link removal (B3), refreshAfterLocalEdit helper + view gate (C1), printable-gated Copy ASCII (C2), HexView paintStructHighlight seam (H1), lock prior-state restore, search aria-label/aria-live + count re-push. Ran fallow-fix (2 complexity findings fixed, fallow green) and two-axis code review (3 gaps fixed + tested). Changelog Unreleased updated with real v2.17.1->next deltas only. 721 tests green, types/lint clean. PR #175 open vs main. Filed 7 UI/UX follow-up tasks.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `32cff4d` | (see git log) |
+| `80a1378` | (see git log) |
+| `3c0c998` | (see git log) |
+| `494999f` | (see git log) |
+| `111ad7d` | (see git log) |
+
+### Status
+
+[OK] **Completed**
