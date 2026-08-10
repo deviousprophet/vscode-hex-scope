@@ -212,11 +212,13 @@ export function clearSearch(): void {
 export function invalidateSearchIfDiverged(query: string, mode: SearchMode, endianness: SearchEndianness): void {
     if (_searchRunning) { return; }
     if (S.matchAddrs.length === 0) { return; }
-    const q = query.trim();
-    if (q.length === 0) { return; }
-    if (searchKeyFor(mode, q, endianness) === _lastCompletedSearchKey) { return; }
+    if (!isDivergedFromCompletedSearch(query.trim(), mode, endianness)) { return; }
     _lastCompletedSearchKey = '';
     clearSearch();
+}
+
+function isDivergedFromCompletedSearch(q: string, mode: SearchMode, endianness: SearchEndianness): boolean {
+    return q.length > 0 && searchKeyFor(mode, q, endianness) !== _lastCompletedSearchKey;
 }
 
 export function nextMatch(): void {
