@@ -352,3 +352,24 @@ Implemented D1-D7 fixes on branch fix/webview-review-findings: ResizeObserver re
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: vscode-extension-tester E2E suite + CI/CT (PR #177)
+
+**Date**: 2026-08-12
+**Task**: vscode-extension-tester E2E suite + CI/CT (PR #177)
+**Branch**: `feat/e2e-tests`
+
+### Summary
+
+Added ExTester E2E smoke suite (src/test/e2e/, 15 specs: 12 running / 3 skipped with documented ChromeDriver limits) driving the real HexScope custom-editor webview; fixtures (sample/empty/large .hex, .srec, script workspace); test:e2e npm script (VS Code 1.125.0 pinned, telemetry-off, 60s mocha); .vscode-test.mjs glob excludes e2e from the jsdom unit suite; ct.yml E2E_Test job (xvfb + test-resources cache + log upload) wired into Finalize. Gate: types/lint clean, 732 unit tests, fallow 0/0/0, test:e2e 12 passing/3 skipped. All touched files UTF-8 no BOM. PR #177 (draft).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7200bb3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
