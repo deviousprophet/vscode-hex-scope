@@ -205,6 +205,17 @@ suite('webview Toolbar component', () => {
         assert.ok(saveDisabled(dom));
     });
 
+    test('setStatus shows a transient message and clears it', async function () {
+        this.timeout(5_000);
+        const { dom, bar } = createHarness();
+        const status = dom.window.document.getElementById('edit-status') as HTMLElement;
+        bar.setStatus('Pasted 2 of 5 bytes — hit an unmapped region');
+        assert.strictEqual(status.textContent, 'Pasted 2 of 5 bytes — hit an unmapped region');
+        assert.ok(status.classList.contains('visible'));
+        await new Promise(resolve => setTimeout(resolve, 3100));
+        assert.ok(!status.classList.contains('visible'), 'status auto-clears');
+    });
+
     test('mount is idempotent: second mount does not duplicate listeners', () => {
         const { dom, bar, calls } = createHarness();
         bar.mount();

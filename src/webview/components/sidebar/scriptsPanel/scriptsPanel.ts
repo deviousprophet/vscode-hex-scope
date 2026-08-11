@@ -242,7 +242,7 @@ export class ScriptsPanel {
                 ${this.statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
                 ${extBadge}${caps}
-                <button class="script-run-btn${attrs.btnClass}" data-path="${esc(s.filePath)}"${attrs.btnTitle}>
+                <button class="script-run-btn${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
                 </button>
             </div>
@@ -280,9 +280,22 @@ export class ScriptsPanel {
         const path = btn.dataset.path;
         if (!path) { return; }
         const isRun = this.runningPath === path;
+        const otherRunning = isRun ? false : this.runningPath !== null;
         btn.classList.toggle('running', isRun);
+        btn.classList.toggle('disabled-run', otherRunning);
+        btn.disabled = otherRunning;
         btn.innerHTML = this.runIconHtml(path);
-        btn.title = isRun ? (this.pendingTimer !== null ? 'Running…' : 'Click to cancel') : '';
+        btn.setAttribute('aria-label', this.runBtnAria(isRun));
+        btn.title = this.runBtnTitle(isRun, otherRunning);
+    }
+
+    private runBtnAria(isRun: boolean): string {
+        return isRun ? 'Cancel script' : 'Run script';
+    }
+
+    private runBtnTitle(isRun: boolean, otherRunning: boolean): string {
+        if (isRun) { return this.pendingTimer !== null ? 'Running…' : 'Click to cancel'; }
+        return otherRunning ? 'A script is already running' : '';
     }
 
     private renderRunStates(): void {
@@ -336,14 +349,27 @@ export class ScriptsPanel {
         const area = this.flushArea(this.batchPath);
         if (!area) { return; }
         const log = this.ensureLogArea(area);
-        if (log) { log.insertAdjacentHTML('beforeend', this.logLinesHtml(lines)); }
+        if (log) {
+            log.insertAdjacentHTML('beforeend', this.logLinesHtml(lines));
+            this.stickToBottom(log);
+        }
+    }
+
+    /** Keep a tail-following log scrolled to the bottom when the user is already there. */
+    private stickToBottom(log: HTMLElement): void {
+        if (log.scrollHeight - log.scrollTop - log.clientHeight < 40) {
+            log.scrollTop = log.scrollHeight;
+        }
     }
 
     private appendRealtime(text: string): void {
         const area = this.runningResultArea();
         if (!area) { return; }
         const log = this.ensureLogArea(area);
-        if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
+        if (log) {
+            log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`);
+            this.stickToBottom(log);
+        }
     }
 
     /** Resets output batching state (was the runStartCallback from resultDisplay). */

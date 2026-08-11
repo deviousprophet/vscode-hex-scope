@@ -17,7 +17,7 @@ import {
     type VirtualScrollState,
 } from '../../webview/render/virtualScroll';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
-import { parsePasteText } from '../../webview/pasteUtils';
+import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
 import { selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
 
@@ -52,6 +52,7 @@ function installWebviewDom(markup: string): JSDOM {
         getComputedStyle: typeof getComputedStyle;
         localStorage: Storage;
         acquireVsCodeApi: () => unknown;
+        requestAnimationFrame: (cb: (t: number) => void) => number;
     };
     globals.window = dom.window as unknown as Window;
     globals.document = dom.window.document as unknown as Document;
@@ -62,6 +63,8 @@ function installWebviewDom(markup: string): JSDOM {
         getState: () => ({}),
         setState: (_state: unknown) => {},
     });
+    // jsdom has no rAF; inlineConfirm needs it to finish attaching its Yes/No handlers.
+    globals.requestAnimationFrame = cb => { cb(0); return 0; };
     Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
         value: () => {},
         configurable: true,
@@ -82,6 +85,7 @@ function cleanupWebviewDom(dom: JSDOM): void {
     delete (globalThis as unknown as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle;
     delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
     delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+    delete (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame;
 }
 
 // ── HTML escaping ───────────────────────────────────────────────
@@ -959,6 +963,9 @@ suite('Integrity Checks sidebar', () => {
                 type: 'renameIntegrityProfile', id: 'stm32-profile', name: 'Renamed Layout',
             });
             document.getElementById('integrity-profile-delete')!.click();
+            assert.ok(document.querySelector('#del-confirm-pop'), 'delete waits for the inline confirm');
+            (document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement).click();
+            await new Promise(resolve => setTimeout(resolve, 0));
             assert.deepStrictEqual(posted.at(-1), { type: 'deleteIntegrityProfile', id: 'stm32-profile' });
             document.getElementById('integrity-profile-save')!.click();
             const saveInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
@@ -1155,6 +1162,20 @@ suite('Integrity Checks sidebar', () => {
 
     test('parsePasteText parses single hex pair', () => {
         assert.deepStrictEqual(parsePasteText('FF'), [255]);
+    });
+
+    test('pasteOverflowNotice is null when nothing was pasted or nothing truncated', () => {
+        assert.strictEqual(pasteOverflowNotice(0, 0), null);
+        assert.strictEqual(pasteOverflowNotice(5, 5), null);
+        assert.strictEqual(pasteOverflowNotice(5, 3), null);
+    });
+
+    test('pasteOverflowNotice reports a partial paste', () => {
+        assert.match(pasteOverflowNotice(2, 5)!, /Pasted 2 of 5 bytes/);
+    });
+
+    test('pasteOverflowNotice reports a fully-blocked paste', () => {
+        assert.match(pasteOverflowNotice(0, 5)!, /Nothing pasted/);
     });
 });
 
@@ -1377,7 +1398,6 @@ suite('search match truth follows the executed search (B2)', () => {
 });
 
 // ── Regression: edit refresh re-renders the grid only in memory view (C1) ─
-
 suite('edit refresh gate (C1)', () => {
     test('refreshAfterLocalEdit re-renders the grid only in memory view', async () => {
         resetState();
@@ -1406,6 +1426,43 @@ suite('edit refresh gate (C1)', () => {
         } finally {
             cleanupWebviewDom(dom);
         }
+    });
+});
+
+// ── Grid keyboard selection: walkMappedAddress skips unmapped gaps ─
+
+suite('grid keyboard navigation (walkMappedAddress)', () => {
+    setup(resetState);
+
+    test('walks contiguous mapped bytes', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [{ startAddress: 0x1000, data: [1, 2, 3, 4] }],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x1001, 1), 0x1002);
+        assert.strictEqual(walkMappedAddress(0x1002, -1), 0x1001);
+        assert.strictEqual(walkMappedAddress(0x1003, 1), null, 'beyond the last mapped byte');
+        assert.strictEqual(walkMappedAddress(0x1000, -1), null, 'before the first mapped byte');
+    });
+
+    test('skips an unmapped gap to the next mapped byte', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [
+                { startAddress: 0x1000, data: [1, 2] },
+                { startAddress: 0x1100, data: [3, 4] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x1001, 1), 0x1100, 'jumps the gap');
+        assert.strictEqual(walkMappedAddress(0x1100, -1), 0x1001, 'jumps the gap backwards');
     });
 });
 

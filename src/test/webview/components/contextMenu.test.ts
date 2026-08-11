@@ -188,6 +188,36 @@ suite('webview ContextMenu component', () => {
         assert.ok(!visible(dom));
     });
 
+    test('rows expose menu semantics and keyboard focus', () => {
+        const html = renderContextMenuHtml(baseState());
+        assert.ok(html.includes('role="menuitem"'));
+        assert.ok(html.includes('tabindex="-1"'));
+        assert.ok(html.includes('role="separator"'));
+    });
+
+    test('arrow keys move focus through rows and Enter runs the focused command', () => {
+        const { dom, calls } = createHarness();
+        const first = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-row[data-cmd]')!;
+        assert.strictEqual(document.activeElement, first, 'show focuses the first enabled row');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        const second = ctxMenuEl(dom).querySelectorAll<HTMLElement>('.ctx-row[data-cmd]')[1];
+        assert.strictEqual(document.activeElement, second, 'ArrowDown moves focus to the next row');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter' }));
+        assert.deepStrictEqual(calls.commands, [second.dataset.cmd], 'Enter runs the focused row command');
+        assert.ok(!visible(dom), 'menu hides after the command');
+    });
+
+    test('arrow keys skip disabled rows', () => {
+        const { dom } = createHarness({ goAddress: { address: 0xEFBEADDE, valid: false } });
+        const goRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-row[data-cmd="go-address"]')!;
+        assert.ok(goRow.classList.contains('ctx-disabled'));
+        for (let i = 0; i < 12; i++) {
+            dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+            const active = document.activeElement as HTMLElement;
+            assert.notStrictEqual(active.dataset.cmd, 'go-address', 'focus never lands on a disabled row');
+        }
+    });
+
     test('hover on a submenu row opens its submenu', () => {
         const { dom } = createHarness();
         const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]');

@@ -204,6 +204,15 @@ suite('RecordView pure render', () => {
         assert.strictEqual(node.textContent!.includes('not <loaded> & missing'), true);
         dom.window.close();
     });
+
+    test('renderRecordEmptyHtml honors a custom title (empty-file state)', () => {
+        const dom = new JSDOM('<!doctype html><html><body><div id="rv"></div></body></html>', { url: 'https://hexscope.test/' });
+        const div = dom.window.document.getElementById('rv')!;
+        div.innerHTML = renderRecordEmptyHtml('This file contains no records.', 'No Records');
+        assert.strictEqual(div.querySelector('.raw-problems-title')!.textContent, 'No Records');
+        assert.ok(div.textContent!.includes('This file contains no records.'));
+        dom.window.close();
+    });
 });
 
 suite('RecordView interaction', () => {

@@ -9,7 +9,7 @@ import {
     type IntegrityCheckConfig,
     type IntegrityProfile,
 } from '../../../../core/integrity';
-import { esc } from '../../../utils';
+import { esc, inlineConfirm } from '../../../utils';
 import {
     integrityCheckConfigsFromStates,
     integrityCheckSetFromStates,
@@ -89,6 +89,21 @@ export function persistChecks(panel: IntegrityProfileHost): void {
 function applySelectedProfile(panel: IntegrityProfileHost): void {
     const profile = panel.profiles.find(item => item.id === panel.selectedProfileId);
     if (!profile) { return; }
+    if (hasUnsavedProfileDraft(panel)) {
+        const applyBtn = document.getElementById('integrity-profile-apply') as HTMLElement | null;
+        if (applyBtn) {
+            inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Unsaved check edits will be replaced.');
+            return;
+        }
+    }
+    applyProfileChecks(panel, profile);
+}
+
+function hasUnsavedProfileDraft(panel: IntegrityProfileHost): boolean {
+    return panel.addCheckDraft !== null || panel.editingCheckId !== null;
+}
+
+function applyProfileChecks(panel: IntegrityProfileHost, profile: IntegrityProfile): void {
     panel.checks.forEach(check => panel.cancelPendingCalculation(check));
     panel.checks = profile.checks.map(check => panel.newCheck(check));
     panel.addCheckDraft = null;
@@ -172,6 +187,11 @@ function selectedProfile(panel: IntegrityProfileHost): IntegrityProfile | undefi
 function deleteSelectedProfile(panel: IntegrityProfileHost): void {
     const current = selectedProfile(panel);
     if (!current) { return; }
+    const btn = document.getElementById('integrity-profile-delete') as HTMLElement | null;
+    if (btn) {
+        inlineConfirm(btn, () => panel.cb.onDeleteProfile?.(current.id));
+        return;
+    }
     panel.cb.onDeleteProfile?.(current.id);
 }
 
@@ -205,9 +225,9 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
         <div class="integrity-profile-actions">
             <button id="integrity-profile-apply" class="struct-btn struct-btn-apply" type="button">Apply</button>
             <button id="integrity-profile-save" class="struct-btn struct-btn-secondary" type="button">Save as</button>
-            <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" type="button">↻</button>
-            <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" type="button">✎</button>
-            <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" type="button">🗑︎</button>
+            <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" aria-label="Update profile" type="button">↻</button>
+            <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" aria-label="Rename profile" type="button">✎</button>
+            <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" aria-label="Delete profile" type="button">🗑︎</button>
         </div>
         ${profileNameFormHtml(panel)}
         <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(panel.profileError)}</div>

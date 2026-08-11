@@ -3,7 +3,7 @@
   "name": "fix-uiux-scripts-run-gating",
   "title": "UI/UX: Scripts panel - disable non-running Run while one runs",
   "description": "From ui-ux-review.md (M): runScript (scriptsPanel.ts:196-201) silently no-ops for a second card while one runs; buttons stay visually enabled. Disable non-running run buttons while runningPath set, or show a transient notice.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -1,5 +1,5 @@
 /* ── Search box ──────────────────────────────────────────────── */
-#search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+#search-box { display: flex; align-items: center; gap: 3px; margin-left: auto; min-width: 0; }
 
 .search-endian-toggle {
     flex-shrink: 0;
@@ -15,8 +15,9 @@
     background: var(--input-bg); color: var(--fg);
     border: 1px solid var(--input-bdr); border-radius: 3px;
     padding: 0 4px; height: 22px; font-size: 11px; cursor: pointer;
+    flex-shrink: 0;
 }
-.search-addr-wrap { position: relative; display: inline-flex; align-items: center; }
+.search-addr-wrap { position: relative; display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto; }
 .search-addr-prefix {
     position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
     color: var(--non-graphic); font-family: var(--font-editor); font-size: 12px;
@@ -26,7 +27,8 @@
 #search-input {
     background: var(--input-bg); color: var(--fg);
     border: 1px solid var(--input-bdr); border-radius: 3px;
-    padding: 0 7px; height: 26px; width: 180px; outline: none;
+    padding: 0 7px; height: 26px; width: 180px; min-width: 70px; flex: 0 1 180px;
+    outline: none;
     font-size: 12px; font-family: var(--font-editor); transition: border-color .12s;
 }
 #search-input.search-addr-mode { padding-left: 23px; }
@@ -39,6 +41,7 @@
     background: transparent; color: var(--fg);
     border: 1px solid transparent; border-radius: 4px;
     cursor: pointer; font-size: 13px; transition: background .12s, color .12s;
+    flex-shrink: 0;
 }
 .nav-btn:hover { background: var(--hover-bg); color: var(--fg); border-color: var(--border); }
 
@@ -75,6 +78,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
 }
 
 .search-progress {

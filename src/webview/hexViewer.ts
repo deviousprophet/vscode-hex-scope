@@ -1,11 +1,11 @@
 // ── HexScope Webview Entry Point ─────────────────────────────────
 // Bootstraps the UI, handles VS Code messages, wires all modules.
 
-import { S }                                          from './state';
+import { S, BPR }                                       from './state';
 import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc } from './utils';
 import { rerender }                                   from './render/registry';
-import { parsePasteText }                             from './pasteUtils';
+import { parsePasteText, pasteOverflowNotice } from './pasteUtils';
 import {
     getShowAscii,
     invalidateGridRender,
@@ -77,7 +77,6 @@ import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
 
 const RECORD_BUFFER_ROWS = 5;
 const RECORD_FALLBACK_ROW_HEIGHT = 28;
-const RECORD_EMPTY_MESSAGE = 'Record details are not loaded in the webview. Use Memory view for navigation and editing.';
 
 const recordPages = new RecordPageCache(8);
 let recordRenderSignature = '';
@@ -243,7 +242,7 @@ export function renderRecordView(): void {
     const el = document.getElementById('record-view');
     if (!el) { return; }
     if (recordCountOf(parseResult) === 0) {
-        recordView.renderEmpty(RECORD_EMPTY_MESSAGE);
+        recordView.renderEmpty('This file contains no records.', 'No Records');
         return;
     }
     refreshRecordSlice();
@@ -529,7 +528,7 @@ function handleEditBufferChar(selStart: number, char: string): void {
     if (nibbleBuffer === null) {
         nibbleBuffer = char;
         nibbleBufferAddr = selStart;
-        paintCell(selStart, `${char}-`);
+        paintCell(selStart, `${char}\u00b7`);
     } else if (nibbleBufferAddr === selStart) {
         const value = parseInt(nibbleBuffer + char, 16);
         applyTypedEdit(selStart, value);
@@ -608,17 +607,21 @@ function buildPasteEdits(range: { start: number; end: number }, bytes: number[])
     return edits;
 }
 
-function stagePasteFromText(range: { start: number; end: number }, clipText: string): Array<[number, number]> {
-    const parsed = parsePasteText(clipText);
-    const bytes = parsed ?? [...clipText].map(c => c.charCodeAt(0));
-    return bytes.length > 0 ? buildPasteEdits(range, bytes) : [];
+function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
+    const bytes = pasteBytes(clipText);
+    if (bytes.length === 0) { return; }
+    const edits = buildPasteEdits(range, bytes);
+    if (stagePasteEdits(edits)) { refreshAfterLocalEdit(); }
+    const notice = pasteOverflowNotice(edits.length, bytes.length);
+    if (notice) { toolbar.setStatus(notice); }
 }
 
-function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
-    const edits = stagePasteFromText(range, clipText);
-    if (edits.length > 0 && stageIntegrityEditTransaction(edits)) {
-        refreshAfterLocalEdit();
-    }
+function pasteBytes(clipText: string): number[] {
+    return parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
+}
+
+function stagePasteEdits(edits: Array<[number, number]>): boolean {
+    return edits.length > 0 && stageIntegrityEditTransaction(edits);
 }
 
 function doPasteToSelection(): void {
@@ -694,6 +697,21 @@ function onUndoKeydown(e: KeyboardEvent): void {
     }
 }
 
+function onSaveShortcut(e: KeyboardEvent): void {
+    if (!isSaveShortcut(e)) { return; }
+    if (isContextMenuFocused()) { return; }
+    e.preventDefault();
+    saveEdits();
+}
+
+function isSaveShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 's';
+}
+
+function isContextMenuFocused(): boolean {
+    return !!document.activeElement?.closest('#ctx-menu');
+}
+
 document.addEventListener('keydown', onUndoKeydown);
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
@@ -721,10 +739,11 @@ function renderInitialLoadProgress(label: string): void {
     if (text) { text.textContent = `Loading ${label}…`; }
 }
 
-function renderActiveLoadProgress(label: string): void {
+function renderActiveLoadProgress(_label: string): void {
+    // The 16px #search-progress slot shows the spinner; make it visible during an active reload.
     const progress = document.getElementById('search-progress');
     if (!progress) { return; }
-    progress.textContent = `Loading ${label}…`;
+    progress.classList.add('active');
     progress.setAttribute('aria-hidden', 'false');
 }
 
@@ -796,7 +815,7 @@ function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScr
 function clearLoadProgress(): void {
     const progress = document.getElementById('search-progress');
     if (!progress) { return; }
-    progress.textContent = '';
+    progress.classList.remove('active');
     progress.setAttribute('aria-hidden', 'true');
 }
 
@@ -928,7 +947,7 @@ function render(): void {
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
-                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}">
+                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}" tabindex="0" aria-label="Hex editor grid">
                     <div id="mem-header"></div>
                     <div id="mem-scroll"><div id="mem-rows"></div></div>
                 </div>
@@ -936,7 +955,7 @@ function render(): void {
             </div>
             ${sidebar.toHtml()}
         </div>
-        <div id="ctx-menu" style="display:none"></div>`;
+        <div id="ctx-menu" role="menu" style="display:none"></div>`;
 
     invalidateGridRender();
     setupRenderedUi();
@@ -970,6 +989,8 @@ function setupRenderedUi(): void {
     renderInitialViews();
     document.addEventListener('keydown', onEditKeydown, { capture: true });
     document.addEventListener('keydown', onCopyPasteKeydown);
+    document.addEventListener('keydown', onGridSelectionKeydown);
+    document.addEventListener('keydown', onSaveShortcut);
 }
 
 /** Header-slot render: feature-specific endian toggle inside #sidebar-common-settings. */
@@ -1097,6 +1118,94 @@ function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): v
         ? (addr < S.selStart ? { start: addr, end: S.selStart } : { start: S.selStart, end: addr })
         : { start: addr, end: addr };
     updateByteSelection(range.start, range.end);
+}
+
+// ── Grid keyboard selection (arrow keys; Shift extends) ───────────
+
+function onGridSelectionKeydown(e: KeyboardEvent): void {
+    if (!gridSelectionGate(e)) { return; }
+    if (S.selStart === null) { selectFirstMappedByte(e); return; }
+    e.preventDefault();
+    applyGridArrowSelection(S.selStart, arrowKeyDelta(e.key), e.shiftKey);
+}
+
+/** True when this keydown is an arrow/menu key on the active grid outside inputs/menu. */
+function gridSelectionGate(e: KeyboardEvent): boolean {
+    return isGridActive() && !isTypingTarget(e) && isGridArrowKey(e);
+}
+
+function isGridActive(): boolean {
+    return S.currentView === 'memory' && !S.editMode;
+}
+
+function isTypingTarget(e: KeyboardEvent): boolean {
+    const t = e.target as HTMLElement | null;
+    return !!t && !!(t.closest('input, select, textarea') || t.closest('#ctx-menu'));
+}
+
+/** Arrow key → selection movement; menu key → open the context menu at the grid center. */
+function isGridArrowKey(e: KeyboardEvent): boolean {
+    if (isArrowKey(e.key)) { return true; }
+    if (isGridMenuKey(e)) { e.preventDefault(); openGridContextMenu(); }
+    return false;
+}
+
+function isGridMenuKey(e: KeyboardEvent): boolean {
+    return e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10');
+}
+
+function isArrowKey(key: string): boolean {
+    return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
+}
+
+function arrowKeyDelta(key: string): number {
+    return key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : key === 'ArrowUp' ? -BPR : BPR;
+}
+
+function selectFirstMappedByte(e: KeyboardEvent): void {
+    const first = S.segmentIndex[0];
+    if (!first) { return; }
+    e.preventDefault();
+    updateByteSelection(first.startAddr, first.startAddr);
+}
+
+function applyGridArrowSelection(anchor: number, delta: number, shift: boolean): void {
+    const target = walkMappedAddress(anchor, delta);
+    if (target === null) { return; }
+    if (shift) {
+        updateByteSelection(Math.min(anchor, target), Math.max(anchor, target));
+    } else {
+        updateByteSelection(target, target);
+    }
+}
+
+function openGridContextMenu(): void {
+    if (S.selStart === null) { return; }
+    const el = document.getElementById('memory-view');
+    if (!el) { return; }
+    const r = el.getBoundingClientRect();
+    showCtxMenu(r.left + r.width / 2, r.top + r.height / 2);
+}
+
+/** Nearest mapped address `delta` bytes away, skipping unmapped gaps (bounded by the segment range). */
+export function walkMappedAddress(from: number, delta: number): number | null {
+    const bounds = mappedBounds();
+    if (bounds === null) { return null; }
+    for (let addr = from + delta; inMappedBounds(addr, bounds); addr += delta) {
+        if (getByte(addr) !== undefined) { return addr; }
+    }
+    return null;
+}
+
+function mappedBounds(): { min: number; max: number } | null {
+    const first = S.segmentIndex[0];
+    const last = S.segmentIndex[S.segmentIndex.length - 1];
+    if (!first || !last) { return null; }
+    return { min: first.startAddr, max: last.endAddr };
+}
+
+function inMappedBounds(addr: number, bounds: { min: number; max: number }): boolean {
+    return addr >= bounds.min && addr <= bounds.max;
 }
 
 function onHexViewContext(addr: number, x: number, y: number): void {

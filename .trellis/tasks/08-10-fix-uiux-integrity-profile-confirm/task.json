@@ -3,7 +3,7 @@
   "name": "fix-uiux-integrity-profile-confirm",
   "title": "UI/UX: Integrity profile delete + apply need confirmations",
   "description": "From ui-ux-review.md (M): deleteSelectedProfile (integrityProfiles.ts:172-176) has no inlineConfirm unlike all other destructive actions; applySelectedProfile overwrites checks without warning when drafts are open. Route through inlineConfirm + confirm on overwrite.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

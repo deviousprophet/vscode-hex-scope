@@ -253,8 +253,6 @@
     transition: color .1s;
     display: inline-block;
 }
-.sfe-move-up { transform: rotate(-90deg); }
-.sfe-move-dn { transform: rotate(90deg); }
 .sfe-move-btn:hover:not(:disabled) { color: var(--fg); }
 .sfe-move-btn:disabled { opacity: .2; cursor: default; }
 

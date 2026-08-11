@@ -3,7 +3,7 @@
   "name": "fix-uiux-paste-overflow-notice",
   "title": "UI/UX: Paste overflow past unmapped bytes is silent",
   "description": "From ui-ux-review.md (M): buildPasteEdits truncates at first unmapped byte with no notice. Surface a status message ('pasted N of M bytes - hit unmapped region').",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

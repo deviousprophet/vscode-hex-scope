@@ -69,7 +69,7 @@ import './integrityPanel.css';
 
 const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, checks: [] };
 const INTEGRITY_STATUS_SYMBOLS: Record<string, string> = {
-    Match: '✓', Mismatch: '✕', Calculated: '∑', Calculating: '…', Error: '!', 'Not configured': '?',
+    Match: '✓', Mismatch: '✕', Calculated: '∑', Calculating: '…', Error: '!', 'Not configured': '–',
 };
 
 type DraftValidation = { ok: true; value: IntegrityDraft } | { ok: false; error: string };

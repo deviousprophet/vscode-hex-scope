@@ -264,13 +264,21 @@ suite('ScriptsPanel run/cancel state machine', () => {
         assert.strictEqual(cb.runs.length, 1);
     });
 
-    test('another script run is ignored while one is running', () => {
+    test('another script run is ignored while one is running; its button is disabled', () => {
         panel.setScripts(SCRIPTS, true);
         click(dom, runBtn(A));
+        const btnB = runBtn(B);
+        assert.ok(btnB.classList.contains('disabled-run'), 'other run button visually disabled');
+        assert.ok(btnB.disabled, 'other run button disabled');
+        assert.strictEqual(btnB.title, 'A script is already running');
         cb.runs.length = 0;
-        click(dom, runBtn(B));
+        click(dom, btnB);
         assert.strictEqual(cb.runs.length, 0, 'no second run started');
         assert.strictEqual(cb.cancels.length, 0, 'no cancel of the first');
+
+        panel.showResult(A, [], [], '', undefined, 0);
+        assert.ok(!runBtn(B).disabled, 'run button re-enabled after the run clears');
+        assert.ok(!runBtn(B).classList.contains('disabled-run'));
     });
 
     test('terminal showResult returns the button to play', async () => {

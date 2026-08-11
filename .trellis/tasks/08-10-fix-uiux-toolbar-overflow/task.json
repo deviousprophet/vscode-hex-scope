@@ -3,7 +3,7 @@
   "name": "fix-uiux-toolbar-overflow",
   "title": "UI/UX: Toolbar overflows at narrow webview widths",
   "description": "From ui-ux-review.md (M): #toolbar fixed 35px with no wrap/scroll; fixed-width search input + mode select + pills + 4 icon buttons clip at narrow widths. Allow horizontal scroll or flex min-width:0 shrink.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

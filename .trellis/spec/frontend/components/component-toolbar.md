@@ -47,6 +47,7 @@ export class Toolbar {
     setEditMode(on: boolean): void;                  // Edit hidden / EDITING group shown
     setAscii(on: boolean): void;                     // ASCII button active class
     setDirty(count: number): void;                   // #edit-dirty-count text + Save disabled (count===0)
+setStatus(message: string): void;                // transient #edit-status message; auto-clears after 3s
 }
 ```
 
@@ -56,6 +57,7 @@ export class Toolbar {
 - **Host state via setters:** host calls `setView`/`setEditMode`/`setAscii`/`setDirty` on invalidation; component owns transient active/edit-group classes derived from them.
 - **Memory gating is internal to `setView`:** `applyMemoryGating` shows ascii button + Edit (mem && !editMode) / EDITING group (mem && editMode), and re-applies the ASCII `active` class on every view change (re-entry from record must not lose it).
 - **Dirty:** `setDirty(count)` sets `#edit-dirty-count` (empty at 0, else "N unsaved byte(s)") and Save `disabled = count===0`.
+- **Responsive:** `#toolbar` scrolls horizontally (`overflow-x: auto`) when content exceeds the width; the search input shrinks (flex `0 1 180px`, `min-width: 70px`) before the fixed nav buttons/select so narrow webviews never clip the rightmost controls.
 - **SearchBar slot:** `toHtml()` embeds `${searchBar.toHtml()}` — SearchBar is its own component, mounts independently, doc-delegated. Toolbar never writes SearchBar DOM.
 - **SearchBar visibility:** host calls `searchBar.setVisible(view==='memory')` on switch (component-encapsulated `#search-box`); Toolbar unaware.
 - **Re-render:** `mount()` idempotent; `toHtml()` regenerates from state each full render; per-invalidation host uses lightweight setters, not full toolbar re-render.
@@ -68,7 +70,7 @@ export class Toolbar {
 - `.tb-sep`.
 - `#btn-ascii-toggle` (`.tb-ascii-btn`) active only in memory view + ascii on.
 - `#btn-edit-mode` (`.tb-edit-btn`) visible when memory && !editMode.
-- `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `#edit-dirty-count`, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0.
+- `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0.
 - SearchBar output embedded as the trailing slot.
 
 ## Validation & Error Matrix

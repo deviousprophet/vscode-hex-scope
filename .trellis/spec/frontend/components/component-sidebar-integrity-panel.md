@@ -68,7 +68,7 @@ class IntegrityPanel {
 - Add form opens with selection defaults from `getSelection()`; algorithm change toggles the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
 - Result cards: status symbol (✓/✕/∑/…/!/?), calculated value pane, optional stored pane (match/mismatch/unverified), copy button → `onCopyText`; Auto fix toggle stages mismatched stored values via `onStoredValueEdits`, with suppression so a discarded mismatch isn't immediately re-staged (paused state until toggle/Fix all/endian change).
 - Card header click toggles highlight → `onHighlightChange({ rangeStart, rangeEnd, status, storedStart?, storedLength? })`; edit/delete via card action buttons.
-- Profiles: selector + Apply (rebuilds checks + persists), Save as / rename / update / delete via `setProfiles` push; name-form validation inline.
+- Profiles: selector + Apply (rebuilds checks + persists; inline confirm when an unsaved add/edit check form is open), Save as / rename / update / delete via `setProfiles` push; Delete routes through `inlineConfirm`; name-form validation inline.
 - `notifyEndianChanged()` clears suppression, re-renders, and re-decodes stored values per `getEndian()`.
 - Lazy init: no calculation or notify work until `setTabActive(true)` (first integrity tab activation).
 

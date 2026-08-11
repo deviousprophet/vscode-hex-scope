@@ -4,6 +4,8 @@
     display: flex; align-items: center; gap: 6px;
     padding: 0 10px; flex-shrink: 0;
     background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+    /* Narrow webview widths: scroll rather than clip the rightmost search controls */
+    overflow-x: auto;
 }
 
 .view-tabs { display: flex; gap: 1px; background: rgba(0,0,0,.22); border-radius: 4px; padding: 2px; }
@@ -47,6 +49,13 @@
     font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
     white-space: nowrap; opacity: .8;
 }
+
+/* Transient edit-mode status message (e.g. truncated paste) */
+#edit-status {
+    font-size: 10px; color: #e5a800; font-family: var(--font-ui);
+    white-space: nowrap; opacity: 0; transition: opacity .15s;
+}
+#edit-status.visible { opacity: 1; }
 
 /* Save button */
 .tb-save-btn {

@@ -3,7 +3,7 @@
   "name": "fix-uiux-record-empty-copy",
   "title": "UI/UX: Record view empty-state copy is misleading",
   "description": "From ui-ux-review.md (M): when recordCount===0, hexViewer.ts:248-250 shows RECORD_EMPTY_MESSAGE ('Record details are not loaded...') under 'Record View Unavailable' - reads like a feature limitation, not an empty file. Render a real empty state when recordCount===0.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

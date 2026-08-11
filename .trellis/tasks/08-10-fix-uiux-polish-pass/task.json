@@ -3,7 +3,7 @@
   "name": "fix-uiux-polish-pass",
   "title": "UI/UX: Polish pass (L-level findings)",
   "description": "Grouped L-level findings from ui-ux-review.md: prev/next glyph ambiguity, nibble placeholder hint, dirty-byte legend, header column-click, Save shortcut (Ctrl+S), redo (Ctrl+Y), Escape-in-fill semantics, fill preset alignment, sidebar resizer keyboard, rotated tab legibility, multi-byte gap padding note, copy-chip affordance, struct move glyphs, integrity '?' status symbol, script output auto-scroll, reload-progress visibility, color-token consolidation, #match-count lost on full re-render.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
