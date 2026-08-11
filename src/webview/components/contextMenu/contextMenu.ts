@@ -278,7 +278,15 @@ export class ContextMenu {
 
     private navigableRows(menu: HTMLElement): HTMLElement[] {
         return Array.from(menu.querySelectorAll<HTMLElement>('.ctx-row'))
-            .filter(r => !r.classList.contains('ctx-disabled') && !r.classList.contains('ctx-custom-row'));
+            .filter(r => !r.classList.contains('ctx-disabled')
+                && !r.classList.contains('ctx-custom-row')
+                && this.rowVisible(r));
+    }
+
+    /** A row is navigable only when not inside a collapsed (display:none) submenu. */
+    private rowVisible(row: HTMLElement): boolean {
+        const sub = row.closest<HTMLElement>('.ctx-submenu');
+        return !sub || sub.style.display !== 'none';
     }
 
     private currentRowIndex(rows: HTMLElement[], current: HTMLElement | null, dir: 1 | -1): number {

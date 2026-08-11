@@ -286,7 +286,12 @@ export class ScriptsPanel {
         btn.disabled = otherRunning;
         btn.innerHTML = this.runIconHtml(path);
         btn.setAttribute('aria-label', this.runBtnAria(isRun));
+        if (this.keepsInitialTooltip(btn)) { return; }
         btn.title = this.runBtnTitle(isRun, otherRunning);
+    }
+
+    private keepsInitialTooltip(btn: HTMLButtonElement): boolean {
+        return btn.classList.contains('disabled-ts') || btn.classList.contains('disabled-trust');
     }
 
     private runBtnAria(isRun: boolean): string {

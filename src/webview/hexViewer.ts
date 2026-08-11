@@ -611,9 +611,15 @@ function applyPasteBytes(range: { start: number; end: number }, clipText: string
     const bytes = pasteBytes(clipText);
     if (bytes.length === 0) { return; }
     const edits = buildPasteEdits(range, bytes);
-    if (stagePasteEdits(edits)) { refreshAfterLocalEdit(); }
-    const notice = pasteOverflowNotice(edits.length, bytes.length);
+    const staged = stagePasteEdits(edits);
+    if (staged) { refreshAfterLocalEdit(); }
+    const notice = pasteNotice(staged, edits.length, bytes.length);
     if (notice) { toolbar.setStatus(notice); }
+}
+
+function pasteNotice(staged: boolean, editsLength: number, bytesLength: number): string | null {
+    if (editsLength === 0) { return pasteOverflowNotice(0, bytesLength); }
+    return staged ? pasteOverflowNotice(editsLength, bytesLength) : null;
 }
 
 function pasteBytes(clipText: string): number[] {
@@ -712,7 +718,14 @@ function isContextMenuFocused(): boolean {
     return !!document.activeElement?.closest('#ctx-menu');
 }
 
+// Document-level keydown handlers register ONCE at module load (not per render):
+// render() runs again on external-change reloads, and re-registering would
+// double-fire arrows/save/edit keys after every reload.
 document.addEventListener('keydown', onUndoKeydown);
+document.addEventListener('keydown', onEditKeydown, { capture: true });
+document.addEventListener('keydown', onCopyPasteKeydown);
+document.addEventListener('keydown', onGridSelectionKeydown);
+document.addEventListener('keydown', onSaveShortcut);
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
     resetRecordPages(msg.generation);
@@ -987,10 +1000,6 @@ function setupRenderedUi(): void {
         onCopy: doCopySelection,
     });
     renderInitialViews();
-    document.addEventListener('keydown', onEditKeydown, { capture: true });
-    document.addEventListener('keydown', onCopyPasteKeydown);
-    document.addEventListener('keydown', onGridSelectionKeydown);
-    document.addEventListener('keydown', onSaveShortcut);
 }
 
 /** Header-slot render: feature-specific endian toggle inside #sidebar-common-settings. */
@@ -1113,6 +1122,7 @@ function updateByteSelection(start: number, end: number): void {
 
 function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): void {
     clearNibbleBuffer();
+    gridArrowAnchor = null;
     S.lastClickColumn = column;
     const range = shift && S.selStart !== null
         ? (addr < S.selStart ? { start: addr, end: S.selStart } : { start: S.selStart, end: addr })
@@ -1122,20 +1132,27 @@ function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): v
 
 // ── Grid keyboard selection (arrow keys; Shift extends) ───────────
 
+/** Fixed end of a Shift-extended selection; reset by mouse selection paths. */
+let gridArrowAnchor: number | null = null;
+
 function onGridSelectionKeydown(e: KeyboardEvent): void {
     if (!gridSelectionGate(e)) { return; }
     if (S.selStart === null) { selectFirstMappedByte(e); return; }
     e.preventDefault();
-    applyGridArrowSelection(S.selStart, arrowKeyDelta(e.key), e.shiftKey);
+    applyGridArrow(e.shiftKey, arrowKeyDelta(e.key));
 }
 
-/** True when this keydown is an arrow/menu key on the active grid outside inputs/menu. */
+/** True when this keydown targets the focused, active grid outside inputs/menu. */
 function gridSelectionGate(e: KeyboardEvent): boolean {
-    return isGridActive() && !isTypingTarget(e) && isGridArrowKey(e);
+    return isGridActive() && isGridFocused() && !isTypingTarget(e) && isGridArrowKey(e);
 }
 
 function isGridActive(): boolean {
     return S.currentView === 'memory' && !S.editMode;
+}
+
+function isGridFocused(): boolean {
+    return !!document.activeElement?.closest('#memory-view');
 }
 
 function isTypingTarget(e: KeyboardEvent): boolean {
@@ -1165,18 +1182,38 @@ function arrowKeyDelta(key: string): number {
 function selectFirstMappedByte(e: KeyboardEvent): void {
     const first = S.segmentIndex[0];
     if (!first) { return; }
+    gridArrowAnchor = null;
     e.preventDefault();
     updateByteSelection(first.startAddr, first.startAddr);
 }
 
-function applyGridArrowSelection(anchor: number, delta: number, shift: boolean): void {
-    const target = walkMappedAddress(anchor, delta);
+function applyGridArrow(shift: boolean, delta: number): void {
+    if (!shift) { gridArrowAnchor = null; collapseGridSelection(delta); return; }
+    if (gridArrowAnchor === null) { gridArrowAnchor = S.selStart; }
+    extendGridSelection(delta);
+}
+
+function collapseGridSelection(delta: number): void {
+    if (S.selStart === null) { return; }
+    const target = walkMappedAddress(S.selStart, delta);
+    if (target !== null) { updateByteSelection(target, target); }
+}
+
+function extendGridSelection(delta: number): void {
+    const activeEnd = gridActiveEnd();
+    if (activeEnd === null) { return; }
+    const target = walkMappedAddress(activeEnd, delta);
     if (target === null) { return; }
-    if (shift) {
-        updateByteSelection(Math.min(anchor, target), Math.max(anchor, target));
-    } else {
-        updateByteSelection(target, target);
-    }
+    updateByteSelection(Math.min(gridArrowAnchor!, target), Math.max(gridArrowAnchor!, target));
+}
+
+function gridActiveEnd(): number | null {
+    if (noGridSelection()) { return null; }
+    return gridArrowAnchor === S.selStart ? S.selEnd : S.selStart;
+}
+
+function noGridSelection(): boolean {
+    return gridArrowAnchor === null || S.selStart === null || S.selEnd === null;
 }
 
 function openGridContextMenu(): void {
@@ -1187,14 +1224,24 @@ function openGridContextMenu(): void {
     showCtxMenu(r.left + r.width / 2, r.top + r.height / 2);
 }
 
-/** Nearest mapped address `delta` bytes away, skipping unmapped gaps (bounded by the segment range). */
+/** Nearest mapped address `delta` bytes away, skipping unmapped gaps (segment jumps, bounded). */
 export function walkMappedAddress(from: number, delta: number): number | null {
-    const bounds = mappedBounds();
-    if (bounds === null) { return null; }
-    for (let addr = from + delta; inMappedBounds(addr, bounds); addr += delta) {
+    if (S.segmentIndex.length === 0) { return null; }
+    return firstMappedStep(from, delta);
+}
+
+function firstMappedStep(from: number, delta: number): number | null {
+    let addr = from + delta;
+    while (inMappedBounds(addr)) {
         if (getByte(addr) !== undefined) { return addr; }
+        addr = nextCandidate(addr, delta);
     }
     return null;
+}
+
+function nextCandidate(addr: number, delta: number): number {
+    if (delta > 0) { return segmentStartAfter(addr) ?? Number.MAX_SAFE_INTEGER; }
+    return segmentEndBefore(addr) ?? Number.MIN_SAFE_INTEGER;
 }
 
 function mappedBounds(): { min: number; max: number } | null {
@@ -1204,11 +1251,36 @@ function mappedBounds(): { min: number; max: number } | null {
     return { min: first.startAddr, max: last.endAddr };
 }
 
-function inMappedBounds(addr: number, bounds: { min: number; max: number }): boolean {
-    return addr >= bounds.min && addr <= bounds.max;
+function inMappedBounds(addr: number, bounds: { min: number; max: number } | null = mappedBounds()): boolean {
+    return bounds !== null && addr >= bounds.min && addr <= bounds.max;
+}
+
+/** First segment start strictly after `addr`, or null. */
+function segmentStartAfter(addr: number): number | null {
+    const segs = S.segmentIndex;
+    let lo = 0;
+    let hi = segs.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (segs[mid].startAddr <= addr) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo < segs.length ? segs[lo].startAddr : null;
+}
+
+/** Last segment end strictly before `addr`, or null. */
+function segmentEndBefore(addr: number): number | null {
+    const segs = S.segmentIndex;
+    let lo = 0;
+    let hi = segs.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (segs[mid].endAddr < addr) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo > 0 ? segs[lo - 1].endAddr : null;
 }
 
 function onHexViewContext(addr: number, x: number, y: number): void {
+    gridArrowAnchor = null;
     if (!isAddressInSelection(addr)) {
         updateByteSelection(addr, addr);
     }
@@ -1220,6 +1292,7 @@ function isAddressInSelection(addr: number): boolean {
 }
 
 function onHexViewSelectionChange(range: HexViewRange): void {
+    gridArrowAnchor = null;
     S.selStart = range.start;
     S.selEnd = range.end;
     paintMemorySelection();
