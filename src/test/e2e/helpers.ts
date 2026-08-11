@@ -4,6 +4,7 @@
 
 import * as assert from 'assert';
 import * as path from 'path';
+import { Key } from 'selenium-webdriver';
 import {
     By,
     EditorView,
@@ -53,6 +54,11 @@ async function logOpenDiagnostics(err: unknown, attempt: number): Promise<void> 
 async function openFixtureOnce(browser: VSBrowser, abs: string, name: string): Promise<WebView> {
     await browser.openResources(abs);
     await browser.waitForWorkbench();
+    // The CLI-reuse open can silently no-op on headless Linux CI; fall back to the
+    // workbench quick-open (Ctrl+P -> absolute path -> Enter) which always works in-window.
+    if (!(await editorTabExists(name))) {
+        await openViaQuickOpen(abs);
+    }
     // The command below needs an active editor; wait until the file tab actually exists
     // (cold VS Code start under xvfb can lag behind openResources).
     await waitForEditorTab(name);
@@ -61,6 +67,22 @@ async function openFixtureOnce(browser: VSBrowser, abs: string, name: string): P
     const webview = new WebView();
     await webview.switchToFrame();
     return webview;
+}
+
+async function editorTabExists(name: string): Promise<boolean> {
+    try {
+        const titles = await new EditorView().getOpenEditorTitles();
+        return titles.some(t => t.includes(name));
+    } catch {
+        return false;
+    }
+}
+
+async function openViaQuickOpen(abs: string): Promise<void> {
+    await new Workbench().executeCommand('workbench.action.quickOpen');
+    const active = await VSBrowser.instance.driver.switchTo().activeElement();
+    await active.sendKeys(abs);
+    await active.sendKeys(Key.ENTER);
 }
 
 async function waitForEditorTab(name: string): Promise<void> {
