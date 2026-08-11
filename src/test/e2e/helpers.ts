@@ -70,9 +70,10 @@ async function openFixtureOnce(browser: VSBrowser, abs: string, name: string): P
 }
 
 async function editorTabExists(name: string): Promise<boolean> {
+    const base = path.basename(name);
     try {
         const titles = await new EditorView().getOpenEditorTitles();
-        return titles.some(t => t.includes(name));
+        return titles.some(t => t.includes(base));
     } catch {
         return false;
     }
@@ -86,10 +87,11 @@ async function openViaQuickOpen(abs: string): Promise<void> {
 }
 
 async function waitForEditorTab(name: string): Promise<void> {
+    const base = path.basename(name);
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
         const titles = await new EditorView().getOpenEditorTitles();
-        if (titles.some(t => t.includes(name))) { return; }
+        if (titles.some(t => t.includes(base))) { return; }
         await new Promise(r => setTimeout(r, 500));
     }
     throw new Error(`no editor tab opened for ${name}`);
