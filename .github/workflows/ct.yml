@@ -48,6 +48,8 @@ jobs:
   E2E_Test:
     name: E2E Test Execution
     runs-on: ubuntu-latest
+    outputs:
+      run-e2e-outcome: ${{ steps.run-e2e.outcome }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
