@@ -1,0 +1,7 @@
+{
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+  "workbench.enableExperiments": false,
+  "window.enableMenuBarMnemonics": false,
+  "files.autoSave": "off"
+}

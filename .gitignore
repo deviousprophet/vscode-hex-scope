@@ -2,6 +2,7 @@ out
 dist
 node_modules
 .vscode-test/
+test-resources/
 *.vsix
 src/**/*.js
 src/**/*.js.map

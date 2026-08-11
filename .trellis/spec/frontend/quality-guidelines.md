@@ -21,6 +21,8 @@ Both reports must contain zero dead-code issues, clone groups, health findings, 
 
 `npm test` compiles tests/extension, bundles the webview, launches VS Code, and runs core, webview, fixture, and extension suites.
 
+`npm run test:e2e` runs the ExTester E2E smoke suite (`src/test/e2e/`): opens fixture files in the real HexScope custom-editor webview and drives the real-browser behaviors the jsdom suite cannot (webview render, search divergence, grid keyboard selection, context-menu nav, panels, resize re-slice). It downloads VS Code 1.125.0 + ChromeDriver into `./test-resources` (cached in CI). Runs in the `E2E_Test` job of `ct.yml` (xvfb) and is reported by `Finalize`. Some webview-keyboard/clipboard/reload specs are skipped under ChromeDriver (documented in-file) — their logic is unit-covered.
+
 ## Test Placement
 
 - Pure algorithms/models: `src/test/core/`.
