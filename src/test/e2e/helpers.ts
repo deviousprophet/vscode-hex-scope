@@ -34,14 +34,20 @@ export async function openHexFixture(name: string): Promise<WebView> {
             return await openFixtureOnce(browser, abs, name);
         } catch (err) {
             lastErr = err;
-            console.log(`[e2e] open attempt ${attempt + 1} failed: ${(err as Error).message}`);
-            try {
-                console.log(`[e2e] editor titles: ${JSON.stringify(await new EditorView().getOpenEditorTitles())}`);
-            } catch { /* ignore */ }
+            await logOpenDiagnostics(err, attempt);
             await new EditorView().closeAllEditors();
         }
     }
     throw lastErr;
+}
+
+async function logOpenDiagnostics(err: unknown, attempt: number): Promise<void> {
+    console.log(`[e2e] open attempt ${attempt + 1} failed: ${(err as Error).message}`);
+    try {
+        console.log(`[e2e] editor titles: ${JSON.stringify(await new EditorView().getOpenEditorTitles())}`);
+    } catch {
+        // diagnostics are best-effort
+    }
 }
 
 async function openFixtureOnce(browser: VSBrowser, abs: string, name: string): Promise<WebView> {
