@@ -31,23 +31,40 @@ export async function openHexFixture(name: string): Promise<WebView> {
     let lastErr: unknown;
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
-            return await openFixtureOnce(browser, abs);
+            return await openFixtureOnce(browser, abs, name);
         } catch (err) {
             lastErr = err;
+            console.log(`[e2e] open attempt ${attempt + 1} failed: ${(err as Error).message}`);
+            try {
+                console.log(`[e2e] editor titles: ${JSON.stringify(await new EditorView().getOpenEditorTitles())}`);
+            } catch { /* ignore */ }
             await new EditorView().closeAllEditors();
         }
     }
     throw lastErr;
 }
 
-async function openFixtureOnce(browser: VSBrowser, abs: string): Promise<WebView> {
+async function openFixtureOnce(browser: VSBrowser, abs: string, name: string): Promise<WebView> {
     await browser.openResources(abs);
     await browser.waitForWorkbench();
+    // The command below needs an active editor; wait until the file tab actually exists
+    // (cold VS Code start under xvfb can lag behind openResources).
+    await waitForEditorTab(name);
     await new Workbench().executeCommand('hexScope.openInHexScope');
     await browser.waitForWorkbench();
     const webview = new WebView();
     await webview.switchToFrame();
     return webview;
+}
+
+async function waitForEditorTab(name: string): Promise<void> {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+        const titles = await new EditorView().getOpenEditorTitles();
+        if (titles.some(t => t.includes(name))) { return; }
+        await new Promise(r => setTimeout(r, 500));
+    }
+    throw new Error(`no editor tab opened for ${name}`);
 }
 
 /** Switch back out of the webview frame and close all editor tabs. */
