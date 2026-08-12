@@ -55,8 +55,8 @@ export class SearchBar {
                     <input id="search-input" type="text" placeholder="${PLACEHOLDERS[this.mode]}" autocomplete="off" spellcheck="false" maxlength="${this.addrInputMaxLength()}" value="${esc(this.query)}" class="${this.addrInputClass()}" aria-label="Search">
                 </div>
                 <button class="nav-btn search-btn" id="btn-search" title="Run search" aria-label="Run search">🔍</button>
-                <button class="nav-btn" id="btn-prev"         title="Previous match">◀</button>
-                <button class="nav-btn" id="btn-next"         title="Next match">▶</button>
+                <button class="nav-btn" id="btn-prev"         title="Previous match">▲</button>
+                <button class="nav-btn" id="btn-next"         title="Next match">▼</button>
                 <button class="nav-btn" id="btn-clear-search" title="Clear">✕</button>
                 <span id="search-progress" class="search-progress" aria-hidden="true"></span>
                 <span id="match-count" aria-live="polite"></span>
