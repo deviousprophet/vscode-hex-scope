@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 15
 - **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~375 | Active |
+| `journal-1.md` | ~400 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-08-12 | E2E CI stabilization (PR #177 follow-up) | `11be6bb`, `ab5a03f`, `822a410`, `f330a6e`, `fe3c005` | `feat/e2e-tests` |
 | 14 | 2026-08-12 | vscode-extension-tester E2E suite + CI/CT (PR #177) | `7200bb3` | `feat/e2e-tests` |
 | 13 | 2026-08-10 | Fix webview review findings + UI/UX heuristic review (PR #175) | `32cff4d`, `80a1378`, `3c0c998`, `494999f`, `111ad7d` | `fix/webview-review-findings` |
 | 12 | 2026-08-08 | Session 14: Close webview component refactor | `6f0a10e` | `chore/close-webview-refactor-tasks` |
