@@ -34,7 +34,7 @@ function emptyLog(): CallLog {
 
 function installDom(): JSDOM {
     const dom = new JSDOM(`<!doctype html><html><body>
-        <div id="memory-view">
+        <div id="memory-view" tabindex="0">
             <div id="mem-header"></div>
             <div id="mem-scroll"><div id="mem-rows"></div></div>
         </div>
@@ -336,6 +336,25 @@ suite('HexView interactions', () => {
             { addr: ADDR_BASE + 1, shift: false, column: 'hex' },
             { addr: ADDR_BASE + 2, shift: true, column: 'char' },
         ]);
+    });
+
+    test('mousedown on a mapped cell focuses the grid container', () => {
+        currentDom = installDom();
+        installHexView();
+        renderGrid(standardInput());
+        document.body.focus();
+        dispatchOn(hexCell(ADDR_BASE), 'mousedown', { button: 0 });
+        assert.strictEqual(document.activeElement, document.getElementById('memory-view'), 'grid container focused for keyboard nav');
+    });
+
+    test('contextmenu on a mapped cell focuses the grid container', () => {
+        currentDom = installDom();
+        installHexView();
+        renderGrid(standardInput());
+        document.body.focus();
+        const cell = hexCell(ADDR_BASE);
+        cell.dispatchEvent(mouseEvent('contextmenu', { button: 2, clientX: 31, clientY: 47, cancelable: true }));
+        assert.strictEqual(document.activeElement, document.getElementById('memory-view'), 'grid container focused after right-click');
     });
 
     test('mousedown on an empty be cell reports nothing and does not start a drag', () => {

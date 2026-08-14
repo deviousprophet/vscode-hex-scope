@@ -1,6 +1,7 @@
 /* ── Memory view container ───────────────────────────────────── */
 #memory-view { flex: 1; min-height: 0; overflow: hidden; display: none; flex-direction: column; }
 #memory-view.visible { display: flex; }
+#memory-view:focus-visible { outline: none; }
 
 /* ── Column header (mirrors vscode-hexeditor DataHeader) ─────── */
 #mem-header {

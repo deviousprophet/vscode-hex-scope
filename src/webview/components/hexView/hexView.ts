@@ -194,6 +194,10 @@ export class HexView {
         if (!this.isPrimaryCellDown(e)) { return; }
         const cell = this.dataCellFrom(e)!;
         const addr = cellAddress(cell)!;
+        // preventDefault would cancel the browser's default focus transfer, so
+        // explicitly focus the grid container: keyboard selection keys on
+        // `document.activeElement` being inside it.
+        this.rootEl()?.focus();
         e.preventDefault();
         this.dragAnchor = addr;
         this.lastDragRange = null;
@@ -321,6 +325,7 @@ export class HexView {
         if (!this.inRoot(e)) { return; }
         const cell = this.dataCellFrom(e);
         if (!cell) { return; }
+        this.rootEl()?.focus();
         this.cb.onCellContext?.(cellAddress(cell)!, e.clientX, e.clientY);
         e.preventDefault();
     };
