@@ -16,7 +16,7 @@ interface Calls {
 let currentDom: JSDOM | null = null;
 
 function installDom(): JSDOM {
-    const dom = new JSDOM('<!DOCTYPE html><body><div id="ctx-menu"></div></body>', { url: 'https://hexscope.test/' });
+    const dom = new JSDOM('<!DOCTYPE html><body><button id="trigger">T</button><div id="ctx-menu"></div></body>', { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as { window: Window; document: Document };
     g.window = dom.window as unknown as Window;
     g.document = dom.window.document as unknown as Document;
@@ -253,6 +253,17 @@ suite('webview ContextMenu component', () => {
         menu.hide();
         menu.show(10, 10, baseState({ selectionActive: false }));
         assert.ok(!visible(dom));
+    });
+
+    test('hide restores focus to the element focused before the menu opened', () => {
+        const { dom, menu } = createHarness();
+        const trigger = dom.window.document.getElementById('trigger') as HTMLElement;
+        menu.hide();
+        trigger.focus();
+        menu.show(10, 10, baseState());
+        assert.notStrictEqual(dom.window.document.activeElement, trigger, 'menu row holds focus while open');
+        menu.hide();
+        assert.strictEqual(dom.window.document.activeElement, trigger, 'focus returns to the trigger on hide');
     });
 
     test('mount is idempotent: second mount does not double-fire commands', () => {

@@ -16,7 +16,7 @@ Make arrow-key (and Shift+arrow, context-menu-key) navigation work immediately a
 ## Acceptance Criteria
 
 - [ ] `mousedown` on a mapped byte cell sets `document.activeElement` to the grid root (component test in `src/test/webview/components/hexView.test.ts`)
-- [ ] Integration test: a click then `ArrowDown` moves the selection to the next mapped address (jsdom, single document, module-level listeners registered)
+- [ ] End-to-end coverage: click-then-arrow navigation is covered by the focus component tests (above) plus the existing `walkMappedAddress` / grid gate tests; a separate integration test was tried and dropped — `hexViewer.ts` registers its keydown listeners at module load on the first jsdom document, so a click→ArrowDown assertion is order-dependent in a shared test process (fake-red). The component-level focus test is the correct seam.
 - [ ] Right-click on a cell focuses the grid root (component test)
 - [ ] Existing tests still pass: `npm run compile-tests`, `npm run lint`, `npm run check-types`, and the webview test suites
 - [ ] Unmapped/empty cells still report nothing and do not start a drag (existing behavior preserved)

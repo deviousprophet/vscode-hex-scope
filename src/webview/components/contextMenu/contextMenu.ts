@@ -170,6 +170,8 @@ function isValidCustomFill(raw: string, value: number): boolean {
 export class ContextMenu {
     private cb: ContextMenuCallbacks;
     private mounted = false;
+    /** Element focused before the menu opened; restored on hide (so keyboard control returns to its trigger). */
+    private restoreFocusEl: HTMLElement | null = null;
 
     constructor(cb: ContextMenuCallbacks = {}) {
         this.cb = cb;
@@ -187,6 +189,8 @@ export class ContextMenu {
         if (!state.selectionActive) { return; }
         const el = document.getElementById('ctx-menu');
         if (!el) { return; }
+        const act = document.activeElement;
+        this.restoreFocusEl = (act && typeof (act as { focus?: () => void }).focus === 'function') ? act as HTMLElement : null;
         el.innerHTML = renderContextMenuHtml(state);
         this.wireInlineInputs(el);
         wireHoverSubmenus(el, true);
@@ -198,6 +202,12 @@ export class ContextMenu {
     hide(): void {
         const el = document.getElementById('ctx-menu');
         if (el) { el.style.display = 'none'; }
+        const restore = this.restoreFocusEl;
+        this.restoreFocusEl = null;
+        // Return keyboard control to the trigger when it is still around.
+        if (restore && restore.isConnected && restore !== document.activeElement) {
+            restore.focus();
+        }
     }
 
     private onDocClick = (e: Event): void => {
