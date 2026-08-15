@@ -27,8 +27,6 @@
 - Fixed toggling byte order clearing the Inspector's decoded value for the current selection
 - Fixed the external-change unlock re-enabling buttons that were already disabled for state reasons (e.g. `Save` with no edits)
 - Fixed files with zero records showing the "not loaded" unavailable message instead of a real "No Records" empty state
-- Fixed hex-grid arrow-key navigation not responding after a byte click — the grid now takes focus on click and right-click
-- Fixed the context menu dropping focus to the body when dismissed — focus returns to the grid
 
 ## [2.17.1] - 2026-08-01
 
