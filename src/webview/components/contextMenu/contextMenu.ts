@@ -167,6 +167,12 @@ function isValidCustomFill(raw: string, value: number): boolean {
     return raw !== '' && !isNaN(value) && value >= 0 && value <= 0xFF;
 }
 
+/** Element that can take focus right now, or null (duck-typed; no bare `HTMLElement/Element` global in jsdom). */
+function focusableActiveElement(): HTMLElement | null {
+    const act = document.activeElement;
+    return (act && typeof (act as { focus?: () => void }).focus === 'function') ? act as HTMLElement : null;
+}
+
 export class ContextMenu {
     private cb: ContextMenuCallbacks;
     private mounted = false;
@@ -186,11 +192,9 @@ export class ContextMenu {
     }
 
     show(x: number, y: number, state: ContextMenuState): void {
-        if (!state.selectionActive) { return; }
         const el = document.getElementById('ctx-menu');
-        if (!el) { return; }
-        const act = document.activeElement;
-        this.restoreFocusEl = (act && typeof (act as { focus?: () => void }).focus === 'function') ? act as HTMLElement : null;
+        if (!state.selectionActive || !el) { return; }
+        this.restoreFocusEl = focusableActiveElement();
         el.innerHTML = renderContextMenuHtml(state);
         this.wireInlineInputs(el);
         wireHoverSubmenus(el, true);
@@ -202,12 +206,15 @@ export class ContextMenu {
     hide(): void {
         const el = document.getElementById('ctx-menu');
         if (el) { el.style.display = 'none'; }
+        // Return keyboard control to the trigger when it is still around.
+        this.restoreTriggerFocus();
+    }
+
+    private restoreTriggerFocus(): void {
         const restore = this.restoreFocusEl;
         this.restoreFocusEl = null;
-        // Return keyboard control to the trigger when it is still around.
-        if (restore && restore.isConnected && restore !== document.activeElement) {
-            restore.focus();
-        }
+        if (!restore || !restore.isConnected || restore === document.activeElement) { return; }
+        restore.focus();
     }
 
     private onDocClick = (e: Event): void => {
