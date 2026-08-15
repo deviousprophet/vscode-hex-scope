@@ -253,13 +253,18 @@ export class HexView {
     }
 
     private rowDragRangeFromPoint(e: MouseEvent): HexViewRange | null {
+        const rowEl = this.rowElementFromPoint(e);
+        if (rowEl === null || this.dragAnchor === null) { return null; }
+        const row = Number(rowEl.dataset.row);
+        return { start: Math.min(this.dragAnchor, row), end: Math.max(this.dragAnchor, row) };
+    }
+
+    private rowElementFromPoint(e: MouseEvent): HTMLElement | null {
         const el = document.elementFromPoint(e.clientX, e.clientY);
         if (!el) { return null; }
         const rowEl = (el as HTMLElement).closest<HTMLElement>('.data-row[data-row]');
         if (!rowEl || !this.rootEl()?.contains(rowEl)) { return null; }
-        const row = Number(rowEl.dataset.row);
-        if (this.dragAnchor === null) { return null; }
-        return { start: Math.min(this.dragAnchor, row), end: Math.max(this.dragAnchor, row) };
+        return rowEl;
     }
 
     private activeDragFor(e: MouseEvent): boolean {
