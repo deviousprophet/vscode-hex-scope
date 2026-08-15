@@ -248,6 +248,14 @@ suite('webview ContextMenu component', () => {
         assert.ok(visible(dom));
     });
 
+    test('custom fill: Escape dismisses the menu even with text in the input', () => {
+        const { dom } = createHarness({ editMode: true });
+        const input = ctxMenuEl(dom).querySelector<HTMLInputElement>('.ctx-fill-input')!;
+        input.value = 'FF';
+        input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert.ok(!visible(dom));
+    });
+
     test('show is a no-op when selection is inactive', () => {
         const { dom, menu } = createHarness();
         menu.hide();

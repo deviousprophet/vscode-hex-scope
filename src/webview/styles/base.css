@@ -33,6 +33,7 @@
 
     --ok:          #4ec9a0;
     --err:         #f48771;
+    --warn:        #e5a800;
     --match-bg:    rgba(234,179,8,.32);
     --match-hi:    rgba(234,179,8,.7);
     --gap-color:   rgba(255,183,77,.08);

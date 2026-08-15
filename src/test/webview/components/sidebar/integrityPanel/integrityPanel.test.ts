@@ -461,6 +461,33 @@ suite('IntegrityPanel highlight + profiles', () => {
         assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
     });
 
+    test('apply over configured checks asks for confirmation when they differ from the profile', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        const check = panel.newCheck({ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false });
+        panel.checks = [check];
+        panel.setProfiles([{
+            schemaVersion: 1,
+            id: 'p1',
+            name: 'STM32 Layout',
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
+        }]);
+        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        select.value = 'p1';
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        click(dom, document.getElementById('integrity-profile-apply'));
+        assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
+        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
+        assert.ok(confirmYes, 'apply confirm popover shown when current checks differ from the profile');
+        click(dom, confirmYes as HTMLElement);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.ok(cb.persisted.length >= 1, 'persisted after confirming apply');
+        const persisted = cb.persisted.at(-1) as { checks: Array<{ endAddress: number }> } | undefined;
+        assert.ok(persisted, 'apply persisted checks');
+        assert.strictEqual(persisted!.checks[0].endAddress, 0x1001, 'profile checks win after confirm');
+    });
+
     test('save-as reports onCreateProfile with normalized checks; empty-name rejected inline', () => {
         setBytesInSegment(0x1000, [1, 2, 3, 4]);
         click(dom, document.getElementById('integrity-add-btn'));

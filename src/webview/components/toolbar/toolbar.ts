@@ -74,10 +74,11 @@ export function renderToolbarHtml(searchBarHtml: string, s: ToolbarRenderState):
             <div id="edit-mode-group" style="display:${groupDisplay(mem && s.editMode)}">
                 <span class="tb-editing-pill" title="Underlined bytes are edited">&#9679; EDITING</span>
                 <span id="edit-dirty-count">${dirtyEditText(s.dirtyCount)}</span>
-                <span id="edit-status" class="tb-edit-status"></span>
+                <span id="edit-status" role="status"></span>
                 <button id="btn-save" class="tb-save-btn" title="Save edits to file"${disabledAttr(s.dirtyCount === 0)}>&#128190; Save</button>
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
+            <span id="load-progress" class="tb-load-progress" role="status" hidden></span>
             ${searchBarHtml}
         </div>`;
 }

@@ -28,6 +28,7 @@ export const S = {
     editMode:     false  as boolean,
     edits:        new Map<number, number>(),   // addr → new value (pending saves)
     undoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, prevVal] transactions
+    redoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, newVal] inverse transactions
     structs:      [] as StructDef[],           // user-defined struct definitions
     structPins:   [] as StructPin[],           // saved (structId, addr) overlay instances
     integrityHighlight: null as null | {

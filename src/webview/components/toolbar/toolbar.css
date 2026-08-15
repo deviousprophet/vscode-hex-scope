@@ -39,7 +39,7 @@
 }
 .tb-editing-pill {
     font-size: 10px; font-family: var(--font-ui); font-weight: 700;
-    color: #e5a800; letter-spacing: .04em; white-space: nowrap;
+    color: var(--warn); letter-spacing: .04em; white-space: nowrap;
     padding: 1px 7px; border-radius: 10px;
     background: rgba(229,168,0,.12); border: 1px solid rgba(229,168,0,.35);
 }
@@ -50,9 +50,15 @@
     white-space: nowrap; opacity: .8;
 }
 
+/* Transient active-load label (reload progress) */
+#load-progress {
+    font-size: 10px; color: var(--non-graphic); font-family: var(--font-ui);
+    white-space: nowrap; opacity: .9;
+}
+
 /* Transient edit-mode status message (e.g. truncated paste) */
 #edit-status {
-    font-size: 10px; color: #e5a800; font-family: var(--font-ui);
+    font-size: 10px; color: var(--warn); font-family: var(--font-ui);
     white-space: nowrap; opacity: 0; transition: opacity .15s;
 }
 #edit-status.visible { opacity: 1; }

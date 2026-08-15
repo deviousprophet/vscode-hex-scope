@@ -26,6 +26,10 @@ export interface HexViewCallbacks {
     onCopy?: (range: HexViewRange) => void;
     /** Scroll → host recomputes the visible slice and feeds a new render input. */
     onVisibleWindowChange?: (scrollTop: number) => void;
+    /** Column-header cell click → select that byte column. */
+    onHeaderColumnClick?: (col: number, shift: boolean) => void;
+    /** Address-gutter click on a data row → select that row. */
+    onAddressRowClick?: (rowBase: number, shift: boolean) => void;
 }
 
 // ── Interaction controller ────────────────────────────────────────
@@ -191,8 +195,25 @@ export class HexView {
     }
 
     private readonly handleMouseDown = (e: MouseEvent): void => {
-        if (!this.isPrimaryCellDown(e)) { return; }
-        const cell = this.dataCellFrom(e)!;
+        if (e.button !== 0 || !this.inRoot(e)) { return; }
+        const target = e.target as HTMLElement;
+        const headerCol = target.closest<HTMLElement>('#mem-header .data-cell[data-col]');
+        if (headerCol) {
+            this.rootEl()?.focus();
+            e.preventDefault();
+            this.cb.onHeaderColumnClick?.(Number(headerCol.dataset.col), e.shiftKey);
+            return;
+        }
+        const addrCell = target.closest<HTMLElement>('.data-row .addr-cell');
+        const addrRow = addrCell?.closest<HTMLElement>('.data-row[data-row]');
+        if (addrCell && addrRow) {
+            this.rootEl()?.focus();
+            e.preventDefault();
+            this.cb.onAddressRowClick?.(Number(addrRow.dataset.row), e.shiftKey);
+            return;
+        }
+        const cell = this.dataCellFrom(e);
+        if (!cell) { return; }
         const addr = cellAddress(cell)!;
         // preventDefault would cancel the browser's default focus transfer, so
         // explicitly focus the grid container: keyboard selection keys on
@@ -203,10 +224,6 @@ export class HexView {
         this.lastDragRange = null;
         this.cb.onCellClick?.(addr, e.shiftKey, columnFor(cell));
     };
-
-    private isPrimaryCellDown(e: MouseEvent): boolean {
-        return this.inRoot(e) && e.button === 0 && this.dataCellFrom(e) !== null;
-    }
 
     private readonly handleMouseMove = (e: MouseEvent): void => {
         if (!this.activeDragFor(e)) {

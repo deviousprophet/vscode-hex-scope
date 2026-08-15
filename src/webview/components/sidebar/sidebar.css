@@ -62,15 +62,16 @@
 }
 .stab {
     writing-mode: vertical-rl; transform: none;
-    padding: 8px 5px;
-    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    padding: 10px 5px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em;
     font-family: var(--font-ui); white-space: nowrap;
-    background: transparent; border: none; border-right: 2px solid transparent;
+    background: transparent; border: none; border-right: 3px solid transparent;
     color: var(--addr-fg); cursor: pointer;
-    transition: color .12s, border-color .12s;
+    transition: color .12s, background-color .12s, border-color .12s;
 }
-.stab:hover { color: var(--fg); }
-.stab.active { color: var(--high-color); border-right-color: var(--high-color); }
+.stab:hover { color: var(--fg); background: var(--hover-bg); }
+.stab.active { color: var(--high-color); border-right-color: var(--high-color); background: rgba(78,201,160,.12); }
+.stab:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
 .sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; }

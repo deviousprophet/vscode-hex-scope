@@ -16,7 +16,7 @@ import {
     physicalToLogicalScroll,
     type VirtualScrollState,
 } from '../../webview/render/virtualScroll';
-import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
+import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
 import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
 import { selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
@@ -35,6 +35,7 @@ function resetState(): void {
     S.editMode     = false;
     S.edits.clear();
     S.undoStack.length = 0;
+    S.redoStack.length = 0;
     S.structs          = [];
 
     S.structPins       = [];
@@ -1116,6 +1117,40 @@ suite('Integrity Checks sidebar', () => {
         const ok = undoLastEditTransaction();
         assert.ok(ok);
         assert.strictEqual(S.edits.has(0x1000), false);
+    });
+
+    test('redoLastEditTransaction re-applies an undone edit', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.edits.has(0x1000), false);
+        assert.ok(redoLastEditTransaction());
+        assert.strictEqual(S.edits.get(0x1000), 0x42);
+    });
+
+    test('staging a new edit clears the redo stack', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.redoStack.length, 1);
+        stageIntegrityEditTransaction([[0x1000, 0x77]]);
+        assert.strictEqual(S.redoStack.length, 0);
     });
 
     // ── Paste parsing ────────────────────────────────────────────────

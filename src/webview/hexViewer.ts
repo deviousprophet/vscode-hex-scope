@@ -43,7 +43,7 @@ import {
     type VirtualScrollState,
 } from './render/virtualScroll';
 import { renderStats } from './statsBar';
-import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
+import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
 import { ExternalChange } from './components/externalChange/externalChange';
 import { updateExternalChangeLockState } from './lock';
 
@@ -500,6 +500,7 @@ function applyTypedEdit(addr: number, value: number): void {
     const prior = stageIntegrityEdit(addr, value);
     if (!prior) {return;}
     S.undoStack.push([prior]);
+    S.redoStack.length = 0;
     S.editMode = true;
     toolbar.setEditMode(S.editMode);
     refreshAfterLocalEdit();
@@ -610,17 +611,17 @@ function buildPasteEdits(range: { start: number; end: number }, bytes: number[])
 function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
     const bytes = pasteBytes(clipText);
     if (bytes.length === 0) { return; }
-    const edits = buildPasteEdits(range, bytes);
-    const staged = stagePasteEdits(edits);
-    if (staged) { refreshAfterLocalEdit(); }
-    const notice = pasteNotice(staged, edits.length, bytes.length);
-    if (notice) { toolbar.setStatus(notice); }
-}
+      const edits = buildPasteEdits(range, bytes);
+      const staged = stagePasteEdits(edits);
+      if (staged) { refreshAfterLocalEdit(); }
+      const notice = pasteNotice(edits.length, bytes.length);
+      if (notice) { toolbar.setStatus(notice); }
+  }
 
-function pasteNotice(staged: boolean, editsLength: number, bytesLength: number): string | null {
-    if (editsLength === 0) { return pasteOverflowNotice(0, bytesLength); }
-    return staged ? pasteOverflowNotice(editsLength, bytesLength) : null;
-}
+function pasteNotice(editsLength: number, bytesLength: number): string | null {
+      if (editsLength === 0) { return pasteOverflowNotice(0, bytesLength); }
+      return pasteOverflowNotice(editsLength, bytesLength);
+  }
 
 function pasteBytes(clipText: string): number[] {
     return parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
@@ -693,19 +694,31 @@ window.addEventListener('message', (e: MessageEvent) => {
 
 // Ctrl+Z undo lives in the host (not the search component), gated on edit mode.
 function isUndoShortcut(e: KeyboardEvent): boolean {
-    return (e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode;
+    return (e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && S.editMode;
+}
+
+function isRedoShortcut(e: KeyboardEvent): boolean {
+    if (!S.editMode) { return false; }
+    if (e.ctrlKey || e.metaKey) { return e.key === 'y' || (e.key === 'z' && e.shiftKey); }
+    return false;
 }
 
 function onUndoKeydown(e: KeyboardEvent): void {
     if (isUndoShortcut(e)) {
         e.preventDefault();
         undoLastEdit();
+        return;
+    }
+    if (isRedoShortcut(e)) {
+        e.preventDefault();
+        redoLastEdit();
     }
 }
 
 function onSaveShortcut(e: KeyboardEvent): void {
     if (!isSaveShortcut(e)) { return; }
-    if (isContextMenuFocused()) { return; }
+    if (!S.editMode || S.edits.size === 0) { return; }
+    if (inContextMenu(document.activeElement)) { return; }
     e.preventDefault();
     saveEdits();
 }
@@ -714,8 +727,9 @@ function isSaveShortcut(e: KeyboardEvent): boolean {
     return (e.ctrlKey || e.metaKey) && e.key === 's';
 }
 
-function isContextMenuFocused(): boolean {
-    return !!document.activeElement?.closest('#ctx-menu');
+/** True when `el` lives inside the context menu (its rows are tabbable; grid shortcuts must not fire there). */
+function inContextMenu(el: Element | null): boolean {
+    return !!el?.closest('#ctx-menu');
 }
 
 // Document-level keydown handlers register ONCE at module load (not per render):
@@ -752,12 +766,18 @@ function renderInitialLoadProgress(label: string): void {
     if (text) { text.textContent = `Loading ${label}…`; }
 }
 
-function renderActiveLoadProgress(_label: string): void {
-    // The 16px #search-progress slot shows the spinner; make it visible during an active reload.
+function renderActiveLoadProgress(label: string): void {
+    // Spinner (16px #search-progress slot) plus a text label in the toolbar.
     const progress = document.getElementById('search-progress');
-    if (!progress) { return; }
-    progress.classList.add('active');
-    progress.setAttribute('aria-hidden', 'false');
+    if (progress) {
+        progress.classList.add('active');
+        progress.setAttribute('aria-hidden', 'false');
+    }
+    const text = document.getElementById('load-progress');
+    if (text) {
+        text.textContent = `Loading ${label}…`;
+        text.removeAttribute('hidden');
+    }
 }
 
 function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void {
@@ -827,9 +847,15 @@ function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScr
 
 function clearLoadProgress(): void {
     const progress = document.getElementById('search-progress');
-    if (!progress) { return; }
-    progress.classList.remove('active');
-    progress.setAttribute('aria-hidden', 'true');
+    if (progress) {
+        progress.classList.remove('active');
+        progress.setAttribute('aria-hidden', 'true');
+    }
+    const text = document.getElementById('load-progress');
+    if (text) {
+        text.textContent = '';
+        text.setAttribute('hidden', '');
+    }
 }
 
 function rebuildLabelsAndMemory(): void {
@@ -998,6 +1024,8 @@ function setupRenderedUi(): void {
         onCellContext: onHexViewContext,
         onSelectionChange: onHexViewSelectionChange,
         onCopy: doCopySelection,
+        onHeaderColumnClick: selectByteColumn,
+        onAddressRowClick: selectAddressRow,
     });
     renderInitialViews();
 }
@@ -1047,6 +1075,7 @@ function setupRerenderCallbacks(): void {
 function reloadDiscardingEdits(incoming: IncomingFile): void {
     S.edits.clear();
     S.undoStack.length = 0;
+    S.redoStack.length = 0;
     S.editMode = false;
     applyExternalChangeAndUnlock(incoming);
 }
@@ -1110,10 +1139,13 @@ function renderStatsBar(): void {
 
 // ── Memory view ───────────────────────────────────────────────────
 
-function updateByteSelection(start: number, end: number): void {
+function updateByteSelection(start: number, end: number, keepGridAnchor = false): void {
     clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
+    // Every selection change drops a stale Shift-extend anchor, except the
+    // extend path itself (it re-anchors each keypress).
+    if (!keepGridAnchor) { gridArrowAnchor = null; }
     paintMemorySelection();
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     inspectorPanel.syncLabelForm();
@@ -1122,12 +1154,53 @@ function updateByteSelection(start: number, end: number): void {
 
 function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): void {
     clearNibbleBuffer();
-    gridArrowAnchor = null;
     S.lastClickColumn = column;
     const range = shift && S.selStart !== null
         ? (addr < S.selStart ? { start: addr, end: S.selStart } : { start: S.selStart, end: addr })
         : { start: addr, end: addr };
     updateByteSelection(range.start, range.end);
+}
+
+/** Header-column click: select every mapped byte at that column across all segments. */
+function selectByteColumn(col: number, shift: boolean): void {
+    clearNibbleBuffer();
+    if (!S.parseResult) { return; }
+    let first: number | null = null;
+    let last: number | null = null;
+    for (const seg of S.parseResult.segments) {
+        for (let i = col; i < seg.data.length; i += BPR) {
+            const addr = seg.startAddress + i;
+            if (getByte(addr) === undefined) { continue; }
+            if (first === null) { first = addr; }
+            last = addr;
+        }
+    }
+    if (first === null) { return; }
+    updateByteSelection(...mappedSelectionRange(first, last, shift));
+}
+
+/** Address-gutter click: select the mapped bytes of that row. */
+function selectAddressRow(rowBase: number, shift: boolean): void {
+    clearNibbleBuffer();
+    if (!S.parseResult) { return; }
+    let first: number | null = null;
+    let last: number | null = null;
+    for (let i = 0; i < BPR; i++) {
+        const addr = rowBase + i;
+        if (getByte(addr) === undefined) { continue; }
+        if (first === null) { first = addr; }
+        last = addr;
+    }
+    if (first === null) { return; }
+    updateByteSelection(...mappedSelectionRange(first, last, shift));
+}
+
+/** [start, end] for a mapped span, shift-extending from the current selection start. */
+function mappedSelectionRange(first: number, last: number, shift: boolean): [number, number] {
+    if (shift && S.selStart !== null) {
+        return [Math.min(S.selStart, last), Math.max(S.selStart, last)];
+    }
+    return [first, last];
 }
 
 // ── Grid keyboard selection (arrow keys; Shift extends) ───────────
@@ -1157,7 +1230,7 @@ function isGridFocused(): boolean {
 
 function isTypingTarget(e: KeyboardEvent): boolean {
     const t = e.target as HTMLElement | null;
-    return !!t && !!(t.closest('input, select, textarea') || t.closest('#ctx-menu'));
+    return !!t && !!(t.closest('input, select, textarea') || inContextMenu(t));
 }
 
 /** Arrow key → selection movement; menu key → open the context menu at the grid center. */
@@ -1204,7 +1277,7 @@ function extendGridSelection(delta: number): void {
     if (activeEnd === null) { return; }
     const target = walkMappedAddress(activeEnd, delta);
     if (target === null) { return; }
-    updateByteSelection(Math.min(gridArrowAnchor!, target), Math.max(gridArrowAnchor!, target));
+    updateByteSelection(Math.min(gridArrowAnchor!, target), Math.max(gridArrowAnchor!, target), true);
 }
 
 function gridActiveEnd(): number | null {
@@ -1366,6 +1439,12 @@ function applyFill(fillVal: number): void {
 function undoLastEdit(): void {
     clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
+    refreshAfterLocalEdit();
+}
+
+function redoLastEdit(): void {
+    clearNibbleBuffer();
+    if (!redoLastEditTransaction()) { return; }
     refreshAfterLocalEdit();
 }
 

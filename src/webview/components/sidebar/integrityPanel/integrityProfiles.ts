@@ -89,10 +89,10 @@ export function persistChecks(panel: IntegrityProfileHost): void {
 function applySelectedProfile(panel: IntegrityProfileHost): void {
     const profile = panel.profiles.find(item => item.id === panel.selectedProfileId);
     if (!profile) { return; }
-    if (hasUnsavedProfileDraft(panel)) {
+    if (hasUnsavedProfileDraft(panel) || wouldOverwriteChangedChecks(panel, profile)) {
         const applyBtn = document.getElementById('integrity-profile-apply') as HTMLElement | null;
         if (applyBtn) {
-            inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Unsaved check edits will be replaced.');
+            inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Current checks will be replaced.');
             return;
         }
     }
@@ -101,6 +101,26 @@ function applySelectedProfile(panel: IntegrityProfileHost): void {
 
 function hasUnsavedProfileDraft(panel: IntegrityProfileHost): boolean {
     return panel.addCheckDraft !== null || panel.editingCheckId !== null;
+}
+
+/** True when applying `profile` would silently overwrite configured-but-different checks. */
+function wouldOverwriteChangedChecks(panel: IntegrityProfileHost, profile: IntegrityProfile): boolean {
+    const state = integrityCheckSetFromStates(panel.checks);
+    if (!state.ok) { return panel.checks.length > 0; }
+    if (state.value.checks.length === 0) { return false; } // nothing configured: normal first apply
+    return !configsEqual(state.value.checks, profile.checks);
+}
+
+function configsEqual(a: IntegrityCheckConfig[], b: IntegrityCheckConfig[]): boolean {
+    if (a.length !== b.length) { return false; }
+    return a.every((ca, i) => {
+        const cb = b[i];
+        return ca.algorithm === cb.algorithm
+            && ca.startAddress === cb.startAddress
+            && ca.endAddress === cb.endAddress
+            && (ca.storedAddress ?? 0) === (cb.storedAddress ?? 0)
+            && ca.autoFixStoredValue === cb.autoFixStoredValue;
+    });
 }
 
 function applyProfileChecks(panel: IntegrityProfileHost, profile: IntegrityProfile): void {

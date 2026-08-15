@@ -172,7 +172,9 @@ export class InspectorPanel implements InspectorLabelFormHost {
             this.renderBits(state.val);
         } else {
             const selBytes = this.selectedBytes(state.len);
-            state.valsEl.innerHTML = multiByteInspectorHtml(selBytes, state.len);
+            const skipped = this.countUnmappedInSelection();
+            state.valsEl.innerHTML = multiByteInspectorHtml(selBytes, state.len)
+                + (skipped > 0 ? gapPaddingNoteHtml(skipped) : '');
             this.renderBitsMulti(selBytes.slice(0, Math.min(state.len, 8)));
         }
         this.wireInspectorCopies(state.valsEl);
@@ -215,6 +217,17 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     private readSelectedByte(addr: number): number {
         return this.cb.readByte(addr) ?? 0;
+    }
+
+    /** Unmapped addresses inside the current selection (decode pads them with 0x00). */
+    private countUnmappedInSelection(): number {
+        const { start, end } = this.selection;
+        if (start === null || end === null) { return 0; }
+        let n = 0;
+        for (let a = start; a <= end; a++) {
+            if (this.cb.readByte(a) === undefined) { n++; }
+        }
+        return n;
     }
 
     private wireInspectorCopies(valsEl: HTMLElement): void {

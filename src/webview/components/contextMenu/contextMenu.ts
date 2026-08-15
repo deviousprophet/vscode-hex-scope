@@ -80,22 +80,23 @@ function interactionRows(state: ContextMenuState): string {
 }
 
 function buildFillMenu(len: number): string {
-    const fillPresets: [number, string][] = [
-        [0x00, 'Zero              (0x00)'],
-        [0xFF, 'Erased flash      (0xFF)'],
-    ];
-    const customRow =
-        `<div class="ctx-custom-row">` +
-        `<span class="ctx-label">Custom</span>` +
-        `<div class="ctx-custom-input-wrap">` +
-        `<span class="ctx-custom-prefix">0x</span>` +
-        `<input class="ctx-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
-        `<button class="ctx-fill-apply" title="Apply">&#10003;</button>` +
-        `</div></div>`;
+      const fillPresets: [number, string][] = [
+          [0x00, 'Zero'],
+          [0xFF, 'Erased flash'],
+      ];
+      const customRow =
+          `<div class="ctx-custom-row">` +
+          `<span class="ctx-label">Custom</span>` +
+          `<div class="ctx-custom-input-wrap">` +
+          `<span class="ctx-custom-prefix">0x</span>` +
+          `<input class="ctx-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
+          `<button class="ctx-fill-apply" title="Apply">&#10003;</button>` +
+          `</div></div>`;
+      const hintFor = (v: number): string => `${v === 0 ? '(0x00)' : '(0xFF)'}${len > 1 ? ` \u00d7 ${len}` : ''}`;
 
-    return fillPresets.map(([v, lbl]) => ctxItem(`fill-${hexByte(v)}`, lbl, len > 1 ? `\u00d7 ${len}` : '')).join('') +
-        CTX_SEP +
-        customRow;
+      return fillPresets.map(([v, label]) => ctxItem(`fill-${hexByte(v)}`, label, hintFor(v))).join('') +
+          CTX_SEP +
+          customRow;
 }
 
 /** Remaining copy formats: the direct top-level ones are omitted. */
@@ -334,11 +335,7 @@ export class ContextMenu {
     private handleFillKeydown(ev: KeyboardEvent, fillInput: HTMLInputElement): void {
         ev.stopPropagation();
         if (ev.key === 'Enter') { this.applyCustomFill(fillInput); }
-        if (ev.key === 'Escape') {
-            // First Escape clears the input; a second one (empty input) dismisses the menu.
-            if (fillInput.value.length > 0) { fillInput.value = ''; }
-            else { this.hide(); }
-        }
+        if (ev.key === 'Escape') { this.hide(); }
     }
 
     private applyCustomFill(fillInput: HTMLInputElement | null): void {

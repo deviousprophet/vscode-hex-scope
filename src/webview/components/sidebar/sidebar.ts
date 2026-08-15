@@ -45,6 +45,18 @@ function parseSidebarWidth(raw: string | null | undefined): number | null {
     return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, n));
 }
 
+/** Clamp a sidebar width to [min, max(min, viewport − tabs − gutter)]. */
+function clampResizeWidth(width: number): number {
+    const tabs = document.getElementById('side-tabs');
+    const tabsWidth = tabs ? tabs.getBoundingClientRect().width : 0;
+    const maxAllowed = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - tabsWidth - 220));
+    return Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxAllowed, width));
+}
+
+function persistSidebarWidth(width: number): void {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+}
+
 export class Sidebar {
     private readonly panels: SidebarPanel[];
     private readonly tabByButtonId: ReadonlyMap<string, SidebarTab>;
@@ -71,6 +83,7 @@ export class Sidebar {
         if (!this.mounted) {
             document.addEventListener('click', this.handleTabClick);
             document.addEventListener('mousedown', this.handleResizeStart);
+            document.addEventListener('keydown', this.handleResizeKeydown);
             this.mounted = true;
         }
         this.mountHeaderSlot();
@@ -94,7 +107,7 @@ export class Sidebar {
             .map(panel => `<button class="${this.tabClass(panel.id)}" id="stab-${esc(panel.id)}">${esc(panel.label)}</button>`)
             .join('');
         return `
-        <div id="sidebar-resizer" aria-label="Resize sidebar" title="Drag to resize sidebar"></div>
+        <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" title="Drag to resize sidebar" tabindex="0"></div>
         <div id="sidebar">
             <div id="sidebar-common-settings"></div>
             ${panelHtml}
@@ -174,8 +187,7 @@ export class Sidebar {
             if (!dragging) { return; }
             const tabs = document.getElementById('side-tabs');
             const tabsWidth = tabs ? tabs.getBoundingClientRect().width : 0;
-            const maxAllowed = Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - tabsWidth - 220);
-            sidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxAllowed, window.innerWidth - moveEv.clientX - tabsWidth));
+            sidebarWidth = clampResizeWidth(window.innerWidth - moveEv.clientX - tabsWidth);
             document.documentElement.style.setProperty('--sidebar-w', `${sidebarWidth}px`);
         };
         const stopDrag = (): void => {
@@ -184,11 +196,23 @@ export class Sidebar {
             resizer.classList.remove('dragging');
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
-            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+            persistSidebarWidth(sidebarWidth);
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', stopDrag);
         };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', stopDrag);
+    };
+
+    /** Arrow keys resize the sidebar while the resizer is focused (a11y parity with drag). */
+    private readonly handleResizeKeydown = (e: KeyboardEvent): void => {
+        const resizer = (e.target as HTMLElement | null)?.closest<HTMLElement>('#sidebar-resizer');
+        if (!resizer) { return; }
+        const delta = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+        if (delta === 0) { return; }
+        e.preventDefault();
+        const closed = clampResizeWidth(this.currentCssWidth() + delta);
+        document.documentElement.style.setProperty('--sidebar-w', `${closed}px`);
+        persistSidebarWidth(closed);
     };
 }

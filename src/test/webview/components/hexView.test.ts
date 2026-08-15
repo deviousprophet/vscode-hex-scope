@@ -26,10 +26,12 @@ interface CallLog {
     leaves: number;
     columnLeaves: number;
     windows: number[];
+    columns: Array<{ col: number; shift: boolean }>;
+    rows: Array<{ row: number; shift: boolean }>;
 }
 
 function emptyLog(): CallLog {
-    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [] };
+    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [], columns: [], rows: [] };
 }
 
 function installDom(): JSDOM {
@@ -85,6 +87,8 @@ function installHexView(callbacks: Partial<HexViewCallbacks> = {}): { hex: HexVi
         onLeave: () => { log.leaves++; },
         onColumnLeave: () => { log.columnLeaves++; },
         onVisibleWindowChange: top => { log.windows.push(top); },
+        onHeaderColumnClick: (col, shift) => { log.columns.push({ col, shift }); },
+        onAddressRowClick: (rowBase, shift) => { log.rows.push({ row: rowBase, shift }); },
         ...callbacks,
     });
     hex.mount();
@@ -345,6 +349,28 @@ suite('HexView interactions', () => {
         document.body.focus();
         dispatchOn(hexCell(ADDR_BASE), 'mousedown', { button: 0 });
         assert.strictEqual(document.activeElement, document.getElementById('memory-view'), 'grid container focused for keyboard nav');
+    });
+
+    test('mousedown on a header column cell reports its column and focuses the grid', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(standardInput());
+        const headerCell = document.querySelector<HTMLElement>('#mem-header .data-cell[data-col="3"]');
+        assert.ok(headerCell, 'header column cell present');
+        document.body.focus();
+        dispatchOn(headerCell!, 'mousedown', { button: 0, shiftKey: true });
+        assert.deepStrictEqual(log.columns, [{ col: 3, shift: true }]);
+        assert.strictEqual(document.activeElement, document.getElementById('memory-view'));
+    });
+
+    test('mousedown on the address gutter cell reports its row', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(standardInput());
+        const addrCell = document.querySelector<HTMLElement>(`.data-row[data-row="${(ADDR_BASE - (ADDR_BASE % 16))}"] .addr-cell`);
+        assert.ok(addrCell, 'address gutter cell present');
+        dispatchOn(addrCell!, 'mousedown', { button: 0 });
+        assert.deepStrictEqual(log.rows, [{ row: ADDR_BASE - (ADDR_BASE % 16), shift: false }]);
     });
 
     test('contextmenu on a mapped cell focuses the grid container', () => {
