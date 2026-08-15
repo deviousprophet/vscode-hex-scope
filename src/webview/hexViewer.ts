@@ -1034,7 +1034,6 @@ function setupRenderedUi(): void {
         onCellContext: onHexViewContext,
         onSelectionChange: onHexViewSelectionChange,
         onCopy: doCopySelection,
-        onHeaderColumnClick: selectByteColumn,
         onAddressRowClick: selectAddressRow,
     });
     renderInitialViews();
@@ -1169,35 +1168,6 @@ function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): v
         ? (addr < S.selStart ? { start: addr, end: S.selStart } : { start: S.selStart, end: addr })
         : { start: addr, end: addr };
     updateByteSelection(range.start, range.end);
-}
-
-/** Header-column click: select every mapped byte at that column across all segments. */
-function selectByteColumn(col: number, shift: boolean): void {
-    clearNibbleBuffer();
-    if (!S.parseResult) { return; }
-    const span = columnAddressSpan(col);
-    if (!span) { return; }
-    updateByteSelection(...mappedSelectionRange(...span, shift));
-}
-
-/** First/last mapped address of the bytes at `col` across every segment. */
-function columnAddressSpan(col: number): [number, number] | null {
-    const addrs = columnAddresses(col);
-    if (addrs.length === 0) { return null; }
-    return [addrs[0], addrs[addrs.length - 1]];
-}
-
-/** Mapped addresses of every byte at col across all segments. */
-function columnAddresses(col: number): number[] {
-    const out: number[] = [];
-    for (const seg of S.parseResult!.segments) {
-        for (let i = col; i < seg.data.length; i += BPR) {
-            const addr = seg.startAddress + i;
-            if (getByte(addr) === undefined) { continue; }
-            out.push(addr);
-        }
-    }
-    return out;
 }
 
 /** Address-gutter click: select the mapped bytes of that row. */

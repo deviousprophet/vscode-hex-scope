@@ -1,6 +1,6 @@
 // ── HexView component ────────────────────────────────────────────
 // Self-contained presentational hex grid: owns the transient pointer
-// interaction (hover, column hover, drag-selection reporting,
+// interaction (hover, row-selection reporting, drag-selection reporting,
 // click/context/copy reporting) and styles (HexView.css). The grid
 // markup is built by the pure render layer in hexViewRender.ts; DOM
 // paint/match utilities live in hexViewPaint.ts.
@@ -12,13 +12,11 @@
 
 import './hexView.css';
 import { addrHex, BYTES_PER_ROW, type HexViewRange } from './hexViewRender';
-import { cellAddress, clearCellPreview, columnFor, isCopyShortcut, isEditableTarget, paintMatchesInRoot, selectedColumns } from './hexViewPaint';
+import { cellAddress, clearCellPreview, columnFor, isCopyShortcut, isEditableTarget, paintMatchesInRoot } from './hexViewPaint';
 
 export interface HexViewCallbacks {
     onHover?: (addr: number) => void;
     onLeave?: () => void;
-    onColumnHover?: (col: number) => void;
-    onColumnLeave?: () => void;
     /** Drag-selection range report (component-transient). */
     onSelectionChange?: (range: HexViewRange) => void;
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
@@ -26,8 +24,6 @@ export interface HexViewCallbacks {
     onCopy?: (range: HexViewRange) => void;
     /** Scroll → host recomputes the visible slice and feeds a new render input. */
     onVisibleWindowChange?: (scrollTop: number) => void;
-    /** Column-header cell click → select that byte column. */
-    onHeaderColumnClick?: (col: number, shift: boolean) => void;
     /** Address-gutter click on a data row → select that row. */
     onAddressRowClick?: (rowBase: number, shift: boolean) => void;
 }
@@ -39,7 +35,6 @@ export class HexView {
     private mounted = false;
     private dragAnchor: number | null = null;
     private lastDragRange: HexViewRange | null = null;
-    private activeColumn: string | null = null;
     private hoveredCell: HTMLElement | null = null;
     private cachedRoot: HTMLElement | null = null;
     private cachedScrollEl: HTMLElement | null = null;
@@ -89,13 +84,11 @@ export class HexView {
         const root = this.rootEl();
         if (!root) { return; }
         root.querySelectorAll<HTMLElement>('.data-row.row-sel').forEach(el => el.classList.remove('row-sel'));
-        root.querySelectorAll<HTMLElement>('#mem-header .data-cell.sel-col').forEach(el => el.classList.remove('sel-col'));
         const cells = root.querySelectorAll<HTMLElement>('[data-addr]');
         if (range === null) {
             cells.forEach(el => el.classList.remove('sel'));
             return;
         }
-        const selectedCols = selectedColumns(range.start, range.end);
         cells.forEach(el => {
             const addr = cellAddress(el);
             if (addr === null) { return; }
@@ -104,9 +97,6 @@ export class HexView {
             if (isSelected) {
                 el.closest<HTMLElement>('.data-row')?.classList.add('row-sel');
             }
-        });
-        root.querySelectorAll<HTMLElement>('#mem-header .data-cell[data-col]').forEach(el => {
-            el.classList.toggle('sel-col', selectedCols.has(Number(el.dataset.col)));
         });
     }
 
@@ -195,24 +185,13 @@ export class HexView {
     }
 
     private readonly handleMouseDown = (e: MouseEvent): void => {
-    if (!this.isPrimaryMouseDown(e)) { return; }
-    if (this.handleHeaderColumn(e)) { return; }
-    if (this.handleAddressRow(e)) { return; }
-    this.handleDataCell(e);
-};
+        if (!this.isPrimaryMouseDown(e)) { return; }
+        if (this.handleAddressRow(e)) { return; }
+        this.handleDataCell(e);
+    };
 
-private isPrimaryMouseDown(e: MouseEvent): boolean {
-    return e.button === 0 && this.inRoot(e);
-}
-
-    private handleHeaderColumn(e: MouseEvent): boolean {
-        const target = e.target as HTMLElement;
-        const headerCol = target.closest<HTMLElement>('#mem-header .data-cell[data-col]');
-        if (!headerCol) { return false; }
-        this.rootEl()?.focus();
-        e.preventDefault();
-        this.cb.onHeaderColumnClick?.(Number(headerCol.dataset.col), e.shiftKey);
-        return true;
+    private isPrimaryMouseDown(e: MouseEvent): boolean {
+        return e.button === 0 && this.inRoot(e);
     }
 
     private handleAddressRow(e: MouseEvent): boolean {
@@ -285,28 +264,14 @@ private isPrimaryMouseDown(e: MouseEvent): boolean {
     private readonly handleMouseOver = (e: MouseEvent): void => {
         if (!this.inRoot(e)) { return; }
         const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-col]');
-        if (!cell) {
-            this.setCellHover(null);
-            this.setColumn(null);
-            return;
-        }
         this.setCellHover(cell);
-        this.setColumn(cell.dataset.col ?? null);
     };
 
     private readonly handleMouseOut = (e: MouseEvent): void => {
         const root = this.rootEl();
         if (!root || !root.contains(e.target as Node)) { return; }
-        if (this.relatedTargetInColumn(e, root)) { return; }
         this.setCellHover(null);
-        this.setColumn(null);
     };
-
-    private relatedTargetInColumn(e: MouseEvent, root: HTMLElement): boolean {
-        const related = e.relatedTarget as Node | null;
-        if (!related || !root.contains(related)) { return false; }
-        return (related as HTMLElement).closest?.('[data-col]') !== null;
-    }
 
     private setCellHover(cell: HTMLElement | null): void {
         if (this.hoveredCell === cell) { return; }
@@ -331,25 +296,6 @@ private isPrimaryMouseDown(e: MouseEvent): boolean {
             return;
         }
         this.cb.onHover?.(addr);
-    }
-
-    private setColumn(column: string | null): void {
-        if (this.activeColumn === column) { return; }
-        this.unpaintColumn();
-        this.activeColumn = column;
-        this.paintColumn();
-    }
-
-    private unpaintColumn(): void {
-        if (this.activeColumn === null) { return; }
-        this.rootEl()?.querySelectorAll<HTMLElement>(`[data-col="${this.activeColumn}"]`).forEach(el => el.classList.remove('col-hi'));
-        this.cb.onColumnLeave?.();
-    }
-
-    private paintColumn(): void {
-        if (this.activeColumn === null) { return; }
-        this.rootEl()?.querySelectorAll<HTMLElement>(`[data-col="${this.activeColumn}"]`).forEach(el => el.classList.add('col-hi'));
-        this.cb.onColumnHover?.(Number(this.activeColumn));
     }
 
     private readonly handleContextMenu = (e: MouseEvent): void => {

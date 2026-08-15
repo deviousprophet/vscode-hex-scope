@@ -14,7 +14,7 @@ Boundary rule: the component owns markup, transient interaction, and styles. It 
 src/webview/components/hexView/
     hexView.ts          interaction controller class + HexViewCallbacks
     hexViewRender.ts    pure DOM-free render layer: types (HexViewCell/Banner/Row/Range/RenderInput), renderHexViewHeader, renderHexViewHtml, row/cell markup builders
-    hexViewPaint.ts     DOM paint/match utilities: cellAddress, selectedColumns, match highlighting, paintMatchesInRoot, clearCellPreview, columnFor, copy/editable guards
+    hexViewPaint.ts     DOM paint/match utilities: cellAddress, match highlighting, paintMatchesInRoot, clearCellPreview, columnFor, copy/editable guards
     hexView.css         moved verbatim from styles/memory-view.css (bundled via esbuild)
 src/webview/memory/memoryGrid.ts     host grid controller (slice computation, render-input build, vscroll state); imports class from HexView, render from HexViewRender
 src/webview/hexViewer.ts             composition root: wires callbacks + ASCII toggle; imports HexViewRange from HexViewRender
@@ -57,13 +57,12 @@ interface HexViewRenderInput {
 interface HexViewCallbacks {
     onHover?: (addr: number) => void;
     onLeave?: () => void;
-    onColumnHover?: (col: number) => void;
-    onColumnLeave?: () => void;
     onSelectionChange?: (range: HexViewRange) => void;       // drag report (component-transient)
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
     onVisibleWindowChange?: (scrollTop: number) => void;      // scroll → host recomputes slice
+    onAddressRowClick?: (rowBase: number, shift: boolean) => void;  // address-gutter click → select row
 }
 
 export function renderHexViewHeader(showAscii?: boolean): string;  // pure
@@ -86,14 +85,14 @@ export class HexView {
 ## Rules
 
 - **Host-agnostic presentational (B):** component never imports/reads/writes `S`; no data/domain logic, no search/edit/copy, no `postProviderMessage`.
-- **Host builds cells:** host loops `BPR` per row calling `getByte`, computes `byteClass`/char text/`dirty`/integrity/struct classes → fills `HexViewCell`. Component composites only match/sel/col-hi from declarative input.
-- **Interaction = report:** hover/column-hover/drag-selection/click/context/copy via callbacks; host applies selection state, context menu, edits. Drag range transient in component, persistent in host `S`. The shell makes `#memory-view` focusable (`tabindex="0"`); a cell `mousedown`/`contextmenu` explicitly focuses the grid container (`rootEl().focus()`) before `preventDefault`, so document-level arrow-key selection (host: ArrowLeft/Right/Up/Down ± BPR, Shift extends, gap-skipping via `walkMappedAddress`) and the context-menu key / Shift+F10 open work immediately after a click; the component itself has no keyboard logic.
+- **Host builds cells:** host loops `BPR` per row calling `getByte`, computes `byteClass`/char text/`dirty`/integrity/struct classes → fills `HexViewCell`. Component composites only match/sel from declarative input.
+- **Interaction = report:** hover/drag-selection/click/context/copy via callbacks; host applies selection state, context menu, edits. Drag range transient in component, persistent in host `S`. The shell makes `#memory-view` focusable (`tabindex="0"`); a cell `mousedown`/`contextmenu` explicitly focuses the grid container (`rootEl().focus()`) before `preventDefault`, so document-level arrow-key selection (host: ArrowLeft/Right/Up/Down ± BPR, Shift extends, gap-skipping via `walkMappedAddress`) and the context-menu key / Shift+F10 open work immediately after a click; the component itself has no keyboard logic.
 - **Container-wrapper positioning (current parity):** rows container full virtual height + inner wrapper `top: windowTop`; no per-row absolute. Gap rows + banners in-flow.
 - **Compressed mode emits NO spacers:** `windowTop` already equals `physicalScrollTop + topSpacer - logicalScrollTop`, so the wrapper subsumes the top offset. Emitting top/bottom spacers inside the wrapper would double-offset and grow blank space above rows as the user scrolls down. Spacers are rendered only in uncompressed (in-flow) mode.
 - **Virtualization:** component owns scroll listener → `onVisibleWindowChange(scrollTop)`; host computes slice via `render/virtualScroll.ts` (shared with record view) and feeds new render input. Component does not import virtualScroll math.
 - **Header:** component renders it (hidden addr gutter + 00..0F hex cells always + "Decoded text" gated by `showAscii`); header scrollLeft sync is component-internal.
 - **Zero size math:** all sizing from CSS (`--cell-size`, `--text-cell-width`, `.cell-group` `4n+1` gaps, `.data-row` height). No width/height computation in TS. Positioning attributes (`top: windowTop` on the wrapper, spacer heights) are host-computed values emitted as inline `style` — pre-existing parity, not size math.
-- **CSS debt (documented, not new):** `hexView.css` carries ~10 `!important` rules (integrity/match/sel/col-hi overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
+- **CSS debt (documented, not new):** `hexView.css` carries ~8 `!important` rules (integrity/match/sel overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
 - **Root-scoped (single-instance today):** constructor takes `rootSelector`; the component queries only within its root. Note the shell still uses the pre-existing global ids `#memory-view`/`#mem-header`/`#mem-scroll` (single-instance webview). Diff-view two-panel reuse will need those ids turned into class-scoped root markup (a future diff task).
 - **Host never writes component DOM directly:** nibble-edit preview via `paintCell(addr, text|null)`; struct-field highlight via `paintStructHighlight(addrs, cls)` / `paintClearStructHighlight(cls)` (root-scoped, class-wide clear); component owns `.editing` class + `textContent`, restores from own `data-val`. No host `querySelectorAll('[data-addr]')` pokes.
 - **showAscii boolean** (default true = byte-identical current); `false` gates only char cells + "Decoded text" header label.
@@ -106,8 +105,8 @@ export class HexView {
 - Empty byte: `.data-cell.be`, no `data-addr`/`data-val`, `aria-hidden`, excluded from match/sel/hover/drag. Char: `.char-cell.cd` + `.edit-placeholder` when editable.
 - Gap row: `.gap-row` with `.gap-dots`/`.gap-range`/`.gap-size`. Seg banner: `.seg-banner` inline colored, above its data row in flow.
 - Empty rows state: "No data records found." placeholder.
-- Selection/match: `.sel`/`.row-sel`/`.sel-col`/`.match`/`.amatch` painted from render input + `paintSelection`/`paintMatch` (multi-byte span via `length`).
-- Hover/column-hover: transient `.col-hi`/hover paints, reported.
+- Selection/match: `.sel`/`.row-sel`/`.match`/`.amatch` painted from render input + `paintSelection`/`paintMatch` (multi-byte span via `length`). No column-header selection; header cells are inert.
+- Hover: transient cell hover paint/report via `onHover`/`onLeave` (no column-hover affordance).
 - ASCII toggle (small feature): toolbar button flips `showAscii` (default true); single **ASCII** label with an active/pressed state; host owns state, component honors input.
 
 ## Validation & Error Matrix
@@ -125,7 +124,7 @@ export class HexView {
 
 ## Tests Required
 
-`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
+`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion, address-gutter row click, inert header click), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
 
 ## Anti-patterns
 

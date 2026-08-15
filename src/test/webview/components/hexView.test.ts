@@ -22,16 +22,13 @@ interface CallLog {
     selections: Array<{ start: number; end: number }>;
     copies: number;
     hovers: number[];
-    columnHovers: number[];
     leaves: number;
-    columnLeaves: number;
     windows: number[];
-    columns: Array<{ col: number; shift: boolean }>;
     rows: Array<{ row: number; shift: boolean }>;
 }
 
 function emptyLog(): CallLog {
-    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [], columns: [], rows: [] };
+    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], leaves: 0, windows: [], rows: [] };
 }
 
 function installDom(): JSDOM {
@@ -83,11 +80,8 @@ function installHexView(callbacks: Partial<HexViewCallbacks> = {}): { hex: HexVi
         onSelectionChange: range => { log.selections.push({ start: range.start, end: range.end }); },
         onCopy: () => { log.copies++; },
         onHover: addr => { log.hovers.push(addr); },
-        onColumnHover: col => { log.columnHovers.push(col); },
         onLeave: () => { log.leaves++; },
-        onColumnLeave: () => { log.columnLeaves++; },
         onVisibleWindowChange: top => { log.windows.push(top); },
-        onHeaderColumnClick: (col, shift) => { log.columns.push({ col, shift }); },
         onAddressRowClick: (rowBase, shift) => { log.rows.push({ row: rowBase, shift }); },
         ...callbacks,
     });
@@ -351,7 +345,7 @@ suite('HexView interactions', () => {
         assert.strictEqual(document.activeElement, document.getElementById('memory-view'), 'grid container focused for keyboard nav');
     });
 
-    test('mousedown on a header column cell reports its column and focuses the grid', () => {
+    test('mousedown on a header column cell is inert (no column selection)', () => {
         currentDom = installDom();
         const { log } = installHexView();
         renderGrid(standardInput());
@@ -359,8 +353,9 @@ suite('HexView interactions', () => {
         assert.ok(headerCell, 'header column cell present');
         document.body.focus();
         dispatchOn(headerCell!, 'mousedown', { button: 0, shiftKey: true });
-        assert.deepStrictEqual(log.columns, [{ col: 3, shift: true }]);
-        assert.strictEqual(document.activeElement, document.getElementById('memory-view'));
+        assert.strictEqual(log.clicks.length, 0);
+        assert.strictEqual(log.rows.length, 0);
+        assert.deepStrictEqual(log.selections, []);
     });
 
     test('mousedown on the address gutter cell reports its row', () => {
@@ -460,20 +455,14 @@ suite('HexView interactions', () => {
         assert.strictEqual(log.copies, 0);
     });
 
-    test('hover reports address and paints column highlight on body + header cells', () => {
+    test('hover reports address on the hovered cell', () => {
         currentDom = installDom();
         const { log } = installHexView();
         renderGrid(standardInput());
         dispatchOn(hexCell(ADDR_BASE + 4), 'mouseover');
         assert.deepStrictEqual(log.hovers, [ADDR_BASE + 4]);
-        assert.deepStrictEqual(log.columnHovers, [4]);
-        assert.ok(hexCell(ADDR_BASE + 4).classList.contains('col-hi'));
-        assert.ok(charCell(ADDR_BASE + 4).classList.contains('col-hi'), 'same column char cell');
-        const headerCol = document.querySelector<HTMLElement>(`#mem-header .data-cell[data-col="4"]`);
-        assert.ok(headerCol?.classList.contains('col-hi'), 'header cell highlighted');
         dispatchOn(hexCell(ADDR_BASE + 4), 'mouseout', { relatedTarget: null });
-        assert.strictEqual(log.columnHovers.length, 1, 'moving to a non-cell clears the column');
-        assert.ok(!hexCell(ADDR_BASE + 4).classList.contains('col-hi'));
+        assert.ok(!hexCell(ADDR_BASE + 4).classList.contains('cell-hover'));
     });
 
     test('scroll on the container reports scrollTop via onVisibleWindowChange', () => {
@@ -501,7 +490,7 @@ suite('HexView interactions', () => {
 suite('HexView paint methods', () => {
     teardown(cleanupDom);
 
-    test('paintSelection paints .sel on cells, .row-sel and header .sel-col; null clears', () => {
+    test('paintSelection paints .sel and .row-sel cells; null clears', () => {
         currentDom = installDom();
         const { hex } = installHexView();
         renderGrid(standardInput());
@@ -510,11 +499,9 @@ suite('HexView paint methods', () => {
         assert.ok(charCell(ADDR_BASE + 2).classList.contains('sel'));
         assert.ok(!hexCell(ADDR_BASE).classList.contains('sel'));
         assert.ok(document.querySelector<HTMLElement>('.data-row')?.classList.contains('row-sel'));
-        assert.ok(document.querySelector<HTMLElement>('#mem-header .data-cell[data-col="1"]')?.classList.contains('sel-col'));
         hex.paintSelection(null);
         assert.strictEqual(document.querySelectorAll('.sel').length, 0);
         assert.strictEqual(document.querySelectorAll('.row-sel').length, 0);
-        assert.strictEqual(document.querySelectorAll('.sel-col').length, 0);
     });
 
     test('paintMatch paints visible match spans and the active amatch', () => {
