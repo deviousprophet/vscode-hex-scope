@@ -22,13 +22,15 @@ interface CallLog {
     selections: Array<{ start: number; end: number }>;
     copies: number;
     hovers: number[];
+    columnHovers: number[];
     leaves: number;
+    columnLeaves: number;
     windows: number[];
     rows: Array<{ row: number; shift: boolean }>;
 }
 
 function emptyLog(): CallLog {
-    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], leaves: 0, windows: [], rows: [] };
+    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [], rows: [] };
 }
 
 function installDom(): JSDOM {
@@ -80,7 +82,9 @@ function installHexView(callbacks: Partial<HexViewCallbacks> = {}): { hex: HexVi
         onSelectionChange: range => { log.selections.push({ start: range.start, end: range.end }); },
         onCopy: () => { log.copies++; },
         onHover: addr => { log.hovers.push(addr); },
+        onColumnHover: col => { log.columnHovers.push(col); },
         onLeave: () => { log.leaves++; },
+        onColumnLeave: () => { log.columnLeaves++; },
         onVisibleWindowChange: top => { log.windows.push(top); },
         onAddressRowClick: (rowBase, shift) => { log.rows.push({ row: rowBase, shift }); },
         ...callbacks,
@@ -455,14 +459,20 @@ suite('HexView interactions', () => {
         assert.strictEqual(log.copies, 0);
     });
 
-    test('hover reports address on the hovered cell', () => {
+    test('hover reports address and paints column highlight on body + header cells', () => {
         currentDom = installDom();
         const { log } = installHexView();
         renderGrid(standardInput());
         dispatchOn(hexCell(ADDR_BASE + 4), 'mouseover');
         assert.deepStrictEqual(log.hovers, [ADDR_BASE + 4]);
+        assert.deepStrictEqual(log.columnHovers, [4]);
+        assert.ok(hexCell(ADDR_BASE + 4).classList.contains('col-hi'));
+        assert.ok(charCell(ADDR_BASE + 4).classList.contains('col-hi'), 'same column char cell');
+        const headerCol = document.querySelector<HTMLElement>(`#mem-header .data-cell[data-col="4"]`);
+        assert.ok(headerCol?.classList.contains('col-hi'), 'header cell highlighted');
         dispatchOn(hexCell(ADDR_BASE + 4), 'mouseout', { relatedTarget: null });
-        assert.ok(!hexCell(ADDR_BASE + 4).classList.contains('cell-hover'));
+        assert.strictEqual(log.columnHovers.length, 1, 'moving to a non-cell clears the column');
+        assert.ok(!hexCell(ADDR_BASE + 4).classList.contains('col-hi'));
     });
 
     test('scroll on the container reports scrollTop via onVisibleWindowChange', () => {
