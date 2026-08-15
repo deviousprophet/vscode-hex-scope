@@ -7,6 +7,8 @@
 - Added memory-view **ASCII** toolbar toggle to show or hide the decoded-ASCII column
 - Added hex-grid keyboard navigation — arrow keys move the selection, Shift+arrow extends it from a fixed anchor, and movement skips unmapped regions
 - Added keyboard operability to the context menu — Arrow keys, Enter/Space, Escape, and the context-menu key / Shift+F10 open and drive it
+- Added undo and redo keyboard shortcuts — `Ctrl/Cmd+Z` undoes and `Ctrl/Cmd+Y` (or `Ctrl/Cmd+Shift+Z`) redoes the latest staged edit
+- Added one-click column and row selection in the memory view — clicking a column header selects every mapped byte in that column, clicking the address gutter selects the whole row
 
 ### Changed
 
