@@ -373,3 +373,26 @@ Implemented all 7 UI/UX follow-up tasks on branch fix/uiux-followups (off main a
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: Fix hex-grid keyboard nav focus
+
+**Date**: 2026-08-15
+**Task**: Fix hex-grid keyboard nav focus
+**Branch**: `fix/uiux-followups`
+
+### Summary
+
+Clicked-byte selection never focused the hex grid (mousedown preventDefault cancelled native focus), so arrow-key nav was dead until a blank-area click. HexView now focuses #memory-view on cell mousedown/contextmenu; ContextMenu restores focus to the trigger on hide; UA focus outline removed on the grid; PRD AC2 dropped as a deterministic seam (module-load listeners pin first jsdom doc) with rationale recorded; fallow complexity in show/hide split below CRAP threshold. Verified: tsc, eslint, 357 webview tests, fallow green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7a1b005` | (see git log) |
+| `606537a` | (see git log) |
+| `1973c36` | (see git log) |
+
+### Status
+
+[OK] **Completed**
