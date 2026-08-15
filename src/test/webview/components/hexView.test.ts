@@ -27,10 +27,11 @@ interface CallLog {
     columnLeaves: number;
     windows: number[];
     rows: Array<{ row: number; shift: boolean }>;
+    rowDrags: Array<{ start: number; end: number }>;
 }
 
 function emptyLog(): CallLog {
-    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [], rows: [] };
+    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [], rows: [], rowDrags: [] };
 }
 
 function installDom(): JSDOM {
@@ -87,6 +88,7 @@ function installHexView(callbacks: Partial<HexViewCallbacks> = {}): { hex: HexVi
         onColumnLeave: () => { log.columnLeaves++; },
         onVisibleWindowChange: top => { log.windows.push(top); },
         onAddressRowClick: (rowBase, shift) => { log.rows.push({ row: rowBase, shift }); },
+        onAddressRowDrag: rows => { log.rowDrags.push({ start: rows.start, end: rows.end }); },
         ...callbacks,
     });
     hex.mount();
@@ -118,6 +120,13 @@ function standardCells(): HexViewCell[] {
     const cells = vals.map(cellVal);
     cells[5] = emptyCell(); // 0x1005 unmapped → be-cell
     return cells;
+}
+
+function rowInput(rowBases: number[]): HexViewRenderInput {
+    return {
+        ...standardInput(),
+        rows: rowBases.map(base => ({ address: base, kind: 'data' as const, cells: standardCells() })),
+    };
 }
 
 function standardInput(overrides: Partial<HexViewRenderInput> = {}): HexViewRenderInput {
@@ -370,6 +379,48 @@ suite('HexView interactions', () => {
         assert.ok(addrCell, 'address gutter cell present');
         dispatchOn(addrCell!, 'mousedown', { button: 0 });
         assert.deepStrictEqual(log.rows, [{ row: ADDR_BASE - (ADDR_BASE % 16), shift: false }]);
+    });
+
+    test('dragging down the gutter selects the anchor-to-pointer row range', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(rowInput([0x1000, 0x1010]));
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4096"] .addr-cell`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4112"]`)!;
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rows.length, 1, 'single-row select on press');
+        assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1010 }]);
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rowDrags.length, 1, 'same range not re-reported');
+    });
+
+    test('dragging up the gutter normalizes the range via min/max', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(rowInput([0x1000, 0x1010]));
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4112"] .addr-cell`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4096"]`)!;
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 10 });
+        assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1010 }]);
+    });
+
+    test('row drag stops reporting on mouseup', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(rowInput([0x1000, 0x1010]));
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4096"] .addr-cell`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4112"]`)!;
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rowDrags.length, 1);
+        dispatchOn(document, 'mouseup');
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rowDrags.length, 1, 'no reports after mouseup');
     });
 
     test('contextmenu on a mapped cell focuses the grid container', () => {

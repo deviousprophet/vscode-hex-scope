@@ -1035,6 +1035,7 @@ function setupRenderedUi(): void {
         onSelectionChange: onHexViewSelectionChange,
         onCopy: doCopySelection,
         onAddressRowClick: selectAddressRow,
+        onAddressRowDrag: selectAddressRows,
     });
     renderInitialViews();
 }
@@ -1177,6 +1178,16 @@ function selectAddressRow(rowBase: number, shift: boolean): void {
     const span = rowAddressSpan(rowBase);
     if (!span) { return; }
     updateByteSelection(...mappedSelectionRange(...span, shift));
+}
+
+/** Address-gutter drag: select the mapped span across the dragged rows. */
+function selectAddressRows(rows: HexViewRange): void {
+    clearNibbleBuffer();
+    if (!S.parseResult) { return; }
+    const first = rowAddressSpan(rows.start);
+    const last = rowAddressSpan(rows.end);
+    if (!first || !last) { return; }
+    updateByteSelection(first[0], last[1]);
 }
 
 /** First/last mapped address among the `BPR` bytes of a row. */

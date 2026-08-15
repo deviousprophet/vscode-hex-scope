@@ -21,6 +21,8 @@ export interface HexViewCallbacks {
     onColumnLeave?: () => void;
     /** Drag-selection range report (component-transient). */
     onSelectionChange?: (range: HexViewRange) => void;
+    /** Address-gutter drag report (component-transient): row-base range. */
+    onAddressRowDrag?: (rows: HexViewRange) => void;
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
@@ -37,6 +39,7 @@ export class HexView {
     private mounted = false;
     private dragAnchor: number | null = null;
     private lastDragRange: HexViewRange | null = null;
+    private dragMode: 'cell' | 'row' | null = null;
     private activeColumn: string | null = null;
     private hoveredCell: HTMLElement | null = null;
     private cachedRoot: HTMLElement | null = null;
@@ -204,7 +207,10 @@ export class HexView {
         if (!addrCell || !addrRow) { return false; }
         this.rootEl()?.focus();
         e.preventDefault();
-        this.cb.onAddressRowClick?.(Number(addrRow.dataset.row), e.shiftKey);
+        this.dragMode = 'row';
+        this.dragAnchor = Number(addrRow.dataset.row);
+        this.lastDragRange = null;
+        this.cb.onAddressRowClick?.(this.dragAnchor, e.shiftKey);
         return true;
     }
 
@@ -216,6 +222,7 @@ export class HexView {
         // being inside it.
         this.rootEl()?.focus();
         e.preventDefault();
+        this.dragMode = 'cell';
         this.dragAnchor = addr;
         this.lastDragRange = null;
         this.cb.onCellClick?.(addr, e.shiftKey, columnFor(cell));
@@ -226,6 +233,10 @@ export class HexView {
             this.dragAnchor = null;
             return;
         }
+        if (this.dragMode === 'row') {
+            this.reportRowDragRange(this.rowDragRangeFromPoint(e));
+            return;
+        }
         this.reportDragRange(this.dragRangeFromPoint(e));
     };
 
@@ -233,6 +244,22 @@ export class HexView {
         if (!range || this.isSameDragRange(range)) { return; }
         this.lastDragRange = range;
         this.cb.onSelectionChange?.(range);
+    }
+
+    private reportRowDragRange(range: HexViewRange | null): void {
+        if (!range || this.isSameDragRange(range)) { return; }
+        this.lastDragRange = range;
+        this.cb.onAddressRowDrag?.(range);
+    }
+
+    private rowDragRangeFromPoint(e: MouseEvent): HexViewRange | null {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        if (!el) { return null; }
+        const rowEl = (el as HTMLElement).closest<HTMLElement>('.data-row[data-row]');
+        if (!rowEl || !this.rootEl()?.contains(rowEl)) { return null; }
+        const row = Number(rowEl.dataset.row);
+        if (this.dragAnchor === null) { return null; }
+        return { start: Math.min(this.dragAnchor, row), end: Math.max(this.dragAnchor, row) };
     }
 
     private activeDragFor(e: MouseEvent): boolean {
@@ -262,6 +289,7 @@ export class HexView {
 
     private readonly handleMouseUp = (): void => {
         this.dragAnchor = null;
+        this.dragMode = null;
     };
 
     private readonly handleMouseOver = (e: MouseEvent): void => {

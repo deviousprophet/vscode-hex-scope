@@ -60,6 +60,7 @@ interface HexViewCallbacks {
     onColumnHover?: (col: number) => void;
     onColumnLeave?: () => void;
     onSelectionChange?: (range: HexViewRange) => void;       // drag report (component-transient)
+    onAddressRowDrag?: (rows: HexViewRange) => void;         // address-gutter drag: row-base range
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
@@ -109,6 +110,7 @@ export class HexView {
 - Empty rows state: "No data records found." placeholder.
 - Selection/match: `.sel`/`.row-sel`/`.match`/`.amatch` painted from render input + `paintSelection`/`paintMatch` (multi-byte span via `length`). No column-header selection; header cells are inert.
 - Hover/column-hover: transient `.col-hi` column affinity painted from hovered cell's `data-col` (byte/header cells) and reported via `onHover`/`onColumnHover`; cleared via `onLeave`/`onColumnLeave`.
+- Row drag (address gutter): address-gutter `mousedown` fires `onAddressRowClick` (single-row select on press) and arms a row-drag anchor (`dragMode='row'`, base-address anchor). `mousemove` during row drag reports the min/max row-base range via `onAddressRowDrag` (normalized so upward drag works); `mouseup` clears row-drag mode. Distinct `dragMode` from byte-cell drag — the byte-cell drag path is untouched. Host wires `onAddressRowDrag` to select the mapped span across the dragged rows (`selectAddressRows`), reusing `rowAddressSpan`/`rowAddresses`.
 - ASCII toggle (small feature): toolbar button flips `showAscii` (default true); single **ASCII** label with an active/pressed state; host owns state, component honors input.
 
 ## Validation & Error Matrix
@@ -126,7 +128,7 @@ export class HexView {
 
 ## Tests Required
 
-`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion, address-gutter row click, inert header click), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
+`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion, address-gutter row click, gutter row-drag range forward + reverse-normalized + mouseup stop, inert header click), paint methods (`paintSelection`, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
 
 ## Anti-patterns
 

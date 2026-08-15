@@ -9,6 +9,7 @@
 - Added keyboard operability to the context menu — Arrow keys, Enter/Space, Escape, and the context-menu key / Shift+F10 open and drive it
 - Added undo and redo keyboard shortcuts — `Ctrl/Cmd+Z` undoes and `Ctrl/Cmd+Y` (or `Ctrl/Cmd+Shift+Z`) redoes the latest staged edit
 - Added one-click row selection in the memory hex view — clicking an address gutter cell selects the whole row
+- Address-gutter row selection now drags — dragging vertically over the gutter selects all mapped bytes across the dragged rows (single click still selects one row)
 
 ### Changed
 
