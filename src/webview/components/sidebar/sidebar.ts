@@ -207,12 +207,16 @@ export class Sidebar {
     /** Arrow keys resize the sidebar while the resizer is focused (a11y parity with drag). */
     private readonly handleResizeKeydown = (e: KeyboardEvent): void => {
         const resizer = (e.target as HTMLElement | null)?.closest<HTMLElement>('#sidebar-resizer');
-        if (!resizer) { return; }
-        const delta = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+        const delta = resizer ? resizeKeyDelta(e.key) : 0;
         if (delta === 0) { return; }
         e.preventDefault();
         const closed = clampResizeWidth(this.currentCssWidth() + delta);
         document.documentElement.style.setProperty('--sidebar-w', `${closed}px`);
         persistSidebarWidth(closed);
     };
+}
+
+/** Pixel delta for a resize arrow key, or 0 when the key is not a resize arrow. */
+function resizeKeyDelta(key: string): number {
+    return key === 'ArrowLeft' ? -16 : key === 'ArrowRight' ? 16 : 0;
 }

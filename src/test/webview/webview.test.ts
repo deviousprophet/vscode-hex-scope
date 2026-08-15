@@ -873,6 +873,8 @@ suite('Integrity Checks sidebar', () => {
             profileSelect.value = 'stm32-profile';
             profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             document.getElementById('integrity-profile-apply')!.click();
+            const applyConfirm = document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement | null;
+            if (applyConfirm) { applyConfirm.click(); }
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
             assert.strictEqual(S.endian, 'le', 'applying a profile does not change shared endian');
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '…');
@@ -1134,6 +1136,27 @@ suite('Integrity Checks sidebar', () => {
         assert.strictEqual(S.edits.has(0x1000), false);
         assert.ok(redoLastEditTransaction());
         assert.strictEqual(S.edits.get(0x1000), 0x42);
+    });
+
+    test('redoLastEditTransaction re-pushes undo so undo-after-redo works', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.edits.has(0x1000), false);
+        assert.ok(redoLastEditTransaction());
+        assert.strictEqual(S.edits.get(0x1000), 0x42);
+        assert.strictEqual(S.undoStack.length, 1);
+        assert.deepStrictEqual(S.undoStack[0], [[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.edits.has(0x1000), false);
     });
 
     test('staging a new edit clears the redo stack', () => {

@@ -89,14 +89,17 @@ export function persistChecks(panel: IntegrityProfileHost): void {
 function applySelectedProfile(panel: IntegrityProfileHost): void {
     const profile = panel.profiles.find(item => item.id === panel.selectedProfileId);
     if (!profile) { return; }
-    if (hasUnsavedProfileDraft(panel) || wouldOverwriteChangedChecks(panel, profile)) {
-        const applyBtn = document.getElementById('integrity-profile-apply') as HTMLElement | null;
-        if (applyBtn) {
-            inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Current checks will be replaced.');
-            return;
-        }
-    }
+    if (confirmProfileApply(panel, profile)) { return; }
     applyProfileChecks(panel, profile);
+}
+
+/** Show the overwrite confirmation; true when it took over the click. */
+function confirmProfileApply(panel: IntegrityProfileHost, profile: IntegrityProfile): boolean {
+    if (!hasUnsavedProfileDraft(panel) && !wouldOverwriteChangedChecks(panel, profile)) { return false; }
+    const applyBtn = document.getElementById('integrity-profile-apply') as HTMLElement | null;
+    if (!applyBtn) { return false; }
+    inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Current checks will be replaced.');
+    return true;
 }
 
 function hasUnsavedProfileDraft(panel: IntegrityProfileHost): boolean {
@@ -112,15 +115,22 @@ function wouldOverwriteChangedChecks(panel: IntegrityProfileHost, profile: Integ
 }
 
 function configsEqual(a: IntegrityCheckConfig[], b: IntegrityCheckConfig[]): boolean {
-    if (a.length !== b.length) { return false; }
-    return a.every((ca, i) => {
-        const cb = b[i];
-        return ca.algorithm === cb.algorithm
-            && ca.startAddress === cb.startAddress
-            && ca.endAddress === cb.endAddress
-            && (ca.storedAddress ?? 0) === (cb.storedAddress ?? 0)
-            && ca.autoFixStoredValue === cb.autoFixStoredValue;
-    });
+    return a.length === b.length && a.every((ca, i) => sameCheck(ca, b[i]));
+}
+
+function sameCheck(a: IntegrityCheckConfig, b: IntegrityCheckConfig): boolean {
+    return sameRange(a, b) && sameStored(a, b);
+}
+
+function sameRange(a: IntegrityCheckConfig, b: IntegrityCheckConfig): boolean {
+    return a.algorithm === b.algorithm
+        && a.startAddress === b.startAddress
+        && a.endAddress === b.endAddress;
+}
+
+function sameStored(a: IntegrityCheckConfig, b: IntegrityCheckConfig): boolean {
+    return (a.storedAddress ?? 0) === (b.storedAddress ?? 0)
+        && a.autoFixStoredValue === b.autoFixStoredValue;
 }
 
 function applyProfileChecks(panel: IntegrityProfileHost, profile: IntegrityProfile): void {

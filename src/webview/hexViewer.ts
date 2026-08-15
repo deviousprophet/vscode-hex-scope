@@ -619,9 +619,8 @@ function applyPasteBytes(range: { start: number; end: number }, clipText: string
   }
 
 function pasteNotice(editsLength: number, bytesLength: number): string | null {
-      if (editsLength === 0) { return pasteOverflowNotice(0, bytesLength); }
-      return pasteOverflowNotice(editsLength, bytesLength);
-  }
+    return pasteOverflowNotice(editsLength, bytesLength);
+}
 
 function pasteBytes(clipText: string): number[] {
     return parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
@@ -694,13 +693,21 @@ window.addEventListener('message', (e: MessageEvent) => {
 
 // Ctrl+Z undo lives in the host (not the search component), gated on edit mode.
 function isUndoShortcut(e: KeyboardEvent): boolean {
-    return (e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && S.editMode;
+    return hasCombination(e) && e.key === 'z' && !e.shiftKey && S.editMode;
 }
 
 function isRedoShortcut(e: KeyboardEvent): boolean {
-    if (!S.editMode) { return false; }
-    if (e.ctrlKey || e.metaKey) { return e.key === 'y' || (e.key === 'z' && e.shiftKey); }
-    return false;
+    return S.editMode && hasCombination(e) && redoKey(e);
+}
+
+/** Ctrl/Cmd modifier held (either key). */
+function hasCombination(e: KeyboardEvent): boolean {
+    return !!(e.ctrlKey || e.metaKey);
+}
+
+/** Redo is Cmd/Ctrl+Y or Cmd/Ctrl+Shift+Z. */
+function redoKey(e: KeyboardEvent): boolean {
+    return e.key === 'y' || (e.key === 'z' && e.shiftKey);
 }
 
 function onUndoKeydown(e: KeyboardEvent): void {
@@ -716,11 +723,14 @@ function onUndoKeydown(e: KeyboardEvent): void {
 }
 
 function onSaveShortcut(e: KeyboardEvent): void {
-    if (!isSaveShortcut(e)) { return; }
-    if (!S.editMode || S.edits.size === 0) { return; }
-    if (inContextMenu(document.activeElement)) { return; }
+    if (!isSaveShortcut(e) || !hasEditsToSave() || inContextMenu(document.activeElement)) { return; }
     e.preventDefault();
     saveEdits();
+}
+
+/** True when there is at least one staged byte to persist. */
+function hasEditsToSave(): boolean {
+    return S.editMode && S.edits.size > 0;
 }
 
 function isSaveShortcut(e: KeyboardEvent): boolean {
@@ -1165,34 +1175,56 @@ function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): v
 function selectByteColumn(col: number, shift: boolean): void {
     clearNibbleBuffer();
     if (!S.parseResult) { return; }
-    let first: number | null = null;
-    let last: number | null = null;
-    for (const seg of S.parseResult.segments) {
+    const span = columnAddressSpan(col);
+    if (!span) { return; }
+    updateByteSelection(...mappedSelectionRange(...span, shift));
+}
+
+/** First/last mapped address of the bytes at `col` across every segment. */
+function columnAddressSpan(col: number): [number, number] | null {
+    const addrs = columnAddresses(col);
+    if (addrs.length === 0) { return null; }
+    return [addrs[0], addrs[addrs.length - 1]];
+}
+
+/** Mapped addresses of every byte at col across all segments. */
+function columnAddresses(col: number): number[] {
+    const out: number[] = [];
+    for (const seg of S.parseResult!.segments) {
         for (let i = col; i < seg.data.length; i += BPR) {
             const addr = seg.startAddress + i;
             if (getByte(addr) === undefined) { continue; }
-            if (first === null) { first = addr; }
-            last = addr;
+            out.push(addr);
         }
     }
-    if (first === null) { return; }
-    updateByteSelection(...mappedSelectionRange(first, last, shift));
+    return out;
 }
 
 /** Address-gutter click: select the mapped bytes of that row. */
 function selectAddressRow(rowBase: number, shift: boolean): void {
     clearNibbleBuffer();
     if (!S.parseResult) { return; }
-    let first: number | null = null;
-    let last: number | null = null;
+    const span = rowAddressSpan(rowBase);
+    if (!span) { return; }
+    updateByteSelection(...mappedSelectionRange(...span, shift));
+}
+
+/** First/last mapped address among the `BPR` bytes of a row. */
+function rowAddressSpan(rowBase: number): [number, number] | null {
+    const addrs = rowAddresses(rowBase);
+    if (addrs.length === 0) { return null; }
+    return [addrs[0], addrs[addrs.length - 1]];
+}
+
+/** Mapped addresses among the BPR bytes of a row. */
+function rowAddresses(rowBase: number): number[] {
+    const out: number[] = [];
     for (let i = 0; i < BPR; i++) {
         const addr = rowBase + i;
         if (getByte(addr) === undefined) { continue; }
-        if (first === null) { first = addr; }
-        last = addr;
+        out.push(addr);
     }
-    if (first === null) { return; }
-    updateByteSelection(...mappedSelectionRange(first, last, shift));
+    return out;
 }
 
 /** [start, end] for a mapped span, shift-extending from the current selection start. */

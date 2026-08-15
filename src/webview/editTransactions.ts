@@ -71,9 +71,12 @@ export function undoLastEditTransaction(): boolean {
 export function redoLastEditTransaction(): boolean {
     const txn = popRedoTransaction();
     if (!txn) { return false; }
+    const inverse: Array<[number, number]> = [];
     for (const [addr, newVal] of txn) {
+        inverse.push([addr, currentEditedByte(addr)]);
         restoreEditedByte(addr, newVal);
     }
+    S.undoStack.push(inverse);
     return true;
 }
 

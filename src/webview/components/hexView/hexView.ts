@@ -195,29 +195,43 @@ export class HexView {
     }
 
     private readonly handleMouseDown = (e: MouseEvent): void => {
-        if (e.button !== 0 || !this.inRoot(e)) { return; }
+    if (!this.isPrimaryMouseDown(e)) { return; }
+    if (this.handleHeaderColumn(e)) { return; }
+    if (this.handleAddressRow(e)) { return; }
+    this.handleDataCell(e);
+};
+
+private isPrimaryMouseDown(e: MouseEvent): boolean {
+    return e.button === 0 && this.inRoot(e);
+}
+
+    private handleHeaderColumn(e: MouseEvent): boolean {
         const target = e.target as HTMLElement;
         const headerCol = target.closest<HTMLElement>('#mem-header .data-cell[data-col]');
-        if (headerCol) {
-            this.rootEl()?.focus();
-            e.preventDefault();
-            this.cb.onHeaderColumnClick?.(Number(headerCol.dataset.col), e.shiftKey);
-            return;
-        }
+        if (!headerCol) { return false; }
+        this.rootEl()?.focus();
+        e.preventDefault();
+        this.cb.onHeaderColumnClick?.(Number(headerCol.dataset.col), e.shiftKey);
+        return true;
+    }
+
+    private handleAddressRow(e: MouseEvent): boolean {
+        const target = e.target as HTMLElement;
         const addrCell = target.closest<HTMLElement>('.data-row .addr-cell');
         const addrRow = addrCell?.closest<HTMLElement>('.data-row[data-row]');
-        if (addrCell && addrRow) {
-            this.rootEl()?.focus();
-            e.preventDefault();
-            this.cb.onAddressRowClick?.(Number(addrRow.dataset.row), e.shiftKey);
-            return;
-        }
+        if (!addrCell || !addrRow) { return false; }
+        this.rootEl()?.focus();
+        e.preventDefault();
+        this.cb.onAddressRowClick?.(Number(addrRow.dataset.row), e.shiftKey);
+        return true;
+    }
+
+    private handleDataCell(e: MouseEvent): void {
         const cell = this.dataCellFrom(e);
         if (!cell) { return; }
         const addr = cellAddress(cell)!;
-        // preventDefault would cancel the browser's default focus transfer, so
-        // explicitly focus the grid container: keyboard selection keys on
-        // `document.activeElement` being inside it.
+        // focus the grid container: keyboard selection keys on `document.activeElement`
+        // being inside it.
         this.rootEl()?.focus();
         e.preventDefault();
         this.dragAnchor = addr;

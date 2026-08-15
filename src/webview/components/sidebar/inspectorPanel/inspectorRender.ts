@@ -165,6 +165,10 @@ export function multiPadNoteHtml(selLen: number, width: number): string {
         : '';
 }
 
+export function gapPaddingNoteHtml(skipped: number): string {
+    return `<div class="mi-pad-row"><span class="mi-pad-note">${esc(String(skipped))} gap byte${skipped > 1 ? 's' : ''} zero-padded</span></div>`;
+}
+
 // ── Segments ─────────────────────────────────────────────────────
 
 function segmentAddress(address: number): string {
