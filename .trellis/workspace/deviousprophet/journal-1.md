@@ -396,3 +396,24 @@ Clicked-byte selection never focused the hex grid (mousedown preventDefault canc
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: Drag-select multiple address rows in hex view
+
+**Date**: 2026-08-15
+**Task**: Drag-select multiple address rows in hex view
+**Branch**: `fix/uiux-followups`
+
+### Summary
+
+Added address-gutter drag to select multiple rows: component onAddressRowDrag (dragMode 'row', min/max normalized, mouseup stop), host selectAddressRows selecting mapped span via rowAddressSpan, 3 new gutter-drag tests, spec+changelog updated. tsc/lint/mocha green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `971776d` | (see git log) |
+
+### Status
+
+[OK] **Completed**
