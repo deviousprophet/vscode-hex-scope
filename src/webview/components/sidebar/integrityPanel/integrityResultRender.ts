@@ -150,9 +150,9 @@ function storedResultHtml(check: IntegrityCheckState, deps: IntegrityResultRende
 export function checkCardHtml(check: IntegrityCheckState, cardClass: string, bodyHtml: string): string {
     return `
     <div class="${cardClass}" data-check-id="${check.id}">
-        <div class="si-card-hdr" data-check-toggle>
+        <div class="sb-card-hdr" data-check-toggle>
             <span class="integrity-card-status" data-check-status></span>
-            <div class="integrity-card-info">
+            <div class="sb-card-info">
                 <div class="integrity-card-title">${esc(algorithmLabel(check.algorithm))}</div>
                 <div class="integrity-card-meta">${esc(checkRangeSummary(check))}</div>
             </div>
@@ -164,7 +164,7 @@ export function checkCardHtml(check: IntegrityCheckState, cardClass: string, bod
 
 export function checkCardClass(id: number, highlightedCheckId: number | null): string {
     const selected = highlightedCheckId === id ? ' integrity-card-selected' : '';
-    return `si-card integrity-card si-expanded${selected}`;
+    return `sb-card integrity-card si-expanded${selected}`;
 }
 
 export function checkCardBodyHtml(

@@ -3,7 +3,7 @@
   "name": "ui-integrity",
   "title": "Migrate integrity panel",
   "description": "Integrity panel markup/CSS onto shared primitives",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

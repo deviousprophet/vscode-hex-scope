@@ -161,11 +161,11 @@ html, body {
 [data-act-host]:hover .act-btn,
 .label-item:hover    .act-btn,
 .sd-row:hover        .act-btn,
-.si-card:hover       .act-btn,
+.sb-card:hover       .act-btn,
 [data-act-host]:focus-within .act-btn,
 .label-item:focus-within    .act-btn,
 .sd-row:focus-within        .act-btn,
-.si-card:focus-within       .act-btn { opacity: 1; }
+.sb-card:focus-within       .act-btn { opacity: 1; }
 
 .act-btn:hover       { background: rgba(255,255,255,.08); color: var(--fg); }
 .act-btn:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }

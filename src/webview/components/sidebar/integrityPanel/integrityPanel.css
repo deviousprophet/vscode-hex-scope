@@ -7,7 +7,14 @@
     min-width: 0;
 }
 
-.integrity-hdr-row { margin-bottom: 7px; }
+/* Header row — local flex layout (was borrowed `.si-hdr-row` from structPanel.css) */
+.integrity-hdr-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 7px;
+}
+.integrity-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
 .integrity-profiles {
     display: grid;
     gap: 5px;
@@ -15,7 +22,7 @@
     margin-bottom: 8px;
 }
 
-.integrity-profiles > .struct-sel { min-width: 0; }
+.integrity-profiles > .sb-select { min-width: 0; }
 
 .integrity-profile-actions {
     align-items: center;
@@ -23,14 +30,12 @@
     gap: 3px;
 }
 
-.integrity-profile-actions .struct-btn {
+/* ponytail: apply/update/rename/delete converge to the small secondary
+   sizing (was `.struct-btn` 9px/2px6px vs `.si-icon-btn` 10px/2px4px);
+   split sizes back per-button if the icons feel cramped. */
+.integrity-profile-actions .sb-btn {
     font-size: 9px;
     padding: 2px 6px;
-}
-
-.integrity-profile-actions .si-icon-btn {
-    font-size: 10px;
-    padding: 2px 4px;
 }
 
 .integrity-profile-actions button:disabled {
@@ -42,6 +47,11 @@
     cursor: not-allowed;
     opacity: .35;
 }
+
+/* Restore the spacing the legacy .struct-btn/.si-add-btn rules supplied;
+   the .sb-btn primitive intentionally carries no padding. */
+#integrity-fix-all { padding: 2px 9px; }
+#integrity-add-btn { padding: 2px 7px; }
 
 .integrity-error,
 .integrity-form-error {
@@ -66,9 +76,9 @@
     grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
-.integrity-profile-name-form .struct-addr-inp { min-width: 0; }
+.integrity-profile-name-form .sb-input { min-width: 0; }
 
-.integrity-profile-name-form .struct-btn {
+.integrity-profile-name-form .sb-btn {
     font-size: 9px;
     padding: 2px 7px;
 }
@@ -84,13 +94,9 @@
     box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4f9de8);
 }
 
-.integrity-card-info {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
+/* Status badge: deliberately NOT `.sb-status-dot` — that primitive is an
+   unlabelled 8px color dot, while this is a 16px labelled circle carrying
+   ✓/✕/! text states. Kept local. */
 
 .integrity-card-title {
     color: var(--fg);
@@ -303,7 +309,10 @@
     user-select: text;
 }
 
-.integrity-value-pane code .si-hex-body {
+/* Hex-body span inside the value pane: structural selector (last child of
+   `<code>` produced by shared `formatHexHtml`) so this panel never names
+   the struct-owned `.si-hex-body` class. */
+.integrity-value-pane code > span:last-child {
     min-width: 0;
     overflow-wrap: anywhere;
     word-break: break-all;
@@ -324,6 +333,22 @@
     gap: 6px;
     padding: 8px;
 }
+
+/* Form header + action row — local copies of the legacy `.sa-form-hdr` /
+   `.sa-row .sa-btn-row` rules so the panel stops borrowing struct-owned classes. */
+.integrity-form-hdr {
+    font-size: 10px; font-weight: 600; font-family: var(--font-ui);
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1px;
+    user-select: none;
+}
+.integrity-form-hdr-new  { color: var(--high-color); }
+.integrity-form-hdr-edit { color: var(--addr-fg); }
+.integrity-form-actions {
+    display: flex; align-items: center; gap: 6px;
+}
+.integrity-form-actions .sb-btn { padding: 2px 9px; }
 
 .integrity-add-form {
     border: 1px solid var(--border);
@@ -352,7 +377,7 @@
     font-size: 9px;
 }
 
-.integrity-form-field .struct-sel {
+.integrity-form-field .sb-select {
     box-sizing: border-box;
     width: 100%;
 }
@@ -363,7 +388,18 @@
     min-width: 0;
 }
 
-.integrity-address-input .struct-addr-inp {
+/* Address prefix — local copy of the legacy `.struct-addr-pfx` so the panel
+   stops borrowing a struct-owned class (that rule stays in structPanel.css
+   for struct's own markup). */
+.integrity-addr-pfx {
+    flex-shrink: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg); line-height: 1;
+    padding: 2px 0 2px 2px;
+    user-select: none;
+}
+
+.integrity-address-input .sb-input {
     box-sizing: border-box;
     flex: 1;
     min-width: 0;

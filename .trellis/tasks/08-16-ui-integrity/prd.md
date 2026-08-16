@@ -20,7 +20,7 @@ Keep local: comparison panes, value-pane match/mismatch states, form grid, profi
 
 ## Acceptance criteria
 
-- [ ] `integrityPanel.css` imports no `.struct-*` / `.si-*` classes from structPanel.css — decoupled.
+- [ ] `integrityPanel.css` imports no `.struct-*` / `.si-*` classes — decoupled; integrity uses only `.sb-*` primitives + own `.integrity-*` rules.
 - [ ] All inputs/buttons/cards render via `.sb-*` primitives.
 - [ ] `.integrity-card-*` migrated with class modifiers preserved → `integrityPanel.test.ts` exact-className asserts updated.
 - [ ] Check/add/edit form visuals identical apart from chosen convergence deltas.
@@ -28,7 +28,8 @@ Keep local: comparison panes, value-pane match/mismatch states, form grid, profi
 
 ## Dependencies
 
-- Requires `ui-primitives` merged. If migrated after `ui-struct`, struct's class renames must not be relied on — integrity migrates straight to primitives; if migrated first, integrity must not block struct. Order flexible; both converge to primitives only.
+- Requires `ui-primitives` merged. Requires `ui-struct` merged (its rule-keeps for integrity were only placed to keep this panel rendering until this child runs).
+- **Post-migration cleanup (this child):** after integrity no longer borrows `.struct-sel`/`.struct-addr-inp`/`.struct-btn*`/`.si-icon-btn`/`.si-add-btn`/`.si-card*`/`.struct-addr-pfx`, remove those now-dead "kept for integrityPanel.css" rules from `structPanel.css` (they carry an explicit `/* Kept for integrityPanel.css until its migration */` comment). Verify zero symbol/class references remain before deleting each.
 
 ## Out of scope
 

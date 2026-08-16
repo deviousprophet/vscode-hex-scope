@@ -249,15 +249,15 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
     ).join('');
     return `
     <div class="integrity-profiles">
-        <select id="integrity-profile-select" class="struct-sel" title="Saved integrity profile">
+        <select id="integrity-profile-select" class="sb-select" title="Saved integrity profile">
             <option value="">Saved profiles…</option>${options}
         </select>
         <div class="integrity-profile-actions">
-            <button id="integrity-profile-apply" class="struct-btn struct-btn-apply" type="button">Apply</button>
-            <button id="integrity-profile-save" class="struct-btn struct-btn-secondary" type="button">Save as</button>
-            <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" aria-label="Update profile" type="button">↻</button>
-            <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" aria-label="Rename profile" type="button">✎</button>
-            <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" aria-label="Delete profile" type="button">🗑︎</button>
+            <button id="integrity-profile-apply" class="sb-btn sb-btn-primary" type="button">Apply</button>
+            <button id="integrity-profile-save" class="sb-btn sb-btn-secondary" type="button">Save as</button>
+            <button id="integrity-profile-update" class="sb-btn sb-btn-secondary" title="Update profile" aria-label="Update profile" type="button">↻</button>
+            <button id="integrity-profile-rename" class="sb-btn sb-btn-secondary" title="Rename profile" aria-label="Rename profile" type="button">✎</button>
+            <button id="integrity-profile-delete" class="sb-btn sb-btn-secondary" title="Delete profile" aria-label="Delete profile" type="button">🗑︎</button>
         </div>
         ${profileNameFormHtml(panel)}
         <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(panel.profileError)}</div>
@@ -267,10 +267,10 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
 function profileNameFormHtml(panel: IntegrityProfileHost): string {
     if (!panel.profileNameMode) { return ''; }
     return `<div class="integrity-profile-name-form">
-    <input id="integrity-profile-name" class="struct-addr-inp" type="text" maxlength="80"
+    <input id="integrity-profile-name" class="sb-input" type="text" maxlength="80"
         value="${esc(profileNameValue(panel))}" placeholder="Profile name" autocomplete="off" spellcheck="false">
-    <button id="integrity-profile-name-save" class="struct-btn struct-btn-apply" type="button">${profileNameAction(panel)}</button>
-    <button id="integrity-profile-name-cancel" class="struct-btn struct-btn-cancel" type="button">Cancel</button>
+    <button id="integrity-profile-name-save" class="sb-btn sb-btn-primary" type="button">${profileNameAction(panel)}</button>
+    <button id="integrity-profile-name-cancel" class="sb-btn sb-btn-secondary" type="button">Cancel</button>
 </div>`;
 }
 

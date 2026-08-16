@@ -261,10 +261,10 @@ export class IntegrityPanel implements IntegrityProfileHost {
     private integrityShellHtml(): string {
         return `
         <div class="integrity-shell">
-            <div class="si-hdr-row integrity-hdr-row">
+            <div class="integrity-hdr-row">
                 <span class="sb-hdr">Integrity Checks ${this.integrityBadgeHtml()}</span>
-                <button id="integrity-fix-all" class="struct-btn struct-btn-apply" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
-                <button id="integrity-add-btn" class="si-add-btn"${this.addCheckDisabledAttr()}>＋ Add</button>
+                <button id="integrity-fix-all" class="sb-btn sb-btn-primary" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
+                <button id="integrity-add-btn" class="sb-btn sb-btn-add"${this.addCheckDisabledAttr()}>＋ Add</button>
             </div>
             <div id="integrity-action-error" class="integrity-error" role="alert">${esc(this.actionError)}</div>
             ${profileLibraryHtml(this)}
@@ -312,9 +312,9 @@ export class IntegrityPanel implements IntegrityProfileHost {
         const presentation = this.checkFormPresentation(formId);
         return `
         <div class="integrity-check-form ${presentation.formClass}" data-integrity-form="${formId}">
-            <div class="sa-form-hdr ${presentation.headerClass}">${presentation.title}</div>
+            <div class="integrity-form-hdr ${presentation.headerClass}">${presentation.title}</div>
             <label class="integrity-form-field"><span>Algorithm</span>
-                <select data-draft-control="algorithm" class="struct-sel">${this.algorithmOptionsHtml(draft.algorithm)}</select>
+                <select data-draft-control="algorithm" class="sb-select">${this.algorithmOptionsHtml(draft.algorithm)}</select>
             </label>
             <div class="integrity-form-grid">
                 ${this.addressInputHtml('Start address', 'start', draft.startRaw, '08000000')}
@@ -324,9 +324,9 @@ export class IntegrityPanel implements IntegrityProfileHost {
                 ${this.addressInputHtml('Stored value address (optional)', 'stored', draft.storedRaw, '08000100')}
             </div>
             <div class="integrity-form-error" data-form-error></div>
-            <div class="sa-row sa-btn-row">
-                <button class="struct-btn struct-btn-apply" data-form-action="save">${presentation.saveLabel}</button>
-                <button class="struct-btn struct-btn-cancel" data-form-action="cancel">Cancel</button>
+            <div class="integrity-form-actions">
+                <button class="sb-btn sb-btn-primary" data-form-action="save">${presentation.saveLabel}</button>
+                <button class="sb-btn sb-btn-secondary" data-form-action="cancel">Cancel</button>
             </div>
         </div>`;
     }
@@ -338,16 +338,16 @@ export class IntegrityPanel implements IntegrityProfileHost {
         saveLabel: string;
     } {
         if (formId === 'add') {
-            return { formClass: 'integrity-add-form', headerClass: 'sa-form-hdr-new', title: '＋ New Check', saveLabel: 'Add' };
+            return { formClass: 'integrity-add-form', headerClass: 'integrity-form-hdr-new', title: '＋ New Check', saveLabel: 'Add' };
         }
-        return { formClass: 'integrity-edit-form', headerClass: 'sa-form-hdr-edit', title: '✎ Edit Check', saveLabel: 'Save' };
+        return { formClass: 'integrity-edit-form', headerClass: 'integrity-form-hdr-edit', title: '✎ Edit Check', saveLabel: 'Save' };
     }
 
     private addressInputHtml(label: string, control: string, value: string, placeholder: string): string {
         return `
         <label class="integrity-form-field"><span>${label}</span>
-            <div class="integrity-address-input"><span class="struct-addr-pfx">0x</span>
-                <input data-draft-control="${control}" class="struct-addr-inp" type="text" maxlength="8"
+            <div class="integrity-address-input"><span class="integrity-addr-pfx">0x</span>
+                <input data-draft-control="${control}" class="sb-input" type="text" maxlength="8"
                     placeholder="${placeholder}" value="${esc(this.stripHexPrefix(value))}" autocomplete="off" spellcheck="false">
             </div>
         </label>`;

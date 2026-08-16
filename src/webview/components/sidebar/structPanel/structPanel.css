@@ -8,45 +8,6 @@
     padding: 2px 0 2px 2px;
     user-select: none;
 }
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.struct-addr-inp {
-    flex: 1; min-width: 0;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 3px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 11px; padding: 2px 6px; outline: none;
-}
-.struct-addr-inp:focus { border-color: var(--high-color); }
-
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.struct-sel {
-    flex: 1; min-width: 0;
-    background: var(--input-bg); border: 1px solid var(--input-bdr);
-    border-radius: 3px; color: var(--input-fg); font-family: var(--font-ui);
-    font-size: 11px; padding: 2px 4px; outline: none;
-}
-.struct-sel:focus { border-color: var(--focus-bdr); }
-
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.struct-btn {
-    border-radius: 3px; font-size: 10px; font-family: var(--font-ui); font-weight: 600;
-    padding: 2px 9px; cursor: pointer; white-space: nowrap;
-    transition: background .1s, border-color .1s;
-}
-.struct-btn-apply {
-    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.4);
-    color: var(--high-color);
-}
-.struct-btn-apply:hover { background: rgba(79,195,247,.25); border-color: var(--high-color); }
-.struct-btn-secondary {
-    background: rgba(255,255,255,.06); border: 1px solid var(--border);
-    color: var(--addr-fg);
-}
-.struct-btn-secondary:hover { background: rgba(255,255,255,.12); border-color: var(--fg); }
-.struct-btn-danger {
-    background: rgba(255,80,80,.08); border: 1px solid rgba(255,80,80,.35);
-    color: rgba(255,120,120,1); margin-left: auto;
-}
-.struct-btn-danger:hover { background: rgba(255,80,80,.18); border-color: rgba(255,80,80,.7); }
 
 /* sb-hdr with inline button */
 .sb-hdr-row {
@@ -293,29 +254,6 @@
 }
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
 
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.si-add-btn {
-    flex-shrink: 0; margin-left: auto;
-    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.35);
-    border-radius: 3px; color: var(--high-color);
-    font-size: 10px; font-family: var(--font-ui); font-weight: 600;
-    padding: 2px 7px; cursor: pointer;
-    transition: background .1s, border-color .1s;
-}
-.si-add-btn:hover:not([disabled]) { background: rgba(79,195,247,.22); border-color: rgba(79,195,247,.6); }
-.si-add-btn[disabled] { opacity: .35; cursor: not-allowed; }
-
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.si-icon-btn {
-    flex-shrink: 0;
-    background: transparent; border: 1px solid transparent;
-    border-radius: 3px; color: var(--addr-fg);
-    font-size: 11px; font-family: var(--font-ui);
-    padding: 2px 5px; cursor: pointer;
-    transition: background .1s, border-color .1s, color .1s;
-}
-.si-icon-btn:hover { background: rgba(255,255,255,.08); border-color: var(--border); color: var(--fg); }
-
 /* Inline add form */
 .si-add-form {
     display: flex; flex-direction: column; gap: 5px;
@@ -345,15 +283,6 @@
     padding: 8px;
 }
 
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.struct-btn-cancel {
-    background: transparent; border: 1px solid var(--border);
-    border-radius: 3px; color: var(--addr-fg);
-    font-size: 10px; font-family: var(--font-ui); font-weight: 600;
-    transition: border-color .1s, color .1s;
-}
-.struct-btn-cancel:hover { border-color: var(--fg); color: var(--fg); }
-
 /* C-code type preview (used in add-form and card type-preview) */
 .sa-preview {
     background: rgba(0,0,0,.18); border: 1px solid var(--border);
@@ -381,28 +310,10 @@
 
 /* -- Saved instances (expandable cards) -------------------------- */
 
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.si-card {
-    border: 1px solid var(--border); border-radius: 4px;
-    margin-bottom: 4px; overflow: hidden;
-    transition: border-color .1s;
-}
-.si-card:hover { border-color: rgba(255,255,255,.2); }
-.si-card.si-expanded { border-color: rgba(79,195,247,.35); }
-.si-card.si-card-selected { border-color: rgba(79,195,247,.6); }
-
 /* Struct cards ride the shared .sb-card primitive; state borders carried as modifiers */
 .sb-card.si-expanded { border-color: rgba(79,195,247,.35); }
 .sb-card.si-card-selected { border-color: rgba(79,195,247,.6); }
 #si-list .sb-card { margin-bottom: 4px; }
-
-/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
-.si-card-hdr {
-    display: flex; align-items: center; gap: 4px;
-    padding: 5px 6px; cursor: pointer;
-    user-select: none;
-}
-.si-card-hdr:hover { background: var(--hover-bg); }
 
 .si-expand-btn {
     flex-shrink: 0; width: 16px; height: 16px;

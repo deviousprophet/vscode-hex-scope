@@ -710,7 +710,7 @@ suite('Integrity Checks sidebar', () => {
 
     teardown(() => cleanupWebviewDom(dom));
 
-    test('uses struct-style cards, shared byte order, edit forms, and profiles', async function () {
+    test('uses shared sb-card cards, byte order, edit forms, and profiles', async function () {
         this.timeout(5_000);
         const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
