@@ -30,6 +30,7 @@
 - Fixed toggling byte order clearing the Inspector's decoded value for the current selection
 - Fixed the external-change unlock re-enabling buttons that were already disabled for state reasons (e.g. `Save` with no edits)
 - Fixed files with zero records showing the "not loaded" unavailable message instead of a real "No Records" empty state
+- Fixed struct-field highlights in Memory view rendering seams or stray cells when the selection touched the grid edge — highlighting is now root-scoped to the grid
 - Made keyboard-inert label-list actions (visibility/move) and the orphan struct-instance Delete button real `<button>`s, reachable by Tab/Enter
 
 ## [2.17.1] - 2026-08-01
