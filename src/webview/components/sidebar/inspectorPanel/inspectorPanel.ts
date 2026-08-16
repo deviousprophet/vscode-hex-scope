@@ -226,10 +226,10 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     /** Unmapped addresses inside the current selection (decode pads them with 0x00). */
     private countUnmappedInSelection(): number {
-    const { start, end } = this.selection;
-    if (start === null || end === null) { return 0; }
-    return countUnmapped(start, end, this.cb.readByte);
-}
+        const { start, end } = this.selection;
+        if (start === null || end === null) { return 0; }
+        return countUnmapped(start, end, this.cb.readByte);
+    }
 
     private wireInspectorCopies(valsEl: HTMLElement): void {
         valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {

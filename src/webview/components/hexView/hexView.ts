@@ -39,6 +39,7 @@ export class HexView {
     private mounted = false;
     private dragAnchor: number | null = null;
     private lastDragRange: HexViewRange | null = null;
+    private rowDragLastRow: number | null = null;
     private dragMode: 'cell' | 'row' | null = null;
     private activeColumn: string | null = null;
     private hoveredCell: HTMLElement | null = null;
@@ -209,6 +210,7 @@ export class HexView {
         e.preventDefault();
         this.dragMode = 'row';
         this.dragAnchor = Number(addrRow.dataset.row);
+        this.rowDragLastRow = this.dragAnchor;
         this.lastDragRange = null;
         this.cb.onAddressRowClick?.(this.dragAnchor, e.shiftKey);
         return true;
@@ -253,10 +255,12 @@ export class HexView {
     }
 
     private rowDragRangeFromPoint(e: MouseEvent): HexViewRange | null {
+        if (this.dragAnchor === null) { return null; }
         const rowEl = this.rowElementFromPoint(e);
-        if (rowEl === null || this.dragAnchor === null) { return null; }
-        const row = Number(rowEl.dataset.row);
-        return { start: Math.min(this.dragAnchor, row), end: Math.max(this.dragAnchor, row) };
+        if (rowEl) { this.rowDragLastRow = Number(rowEl.dataset.row); }
+        const current = this.rowDragLastRow;
+        if (current === null) { return null; }
+        return { start: Math.min(this.dragAnchor, current), end: Math.max(this.dragAnchor, current) };
     }
 
     private rowElementFromPoint(e: MouseEvent): HTMLElement | null {
@@ -294,6 +298,7 @@ export class HexView {
 
     private readonly handleMouseUp = (): void => {
         this.dragAnchor = null;
+        this.rowDragLastRow = null;
         this.dragMode = null;
     };
 

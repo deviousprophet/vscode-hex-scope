@@ -208,6 +208,7 @@ const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
+    onBlockedRun: () => toolbar.setStatus('A script is already running — cancel it or wait for it to finish.'),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
@@ -613,8 +614,8 @@ function applyPasteBytes(range: { start: number; end: number }, clipText: string
     if (bytes.length === 0) { return; }
       const edits = buildPasteEdits(range, bytes);
       const staged = stagePasteEdits(edits);
-      if (staged) { refreshAfterLocalEdit(); }
-      const notice = pasteNotice(edits.length, bytes.length);
+      if (staged > 0) { refreshAfterLocalEdit(); }
+      const notice = pasteNotice(staged, bytes.length);
       if (notice) { toolbar.setStatus(notice); }
   }
 
@@ -626,8 +627,8 @@ function pasteBytes(clipText: string): number[] {
     return parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
 }
 
-function stagePasteEdits(edits: Array<[number, number]>): boolean {
-    return edits.length > 0 && stageIntegrityEditTransaction(edits);
+function stagePasteEdits(edits: Array<[number, number]>): number {
+    return edits.length > 0 ? stageIntegrityEditTransaction(edits) : 0;
 }
 
 function doPasteToSelection(): void {

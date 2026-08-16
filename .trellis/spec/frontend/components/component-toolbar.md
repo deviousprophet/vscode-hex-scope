@@ -71,6 +71,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 - `#btn-ascii-toggle` (`.tb-ascii-btn`) active only in memory view + ascii on.
 - `#btn-edit-mode` (`.tb-edit-btn`) visible when memory && !editMode.
 - `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0.
+- `#load-progress` (`role="status"`, `hidden`) — host-owned load-progress indicator rendered in the toolbar; toggled by host, not a component state.
 - SearchBar output embedded as the trailing slot.
 
 ## Validation & Error Matrix

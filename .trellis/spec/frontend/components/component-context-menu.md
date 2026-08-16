@@ -58,7 +58,7 @@ export class ContextMenu {
 ## Behaviour
 
 - Menu opens only when `selectionActive`; header shows "N bytes selected" (+ "✏ Editing" badge in edit mode).
-- Copy/analyze/fill outputs unchanged — formatting lives in `core/byteTools` (`formatCopyCommand`/`formatAnalyzeCommand`), command mapping in `contextCommands.ts`.
+- Copy/analyze/fill outputs unchanged — formatting lives in `core/byteTools` (`formatCopyCommand`/`formatAnalyzeCommand`), command mapping in `contextCommands.ts`. Fill presets carry their value as a companion `.ctx-hint` (`Zero`/`Erased flash` etc.) beside the action label.
 - Single-byte menu excludes Analyze (low signal) and Go address (needs 4 bytes).
 
 ## Validation & Error Matrix

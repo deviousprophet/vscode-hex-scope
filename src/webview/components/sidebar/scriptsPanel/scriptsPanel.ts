@@ -23,6 +23,8 @@ export interface ScriptsCallbacks {
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;
     /** Cancel: host posts cancelScript. */
     onCancelScript?: (scriptPath: string) => void;
+    /** Run blocked because another script is already running → host notice. */
+    onBlockedRun?: () => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -267,13 +269,20 @@ export class ScriptsPanel {
 
     private wireScriptList(container: HTMLElement): void {
         container.querySelectorAll<HTMLButtonElement>('.script-run-btn:not(.disabled-ts):not(.disabled-trust)').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const path = btn.dataset.path;
-                if (!path) { return; }
-                if (this.runningPath === path) { this.cancelScript(path); }
-                else { this.runScript(path); }
-            });
+            btn.addEventListener('click', () => this.onRunBtnClick(btn));
         });
+    }
+
+    private onRunBtnClick(btn: HTMLButtonElement): void {
+        const path = btn.dataset.path;
+        if (path === undefined) { return; }
+        if (btn.classList.contains('disabled-run')) { this.cb.onBlockedRun?.(); return; }
+        this.toggleScript(path);
+    }
+
+    private toggleScript(path: string): void {
+        if (this.runningPath === path) { this.cancelScript(path); }
+        else { this.runScript(path); }
     }
 
     private updateBtnState(btn: HTMLButtonElement): void {
@@ -283,11 +292,20 @@ export class ScriptsPanel {
         const otherRunning = isRun ? false : this.runningPath !== null;
         btn.classList.toggle('running', isRun);
         btn.classList.toggle('disabled-run', otherRunning);
-        btn.disabled = otherRunning;
+        this.setBlockedState(btn, otherRunning);
         btn.innerHTML = this.runIconHtml(path);
         btn.setAttribute('aria-label', this.runBtnAria(isRun));
         if (this.keepsInitialTooltip(btn)) { return; }
         btn.title = this.runBtnTitle(isRun, otherRunning);
+    }
+
+    private setBlockedState(btn: HTMLButtonElement, blocked: boolean): void {
+        if (blocked) {
+            btn.removeAttribute('disabled');
+            btn.setAttribute('aria-disabled', 'true');
+        } else {
+            btn.removeAttribute('aria-disabled');
+        }
     }
 
     private keepsInitialTooltip(btn: HTMLButtonElement): boolean {

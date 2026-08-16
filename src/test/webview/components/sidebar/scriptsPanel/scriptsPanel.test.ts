@@ -17,6 +17,7 @@ type Cb = {
     requested: number;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
     cancels: string[];
+    blocked: number;
 };
 
 type Harness = {
@@ -48,7 +49,7 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, runs: [], cancels: [] };
+    const cb: Cb = { requested: 0, runs: [], cancels: [], blocked: 0 };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
@@ -57,6 +58,7 @@ function installDom(): Harness {
             cb.runs.push({ path: scriptPath, generation: gen, selection: selectionRange });
         },
         onCancelScript: path => { cb.cancels.push(path); },
+        onBlockedRun: () => { cb.blocked++; },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -264,17 +266,19 @@ suite('ScriptsPanel run/cancel state machine', () => {
         assert.strictEqual(cb.runs.length, 1);
     });
 
-    test('another script run is ignored while one is running; its button is disabled', () => {
+    test('another script run is ignored while one is running; its button reports blocked', () => {
         panel.setScripts(SCRIPTS, true);
         click(dom, runBtn(A));
         const btnB = runBtn(B);
         assert.ok(btnB.classList.contains('disabled-run'), 'other run button visually disabled');
-        assert.ok(btnB.disabled, 'other run button disabled');
+        assert.ok(!btnB.disabled, 'other run button stays clickable to explain why');
+        assert.strictEqual(btnB.getAttribute('aria-disabled'), 'true', 'other run button aria-disabled');
         assert.strictEqual(btnB.title, 'A script is already running');
         cb.runs.length = 0;
         click(dom, btnB);
         assert.strictEqual(cb.runs.length, 0, 'no second run started');
         assert.strictEqual(cb.cancels.length, 0, 'no cancel of the first');
+        assert.strictEqual(cb.blocked, 1, 'blocked click reported');
 
         panel.showResult(A, [], [], '', undefined, 0);
         assert.ok(!runBtn(B).disabled, 'run button re-enabled after the run clears');

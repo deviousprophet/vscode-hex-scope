@@ -1,7 +1,7 @@
 /* ── Memory view container ───────────────────────────────────── */
 #memory-view { flex: 1; min-height: 0; overflow: hidden; display: none; flex-direction: column; }
 #memory-view.visible { display: flex; }
-#memory-view:focus-visible { outline: none; }
+#memory-view:focus-visible { outline: 1px solid var(--focus-bdr, var(--vscode-focusBorder)); outline-offset: -1px; }
 
 /* ── Column header (mirrors vscode-hexeditor DataHeader) ─────── */
 #mem-header {

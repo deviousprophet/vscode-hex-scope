@@ -53,9 +53,9 @@ export function labelItemHtml(label: SegmentLabel, index: number, count: number)
                     <div class="label-nm">${esc(label.name)}</div>
                     <div class="label-rng">0x${label.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(label.length)}</div>
                 </div>
-                <span class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}">${visibility.icon}</span>
-                <span class="label-act label-up"  data-id="${label.id}" title="Move up"   ${disabledActionStyle(index === 0)}>&#8593;</span>
-                <span class="label-act label-dn"  data-id="${label.id}" title="Move down" ${disabledActionStyle(index === count - 1)}>&#8595;</span>
+                <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}">${visibility.icon}</button>
+                <button type="button" class="label-act label-up"  data-id="${label.id}" title="Move up"   ${disabledActionStyle(index === 0)}>&#8593;</button>
+                <button type="button" class="label-act label-dn"  data-id="${label.id}" title="Move down" ${disabledActionStyle(index === count - 1)}>&#8595;</button>
                 ${actionBtnsHtml(`data-id="${label.id}"`, `data-id="${label.id}"`)}
             </div>`;
 }

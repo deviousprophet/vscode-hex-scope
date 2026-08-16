@@ -408,6 +408,29 @@ suite('HexView interactions', () => {
         assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1010 }]);
     });
 
+    test('row drag holds the last data-row across a gap, then spans to the next data-row', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid({
+            ...standardInput(),
+            rows: [
+                { address: 0x1000, kind: 'data', cells: standardCells() },
+                { address: 0x1010, kind: 'gap', cells: [], gap: { from: 0x1010, to: 0x101F, bytes: 16 } },
+                { address: 0x1020, kind: 'data', cells: standardCells() },
+            ],
+        });
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4096"] .addr-cell`)!;
+        const gapRow = document.querySelector<HTMLElement>(`.gap-row`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4128"]`)!;
+        currentDom!.window.document.elementFromPoint = () => gapRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1000 }], 'over gap holds last data-row');
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 120 });
+        assert.deepStrictEqual(log.rowDrags[1], { start: 0x1000, end: 0x1020 }, 'exiting gap onto B spans the range');
+    });
+
     test('row drag stops reporting on mouseup', () => {
         currentDom = installDom();
         const { log } = installHexView();

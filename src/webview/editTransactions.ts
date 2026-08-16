@@ -1,17 +1,17 @@
 import type { SelectionRange } from './memory/selection';
 import { S } from './state';
 
-export function stageIntegrityEditTransaction(edits: Array<[number, number]>): boolean {
+export function stageIntegrityEditTransaction(edits: Array<[number, number]>): number {
     const previous: Array<[number, number]> = [];
     for (const [address, value] of edits) {
         const prior = stageIntegrityEdit(address, value);
         if (prior) { previous.push(prior); }
     }
-    if (previous.length === 0) { return false; }
+    if (previous.length === 0) { return 0; }
     S.undoStack.push(previous);
     S.redoStack.length = 0;
     S.editMode = true;
-    return true;
+    return previous.length;
 }
 
 export function stageIntegrityEdit(address: number, value: number): [number, number] | null {

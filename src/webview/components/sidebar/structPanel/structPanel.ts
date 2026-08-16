@@ -3438,7 +3438,7 @@ private instanceActionsHtml(def: StructDef | undefined, pin: StructPin, index: n
     if (def) {
         return actionBtnsHtml(`data-pin-id="${esc(pin.id)}"`, `data-idx="${index}"`);
     }
-    return `<span class="act-btn act-btn-del" data-idx="${index}" title="Delete">&#128465;&#xFE0E;</span>`;
+    return `<button type="button" class="act-btn act-btn-del" data-idx="${index}" title="Delete">&#128465;&#xFE0E;</button>`;
 }
 
 private instanceHeaderHtml(
