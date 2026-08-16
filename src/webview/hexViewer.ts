@@ -1214,7 +1214,7 @@ function onGridSelectionKeydown(e: KeyboardEvent): void {
     if (!gridSelectionGate(e)) { return; }
     if (S.selStart === null) { selectFirstMappedByte(e); return; }
     e.preventDefault();
-    applyGridArrow(e.shiftKey, arrowKeyDelta(e.key));
+    applyGridArrow(e.shiftKey, arrowKeyDirection(e.key));
 }
 
 /** True when this keydown targets the focused, active grid outside inputs/menu. */
@@ -1250,8 +1250,10 @@ function isArrowKey(key: string): boolean {
     return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
 }
 
-function arrowKeyDelta(key: string): number {
-    return key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : key === 'ArrowUp' ? -BPR : BPR;
+type NavDirection = 'up' | 'down' | 'left' | 'right';
+
+function arrowKeyDirection(key: string): NavDirection {
+    return key === 'ArrowLeft' ? 'left' : key === 'ArrowRight' ? 'right' : key === 'ArrowUp' ? 'up' : 'down';
 }
 
 function selectFirstMappedByte(e: KeyboardEvent): void {
@@ -1262,22 +1264,22 @@ function selectFirstMappedByte(e: KeyboardEvent): void {
     updateByteSelection(first.startAddr, first.startAddr);
 }
 
-function applyGridArrow(shift: boolean, delta: number): void {
-    if (!shift) { gridArrowAnchor = null; collapseGridSelection(delta); return; }
+function applyGridArrow(shift: boolean, dir: NavDirection): void {
+    if (!shift) { gridArrowAnchor = null; collapseGridSelection(dir); return; }
     if (gridArrowAnchor === null) { gridArrowAnchor = S.selStart; }
-    extendGridSelection(delta);
+    extendGridSelection(dir);
 }
 
-function collapseGridSelection(delta: number): void {
+function collapseGridSelection(dir: NavDirection): void {
     if (S.selStart === null) { return; }
-    const target = walkMappedAddress(S.selStart, delta);
+    const target = walkMappedAddress(S.selStart, dir);
     if (target !== null) { updateByteSelection(target, target); }
 }
 
-function extendGridSelection(delta: number): void {
+function extendGridSelection(dir: NavDirection): void {
     const activeEnd = gridActiveEnd();
     if (activeEnd === null) { return; }
-    const target = walkMappedAddress(activeEnd, delta);
+    const target = walkMappedAddress(activeEnd, dir);
     if (target === null) { return; }
     updateByteSelection(Math.min(gridArrowAnchor!, target), Math.max(gridArrowAnchor!, target), true);
 }
@@ -1299,30 +1301,38 @@ function openGridContextMenu(): void {
     showCtxMenu(r.left + r.width / 2, r.top + r.height / 2);
 }
 
-/** Nearest mapped address `delta` bytes away, skipping unmapped gaps (segment jumps, bounded). */
-export function walkMappedAddress(from: number, delta: number): number | null {
+/** Nearest mapped address `dir` away, skipping unmapped gaps (segment jumps, bounded). */
+export function walkMappedAddress(from: number, dir: NavDirection): number | null {
     if (S.segmentIndex.length === 0) { return null; }
-    return firstMappedStep(from, delta);
+    return firstMappedStep(from, dir);
 }
 
-function firstMappedStep(from: number, delta: number): number | null {
-    if (Math.abs(delta) === BPR) { return verticalMappedStep(from, delta); }
-    let addr = from + delta;
+function firstMappedStep(from: number, dir: NavDirection): number | null {
+    if (isVertical(dir)) { return verticalMappedStep(from, dir); }
+    let addr = horizontalStep(from, dir);
     while (inMappedBounds(addr)) {
         if (getByte(addr) !== undefined) { return addr; }
-        addr = nextCandidate(addr, delta);
+        addr = nextCandidate(addr, dir);
     }
     return null;
 }
 
+function isVertical(dir: NavDirection): dir is 'up' | 'down' {
+    return dir === 'up' || dir === 'down';
+}
+
+function horizontalStep(from: number, dir: NavDirection): number {
+    return dir === 'right' ? from + 1 : from - 1;
+}
+
 /** Column-preserving vertical movement: keep the same column across a gap; ragged rows fall back to the row edge. */
-function verticalMappedStep(from: number, delta: number): number | null {
+function verticalMappedStep(from: number, dir: 'up' | 'down'): number | null {
     const col = from % BPR;
-    let probe = from + delta;
+    let probe = verticalProbe(from, dir);
     while (inMappedBounds(probe)) {
-        const anchor = rowAnchorFor(probe, delta);
+        const anchor = rowAnchorFor(probe, dir);
         if (anchor === null) {
-            probe = nextCandidate(probe, delta);
+            probe = nextCandidate(probe, dir);
             continue;
         }
         const colAddr = (anchor - (anchor % BPR)) + col;
@@ -1332,8 +1342,12 @@ function verticalMappedStep(from: number, delta: number): number | null {
     return null;
 }
 
-function rowAnchorFor(addr: number, delta: number): number | null {
-    return delta > 0 ? firstMappedInRow(addr) : lastMappedInRow(addr);
+function verticalProbe(from: number, dir: 'up' | 'down'): number {
+    return dir === 'down' ? from + BPR : from - BPR;
+}
+
+function rowAnchorFor(addr: number, dir: 'up' | 'down'): number | null {
+    return dir === 'down' ? firstMappedInRow(addr) : lastMappedInRow(addr);
 }
 
 function firstMappedInRow(addr: number): number | null {
@@ -1352,9 +1366,13 @@ function lastMappedInRow(addr: number): number | null {
     return null;
 }
 
-function nextCandidate(addr: number, delta: number): number {
-    if (delta > 0) { return segmentStartAfter(addr) ?? Number.MAX_SAFE_INTEGER; }
+function nextCandidate(addr: number, dir: NavDirection): number {
+    if (isForward(dir)) { return segmentStartAfter(addr) ?? Number.MAX_SAFE_INTEGER; }
     return segmentEndBefore(addr) ?? Number.MIN_SAFE_INTEGER;
+}
+
+function isForward(dir: NavDirection): boolean {
+    return dir === 'down' || dir === 'right';
 }
 
 function mappedBounds(): { min: number; max: number } | null {

@@ -70,7 +70,7 @@
     transition: color .12s, background-color .12s, border-color .12s;
 }
 .stab:hover { color: var(--fg); background: var(--hover-bg); }
-.stab.active { color: var(--high-color); border-right-color: var(--high-color); background: rgba(78,201,160,.12); }
+.stab.active { color: var(--high-color); border-right-color: var(--high-color); background: var(--ok-soft); }
 .stab:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */

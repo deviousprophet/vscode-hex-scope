@@ -32,6 +32,7 @@
     --non-graphic:     var(--vscode-tab-unfocusedInactiveForeground,     #6a6a6a);
 
     --ok:          #4ec9a0;
+    --ok-soft:     rgba(78,201,160,.12);
     --err:         #f48771;
     --warn:        #e5a800;
     --match-bg:    rgba(234,179,8,.32);

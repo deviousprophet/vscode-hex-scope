@@ -1525,10 +1525,10 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
         initFlatBytes();
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
-        assert.strictEqual(walkMappedAddress(0x1001, 1), 0x1002);
-        assert.strictEqual(walkMappedAddress(0x1002, -1), 0x1001);
-        assert.strictEqual(walkMappedAddress(0x1003, 1), null, 'beyond the last mapped byte');
-        assert.strictEqual(walkMappedAddress(0x1000, -1), null, 'before the first mapped byte');
+        assert.strictEqual(walkMappedAddress(0x1001, 'right'), 0x1002);
+        assert.strictEqual(walkMappedAddress(0x1002, 'left'), 0x1001);
+        assert.strictEqual(walkMappedAddress(0x1003, 'right'), null, 'beyond the last mapped byte');
+        assert.strictEqual(walkMappedAddress(0x1000, 'left'), null, 'before the first mapped byte');
     });
 
     test('skips an unmapped gap to the next mapped byte', async () => {
@@ -1543,8 +1543,8 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
         initFlatBytes();
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
-        assert.strictEqual(walkMappedAddress(0x1001, 1), 0x1100, 'jumps the gap');
-        assert.strictEqual(walkMappedAddress(0x1100, -1), 0x1001, 'jumps the gap backwards');
+        assert.strictEqual(walkMappedAddress(0x1001, 'right'), 0x1100, 'jumps the gap');
+        assert.strictEqual(walkMappedAddress(0x1100, 'left'), 0x1001, 'jumps the gap backwards');
     });
 
     test('vertical movement preserves the column across a gap', async () => {
@@ -1559,8 +1559,8 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
         initFlatBytes();
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
-        assert.strictEqual(walkMappedAddress(0x102B, -16), 0x100B, 'up keeps column 0B, not the 0F row edge');
-        assert.strictEqual(walkMappedAddress(0x100B, 16), 0x102B, 'down keeps column 0B, not the 00 row start');
+        assert.strictEqual(walkMappedAddress(0x102B, 'up'), 0x100B, 'up keeps column 0B, not the 0F row edge');
+        assert.strictEqual(walkMappedAddress(0x100B, 'down'), 0x102B, 'down keeps column 0B, not the 00 row start');
     });
 
     test('vertical movement falls back to the row edge when the column is unmapped in a short row', async () => {
@@ -1576,8 +1576,8 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
         initFlatBytes();
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
-        assert.strictEqual(walkMappedAddress(0x1012, -16), 0x1002, 'same column mapped above');
-        assert.strictEqual(walkMappedAddress(0x100B, 16), 0x1010, 'column 0B unmapped below — falls back to row start');
+        assert.strictEqual(walkMappedAddress(0x1012, 'up'), 0x1002, 'same column mapped above');
+        assert.strictEqual(walkMappedAddress(0x100B, 'down'), 0x1010, 'column 0B unmapped below — falls back to row start');
     });
 });
 

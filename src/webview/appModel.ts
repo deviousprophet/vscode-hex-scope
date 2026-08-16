@@ -77,6 +77,7 @@ export function unlockExternalChange(): void {
 export function clearEditModel(): void {
     S.edits.clear();
     S.undoStack.length = 0;
+    S.redoStack.length = 0;
     S.editMode = false;
 }
 
