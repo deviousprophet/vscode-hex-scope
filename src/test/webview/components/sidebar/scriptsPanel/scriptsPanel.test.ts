@@ -112,10 +112,12 @@ suite('ScriptsPanel mount + render', () => {
 
     test('mount creates #s-scripts with toolbar + empty state', () => {
         assert.ok(document.getElementById('s-scripts'));
-        assert.strictEqual(document.querySelector('.script-toolbar-title')?.textContent, 'Scripts');
+        const hdr = document.querySelector('#s-scripts .sb-hdr')!;
+        assert.strictEqual(hdr.childNodes[0]?.textContent?.trim(), 'Scripts', 'title text renders via sb-hdr');
         assert.strictEqual(document.querySelector('.sb-empty')?.textContent, 'No scripts found in .hexscope/scripts/');
         assert.strictEqual(document.querySelectorAll('.script-card').length, 0);
         assert.ok(document.getElementById('scripts-refresh'));
+        assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-btn-secondary'), 'refresh rides sb-btn-secondary');
         assert.ok((document.getElementById('scripts-count') as HTMLElement).hidden, 'count badge hidden when no scripts');
     });
 
@@ -153,12 +155,14 @@ suite('ScriptsPanel setScripts', () => {
         panel.setScripts(SCRIPTS, true);
         assert.strictEqual(document.querySelectorAll('.script-card').length, 3);
         const card = cardFor(A);
+        assert.ok(card.classList.contains('sb-card'), 'card rides sb-card');
         assert.strictEqual(card.querySelector('.script-name')?.textContent, 'crc-check.js');
         assert.strictEqual(card.querySelector('.script-name')?.getAttribute('title'), A);
         assert.strictEqual(card.querySelector('.script-ext')?.textContent, 'js');
         assert.strictEqual(card.querySelector('.script-cap')?.textContent, '⚡ exec');
-        assert.ok(card.querySelector('.script-dot.dot-idle'));
-        assert.strictEqual((card.querySelector('.script-dot') as HTMLElement).title, 'Not yet run');
+        assert.ok(runBtn(A).classList.contains('sb-btn-primary'), 'run button rides sb-btn-primary');
+        assert.ok(card.querySelector('.sb-status-dot.idle'));
+        assert.strictEqual((card.querySelector('.sb-status-dot') as HTMLElement).title, 'Not yet run');
     });
 
     test('updates the count badge', () => {
@@ -195,9 +199,9 @@ suite('ScriptsPanel setScripts', () => {
     test('status dot flips to ok/err after showResult', () => {
         panel.setScripts(SCRIPTS, true);
         panel.showResult(A, [], [], '', undefined, 0);
-        assert.ok(cardFor(A).querySelector('.script-dot.dot-ok'));
+        assert.ok(cardFor(A).querySelector('.sb-status-dot.ok'));
         panel.showResult(A, [], [], 'boom', 'runtime', 0);
-        assert.ok(cardFor(A).querySelector('.script-dot.dot-err'));
+        assert.ok(cardFor(A).querySelector('.sb-status-dot.err'));
     });
 });
 

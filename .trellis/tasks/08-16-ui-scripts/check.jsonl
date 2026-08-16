@@ -1,1 +1,2 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify sb-btn/status-dot conformance, tokens, no behavior change to collapsible result blocks or run state"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "Verify result-block/header behavior unchanged; toolbar non-collapsible deviation documented"}

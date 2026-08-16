@@ -83,9 +83,9 @@ export class ScriptsPanel {
         if (!panel) { return; }
         panel.innerHTML = `
         <div class="sb-hdr script-toolbar">
-            <span class="script-toolbar-title">Scripts</span>
+            Scripts
             <span class="sb-badge" id="scripts-count"></span>
-            <button class="script-refresh-btn" id="scripts-refresh" title="Refresh script list">&#8635;</button>
+            <button class="script-refresh-btn sb-btn sb-btn-secondary" id="scripts-refresh" title="Refresh script list">&#8635;</button>
         </div>
         <div class="sb-body">
             <div class="script-list">${this.scriptListHtml()}</div>
@@ -171,12 +171,12 @@ export class ScriptsPanel {
 
     private updateStatusDot(path: string): void {
         const st = this.scriptStatus.get(path);
-        const dot = document.querySelector(`.script-card[data-path="${cssEscape(path)}"] .script-dot`);
+        const dot = document.querySelector(`.script-card[data-path="${cssEscape(path)}"] .sb-status-dot`);
         if (!dot) { return; }
-        dot.className = 'script-dot';
-        if (st === 'success') { dot.classList.add('dot-ok'); (dot as HTMLElement).title = 'Last run succeeded'; }
-        else if (st === 'error') { dot.classList.add('dot-err'); (dot as HTMLElement).title = 'Last run errored'; }
-        else { dot.classList.add('dot-idle'); (dot as HTMLElement).title = 'Not yet run'; }
+        dot.className = 'sb-status-dot';
+        if (st === 'success') { dot.classList.add('ok'); (dot as HTMLElement).title = 'Last run succeeded'; }
+        else if (st === 'error') { dot.classList.add('err'); (dot as HTMLElement).title = 'Last run errored'; }
+        else { dot.classList.add('idle'); (dot as HTMLElement).title = 'Not yet run'; }
     }
 
     private clearRunning(): void {
@@ -239,12 +239,12 @@ export class ScriptsPanel {
         const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
         const caps = s.capabilities.length > 0 ? capBadges(s.capabilities) : '';
         return `
-        <div class="script-card" data-path="${esc(s.filePath)}">
+        <div class="script-card sb-card" data-path="${esc(s.filePath)}">
             <div class="script-card-info">
                 ${this.statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
                 ${extBadge}${caps}
-                <button class="script-run-btn${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnTitle}>
+                <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
                 </button>
             </div>
@@ -254,9 +254,9 @@ export class ScriptsPanel {
 
     private statusDot(path: string): string {
         const st = this.scriptStatus.get(path);
-        if (st === 'success') { return '<span class="script-dot dot-ok" title="Last run succeeded"></span>'; }
-        if (st === 'error') { return '<span class="script-dot dot-err" title="Last run errored"></span>'; }
-        return '<span class="script-dot dot-idle" title="Not yet run"></span>';
+        if (st === 'success') { return '<span class="sb-status-dot ok" title="Last run succeeded"></span>'; }
+        if (st === 'error') { return '<span class="sb-status-dot err" title="Last run errored"></span>'; }
+        return '<span class="sb-status-dot idle" title="Not yet run"></span>';
     }
 
     private runIconHtml(path: string): string {
