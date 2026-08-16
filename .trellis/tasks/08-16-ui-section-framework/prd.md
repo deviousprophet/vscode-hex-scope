@@ -49,6 +49,40 @@ type SidebarPanel =
 - `SidebarCallbacks`/host wiring unchanged (still feature-blind about content); only the panel descriptor shape grows.
 - Acceptance: visual parity across all four panels after migration; inspector's 4 sections, struct/integrity with actionsSlot, scripts with `collapsible:false` + body.
 
+## Header action placement (decision)
+
+Use the hybrid rule rather than forcing every action into one location:
+
+- **Header `actionsSlot`:** primary/status controls that must remain usable when the section is collapsed (for example Struct Add, Integrity profile selector/count).
+- **Body content:** secondary/configuration controls and actions meaningful only alongside visible content (for example Struct bit-order controls, Integrity Fix All).
+- **Scripts:** panel toolbar remains non-collapsible; result-block collapse remains panel-owned.
+
+The framework exposes only the optional sibling `actionsSlot`; body controls stay ordinary panel body markup. The collapse disclosure itself is never the whole header row, so action controls need no propagation workarounds.
+
+### Header action size contract
+
+Header actions must not make a section header taller than its standard target. They use compact controls only: `font-size: 10px`, `padding: 2px 8px`, `line-height: 1.2`, `max-height: 22px`; no multi-row/wrapping action layout. The disclosure label keeps flexible width and the actions slot is non-shrinking. Secondary/configuration controls move into the section body.
+
+### Existing control placement (decision)
+
+- Inspector: no header actions.
+- Struct Instances: Add is the only header action; bit-order controls and type-management controls stay/move into the body.
+- Struct Types: ← Back/Cancel is the sole compact navigation header action; New type moves into the body.
+- Integrity: title/count only; profile selector, Fix All, and Add stay in the body.
+- Scripts: refresh is the sole compact header action; result controls remain body-owned.
+
+This is an all-panel rollout with minimal header chrome; controls that would make headers uneven are body content.
+
+### Non-collapsible header layout (decision)
+
+All framework non-collapsible headers use the shared header→body `8px` gap with **no border separator**. Scripts removes its current toolbar bottom border and adopts this language. Inspector's existing collapsible sections retain their section borders; no `separator` option is added.
+
+### Semantic headings (decision)
+
+Every framework section exposes an `h3` heading. Collapsible sections nest their native disclosure button inside the heading; non-collapsible sections render the plain title inside it. This adds heading navigation for Inspector/Struct/Integrity/Scripts without visual layout changes.
+
 ## Status
 
-- Created as backlog task `08-16-ui-section-framework`. Not started, no git work. Design above is the planning seed; produce `design.md`/`implement.md` (this task is complex) before `task.py start` in a later session.
+- All-panel rollout selected; future-generic descriptor shape selected.
+- Inspector sections stay collapsible. Struct, Integrity, and Scripts adopt framework headers with `collapsible:false` initially — no new hide/show behavior.
+- Planning continues: revise `design.md` and `implement.md`, present final review, then require fresh approval before `task.py start`.
