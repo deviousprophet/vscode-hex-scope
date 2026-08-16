@@ -9,32 +9,34 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 
 ![Demo](https://raw.githubusercontent.com/deviousprophet/vscode-hex-scope/main/images/demo.gif)
 
-## Core features
+## Features
 
-### View and navigate
+### View
 
-- Address-aware Memory view with mapped segments and gaps
-- Record view for raw firmware records
-- Search by byte sequence, numeric value, ASCII text, or address
+- **Memory view** — address-aware grid mapped from firmware segments, with gaps rendered between mapped regions
+- **Records view** — raw record table with type labels, addresses, byte counts, and per-record checksum status; jump from a record to its address in the Memory view
 
-### Inspect and decode
+### Inspect
 
-- Inspector for selected bytes using a shared per-file LE/BE byte order
-- Struct Overlay for C-style structs, arrays, nested structs, pointers, and bit fields
-- Live decoding updates as selection, byte order, or pending edits change
+- **Inspector** — decode selected bytes as common scalar types in the shared per-file LE/BE byte order
+- **Struct Overlay** — define C-style structs with arrays, nested structs, pointers, and bit fields; pin them at an address and re-decode live as selection or data changes
+- **Search** — `Ctrl+F` / `Cmd+F`: byte sequence, numeric value (Auto/LE/BE), ASCII string, or address; matches highlight and jump in the Memory view
 
-### Integrity and editing
+### Verify
 
-- Multiple CRC16, CRC32, MD5, SHA-1, SHA-256, and SHA-512 checks
-- Stored CRC comparison, range highlighting, Auto fix, Fix all, and reusable profiles
-- Undoable byte patching with explicit Save and automatic record-checksum updates
+- **Checks** — CRC-16, CRC-32, MD5, SHA-1, SHA-256, SHA-512 over any address range
+- **Stored values** — compare computed vs. stored checksums, with mismatch and range highlighting
+- **Auto fix / Fix all / Profiles** — stage corrections to stored values; reuse saved check setups
 
-### Scripting
+### Edit
 
-- Write TypeScript or JavaScript scripts in `.hexscope/scripts/` to automate custom HEX operations
-- Script API: read/write hex data, compute CRC and hash values, call external processes, fetch web services
-- Operations that modify data or run external commands require explicit user confirmation
-- See [docs/SCRIPTING.md](docs/SCRIPTING.md) for the full guide
+- **Byte patching** — undoable edits (type, paste, batch fill); **Save** rewrites records and recomputes checksums
+- **Quick Repair Checksums** — bulk-repair broken record checksums from the Explorer context menu
+- **Copy & export** — selection as hex string, C array, ASCII, or the raw HEX/SREC record; add segment labels for navigation
+
+### Script
+
+TypeScript or JavaScript scripts in `.hexscope/scripts/` read/write hex data (writes confirm), compute CRC/hash values, run external processes, and fetch web services (SSRF-guarded). Operations that modify data or run external commands require explicit user confirmation. See [docs/SCRIPTING.md](docs/SCRIPTING.md) for the full guide, API reference, and examples.
 
 ## Supported file types
 
@@ -49,11 +51,11 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 |---|---|
 | Open | Right-click a supported file → **Open with HexScope Viewer** |
 | Views | Toolbar: **Memory** or **Records** |
-| Edit | Click **Edit**, then click a byte and type hex value to patch; right-click for batch fill; **Save** writes changes and recomputes checksums |
-| Search | `Ctrl+F` — search by byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
-| Struct Overlay | Define C structs, pin them at addresses, and decode live memory |
-| Integrity Checks | Configure checks, compare stored CRC values, and reuse saved profiles |
-| Scripts | Click the Scripts sidebar tab, pick a script from `.hexscope/scripts/`, and run it |
+| Search | `Ctrl+F`/`Cmd+F` — byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
+| Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums |
+| Struct Overlay | Define C structs in the sidebar, pin them at addresses, decode live memory |
+| Integrity | Configure checks in the sidebar, compare stored CRC values, reuse saved profiles |
+| Scripts | Open the Scripts sidebar tab, pick a script from `.hexscope/scripts/`, run it |
 
 ## Issues
 
