@@ -80,23 +80,23 @@ function interactionRows(state: ContextMenuState): string {
 }
 
 function buildFillMenu(len: number): string {
-      const fillPresets: [number, string][] = [
-          [0x00, 'Zero'],
-          [0xFF, 'Erased flash'],
-      ];
-      const customRow =
-          `<div class="ctx-custom-row">` +
-          `<span class="ctx-label">Custom</span>` +
-          `<div class="ctx-custom-input-wrap">` +
-          `<span class="ctx-custom-prefix">0x</span>` +
-          `<input class="ctx-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
-          `<button class="ctx-fill-apply" title="Apply">&#10003;</button>` +
-          `</div></div>`;
-      const hintFor = (v: number): string => `${v === 0 ? '(0x00)' : '(0xFF)'}${len > 1 ? ` \u00d7 ${len}` : ''}`;
+    const fillPresets: [number, string][] = [
+        [0x00, 'Zero'],
+        [0xFF, 'Erased flash'],
+    ];
+    const customRow =
+        `<div class="ctx-custom-row">` +
+        `<span class="ctx-label">Custom</span>` +
+        `<div class="ctx-custom-input-wrap">` +
+        `<span class="ctx-custom-prefix">0x</span>` +
+        `<input class="ctx-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
+        `<button class="ctx-fill-apply" title="Apply">&#10003;</button>` +
+        `</div></div>`;
+    const hintFor = (v: number): string => `${v === 0 ? '(0x00)' : '(0xFF)'}${len > 1 ? ` \u00d7 ${len}` : ''}`;
 
-      return fillPresets.map(([v, label]) => ctxItem(`fill-${hexByte(v)}`, label, hintFor(v))).join('') +
-          CTX_SEP +
-          customRow;
+    return fillPresets.map(([v, label]) => ctxItem(`fill-${hexByte(v)}`, label, hintFor(v))).join('') +
+        CTX_SEP +
+        customRow;
 }
 
 /** Remaining copy formats: the direct top-level ones are omitted. */
@@ -272,10 +272,17 @@ export class ContextMenu {
     private handleMenuActivationKey(e: KeyboardEvent, menu: HTMLElement): void {
         if (!this.isActivationKey(e.key)) { return; }
         const row = this.activeMenuRow();
-        if (row) {
-            e.preventDefault();
-            this.runRowCommand(row, menu);
-        }
+        if (!row) { return; }
+        e.preventDefault();
+        if (row.hasAttribute('data-sub')) { this.openSubmenuRow(row); return; }
+        this.runRowCommand(row, menu);
+    }
+
+    private openSubmenuRow(row: HTMLElement): void {
+        const sub = row.querySelector<HTMLElement>(':scope > .ctx-submenu');
+        if (!sub) { return; }
+        sub.style.display = 'block';
+        sub.querySelector<HTMLElement>('.ctx-row:not(.ctx-disabled)')?.focus();
     }
 
     private activeMenuRow(): HTMLElement | null {

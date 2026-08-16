@@ -228,6 +228,17 @@ suite('webview ContextMenu component', () => {
         assert.strictEqual(sub!.style.display, 'block');
     });
 
+    test('Enter on a submenu row opens it and focuses the first item inside', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        assert.strictEqual(sub.style.display, 'block', 'Enter opens the submenu');
+        const first = sub.querySelector<HTMLElement>('.ctx-row:not(.ctx-disabled)')!;
+        assert.strictEqual(document.activeElement, first, 'focus moves to the first enabled submenu item');
+    });
+
     test('custom fill: valid Enter applies fill command and hides', () => {
         const { dom, calls } = createHarness({ editMode: true });
         const input = ctxMenuEl(dom).querySelector<HTMLInputElement>('.ctx-fill-input');
