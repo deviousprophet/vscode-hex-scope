@@ -417,3 +417,28 @@ Added address-gutter drag to select multiple rows: component onAddressRowDrag (d
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: Sidebar panel UI consistency (5 child migration)
+
+**Date**: 2026-08-16
+**Task**: Sidebar panel UI consistency (5 child migration)
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Planned parent+5-child task via grilling (D1 structured primitives, D2 tree, D3 scripts visual-only, D4 one-look-per-role). ui-primitives: .sb-btn{-primary,-secondary,-danger,-add}/.sb-input(-sm)/.sb-select/.sb-card*/.sb-status-dot in components/sidebar/sidebar.css; .compact-tabs->base.css; deleted styles/sidebar.css; added --muted-fg/--info-fg tokens; refreshed css-guidelines/component-sidebar/directory-structure specs. Migrated inspector (.lf-*->primitives, .lf-mode->.compact-tabs), struct (buttons/inputs/cards->primitives, kept borrow rules for integrity), integrity (fully decoupled from struct CSS, check found+fixed si-hdr-row/si-hex-body/sa-form-hdr leaks, deleted structPanel dead rules), scripts (visual-only, .sb-hdr header, sb-status-dot tokens, non-collapsible kept). 753 tests green each step.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d3007d6` | (see git log) |
+| `cbed3fe` | (see git log) |
+| `28e28c8` | (see git log) |
+| `115e8cc` | (see git log) |
+| `8f98a9d` | (see git log) |
+
+### Status
+
+[OK] **Completed**

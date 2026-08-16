@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
-- **Last Active**: 2026-08-15
+- **Total Sessions**: 17
+- **Last Active**: 2026-08-16
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~419 | Active |
+| `journal-1.md` | ~444 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-08-16 | Sidebar panel UI consistency (5 child migration) | `d3007d6`, `cbed3fe`, `28e28c8`, `115e8cc`, `8f98a9d` | `feat/ui-consistency` |
 | 16 | 2026-08-15 | Drag-select multiple address rows in hex view | `971776d` | `fix/uiux-followups` |
 | 15 | 2026-08-15 | Fix hex-grid keyboard nav focus | `7a1b005`, `606537a`, `1973c36` | `fix/uiux-followups` |
 | 14 | 2026-08-11 | UI/UX follow-up fixes (7 tasks) - PR #176 | `998ec90` | `fix/uiux-followups` |
