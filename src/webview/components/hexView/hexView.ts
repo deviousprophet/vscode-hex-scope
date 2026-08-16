@@ -11,7 +11,7 @@
 // (every query is scoped to the instance root — diff-compatible).
 
 import './hexView.css';
-import { addrHex, BYTES_PER_ROW, type HexViewRange } from './hexViewRender';
+import { addrHex, BYTES_PER_ROW, selectedColumns, type HexViewRange } from './hexViewRender';
 import { cellAddress, clearCellPreview, columnFor, isCopyShortcut, isEditableTarget, paintMatchesInRoot } from './hexViewPaint';
 
 export interface HexViewCallbacks {
@@ -91,6 +91,7 @@ export class HexView {
         const root = this.rootEl();
         if (!root) { return; }
         root.querySelectorAll<HTMLElement>('.data-row.row-sel').forEach(el => el.classList.remove('row-sel'));
+        root.querySelectorAll<HTMLElement>('#mem-header .data-cell.sel-col').forEach(el => el.classList.remove('sel-col'));
         const cells = root.querySelectorAll<HTMLElement>('[data-addr]');
         if (range === null) {
             cells.forEach(el => el.classList.remove('sel'));
@@ -104,6 +105,9 @@ export class HexView {
             if (isSelected) {
                 el.closest<HTMLElement>('.data-row')?.classList.add('row-sel');
             }
+        });
+        selectedColumns(range.start, range.end).forEach(col => {
+            root.querySelectorAll<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`).forEach(el => el.classList.add('sel-col'));
         });
     }
 

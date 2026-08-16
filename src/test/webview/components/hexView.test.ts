@@ -583,9 +583,14 @@ suite('HexView paint methods', () => {
         assert.ok(charCell(ADDR_BASE + 2).classList.contains('sel'));
         assert.ok(!hexCell(ADDR_BASE).classList.contains('sel'));
         assert.ok(document.querySelector<HTMLElement>('.data-row')?.classList.contains('row-sel'));
+        const hdrSel = (col: number) => document.querySelector<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`);
+        assert.ok(hdrSel(1)?.classList.contains('sel-col'), 'header column 1 lit by selection');
+        assert.ok(hdrSel(2)?.classList.contains('sel-col'), 'header column 2 lit by selection');
+        assert.ok(!hdrSel(0)?.classList.contains('sel-col'), 'unselected header column 0 not lit');
         hex.paintSelection(null);
         assert.strictEqual(document.querySelectorAll('.sel').length, 0);
         assert.strictEqual(document.querySelectorAll('.row-sel').length, 0);
+        assert.strictEqual(document.querySelectorAll('#mem-header .data-cell.sel-col').length, 0, 'header sel-col cleared');
     });
 
     test('paintMatch paints visible match spans and the active amatch', () => {
