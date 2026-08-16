@@ -55,10 +55,14 @@ The four sidebar panels converge on shared `.sb-*` primitives defined in `compon
 
 | Primitive | Use |
 |---|---|
-| `.sb-btn` | Base button (inline-flex, 10px, 600, radius 3px). Variants: `-primary` (solid `--btn-bg/-fg`), `-secondary` (ghost, `--addr-fg` on `--border`), `-danger` (red-tinted), `-add` (dashed accent). |
+| `.sb-btn` | Base button (inline-flex, 10px, 600, radius 3px, `padding: 2px 8px`). Variants: `-primary` (solid `--btn-bg/-fg`), `-secondary` (ghost, `--addr-fg` on `--border`), `-danger` (red-tinted), `-add` (dashed accent, `padding: 5px 8px`). |
 | `.sb-input` / `.sb-select` | Text input / select using native `--input-bg/-fg/-bdr` tokens, `--focus-bdr` on focus. |
-| `.sb-card` / `.sb-card-hdr` / `.sb-card-info` | Card container + clickable header + info column. |
+| `.sb-card` / `.sb-card-hdr` / `.sb-card-info` | Card container (including `margin-bottom: 4px`) + clickable header + info column. |
 | `.sb-status-dot` | `.ok` → `var(--ok)`, `.err` → `var(--err)`, `.idle` → dimmed. |
+
+### Spacing Ownership
+
+Sidebar primitives own shared rhythm: panel roots use `10px 12px`, header-to-body space is `8px`, card stacks use `4px`, and normal `.sb-btn` controls use `2px 8px` padding. Panels must not restate those values. Document an exception only for genuinely denser controls: Struct field-grid inputs and bit-field-child add buttons; Integrity compact profile actions. The Scripts toolbar uses a border instead of the normal header margin, so its body supplies the same `8px` gap.
 
 ## Section / Header Pattern
 

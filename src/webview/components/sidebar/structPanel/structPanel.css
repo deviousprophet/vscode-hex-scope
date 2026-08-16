@@ -308,7 +308,6 @@
 /* Struct cards ride the shared .sb-card primitive; state borders carried as modifiers */
 .sb-card.si-expanded { border-color: rgba(79,195,247,.35); }
 .sb-card.si-card-selected { border-color: rgba(79,195,247,.6); }
-#si-list .sb-card { margin-bottom: 4px; }
 
 .si-expand-btn {
     flex-shrink: 0; width: 16px; height: 16px;

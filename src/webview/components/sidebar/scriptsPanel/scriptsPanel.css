@@ -1,8 +1,8 @@
 /* ── Scripts ──────────────────────────────────────────────────── */
 #s-scripts { }
-/* Body: sides 12px match every panel; top 6px breathes below the toolbar
-   border, bottom 12px closes the panel. Card gaps come from .sb-card. */
-#s-scripts .sb-body { padding: 6px 12px 12px; }
+/* Body: sides/bottom match panel padding; top 8px supplies the canonical
+   header→body gap because the bordered toolbar suppresses .sb-hdr's margin. */
+#s-scripts .sb-body { padding: 8px 12px 12px; }
 
 /* Toolbar header — rides .sb-hdr (title styling from the primitive; no duplicate
    title rule). Deliberately NOT a .sb-section wrapper: no collapse toggle (D3) —
