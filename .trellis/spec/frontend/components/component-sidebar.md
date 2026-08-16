@@ -15,12 +15,12 @@ Boundary rule: each component owns its markup, UI state, input behaviours, and s
 ```text
 src/webview/components/sidebar/
     sidebar.ts       types + class Sidebar (generic tabbed shell: panels + headerSlot config)
-    sidebar.css      shell rules (moved from styles/layout.css + styles/sidebar.css)
+    sidebar.css      shell rules (moved from styles/layout.css + styles/sidebar.css) + shared `.sb-*` UI primitives (`.sb-btn*`, `.sb-input`/`.sb-select`, `.sb-card*`, `.sb-status-dot`)
 src/webview/hexViewer.ts    host wiring (panel config + tab orchestration + activation side effects)
 src/test/webview/components/sidebar.test.ts   (mocha + jsdom)
 ```
 
-Panel-content CSS stays in `src/webview/styles/sidebar.css` until each panel child task claims it.
+`src/webview/styles/sidebar.css` was deleted during the primitives task — its last rule, the shared `.compact-tabs` toggle pattern, moved to `base.css` (used beyond the sidebar: searchBar endian, struct bit-order, sidebar endian). Panel panels claim content CSS into their own colocated files (`inspectorPanel.css`, `structPanel.css`, `integrityPanel.css`, `scriptsPanel.css`).
 
 ## Contract
 

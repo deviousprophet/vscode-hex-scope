@@ -41,6 +41,8 @@
     --gap-bdr:     rgba(255,183,77,.3);
     --print-color: #ce9178;
     --high-color:  #9cdcfe;
+    --muted-fg:    var(--addr-fg);
+    --info-fg:     var(--high-color);
     /* Shared, low-contrast value colors (primary = foreground, secondary = muted) */
     --val-primary-color: var(--fg);
     --val-secondary-color: var(--addr-fg);
@@ -131,6 +133,19 @@ html, body {
 ::-webkit-scrollbar-thumb { background: rgba(121,121,121,.4); border-radius: 5px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: rgba(121,121,121,.7); }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── Shared compact-tabs toggle pattern (moved from styles/sidebar.css) ── */
+.compact-tabs {
+    display: flex; gap: 2px;
+    background: rgba(0,0,0,.2); border-radius: 3px; padding: 2px;
+}
+.compact-tabs button {
+    flex: 1; background: transparent; color: var(--addr-fg);
+    border: none; border-radius: 2px; padding: 1px 8px; cursor: pointer;
+    font-size: 10px; font-family: var(--font-ui); transition: background .1s, color .1s;
+}
+.compact-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
+.compact-tabs button:hover:not(.active) { color: var(--fg); }
 
 /* ── Shared action buttons (edit ✎ / delete 🗑) ────────────────── */
 /* Used in labels, struct instance cards, and manage-types rows.    */

@@ -39,7 +39,7 @@ src/
     |  |- externalChange/        externalChange.ts + externalChange.css
     |  |- recordView/            recordView.ts + recordView.css
     |  |- contextMenu/           contextMenu.ts + contextMenu.css
-     |  |- sidebar/               sidebar.ts + sidebar.css (shell; exports SidebarTab; panels injected)
+     |  |- sidebar/               sidebar.ts + sidebar.css (shell + shared `.sb-*` primitives; exports SidebarTab; panels injected)
      |  |  |- inspectorPanel/     inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
      |  |  |- structPanel/        structPanel.ts + structPinsModel.ts + structPanel.css
      |  |  |- integrityPanel/     integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityProfiles.ts + integrityHighlight.ts + integrityPanel.css

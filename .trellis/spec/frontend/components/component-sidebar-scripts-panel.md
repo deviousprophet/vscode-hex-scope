@@ -11,7 +11,7 @@ Host (`hexViewer.ts`) owns: `S` state, `S.documentGeneration`, `currentSelection
 ```text
 src/webview/components/sidebar/scriptsPanel/
     scriptsPanel.ts       interaction controller: mount/render/setScripts/showResult/appendOutput/setTabActive
-    scriptsPanel.css      all panel rules (moved verbatim from styles/sidebar.css)
+    scriptsPanel.css      all panel rules (colocated; historically moved from styles/sidebar.css)
 src/webview/hexViewer.ts  host wiring (panel descriptor, callbacks, message fan-out)
 src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts   (mocha + jsdom)
 ```
@@ -98,4 +98,4 @@ class ScriptsPanel {
 - Component posting `requestScriptList`/`runScript`/`cancelScript` (must use `onRequestList`/`onRunScript`/`onCancelScript`).
 - Host calling stale `renderScripts`/`activateScripts`/`updateScriptList`/`updateScriptResult`/`updateScriptOutput` module functions.
 - Weakening `webviewMessageModel.test.ts` script protocol assertions during the extraction (parity gate).
-- Adding `.script-*` rules back to `styles/sidebar.css` (they live in `scriptsPanel.css`).
+- Adding `.script-*` rules to `styles/` (they live in `scriptsPanel.css`).

@@ -6,14 +6,14 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 
 | File | Content |
 |---|---|
-| `base.css` | Reset, design tokens (`:root` vars), shared utility classes |
+| `base.css` | Reset, design tokens (`:root` vars), shared utility classes (incl. `.compact-tabs`) |
 | `layout.css` | Two-pane layout |
-| `sidebar.css` | Shared sidebar panel rules (Scripts rules moved to `scriptsPanel.css`) |
-| `struct.css` | Struct editor, instance cards, field rows |
 | `statsBar.css` | Stats bar (bytes/records/segments/format) |
 | `hexView.css` (in components/hexView/) | Memory hex grid (component-owned) |
-| `sidebar.css` (in components/sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern |
+| `sidebar.css` (in components/sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern + shared `.sb-*` UI primitives |
 | `inspectorPanel.css` (in components/sidebar/inspectorPanel/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
+| `structPanel.css` (in components/sidebar/structPanel/) | Struct panel: editor, instances/cards, field rows, C preview |
+| `integrityPanel.css` (in components/sidebar/integrityPanel/) | Integrity panel: profiles, checks, comparison panes, auto-fix |
 | `scriptsPanel.css` (in components/sidebar/scriptsPanel/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
 | `record-view.css` | Record table |
 | `context-menu.css` | Right-click menu |
@@ -45,9 +45,20 @@ Before adding a new hardcoded color, check if an existing token covers the need.
 ## Selector Patterns
 
 - Prefer `#id` for unique singletons, `.class` for repeatable patterns
-- Avoid `!important`. The only exception is overrides in `.scripts-toolbar::before` (suppressing collapsible-triangle inheritance from `.sb-section .sb-hdr::before`).
+- Avoid `!important`. The only exception is overrides suppressing collapsible-triangle inheritance from `.sb-section .sb-hdr::before`.
 - Chain selectors no deeper than 3 levels (`.parent .child .grandchild`)
 - Use `--custom-property` scoped to a parent class instead of deep selector chains
+
+## Sidebar Primitives
+
+The four sidebar panels converge on shared `.sb-*` primitives defined in `components/sidebar/sidebar.css`:
+
+| Primitive | Use |
+|---|---|
+| `.sb-btn` | Base button (inline-flex, 10px, 600, radius 3px). Variants: `-primary` (solid `--btn-bg/-fg`), `-secondary` (ghost, `--addr-fg` on `--border`), `-danger` (red-tinted), `-add` (dashed accent). |
+| `.sb-input` / `.sb-select` | Text input / select using native `--input-bg/-fg/-bdr` tokens, `--focus-bdr` on focus. |
+| `.sb-card` / `.sb-card-hdr` / `.sb-card-info` | Card container + clickable header + info column. |
+| `.sb-status-dot` | `.ok` → `var(--ok)`, `.err` → `var(--err)`, `.idle` → dimmed. |
 
 ## Section / Header Pattern
 

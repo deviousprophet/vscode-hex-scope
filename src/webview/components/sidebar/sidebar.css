@@ -97,3 +97,73 @@
 .sb-section:not(.collapsed) .sb-hdr::before {
     transform: rotate(90deg);
 }
+
+/* ── Shared UI primitives ────────────────────────────────────────── */
+/* All four sidebar panels converge on these classes. CSS guidelines: */
+/* css-guidelines.md "Sidebar primitives".                             */
+
+/* Buttons: primary / secondary(ghost) / danger / add(dashed accent) */
+.sb-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    border-radius: 3px; font-size: 10px; font-weight: 600;
+    font-family: var(--font-ui); cursor: pointer; white-space: nowrap;
+    transition: background .1s, border-color .1s, color .1s;
+    user-select: none;
+}
+.sb-btn-primary {
+    background: var(--btn-bg); color: var(--btn-fg); border: 1px solid transparent;
+}
+.sb-btn-primary:hover { background: var(--btn-hover); }
+.sb-btn-secondary {
+    background: transparent; color: var(--addr-fg); border: 1px solid var(--border);
+}
+.sb-btn-secondary:hover { color: var(--fg); border-color: var(--fg); }
+.sb-btn-danger {
+    background: rgba(255,80,80,.14); color: rgba(255,120,120,1);
+    border: 1px solid rgba(255,80,80,.45);
+}
+.sb-btn-danger:hover { background: rgba(255,80,80,.28); border-color: rgba(255,80,80,.8); }
+.sb-btn-add {
+    background: transparent; color: var(--high-color);
+    border: 1px dashed rgba(134,180,212,.28);
+}
+.sb-btn-add:hover { background: rgba(134,180,212,.07); border-style: solid; }
+.sb-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Inputs / selects (native VS Code input tokens) */
+.sb-input {
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 3px 6px; font-family: var(--font-editor); font-size: 11px;
+    outline: none; box-sizing: border-box;
+}
+.sb-input:focus { border-color: var(--focus-bdr); }
+.sb-select {
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 2px 4px; font-family: var(--font-ui); font-size: 11px;
+    outline: none; box-sizing: border-box;
+}
+.sb-select:focus { border-color: var(--focus-bdr); }
+
+/* Cards */
+.sb-card {
+    border: 1px solid var(--border); border-radius: 4px;
+    overflow: hidden; transition: border-color .1s;
+}
+.sb-card:hover { border-color: rgba(255,255,255,.2); }
+.sb-card-hdr {
+    display: flex; align-items: center; gap: 4px;
+    padding: 5px 6px; cursor: pointer; user-select: none;
+}
+.sb-card-hdr:hover { background: var(--hover-bg); }
+.sb-card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+/* Status dots */
+.sb-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    display: inline-block;
+}
+.sb-status-dot.ok   { background: var(--ok); }
+.sb-status-dot.err  { background: var(--err); }
+.sb-status-dot.idle { background: var(--addr-fg); opacity: .3; }
