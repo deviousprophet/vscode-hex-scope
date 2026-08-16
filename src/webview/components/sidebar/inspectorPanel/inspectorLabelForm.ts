@@ -101,7 +101,7 @@ function switchLabelRangeMode(
     editing: SegmentLabel | undefined,
 ): LabelRangeMode {
     if (btn.classList.contains('active')) { return currentMode; }
-    sec.querySelectorAll('.lf-mode').forEach(b => b.classList.remove('active'));
+    sec.querySelectorAll<HTMLElement>('.compact-tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const nextMode = btn.dataset.mode as LabelRangeMode;
     const startEl = labelStartEl(panel);
@@ -233,7 +233,7 @@ function wireLabelForm(
 ): void {
     wireLabelColorSwatches(sec, color => { state.chosenColor = color; });
 
-    sec.querySelectorAll<HTMLElement>('.lf-mode').forEach(btn => {
+    sec.querySelectorAll<HTMLElement>('.compact-tabs button').forEach(btn => {
         btn.addEventListener('click', () => {
             state.rangeMode = switchLabelRangeMode(panel, sec, btn, state.rangeMode, editing);
             state.pendingWarning = false;

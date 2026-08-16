@@ -3,7 +3,7 @@
   "name": "ui-inspector",
   "title": "Migrate inspector panel",
   "description": "Inspector panel markup/CSS onto shared primitives",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

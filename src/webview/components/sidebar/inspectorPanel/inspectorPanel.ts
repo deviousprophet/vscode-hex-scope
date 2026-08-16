@@ -370,7 +370,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         sec.innerHTML = `
             <div class="sb-hdr">Labels ${badgeHtml}</div>
             <div class="sb-body">${itemsHtml}
-            <button class="lf-add-btn" id="btn-add-lbl">+ Add Segment Label</button>
+            <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>
             </div>`;
 
         this.applyCollapsibleSection(sec, true);

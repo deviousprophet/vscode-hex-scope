@@ -164,40 +164,22 @@
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
-.lf-add-btn {
-    width: 100%; margin-top: 8px; padding: 5px;
-    background: transparent; color: var(--high-color);
-    border: 1px dashed rgba(134,180,212,.28); border-radius: 3px;
-    cursor: pointer; font-size: 10px; font-family: var(--font-ui);
-    transition: background .1s, border-style .1s;
-}
-.lf-add-btn:hover { background: rgba(134,180,212,.07); border-style: solid; }
+/* Add-label button uses the shared .sb-btn-add primitive; keep the full-width row filler */
+#s-labels .sb-btn-add { width: 100%; margin-top: 8px; padding: 5px; }
 
 /* ── Label inline form ───────────────────────────────────────── */
 .lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
 .lf-field    { display: flex; flex-direction: column; gap: 3px; }
 .lf-lbl      { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
-.lf-input    { background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--input-bdr);
-               border-radius: 3px; padding: 4px 6px; font-family: var(--font-editor); font-size: 11px;
-               outline: none; width: 100%; box-sizing: border-box; }
-.lf-input:focus { border-color: var(--focus-bdr); }
 .lf-range-row  { display: flex; gap: 5px; align-items: center; }
-.lf-mode-grp   { display: flex; gap: 2px; flex-shrink: 0; }
-.lf-mode       { background: transparent; color: var(--addr-fg); border: 1px solid var(--border);
-                 border-radius: 2px; padding: 3px 7px; cursor: pointer;
-                 font-size: 10px; font-family: var(--font-ui); transition: background .1s, color .1s; }
-.lf-mode.active { background: var(--btn-bg); color: var(--btn-fg); border-color: var(--btn-bg); }
+/* Range field fills the row next to the shared .compact-tabs mode toggle */
+.lf-range-row .sb-input { flex: 1; min-width: 0; }
 .lf-swatches   { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
 .lf-swatch     { width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
                  border: 2px solid transparent; transition: transform .1s, border-color .1s; flex-shrink: 0; }
 .lf-swatch:hover   { transform: scale(1.2); }
 .lf-swatch.selected { border-color: var(--fg); }
 .lf-warn       { font-size: 10px; color: var(--match-hi); min-height: 14px; }
-.lf-actions    { display: flex; gap: 5px; }
-.lf-btn        { flex: 1; border-radius: 3px; padding: 5px; cursor: pointer;
-                 font-size: 11px; font-family: var(--font-ui); border: none; }
-.lf-save       { background: var(--btn-bg); color: var(--btn-fg); transition: background .1s; }
-.lf-save:hover { background: var(--btn-hover); }
-.lf-cancel     { background: transparent; color: var(--addr-fg); border: 1px solid var(--border) !important;
-                 transition: color .1s, border-color .1s; }
-.lf-cancel:hover { color: var(--fg); border-color: var(--fg); }
+.lf-actions { display: flex; gap: 5px; }
+/* Save/cancel use the shared .sb-btn primitives; keep equal-width fill of the action row */
+.lf-actions .sb-btn { flex: 1; justify-content: center; padding: 5px 0; }
