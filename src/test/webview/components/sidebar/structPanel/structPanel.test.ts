@@ -1963,8 +1963,8 @@ suite('StructPanel deep-render harness', () => {
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
         panel.mount(document.getElementById('s-struct-pins')!);
-        assert.ok(document.querySelector('.si-card'));
-        assert.strictEqual(document.querySelectorAll('.si-card').length, 1);
+        assert.ok(document.querySelector('.sb-card'));
+        assert.strictEqual(document.querySelectorAll('.sb-card').length, 1);
     });
 
     test('setData renders instance cards; expansion persists across re-render', async () => {
@@ -1981,7 +1981,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(document.getElementById('si-track')?.classList.contains('si-showing-types') === false);
 
         panel.render();
-        assert.ok(document.querySelector('.si-card')?.classList.contains('si-expanded'), 'card expansion survives re-render');
+        assert.ok(document.querySelector('.sb-card')?.classList.contains('si-expanded'), 'card expansion survives re-render');
         assert.strictEqual(document.querySelector('.si-field .si-f-name')?.textContent, 'count');
     });
 
@@ -2071,7 +2071,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.querySelector('.si-card .act-btn-edit'));
+        click(dom, document.querySelector('.sb-card .act-btn-edit'));
         assert.ok(document.querySelector('.si-pin-edit-form'));
         (document.querySelector('.si-pe-name') as HTMLInputElement).value = 'renamed';
         (document.querySelector('.si-pe-addr') as HTMLInputElement).value = '00001111';
@@ -2084,7 +2084,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.querySelector('.si-card .act-btn-del'));
+        click(dom, document.querySelector('.sb-card .act-btn-del'));
         confirmDelete(dom);
         // Flush the inline-confirm popover's deferred listener timer before teardown.
         await new Promise(resolve => setTimeout(resolve, 0));

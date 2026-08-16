@@ -8,6 +8,7 @@
     padding: 2px 0 2px 2px;
     user-select: none;
 }
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .struct-addr-inp {
     flex: 1; min-width: 0;
     background: rgba(0,0,0,.25); border: 1px solid var(--border);
@@ -16,6 +17,7 @@
 }
 .struct-addr-inp:focus { border-color: var(--high-color); }
 
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .struct-sel {
     flex: 1; min-width: 0;
     background: var(--input-bg); border: 1px solid var(--input-bdr);
@@ -24,6 +26,7 @@
 }
 .struct-sel:focus { border-color: var(--focus-bdr); }
 
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .struct-btn {
     border-radius: 3px; font-size: 10px; font-family: var(--font-ui); font-weight: 600;
     padding: 2px 9px; cursor: pointer; white-space: nowrap;
@@ -52,6 +55,20 @@
 }
 .sb-hdr-row .sb-hdr { margin-bottom: 0; }
 
+/* -- Shared .sb-* primitive adaptation ----------------------------- */
+/* Buttons/selects render via the shared primitives in sidebar.css. The
+   .sb-btn primitive carries no padding, so each context restores the
+   spacing it previously had from the local rules being removed. */
+.sa-row .sb-select { flex: 1; min-width: 0; }
+.se-btns .sb-btn { padding: 2px 9px; }
+.sa-btn-row .sb-btn { padding: 2px 9px; }
+.sa-no-types-row .sb-btn { padding: 2px 9px; }
+.se-form > .sb-btn-add { width: 100%; padding: 3px 0; }
+.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px 4px; }
+#si-add-btn { flex-shrink: 0; padding: 2px 7px; }
+#si-types-btn, #sm-close-btn { flex-shrink: 0; padding: 2px 5px; }
+#sm-new-btn { padding: 2px 9px; }
+
 /* -- Struct Types list (#s-struct) ------------------------------ */
 
 .sd-empty { margin-bottom: 4px; }
@@ -79,12 +96,9 @@
 .se-form { display: flex; flex-direction: column; gap: 5px; }
 
 .se-name-inp {
-    width: 100%; box-sizing: border-box;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 3px; color: var(--fg); font-family: var(--font-ui);
-    font-size: 11px; font-weight: 600; padding: 3px 6px; outline: none;
+    width: 100%;
+    font-family: var(--font-ui); font-weight: 600;
 }
-.se-name-inp:focus { border-color: var(--high-color); }
 
 /* Field header + rows */
 .se-field-hdr {
@@ -104,12 +118,8 @@
 }
 
 .sfe-name-inp {
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 4px; outline: none; width: 100%;
-    box-sizing: border-box;
+    width: 100%;
 }
-.sfe-name-inp:focus { border-color: var(--focus-bdr); }
 
 .sfe-type-sel {
     background: var(--input-bg); border: 1px solid var(--input-bdr);
@@ -152,15 +162,11 @@
 .sfe-count-inp,
 .sfe-bf-child-width {
     width: 32px; text-align: center;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
     appearance: textfield;
 }
 .sfe-count-inp { display: none; }
 .sfe-count-inp::-webkit-outer-spin-button,
 .sfe-count-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sfe-count-inp:focus { border-color: var(--focus-bdr); }
 .sfe-arr-cell.is-array .sfe-count-inp { display: block; }
 
 .sfe-del-btn {
@@ -212,16 +218,10 @@
     flex-shrink: 0; width: 8px;
 }
 .sfe-bf-child-name {
-    flex: 1; min-width: 0;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 4px; outline: none; width: 60px;
-    box-sizing: border-box;
+    flex: 1; min-width: 0; width: 60px;
 }
-.sfe-bf-child-name:focus { border-color: var(--focus-bdr); }
 .sfe-bf-child-width::-webkit-outer-spin-button,
 .sfe-bf-child-width::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sfe-bf-child-width:focus { border-color: var(--focus-bdr); }
 .sfe-bf-child-unit {
     flex-shrink: 0;
     font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
@@ -235,14 +235,6 @@
     font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
 }
 .sfe-bf-del-child:hover { color: var(--err); }
-.sfe-bf-add-child {
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 2px; color: var(--addr-fg); font-size: 9px;
-    font-family: var(--font-ui); padding: 2px 6px; cursor: pointer;
-    transition: border-color .1s, color .1s; text-align: center;
-    margin: 2px 4px;
-}
-.sfe-bf-add-child:hover { border-color: var(--high-color); color: var(--high-color); }
 
 .sfe-move-btns {
     display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1px;
@@ -255,14 +247,6 @@
 }
 .sfe-move-btn:hover:not(:disabled) { color: var(--fg); }
 .sfe-move-btn:disabled { opacity: .2; cursor: default; }
-
-.struct-add-field-btn {
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 3px; color: var(--addr-fg); font-size: 10px;
-    font-family: var(--font-ui); padding: 3px 0; cursor: pointer;
-    transition: border-color .1s, color .1s; text-align: center;
-}
-.struct-add-field-btn:hover { border-color: var(--high-color); color: var(--high-color); }
 
 .se-btns { display: flex; gap: 6px; margin-top: 2px; }
 .se-error {
@@ -309,6 +293,7 @@
 }
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
 
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .si-add-btn {
     flex-shrink: 0; margin-left: auto;
     background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.35);
@@ -320,7 +305,7 @@
 .si-add-btn:hover:not([disabled]) { background: rgba(79,195,247,.22); border-color: rgba(79,195,247,.6); }
 .si-add-btn[disabled] { opacity: .35; cursor: not-allowed; }
 
-/* Muted icon button (e.g. manage-types, edit-pin) */
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .si-icon-btn {
     flex-shrink: 0;
     background: transparent; border: 1px solid transparent;
@@ -360,6 +345,7 @@
     padding: 8px;
 }
 
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .struct-btn-cancel {
     background: transparent; border: 1px solid var(--border);
     border-radius: 3px; color: var(--addr-fg);
@@ -387,18 +373,15 @@
 .sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float … */
 .sc-cmt       { color: #6a9955; }          /* C comments */
 
-.sa-addr-inp { flex: 0 0 90px; }
+.sa-addr-inp { flex: 0 0 90px; min-width: 0; }
 
 .sa-name-inp {
     flex: 1; min-width: 0;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 3px; color: var(--fg); font-family: var(--font-ui);
-    font-size: 11px; padding: 2px 6px; outline: none;
 }
-.sa-name-inp:focus { border-color: var(--high-color); }
 
 /* -- Saved instances (expandable cards) -------------------------- */
 
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .si-card {
     border: 1px solid var(--border); border-radius: 4px;
     margin-bottom: 4px; overflow: hidden;
@@ -408,6 +391,12 @@
 .si-card.si-expanded { border-color: rgba(79,195,247,.35); }
 .si-card.si-card-selected { border-color: rgba(79,195,247,.6); }
 
+/* Struct cards ride the shared .sb-card primitive; state borders carried as modifiers */
+.sb-card.si-expanded { border-color: rgba(79,195,247,.35); }
+.sb-card.si-card-selected { border-color: rgba(79,195,247,.6); }
+#si-list .sb-card { margin-bottom: 4px; }
+
+/* Kept for integrityPanel.css until its migration; struct markup no longer uses these. */
 .si-card-hdr {
     display: flex; align-items: center; gap: 4px;
     padding: 5px 6px; cursor: pointer;
@@ -423,10 +412,6 @@
     line-height: 1; align-self: flex-start; margin-top: 2px;
 }
 
-.si-card-info {
-    flex: 1; min-width: 0;
-    display: flex; flex-direction: column; gap: 2px;
-}
 .si-cname {
     font-size: 11px; font-weight: 600; color: var(--fg);
     font-family: var(--font-ui);
@@ -465,7 +450,7 @@
     font-size: 8px; cursor: pointer; border-radius: 2px;
     opacity: 0; transition: opacity .1s, color .1s; line-height: 1;
 }
-.si-card:hover .si-type-btn { opacity: 1; }
+.sb-card:hover .si-type-btn { opacity: 1; }
 .si-type-btn:hover { color: var(--high-color); }
 .si-type-btn.active { opacity: 1; color: var(--high-color); }
 
@@ -476,7 +461,7 @@
     color: var(--addr-fg); font-size: 10px; cursor: pointer;
     border-radius: 2px; opacity: 0; transition: opacity .1s, color .1s;
 }
-.si-card:hover .si-edit-type-btn { opacity: 1; }
+.sb-card:hover .si-edit-type-btn { opacity: 1; }
 .si-edit-type-btn:hover { color: var(--high-color); }
 
 /* + new-type button in add form type row */

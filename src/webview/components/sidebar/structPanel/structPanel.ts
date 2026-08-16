@@ -613,7 +613,7 @@ private bitChildrenHtml(f: StructField, isBitContainer: boolean): string {
     return (
         `<div class="sfe-bf-children"${f.bitFieldsCollapsed === true ? ' style="display:none"' : ''}>` +
         childRows +
-        `<button class="sfe-bf-add-child" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
+        `<button class="sfe-bf-add-child sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
         `</div>`
     );
 }
@@ -644,7 +644,7 @@ private fieldArrayCellHtml(f: StructField): string {
     return (
         `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
         `<button class="sfe-arr-toggle${this.activeClassAttr(isArr)}" title="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
-        `<input class="sfe-count-inp" type="text" inputmode="numeric" ` +
+        `<input class="sfe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
                `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
         `</div>`
     );
@@ -689,7 +689,7 @@ private fieldRowHtml(
         `<div class="struct-field-row${isBitContainer ? ' has-bit-children' : ''}" data-idx="${i}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
         this.fieldPointerToggleHtml(f, isBitContainer) +
-        `<input class="sfe-name-inp" type="text" value="${esc(f.name)}" maxlength="64" ` +
+        `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
         this.fieldBitToggleHtml(f, isBitContainer) +
         this.fieldArrayCellHtml(f) +
@@ -710,9 +710,9 @@ private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): stri
     return (
         `<div class="sfe-bf-child-row" data-child-idx="${ci}">` +
         `<span class="sfe-bf-child-indent"></span>` +
-        `<input class="sfe-bf-child-name" type="text" value="${esc(child.name)}" maxlength="64" ` +
+        `<input class="sfe-bf-child-name sb-input sb-input-sm" type="text" value="${esc(child.name)}" maxlength="64" ` +
                `placeholder="bit${ci}" spellcheck="false" autocomplete="off">` +
-        `<input class="sfe-bf-child-width" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
+        `<input class="sfe-bf-child-width sb-input sb-input-sm" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
                `placeholder="N" maxlength="2">` +
         `<span class="sfe-bf-child-unit">bit</span>` +
         `<div class="sfe-bf-child-move">` +
@@ -868,17 +868,17 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
     return (
         `<div class="si-editor-wrap">` +
         `<div class="se-form">` +
-        `<input id="se-name" class="se-name-inp" type="text" value="${esc(draft.name)}" ` +
+        `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="TypeName" spellcheck="false" autocomplete="off">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="Toggle packed struct">__attribute__((packed))</button>` +
          `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Bits</span><span>[ ]</span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
-        `<button id="se-add" class="struct-add-field-btn">+ Add Field</button>` +
+        `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
         `<div class="se-btns">` +
-        `<button id="se-save" class="struct-btn struct-btn-apply">Save</button>` +
-        `<button id="se-cancel" class="struct-btn struct-btn-secondary">Cancel</button>` +
+        `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
+        `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
@@ -1395,18 +1395,18 @@ private addStructPinFormHtml(all: StructDef[]): string {
         `<div id="si-add-form" class="si-add-form">` +
         `<div class="sa-form-hdr sa-form-hdr-new">\uff0b New Instance</div>` +
         `<div class="sa-row">` +
-        `<input id="sa-name" class="sa-name-inp" type="text" maxlength="40" ` +
+        `<input id="sa-name" class="sa-name-inp sb-input" type="text" maxlength="40" ` +
                `placeholder="instance name" spellcheck="false" autocomplete="off">` +
         `</div>` +
         `<div class="sa-row">` +
         `<span class="struct-addr-pfx">0x</span>` +
-        `<input id="sa-addr" class="struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
+        `<input id="sa-addr" class="sb-input sa-addr-inp" type="text" maxlength="8" ` +
                `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(addrVal)}">` +
         `</div>` +
         this.addStructPinTypeRowHtml(all) +
         `<div class="sa-row sa-btn-row">` +
-        `<button id="sa-confirm" class="struct-btn struct-btn-apply"${!this._applyStructId ? ' disabled' : ''}>Confirm</button>` +
-        `<button id="sa-cancel" class="struct-btn struct-btn-cancel">Cancel</button>` +
+        `<button id="sa-confirm" class="sb-btn sb-btn-primary"${!this._applyStructId ? ' disabled' : ''}>Confirm</button>` +
+        `<button id="sa-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `</div>`
     );
@@ -1417,7 +1417,7 @@ private addStructPinTypeRowHtml(all: StructDef[]): string {
         return (
             `<div class="sa-row sa-no-types-row">` +
             `<span class="sa-no-types-msg">No struct types yet — create one first.</span>` +
-            `<button id="sa-new-type-btn" class="struct-btn struct-btn-secondary">New type</button>` +
+            `<button id="sa-new-type-btn" class="sb-btn sb-btn-secondary">New type</button>` +
             `</div>`
         );
     }
@@ -1431,7 +1431,7 @@ private addStructPinTypeRowHtml(all: StructDef[]): string {
         : '';
     return (
         `<div class="sa-row">` +
-        `<select id="sa-struct-sel" class="struct-sel">${structOpts}</select>` +
+        `<select id="sa-struct-sel" class="sb-select">${structOpts}</select>` +
         `<button id="sa-new-type-btn" class="si-add-type-btn" title="New type">\uff0b</button>` +
         `</div>` +
         previewHtml
@@ -1450,8 +1450,8 @@ private structInstancesPanelHtml(instBadge: string, addFormHtml: string, instHtm
         `<div class="si-hdr-row">` +
         `<span class="sb-hdr">Struct Instances ${instBadge}</span>` +
         this.bitLayoutToggleHtml() +
-        `<button id="si-add-btn" class="si-add-btn"${this._addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
-        `<button id="si-types-btn" class="si-icon-btn" title="Manage types">&#9776;</button>` +
+        `<button id="si-add-btn" class="sb-btn sb-btn-add"${this._addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
+        `<button id="si-types-btn" class="sb-btn sb-btn-secondary" title="Manage types">&#9776;</button>` +
         `</div>` +
         addFormHtml +
         `<div id="si-list">${instHtml}</div>` +
@@ -1474,7 +1474,7 @@ private structTypesPanelHtml(typeRows: string): string {
     return (
         `<div class="si-types-panel">` +
         `<div class="si-hdr-row">` +
-        `<button id="sm-close-btn" class="si-icon-btn" title="${this.typePanelCloseTitle()}">&#8592;</button>` +
+        `<button id="sm-close-btn" class="sb-btn sb-btn-secondary" title="${this.typePanelCloseTitle()}">&#8592;</button>` +
         `<span class="sb-hdr">${this.typePanelTitle()}</span>` +
         this.typePanelNewButtonHtml() +
         `</div>` +
@@ -1493,7 +1493,7 @@ private typePanelTitle(): string {
 }
 
 private typePanelNewButtonHtml(): string {
-    return this._editingType ? '' : `<button id="sm-new-btn" class="struct-btn struct-btn-secondary">New type</button>`;
+    return this._editingType ? '' : `<button id="sm-new-btn" class="sb-btn sb-btn-secondary">New type</button>`;
 }
 
 private typePanelBodyHtml(typeRows: string): string {
@@ -3410,21 +3410,21 @@ private instanceEditFormHtml(pin: StructPin): string {
         `<div class="si-pin-edit-form">` +
         `<div class="sa-form-hdr sa-form-hdr-edit">&#9998; Edit Instance</div>` +
         `<div class="sa-row">` +
-        `<input class="si-pe-name sa-name-inp" type="text" maxlength="40" ` +
+        `<input class="si-pe-name sa-name-inp sb-input" type="text" maxlength="40" ` +
                `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin.name)}">` +
         `</div>` +
         `<div class="sa-row">` +
         `<span class="struct-addr-pfx">0x</span>` +
-        `<input class="si-pe-addr struct-addr-inp sa-addr-inp" type="text" maxlength="8" ` +
+        `<input class="si-pe-addr sb-input sa-addr-inp" type="text" maxlength="8" ` +
                `autocomplete="off" spellcheck="false" placeholder="08000000" value="${esc(addrHex)}">` +
         `</div>` +
         `<div class="sa-row">` +
-        `<select class="si-pe-type struct-sel">${structOpts}</select>` +
+        `<select class="si-pe-type sb-select">${structOpts}</select>` +
         `</div>` +
         editPreviewHtml +
         `<div class="sa-row sa-btn-row">` +
-        `<button class="si-pe-save struct-btn struct-btn-apply">Save</button>` +
-        `<button class="si-pe-cancel struct-btn struct-btn-cancel">Cancel</button>` +
+        `<button class="si-pe-save sb-btn sb-btn-primary">Save</button>` +
+        `<button class="si-pe-cancel sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `</div>`
     );
@@ -3451,9 +3451,9 @@ private instanceHeaderHtml(
     expanded: boolean,
 ): string {
     return (
-        `<div class="si-card-hdr">` +
+        `<div class="sb-card-hdr">` +
         `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}">${expanded ? '\u25be' : '\u25b8'}</button>` +
-        `<div class="si-card-info">` +
+        `<div class="sb-card-info">` +
         `<span class="si-cname">${esc(pin.name)}</span>` +
         `<div class="si-cmeta-row">` +
         `<span class="si-ctype">${esc(defName)}</span>` +
@@ -3486,7 +3486,7 @@ private buildInstanceCard(pin: StructPin, i: number): string {
     const editFormHtml = this.instanceEditFormHtml(pin);
 
     return (
-        `<div class="si-card${expanded ? ' si-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
+        `<div class="sb-card${expanded ? ' si-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
         this.instanceHeaderHtml(pin, i, def, defName, totalBytes, addrHex, expanded) +
         this.instanceContentHtml(pin, editFormHtml, typePreviewHtml, bodyHtml) +
         `</div>`
@@ -3637,12 +3637,12 @@ private wireInstanceCards(sec: HTMLElement): void {
         });
     });
 
-    sec.querySelectorAll<HTMLElement>('.si-card-hdr').forEach(hdr => {
+    sec.querySelectorAll<HTMLElement>('.sb-card-hdr').forEach(hdr => {
         hdr.addEventListener('click', e => this.onCardHeaderClick(sec, hdr, e));
     });
 
     // Wire edit + delete action buttons on each instance card
-    sec.querySelectorAll<HTMLElement>('.si-card').forEach(card => {
+    sec.querySelectorAll<HTMLElement>('.sb-card').forEach(card => {
         const actions = card.querySelector<HTMLElement>('.si-card-actions');
         if (!actions) { return; }
         wireActionBtns(
@@ -3697,7 +3697,7 @@ private wireInstanceCards(sec: HTMLElement): void {
 
         row.querySelector<HTMLElement>('.si-f-ptr')?.addEventListener('click', ev => {
             ev.stopPropagation();
-            const card = row.closest<HTMLElement>('.si-card');
+            const card = row.closest<HTMLElement>('.sb-card');
             const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
             const valKey = row.dataset.valKey ?? this.scalarValKey(start);
             this.followPointerAt(start, pinIdx, valKey, this.sourceContextOptions(row));
@@ -3710,7 +3710,7 @@ private wireInstanceCards(sec: HTMLElement): void {
         row.addEventListener('contextmenu', ev => {
             ev.preventDefault(); ev.stopPropagation();
             const start = parseInt(row.dataset.byteStart!);
-            const card = row.closest<HTMLElement>('.si-card');
+            const card = row.closest<HTMLElement>('.sb-card');
             const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
             // Determine if this is a pointer field
             const valCell = row.querySelector<HTMLElement>('.si-f-val');
@@ -3762,13 +3762,13 @@ private onCardHeaderClick(sec: HTMLElement, hdr: HTMLElement, e: Event): void {
     const size = structByteSize(sel.def, this._structs);
     this._activeStructAddr = sel.pin.addr;
     this._selectedPinId = sel.pin.id;
-    sec.querySelectorAll<HTMLElement>('.si-card').forEach(c => c.classList.remove('si-card-selected'));
+    sec.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('si-card-selected'));
     sel.card.classList.add('si-card-selected');
     this.cb.onSelectRange?.(sel.pin.addr, size);
 }
 
 private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: StructPin; def: StructDef } | null {
-    const card = hdr.closest<HTMLElement>('.si-card');
+    const card = hdr.closest<HTMLElement>('.sb-card');
     if (!card) { return null; }
     const idx = parseInt(card.dataset.idx!);
     const pin = this._pins[idx];
@@ -3789,7 +3789,7 @@ private wireTypePreviewButtons(sec: HTMLElement): void {
 
 private toggleTypePreview(btn: HTMLElement): void {
     const id = btn.dataset.pinId!;
-    const card = btn.closest<HTMLElement>('.si-card')!;
+    const card = btn.closest<HTMLElement>('.sb-card')!;
     const preview = card.querySelector<HTMLElement>('.si-type-preview');
     const isOpen = this._previewedPins.has(id);
     this.setTypePreviewOpen(id, btn, preview, !isOpen);
@@ -3861,7 +3861,7 @@ private restoreStructSelection(sec: HTMLElement): void {
 
 private restoreSelectedPin(sec: HTMLElement): void {
     if (this._selectedPinId === null) { return; }
-    sec.querySelectorAll<HTMLElement>('.si-card').forEach(card => {
+    sec.querySelectorAll<HTMLElement>('.sb-card').forEach(card => {
         if (card.dataset.pinId === this._selectedPinId) {
             card.classList.add('si-card-selected');
         }
@@ -4259,7 +4259,7 @@ private rowValueKey(row: HTMLElement): string {
 }
 
 private pinIndexFromHeader(hdr: HTMLElement): number {
-    const card = hdr.closest<HTMLElement>('.si-card');
+    const card = hdr.closest<HTMLElement>('.sb-card');
     return card ? parseInt(card.dataset.idx!) : -1;
 }
 

@@ -1,1 +1,2 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Sidebar Primitives + Button Standards + Section/Header Pattern + Design Tokens — defines .sb-btn*/input/card/dot specs and token rules for the migration"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Spec index may reference struct component spec and CSS guidelines"}
