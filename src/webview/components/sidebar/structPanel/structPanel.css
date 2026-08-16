@@ -12,23 +12,18 @@
 /* sb-hdr with inline button */
 .sb-hdr-row {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 .sb-hdr-row .sb-hdr { margin-bottom: 0; }
 
 /* -- Shared .sb-* primitive adaptation ----------------------------- */
-/* Buttons/selects render via the shared primitives in sidebar.css. The
-   .sb-btn primitive carries no padding, so each context restores the
-   spacing it previously had from the local rules being removed. */
+/* Spacing now comes from the primitives (sidebar.css): .sb-btn 2px 8px,
+   .sb-btn-add 5px 8px. Only non-spacing adaptations stay here. */
 .sa-row .sb-select { flex: 1; min-width: 0; }
-.se-btns .sb-btn { padding: 2px 9px; }
-.sa-btn-row .sb-btn { padding: 2px 9px; }
-.sa-no-types-row .sb-btn { padding: 2px 9px; }
-.se-form > .sb-btn-add { width: 100%; padding: 3px 0; }
+.se-form > .sb-btn-add { width: 100%; }
 .sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px 4px; }
-#si-add-btn { flex-shrink: 0; padding: 2px 7px; }
-#si-types-btn, #sm-close-btn { flex-shrink: 0; padding: 2px 5px; }
-#sm-new-btn { padding: 2px 9px; }
+#si-add-btn { flex-shrink: 0; margin-left: auto; }
+#si-types-btn, #sm-close-btn { flex-shrink: 0; }
 
 /* -- Struct Types list (#s-struct) ------------------------------ */
 
@@ -245,7 +240,7 @@
 /* Header row: title + badge + toggles + + Add + ? Types */
 .si-hdr-row {
     display: flex; align-items: flex-start; gap: 6px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 .si-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
 .si-toggle-group {

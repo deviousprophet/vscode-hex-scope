@@ -107,6 +107,7 @@
     display: inline-flex; align-items: center; gap: 4px;
     border-radius: 3px; font-size: 10px; font-weight: 600;
     font-family: var(--font-ui); cursor: pointer; white-space: nowrap;
+    padding: 2px 8px;
     transition: background .1s, border-color .1s, color .1s;
     user-select: none;
 }
@@ -126,6 +127,7 @@
 .sb-btn-add {
     background: transparent; color: var(--high-color);
     border: 1px dashed rgba(134,180,212,.28);
+    padding: 5px 8px;
 }
 .sb-btn-add:hover { background: rgba(134,180,212,.07); border-style: solid; }
 .sb-btn:disabled { opacity: .35; cursor: not-allowed; }
@@ -151,6 +153,7 @@
 /* Cards */
 .sb-card {
     border: 1px solid var(--border); border-radius: 4px;
+    margin-bottom: 4px;
     overflow: hidden; transition: border-color .1s;
 }
 .sb-card:hover { border-color: rgba(255,255,255,.2); }

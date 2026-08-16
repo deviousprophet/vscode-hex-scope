@@ -12,7 +12,7 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
-    margin-bottom: 7px;
+    margin-bottom: 8px;
 }
 .integrity-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
 .integrity-profiles {
@@ -48,10 +48,8 @@
     opacity: .35;
 }
 
-/* Restore the spacing the legacy .struct-btn/.si-add-btn rules supplied;
-   the .sb-btn primitive intentionally carries no padding. */
-#integrity-fix-all { padding: 2px 9px; }
-#integrity-add-btn { padding: 2px 7px; }
+/* Buttons ride the shared .sb-btn primitive (sidebar.css), which now owns
+   padding (2px 8px). Tighter 9px contexts use the dense-grid exception. */
 
 .integrity-error,
 .integrity-form-error {
@@ -84,10 +82,6 @@
 }
 
 .integrity-empty { padding: 10px 4px; }
-
-.integrity-card {
-    margin-bottom: 4px;
-}
 
 .integrity-card-selected {
     border-color: var(--vscode-focusBorder, #4f9de8);
@@ -348,7 +342,6 @@
 .integrity-form-actions {
     display: flex; align-items: center; gap: 6px;
 }
-.integrity-form-actions .sb-btn { padding: 2px 9px; }
 
 .integrity-add-form {
     border: 1px solid var(--border);

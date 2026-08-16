@@ -165,7 +165,7 @@
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
 /* Add-label button uses the shared .sb-btn-add primitive; keep the full-width row filler */
-#s-labels .sb-btn-add { width: 100%; margin-top: 8px; padding: 5px; }
+#s-labels .sb-btn-add { width: 100%; margin-top: 8px; }
 
 /* ── Label inline form ───────────────────────────────────────── */
 .lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
@@ -182,4 +182,4 @@
 .lf-warn       { font-size: 10px; color: var(--match-hi); min-height: 14px; }
 .lf-actions { display: flex; gap: 5px; }
 /* Save/cancel use the shared .sb-btn primitives; keep equal-width fill of the action row */
-.lf-actions .sb-btn { flex: 1; justify-content: center; padding: 5px 0; }
+.lf-actions .sb-btn { flex: 1; justify-content: center; }
