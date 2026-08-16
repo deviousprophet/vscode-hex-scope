@@ -18,7 +18,7 @@ import {
 } from '../../webview/render/virtualScroll';
 import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
 import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
-import { selectedBytes } from '../../webview/memory/selection';
+import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
 
 function resetState(): void {
@@ -1342,6 +1342,30 @@ suite('selectedBytes() - gap filtering', () => {
     });
 });
 
+suite('mappedSelectionRange() - row shift-extend', () => {
+    teardown(resetState);
+
+    test('plain click returns the mapped span as-is', () => {
+        S.selStart = null;
+        assert.deepStrictEqual(mappedSelectionRange(0x1020, 0x102F, false), [0x1020, 0x102F]);
+    });
+
+    test('shift-click on a row below the anchor extends to that row end', () => {
+        S.selStart = 0x1000;
+        assert.deepStrictEqual(mappedSelectionRange(0x1020, 0x102F, true), [0x1000, 0x102F]);
+    });
+
+    test('shift-click on a row above the anchor extends from that row start', () => {
+        S.selStart = 0x1020;
+        assert.deepStrictEqual(mappedSelectionRange(0x1000, 0x100F, true), [0x1000, 0x1020]);
+    });
+
+    test('same-row shift keeps the merged span', () => {
+        S.selStart = 0x1008;
+        assert.deepStrictEqual(mappedSelectionRange(0x1000, 0x100F, true), [0x1000, 0x100F]);
+    });
+});
+
 // ── Regression: container resize re-slices the memory grid (B1) ─────
 
 class FakeResizeObserver {
@@ -1521,6 +1545,39 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
         assert.strictEqual(walkMappedAddress(0x1001, 1), 0x1100, 'jumps the gap');
         assert.strictEqual(walkMappedAddress(0x1100, -1), 0x1001, 'jumps the gap backwards');
+    });
+
+    test('vertical movement preserves the column across a gap', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [
+                { startAddress: 0x1000, data: Array.from({ length: 16 }, (_, i) => i) },
+                { startAddress: 0x1020, data: Array.from({ length: 16 }, (_, i) => i) },
+            ],
+            totalDataBytes: 32, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x102B, -16), 0x100B, 'up keeps column 0B, not the 0F row edge');
+        assert.strictEqual(walkMappedAddress(0x100B, 16), 0x102B, 'down keeps column 0B, not the 00 row start');
+    });
+
+    test('vertical movement falls back to the row edge when the column is unmapped in a short row', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [
+                { startAddress: 0x1000, data: Array.from({ length: 16 }, (_, i) => i) },
+                { startAddress: 0x1010, data: [1, 2, 3] },
+                { startAddress: 0x1020, data: Array.from({ length: 16 }, (_, i) => i) },
+            ],
+            totalDataBytes: 35, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x1012, -16), 0x1002, 'same column mapped above');
+        assert.strictEqual(walkMappedAddress(0x100B, 16), 0x1010, 'column 0B unmapped below — falls back to row start');
     });
 });
 

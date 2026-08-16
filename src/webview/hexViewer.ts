@@ -20,7 +20,7 @@ import {
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
-import { currentSelectionRange, selectedBytes } from './memory/selection';
+import { currentSelectionRange, mappedSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
 import { StructPanel } from './components/sidebar/structPanel/structPanel';
@@ -1209,14 +1209,6 @@ function rowAddresses(rowBase: number): number[] {
     return out;
 }
 
-/** [start, end] for a mapped span, shift-extending from the current selection start. */
-function mappedSelectionRange(first: number, last: number, shift: boolean): [number, number] {
-    if (shift && S.selStart !== null) {
-        return [Math.min(S.selStart, last), Math.max(S.selStart, last)];
-    }
-    return [first, last];
-}
-
 // ── Grid keyboard selection (arrow keys; Shift extends) ───────────
 
 /** Fixed end of a Shift-extended selection; reset by mouse selection paths. */
@@ -1318,10 +1310,48 @@ export function walkMappedAddress(from: number, delta: number): number | null {
 }
 
 function firstMappedStep(from: number, delta: number): number | null {
+    if (Math.abs(delta) === BPR) { return verticalMappedStep(from, delta); }
     let addr = from + delta;
     while (inMappedBounds(addr)) {
         if (getByte(addr) !== undefined) { return addr; }
         addr = nextCandidate(addr, delta);
+    }
+    return null;
+}
+
+/** Column-preserving vertical movement: keep the same column across a gap; ragged rows fall back to the row edge. */
+function verticalMappedStep(from: number, delta: number): number | null {
+    const col = from % BPR;
+    let probe = from + delta;
+    while (inMappedBounds(probe)) {
+        const anchor = rowAnchorFor(probe, delta);
+        if (anchor === null) {
+            probe = nextCandidate(probe, delta);
+            continue;
+        }
+        const colAddr = (anchor - (anchor % BPR)) + col;
+        if (getByte(colAddr) !== undefined) { return colAddr; }
+        return anchor;
+    }
+    return null;
+}
+
+function rowAnchorFor(addr: number, delta: number): number | null {
+    return delta > 0 ? firstMappedInRow(addr) : lastMappedInRow(addr);
+}
+
+function firstMappedInRow(addr: number): number | null {
+    const rowTop = addr - (addr % BPR);
+    for (let a = rowTop; a < rowTop + BPR; a++) {
+        if (getByte(a) !== undefined) { return a; }
+    }
+    return null;
+}
+
+function lastMappedInRow(addr: number): number | null {
+    const rowTop = addr - (addr % BPR);
+    for (let a = rowTop + BPR - 1; a >= rowTop; a--) {
+        if (getByte(a) !== undefined) { return a; }
     }
     return null;
 }
