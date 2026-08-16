@@ -48,3 +48,7 @@ Remove the column-selection feature in the memory hex view (clicking a column he
 ## Open Questions
 
 - None (task is spec'd and reviewed; awaiting final-planning approval).
+
+---
+
+> **SUPERSEDED (2026-08-16):** A later review-fix round (`fix/uiux-followups`) restored both the column-hover affordance (`705a854`) and the passive header `.sel-col` highlight of the current selection (`744ecd0`), the latter to v2.17.1 parity despite this PRD's "no lingering `sel-col`" acceptance criterion. Column-*selection-by-click* remains removed. Record kept honest here; see `component-hex-view.md` for the current contract.

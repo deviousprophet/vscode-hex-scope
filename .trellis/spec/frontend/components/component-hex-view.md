@@ -128,7 +128,7 @@ export class HexView {
 
 ## Tests Required
 
-`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion, address-gutter row click, gutter row-drag range forward + reverse-normalized + mouseup stop, inert header click), paint methods (`paintSelection` incl. header `.sel-col` columns, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
+`src/test/webview/components/hexView.test.ts` (mocha + jsdom + cssImportHook): pure render (header incl. `showAscii:false`, data rows, gap rows, banners, `be`/`cd` empty cells, match/sel/col-hi/amatch compositing, container-wrapper `windowTop` + spacers, root-scoped markup), interaction reports (hover, column hover, drag range, click+shift+column, context, copy shortcut, empty-cell exclusion, address-gutter row click, gutter row-drag range forward + reverse-normalized + gap-hold + mouseup stop, inert header click), paint methods (`paintSelection` incl. header `.sel-col` columns, `paintMatch` span, `paintCell` preview/restore, `scrollTo`), `showAscii` toggling. Existing `webview.test.ts` grid assertions pass unchanged (parity gate, via `memoryGrid`).
 
 ## Anti-patterns
 

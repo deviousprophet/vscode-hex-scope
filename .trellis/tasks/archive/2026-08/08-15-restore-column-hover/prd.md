@@ -50,3 +50,7 @@ Column **selection** removal is KEPT (do not reintroduce):
 ## Open Questions
 
 - None.
+
+---
+
+> **SUPERSEDED (2026-08-16):** As part of the review-fix round for `fix/uiux-followups`, the header `.sel-col` highlight of the *current selection* was restored (`744ecd0`, ~`applySel` parity with v2.17.1) even though this PRD's "no lingering `selectedColumns`" AC forbade it. The restore keeps column-*selection-by-click* removed (unchanged) but revives the passive header-column highlight driven by byte selection. Documented here so the archived record stays honest; current behavior is v2.17.1 parity.

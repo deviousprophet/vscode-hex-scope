@@ -615,12 +615,8 @@ function applyPasteBytes(range: { start: number; end: number }, clipText: string
     const edits = buildPasteEdits(range, bytes);
     const staged = stagePasteEdits(edits);
     if (staged > 0) { refreshAfterLocalEdit(); }
-    const notice = pasteNotice(staged, bytes.length);
+    const notice = pasteOverflowNotice(staged, bytes.length);
     if (notice) { toolbar.setStatus(notice); }
-}
-
-function pasteNotice(editsLength: number, bytesLength: number): string | null {
-    return pasteOverflowNotice(editsLength, bytesLength);
 }
 
 function pasteBytes(clipText: string): number[] {
