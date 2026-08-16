@@ -1,11 +1,11 @@
 // ── HexScope Webview Entry Point ─────────────────────────────────
 // Bootstraps the UI, handles VS Code messages, wires all modules.
 
-import { S }                                          from './state';
+import { S, BPR }                                       from './state';
 import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc } from './utils';
 import { rerender }                                   from './render/registry';
-import { parsePasteText }                             from './pasteUtils';
+import { parsePasteText, pasteOverflowNotice } from './pasteUtils';
 import {
     getShowAscii,
     invalidateGridRender,
@@ -20,7 +20,7 @@ import {
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
-import { currentSelectionRange, selectedBytes } from './memory/selection';
+import { currentSelectionRange, mappedSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
 import { StructPanel } from './components/sidebar/structPanel/structPanel';
@@ -43,7 +43,7 @@ import {
     type VirtualScrollState,
 } from './render/virtualScroll';
 import { renderStats } from './statsBar';
-import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
+import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
 import { ExternalChange } from './components/externalChange/externalChange';
 import { updateExternalChangeLockState } from './lock';
 
@@ -77,7 +77,6 @@ import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
 
 const RECORD_BUFFER_ROWS = 5;
 const RECORD_FALLBACK_ROW_HEIGHT = 28;
-const RECORD_EMPTY_MESSAGE = 'Record details are not loaded in the webview. Use Memory view for navigation and editing.';
 
 const recordPages = new RecordPageCache(8);
 let recordRenderSignature = '';
@@ -209,6 +208,7 @@ const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
+    onBlockedRun: () => toolbar.setStatus('A script is already running — cancel it or wait for it to finish.'),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
@@ -243,7 +243,7 @@ export function renderRecordView(): void {
     const el = document.getElementById('record-view');
     if (!el) { return; }
     if (recordCountOf(parseResult) === 0) {
-        recordView.renderEmpty(RECORD_EMPTY_MESSAGE);
+        recordView.renderEmpty('This file contains no records.', 'No Records');
         return;
     }
     refreshRecordSlice();
@@ -501,6 +501,7 @@ function applyTypedEdit(addr: number, value: number): void {
     const prior = stageIntegrityEdit(addr, value);
     if (!prior) {return;}
     S.undoStack.push([prior]);
+    S.redoStack.length = 0;
     S.editMode = true;
     toolbar.setEditMode(S.editMode);
     refreshAfterLocalEdit();
@@ -529,7 +530,7 @@ function handleEditBufferChar(selStart: number, char: string): void {
     if (nibbleBuffer === null) {
         nibbleBuffer = char;
         nibbleBufferAddr = selStart;
-        paintCell(selStart, `${char}-`);
+        paintCell(selStart, `${char}\u00b7`);
     } else if (nibbleBufferAddr === selStart) {
         const value = parseInt(nibbleBuffer + char, 16);
         applyTypedEdit(selStart, value);
@@ -608,17 +609,22 @@ function buildPasteEdits(range: { start: number; end: number }, bytes: number[])
     return edits;
 }
 
-function stagePasteFromText(range: { start: number; end: number }, clipText: string): Array<[number, number]> {
-    const parsed = parsePasteText(clipText);
-    const bytes = parsed ?? [...clipText].map(c => c.charCodeAt(0));
-    return bytes.length > 0 ? buildPasteEdits(range, bytes) : [];
+function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
+    const bytes = pasteBytes(clipText);
+    if (bytes.length === 0) { return; }
+    const edits = buildPasteEdits(range, bytes);
+    const staged = stagePasteEdits(edits);
+    if (staged > 0) { refreshAfterLocalEdit(); }
+    const notice = pasteOverflowNotice(staged, bytes.length);
+    if (notice) { toolbar.setStatus(notice); }
 }
 
-function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
-    const edits = stagePasteFromText(range, clipText);
-    if (edits.length > 0 && stageIntegrityEditTransaction(edits)) {
-        refreshAfterLocalEdit();
-    }
+function pasteBytes(clipText: string): number[] {
+    return parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
+}
+
+function stagePasteEdits(edits: Array<[number, number]>): number {
+    return edits.length > 0 ? stageIntegrityEditTransaction(edits) : 0;
 }
 
 function doPasteToSelection(): void {
@@ -684,17 +690,63 @@ window.addEventListener('message', (e: MessageEvent) => {
 
 // Ctrl+Z undo lives in the host (not the search component), gated on edit mode.
 function isUndoShortcut(e: KeyboardEvent): boolean {
-    return (e.ctrlKey || e.metaKey) && e.key === 'z' && S.editMode;
+    return hasCombination(e) && e.key === 'z' && !e.shiftKey && S.editMode;
+}
+
+function isRedoShortcut(e: KeyboardEvent): boolean {
+    return S.editMode && hasCombination(e) && redoKey(e);
+}
+
+/** Ctrl/Cmd modifier held (either key). */
+function hasCombination(e: KeyboardEvent): boolean {
+    return !!(e.ctrlKey || e.metaKey);
+}
+
+/** Redo is Cmd/Ctrl+Y or Cmd/Ctrl+Shift+Z. */
+function redoKey(e: KeyboardEvent): boolean {
+    return e.key === 'y' || (e.key === 'z' && e.shiftKey);
 }
 
 function onUndoKeydown(e: KeyboardEvent): void {
     if (isUndoShortcut(e)) {
         e.preventDefault();
         undoLastEdit();
+        return;
+    }
+    if (isRedoShortcut(e)) {
+        e.preventDefault();
+        redoLastEdit();
     }
 }
 
+function onSaveShortcut(e: KeyboardEvent): void {
+    if (!isSaveShortcut(e) || !hasEditsToSave() || inContextMenu(document.activeElement)) { return; }
+    e.preventDefault();
+    saveEdits();
+}
+
+/** True when there is at least one staged byte to persist. */
+function hasEditsToSave(): boolean {
+    return S.editMode && S.edits.size > 0;
+}
+
+function isSaveShortcut(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && e.key === 's';
+}
+
+/** True when `el` lives inside the context menu (its rows are tabbable; grid shortcuts must not fire there). */
+function inContextMenu(el: Element | null): boolean {
+    return !!el?.closest('#ctx-menu');
+}
+
+// Document-level keydown handlers register ONCE at module load (not per render):
+// render() runs again on external-change reloads, and re-registering would
+// double-fire arrows/save/edit keys after every reload.
 document.addEventListener('keydown', onUndoKeydown);
+document.addEventListener('keydown', onEditKeydown, { capture: true });
+document.addEventListener('keydown', onCopyPasteKeydown);
+document.addEventListener('keydown', onGridSelectionKeydown);
+document.addEventListener('keydown', onSaveShortcut);
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
     resetRecordPages(msg.generation);
@@ -722,10 +774,17 @@ function renderInitialLoadProgress(label: string): void {
 }
 
 function renderActiveLoadProgress(label: string): void {
+    // Spinner (16px #search-progress slot) plus a text label in the toolbar.
     const progress = document.getElementById('search-progress');
-    if (!progress) { return; }
-    progress.textContent = `Loading ${label}…`;
-    progress.setAttribute('aria-hidden', 'false');
+    if (progress) {
+        progress.classList.add('active');
+        progress.setAttribute('aria-hidden', 'false');
+    }
+    const text = document.getElementById('load-progress');
+    if (text) {
+        text.textContent = `Loading ${label}…`;
+        text.removeAttribute('hidden');
+    }
 }
 
 function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void {
@@ -795,9 +854,15 @@ function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScr
 
 function clearLoadProgress(): void {
     const progress = document.getElementById('search-progress');
-    if (!progress) { return; }
-    progress.textContent = '';
-    progress.setAttribute('aria-hidden', 'true');
+    if (progress) {
+        progress.classList.remove('active');
+        progress.setAttribute('aria-hidden', 'true');
+    }
+    const text = document.getElementById('load-progress');
+    if (text) {
+        text.textContent = '';
+        text.setAttribute('hidden', '');
+    }
 }
 
 function rebuildLabelsAndMemory(): void {
@@ -928,7 +993,7 @@ function render(): void {
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
-                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}">
+                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}" tabindex="0" aria-label="Hex editor grid">
                     <div id="mem-header"></div>
                     <div id="mem-scroll"><div id="mem-rows"></div></div>
                 </div>
@@ -936,7 +1001,7 @@ function render(): void {
             </div>
             ${sidebar.toHtml()}
         </div>
-        <div id="ctx-menu" style="display:none"></div>`;
+        <div id="ctx-menu" role="menu" style="display:none"></div>`;
 
     invalidateGridRender();
     setupRenderedUi();
@@ -966,10 +1031,10 @@ function setupRenderedUi(): void {
         onCellContext: onHexViewContext,
         onSelectionChange: onHexViewSelectionChange,
         onCopy: doCopySelection,
+        onAddressRowClick: selectAddressRow,
+        onAddressRowDrag: selectAddressRows,
     });
     renderInitialViews();
-    document.addEventListener('keydown', onEditKeydown, { capture: true });
-    document.addEventListener('keydown', onCopyPasteKeydown);
 }
 
 /** Header-slot render: feature-specific endian toggle inside #sidebar-common-settings. */
@@ -1017,6 +1082,7 @@ function setupRerenderCallbacks(): void {
 function reloadDiscardingEdits(incoming: IncomingFile): void {
     S.edits.clear();
     S.undoStack.length = 0;
+    S.redoStack.length = 0;
     S.editMode = false;
     applyExternalChangeAndUnlock(incoming);
 }
@@ -1080,10 +1146,13 @@ function renderStatsBar(): void {
 
 // ── Memory view ───────────────────────────────────────────────────
 
-function updateByteSelection(start: number, end: number): void {
+function updateByteSelection(start: number, end: number, keepGridAnchor = false): void {
     clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
+    // Every selection change drops a stale Shift-extend anchor, except the
+    // extend path itself (it re-anchors each keypress).
+    if (!keepGridAnchor) { gridArrowAnchor = null; }
     paintMemorySelection();
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     inspectorPanel.syncLabelForm();
@@ -1099,7 +1168,250 @@ function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): v
     updateByteSelection(range.start, range.end);
 }
 
+/** Address-gutter click: select the mapped bytes of that row. */
+function selectAddressRow(rowBase: number, shift: boolean): void {
+    clearNibbleBuffer();
+    if (!S.parseResult) { return; }
+    const span = rowAddressSpan(rowBase);
+    if (!span) { return; }
+    updateByteSelection(...mappedSelectionRange(...span, shift));
+}
+
+/** Address-gutter drag: select the mapped span across the dragged rows. */
+function selectAddressRows(rows: HexViewRange): void {
+    clearNibbleBuffer();
+    if (!S.parseResult) { return; }
+    const first = rowAddressSpan(rows.start);
+    const last = rowAddressSpan(rows.end);
+    if (!first || !last) { return; }
+    updateByteSelection(first[0], last[1]);
+}
+
+/** First/last mapped address among the `BPR` bytes of a row. */
+function rowAddressSpan(rowBase: number): [number, number] | null {
+    const addrs = rowAddresses(rowBase);
+    if (addrs.length === 0) { return null; }
+    return [addrs[0], addrs[addrs.length - 1]];
+}
+
+/** Mapped addresses among the BPR bytes of a row. */
+function rowAddresses(rowBase: number): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < BPR; i++) {
+        const addr = rowBase + i;
+        if (getByte(addr) === undefined) { continue; }
+        out.push(addr);
+    }
+    return out;
+}
+
+// ── Grid keyboard selection (arrow keys; Shift extends) ───────────
+
+/** Fixed end of a Shift-extended selection; reset by mouse selection paths. */
+let gridArrowAnchor: number | null = null;
+
+function onGridSelectionKeydown(e: KeyboardEvent): void {
+    if (!gridSelectionGate(e)) { return; }
+    if (S.selStart === null) { selectFirstMappedByte(e); return; }
+    e.preventDefault();
+    applyGridArrow(e.shiftKey, arrowKeyDirection(e.key));
+}
+
+/** True when this keydown targets the focused, active grid outside inputs/menu. */
+function gridSelectionGate(e: KeyboardEvent): boolean {
+    return isGridActive() && isGridFocused() && !isTypingTarget(e) && isGridArrowKey(e);
+}
+
+function isGridActive(): boolean {
+    return S.currentView === 'memory' && !S.editMode;
+}
+
+function isGridFocused(): boolean {
+    return !!document.activeElement?.closest('#memory-view');
+}
+
+function isTypingTarget(e: KeyboardEvent): boolean {
+    const t = e.target as HTMLElement | null;
+    return !!t && !!(t.closest('input, select, textarea') || inContextMenu(t));
+}
+
+/** Arrow key → selection movement; menu key → open the context menu at the grid center. */
+function isGridArrowKey(e: KeyboardEvent): boolean {
+    if (isArrowKey(e.key)) { return true; }
+    if (isGridMenuKey(e)) { e.preventDefault(); openGridContextMenu(); }
+    return false;
+}
+
+function isGridMenuKey(e: KeyboardEvent): boolean {
+    return e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10');
+}
+
+function isArrowKey(key: string): boolean {
+    return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
+}
+
+type NavDirection = 'up' | 'down' | 'left' | 'right';
+
+function arrowKeyDirection(key: string): NavDirection {
+    return key === 'ArrowLeft' ? 'left' : key === 'ArrowRight' ? 'right' : key === 'ArrowUp' ? 'up' : 'down';
+}
+
+function selectFirstMappedByte(e: KeyboardEvent): void {
+    const first = S.segmentIndex[0];
+    if (!first) { return; }
+    gridArrowAnchor = null;
+    e.preventDefault();
+    updateByteSelection(first.startAddr, first.startAddr);
+}
+
+function applyGridArrow(shift: boolean, dir: NavDirection): void {
+    if (!shift) { gridArrowAnchor = null; collapseGridSelection(dir); return; }
+    if (gridArrowAnchor === null) { gridArrowAnchor = S.selStart; }
+    extendGridSelection(dir);
+}
+
+function collapseGridSelection(dir: NavDirection): void {
+    if (S.selStart === null) { return; }
+    const target = walkMappedAddress(S.selStart, dir);
+    if (target !== null) { updateByteSelection(target, target); }
+}
+
+function extendGridSelection(dir: NavDirection): void {
+    const activeEnd = gridActiveEnd();
+    if (activeEnd === null) { return; }
+    const target = walkMappedAddress(activeEnd, dir);
+    if (target === null) { return; }
+    updateByteSelection(Math.min(gridArrowAnchor!, target), Math.max(gridArrowAnchor!, target), true);
+}
+
+function gridActiveEnd(): number | null {
+    if (noGridSelection()) { return null; }
+    return gridArrowAnchor === S.selStart ? S.selEnd : S.selStart;
+}
+
+function noGridSelection(): boolean {
+    return gridArrowAnchor === null || S.selStart === null || S.selEnd === null;
+}
+
+function openGridContextMenu(): void {
+    if (S.selStart === null) { return; }
+    const el = document.getElementById('memory-view');
+    if (!el) { return; }
+    const r = el.getBoundingClientRect();
+    showCtxMenu(r.left + r.width / 2, r.top + r.height / 2);
+}
+
+/** Nearest mapped address `dir` away, skipping unmapped gaps (segment jumps, bounded). */
+export function walkMappedAddress(from: number, dir: NavDirection): number | null {
+    if (S.segmentIndex.length === 0) { return null; }
+    return firstMappedStep(from, dir);
+}
+
+function firstMappedStep(from: number, dir: NavDirection): number | null {
+    if (isVertical(dir)) { return verticalMappedStep(from, dir); }
+    let addr = horizontalStep(from, dir);
+    while (inMappedBounds(addr)) {
+        if (getByte(addr) !== undefined) { return addr; }
+        addr = nextCandidate(addr, dir);
+    }
+    return null;
+}
+
+function isVertical(dir: NavDirection): dir is 'up' | 'down' {
+    return dir === 'up' || dir === 'down';
+}
+
+function horizontalStep(from: number, dir: NavDirection): number {
+    return dir === 'right' ? from + 1 : from - 1;
+}
+
+/** Column-preserving vertical movement: keep the same column across a gap; ragged rows fall back to the row edge. */
+function verticalMappedStep(from: number, dir: 'up' | 'down'): number | null {
+    const col = from % BPR;
+    let probe = verticalProbe(from, dir);
+    while (inMappedBounds(probe)) {
+        const anchor = rowAnchorFor(probe, dir);
+        if (anchor === null) {
+            probe = nextCandidate(probe, dir);
+            continue;
+        }
+        const colAddr = (anchor - (anchor % BPR)) + col;
+        if (getByte(colAddr) !== undefined) { return colAddr; }
+        return anchor;
+    }
+    return null;
+}
+
+function verticalProbe(from: number, dir: 'up' | 'down'): number {
+    return dir === 'down' ? from + BPR : from - BPR;
+}
+
+function rowAnchorFor(addr: number, dir: 'up' | 'down'): number | null {
+    return dir === 'down' ? firstMappedInRow(addr) : lastMappedInRow(addr);
+}
+
+function firstMappedInRow(addr: number): number | null {
+    const rowTop = addr - (addr % BPR);
+    for (let a = rowTop; a < rowTop + BPR; a++) {
+        if (getByte(a) !== undefined) { return a; }
+    }
+    return null;
+}
+
+function lastMappedInRow(addr: number): number | null {
+    const rowTop = addr - (addr % BPR);
+    for (let a = rowTop + BPR - 1; a >= rowTop; a--) {
+        if (getByte(a) !== undefined) { return a; }
+    }
+    return null;
+}
+
+function nextCandidate(addr: number, dir: NavDirection): number {
+    if (isForward(dir)) { return segmentStartAfter(addr) ?? Number.MAX_SAFE_INTEGER; }
+    return segmentEndBefore(addr) ?? Number.MIN_SAFE_INTEGER;
+}
+
+function isForward(dir: NavDirection): boolean {
+    return dir === 'down' || dir === 'right';
+}
+
+function mappedBounds(): { min: number; max: number } | null {
+    const first = S.segmentIndex[0];
+    const last = S.segmentIndex[S.segmentIndex.length - 1];
+    if (!first || !last) { return null; }
+    return { min: first.startAddr, max: last.endAddr };
+}
+
+function inMappedBounds(addr: number, bounds: { min: number; max: number } | null = mappedBounds()): boolean {
+    return bounds !== null && addr >= bounds.min && addr <= bounds.max;
+}
+
+/** First segment start strictly after `addr`, or null. */
+function segmentStartAfter(addr: number): number | null {
+    const segs = S.segmentIndex;
+    let lo = 0;
+    let hi = segs.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (segs[mid].startAddr <= addr) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo < segs.length ? segs[lo].startAddr : null;
+}
+
+/** Last segment end strictly before `addr`, or null. */
+function segmentEndBefore(addr: number): number | null {
+    const segs = S.segmentIndex;
+    let lo = 0;
+    let hi = segs.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (segs[mid].endAddr < addr) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo > 0 ? segs[lo - 1].endAddr : null;
+}
+
 function onHexViewContext(addr: number, x: number, y: number): void {
+    gridArrowAnchor = null;
     if (!isAddressInSelection(addr)) {
         updateByteSelection(addr, addr);
     }
@@ -1111,6 +1423,7 @@ function isAddressInSelection(addr: number): boolean {
 }
 
 function onHexViewSelectionChange(range: HexViewRange): void {
+    gridArrowAnchor = null;
     S.selStart = range.start;
     S.selEnd = range.end;
     paintMemorySelection();
@@ -1184,6 +1497,12 @@ function applyFill(fillVal: number): void {
 function undoLastEdit(): void {
     clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
+    refreshAfterLocalEdit();
+}
+
+function redoLastEdit(): void {
+    clearNibbleBuffer();
+    if (!redoLastEditTransaction()) { return; }
     refreshAfterLocalEdit();
 }
 

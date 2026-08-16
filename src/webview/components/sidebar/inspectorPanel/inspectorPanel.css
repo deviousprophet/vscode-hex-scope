@@ -159,6 +159,7 @@
 .label-act {
     cursor: pointer; color: var(--non-graphic); font-size: 11px; line-height: 1;
     padding: 2px 3px; border-radius: 2px; flex-shrink: 0;
+    background: none; border: none; font-family: inherit;
     transition: color .1s, background .1s;  user-select: none;
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }

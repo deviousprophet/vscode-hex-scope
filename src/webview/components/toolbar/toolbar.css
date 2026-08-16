@@ -4,6 +4,8 @@
     display: flex; align-items: center; gap: 6px;
     padding: 0 10px; flex-shrink: 0;
     background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+    /* Narrow webview widths: scroll rather than clip the rightmost search controls */
+    overflow-x: auto;
 }
 
 .view-tabs { display: flex; gap: 1px; background: rgba(0,0,0,.22); border-radius: 4px; padding: 2px; }
@@ -37,7 +39,7 @@
 }
 .tb-editing-pill {
     font-size: 10px; font-family: var(--font-ui); font-weight: 700;
-    color: #e5a800; letter-spacing: .04em; white-space: nowrap;
+    color: var(--warn); letter-spacing: .04em; white-space: nowrap;
     padding: 1px 7px; border-radius: 10px;
     background: rgba(229,168,0,.12); border: 1px solid rgba(229,168,0,.35);
 }
@@ -47,6 +49,19 @@
     font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
     white-space: nowrap; opacity: .8;
 }
+
+/* Transient active-load label (reload progress) */
+#load-progress {
+    font-size: 10px; color: var(--non-graphic); font-family: var(--font-ui);
+    white-space: nowrap; opacity: .9;
+}
+
+/* Transient edit-mode status message (e.g. truncated paste) */
+#edit-status {
+    font-size: 10px; color: var(--warn); font-family: var(--font-ui);
+    white-space: nowrap; opacity: 0; transition: opacity .15s;
+}
+#edit-status.visible { opacity: 1; }
 
 /* Save button */
 .tb-save-btn {

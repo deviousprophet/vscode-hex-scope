@@ -14,7 +14,7 @@
 - `S.edits` overlays parsed bytes. `getByteAt`/`getByte` must prefer pending edits without mutating source segments.
 - A selection is inclusive (`start`, `end`) with `start <= end`.
 - External changes lock editing until reload/repair resolution.
-- `clearEditModel()` clears pending edits and undo history together.
+- `clearEditModel()` clears pending edits and undo/redo history together.
 - Provider `savedEdits` reloads parsed memory, clears edits, and invalidates edit controls, stats, segments, structs, current view, and integrity.
 
 ## Provider Message Flow

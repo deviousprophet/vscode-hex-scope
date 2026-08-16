@@ -16,9 +16,9 @@ import {
     physicalToLogicalScroll,
     type VirtualScrollState,
 } from '../../webview/render/virtualScroll';
-import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
-import { parsePasteText } from '../../webview/pasteUtils';
-import { selectedBytes } from '../../webview/memory/selection';
+import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
+import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
+import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
 
 function resetState(): void {
@@ -35,6 +35,7 @@ function resetState(): void {
     S.editMode     = false;
     S.edits.clear();
     S.undoStack.length = 0;
+    S.redoStack.length = 0;
     S.structs          = [];
 
     S.structPins       = [];
@@ -52,6 +53,7 @@ function installWebviewDom(markup: string): JSDOM {
         getComputedStyle: typeof getComputedStyle;
         localStorage: Storage;
         acquireVsCodeApi: () => unknown;
+        requestAnimationFrame: (cb: (t: number) => void) => number;
     };
     globals.window = dom.window as unknown as Window;
     globals.document = dom.window.document as unknown as Document;
@@ -62,6 +64,8 @@ function installWebviewDom(markup: string): JSDOM {
         getState: () => ({}),
         setState: (_state: unknown) => {},
     });
+    // jsdom has no rAF; inlineConfirm needs it to finish attaching its Yes/No handlers.
+    globals.requestAnimationFrame = cb => { cb(0); return 0; };
     Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
         value: () => {},
         configurable: true,
@@ -82,6 +86,7 @@ function cleanupWebviewDom(dom: JSDOM): void {
     delete (globalThis as unknown as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle;
     delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
     delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+    delete (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame;
 }
 
 // ── HTML escaping ───────────────────────────────────────────────
@@ -868,6 +873,8 @@ suite('Integrity Checks sidebar', () => {
             profileSelect.value = 'stm32-profile';
             profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             document.getElementById('integrity-profile-apply')!.click();
+            const applyConfirm = document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement | null;
+            if (applyConfirm) { applyConfirm.click(); }
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
             assert.strictEqual(S.endian, 'le', 'applying a profile does not change shared endian');
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '…');
@@ -959,6 +966,9 @@ suite('Integrity Checks sidebar', () => {
                 type: 'renameIntegrityProfile', id: 'stm32-profile', name: 'Renamed Layout',
             });
             document.getElementById('integrity-profile-delete')!.click();
+            assert.ok(document.querySelector('#del-confirm-pop'), 'delete waits for the inline confirm');
+            (document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement).click();
+            await new Promise(resolve => setTimeout(resolve, 0));
             assert.deepStrictEqual(posted.at(-1), { type: 'deleteIntegrityProfile', id: 'stm32-profile' });
             document.getElementById('integrity-profile-save')!.click();
             const saveInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
@@ -1111,6 +1121,61 @@ suite('Integrity Checks sidebar', () => {
         assert.strictEqual(S.edits.has(0x1000), false);
     });
 
+    test('redoLastEditTransaction re-applies an undone edit', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.edits.has(0x1000), false);
+        assert.ok(redoLastEditTransaction());
+        assert.strictEqual(S.edits.get(0x1000), 0x42);
+    });
+
+    test('redoLastEditTransaction re-pushes undo so undo-after-redo works', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.edits.has(0x1000), false);
+        assert.ok(redoLastEditTransaction());
+        assert.strictEqual(S.edits.get(0x1000), 0x42);
+        assert.strictEqual(S.undoStack.length, 1);
+        assert.deepStrictEqual(S.undoStack[0], [[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.edits.has(0x1000), false);
+    });
+
+    test('staging a new edit clears the redo stack', () => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0x00] }],
+            totalDataBytes: 1, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+        S.editMode = true;
+        S.edits.set(0x1000, 0x42);
+        S.undoStack.push([[0x1000, 0x00]]);
+        assert.ok(undoLastEditTransaction());
+        assert.strictEqual(S.redoStack.length, 1);
+        stageIntegrityEditTransaction([[0x1000, 0x77]]);
+        assert.strictEqual(S.redoStack.length, 0);
+    });
+
     // ── Paste parsing ────────────────────────────────────────────────
 
     test('parsePasteText hex spaced pairs', () => {
@@ -1155,6 +1220,20 @@ suite('Integrity Checks sidebar', () => {
 
     test('parsePasteText parses single hex pair', () => {
         assert.deepStrictEqual(parsePasteText('FF'), [255]);
+    });
+
+    test('pasteOverflowNotice is null when nothing was pasted or nothing truncated', () => {
+        assert.strictEqual(pasteOverflowNotice(0, 0), null);
+        assert.strictEqual(pasteOverflowNotice(5, 5), null);
+        assert.strictEqual(pasteOverflowNotice(5, 3), null);
+    });
+
+    test('pasteOverflowNotice reports a partial paste', () => {
+        assert.match(pasteOverflowNotice(2, 5)!, /Pasted 2 of 5 bytes/);
+    });
+
+    test('pasteOverflowNotice reports a fully-blocked paste', () => {
+        assert.match(pasteOverflowNotice(0, 5)!, /Nothing pasted/);
     });
 });
 
@@ -1260,6 +1339,30 @@ suite('selectedBytes() - gap filtering', () => {
         assert.strictEqual(result.type, 'copyText');
         const text = (result as { type: 'copyText'; text: string }).text;
         assert.strictEqual(text, '0x04'); // 0x01 ^ 0x02 ^ 0x03 ^ 0x04
+    });
+});
+
+suite('mappedSelectionRange() - row shift-extend', () => {
+    teardown(resetState);
+
+    test('plain click returns the mapped span as-is', () => {
+        S.selStart = null;
+        assert.deepStrictEqual(mappedSelectionRange(0x1020, 0x102F, false), [0x1020, 0x102F]);
+    });
+
+    test('shift-click on a row below the anchor extends to that row end', () => {
+        S.selStart = 0x1000;
+        assert.deepStrictEqual(mappedSelectionRange(0x1020, 0x102F, true), [0x1000, 0x102F]);
+    });
+
+    test('shift-click on a row above the anchor extends from that row start', () => {
+        S.selStart = 0x1020;
+        assert.deepStrictEqual(mappedSelectionRange(0x1000, 0x100F, true), [0x1000, 0x1020]);
+    });
+
+    test('same-row shift keeps the merged span', () => {
+        S.selStart = 0x1008;
+        assert.deepStrictEqual(mappedSelectionRange(0x1000, 0x100F, true), [0x1000, 0x100F]);
     });
 });
 
@@ -1377,7 +1480,6 @@ suite('search match truth follows the executed search (B2)', () => {
 });
 
 // ── Regression: edit refresh re-renders the grid only in memory view (C1) ─
-
 suite('edit refresh gate (C1)', () => {
     test('refreshAfterLocalEdit re-renders the grid only in memory view', async () => {
         resetState();
@@ -1406,6 +1508,76 @@ suite('edit refresh gate (C1)', () => {
         } finally {
             cleanupWebviewDom(dom);
         }
+    });
+});
+
+// ── Grid keyboard selection: walkMappedAddress skips unmapped gaps ─
+
+suite('grid keyboard navigation (walkMappedAddress)', () => {
+    setup(resetState);
+
+    test('walks contiguous mapped bytes', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [{ startAddress: 0x1000, data: [1, 2, 3, 4] }],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x1001, 'right'), 0x1002);
+        assert.strictEqual(walkMappedAddress(0x1002, 'left'), 0x1001);
+        assert.strictEqual(walkMappedAddress(0x1003, 'right'), null, 'beyond the last mapped byte');
+        assert.strictEqual(walkMappedAddress(0x1000, 'left'), null, 'before the first mapped byte');
+    });
+
+    test('skips an unmapped gap to the next mapped byte', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [
+                { startAddress: 0x1000, data: [1, 2] },
+                { startAddress: 0x1100, data: [3, 4] },
+            ],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x1001, 'right'), 0x1100, 'jumps the gap');
+        assert.strictEqual(walkMappedAddress(0x1100, 'left'), 0x1001, 'jumps the gap backwards');
+    });
+
+    test('vertical movement preserves the column across a gap', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [
+                { startAddress: 0x1000, data: Array.from({ length: 16 }, (_, i) => i) },
+                { startAddress: 0x1020, data: Array.from({ length: 16 }, (_, i) => i) },
+            ],
+            totalDataBytes: 32, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x102B, 'up'), 0x100B, 'up keeps column 0B, not the 0F row edge');
+        assert.strictEqual(walkMappedAddress(0x100B, 'down'), 0x102B, 'down keeps column 0B, not the 00 row start');
+    });
+
+    test('vertical movement falls back to the row edge when the column is unmapped in a short row', async () => {
+        S.parseResult = {
+            records: [], recordCount: 0,
+            segments: [
+                { startAddress: 0x1000, data: Array.from({ length: 16 }, (_, i) => i) },
+                { startAddress: 0x1010, data: [1, 2, 3] },
+                { startAddress: 0x1020, data: Array.from({ length: 16 }, (_, i) => i) },
+            ],
+            totalDataBytes: 35, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        const { initFlatBytes } = await import('../../webview/memory/memoryData.js');
+        initFlatBytes();
+        const { walkMappedAddress } = await import('../../webview/hexViewer.js');
+        assert.strictEqual(walkMappedAddress(0x1012, 'up'), 0x1002, 'same column mapped above');
+        assert.strictEqual(walkMappedAddress(0x100B, 'down'), 0x1010, 'column 0B unmapped below — falls back to row start');
     });
 });
 

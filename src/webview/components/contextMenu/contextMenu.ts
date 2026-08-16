@@ -18,7 +18,7 @@ import { formatAsciiByte, formatHexArrayByte, hexByte } from '../../../core/byte
 import { fillCommand } from '../../contextCommands';
 import { esc, positionContextMenu, wireHoverSubmenus } from '../../utils';
 
-const CTX_SEP = `<div class="ctx-sep"></div>`;
+const CTX_SEP = `<div class="ctx-sep" role="separator"></div>`;
 
 export interface ContextMenuState {
     selectionActive: boolean;
@@ -46,14 +46,14 @@ export function renderContextMenuHtml(state: ContextMenuState): string {
 }
 
 function ctxItem(cmd: string, label: string, hint = ''): string {
-    return `<div class="ctx-row" data-cmd="${cmd}">` +
+    return `<div class="ctx-row" data-cmd="${cmd}" role="menuitem" tabindex="-1">` +
         `<span class="ctx-label">${esc(label)}</span>` +
         (hint ? `<span class="ctx-hint">${esc(hint)}</span>` : '') +
         `</div>`;
 }
 
 function ctxSubmenu(label: string, id: string, body: string): string {
-    return `<div class="ctx-row ctx-has-sub" data-sub="${id}">` +
+    return `<div class="ctx-row ctx-has-sub" data-sub="${id}" role="menuitem" tabindex="-1">` +
         `<span class="ctx-label">${esc(label)}</span>` +
         `<div class="ctx-submenu">${body}</div>` +
         `</div>`;
@@ -67,7 +67,7 @@ function goAddressRow(state: ContextMenuState): string {
     if (!state.goAddress) { return ''; }
     const { address, valid } = state.goAddress;
     const preview = `0x${address.toString(16).toUpperCase().padStart(8, '0')} ${state.endian.toUpperCase()}`;
-    return `<div class="ctx-row ctx-go-row${valid ? '' : ' ctx-disabled'}" data-cmd="go-address"${valid ? '' : ' title="Not mapped"'}>` +
+    return `<div class="ctx-row ctx-go-row${valid ? '' : ' ctx-disabled'}" data-cmd="go-address" role="menuitem" tabindex="-1"${valid ? '' : ' aria-disabled="true" title="Not mapped"'}>` +
         `<span class="ctx-label">Go address</span>` +
         `<span class="ctx-hint ctx-go">${esc(preview)}</span>` +
         `</div>`;
@@ -81,8 +81,8 @@ function interactionRows(state: ContextMenuState): string {
 
 function buildFillMenu(len: number): string {
     const fillPresets: [number, string][] = [
-        [0x00, 'Zero              (0x00)'],
-        [0xFF, 'Erased flash      (0xFF)'],
+        [0x00, 'Zero'],
+        [0xFF, 'Erased flash'],
     ];
     const customRow =
         `<div class="ctx-custom-row">` +
@@ -92,8 +92,9 @@ function buildFillMenu(len: number): string {
         `<input class="ctx-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
         `<button class="ctx-fill-apply" title="Apply">&#10003;</button>` +
         `</div></div>`;
+    const hintFor = (v: number): string => `${v === 0 ? '(0x00)' : '(0xFF)'}${len > 1 ? ` \u00d7 ${len}` : ''}`;
 
-    return fillPresets.map(([v, lbl]) => ctxItem(`fill-${hexByte(v)}`, lbl, len > 1 ? `\u00d7 ${len}` : '')).join('') +
+    return fillPresets.map(([v, label]) => ctxItem(`fill-${hexByte(v)}`, label, hintFor(v))).join('') +
         CTX_SEP +
         customRow;
 }
@@ -167,9 +168,17 @@ function isValidCustomFill(raw: string, value: number): boolean {
     return raw !== '' && !isNaN(value) && value >= 0 && value <= 0xFF;
 }
 
+/** Element that can take focus right now, or null (duck-typed; no bare `HTMLElement/Element` global in jsdom). */
+function focusableActiveElement(): HTMLElement | null {
+    const act = document.activeElement;
+    return (act && typeof (act as { focus?: () => void }).focus === 'function') ? act as HTMLElement : null;
+}
+
 export class ContextMenu {
     private cb: ContextMenuCallbacks;
     private mounted = false;
+    /** Element focused before the menu opened; restored on hide (so keyboard control returns to its trigger). */
+    private restoreFocusEl: HTMLElement | null = null;
 
     constructor(cb: ContextMenuCallbacks = {}) {
         this.cb = cb;
@@ -184,18 +193,29 @@ export class ContextMenu {
     }
 
     show(x: number, y: number, state: ContextMenuState): void {
-        if (!state.selectionActive) { return; }
         const el = document.getElementById('ctx-menu');
-        if (!el) { return; }
+        if (!state.selectionActive || !el) { return; }
+        this.restoreFocusEl = focusableActiveElement();
         el.innerHTML = renderContextMenuHtml(state);
         this.wireInlineInputs(el);
         wireHoverSubmenus(el, true);
         positionContextMenu(el, x, y);
+        // Keyboard operability: move focus onto the first enabled menu item.
+        el.querySelector<HTMLElement>('.ctx-row[data-cmd]:not(.ctx-disabled)')?.focus();
     }
 
     hide(): void {
         const el = document.getElementById('ctx-menu');
         if (el) { el.style.display = 'none'; }
+        // Return keyboard control to the trigger when it is still around.
+        this.restoreTriggerFocus();
+    }
+
+    private restoreTriggerFocus(): void {
+        const restore = this.restoreFocusEl;
+        this.restoreFocusEl = null;
+        if (!restore || !restore.isConnected || restore === document.activeElement) { return; }
+        restore.focus();
     }
 
     private onDocClick = (e: Event): void => {
@@ -224,8 +244,88 @@ export class ContextMenu {
     }
 
     private onDocKeydown = (e: KeyboardEvent): void => {
-        if (e.key === 'Escape') { this.hide(); }
+        const menu = this.openMenu();
+        if (!menu) { return; }
+        if (this.handleMenuEscape(e)) { return; }
+        if (this.handleMenuNavigationKey(e, menu)) { return; }
+        this.handleMenuActivationKey(e, menu);
     };
+
+    private openMenu(): HTMLElement | null {
+        const menu = document.getElementById('ctx-menu');
+        return menu && menu.style.display !== 'none' ? menu : null;
+    }
+
+    private handleMenuEscape(e: KeyboardEvent): boolean {
+        if (e.key !== 'Escape') { return false; }
+        this.hide();
+        return true;
+    }
+
+    private handleMenuNavigationKey(e: KeyboardEvent, menu: HTMLElement): boolean {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') { return false; }
+        e.preventDefault();
+        this.focusAdjacentRow(menu, e.key === 'ArrowDown' ? 1 : -1);
+        return true;
+    }
+
+    private handleMenuActivationKey(e: KeyboardEvent, menu: HTMLElement): void {
+        if (!this.isActivationKey(e.key)) { return; }
+        const row = this.activeMenuRow();
+        if (!row) { return; }
+        e.preventDefault();
+        if (row.hasAttribute('data-sub')) { this.openSubmenuRow(row); return; }
+        this.runRowCommand(row, menu);
+    }
+
+    private openSubmenuRow(row: HTMLElement): void {
+        const sub = row.querySelector<HTMLElement>(':scope > .ctx-submenu');
+        if (!sub) { return; }
+        sub.style.display = 'block';
+        sub.querySelector<HTMLElement>('.ctx-row:not(.ctx-disabled)')?.focus();
+    }
+
+    private activeMenuRow(): HTMLElement | null {
+        const active = document.activeElement;
+        return active && active.closest?.('.ctx-row') ? active as HTMLElement : null;
+    }
+
+    private isActivationKey(key: string): boolean {
+        return key === 'Enter' || key === ' ';
+    }
+
+    private focusAdjacentRow(menu: HTMLElement, dir: 1 | -1): void {
+        const rows = this.navigableRows(menu);
+        if (rows.length === 0) { return; }
+        const idx = this.currentRowIndex(rows, document.activeElement as HTMLElement | null, dir);
+        rows[(idx + dir + rows.length) % rows.length].focus();
+    }
+
+    private navigableRows(menu: HTMLElement): HTMLElement[] {
+        return Array.from(menu.querySelectorAll<HTMLElement>('.ctx-row'))
+            .filter(r => !r.classList.contains('ctx-disabled')
+                && !r.classList.contains('ctx-custom-row')
+                && this.rowVisible(r));
+    }
+
+    /** A row is navigable only when not inside a collapsed (display:none) submenu. */
+    private rowVisible(row: HTMLElement): boolean {
+        const sub = row.closest<HTMLElement>('.ctx-submenu');
+        return !sub || sub.style.display !== 'none';
+    }
+
+    private currentRowIndex(rows: HTMLElement[], current: HTMLElement | null, dir: 1 | -1): number {
+        const found = current ? this.findRowIndex(rows, current) : -1;
+        return found === -1 ? this.wrapIndex(dir, rows.length) : found;
+    }
+
+    private findRowIndex(rows: HTMLElement[], current: HTMLElement): number {
+        return rows.findIndex(r => r === current || r.contains(current));
+    }
+
+    private wrapIndex(dir: 1 | -1, length: number): number {
+        return dir === 1 ? -1 : length;
+    }
 
     private wireInlineInputs(el: HTMLElement): void {
         const fillInput = el.querySelector<HTMLInputElement>('.ctx-fill-input');

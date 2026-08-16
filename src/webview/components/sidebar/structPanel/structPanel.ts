@@ -667,8 +667,8 @@ private fieldPointerToggleHtml(f: StructField, isBitContainer: boolean): string 
 private fieldMoveButtonsHtml(i: number, total: number): string {
     return (
         `<div class="sfe-move-btns">` +
-        `<button class="sfe-move-btn sfe-move-up" title="Move up"${this.disabledAttr(i === 0)}>&#x2192;</button>` +
-        `<button class="sfe-move-btn sfe-move-dn" title="Move down"${this.disabledAttr(i === total - 1)}>&#x2192;</button>` +
+        `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${this.disabledAttr(i === 0)}>&#x2191;</button>` +
+        `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${this.disabledAttr(i === total - 1)}>&#x2193;</button>` +
         `</div>`
     );
 }
@@ -716,8 +716,8 @@ private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): stri
                `placeholder="N" maxlength="2">` +
         `<span class="sfe-bf-child-unit">bit</span>` +
         `<div class="sfe-bf-child-move">` +
-        `<button class="sfe-move-btn sfe-move-up" title="Move up"${upDis}>&#x2192;</button>` +
-        `<button class="sfe-move-btn sfe-move-dn" title="Move down"${dnDis}>&#x2192;</button>` +
+        `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
+        `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
         `</div>` +
         delCell +
         `</div>`
@@ -3438,7 +3438,7 @@ private instanceActionsHtml(def: StructDef | undefined, pin: StructPin, index: n
     if (def) {
         return actionBtnsHtml(`data-pin-id="${esc(pin.id)}"`, `data-idx="${index}"`);
     }
-    return `<span class="act-btn act-btn-del" data-idx="${index}" title="Delete">&#128465;&#xFE0E;</span>`;
+    return `<button type="button" class="act-btn act-btn-del" data-idx="${index}" title="Delete">&#128465;&#xFE0E;</button>`;
 }
 
 private instanceHeaderHtml(

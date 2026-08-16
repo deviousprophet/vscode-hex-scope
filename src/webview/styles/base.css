@@ -32,7 +32,9 @@
     --non-graphic:     var(--vscode-tab-unfocusedInactiveForeground,     #6a6a6a);
 
     --ok:          #4ec9a0;
+    --ok-soft:     rgba(78,201,160,.12);
     --err:         #f48771;
+    --warn:        #e5a800;
     --match-bg:    rgba(234,179,8,.32);
     --match-hi:    rgba(234,179,8,.7);
     --gap-color:   rgba(255,183,77,.08);
@@ -140,13 +142,18 @@ html, body {
     transition: color .1s, background .1s;  user-select: none;
     opacity: 0; transition: opacity .1s, color .1s, background .1s;
 }
-/* Parent hover reveals the buttons */
+/* Parent hover (or keyboard focus within) reveals the buttons */
 [data-act-host]:hover .act-btn,
 .label-item:hover    .act-btn,
 .sd-row:hover        .act-btn,
-.si-card:hover       .act-btn { opacity: 1; }
+.si-card:hover       .act-btn,
+[data-act-host]:focus-within .act-btn,
+.label-item:focus-within    .act-btn,
+.sd-row:focus-within        .act-btn,
+.si-card:focus-within       .act-btn { opacity: 1; }
 
 .act-btn:hover       { background: rgba(255,255,255,.08); color: var(--fg); }
+.act-btn:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }
 .act-btn-edit:hover  { color: var(--high-color); background: rgba(134,180,212,.1); }
 .act-btn-del:hover   { color: var(--err);         background: rgba(244,135,113,.1); }
 

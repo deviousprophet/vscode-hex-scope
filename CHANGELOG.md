@@ -5,6 +5,11 @@
 ### Added
 
 - Added memory-view **ASCII** toolbar toggle to show or hide the decoded-ASCII column
+- Added hex-grid keyboard navigation — arrow keys move the selection, Shift+arrow extends it from a fixed anchor, and movement skips unmapped regions
+- Added keyboard operability to the context menu — Arrow keys, Enter/Space, Escape, and the context-menu key / Shift+F10 open and drive it
+- Added undo and redo keyboard shortcuts — `Ctrl/Cmd+Z` undoes and `Ctrl/Cmd+Y` (or `Ctrl/Cmd+Shift+Z`) redoes the latest staged edit
+- Added one-click row selection in the memory hex view — clicking an address gutter cell selects the whole row
+- Address-gutter row selection now drags — dragging vertically over the gutter selects all mapped bytes across the dragged rows, holding the last row when the pointer crosses an unmapped gap and continuing on the next data row (single click still selects one row)
 
 ### Changed
 
@@ -12,6 +17,11 @@
 - Record view columns now use fixed widths (address, type, count, checksum) with the data column filling the remaining space; address styling matches the hex view and the checksum column aligns left
 - Search match highlighting now tracks the executed search: changing the query, mode, or byte order clears stale matches (and cancels a diverged in-flight search) until the search is re-run
 - Search bar controls now carry accessible names and the match count is announced to screen readers
+- Integrity profile deletion and apply now require inline confirmation (apply warns that unsaved check edits will be replaced)
+- While a script runs, other scripts' Run buttons are disabled; clicking one shows a status notice explaining a script is already running. `.ts` cards and untrusted workspaces carry explanatory tooltips
+- Pasting text that ends at an unmapped region now reports "Pasted X of Y bytes" in a transient status notice that auto-clears (X counts the bytes that actually change)
+- Toolbar now scrolls horizontally in narrow windows; the search input shrinks before the fixed controls so nothing gets clipped
+- Memory and record views re-slice when the container is resized
 
 ### Fixed
 
@@ -19,6 +29,9 @@
 - Fixed the Edit button remaining visible after entering edit mode, showing alongside the EDITING controls
 - Fixed toggling byte order clearing the Inspector's decoded value for the current selection
 - Fixed the external-change unlock re-enabling buttons that were already disabled for state reasons (e.g. `Save` with no edits)
+- Fixed files with zero records showing the "not loaded" unavailable message instead of a real "No Records" empty state
+- Fixed struct-field highlights in Memory view rendering seams or stray cells when the selection touched the grid edge — highlighting is now root-scoped to the grid
+- Made keyboard-inert label-list actions (visibility/move) and the orphan struct-instance Delete button real `<button>`s, reachable by Tab/Enter
 
 ## [2.17.1] - 2026-08-01
 

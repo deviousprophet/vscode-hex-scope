@@ -148,7 +148,7 @@ suite('IntegrityPanel mount + render', () => {
         panel.render();
         const status = integrityCard().querySelector<HTMLElement>('[data-check-status]')!;
         assert.strictEqual(status.title, 'Not configured');
-        assert.strictEqual(status.textContent, '?');
+        assert.strictEqual(status.textContent, '–');
     });
 
     test('add form opens with selection defaults from getSelection', () => {
@@ -402,7 +402,7 @@ suite('IntegrityPanel highlight + profiles', () => {
         assert.strictEqual((cb.persisted.at(-1) as { checks: unknown[] }).checks.length, 1);
     });
 
-    test('profile CRUD reports onCreate/onUpdate/onRename/onDeleteProfile', () => {
+    test('profile CRUD reports onCreate/onUpdate/onRename/onDeleteProfile', async () => {
         setBytesInSegment(0x1000, [1, 2, 3, 4]);
         click(dom, document.getElementById('integrity-add-btn'));
         let form = integrityForm('add');
@@ -430,7 +430,62 @@ suite('IntegrityPanel highlight + profiles', () => {
         assert.deepStrictEqual(cb.renamed.at(-1), { id: 'p1', name: 'Renamed' });
 
         click(dom, document.getElementById('integrity-profile-delete'));
+        assert.strictEqual(cb.deleted.length, 0, 'delete waits for the inline confirm');
+        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
+        assert.ok(confirmYes, 'confirm popover shown');
+        click(dom, confirmYes as HTMLElement);
+        await new Promise(resolve => setTimeout(resolve, 0));
         assert.deepStrictEqual(cb.deleted, ['p1']);
+    });
+
+    test('apply with an open check draft asks for confirmation before replacing checks', async () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        panel.setProfiles([{
+            schemaVersion: 1,
+            id: 'p1',
+            name: 'STM32 Layout',
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
+        }]);
+        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        select.value = 'p1';
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        click(dom, document.getElementById('integrity-add-btn')); // opens the add-check form (unsaved draft)
+
+        click(dom, document.getElementById('integrity-profile-apply'));
+        assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
+        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
+        assert.ok(confirmYes, 'apply confirm popover shown');
+        click(dom, confirmYes as HTMLElement);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.ok(cb.persisted.length >= 1, 'persisted after confirming apply');
+        assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
+    });
+
+    test('apply over configured checks asks for confirmation when they differ from the profile', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        const check = panel.newCheck({ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false });
+        panel.checks = [check];
+        panel.setProfiles([{
+            schemaVersion: 1,
+            id: 'p1',
+            name: 'STM32 Layout',
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
+        }]);
+        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        select.value = 'p1';
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        click(dom, document.getElementById('integrity-profile-apply'));
+        assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
+        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
+        assert.ok(confirmYes, 'apply confirm popover shown when current checks differ from the profile');
+        click(dom, confirmYes as HTMLElement);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.ok(cb.persisted.length >= 1, 'persisted after confirming apply');
+        const persisted = cb.persisted.at(-1) as { checks: Array<{ endAddress: number }> } | undefined;
+        assert.ok(persisted, 'apply persisted checks');
+        assert.strictEqual(persisted!.checks[0].endAddress, 0x1001, 'profile checks win after confirm');
     });
 
     test('save-as reports onCreateProfile with normalized checks; empty-name rejected inline', () => {

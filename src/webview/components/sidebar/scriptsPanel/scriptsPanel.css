@@ -57,6 +57,8 @@
 .script-run-btn.running:hover { opacity: 1; }
 .script-run-btn.disabled-ts { opacity: .35; cursor: not-allowed; }
 .script-run-btn.disabled-ts:hover { background: var(--btn-bg); }
+.script-run-btn.disabled-run { opacity: .35; cursor: not-allowed; }
+.script-run-btn.disabled-run:hover { background: var(--btn-bg); }
 
 .script-btn-icon { pointer-events: none; line-height: 1; }
 .script-btn-icon.stop { font-size: 11px; }

@@ -23,6 +23,8 @@ export interface ScriptsCallbacks {
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;
     /** Cancel: host posts cancelScript. */
     onCancelScript?: (scriptPath: string) => void;
+    /** Run blocked because another script is already running → host notice. */
+    onBlockedRun?: () => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -242,7 +244,7 @@ export class ScriptsPanel {
                 ${this.statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
                 ${extBadge}${caps}
-                <button class="script-run-btn${attrs.btnClass}" data-path="${esc(s.filePath)}"${attrs.btnTitle}>
+                <button class="script-run-btn${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
                 </button>
             </div>
@@ -267,22 +269,56 @@ export class ScriptsPanel {
 
     private wireScriptList(container: HTMLElement): void {
         container.querySelectorAll<HTMLButtonElement>('.script-run-btn:not(.disabled-ts):not(.disabled-trust)').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const path = btn.dataset.path;
-                if (!path) { return; }
-                if (this.runningPath === path) { this.cancelScript(path); }
-                else { this.runScript(path); }
-            });
+            btn.addEventListener('click', () => this.onRunBtnClick(btn));
         });
+    }
+
+    private onRunBtnClick(btn: HTMLButtonElement): void {
+        const path = btn.dataset.path;
+        if (path === undefined) { return; }
+        if (btn.classList.contains('disabled-run')) { this.cb.onBlockedRun?.(); return; }
+        this.toggleScript(path);
+    }
+
+    private toggleScript(path: string): void {
+        if (this.runningPath === path) { this.cancelScript(path); }
+        else { this.runScript(path); }
     }
 
     private updateBtnState(btn: HTMLButtonElement): void {
         const path = btn.dataset.path;
         if (!path) { return; }
         const isRun = this.runningPath === path;
+        const otherRunning = isRun ? false : this.runningPath !== null;
         btn.classList.toggle('running', isRun);
+        btn.classList.toggle('disabled-run', otherRunning);
+        this.setBlockedState(btn, otherRunning);
         btn.innerHTML = this.runIconHtml(path);
-        btn.title = isRun ? (this.pendingTimer !== null ? 'Running…' : 'Click to cancel') : '';
+        btn.setAttribute('aria-label', this.runBtnAria(isRun));
+        if (this.keepsInitialTooltip(btn)) { return; }
+        btn.title = this.runBtnTitle(isRun, otherRunning);
+    }
+
+    private setBlockedState(btn: HTMLButtonElement, blocked: boolean): void {
+        if (blocked) {
+            btn.removeAttribute('disabled');
+            btn.setAttribute('aria-disabled', 'true');
+        } else {
+            btn.removeAttribute('aria-disabled');
+        }
+    }
+
+    private keepsInitialTooltip(btn: HTMLButtonElement): boolean {
+        return btn.classList.contains('disabled-ts') || btn.classList.contains('disabled-trust');
+    }
+
+    private runBtnAria(isRun: boolean): string {
+        return isRun ? 'Cancel script' : 'Run script';
+    }
+
+    private runBtnTitle(isRun: boolean, otherRunning: boolean): string {
+        if (isRun) { return this.pendingTimer !== null ? 'Running…' : 'Click to cancel'; }
+        return otherRunning ? 'A script is already running' : '';
     }
 
     private renderRunStates(): void {
@@ -336,14 +372,27 @@ export class ScriptsPanel {
         const area = this.flushArea(this.batchPath);
         if (!area) { return; }
         const log = this.ensureLogArea(area);
-        if (log) { log.insertAdjacentHTML('beforeend', this.logLinesHtml(lines)); }
+        if (log) {
+            log.insertAdjacentHTML('beforeend', this.logLinesHtml(lines));
+            this.stickToBottom(log);
+        }
+    }
+
+    /** Keep a tail-following log scrolled to the bottom when the user is already there. */
+    private stickToBottom(log: HTMLElement): void {
+        if (log.scrollHeight - log.scrollTop - log.clientHeight < 40) {
+            log.scrollTop = log.scrollHeight;
+        }
     }
 
     private appendRealtime(text: string): void {
         const area = this.runningResultArea();
         if (!area) { return; }
         const log = this.ensureLogArea(area);
-        if (log) { log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`); }
+        if (log) {
+            log.insertAdjacentHTML('beforeend', `<div>${esc(text)}</div>`);
+            this.stickToBottom(log);
+        }
     }
 
     /** Resets output batching state (was the runStartCallback from resultDisplay). */

@@ -86,9 +86,9 @@ function recordRowOrPlaceholder(record: SerializedRecord | null, format: 'ihex' 
     return record ? recordRowHtml(record, format === 'srec') : PLACEHOLDER_ROW_HTML;
 }
 
-export function renderRecordEmptyHtml(message: string): string {
+export function renderRecordEmptyHtml(message: string, title = 'Record View Unavailable'): string {
     return `<div class="raw-problems" style="margin:10px">` +
-        `<div class="raw-problems-hdr"><span class="raw-problems-title">Record View Unavailable</span></div>` +
+        `<div class="raw-problems-hdr"><span class="raw-problems-title">${esc(title)}</span></div>` +
         `<div style="padding:10px 12px">${esc(message)}</div></div>`;
 }
 
@@ -223,10 +223,10 @@ export class RecordView {
         this.reportNeedPage(input);
     }
 
-    renderEmpty(message: string): void {
+    renderEmpty(message: string, title = 'Record View Unavailable'): void {
         const root = this.rootEl();
         if (!root) { return; }
-        root.innerHTML = renderRecordEmptyHtml(message);
+        root.innerHTML = renderRecordEmptyHtml(message, title);
     }
 
     private readonly handleScroll = (e: Event): void => {

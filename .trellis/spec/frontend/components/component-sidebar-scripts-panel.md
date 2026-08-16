@@ -31,6 +31,7 @@ interface ScriptsCallbacks {
     onRequestList?: () => void;                                   // host posts { type: 'requestScriptList' }
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;  // host posts runScript with S.documentGeneration + currentSelectionRange()
     onCancelScript?: (scriptPath: string) => void;                // host posts cancelScript
+    onBlockedRun?: () => void;                                    // run blocked by another running script → host status notice
     getSelection?: () => { start: number; end: number } | null;   // was currentSelectionRange
     getGeneration?: () => number;                                 // was S.documentGeneration
 }
@@ -60,7 +61,7 @@ class ScriptsPanel {
 
 - Default: empty script list renders "No scripts found in .hexscope/scripts/"; count badge hidden when zero.
 - Card: status dot (gray idle / green ok / red err), name (ellipsis + path tooltip), ext badge, capability badges (⚡ exec / 🌐 net), fixed-width run/cancel button.
-- Button state machine: ▶ play → ⟳ spinner (200 ms pending) → ⏹ stop (click to cancel) → ▶ play on any terminal state. Clicking the running button cancels during pending; another script's run is ignored while one runs. `.ts` cards get `disabled-ts` (esbuild tooltip); untrusted workspace cards get `disabled-trust` ("Workspace not trusted") and neither is click-wired.
+- Button state machine: ▶ play → ⟳ spinner (200 ms pending) → ⏹ stop (click to cancel) → ▶ play on any terminal state. Clicking the running button cancels during pending; while one script runs, every other card's run button is visually disabled (`disabled-run`, `aria-disabled="true"`) but stays clickable so the click reports `onBlockedRun` (host shows a status notice explaining a script is already running) instead of silently ignoring it. `.ts` cards get `disabled-ts` (esbuild tooltip); untrusted workspace cards get `disabled-trust` ("Workspace not trusted") and neither is click-wired.
 - Run payload: `onRunScript(path, getGeneration(), getSelection() ?? undefined)` — omitted `selectionRange` when no selection (same shape as pre-refactor `{ type: 'runScript', scriptPath, generation, selectionRange }`).
 - Output streaming: first 100 lines appended realtime to the running card's log; later lines buffered and flushed via `setTimeout(0)` debounce (BATCH_THRESHOLD=100).
 - `showResult`: clears running state, flushes pending output, sets status dot, renders embedded result block (auto-expanded), wires collapse toggle; re-run replaces the prior result. Error-type headers: success "Result", compile "Compile Error" (⚠️ yellow), runtime "Script Error" (🔴), timeout "Timeout" (⏱️ orange), cancel "Cancelled" (dimmed, partial log preserved). Writes-pending notice when `pendingWriteCount > 0`.

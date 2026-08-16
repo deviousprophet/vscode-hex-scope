@@ -72,11 +72,13 @@ export function renderToolbarHtml(searchBarHtml: string, s: ToolbarRenderState):
             <button id="btn-ascii-toggle" class="${activeClass(mem && s.ascii)} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column"${hiddenAttr(mem)}>ASCII</button>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode"${hiddenAttr(mem && !s.editMode)}>&#11041; Edit</button>
             <div id="edit-mode-group" style="display:${groupDisplay(mem && s.editMode)}">
-                <span class="tb-editing-pill">&#9679; EDITING</span>
+                <span class="tb-editing-pill" title="Underlined bytes are edited">&#9679; EDITING</span>
                 <span id="edit-dirty-count">${dirtyEditText(s.dirtyCount)}</span>
+                <span id="edit-status" role="status"></span>
                 <button id="btn-save" class="tb-save-btn" title="Save edits to file"${disabledAttr(s.dirtyCount === 0)}>&#128190; Save</button>
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
+            <span id="load-progress" class="tb-load-progress" role="status" hidden></span>
             ${searchBarHtml}
         </div>`;
 }
@@ -151,6 +153,21 @@ export class Toolbar {
         const save = document.getElementById('btn-save') as HTMLButtonElement | null;
         if (save) { save.disabled = count === 0; }
     }
+
+    /** Transient edit-mode status message (e.g. a truncated paste); auto-clears. */
+    setStatus(message: string): void {
+        const el = document.getElementById('edit-status');
+        if (!el) { return; }
+        el.textContent = message;
+        el.classList.add('visible');
+        if (this.statusTimer) { clearTimeout(this.statusTimer); }
+        this.statusTimer = setTimeout(() => {
+            this.statusTimer = null;
+            el.classList.remove('visible');
+        }, 3000);
+    }
+
+    private statusTimer: ReturnType<typeof setTimeout> | null = null;
 
     private applyMemoryGating(): void {
         const mem = this.view === 'memory';

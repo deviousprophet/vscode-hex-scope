@@ -11,8 +11,8 @@
 // (every query is scoped to the instance root — diff-compatible).
 
 import './hexView.css';
-import { addrHex, BYTES_PER_ROW, type HexViewRange } from './hexViewRender';
-import { cellAddress, clearCellPreview, columnFor, isCopyShortcut, isEditableTarget, paintMatchesInRoot, selectedColumns } from './hexViewPaint';
+import { addrHex, BYTES_PER_ROW, selectedColumns, type HexViewRange } from './hexViewRender';
+import { cellAddress, clearCellPreview, columnFor, isCopyShortcut, isEditableTarget, paintMatchesInRoot } from './hexViewPaint';
 
 export interface HexViewCallbacks {
     onHover?: (addr: number) => void;
@@ -21,11 +21,15 @@ export interface HexViewCallbacks {
     onColumnLeave?: () => void;
     /** Drag-selection range report (component-transient). */
     onSelectionChange?: (range: HexViewRange) => void;
+    /** Address-gutter drag report (component-transient): row-base range. */
+    onAddressRowDrag?: (rows: HexViewRange) => void;
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
     /** Scroll → host recomputes the visible slice and feeds a new render input. */
     onVisibleWindowChange?: (scrollTop: number) => void;
+    /** Address-gutter click on a data row → select that row. */
+    onAddressRowClick?: (rowBase: number, shift: boolean) => void;
 }
 
 // ── Interaction controller ────────────────────────────────────────
@@ -35,6 +39,8 @@ export class HexView {
     private mounted = false;
     private dragAnchor: number | null = null;
     private lastDragRange: HexViewRange | null = null;
+    private rowDragLastRow: number | null = null;
+    private dragMode: 'cell' | 'row' | null = null;
     private activeColumn: string | null = null;
     private hoveredCell: HTMLElement | null = null;
     private cachedRoot: HTMLElement | null = null;
@@ -91,7 +97,6 @@ export class HexView {
             cells.forEach(el => el.classList.remove('sel'));
             return;
         }
-        const selectedCols = selectedColumns(range.start, range.end);
         cells.forEach(el => {
             const addr = cellAddress(el);
             if (addr === null) { return; }
@@ -101,8 +106,8 @@ export class HexView {
                 el.closest<HTMLElement>('.data-row')?.classList.add('row-sel');
             }
         });
-        root.querySelectorAll<HTMLElement>('#mem-header .data-cell[data-col]').forEach(el => {
-            el.classList.toggle('sel-col', selectedCols.has(Number(el.dataset.col)));
+        selectedColumns(range.start, range.end).forEach(col => {
+            root.querySelectorAll<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`).forEach(el => el.classList.add('sel-col'));
         });
     }
 
@@ -191,22 +196,51 @@ export class HexView {
     }
 
     private readonly handleMouseDown = (e: MouseEvent): void => {
-        if (!this.isPrimaryCellDown(e)) { return; }
-        const cell = this.dataCellFrom(e)!;
-        const addr = cellAddress(cell)!;
+        if (!this.isPrimaryMouseDown(e)) { return; }
+        if (this.handleAddressRow(e)) { return; }
+        this.handleDataCell(e);
+    };
+
+    private isPrimaryMouseDown(e: MouseEvent): boolean {
+        return e.button === 0 && this.inRoot(e);
+    }
+
+    private handleAddressRow(e: MouseEvent): boolean {
+        const target = e.target as HTMLElement;
+        const addrCell = target.closest<HTMLElement>('.data-row .addr-cell');
+        const addrRow = addrCell?.closest<HTMLElement>('.data-row[data-row]');
+        if (!addrCell || !addrRow) { return false; }
+        this.rootEl()?.focus();
         e.preventDefault();
+        this.dragMode = 'row';
+        this.dragAnchor = Number(addrRow.dataset.row);
+        this.rowDragLastRow = this.dragAnchor;
+        this.lastDragRange = null;
+        this.cb.onAddressRowClick?.(this.dragAnchor, e.shiftKey);
+        return true;
+    }
+
+    private handleDataCell(e: MouseEvent): void {
+        const cell = this.dataCellFrom(e);
+        if (!cell) { return; }
+        const addr = cellAddress(cell)!;
+        // focus the grid container: keyboard selection keys on `document.activeElement`
+        // being inside it.
+        this.rootEl()?.focus();
+        e.preventDefault();
+        this.dragMode = 'cell';
         this.dragAnchor = addr;
         this.lastDragRange = null;
         this.cb.onCellClick?.(addr, e.shiftKey, columnFor(cell));
     };
 
-    private isPrimaryCellDown(e: MouseEvent): boolean {
-        return this.inRoot(e) && e.button === 0 && this.dataCellFrom(e) !== null;
-    }
-
     private readonly handleMouseMove = (e: MouseEvent): void => {
         if (!this.activeDragFor(e)) {
             this.dragAnchor = null;
+            return;
+        }
+        if (this.dragMode === 'row') {
+            this.reportRowDragRange(this.rowDragRangeFromPoint(e));
             return;
         }
         this.reportDragRange(this.dragRangeFromPoint(e));
@@ -216,6 +250,29 @@ export class HexView {
         if (!range || this.isSameDragRange(range)) { return; }
         this.lastDragRange = range;
         this.cb.onSelectionChange?.(range);
+    }
+
+    private reportRowDragRange(range: HexViewRange | null): void {
+        if (!range || this.isSameDragRange(range)) { return; }
+        this.lastDragRange = range;
+        this.cb.onAddressRowDrag?.(range);
+    }
+
+    private rowDragRangeFromPoint(e: MouseEvent): HexViewRange | null {
+        if (this.dragAnchor === null) { return null; }
+        const rowEl = this.rowElementFromPoint(e);
+        if (rowEl) { this.rowDragLastRow = Number(rowEl.dataset.row); }
+        const current = this.rowDragLastRow;
+        if (current === null) { return null; }
+        return { start: Math.min(this.dragAnchor, current), end: Math.max(this.dragAnchor, current) };
+    }
+
+    private rowElementFromPoint(e: MouseEvent): HTMLElement | null {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        if (!el) { return null; }
+        const rowEl = (el as HTMLElement).closest<HTMLElement>('.data-row[data-row]');
+        if (!rowEl || !this.rootEl()?.contains(rowEl)) { return null; }
+        return rowEl;
     }
 
     private activeDragFor(e: MouseEvent): boolean {
@@ -245,6 +302,8 @@ export class HexView {
 
     private readonly handleMouseUp = (): void => {
         this.dragAnchor = null;
+        this.rowDragLastRow = null;
+        this.dragMode = null;
     };
 
     private readonly handleMouseOver = (e: MouseEvent): void => {
@@ -321,6 +380,7 @@ export class HexView {
         if (!this.inRoot(e)) { return; }
         const cell = this.dataCellFrom(e);
         if (!cell) { return; }
+        this.rootEl()?.focus();
         this.cb.onCellContext?.(cellAddress(cell)!, e.clientX, e.clientY);
         e.preventDefault();
     };

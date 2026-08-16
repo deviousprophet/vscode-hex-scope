@@ -26,15 +26,17 @@ interface CallLog {
     leaves: number;
     columnLeaves: number;
     windows: number[];
+    rows: Array<{ row: number; shift: boolean }>;
+    rowDrags: Array<{ start: number; end: number }>;
 }
 
 function emptyLog(): CallLog {
-    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [] };
+    return { clicks: [], contexts: [], selections: [], copies: 0, hovers: [], columnHovers: [], leaves: 0, columnLeaves: 0, windows: [], rows: [], rowDrags: [] };
 }
 
 function installDom(): JSDOM {
     const dom = new JSDOM(`<!doctype html><html><body>
-        <div id="memory-view">
+        <div id="memory-view" tabindex="0">
             <div id="mem-header"></div>
             <div id="mem-scroll"><div id="mem-rows"></div></div>
         </div>
@@ -85,6 +87,8 @@ function installHexView(callbacks: Partial<HexViewCallbacks> = {}): { hex: HexVi
         onLeave: () => { log.leaves++; },
         onColumnLeave: () => { log.columnLeaves++; },
         onVisibleWindowChange: top => { log.windows.push(top); },
+        onAddressRowClick: (rowBase, shift) => { log.rows.push({ row: rowBase, shift }); },
+        onAddressRowDrag: rows => { log.rowDrags.push({ start: rows.start, end: rows.end }); },
         ...callbacks,
     });
     hex.mount();
@@ -116,6 +120,13 @@ function standardCells(): HexViewCell[] {
     const cells = vals.map(cellVal);
     cells[5] = emptyCell(); // 0x1005 unmapped → be-cell
     return cells;
+}
+
+function rowInput(rowBases: number[]): HexViewRenderInput {
+    return {
+        ...standardInput(),
+        rows: rowBases.map(base => ({ address: base, kind: 'data' as const, cells: standardCells() })),
+    };
 }
 
 function standardInput(overrides: Partial<HexViewRenderInput> = {}): HexViewRenderInput {
@@ -338,6 +349,113 @@ suite('HexView interactions', () => {
         ]);
     });
 
+    test('mousedown on a mapped cell focuses the grid container', () => {
+        currentDom = installDom();
+        installHexView();
+        renderGrid(standardInput());
+        document.body.focus();
+        dispatchOn(hexCell(ADDR_BASE), 'mousedown', { button: 0 });
+        assert.strictEqual(document.activeElement, document.getElementById('memory-view'), 'grid container focused for keyboard nav');
+    });
+
+    test('mousedown on a header column cell is inert (no column selection)', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(standardInput());
+        const headerCell = document.querySelector<HTMLElement>('#mem-header .data-cell[data-col="3"]');
+        assert.ok(headerCell, 'header column cell present');
+        document.body.focus();
+        dispatchOn(headerCell!, 'mousedown', { button: 0, shiftKey: true });
+        assert.strictEqual(log.clicks.length, 0);
+        assert.strictEqual(log.rows.length, 0);
+        assert.deepStrictEqual(log.selections, []);
+    });
+
+    test('mousedown on the address gutter cell reports its row', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(standardInput());
+        const addrCell = document.querySelector<HTMLElement>(`.data-row[data-row="${(ADDR_BASE - (ADDR_BASE % 16))}"] .addr-cell`);
+        assert.ok(addrCell, 'address gutter cell present');
+        dispatchOn(addrCell!, 'mousedown', { button: 0 });
+        assert.deepStrictEqual(log.rows, [{ row: ADDR_BASE - (ADDR_BASE % 16), shift: false }]);
+    });
+
+    test('dragging down the gutter selects the anchor-to-pointer row range', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(rowInput([0x1000, 0x1010]));
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4096"] .addr-cell`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4112"]`)!;
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rows.length, 1, 'single-row select on press');
+        assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1010 }]);
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rowDrags.length, 1, 'same range not re-reported');
+    });
+
+    test('dragging up the gutter normalizes the range via min/max', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(rowInput([0x1000, 0x1010]));
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4112"] .addr-cell`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4096"]`)!;
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 10 });
+        assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1010 }]);
+    });
+
+    test('row drag holds the last data-row across a gap, then spans to the next data-row', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid({
+            ...standardInput(),
+            rows: [
+                { address: 0x1000, kind: 'data', cells: standardCells() },
+                { address: 0x1010, kind: 'gap', cells: [], gap: { from: 0x1010, to: 0x101F, bytes: 16 } },
+                { address: 0x1020, kind: 'data', cells: standardCells() },
+            ],
+        });
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4096"] .addr-cell`)!;
+        const gapRow = document.querySelector<HTMLElement>(`.gap-row`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4128"]`)!;
+        currentDom!.window.document.elementFromPoint = () => gapRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.deepStrictEqual(log.rowDrags, [{ start: 0x1000, end: 0x1000 }], 'over gap holds last data-row');
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 120 });
+        assert.deepStrictEqual(log.rowDrags[1], { start: 0x1000, end: 0x1020 }, 'exiting gap onto B spans the range');
+    });
+
+    test('row drag stops reporting on mouseup', () => {
+        currentDom = installDom();
+        const { log } = installHexView();
+        renderGrid(rowInput([0x1000, 0x1010]));
+        const from = document.querySelector<HTMLElement>(`.data-row[data-row="4096"] .addr-cell`)!;
+        const toRow = document.querySelector<HTMLElement>(`.data-row[data-row="4112"]`)!;
+        currentDom!.window.document.elementFromPoint = () => toRow as unknown as Element;
+        dispatchOn(from, 'mousedown', { button: 0 });
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rowDrags.length, 1);
+        dispatchOn(document, 'mouseup');
+        dispatchOn(document, 'mousemove', { buttons: 1, clientX: 10, clientY: 60 });
+        assert.strictEqual(log.rowDrags.length, 1, 'no reports after mouseup');
+    });
+
+    test('contextmenu on a mapped cell focuses the grid container', () => {
+        currentDom = installDom();
+        installHexView();
+        renderGrid(standardInput());
+        document.body.focus();
+        const cell = hexCell(ADDR_BASE);
+        cell.dispatchEvent(mouseEvent('contextmenu', { button: 2, clientX: 31, clientY: 47, cancelable: true }));
+        assert.strictEqual(document.activeElement, document.getElementById('memory-view'), 'grid container focused after right-click');
+    });
+
     test('mousedown on an empty be cell reports nothing and does not start a drag', () => {
         currentDom = installDom();
         const { log } = installHexView();
@@ -456,7 +574,7 @@ suite('HexView interactions', () => {
 suite('HexView paint methods', () => {
     teardown(cleanupDom);
 
-    test('paintSelection paints .sel on cells, .row-sel and header .sel-col; null clears', () => {
+    test('paintSelection paints .sel and .row-sel cells; null clears', () => {
         currentDom = installDom();
         const { hex } = installHexView();
         renderGrid(standardInput());
@@ -465,11 +583,14 @@ suite('HexView paint methods', () => {
         assert.ok(charCell(ADDR_BASE + 2).classList.contains('sel'));
         assert.ok(!hexCell(ADDR_BASE).classList.contains('sel'));
         assert.ok(document.querySelector<HTMLElement>('.data-row')?.classList.contains('row-sel'));
-        assert.ok(document.querySelector<HTMLElement>('#mem-header .data-cell[data-col="1"]')?.classList.contains('sel-col'));
+        const hdrSel = (col: number) => document.querySelector<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`);
+        assert.ok(hdrSel(1)?.classList.contains('sel-col'), 'header column 1 lit by selection');
+        assert.ok(hdrSel(2)?.classList.contains('sel-col'), 'header column 2 lit by selection');
+        assert.ok(!hdrSel(0)?.classList.contains('sel-col'), 'unselected header column 0 not lit');
         hex.paintSelection(null);
         assert.strictEqual(document.querySelectorAll('.sel').length, 0);
         assert.strictEqual(document.querySelectorAll('.row-sel').length, 0);
-        assert.strictEqual(document.querySelectorAll('.sel-col').length, 0);
+        assert.strictEqual(document.querySelectorAll('#mem-header .data-cell.sel-col').length, 0, 'header sel-col cleared');
     });
 
     test('paintMatch paints visible match spans and the active amatch', () => {

@@ -19,3 +19,11 @@ export function selectedBytes(): number[] {
     }
     return out;
 }
+
+/** [start, end] for a mapped span, shift-extending from the current selection start. */
+export function mappedSelectionRange(first: number, last: number, shift: boolean): [number, number] {
+    if (shift && S.selStart !== null) {
+        return [Math.min(S.selStart, first), Math.max(S.selStart, last)];
+    }
+    return [first, last];
+}

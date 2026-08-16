@@ -12,6 +12,7 @@ Applies to edit mode, `appModel`, `editTransactions`, edit controls, `HexEditorS
 function stageIntegrityEditTransaction(edits: Array<[number, number]>): boolean;
 function fillSelectionTransaction(range: SelectionRange | null, fill: number): void;
 function undoLastEditTransaction(): boolean;
+function redoLastEditTransaction(): boolean;
 function clearEditModel(): void;
 function hasUnsavedEdits(): boolean;
 export function getOriginalByte(addr: number): number | undefined;
@@ -41,7 +42,7 @@ type WebviewToProviderMessage =
 - Fill applies per-byte with `stageIntegrityEdit` semantics: skip addresses whose current value already equals `fillVal`; if `fillVal` equals the byte's original value but a prior edit changed it, revert by removing the `S.edits` entry. Undo still records the prior current value for every byte actually changed.
 - Integrity Auto fix/Fix all enters through the same transaction owner, so it is undoable and updates all byte consumers.
 - Save sends a stable list of edits to the extension host. Host serializes through the current document format, recomputes affected record checksums, writes, reparses, then returns `savedEdits`.
-- `savedEdits` replaces parsed memory and clears edits/undo only after host success.
+- `savedEdits` replaces parsed memory and clears edits/undo/redo only after host success.
 - Pending changes update Memory, Inspector, structs, search reads, integrity calculations, dirty bar, and edit controls through the shared accessor/invalidation path.
 - External file changes lock editing. With no local edits, offer reload; with local edits, show conflict choice. Parse-error changes use error UI and optional checksum repair.
 - Direct-typing (keyboard-based single-byte editing) uses a capture-phase `keydown` listener on `document`. Enters the same transaction path as fills (`S.edits`, `S.undoStack`).

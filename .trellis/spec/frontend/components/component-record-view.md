@@ -40,13 +40,13 @@ interface RecordViewCallbacks {
 }
 
 export function renderRecordViewHtml(input: RecordViewRenderInput): string;  // pure (table incl thead)
-export function renderRecordEmptyHtml(message: string): string;              // pure (unavailable node)
+export function renderRecordEmptyHtml(message: string, title?: string): string; // pure (empty-state node; title defaults to "Record View Unavailable")
 export class RecordView {
     constructor(rootSelector: string, cb?: RecordViewCallbacks);
     setCallbacks(cb: RecordViewCallbacks): void;
     mount(): void;                       // idempotent, doc-delegated scroll
     render(input: RecordViewRenderInput): void;
-    renderEmpty(message: string): void;
+    renderEmpty(message: string, title?: string): void;   // title defaults to "Record View Unavailable"
 }
 ```
 
@@ -76,6 +76,7 @@ export class RecordView {
 | Record error / invalid checksum | `rerr` row class; checksum `—` or error tag. |
 | Non-data record type | Address cell shows `—` dash (left-aligned with address text). |
 | No parseResult | `renderEmpty` "Record View Unavailable" node. |
+| File has zero records (`recordCount === 0`) | Host renders a real empty state: `renderEmpty('This file contains no records.', 'No Records')` — not the "not loaded" copy. |
 
 ## Tests Required
 

@@ -50,6 +50,7 @@ export class ContextMenu {
 - **Go address:** only when `len===4`, follows `S.endian` (host-computed), preview `0x… + endian`; invalid (unmapped) row is `.ctx-disabled` inert + `title="Not mapped"` tooltip (no inline hint).
 - **Copy cmd normalization:** direct cmds `copy-hex`/`copy-ascii`/`copy-c-array` are normalized by host `contextCommandResult` (`copy-c-array → c-array`); Analyze/fill cmds unchanged.
 - **Interaction:** doc-delegated mount; click-outside → hide; Escape → hide; hover `.ctx-has-sub` → submenu (reuse `wireHoverSubmenus`); custom-fill input Enter applies / Escape dismisses / `.ctx-fill-invalid` on invalid (`.ctx-fill-apply` button). Inline inputs stopPropagation on click/mousedown.
+- **Keyboard/ARIA:** `#ctx-menu` has `role="menu"`; rows are `role="menuitem" tabindex="-1"` (disabled rows `aria-disabled`), separators `role="separator"`. `show()` focuses the first enabled row; ArrowUp/ArrowDown move focus among enabled rows (disabled/submenu-input rows skipped); Enter/Space runs the focused command, or on a `.ctx-has-sub` row opens its submenu and focuses the first enabled item inside; Escape hides. The host opens the menu on the grid `ContextMenu` key / Shift+F10. `show()` records the previously focused element; `hide()` restores focus to it (when still connected) so keyboard control returns to the triggering grid/sidebar row instead of the body.
 - **Positioning:** `positionContextMenu` from `utils.ts` (viewport-edge flips).
 - Markup byte-identical to pre-refactor menu classes (`.ctx-*`); all labels/previews escaped via `esc()`.
 - Zero `S` import; no command logic; no size math beyond host-fed layout.
@@ -57,7 +58,7 @@ export class ContextMenu {
 ## Behaviour
 
 - Menu opens only when `selectionActive`; header shows "N bytes selected" (+ "✏ Editing" badge in edit mode).
-- Copy/analyze/fill outputs unchanged — formatting lives in `core/byteTools` (`formatCopyCommand`/`formatAnalyzeCommand`), command mapping in `contextCommands.ts`.
+- Copy/analyze/fill outputs unchanged — formatting lives in `core/byteTools` (`formatCopyCommand`/`formatAnalyzeCommand`), command mapping in `contextCommands.ts`. Fill presets carry their value as a companion `.ctx-hint` (`Zero`/`Erased flash` etc.) beside the action label.
 - Single-byte menu excludes Analyze (low signal) and Go address (needs 4 bytes).
 
 ## Validation & Error Matrix

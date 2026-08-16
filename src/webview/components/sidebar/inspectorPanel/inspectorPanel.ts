@@ -16,6 +16,7 @@ import {
     bitRowsHtml,
     bitTotalCount,
     byteRowHtml,
+    gapPaddingNoteHtml,
     inspectorSelectionLength,
     labelItemsHtml,
     multiByteInspectorHtml,
@@ -167,16 +168,22 @@ export class InspectorPanel implements InspectorLabelFormHost {
             this.renderInspectorNoData(state.valsEl);
             return;
         }
-        if (state.len === 1) {
-            state.valsEl.innerHTML = singleByteInspectorHtml(state.val);
-            this.renderBits(state.val);
-        } else {
-            const selBytes = this.selectedBytes(state.len);
-            state.valsEl.innerHTML = multiByteInspectorHtml(selBytes, state.len);
-            this.renderBitsMulti(selBytes.slice(0, Math.min(state.len, 8)));
-        }
+        this.paintInspectorValue(state.valsEl, state.len, state.val);
         this.wireInspectorCopies(state.valsEl);
         this.renderMultiInline();
+    }
+
+    private paintInspectorValue(valsEl: HTMLElement, len: number, val: number): void {
+        if (len === 1) {
+            valsEl.innerHTML = singleByteInspectorHtml(val);
+            this.renderBits(val);
+            return;
+        }
+        const selBytes = this.selectedBytes(len);
+        const skipped = this.countUnmappedInSelection();
+        valsEl.innerHTML = multiByteInspectorHtml(selBytes, len)
+            + (skipped > 0 ? gapPaddingNoteHtml(skipped) : '');
+        this.renderBitsMulti(selBytes.slice(0, Math.min(len, 8)));
     }
 
     private readInspectorState(): { addrEl: HTMLElement; valsEl: HTMLElement; len: number; val: number | undefined } | null {
@@ -215,6 +222,13 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     private readSelectedByte(addr: number): number {
         return this.cb.readByte(addr) ?? 0;
+    }
+
+    /** Unmapped addresses inside the current selection (decode pads them with 0x00). */
+    private countUnmappedInSelection(): number {
+        const { start, end } = this.selection;
+        if (start === null || end === null) { return 0; }
+        return countUnmapped(start, end, this.cb.readByte);
     }
 
     private wireInspectorCopies(valsEl: HTMLElement): void {
@@ -450,4 +464,14 @@ function wireMultiInlineCopies(el: HTMLElement, cb: (text: string, label: string
             cb(span.dataset.copy!, 'hex');
         });
     });
+}
+
+
+/** Bytes in [start,end] with no mapped value. */
+function countUnmapped(start: number, end: number, readByte: (a: number) => number | undefined): number {
+    let n = 0;
+    for (let a = start; a <= end; a++) {
+        if (readByte(a) === undefined) { n++; }
+    }
+    return n;
 }

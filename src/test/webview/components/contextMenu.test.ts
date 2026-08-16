@@ -16,7 +16,7 @@ interface Calls {
 let currentDom: JSDOM | null = null;
 
 function installDom(): JSDOM {
-    const dom = new JSDOM('<!DOCTYPE html><body><div id="ctx-menu"></div></body>', { url: 'https://hexscope.test/' });
+    const dom = new JSDOM('<!DOCTYPE html><body><button id="trigger">T</button><div id="ctx-menu"></div></body>', { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as { window: Window; document: Document };
     g.window = dom.window as unknown as Window;
     g.document = dom.window.document as unknown as Document;
@@ -188,6 +188,36 @@ suite('webview ContextMenu component', () => {
         assert.ok(!visible(dom));
     });
 
+    test('rows expose menu semantics and keyboard focus', () => {
+        const html = renderContextMenuHtml(baseState());
+        assert.ok(html.includes('role="menuitem"'));
+        assert.ok(html.includes('tabindex="-1"'));
+        assert.ok(html.includes('role="separator"'));
+    });
+
+    test('arrow keys move focus through rows and Enter runs the focused command', () => {
+        const { dom, calls } = createHarness();
+        const first = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-row[data-cmd]')!;
+        assert.strictEqual(document.activeElement, first, 'show focuses the first enabled row');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        const second = ctxMenuEl(dom).querySelectorAll<HTMLElement>('.ctx-row[data-cmd]')[1];
+        assert.strictEqual(document.activeElement, second, 'ArrowDown moves focus to the next row');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter' }));
+        assert.deepStrictEqual(calls.commands, [second.dataset.cmd], 'Enter runs the focused row command');
+        assert.ok(!visible(dom), 'menu hides after the command');
+    });
+
+    test('arrow keys skip disabled rows', () => {
+        const { dom } = createHarness({ goAddress: { address: 0xEFBEADDE, valid: false } });
+        const goRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-row[data-cmd="go-address"]')!;
+        assert.ok(goRow.classList.contains('ctx-disabled'));
+        for (let i = 0; i < 12; i++) {
+            dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+            const active = document.activeElement as HTMLElement;
+            assert.notStrictEqual(active.dataset.cmd, 'go-address', 'focus never lands on a disabled row');
+        }
+    });
+
     test('hover on a submenu row opens its submenu', () => {
         const { dom } = createHarness();
         const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]');
@@ -196,6 +226,17 @@ suite('webview ContextMenu component', () => {
         const sub = subRow!.querySelector<HTMLElement>('.ctx-submenu');
         assert.ok(sub, 'submenu element present');
         assert.strictEqual(sub!.style.display, 'block');
+    });
+
+    test('Enter on a submenu row opens it and focuses the first item inside', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        assert.strictEqual(sub.style.display, 'block', 'Enter opens the submenu');
+        const first = sub.querySelector<HTMLElement>('.ctx-row:not(.ctx-disabled)')!;
+        assert.strictEqual(document.activeElement, first, 'focus moves to the first enabled submenu item');
     });
 
     test('custom fill: valid Enter applies fill command and hides', () => {
@@ -218,11 +259,30 @@ suite('webview ContextMenu component', () => {
         assert.ok(visible(dom));
     });
 
+    test('custom fill: Escape dismisses the menu even with text in the input', () => {
+        const { dom } = createHarness({ editMode: true });
+        const input = ctxMenuEl(dom).querySelector<HTMLInputElement>('.ctx-fill-input')!;
+        input.value = 'FF';
+        input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert.ok(!visible(dom));
+    });
+
     test('show is a no-op when selection is inactive', () => {
         const { dom, menu } = createHarness();
         menu.hide();
         menu.show(10, 10, baseState({ selectionActive: false }));
         assert.ok(!visible(dom));
+    });
+
+    test('hide restores focus to the element focused before the menu opened', () => {
+        const { dom, menu } = createHarness();
+        const trigger = dom.window.document.getElementById('trigger') as HTMLElement;
+        menu.hide();
+        trigger.focus();
+        menu.show(10, 10, baseState());
+        assert.notStrictEqual(dom.window.document.activeElement, trigger, 'menu row holds focus while open');
+        menu.hide();
+        assert.strictEqual(dom.window.document.activeElement, trigger, 'focus returns to the trigger on hide');
     });
 
     test('mount is idempotent: second mount does not double-fire commands', () => {

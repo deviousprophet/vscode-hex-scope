@@ -4,30 +4,12 @@
 // interaction controller stays focused on event routing + state.
 
 import { lowerBound } from '../../utils';
-import { BYTES_PER_ROW } from './hexViewRender';
 
 export function cellAddress(el: HTMLElement): number | null {
     const raw = el.dataset.addr;
     if (!raw) { return null; }
     const addr = parseInt(raw, 16);
     return Number.isNaN(addr) ? null : addr;
-}
-
-export function selectedColumns(selStart: number, selEnd: number): Set<number> {
-    const cols = new Set<number>();
-    const startRow = Math.floor(selStart / BYTES_PER_ROW);
-    const endRow = Math.floor(selEnd / BYTES_PER_ROW);
-    const startCol = selStart % BYTES_PER_ROW;
-    const endCol = selEnd % BYTES_PER_ROW;
-    if (startRow === endRow) { return addColumnRange(cols, startCol, endCol); }
-    if (endRow - startRow > 1) { return addColumnRange(cols, 0, BYTES_PER_ROW - 1); }
-    addColumnRange(cols, startCol, BYTES_PER_ROW - 1);
-    return addColumnRange(cols, 0, endCol);
-}
-
-function addColumnRange(cols: Set<number>, start: number, end: number): Set<number> {
-    for (let c = start; c <= end; c++) { cols.add(c); }
-    return cols;
 }
 
 interface CellAddressIndex {

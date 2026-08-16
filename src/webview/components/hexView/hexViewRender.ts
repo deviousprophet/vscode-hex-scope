@@ -179,3 +179,21 @@ function inRange(range: HexViewRange | null, addr: number): boolean {
 export function addrHex(address: number): string {
     return address.toString(16).toUpperCase().padStart(8, '0');
 }
+
+/** Data-column indices spanned by an inclusive address range (row-major `BYTES_PER_ROW`). */
+export function selectedColumns(start: number, end: number): number[] {
+    const cols: number[] = [];
+    const startRow = Math.floor(start / BYTES_PER_ROW);
+    const endRow = Math.floor(end / BYTES_PER_ROW);
+    const startCol = start % BYTES_PER_ROW;
+    const endCol = end % BYTES_PER_ROW;
+    if (startRow === endRow) { return columnsInRange(cols, startCol, endCol); }
+    if (endRow - startRow > 1) { return columnsInRange(cols, 0, BYTES_PER_ROW - 1); }
+    columnsInRange(cols, startCol, BYTES_PER_ROW - 1);
+    return columnsInRange(cols, 0, endCol);
+}
+
+function columnsInRange(cols: number[], start: number, end: number): number[] {
+    for (let c = start; c <= end; c++) { cols.push(c); }
+    return cols;
+}

@@ -71,7 +71,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Addr mode strips non-hex input and shows `0x` prefix overlay when non-empty.
 - Enter runs a fresh search; Enter on an unchanged completed query navigates (Shift+Enter → prev, Enter → next).
 - Ctrl+F focuses and selects the search input.
-- Run button triggers `onSearch(..., 'button')`; prev/next navigate; clear empties input + `onClear`.
+- Run button triggers `onSearch(..., 'button')`; prev/next navigate; clear empties input + `onClear`. Prev/next buttons are `#btn-prev`/`#btn-next` with glyphs `▲`/`▼`.
 - `setCount(n, m)` renders `m+1 / n` when query non-empty and matches exist, `0 / 0` when a query has no hits, blank when the query is empty.
 - `setBusy(true/false)` toggles the spinner (`#search-progress.active`) and `aria-hidden`.
 - `setVisible(true/false)` shows/hides the `#search-box` (host switches toggles it when leaving the memory view; SearchBar is unaware of which view is active). Ctrl+F may still focus a hidden input — existing no-op.

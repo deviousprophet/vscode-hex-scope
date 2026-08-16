@@ -1,16 +1,17 @@
 import type { SelectionRange } from './memory/selection';
 import { S } from './state';
 
-export function stageIntegrityEditTransaction(edits: Array<[number, number]>): boolean {
+export function stageIntegrityEditTransaction(edits: Array<[number, number]>): number {
     const previous: Array<[number, number]> = [];
     for (const [address, value] of edits) {
         const prior = stageIntegrityEdit(address, value);
         if (prior) { previous.push(prior); }
     }
-    if (previous.length === 0) { return false; }
+    if (previous.length === 0) { return 0; }
     S.undoStack.push(previous);
+    S.redoStack.length = 0;
     S.editMode = true;
-    return true;
+    return previous.length;
 }
 
 export function stageIntegrityEdit(address: number, value: number): [number, number] | null {
@@ -29,7 +30,10 @@ function currentIntegrityByte(address: number, original: number): number {
 
 export function fillSelectionTransaction(range: SelectionRange | null, fillVal: number): void {
     const prev = buildFillTransaction(range, fillVal);
-    if (prev.length > 0) { S.undoStack.push(prev); }
+    if (prev.length > 0) {
+        S.undoStack.push(prev);
+        S.redoStack.length = 0;
+    }
 }
 
 function buildFillTransaction(range: SelectionRange | null, fillVal: number): Array<[number, number]> {
@@ -55,9 +59,24 @@ function stageFillByte(address: number, fillVal: number): [number, number] | nul
 export function undoLastEditTransaction(): boolean {
     const txn = popUndoTransaction();
     if (!txn) { return false; }
+    const redo: Array<[number, number]> = [];
     for (const [addr, prevVal] of txn) {
+        redo.push([addr, currentEditedByte(addr)]);
         restoreEditedByte(addr, prevVal);
     }
+    S.redoStack.push(redo);
+    return true;
+}
+
+export function redoLastEditTransaction(): boolean {
+    const txn = popRedoTransaction();
+    if (!txn) { return false; }
+    const inverse: Array<[number, number]> = [];
+    for (const [addr, newVal] of txn) {
+        inverse.push([addr, currentEditedByte(addr)]);
+        restoreEditedByte(addr, newVal);
+    }
+    S.undoStack.push(inverse);
     return true;
 }
 
@@ -65,6 +84,18 @@ function popUndoTransaction(): Array<[number, number]> | null {
     if (!S.editMode) { return null; }
     if (S.undoStack.length === 0) { return null; }
     return S.undoStack.pop()!;
+}
+
+function popRedoTransaction(): Array<[number, number]> | null {
+    if (!S.editMode) { return null; }
+    if (S.redoStack.length === 0) { return null; }
+    return S.redoStack.pop()!;
+}
+
+/** Current in-effect byte value at `addr` (edited value or the original). */
+function currentEditedByte(addr: number): number {
+    const orig = getOriginalByte(addr);
+    return S.edits.has(addr) ? S.edits.get(addr)! : (orig ?? 0);
 }
 
 function restoreEditedByte(addr: number, prevVal: number): void {

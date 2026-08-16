@@ -113,8 +113,8 @@ export function byteClass(v: number): string {
  */
 export function actionBtnsHtml(editData: string, deleteData: string): string {
     return (
-        `<span class="act-btn act-btn-edit" ${editData} title="Edit">&#9998;</span>` +
-        `<span class="act-btn act-btn-del"  ${deleteData} title="Delete">&#128465;&#xFE0E;</span>`
+        `<button type="button" class="act-btn act-btn-edit" ${editData} title="Edit" aria-label="Edit">&#9998;</button>` +
+        `<button type="button" class="act-btn act-btn-del"  ${deleteData} title="Delete" aria-label="Delete">&#128465;&#xFE0E;</button>`
     );
 }
 
@@ -145,9 +145,9 @@ export function wireActionBtns(
 /**
  * Show a small "Delete?" popover anchored above `anchor`.
  * Clicking Yes calls `onConfirm`; clicking No or outside dismisses it.
- * Only one popover is live at a time.
+ * Only one popover is live at a time. `message` overrides the default "Delete?".
  */
-function inlineConfirm(anchor: HTMLElement, onConfirm: () => void): void {
+export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, message = 'Delete?'): void {
     // Remove any existing popover first
     dismissConfirmPopover();
 
@@ -155,7 +155,7 @@ function inlineConfirm(anchor: HTMLElement, onConfirm: () => void): void {
     pop.id = 'del-confirm-pop';
     pop.className = 'del-confirm-pop';
     pop.innerHTML =
-        '<span class="dcp-msg">Delete?</span>' +
+        `<span class="dcp-msg">${esc(message)}</span>` +
         '<button class="dcp-yes">Yes</button>' +
         '<button class="dcp-no">No</button>';
 

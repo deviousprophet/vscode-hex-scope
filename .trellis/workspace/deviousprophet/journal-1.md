@@ -352,3 +352,68 @@ Implemented D1-D7 fixes on branch fix/webview-review-findings: ResizeObserver re
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: UI/UX follow-up fixes (7 tasks) - PR #176
+
+**Date**: 2026-08-11
+**Task**: UI/UX follow-up fixes (7 tasks) - PR #176
+**Branch**: `fix/uiux-followups`
+
+### Summary
+
+Implemented all 7 UI/UX follow-up tasks on branch fix/uiux-followups (off main after PR #175 merged): record-view empty state, script run-button gating, Integrity profile delete/apply inline confirms (inlineConfirm exported + message param), paste-overflow toolbar status, toolbar/search responsive shrink+scroll, keyboard/ARIA pass (grid arrow-key selection via walkMappedAddress + tabindex + Menu key, context-menu role=menu/menuitem + focus + arrow/Enter nav, action buttons focusable, icon-only aria-labels), polish batch (integrity status glyph, nibble placeholder, EDITING tooltip, Ctrl+S, staged fill Escape, struct move glyphs, script log auto-scroll, reload spinner visibility, prev/next glyphs). Fixed 8 fallow complexity findings from new code (fallow 0/0/0). Stubbed requestAnimationFrame in webview test harness (jsdom has none; inlineConfirm needed it). Gate: types/lint clean, 732 tests passing. PR #176 (draft) vs main. All 7 tasks archived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `998ec90` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 15: Fix hex-grid keyboard nav focus
+
+**Date**: 2026-08-15
+**Task**: Fix hex-grid keyboard nav focus
+**Branch**: `fix/uiux-followups`
+
+### Summary
+
+Clicked-byte selection never focused the hex grid (mousedown preventDefault cancelled native focus), so arrow-key nav was dead until a blank-area click. HexView now focuses #memory-view on cell mousedown/contextmenu; ContextMenu restores focus to the trigger on hide; UA focus outline removed on the grid; PRD AC2 dropped as a deterministic seam (module-load listeners pin first jsdom doc) with rationale recorded; fallow complexity in show/hide split below CRAP threshold. Verified: tsc, eslint, 357 webview tests, fallow green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7a1b005` | (see git log) |
+| `606537a` | (see git log) |
+| `1973c36` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 16: Drag-select multiple address rows in hex view
+
+**Date**: 2026-08-15
+**Task**: Drag-select multiple address rows in hex view
+**Branch**: `fix/uiux-followups`
+
+### Summary
+
+Added address-gutter drag to select multiple rows: component onAddressRowDrag (dragMode 'row', min/max normalized, mouseup stop), host selectAddressRows selecting mapped span via rowAddressSpan, 3 new gutter-drag tests, spec+changelog updated. tsc/lint/mocha green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `971776d` | (see git log) |
+
+### Status
+
+[OK] **Completed**

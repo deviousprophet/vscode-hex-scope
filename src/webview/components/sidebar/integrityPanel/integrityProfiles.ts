@@ -9,7 +9,7 @@ import {
     type IntegrityCheckConfig,
     type IntegrityProfile,
 } from '../../../../core/integrity';
-import { esc } from '../../../utils';
+import { esc, inlineConfirm } from '../../../utils';
 import {
     integrityCheckConfigsFromStates,
     integrityCheckSetFromStates,
@@ -89,6 +89,51 @@ export function persistChecks(panel: IntegrityProfileHost): void {
 function applySelectedProfile(panel: IntegrityProfileHost): void {
     const profile = panel.profiles.find(item => item.id === panel.selectedProfileId);
     if (!profile) { return; }
+    if (confirmProfileApply(panel, profile)) { return; }
+    applyProfileChecks(panel, profile);
+}
+
+/** Show the overwrite confirmation; true when it took over the click. */
+function confirmProfileApply(panel: IntegrityProfileHost, profile: IntegrityProfile): boolean {
+    if (!hasUnsavedProfileDraft(panel) && !wouldOverwriteChangedChecks(panel, profile)) { return false; }
+    const applyBtn = document.getElementById('integrity-profile-apply') as HTMLElement | null;
+    if (!applyBtn) { return false; }
+    inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Current checks will be replaced.');
+    return true;
+}
+
+function hasUnsavedProfileDraft(panel: IntegrityProfileHost): boolean {
+    return panel.addCheckDraft !== null || panel.editingCheckId !== null;
+}
+
+/** True when applying `profile` would silently overwrite configured-but-different checks. */
+function wouldOverwriteChangedChecks(panel: IntegrityProfileHost, profile: IntegrityProfile): boolean {
+    const state = integrityCheckSetFromStates(panel.checks);
+    if (!state.ok) { return panel.checks.length > 0; }
+    if (state.value.checks.length === 0) { return false; } // nothing configured: normal first apply
+    return !configsEqual(state.value.checks, profile.checks);
+}
+
+function configsEqual(a: IntegrityCheckConfig[], b: IntegrityCheckConfig[]): boolean {
+    return a.length === b.length && a.every((ca, i) => sameCheck(ca, b[i]));
+}
+
+function sameCheck(a: IntegrityCheckConfig, b: IntegrityCheckConfig): boolean {
+    return sameRange(a, b) && sameStored(a, b);
+}
+
+function sameRange(a: IntegrityCheckConfig, b: IntegrityCheckConfig): boolean {
+    return a.algorithm === b.algorithm
+        && a.startAddress === b.startAddress
+        && a.endAddress === b.endAddress;
+}
+
+function sameStored(a: IntegrityCheckConfig, b: IntegrityCheckConfig): boolean {
+    return (a.storedAddress ?? 0) === (b.storedAddress ?? 0)
+        && a.autoFixStoredValue === b.autoFixStoredValue;
+}
+
+function applyProfileChecks(panel: IntegrityProfileHost, profile: IntegrityProfile): void {
     panel.checks.forEach(check => panel.cancelPendingCalculation(check));
     panel.checks = profile.checks.map(check => panel.newCheck(check));
     panel.addCheckDraft = null;
@@ -172,6 +217,11 @@ function selectedProfile(panel: IntegrityProfileHost): IntegrityProfile | undefi
 function deleteSelectedProfile(panel: IntegrityProfileHost): void {
     const current = selectedProfile(panel);
     if (!current) { return; }
+    const btn = document.getElementById('integrity-profile-delete') as HTMLElement | null;
+    if (btn) {
+        inlineConfirm(btn, () => panel.cb.onDeleteProfile?.(current.id));
+        return;
+    }
     panel.cb.onDeleteProfile?.(current.id);
 }
 
@@ -205,9 +255,9 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
         <div class="integrity-profile-actions">
             <button id="integrity-profile-apply" class="struct-btn struct-btn-apply" type="button">Apply</button>
             <button id="integrity-profile-save" class="struct-btn struct-btn-secondary" type="button">Save as</button>
-            <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" type="button">↻</button>
-            <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" type="button">✎</button>
-            <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" type="button">🗑︎</button>
+            <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" aria-label="Update profile" type="button">↻</button>
+            <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" aria-label="Rename profile" type="button">✎</button>
+            <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" aria-label="Delete profile" type="button">🗑︎</button>
         </div>
         ${profileNameFormHtml(panel)}
         <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(panel.profileError)}</div>
