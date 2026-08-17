@@ -258,12 +258,27 @@ export function formatHexHtml(hexStr: string): string {
  * (styled per target via CSS) and optionally swaps the element's text to
  * "Copied" until the flash ends. Pure DOM/CSS feedback — clipboard writes
  * are untouched and stay with the existing copy callbacks.
+ *
+ * Rapid re-clicks reset the pending timer and keep the ORIGINAL pre-flash
+ * text (never a stale "Copied"). If the element was re-rendered (detached)
+ * while flashing, the class/text restore is skipped.
  */
+const flashState = new WeakMap<HTMLElement, { timer: number; prev: string | null }>();
+
 export function flashCopied(el: HTMLElement, swapText = false): void {
+    const prior = flashState.get(el);
+    if (prior) { clearTimeout(prior.timer); }
+    let state = prior;
+    if (!state) {
+        state = { timer: 0, prev: swapText ? el.textContent : null };
+        flashState.set(el, state);
+    }
+    const prev = state.prev;
     el.classList.add('copied');
-    const prev = swapText ? el.textContent : null;
     if (swapText) { el.textContent = 'Copied'; }
-    window.setTimeout(() => {
+    state.timer = window.setTimeout(() => {
+        flashState.delete(el);
+        if (!el.isConnected) { return; }
         el.classList.remove('copied');
         if (prev !== null) { el.textContent = prev; }
     }, 1000);

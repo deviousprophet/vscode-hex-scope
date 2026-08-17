@@ -153,8 +153,8 @@
 }
 
 .integrity-card-status.match {
-    border-color: rgba(115,201,145,.45);
-    color: var(--vscode-testing-iconPassed, #73c991);
+    border-color: rgba(78,201,160,.45);
+    color: var(--ok);
 }
 
 .integrity-card-status.mismatch,
@@ -324,9 +324,6 @@
 .integrity-copy-btn:hover,
 .integrity-copy-btn:focus-visible { color: var(--high-color); }
 
-/* 'Copied' flash on the ⧉ button (`.copied` added by flashCopied for ~1s). */
-.integrity-copy-btn.copied { color: var(--vscode-testing-iconPassed, #73c991); }
-
 .integrity-copy-btn:disabled {
     cursor: default;
     opacity: .35;
@@ -356,7 +353,7 @@
 .integrity-value-pane.pending code { color: var(--addr-fg); }
 
 .integrity-value-pane.stored.match { background: rgba(55,190,105,.12); border-color: rgba(55,190,105,.48); }
-.integrity-value-pane.stored.match code { color: var(--vscode-testing-iconPassed, #73c991); }
+.integrity-value-pane.stored.match code { color: var(--ok); }
 .integrity-value-pane.stored.mismatch { background: rgba(241,76,76,.14); border-color: rgba(241,76,76,.52); }
 .integrity-value-pane.stored.mismatch code { color: var(--err); }
 .integrity-value-pane.stored.unverified { background: rgba(225,165,45,.1); border-color: rgba(225,165,45,.4); }

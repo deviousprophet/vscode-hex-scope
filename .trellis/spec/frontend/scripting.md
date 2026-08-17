@@ -308,7 +308,7 @@ if (runResult && typeof runResult.then === 'function') {
 
 #### 9.6 CSS specificity for toolbar overrides
 
-The `.sb-section .sb-hdr` selector (used for collapsible section headers) has higher specificity than `.scripts-toolbar`. To override `cursor: pointer`, use `.sb-section .scripts-toolbar` or `!important`.
+`.sb-section` headers are rendered by `SidebarSections` (`.sb-section-head`/`.sb-section-title`/`.sb-section-actions`); `.sb-hdr` no longer exists. Section header actions ride `.sb-section-actions`/`.sb-section-action`, so no specificity override is needed.
 
 ### 10. Patterns
 

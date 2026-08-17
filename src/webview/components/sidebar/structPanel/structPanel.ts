@@ -25,7 +25,7 @@ import {
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../../core/types';
-import { SidebarSections } from '../sidebar';
+import { SidebarSections, closeMenuPopup, toggleMenuPopup, wireMenuPopup } from '../sidebar';
 import './structPanel.css';
 
 export interface StructCallbacks {
@@ -252,13 +252,8 @@ mount(root: HTMLElement): void {
         { id: 'instances', label: 'Struct Instances', collapsible: false, mountActions: r => this.mountInstancesAction(r) },
         { id: 'types', label: 'Struct Types', collapsible: true, defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
     ]);
-    // Click-outside closes any open per-card "⋮" menu (popovers are re-created
-    // on every render, so one document-level listener suffices).
-    document.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement | null)?.closest?.('.si-card-menu-wrap')) { return; }
-        root.querySelectorAll<HTMLElement>('.si-card-menu-pop').forEach(pop => { pop.hidden = true; });
-        root.querySelectorAll<HTMLElement>('.si-card-menu').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
-    });
+    // Click-outside for per-card "⋮" menus lives in the shared popup wiring
+    // (sidebar.ts), so shell re-mounts never stack document listeners.
     this.render();
 }
 
@@ -3688,25 +3683,19 @@ private wireInstanceCards(sec: HTMLElement): void {
         hdr.addEventListener('click', e => this.onCardHeaderClick(sec, hdr, e));
     });
 
-    // Wire the always-visible "⋮" menu on each instance card (open/close, Escape,
-    // click-outside via document listener in mount; items act on pin.id).
+    // Wire the always-visible "⋮" menu on each instance card (shared popup
+    // wiring: open/close, Escape, click-outside, aria-expanded; items act on pin.id).
     sec.querySelectorAll<HTMLElement>('.sb-card').forEach(card => {
-        const menuBtn = card.querySelector<HTMLElement>('.si-card-menu');
+        const menuBtn = card.querySelector<HTMLButtonElement>('.si-card-menu');
         const pop = card.querySelector<HTMLElement>('.si-card-menu-pop');
         if (!menuBtn || !pop) { return; }
+
+        wireMenuPopup(pop, { button: menuBtn, root: menuBtn.closest('.si-card-menu-wrap') ?? undefined });
 
         menuBtn.addEventListener('click', e => {
             e.stopPropagation();
             this.closeAllCardMenus(sec, menuBtn);
-            const open = pop.hidden;
-            pop.hidden = !open;
-            menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        });
-        pop.addEventListener('keydown', e => {
-            if (e.key === 'Escape') {
-                e.stopPropagation();
-                this.closeAllCardMenus(sec, null);
-            }
+            toggleMenuPopup(pop);
         });
 
         wireActionBtns(
@@ -3991,16 +3980,7 @@ private restoreSelectedArrayGroup(sec: HTMLElement): void {
 
 private hideFieldValMenu = (): void => {
     if (this._valMenuEl) { this._valMenuEl.remove(); this._valMenuEl = null; }
-    if (typeof document === 'undefined') { return; }
-    document.removeEventListener('click', this.hideFieldValMenu);
 };
-
-private addFieldValMenuClickAway(): void {
-    setTimeout(() => {
-        if (typeof document === 'undefined') { return; }
-        document.addEventListener('click', this.hideFieldValMenu);
-    }, 0);
-}
 
 private createFieldValMenu(innerHtml: string, x: number, y: number): HTMLElement {
     const el = document.createElement('div');
@@ -4008,6 +3988,9 @@ private createFieldValMenu(innerHtml: string, x: number, y: number): HTMLElement
     el.innerHTML = innerHtml;
     document.body.appendChild(el);
     positionContextMenu(el, x, y);
+    // Shared popup wiring: Escape + click-outside close via hideFieldValMenu
+    // (removes the element; no document listener is added per open).
+    wireMenuPopup(el, { root: document.body, onClose: () => this.hideFieldValMenu() });
     return el;
 }
 
@@ -4743,7 +4726,6 @@ private copyMenuHtml(types: ColType[]): string {
 
 private finishFieldValMenu(el: HTMLElement): void {
     this.wireStructSubmenus(el);
-    this.addFieldValMenuClickAway();
     this._valMenuEl = el;
 }
 

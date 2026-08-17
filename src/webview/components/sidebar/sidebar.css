@@ -224,3 +224,7 @@
 .sb-status-dot.ok   { background: var(--ok); }
 .sb-status-dot.err  { background: var(--err); }
 .sb-status-dot.idle { background: var(--addr-fg); opacity: .3; }
+
+/* 'Copied' flash (`.copied` added by flashCopied for ~1s) — single shared
+   success token for every panel's copy feedback. */
+.copied { color: var(--ok); }

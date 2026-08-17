@@ -45,7 +45,7 @@ Before adding a new hardcoded color, check if an existing token covers the need.
 ## Selector Patterns
 
 - Prefer `#id` for unique singletons, `.class` for repeatable patterns
-- Avoid `!important`. The only exception is overrides suppressing collapsible-triangle inheritance from `.sb-section .sb-hdr::before`.
+- Avoid `!important`.
 - Chain selectors no deeper than 3 levels (`.parent .child .grandchild`)
 - Use `--custom-property` scoped to a parent class instead of deep selector chains
 
@@ -80,7 +80,7 @@ Sidebar sections are rendered by the `SidebarSections` framework (`sidebar.ts`) 
 
 The collapsible toggle triangle (▶) is injected via `.sb-section-toggle::before` (absolute, `left: 0; top: 50%; margin-top: -6px`), rotating 90° when the section is open. `.sb-section.collapsed .sb-body { display: none }` hides the body; `aria-expanded`/`aria-controls` live on the toggle button. Non-collapsible sections (`collapsible: false`) use the plain `.sb-section-label` — same `8px` header→body gap, no border separator.
 
-Legacy `.sb-hdr` (block-level flex header) survives only for body-level form titles (e.g. the label form); top-level panel headers must not use it. The old `.sb-section .sb-hdr::before` triangle rule is gone — `!important` overrides for it are obsolete.
+`.sb-hdr` was removed in the 10px type-floor pass; body-level form titles (e.g. the label form) render as plain `.lbl-form` titles with the shared 10px metadata floor. There is no `.sb-hdr` fallback and no collapsible-triangle inheritance to override.
 
 ## Button Standards
 
@@ -94,4 +94,4 @@ Legacy `.sb-hdr` (block-level flex header) survives only for body-level form tit
 - Sidebar panels use `scrollbar-gutter: stable` to prevent content shift when scrollbar appears/disappears
 - Tab strip buttons use `writing-mode: vertical-rl` for compact vertical labels
 - Horizontal spacing baseline: `12px` (sidebar padding), `6px` (gap between related items)
-- Font-size baseline: `10px` for dense UI labels, `9px` for metadata/badges
+- Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; record-view grid tags are the sole retained `9px` exception)

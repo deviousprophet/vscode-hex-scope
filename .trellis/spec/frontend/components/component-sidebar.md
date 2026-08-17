@@ -94,7 +94,7 @@ class SidebarSections {
 
 - Default tab is `inspector` (matches pre-refactor); no tab persistence.
 - Record-view sidebar visibility stays host-managed (`updateMemoryOnlyControls` toggles `#sidebar`/`#side-tabs` display); the shell is unaware of the view.
-- The shared collapsible-section pattern (`.sb-section`/`.sb-section-head`/`.sb-section-title`/`.sb-section-toggle`/`.sb-section-label`/`.sb-section-actions`/`.sb-body` + `.sb-section-toggle::before` triangle + `.sb-section.collapsed`) lives in `sidebar.css`; panel sections use it via `SidebarSections`. Legacy `.sb-hdr` remains only for body-level form titles (label form), not top-level headers.
+- The shared collapsible-section pattern (`.sb-section`/`.sb-section-head`/`.sb-section-title`/`.sb-section-toggle`/`.sb-section-label`/`.sb-section-actions`/`.sb-body` + `.sb-section-toggle::before` triangle + `.sb-section.collapsed`) lives in `sidebar.css`; panel sections use it via `SidebarSections`. `.sb-hdr` was removed (10px type floor); body-level form titles (label form) are plain `.lbl-form` titles.
 
 ## Known-bug (fixed in this task)
 

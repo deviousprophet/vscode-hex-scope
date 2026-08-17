@@ -17,7 +17,7 @@ src/webview/hexViewer.ts  host wiring (panel descriptor, applyInspectorLabels, p
 src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`.
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`.
 
 ## Contract
 

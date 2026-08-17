@@ -1974,6 +1974,26 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(document.querySelectorAll('.sb-card').length, 1);
     });
 
+    test('re-mount registers no additional document click listener (no handler stacking)', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin3', structId: 'scalar', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x34, 0x12]);
+        let docClickCount = 0;
+        const origAdd = document.addEventListener.bind(document);
+        document.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) => {
+            if (type === 'click') { docClickCount++; }
+            return origAdd(type, listener as EventListenerOrEventListenerObject, options);
+        }) as typeof document.addEventListener;
+        try {
+            await createMountedPanel();
+            const afterFirstMount = docClickCount;
+            await createMountedPanel(); // full-shell re-mount into the same root
+            assert.strictEqual(docClickCount, afterFirstMount, 're-mount must not stack document click listeners');
+        } finally {
+            document.addEventListener = origAdd;
+        }
+    });
+
     test('setData renders instance cards; expansion persists across re-render', async () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];

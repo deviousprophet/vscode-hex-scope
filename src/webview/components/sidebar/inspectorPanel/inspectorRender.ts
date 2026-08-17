@@ -37,12 +37,12 @@ export function singleByteInspectorHtml(val: number): string {
  * byte count; the copied string is exactly the rendered bytes — the
  * ellipsis is display-only and never copied.
  */
-export function byteLineParts(selBytes: number[], len: number): { display: string; copy: string; truncated: boolean } {
+export function byteLineParts(selBytes: number[], len: number): { display: string; copy: string } {
     const dumpBytes = selBytes.slice(0, 8);
     const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
     const truncated = len > 8;
     const display   = `[${len} bytes] ${dumpStr}${truncated ? ' …' : ''}`;
-    return { display, copy: dumpStr, truncated };
+    return { display, copy: dumpStr };
 }
 
 export function multiByteInspectorHtml(selBytes: number[], len: number): string {

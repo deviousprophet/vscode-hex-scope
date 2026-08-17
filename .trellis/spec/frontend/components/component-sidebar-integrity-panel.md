@@ -21,7 +21,7 @@ src/webview/hexViewer.ts    host wiring (panel descriptor, applyIntegrityHighlig
 src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar.ts`/`sidebar.css`. `core/integrity.ts` is unchanged (pure, shared).
+Panel shell (`sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar.ts`/`sidebar.css`. `core/integrity.ts` is unchanged (pure, shared).
 
 ## Contract
 

@@ -17,7 +17,7 @@ src/webview/hexViewer.ts   host wiring (panel descriptor, applyStructs/applyPins
 src/test/webview/components/sidebar/structPanel/structPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is unchanged (pure, shared).
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is unchanged (pure, shared).
 
 ## Contract
 

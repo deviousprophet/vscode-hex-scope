@@ -16,7 +16,7 @@ src/webview/hexViewer.ts  host wiring (panel descriptor, callbacks, message fan-
 src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section/.sb-hdr/.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/scripting/` is unchanged (pure, shared).
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/scripting/` is unchanged (pure, shared).
 
 ## Contract
 

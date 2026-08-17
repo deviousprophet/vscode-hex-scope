@@ -324,6 +324,7 @@
     border: none; background: none; border-radius: 3px;
     color: var(--fg); font-family: var(--font-ui); font-size: 11px;
     padding: 4px 8px; cursor: pointer; white-space: nowrap;
+    opacity: 1; /* popover list items are not hover-reveal actions */
 }
 .si-card-menu-pop .act-btn:hover { background: var(--hover-bg); }
 .si-card-menu-pop .act-btn-del:hover { color: var(--err); }

@@ -72,14 +72,13 @@
 .insp-byte-line:hover::after { opacity: .95; }
 
 /* 'Copied' flash (`.copied` added by flashCopied for ~1s, text swaps to
-   "Copied"); green read matches the Integrity panel's confirmation color. */
+   "Copied"); color comes from the shared `.copied` rule (var(--ok)). */
 .insp-hex-chip.copied,
 .insp-dec-chip.copied,
 .insp-bin-row.copied,
 .insp-byte-line.copied,
 .mi-dec.copied,
 .mi-hex.copied {
-    color: var(--vscode-testing-iconPassed, #73c991);
     box-shadow: none;
 }
 

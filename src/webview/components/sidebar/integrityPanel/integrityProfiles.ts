@@ -10,6 +10,7 @@ import {
     type IntegrityProfile,
 } from '../../../../core/integrity';
 import { esc, inlineConfirm } from '../../../utils';
+import { closeMenuPopup, toggleMenuPopup, wireMenuPopup } from '../sidebar';
 import {
     integrityCheckConfigsFromStates,
     integrityCheckSetFromStates,
@@ -51,48 +52,25 @@ export function wireProfileControls(panel: IntegrityProfileHost): void {
     updateProfileButtonState(panel);
 }
 
-/** ⋮ popover menu toggle: open/close, Escape, click-outside, aria state. */
+/** ⋮ popover menu: shared open/close, Escape, click-outside, aria state (sidebar.ts). */
 function wireProfileMenu(): void {
     const button = document.getElementById('integrity-profile-menu-btn') as HTMLButtonElement | null;
     const pop = document.getElementById('integrity-profile-menu-pop');
     if (!button || !pop) { return; }
+    wireMenuPopup(pop, {
+        button,
+        root: button.closest('.integrity-profile-menu') ?? undefined,
+        focusFirst: '.integrity-profile-menu-item:not(:disabled)',
+    });
     button.addEventListener('click', event => {
         event.stopPropagation();
-        toggleProfileMenu(pop, button);
+        toggleMenuPopup(pop);
     });
     pop.addEventListener('click', event => {
         if ((event.target as HTMLElement).closest('.integrity-profile-menu-item')) {
-            closeProfileMenu(pop, button);
+            closeMenuPopup(pop);
         }
     });
-    pop.addEventListener('keydown', event => {
-        if (event.key === 'Escape') {
-            event.stopPropagation();
-            closeProfileMenu(pop, button);
-            button.focus();
-        }
-    });
-    document.addEventListener('click', event => {
-        if (!pop.isConnected || pop.hidden) { return; }
-        if (!(event.target as HTMLElement).closest('.integrity-profile-menu')) {
-            closeProfileMenu(pop, button);
-        }
-    });
-}
-
-function toggleProfileMenu(pop: HTMLElement, button: HTMLButtonElement): void {
-    if (pop.hidden) {
-        pop.hidden = false;
-        button.setAttribute('aria-expanded', 'true');
-        pop.querySelector<HTMLElement>('.integrity-profile-menu-item:not(:disabled)')?.focus();
-    } else {
-        closeProfileMenu(pop, button);
-    }
-}
-
-function closeProfileMenu(pop: HTMLElement, button: HTMLButtonElement): void {
-    pop.hidden = true;
-    button.setAttribute('aria-expanded', 'false');
 }
 
 function wireProfileNameForm(panel: IntegrityProfileHost): void {
