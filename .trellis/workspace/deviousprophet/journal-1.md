@@ -466,3 +466,26 @@ Unbiased UX/UI audit of sidebar panels; 7 follow-up tasks logged. Grilled panel-
 ### Status
 
 [OK] **Completed**
+
+
+## Session 19: Backlog: a11y targets + copy feedback + typography floor
+
+**Date**: 2026-08-17
+**Task**: Backlog: a11y targets + copy feedback + typography floor
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Executed remaining UX audit backlog: full-row 24px disclosure toggle + aria-labelledby regions; copy feedback flashes + endian/width tag on multi-byte interpreter; scripts teardown flake fixed via dispose(); 10px type floor across sidebar + aria-labels on all icon-only controls; legacy .sb-hdr removed. 778 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac09aea` | (see git log) |
+| `c79f3ab` | (see git log) |
+| `35d60ac` | (see git log) |
+
+### Status
+
+[OK] **Completed**
