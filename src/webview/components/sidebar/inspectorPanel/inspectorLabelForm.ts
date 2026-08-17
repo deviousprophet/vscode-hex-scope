@@ -29,9 +29,11 @@ import {
     nextLabelName,
 } from './inspectorRender';
 import type { InspectorCallbacks } from './inspectorPanel';
+import type { SidebarSections } from '../sidebar';
 
 export interface InspectorLabelFormHost {
     root: HTMLElement | null;
+    sections: SidebarSections | null;
     selection: { start: number | null; end: number | null };
     segments: SerializedSegment[];
     labels: SegmentLabel[];
@@ -40,15 +42,14 @@ export interface InspectorLabelFormHost {
 }
 
 export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string): void {
-    const sec = panel.root?.querySelector<HTMLElement>('#s-labels') ?? null;
-    if (!sec) { return; }
+    const body = panel.sections?.body('labels');
+    if (!body) { return; }
     const editing = panel.labels.find(l => l.id === editId);
 
-    sec.dataset.collapsed = 'false';
-    sec.classList.remove('collapsed');
+    panel.sections!.setCollapsed('labels', false);
 
     const chosenColor = defaultLabelColor(editing, LABEL_COLORS[panel.labels.length % LABEL_COLORS.length].v);
-    sec.innerHTML = labelFormHtml(
+    body.innerHTML = labelFormHtml(
         editing,
         labelSwatchesHtml(chosenColor),
         defaultLabelStart(panel.selection, editing),
@@ -56,7 +57,7 @@ export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string):
     );
 
     const formState = { chosenColor, rangeMode: 'len' as LabelRangeMode, pendingWarning: false };
-    wireLabelForm(panel, sec, editId, editing, formState);
+    wireLabelForm(panel, body, editId, editing, formState);
 }
 
 export function updateLabelFormSel(panel: InspectorLabelFormHost): void {

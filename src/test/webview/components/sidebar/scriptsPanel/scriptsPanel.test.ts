@@ -110,15 +110,18 @@ suite('ScriptsPanel mount + render', () => {
 
     teardown(cleanupDom);
 
-    test('mount creates #s-scripts with toolbar + empty state', () => {
+    test('mount creates #s-scripts with framework header + empty state', () => {
         assert.ok(document.getElementById('s-scripts'));
-        const hdr = document.querySelector('#s-scripts .sb-hdr')!;
-        assert.strictEqual(hdr.childNodes[0]?.textContent?.trim(), 'Scripts', 'title text renders via sb-hdr');
+        const label = document.querySelector('#s-scripts .sb-section-label')!;
+        assert.strictEqual(label.childNodes[0]?.textContent?.trim(), 'Scripts', 'title text renders via sb-section-label');
         assert.strictEqual(document.querySelector('.sb-empty')?.textContent, 'No scripts found in .hexscope/scripts/');
         assert.strictEqual(document.querySelectorAll('.script-card').length, 0);
         assert.ok(document.getElementById('scripts-refresh'));
         assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-btn-secondary'), 'refresh rides sb-btn-secondary');
-        assert.ok((document.getElementById('scripts-count') as HTMLElement).hidden, 'count badge hidden when no scripts');
+        assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-section-action'), 'refresh is a compact header action');
+        const badge = document.querySelector<HTMLElement>('#s-scripts .sb-badge')!;
+        assert.ok(badge, 'framework badge span exists');
+        assert.ok(badge.hidden, 'count badge hidden when no scripts');
     });
 
     test('refresh button reports onRequestList', () => {
@@ -130,7 +133,7 @@ suite('ScriptsPanel mount + render', () => {
     test('render is idempotent: re-render keeps a single shell', () => {
         panel.render();
         assert.strictEqual(document.querySelectorAll('#s-scripts').length, 1);
-        assert.strictEqual(document.querySelectorAll('.script-toolbar').length, 1);
+        assert.strictEqual(document.querySelectorAll('#s-scripts .sb-section').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-refresh').length, 1);
     });
 });
@@ -166,14 +169,14 @@ suite('ScriptsPanel setScripts', () => {
     });
 
     test('updates the count badge', () => {
-        assert.ok((document.getElementById('scripts-count') as HTMLElement).hidden);
+        const badge = () => document.querySelector<HTMLElement>('#s-scripts .sb-badge')!;
+        assert.ok(badge().hidden);
         panel.setScripts(SCRIPTS, true);
-        const badge = document.getElementById('scripts-count') as HTMLElement;
-        assert.strictEqual(badge.textContent, '3');
-        assert.ok(!badge.hidden);
+        assert.strictEqual(badge().textContent, '3');
+        assert.ok(!badge().hidden);
         panel.setScripts([], true);
-        assert.strictEqual((document.getElementById('scripts-count') as HTMLElement).textContent, '0');
-        assert.ok((document.getElementById('scripts-count') as HTMLElement).hidden);
+        assert.strictEqual(badge().textContent, '');
+        assert.ok(badge().hidden);
     });
 
     test('untrusted workspace disables run buttons with tooltip', () => {

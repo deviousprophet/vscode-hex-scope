@@ -62,23 +62,25 @@ The four sidebar panels converge on shared `.sb-*` primitives defined in `compon
 
 ### Spacing Ownership
 
-Sidebar primitives own shared rhythm: panel roots use `10px 12px`, header-to-body space is `8px`, card stacks use `4px`, and normal `.sb-btn` controls use `2px 8px` padding. Panels must not restate those values. Document an exception only for genuinely denser controls: Struct field-grid inputs and bit-field-child add buttons; Integrity compact profile actions. The Scripts toolbar uses a border instead of the normal header margin, so its body supplies the same `8px` gap.
+Sidebar primitives own shared rhythm: panel roots use `10px 12px`, header-to-body space is `8px`, card stacks use `4px`, and normal `.sb-btn` controls use `2px 8px` padding. Panels must not restate those values. Document an exception only for genuinely denser controls: Struct field-grid inputs and bit-field-child add buttons; Integrity compact profile actions. Header actions use the framework compact contract (`.sb-section-action`) and must not enlarge the header; Scripts uses the shared non-collapsible header (no border separator).
 
 ## Section / Header Pattern
 
-Sidebar sections use the `.sb-section` → `.sb-hdr` → `.sb-body` pattern:
+Sidebar sections are rendered by the `SidebarSections` framework (`sidebar.ts`) using the `.sb-section` → `.sb-section-head` → `.sb-body` pattern:
 
 ```css
 .sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.sb-hdr {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .07em; color: var(--addr-fg); margin-bottom: 8px;
-}
-.sb-body { /* inherits padding from section */ }
+.sb-section-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.sb-section-title { flex: 1; min-width: 0; margin: 0; font: inherit; color: inherit; }
+.sb-section-label { /* 10px uppercase bold header type, --addr-fg */ }
+.sb-section-toggle { /* native disclosure button; padding-left: 14px for the triangle */ }
+.sb-section-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: auto; }
+.sb-section-action { /* compact contract: 10px / 2px 8px / 1.2 / max-height 22px */ }
 ```
 
-`.sb-hdr` is a block-level flex container. The collapsible toggle triangle (▶) is injected via `.sb-section .sb-hdr::before` (absolute, `left: 0; top: 50%; margin-top: -6px`). The triangle is taken out of flow so it doesn't affect text position — text sits at `.sb-hdr`'s `padding-left: 14px`.
+The collapsible toggle triangle (▶) is injected via `.sb-section-toggle::before` (absolute, `left: 0; top: 50%; margin-top: -6px`), rotating 90° when the section is open. `.sb-section.collapsed .sb-body { display: none }` hides the body; `aria-expanded`/`aria-controls` live on the toggle button. Non-collapsible sections (`collapsible: false`) use the plain `.sb-section-label` — same `8px` header→body gap, no border separator.
+
+Legacy `.sb-hdr` (block-level flex header) survives only for body-level form titles (e.g. the label form); top-level panel headers must not use it. The old `.sb-section .sb-hdr::before` triangle rule is gone — `!important` overrides for it are obsolete.
 
 ## Button Standards
 

@@ -25,6 +25,7 @@ import {
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../../core/types';
+import { SidebarSections } from '../sidebar';
 import './structPanel.css';
 
 export interface StructCallbacks {
@@ -179,6 +180,7 @@ type StructPointerCreateState =
 export class StructPanel {
     private readonly cb: StructCallbacks;
     private _root: HTMLElement | null = null;
+    private sections: SidebarSections | null = null;
     private _structs: StructDef[] = [];
     private _pins: StructPin[] = [];
     private _endian: 'le' | 'be' = 'le';
@@ -247,17 +249,38 @@ constructor(cb: StructCallbacks) {
 /** Renders both tracks into the given root (was renderStructPins onto #s-struct-pins). */
 mount(root: HTMLElement): void {
     this._root = root;
+    root.innerHTML = '';
+    const clip = document.createElement('div');
+    clip.className = 'si-panel-clip';
+    const track = document.createElement('div');
+    track.className = 'si-panel-track';
+    track.id = 'si-track';
+    clip.appendChild(track);
+    root.appendChild(clip);
+    this.sections = new SidebarSections(track, 'si', [
+        { id: 'instances', label: 'Struct Instances', collapsible: false, mountActions: r => this.mountInstancesAction(r) },
+        { id: 'types', label: 'Struct Types', collapsible: false, mountActions: r => this.mountTypesAction(r) },
+    ]);
     this.render();
 }
 
 /** Re-renders the whole panel from pushed state (was renderStructPins). No-op until mounted. */
 render(): void {
     const sec = this._root;
-    if (!sec) { return; }
+    if (!sec || !this.sections) { return; }
 
     const all = allStructs(this._structs);
     this.prepareStructPanelState(all);
-    sec.innerHTML = this.structPinsPanelHtml(all);
+    sec.querySelector('#si-track')?.classList.toggle('si-showing-types', this._managingTypes);
+
+    this.sections.setLabel('types', this.typePanelTitle());
+    this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
+        this._addingPin ? this.addStructPinFormHtml(all) : '',
+        this.instanceCardsHtml(),
+    );
+    this.sections.body('types')!.innerHTML = this.typePanelBodyHtml(this.typeRowsHtml(all));
+    this.sections.setBadge('instances', this._pins.length > 0 ? String(this._pins.length) : null);
+    this.updateHeaderActions();
 
     this.hydrateStructPreviews(sec);
     this.wireStructPinsPanel(sec);
@@ -268,6 +291,54 @@ render(): void {
         this.wireEditorInSec(sec);
         sec.querySelector<HTMLInputElement>('#se-name')?.focus();
     }
+}
+
+/** Keep compact header actions in sync with panel state (static shell across re-renders). */
+private updateHeaderActions(): void {
+    const root = this._root;
+    if (!root) { return; }
+    const add = root.querySelector<HTMLButtonElement>('#si-add-btn');
+    if (add) { add.disabled = this._addingPin; }
+    const close = root.querySelector<HTMLButtonElement>('#sm-close-btn');
+    if (close) { close.title = this.typePanelCloseTitle(); }
+}
+
+/** Instances header action: ＋ Add (primary/status control usable while collapsed — non-collapsible here). */
+private mountInstancesAction(root: HTMLElement): void {
+    const add = document.createElement('button');
+    add.id = 'si-add-btn';
+    add.className = 'sb-btn sb-btn-add sb-section-action';
+    add.textContent = '\uff0b Add';
+    add.addEventListener('click', () => {
+        this._addingPin = true;
+        this.render();
+        this._root?.querySelector<HTMLInputElement>('#sa-name')?.focus();
+    });
+    root.appendChild(add);
+}
+
+/** Types header action: ← Back/Cancel (navigation; New type lives in the body). */
+private mountTypesAction(root: HTMLElement): void {
+    const close = document.createElement('button');
+    close.id = 'sm-close-btn';
+    close.className = 'sb-btn sb-btn-secondary sb-section-action';
+    close.textContent = '\u2190';
+    close.title = this.typePanelCloseTitle();
+    close.addEventListener('click', () => {
+        if (this._editingType) {
+            const { fromAdd } = this._editingType;
+            this._editingType = null;
+            if (fromAdd) {
+                this._addingPin = true;
+                this._managingTypes = false;
+            }
+            this.render();
+        } else {
+            this._managingTypes = false;
+            this._root?.querySelector('#si-track')?.classList.remove('si-showing-types');
+        }
+    });
+    root.appendChild(close);
 }
 
 /** Push both tracks' data (after full render / external change) and re-render. */
@@ -1354,22 +1425,6 @@ private nextApplyStructId(all: StructDef[]): string | null {
     return all.some(d => d.id === this._applyStructId) ? this._applyStructId : fallbackId;
 }
 
-private structPinsPanelHtml(all: StructDef[]): string {
-    const typeRows = this.typeRowsHtml(all);
-    const addFormHtml = this._addingPin ? this.addStructPinFormHtml(all) : '';
-    const instHtml = this.instanceCardsHtml();
-    const instBadge = this._pins.length > 0 ? `<span class="sb-badge">${this._pins.length}</span>` : '';
-
-    return (
-        `<div class="si-panel-clip">` +
-        `<div class="si-panel-track${this._managingTypes ? ' si-showing-types' : ''}" id="si-track">` +
-        this.structInstancesPanelHtml(instBadge, addFormHtml, instHtml) +
-        this.structTypesPanelHtml(typeRows) +
-        `</div>` +
-        `</div>`
-    );
-}
-
 private typeRowsHtml(all: StructDef[]): string {
     if (all.length === 0) { return `<div class="sb-empty">No types defined yet.</div>`; }
     return all.map(def => this.structTypeRowHtml(def)).join('');
@@ -1444,18 +1499,14 @@ private instanceCardsHtml(): string {
         : this._pins.map((pin, i) => this.buildInstanceCard(pin, i)).join('');
 }
 
-private structInstancesPanelHtml(instBadge: string, addFormHtml: string, instHtml: string): string {
+private structInstancesBodyHtml(addFormHtml: string, instHtml: string): string {
     return (
-        `<div class="si-main-panel">` +
         `<div class="si-hdr-row">` +
-        `<span class="sb-hdr">Struct Instances ${instBadge}</span>` +
         this.bitLayoutToggleHtml() +
-        `<button id="si-add-btn" class="sb-btn sb-btn-add"${this._addingPin ? ' disabled' : ''}>\uff0b Add</button>` +
         `<button id="si-types-btn" class="sb-btn sb-btn-secondary" title="Manage types">&#9776;</button>` +
         `</div>` +
         addFormHtml +
-        `<div id="si-list">${instHtml}</div>` +
-        `</div>`
+        `<div id="si-list">${instHtml}</div>`
     );
 }
 
@@ -1470,19 +1521,6 @@ private bitLayoutToggleHtml(): string {
     );
 }
 
-private structTypesPanelHtml(typeRows: string): string {
-    return (
-        `<div class="si-types-panel">` +
-        `<div class="si-hdr-row">` +
-        `<button id="sm-close-btn" class="sb-btn sb-btn-secondary" title="${this.typePanelCloseTitle()}">&#8592;</button>` +
-        `<span class="sb-hdr">${this.typePanelTitle()}</span>` +
-        this.typePanelNewButtonHtml() +
-        `</div>` +
-        this.typePanelBodyHtml(typeRows) +
-        `</div>`
-    );
-}
-
 private typePanelCloseTitle(): string {
     return this._editingType ? 'Cancel' : 'Back';
 }
@@ -1493,12 +1531,12 @@ private typePanelTitle(): string {
 }
 
 private typePanelNewButtonHtml(): string {
-    return this._editingType ? '' : `<button id="sm-new-btn" class="sb-btn sb-btn-secondary">New type</button>`;
+    return this._editingType ? '' : `<div class="si-hdr-row"><button id="sm-new-btn" class="sb-btn sb-btn-secondary">New type</button></div>`;
 }
 
 private typePanelBodyHtml(typeRows: string): string {
-    if (!this._editingType) { return `<div id="sm-list">${typeRows}</div>`; }
-    return this.editorHtml(this._editingType.draft, this._editingType.existing);
+    if (this._editingType) { return this.editorHtml(this._editingType.draft, this._editingType.existing); }
+    return `<div id="sm-list">${this.typePanelNewButtonHtml()}${typeRows}</div>`;
 }
 
 private wireStructPinsPanel(sec: HTMLElement): void {
@@ -1513,22 +1551,6 @@ private wireTypesPanelControls(sec: HTMLElement): void {
         sec.querySelector('#si-track')?.classList.add('si-showing-types');
     });
 
-    sec.querySelector('#sm-close-btn')?.addEventListener('click', () => {
-        if (this._editingType) {
-            const { fromAdd } = this._editingType;
-            this._editingType = null;
-            if (fromAdd) {
-                this._addingPin = true;
-                this._managingTypes = false;
-            }
-            // fromManage: stay on types panel (re-render shows type list)
-            this.render();
-        } else {
-            this._managingTypes = false;
-            sec.querySelector('#si-track')?.classList.remove('si-showing-types');
-        }
-    });
-
     sec.querySelector('#sm-new-btn')?.addEventListener('click', () => {
         this._editorError = null;
         const draftId = `user_${Date.now()}`;
@@ -1541,7 +1563,7 @@ private wireTypesPanelControls(sec: HTMLElement): void {
         this.render();
     });
 
-    const typesPanel = sec.querySelector<HTMLElement>('.si-types-panel')!;
+    const typesPanel = sec.querySelector<HTMLElement>('#si-types-body')!;
     wireActionBtns(
         typesPanel,
         '.act-btn-edit',
@@ -1571,12 +1593,6 @@ private wireTypesPanelControls(sec: HTMLElement): void {
 }
 
 private wireAddStructPinControls(sec: HTMLElement): void {
-    sec.querySelector('#si-add-btn')?.addEventListener('click', () => {
-        this._addingPin = true;
-        this.render();
-        sec.querySelector<HTMLInputElement>('#sa-name')?.focus();
-    });
-
     if (!this._addingPin) { return; }
 
     sec.querySelector('#sa-struct-sel')?.addEventListener('change', e => {

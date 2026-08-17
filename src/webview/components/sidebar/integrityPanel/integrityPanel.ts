@@ -65,6 +65,7 @@ import {
     syncHighlight,
     type IntegrityHighlightHooks,
 } from './integrityHighlight';
+import { SidebarSections } from '../sidebar';
 import './integrityPanel.css';
 
 const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, checks: [] };
@@ -108,6 +109,7 @@ export interface IntegrityCallbacks {
 export class IntegrityPanel implements IntegrityProfileHost {
     readonly cb: IntegrityCallbacks;
     private _panel: HTMLElement | null = null;
+    private sections: SidebarSections | null = null;
     private nextCheckId = 1;
     profiles: IntegrityProfile[] = [];
     selectedProfileId = '';
@@ -127,6 +129,10 @@ export class IntegrityPanel implements IntegrityProfileHost {
     /** Renders the panel into the given root (creates the #s-integrity container). Idempotent. */
     mount(root: HTMLElement): void {
         this._panel = root.id === 's-integrity' ? root : this.ensureIntegrityRoot(root);
+        this._panel.innerHTML = '';
+        this.sections = new SidebarSections(this._panel, 'integrity', [
+            { id: 'main', label: 'Integrity Checks', collapsible: false },
+        ]);
         this.render();
     }
 
@@ -139,12 +145,13 @@ export class IntegrityPanel implements IntegrityProfileHost {
         return div;
     }
 
-    /** Re-renders the whole panel (was renderIntegrity). No-op until mounted. */
+    /** Re-renders the whole panel body (was renderIntegrity). No-op until mounted. */
     render(): void {
-        const panel = this._panel;
-        if (!panel) { return; }
-        panel.innerHTML = this.integrityShellHtml();
-        this.wireRenderedIntegrity(panel);
+        const body = this.sections?.body('main');
+        if (!body) { return; }
+        body.innerHTML = this.integrityBodyHtml();
+        this.sections!.setBadge('main', this.checks.length > 0 ? String(this.checks.length) : null);
+        this.wireRenderedIntegrity(body);
     }
 
     /** Push profiles + active checks (was setIntegrityProfiles). */
@@ -258,11 +265,10 @@ export class IntegrityPanel implements IntegrityProfileHost {
 
     // ── Shell render ───────────────────────────────────────────────
 
-    private integrityShellHtml(): string {
+    private integrityBodyHtml(): string {
         return `
         <div class="integrity-shell">
             <div class="integrity-hdr-row">
-                <span class="sb-hdr">Integrity Checks ${this.integrityBadgeHtml()}</span>
                 <button id="integrity-fix-all" class="sb-btn sb-btn-primary" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
                 <button id="integrity-add-btn" class="sb-btn sb-btn-add"${this.addCheckDisabledAttr()}>＋ Add</button>
             </div>
@@ -287,10 +293,6 @@ export class IntegrityPanel implements IntegrityProfileHost {
         if (this.addCheckDraft) { this.wireCheckForm('add'); }
         this.wireCheckCards(panel);
         this.checks.forEach(check => this.updateCheckCard(check));
-    }
-
-    private integrityBadgeHtml(): string {
-        return this.checks.length > 0 ? `<span class="sb-badge">${this.checks.length}</span>` : '';
     }
 
     private addCheckFormHtml(): string {

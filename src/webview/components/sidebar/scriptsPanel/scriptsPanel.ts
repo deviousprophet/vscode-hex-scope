@@ -1,13 +1,15 @@
 /** Scripts Panel — self-contained sidebar panel for the script runner.
-Owns the full `#s-scripts` shell: toolbar (title/count/refresh), script cards
-(name/ext/capability badges/status dot/run-cancel state machine), embedded
-result areas (output streaming with batching, collapse/expand, error-type
-headers, writes-pending notice), and all UI state (`currentScripts`, `trusted`,
-`scriptStatus`, `runningPath`, `pendingTimer`, output batching state). Data is
-pushed via setters; actions report via callbacks. This module never imports the
-S global, never posts provider messages, and never touches the render registry. */
+Owns the full `#s-scripts` shell: framework section header (title/count/refresh
+action), script cards (name/ext/capability badges/status dot/run-cancel state
+machine), embedded result areas (output streaming with batching, collapse/expand,
+error-type headers, writes-pending notice), and all UI state (`currentScripts`,
+`trusted`, `scriptStatus`, `runningPath`, `pendingTimer`, output batching state).
+Data is pushed via setters; actions report via callbacks. This module never
+imports the S global, never posts provider messages, and never touches the render
+registry. */
 
 import { esc } from '../../../utils';
+import { SidebarSections } from '../sidebar';
 import './scriptsPanel.css';
 
 export interface ScriptInfo {
@@ -47,6 +49,7 @@ const ERROR_HEADERS: Record<string, { icon: string; label: string; cssClass: str
 export class ScriptsPanel {
     private readonly cb: ScriptsCallbacks;
     private _panel: HTMLElement | null = null;
+    private sections: SidebarSections | null = null;
     private initialized = false;
     private currentScripts: ScriptInfo[] = [];
     private trusted = true;
@@ -65,6 +68,10 @@ export class ScriptsPanel {
     /** Renders the panel into the given root (creates the #s-scripts container). Idempotent. */
     mount(root: HTMLElement): void {
         this._panel = root.id === 's-scripts' ? root : this.ensureScriptsRoot(root);
+        this._panel.innerHTML = '';
+        this.sections = new SidebarSections(this._panel, 'scripts', [
+            { id: 'main', label: 'Scripts', collapsible: false, mountActions: r => this.mountToolbarActions(r) },
+        ]);
         this.render();
     }
 
@@ -77,25 +84,25 @@ export class ScriptsPanel {
         return div;
     }
 
-    /** Re-renders the whole panel shell (was renderScripts). No-op until mounted. */
+    /** Re-renders the panel body (was renderScripts). No-op until mounted. */
     render(): void {
-        const panel = this._panel;
-        if (!panel) { return; }
-        panel.innerHTML = `
-        <div class="sb-hdr script-toolbar">
-            Scripts
-            <span class="sb-badge" id="scripts-count"></span>
-            <button class="script-refresh-btn sb-btn sb-btn-secondary" id="scripts-refresh" title="Refresh script list">&#8635;</button>
-        </div>
-        <div class="sb-body">
-            <div class="script-list">${this.scriptListHtml()}</div>
-        </div>`;
+        const body = this.sections?.body('main');
+        if (!body) { return; }
+        body.innerHTML = `<div class="script-list">${this.scriptListHtml()}</div>`;
         this.updateScriptCount();
-        panel.querySelector('#scripts-refresh')?.addEventListener('click', () => {
-            this.cb.onRequestList?.();
-        });
-        const list = panel.querySelector<HTMLElement>('.script-list');
+        const list = body.querySelector<HTMLElement>('.script-list');
         if (list) { this.wireScriptList(list); }
+    }
+
+    /** Framework header action: refresh rescan (compact control, mounted once). */
+    private mountToolbarActions(root: HTMLElement): void {
+        const refresh = document.createElement('button');
+        refresh.id = 'scripts-refresh';
+        refresh.className = 'sb-btn sb-btn-secondary sb-section-action';
+        refresh.title = 'Refresh script list';
+        refresh.textContent = '\u21BB';
+        refresh.addEventListener('click', () => this.cb.onRequestList?.());
+        root.appendChild(refresh);
     }
 
     /** Push script list + trust flag (was updateScriptList). */
@@ -114,14 +121,14 @@ export class ScriptsPanel {
     }
 
     private rebuildScriptList(): void {
-        const panel = this._panel;
-        if (!panel) { return; }
-        let list = panel.querySelector<HTMLElement>('.script-list');
+        const body = this.sections?.body('main');
+        if (!body) { return; }
+        let list = body.querySelector<HTMLElement>('.script-list');
         if (!list) {
             list = document.createElement('div');
             list.className = 'script-list';
-            const body = panel.querySelector('.sb-body');
-            if (body) { body.innerHTML = ''; body.appendChild(list); }
+            body.innerHTML = '';
+            body.appendChild(list);
         }
         list.innerHTML = this.scriptListHtml();
         this.wireScriptList(list);
@@ -218,10 +225,10 @@ export class ScriptsPanel {
     }
 
     private updateScriptCount(): void {
-        const panel = this._panel;
-        if (!panel) { return; }
-        const el = panel.querySelector<HTMLElement>('#scripts-count');
-        if (el) { el.textContent = String(this.currentScripts.length); el.hidden = this.currentScripts.length === 0; }
+        const sections = this.sections;
+        if (!sections) { return; }
+        const count = this.currentScripts.length;
+        sections.setBadge('main', count > 0 ? String(count) : null);
     }
 
     private scriptListHtml(): string {

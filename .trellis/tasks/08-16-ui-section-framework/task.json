@@ -3,7 +3,7 @@
   "name": "ui-section-framework",
   "title": "Sidebar section framework (header+collapse in shell)",
   "description": "Centralize .sb-section header rendering + collapse toggle in the sidebar component; panels mount body + optional header-actions slot. Derived from ui-spacing deep-dive. Design doc planned: schema panel -> { header: { label, collapsible, actionsSlot? }, mountBody(root) }. Pros: one collapse impl, kills per-panel applyCollapsibleSection dup, structural spacing consistency. Cons: header chrome slots (struct/integrity), scripts non-collapsible header + inner result collapse stay panel-owned, mount-contract test churn.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

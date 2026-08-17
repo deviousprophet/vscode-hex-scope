@@ -1,7 +1,7 @@
 // ── Inspector markup + pure derivation ─────────────────────────────
-// DOM-free HTML builders + pure state derivation for the Inspector,
-// Bit View, Multi-Byte interpreter, Segments, and Labels sections
-// (split out of InspectorPanel.ts). No DOM access; all inputs passed in.
+// DOM-free HTML builders + pure state derivation for the Inspector
+// (address/vals/byte line, multi-byte interpreter, internal Bit View
+// block, merged Labels list). No DOM access; all inputs passed in.
 
 import { esc, fmtB, formatDecimal, formatHex } from '../../../utils';
 import type { SegmentLabel, SerializedSegment } from '../../../../core/types';
@@ -32,13 +32,25 @@ export function singleByteInspectorHtml(val: number): string {
     );
 }
 
-export function multiByteInspectorHtml(selBytes: number[], len: number): string {
+/**
+ * Merged byte-line readout: first ≤8 bytes shown with an explicit
+ * byte count; the copied string is exactly the rendered bytes — the
+ * ellipsis is display-only and never copied.
+ */
+export function byteLineParts(selBytes: number[], len: number): { display: string; copy: string; truncated: boolean } {
     const dumpBytes = selBytes.slice(0, 8);
     const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    const copyStr   = len > 8 ? `${dumpStr} …` : dumpStr;
+    const truncated = len > 8;
+    const display   = `[${len} bytes] ${dumpStr}${truncated ? ' …' : ''}`;
+    return { display, copy: dumpStr, truncated };
+}
+
+export function multiByteInspectorHtml(selBytes: number[], len: number): string {
+    // Data readout, not a control: plain mono line, no button dressing.
+    const { display, copy } = byteLineParts(selBytes, len);
     return (
-        `<div class="insp-raw-dump" data-copy="${esc(copyStr)}" data-label="bytes" title="Click to copy">` +
-        `${dumpStr}${len > 8 ? ' <span class="insp-dump-ellipsis">…</span>' : ''}` +
+        `<div class="insp-byte-line" data-copy="${esc(copy)}" data-label="bytes" title="Click to copy ${esc(copy)}">` +
+        `${esc(display)}` +
         `</div>`
     );
 }
@@ -169,36 +181,32 @@ export function gapPaddingNoteHtml(skipped: number): string {
     return `<div class="mi-pad-row"><span class="mi-pad-note">${esc(String(skipped))} gap byte${skipped > 1 ? 's' : ''} zero-padded</span></div>`;
 }
 
-// ── Segments ─────────────────────────────────────────────────────
-
-function segmentAddress(address: number): string {
-    return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
-}
-
-export function segmentBadgeHtml(segments: SerializedSegment[]): string {
-    return segments.length > 0 ? `<span class="sb-badge">${segments.length}</span>` : '';
-}
-
-export function segmentItemsHtml(segments: SerializedSegment[]): string {
-    if (segments.length === 0) { return '<div class="sb-empty">No segments</div>'; }
-    return segments.map((s, i) => segmentItemHtml(s, i)).join('');
-}
-
-function segmentItemHtml(segment: SerializedSegment, index: number): string {
-    const endAddress = segment.startAddress + segment.data.length - 1;
-    const start = segmentAddress(segment.startAddress);
-    return `
-        <div class="segment-item" data-start="${segment.startAddress}" role="button" tabindex="0"
-             title="Jump to ${start}" aria-label="Jump to Segment ${index + 1} at ${start}">
-            <div class="segment-nm">Segment ${index + 1}</div>
-            <div class="segment-rng">${start}&ndash;${segmentAddress(endAddress)} &middot; ${fmtB(segment.data.length)}</div>
-        </div>`;
-}
-
-// ── Labels (markup + defaults) ───────────────────────────────────
+// ── Labels (merged user labels + permanent segment rows) ────────
 
 export function labelAddrHex(n: number): string {
     return `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+/** One display row in the merged Labels list (segments are permanent, non-editable). */
+export type LabelDisplayRow =
+    | { kind: 'user'; label: SegmentLabel }
+    | { kind: 'segment'; name: string; start: number; length: number };
+
+function rowStart(row: LabelDisplayRow): number {
+    return row.kind === 'user' ? row.label.startAddress : row.start;
+}
+
+/**
+ * Merges segments (permanent rows) with user labels into one
+ * address-sorted list. Segment names rank by address order; on an
+ * equal start, segments sort before user labels (stable input order).
+ */
+export function mergeForDisplay(labels: SegmentLabel[], segments: SerializedSegment[]): LabelDisplayRow[] {
+    const segRows: LabelDisplayRow[] = [...segments]
+        .sort((a, b) => a.startAddress - b.startAddress)
+        .map((s, i) => ({ kind: 'segment', name: `Segment ${i + 1}`, start: s.startAddress, length: s.data.length }));
+    const userRows: LabelDisplayRow[] = labels.map(label => ({ kind: 'user', label }));
+    return [...segRows, ...userRows].sort((a, b) => rowStart(a) - rowStart(b));
 }
 
 export function nextLabelName(labels: SegmentLabel[]): string {
@@ -226,8 +234,23 @@ export function labelSwatchesHtml(chosenColor: string): string {
     ).join('');
 }
 
-export function labelItemsHtml(labels: SegmentLabel[]): string {
-    return labels.length === 0
-        ? '<div class="sb-empty">No labels defined</div>'
-        : labels.map((label, index) => labelItemHtml(label, index, labels.length)).join('');
+export function labelItemsHtml(labels: SegmentLabel[], segments: SerializedSegment[]): string {
+    const rows = mergeForDisplay(labels, segments);
+    if (rows.length === 0) { return '<div class="sb-empty">No labels defined</div>'; }
+    return rows.map(row => row.kind === 'user' ? labelItemHtml(row.label) : segmentLabelItemHtml(row)).join('');
+}
+
+/** Permanent segment row: jump-only, no edit/delete/visibility controls. */
+function segmentLabelItemHtml(seg: LabelDisplayRow & { kind: 'segment' }): string {
+    const start = labelAddrHex(seg.start);
+    const end = labelAddrHex(seg.start + seg.length - 1);
+    return `
+        <div class="label-item label-perma" data-start="${seg.start}" role="button" tabindex="0"
+             title="Jump to ${start}" aria-label="Jump to ${esc(seg.name)} at ${start}">
+            <div class="label-sw label-sw-perma" aria-hidden="true"></div>
+            <div class="label-inf">
+                <div class="label-nm"><span class="label-perma-name">${esc(seg.name)}</span><span class="label-perma-glyph" aria-hidden="true">&#128204;&#xFE0E;</span></div>
+                <div class="label-rng">${start}&ndash;${end} &middot; ${fmtB(seg.length)}</div>
+            </div>
+        </div>`;
 }

@@ -40,11 +40,7 @@ function labelVisibilityUi(label: SegmentLabel): { itemClass: string; background
     };
 }
 
-function labelActionDisabled(disabled: boolean): string {
-    return disabled ? 'disabled style="opacity:.3;pointer-events:none"' : '';
-}
-
-export function labelItemHtml(label: SegmentLabel, index: number, count: number): string {
+export function labelItemHtml(label: SegmentLabel): string {
     const visibility = labelVisibilityUi(label);
     return `
             <div class="label-item${visibility.itemClass}" data-id="${label.id}">
@@ -54,8 +50,6 @@ export function labelItemHtml(label: SegmentLabel, index: number, count: number)
                     <div class="label-rng">0x${label.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(label.length)}</div>
                 </div>
                 <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}">${visibility.icon}</button>
-                <button type="button" class="label-act label-up"  data-id="${label.id}" title="Move up"   ${labelActionDisabled(index === 0)}>&#8593;</button>
-                <button type="button" class="label-act label-dn"  data-id="${label.id}" title="Move down" ${labelActionDisabled(index === count - 1)}>&#8595;</button>
                 ${actionBtnsHtml(`data-id="${label.id}"`, `data-id="${label.id}"`)}
             </div>`;
 }
@@ -95,10 +89,6 @@ export function labelFormHtml(editing: SegmentLabel | undefined, swatchHtml: str
                 <button class="sb-btn sb-btn-secondary" id="lf-cancel">Cancel</button>
             </div>
         </div>`;
-}
-
-export function labelsBadgeHtml(count: number): string {
-    return count > 0 ? `<span class="sb-badge">${count}</span>` : '';
 }
 
 export function defaultLabelColor(editing: SegmentLabel | undefined, fallback: string): string {

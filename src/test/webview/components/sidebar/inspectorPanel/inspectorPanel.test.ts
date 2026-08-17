@@ -25,6 +25,13 @@ function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: num
     const bytes = new Map<number, number>([
         [0x1000, 0x12],
         [0x1001, 0x34],
+        [0x1002, 0x56],
+        [0x1003, 0x78],
+        [0x1004, 0x9A],
+        [0x1005, 0xBC],
+        [0x1006, 0xDE],
+        [0x1007, 0xF0],
+        [0x1008, 0x12],
     ]);
     const cb = { jumps: [] as number[], labels: [] as SegmentLabel[][], copies: [] as Array<[string, string]> };
     const inspector = new InspectorPanel({
@@ -69,52 +76,18 @@ suite('Inspector mount + sections', () => {
 
     teardown(cleanupDom);
 
-    test('renders the four section shells', () => {
+    test('renders two sections; bits+segments folded into Inspector/Labels', () => {
         assert.ok(document.getElementById('s-insp'));
-        assert.ok(document.getElementById('s-bits'));
-        assert.ok(document.getElementById('s-segments'));
         assert.ok(document.getElementById('s-labels'));
+        assert.strictEqual(document.getElementById('s-bits'), null, 'no separate Bit View section');
+        assert.strictEqual(document.getElementById('s-segments'), null, 'no separate Segments section');
         assert.strictEqual(document.getElementById('insp-vals')!.textContent?.trim(), 'Click a byte to inspect');
-        assert.strictEqual(document.querySelector('#s-segments .sb-empty')?.textContent, 'No segments');
+        assert.ok(document.querySelector('#insp-bits'), 'bits block lives inside Inspector');
         assert.strictEqual(document.querySelector('#s-labels .sb-empty')?.textContent, 'No labels defined');
     });
 });
 
 suite('Inspector selection + endian', () => {
-    let dom: JSDOM;
-    let inspector: InspectorPanel;
-
-    setup(() => {
-        const installed = installDom();
-        dom = installed.dom;
-        inspector = installed.inspector;
-        currentDom = dom;
-    });
-
-    teardown(cleanupDom);
-
-    test('single-byte selection paints hex/bin chips and bit view', () => {
-        inspector.setSelection(0x1000, 0x1000);
-        assert.ok(document.querySelector('#insp-vals .insp-hex-chip')?.textContent, '0x12');
-        assert.ok(document.querySelector('#insp-vals .insp-bin-row'));
-        assert.ok(document.querySelector('#s-bits .bit-v.on'));
-    });
-
-    test('multi-byte selection renders raw dump and multi-byte cards', () => {
-        inspector.setSelection(0x1000, 0x1001);
-        assert.ok(document.querySelector('#insp-vals .insp-raw-dump')?.textContent?.includes('12 34'));
-        assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x3412'), 'LE uint16');
-    });
-
-    test('setEndian re-decodes the multi-byte interpreter', () => {
-        inspector.setSelection(0x1000, 0x1001);
-        assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x3412'));
-        inspector.setEndian('be');
-        assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x1234'), 'BE uint16');
-    });
-});
-
-suite('Inspector segments', () => {
     let dom: JSDOM;
     let inspector: InspectorPanel;
     let cb: { jumps: number[]; labels: SegmentLabel[][]; copies: Array<[string, string]> };
@@ -129,23 +102,143 @@ suite('Inspector segments', () => {
 
     teardown(cleanupDom);
 
-    test('setSegments renders sorted rows + badge and reports jumps', () => {
-        inspector.setSegments(segments);
-        const items = document.querySelectorAll<HTMLElement>('.segment-item');
-        assert.strictEqual(items.length, 2);
-        assert.strictEqual(document.querySelector('.sb-badge')!.textContent, '2');
-        assert.ok(items[0].querySelector('.segment-rng')!.textContent?.includes('0x00001000'));
-        items[0].click();
-        assert.deepStrictEqual(cb.jumps, [0x1000]);
+    test('single-byte selection paints hex/bin chips and inline bit view', () => {
+        inspector.setSelection(0x1000, 0x1000);
+        assert.ok(document.querySelector('#insp-vals .insp-hex-chip')?.textContent, '0x12');
+        assert.ok(document.querySelector('#insp-vals .insp-bin-row'));
+        assert.ok(document.querySelector('#insp-bits .bit-v.on'));
     });
 
-    test('setSegments preserves collapsed state', () => {
-        inspector.setSegments([]);
-        const section = document.getElementById('s-segments')!;
-        section.querySelector<HTMLElement>('.sb-hdr')!.click();
-        assert.ok(section.classList.contains('collapsed'));
+    test('multi-byte selection renders byte line and multi-byte cards', () => {
+        inspector.setSelection(0x1000, 0x1001);
+        assert.ok(document.querySelector('#insp-vals .insp-byte-line')?.textContent?.includes('12 34'));
+        assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x3412'), 'LE uint16');
+    });
+
+    test('byte line copy returns exactly rendered bytes', () => {
+        inspector.setSelection(0x1000, 0x1001);
+        const line = document.querySelector<HTMLElement>('.insp-byte-line')!;
+        assert.strictEqual(line.dataset.copy, '12 34');
+        assert.ok(!line.dataset.copy!.includes('…'));
+        line.click();
+        assert.deepStrictEqual(cb.copies.at(-1), ['12 34', 'bytes']);
+    });
+
+    test('byte line truncation shows count + ellipsis but copies visible bytes only', () => {
+        inspector.setSelection(0x1000, 0x1008); // 9 bytes → first 8 shown
+        const line = document.querySelector<HTMLElement>('.insp-byte-line')!;
+        const text = line.textContent!;
+        assert.ok(text.startsWith('[9 bytes]'), 'explicit count tag');
+        assert.ok(text.includes('…'), 'ellipsis marks further bytes');
+        const visible = text.replace(/^\[\d+ bytes\] /, '').replace(' …', '');
+        assert.strictEqual(line.dataset.copy, visible, 'copy equals visible bytes');
+        assert.ok(!line.dataset.copy!.includes('…'), 'never copies silent ellipsis');
+    });
+
+    test('bits auto-expands on selection; user collapse sticks across later selections', () => {
+        inspector.setSelection(0x1000, 0x1000);
+        const block = document.getElementById('insp-bits')!;
+        assert.ok(!block.classList.contains('collapsed'), 'fresh selection expands bits');
+        block.querySelector<HTMLElement>('[data-collapse]')!.click();
+        assert.ok(block.classList.contains('collapsed'));
+        inspector.setSelection(0x1001, 0x1001);
+        assert.ok(block.classList.contains('collapsed'), 'sticky across selections');
+        assert.strictEqual(block.querySelector('[data-collapse]')!.getAttribute('aria-expanded'), 'false');
+    });
+
+    test('remount resets bits sticky collapse', () => {
+        inspector.setSelection(0x1000, 0x1000);
+        document.getElementById('insp-bits')!.querySelector<HTMLElement>('[data-collapse]')!.click();
+        inspector.mount(document.getElementById('host')!);
+        inspector.setSelection(0x1000, 0x1000);
+        assert.ok(!document.getElementById('insp-bits')!.classList.contains('collapsed'), 'remount resets to expanded');
+    });
+
+    test('setEndian re-decodes the multi-byte interpreter', () => {
+        inspector.setSelection(0x1000, 0x1001);
+        assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x3412'));
+        inspector.setEndian('be');
+        assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x1234'), 'BE uint16');
+    });
+});
+
+suite('Inspector segments merge into Labels', () => {
+    let dom: JSDOM;
+    let inspector: InspectorPanel;
+    let cb: { jumps: number[]; labels: SegmentLabel[][]; copies: Array<[string, string]> };
+
+    setup(() => {
+        const installed = installDom();
+        dom = installed.dom;
+        inspector = installed.inspector;
+        cb = installed.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    test('setSegments renders address-sorted permanent rows + badge and jumps', () => {
         inspector.setSegments(segments);
-        assert.ok(section.classList.contains('collapsed'), 'collapse survives re-set');
+        const items = document.querySelectorAll<HTMLElement>('.label-perma');
+        assert.strictEqual(items.length, 2);
+        const badge = document.querySelector('#s-labels .sb-badge')!;
+        assert.strictEqual(badge.textContent, '2');
+        assert.ok(!(badge as HTMLElement).hidden);
+        assert.strictEqual(items[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
+        assert.ok(items[0].querySelector('.label-rng')!.textContent?.includes('0x00001000'));
+        assert.strictEqual(items[0].querySelectorAll('.label-act, .act-btn-edit, .act-btn-del').length, 0,
+            'permanent rows have no edit/delete/visibility controls');
+        items[0].click();
+        assert.deepStrictEqual(cb.jumps, [0x1000]);
+        assert.strictEqual(document.getElementById('s-segments'), null);
+    });
+
+    test('merged list is address-sorted with segments first on tie', () => {
+        inspector.setSegments(segments);
+        inspector.setLabels(labels);
+        const rows = document.querySelectorAll<HTMLElement>('.label-item');
+        assert.strictEqual(rows.length, 3);
+        assert.strictEqual(rows[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
+        assert.ok(rows[0].classList.contains('label-perma'));
+        assert.strictEqual(rows[1].querySelector('.label-nm')!.textContent, 'Start');
+        assert.strictEqual(rows[2].querySelector('.label-perma-name')!.textContent, 'Segment 2');
+        const badge = document.querySelector('#s-labels .sb-badge')!;
+        assert.strictEqual(badge.textContent, '3', 'badge counts total rows');
+    });
+
+    test('docking: labels default collapsed docks to bottom; expanding returns to slot', () => {
+        const section = document.getElementById('s-labels')!;
+        const dock = document.querySelector<HTMLElement>('.sb-dock')!;
+        assert.ok(section.classList.contains('collapsed'), 'default collapsed');
+        assert.strictEqual(section.parentElement, dock, 'docked on mount');
+        assert.ok(!dock.hidden);
+
+        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+        assert.ok(!section.classList.contains('collapsed'));
+        assert.strictEqual(section.parentElement, document.getElementById('host'), 'restored to top stack');
+        assert.ok(dock.hidden, 'empty dock hides');
+
+        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+        assert.strictEqual(section.parentElement, dock, 're-collapse returns to dock');
+    });
+
+    test('inspector section never docks when collapsed', () => {
+        const section = document.getElementById('s-insp')!;
+        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+        assert.ok(section.classList.contains('collapsed'));
+        assert.strictEqual(section.parentElement, document.getElementById('host'));
+    });
+
+    test('labels collapsed state survives re-set while docked', () => {
+        inspector.setSegments([]);
+        const section = document.getElementById('s-labels')!;
+        const dock = document.querySelector<HTMLElement>('.sb-dock')!;
+        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+        assert.ok(!section.classList.contains('collapsed'));
+        assert.strictEqual(section.parentElement, document.getElementById('host'));
+        inspector.setSegments(segments);
+        assert.ok(!section.classList.contains('collapsed'), 'expand survives re-set');
+        assert.ok(section.querySelectorAll('.label-perma').length === 2);
     });
 });
 
@@ -168,7 +261,9 @@ suite('Inspector labels', () => {
         inspector.setLabels(labels);
         const row = document.querySelector<HTMLElement>('.label-item')!;
         assert.strictEqual(row.querySelector('.label-nm')!.textContent, 'Start');
-        assert.strictEqual(document.querySelector('.sb-badge')!.textContent, '1');
+        const badge = document.querySelector('#s-labels .sb-badge')!;
+        assert.strictEqual(badge.textContent, '1');
+        assert.ok(!(badge as HTMLElement).hidden);
         row.click();
         assert.deepStrictEqual(cb.jumps, [0x1000]);
     });
@@ -192,17 +287,18 @@ suite('Inspector labels', () => {
         assert.strictEqual(cb.labels[1][0].hidden, false);
     });
 
-    test('move up/down reports onLabelsChange', () => {
+    test('user label rows have no reorder controls', () => {
         const three = [
             { id: 'a', name: 'A', startAddress: 0x1000, length: 4, color: '#4fc3f7' },
             { id: 'b', name: 'B', startAddress: 0x2000, length: 4, color: '#81c784' },
             { id: 'c', name: 'C', startAddress: 0x3000, length: 4, color: '#ffb74d' },
         ];
         inspector.setLabels(three);
-        document.querySelectorAll<HTMLElement>('.label-dn')[0].click();
-        assert.deepStrictEqual(cb.labels[0].map(l => l.id), ['b', 'a', 'c']);
-        document.querySelectorAll<HTMLElement>('.label-up')[2].click();
-        assert.deepStrictEqual(cb.labels[1].map(l => l.id), ['b', 'c', 'a']);
+        assert.strictEqual(document.querySelectorAll('.label-up').length, 0);
+        assert.strictEqual(document.querySelectorAll('.label-dn').length, 0);
+        // Order is address-sorted in the merged list, not manual.
+        const names = [...document.querySelectorAll<HTMLElement>('.label-nm')].map(n => n.textContent);
+        assert.deepStrictEqual(names, ['A', 'B', 'C']);
     });
 
     test('edit form saves updates via onLabelsChange', () => {

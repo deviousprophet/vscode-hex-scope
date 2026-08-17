@@ -1,5 +1,3 @@
-#s-integrity { padding: 10px 12px; }
-
 .integrity-shell {
     box-sizing: border-box;
     color: var(--fg);
@@ -7,14 +5,14 @@
     min-width: 0;
 }
 
-/* Header row — local flex layout (was borrowed `.si-hdr-row` from structPanel.css) */
+/* Body controls row (Fix all + Add) under the framework section header */
 .integrity-hdr-row {
     display: flex;
     align-items: flex-start;
+    justify-content: flex-end;
     gap: 6px;
     margin-bottom: 8px;
 }
-.integrity-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
 .integrity-profiles {
     display: grid;
     gap: 5px;

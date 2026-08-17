@@ -43,17 +43,34 @@
 }
 .insp-bin-row:hover { color: var(--fg); }
 
-/* Multi-byte raw dump */
-.insp-raw-dump {
+/* Multi-byte byte line — plain mono data readout, not a button */
+.insp-byte-line {
     font-family: var(--font-editor); font-size: 11px; letter-spacing: .06em;
-    color: var(--print-color); cursor: pointer;
-    padding: 4px 6px; background: rgba(0,0,0,.2); border-radius: 3px;
+    color: var(--addr-fg); cursor: pointer;
     word-break: break-all;
 }
-.insp-raw-dump:hover { background: rgba(255,255,255,.05); }
-.insp-dump-ellipsis { color: var(--addr-fg); opacity: .5; }
+.insp-byte-line:hover { color: var(--fg); }
 
-/* ── Bit viewer ──────────────────────────────────────────────── */
+/* ── Bit viewer (internal disclosure inside the Inspector section) ── */
+
+/* Internal disclosure header for the Bits block (scriptsPanel pattern). */
+#insp-bits { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+#insp-bits.collapsed .sb-inner-body { display: none; }
+.sb-inner-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    width: 100%; padding: 0;
+    background: none; border: none; font: inherit; color: inherit;
+    cursor: pointer; user-select: none;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--addr-fg);
+}
+.sb-inner-toggle-icon {
+    display: inline-block; font-size: 12px; line-height: 1;
+    color: var(--addr-fg); transition: transform .15s;
+}
+#insp-bits:not(.collapsed) .sb-inner-toggle-icon { transform: rotate(90deg); }
+.sb-inner-toggle .sb-badge { margin-left: auto; }
+.sb-inner-body { padding-top: 8px; }
 
 /* Inspector inline multi-byte */
 #insp-multi { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -134,16 +151,15 @@
 .mi-hex[data-copy]{ cursor: pointer; }
 .mi-hex[data-copy]:hover { opacity: 1; color: var(--fg); }
 
-/* ── Segment labels ──────────────────────────────────────────── */
-.segment-item {
-    padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04);
-    cursor: pointer; border-radius: 2px;
-}
-.segment-item:last-child { border-bottom: none; }
-.segment-item:hover,
-.segment-item:focus-visible { background: rgba(255,255,255,.06); outline: none; }
-.segment-nm  { font-size: 11px; font-weight: 600; }
-.segment-rng { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); margin-top: 1px; }
+/* ── Permanent segment rows inside Labels (merged, non-editable) ── */
+.label-perma { cursor: pointer; }
+.label-perma .label-nm { color: var(--addr-fg); font-weight: 600; }
+.label-perma:hover,
+.label-perma:focus-visible { background: rgba(255,255,255,.06); outline: none; }
+.label-perma:hover .label-nm,
+.label-perma:focus-visible .label-nm { color: var(--fg); }
+.label-sw-perma { background: transparent; border: 1px dashed var(--addr-fg); opacity: .5; }
+.label-perma-glyph { margin-left: 5px; color: var(--addr-fg); font-size: 10px; opacity: .65; }
 
 .label-item {
     display: flex; align-items: center; gap: 5px;

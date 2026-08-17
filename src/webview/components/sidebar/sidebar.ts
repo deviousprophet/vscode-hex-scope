@@ -7,6 +7,11 @@
 // feature/panel logic. The host wires panel mounts, the header slot
 // (feature-specific chrome like the endian toggle), and per-tab
 // activation side effects through callbacks.
+//
+// SidebarSections (below) is the shared section-shell primitive: it
+// renders section headers (label + collapse disclosure + optional
+// header-actions slot) once per mount, and panels write only their
+// body content through `body(id)`.
 
 import { esc } from '../../utils';
 import './sidebar.css';
@@ -219,4 +224,192 @@ export class Sidebar {
 /** Pixel delta for a resize arrow key, or 0 when the key is not a resize arrow. */
 function resizeKeyDelta(key: string): number {
     return key === 'ArrowLeft' ? -16 : key === 'ArrowRight' ? 16 : 0;
+}
+
+// ── Section shell framework ────────────────────────────────────────
+// One shared header/collapse implementation replaces per-panel
+// `applyCollapsibleSection` hand-rolling. Panels create a SidebarSections
+// at mount, then rewrite only `body(id)` contents; collapse state is kept
+// per mounted instance and resets when the panel shell is rebuilt.
+
+export interface SidebarSectionSpec {
+    id: string;
+    label: string;
+    /** Collapsed on first render (collapsible sections only); default false. */
+    defaultCollapsed?: boolean;
+    /** True by default; false renders a plain non-disclosure header (body always visible). */
+    collapsible?: boolean;
+    /** Optional header-action chrome mounted once beside the disclosure (compact controls only). */
+    mountActions?: (root: HTMLElement) => void;
+}
+
+interface SidebarSectionDom {
+    section: HTMLElement;
+    body: HTMLElement;
+    toggle: HTMLButtonElement | null;
+    label: HTMLElement;
+    badge: HTMLElement | null;
+}
+
+export class SidebarSections {
+    private readonly idPrefix: string;
+    private readonly root: HTMLElement;
+    /** Optional bottom-dock reparent target for collapsed non-first sections. */
+    private readonly dockContainer: HTMLElement | null;
+    private readonly collapsed: Map<string, boolean>;
+    private readonly dom: Map<string, SidebarSectionDom>;
+    /** Original insertion index per section id (dock restore target slot). */
+    private readonly order: Map<string, number>;
+
+    constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[], dockContainer?: HTMLElement) {
+        const seen = new Set<string>();
+        for (const spec of sections) {
+            if (seen.has(spec.id)) { throw new Error(`SidebarSections: duplicate section id "${spec.id}"`); }
+            seen.add(spec.id);
+        }
+        this.idPrefix = idPrefix;
+        this.root = root;
+        this.dockContainer = dockContainer ?? null;
+        this.collapsed = new Map(sections.map(s => [s.id, s.collapsible !== false && s.defaultCollapsed === true]));
+        this.dom = new Map();
+        this.order = new Map();
+        const fragment = document.createDocumentFragment();
+        sections.forEach((spec, index) => {
+            this.order.set(spec.id, index);
+            this.dom.set(spec.id, this.buildSection(fragment, spec));
+        });
+        root.appendChild(fragment);
+        if (this.dockContainer) {
+            root.appendChild(this.dockContainer);
+            // Default-collapsed sections start docked.
+            for (const [id] of this.collapsed) { this.moveForCollapse(id, true); }
+            this.syncDock();
+        }
+    }
+
+    /** Section body root — panels write/rewrite only this. */
+    body(id: string): HTMLElement | null {
+        return this.dom.get(id)?.body ?? null;
+    }
+
+    setLabel(id: string, label: string): void {
+        const entry = this.dom.get(id);
+        if (!entry) { return; }
+        entry.label.textContent = label;
+    }
+
+    /** Badge text right of the label; null/empty hides the badge. */
+    setBadge(id: string, text: string | null): void {
+        const entry = this.dom.get(id);
+        if (!entry?.badge) { return; }
+        entry.badge.textContent = text ?? '';
+        entry.badge.hidden = text === null || text === '';
+    }
+
+    /** Collapse/expand a collapsible section (no-op for non-collapsible headers). */
+    setCollapsed(id: string, collapsed: boolean): void {
+        const entry = this.dom.get(id);
+        if (!entry?.toggle) { return; }
+        this.collapsed.set(id, collapsed);
+        entry.section.classList.toggle('collapsed', collapsed);
+        entry.toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        this.moveForCollapse(id, collapsed);
+    }
+
+    isCollapsed(id: string): boolean {
+        return this.collapsed.get(id) ?? false;
+    }
+
+    /**
+     * Bottom-dock support: a collapsed non-first section reparents into the
+     * dock container (compact pill); expanding restores its original slot.
+     * The first section (original index 0) never docks — panels without a
+     * dockContainer keep the plain stacked behavior unchanged.
+     */
+    private moveForCollapse(id: string, collapsed: boolean): void {
+        const dock = this.dockContainer;
+        const entry = this.dom.get(id);
+        const index = this.order.get(id) ?? 0;
+        if (!dock || !entry || index === 0) { return; }
+        const section = entry.section;
+        if (collapsed && section.parentNode !== dock) {
+            section.classList.add('docked');
+            dock.appendChild(section);
+        } else if (!collapsed && section.parentNode !== this.root) {
+            section.classList.remove('docked');
+            this.restoreToSlot(section, index);
+        }
+        this.syncDock();
+    }
+
+    /** Reinsert a docked section before its next non-docked sibling in original order. */
+    private restoreToSlot(section: HTMLElement, index: number): void {
+        const next = [...this.order.entries()]
+            .filter(([, i]) => i > index)
+            .map(([id]) => this.dom.get(id)?.section)
+            .find(s => s !== undefined && s.parentNode === this.root);
+        this.root.insertBefore(section, next ?? this.dockContainer);
+    }
+
+    private syncDock(): void {
+        const dock = this.dockContainer;
+        if (!dock) { return; }
+        dock.hidden = dock.childElementCount === 0;
+    }
+
+    /** Build one `<section class="sb-section">` shell and append it to `fragment`. */
+    private buildSection(fragment: DocumentFragment, spec: SidebarSectionSpec): SidebarSectionDom {
+        const section = document.createElement('section');
+        section.className = 'sb-section';
+        section.id = `${this.idPrefix}-${spec.id}`;
+
+        const head = document.createElement('div');
+        head.className = 'sb-section-head';
+
+        const title = document.createElement('h3');
+        title.className = 'sb-section-title';
+
+        const label = document.createElement('span');
+        label.className = 'sb-section-label';
+        label.textContent = spec.label;
+
+        const badge = document.createElement('span');
+        badge.className = 'sb-badge';
+        badge.hidden = true;
+        label.appendChild(badge);
+
+        const body = document.createElement('div');
+        body.className = 'sb-body';
+        body.id = `${this.idPrefix}-${spec.id}-body`;
+        body.setAttribute('role', 'region');
+
+        let toggle: HTMLButtonElement | null = null;
+        if (spec.collapsible !== false) {
+            toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'sb-section-toggle';
+            toggle.setAttribute('aria-controls', body.id);
+            const initial = this.collapsed.get(spec.id) ?? false;
+            section.classList.toggle('collapsed', initial);
+            toggle.setAttribute('aria-expanded', initial ? 'false' : 'true');
+            toggle.addEventListener('click', () => this.setCollapsed(spec.id, !this.isCollapsed(spec.id)));
+            toggle.appendChild(label);
+            title.appendChild(toggle);
+        } else {
+            title.appendChild(label);
+        }
+        head.appendChild(title);
+
+        if (spec.mountActions) {
+            const actions = document.createElement('div');
+            actions.className = 'sb-section-actions';
+            head.appendChild(actions);
+            spec.mountActions(actions);
+        }
+
+        section.appendChild(head);
+        section.appendChild(body);
+        fragment.appendChild(section);
+        return { section, body, toggle, label, badge };
+    }
 }

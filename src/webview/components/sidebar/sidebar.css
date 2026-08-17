@@ -40,11 +40,12 @@
 .sidebar-endian-tabs button { padding: 1px 6px; }
 .sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 
+/* Legacy inline header — still used by the label-form title inside section
+   bodies; top-level section headers migrated to .sb-section-head/.sb-section-label. */
 .sb-hdr {
     display: flex; align-items: center; gap: 6px;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .07em; color: var(--addr-fg); margin-bottom: 8px;
-    position: relative; padding-left: 14px;
 }
 .sb-badge {
     background: rgba(134,180,212,.14); color: var(--high-color);
@@ -52,6 +53,54 @@
     letter-spacing: 0; text-transform: none;
 }
 .sb-empty { color: var(--non-graphic); font-size: 11px; font-style: italic; }
+
+/* ── Framework section shell (rendered by SidebarSections in sidebar.ts) ── */
+.sb-section-head {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 8px;
+}
+.sb-section-title {
+    flex: 1; min-width: 0;
+    margin: 0;
+    font: inherit; color: inherit;
+}
+.sb-section-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--addr-fg);
+}
+/* Disclosure — native button (Enter/Space), labelled by the section h3. */
+.sb-section-toggle {
+    position: relative; padding: 0 0 0 14px;
+    background: none; border: none;
+    display: inline-flex; align-items: center;
+    font: inherit; color: inherit;
+    cursor: pointer; user-select: none;
+}
+.sb-section-toggle::before {
+    content: '\25B6'; /* right-pointing triangle */
+    position: absolute; left: 0; top: 50%;
+    margin-top: -6px;
+    font-size: 12px;
+    line-height: 1;
+    transition: transform .15s;
+    color: var(--addr-fg);
+}
+.sb-section:not(.collapsed) .sb-section-toggle::before {
+    transform: rotate(90deg);
+}
+.sb-section-actions {
+    display: flex; align-items: center; gap: 4px;
+    flex-shrink: 0; margin-left: auto;
+}
+/* Compact header-action contract: cannot enlarge the header height. */
+.sb-section-actions .sb-section-action {
+    font-size: 10px;
+    padding: 2px 8px;
+    line-height: 1.2;
+    max-height: 22px;
+    white-space: nowrap;
+}
 
 /* ── Side-tab strip (always-visible right-edge verticals) ──────── */
 #side-tabs {
@@ -79,24 +128,22 @@
 
 /* ── Collapsible section support (shared section pattern) ──────── */
 .sb-section.collapsed .sb-body { display: none; }
-.sb-section .sb-hdr {
-    cursor: pointer;  user-select: none;
-    position: relative;
+
+/* ── Bottom dock: collapsed non-first sections pin here as compact pills ── */
+.sb-dock {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-top: 8px; padding-top: 6px;
+    border-top: 1px solid var(--border);
+    position: sticky; bottom: 0;
+    background: var(--panel-bg);
 }
-.sb-section .sb-hdr::before {
-    content: '\25B6'; /* right-pointing triangle */
-    position: absolute;
-    left: 0;
-    top: 50%;
-    margin-top: -6px;
-    font-size: 12px;
-    line-height: 1;
-    transition: transform .15s;
-    color: var(--addr-fg);
+.sb-dock[hidden] { display: none; }
+.sb-dock .sb-section.docked {
+    padding: 4px 8px;
+    border: 1px solid var(--border); border-radius: 4px;
+    background: rgba(255,255,255,.03);
 }
-.sb-section:not(.collapsed) .sb-hdr::before {
-    transform: rotate(90deg);
-}
+.sb-dock .sb-section.docked .sb-section-head { margin-bottom: 0; }
 
 /* ── Shared UI primitives ────────────────────────────────────────── */
 /* All four sidebar panels converge on these classes. CSS guidelines: */

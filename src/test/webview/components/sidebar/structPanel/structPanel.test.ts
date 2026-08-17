@@ -1951,10 +1951,10 @@ suite('StructPanel deep-render harness', () => {
     test('renders both tracks with empty states', async () => {
         await createMountedPanel();
         assert.ok(document.getElementById('si-track'));
-        assert.ok(document.querySelector('.si-main-panel'));
-        assert.ok(document.querySelector('.si-types-panel'));
-        assert.match(document.querySelector('.si-main-panel')!.textContent!, /No instances yet/);
-        assert.strictEqual(document.querySelector('.si-types-panel .sb-empty')?.textContent, 'No types defined yet.');
+        assert.ok(document.getElementById('si-instances'));
+        assert.ok(document.getElementById('si-types'));
+        assert.match(document.getElementById('si-instances')!.textContent!, /No instances yet/);
+        assert.strictEqual(document.querySelector('#si-types .sb-empty')?.textContent, 'No types defined yet.');
     });
 
     test('mount is idempotent: re-mount into the same root re-renders without errors', async () => {
