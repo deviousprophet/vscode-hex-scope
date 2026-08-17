@@ -128,8 +128,10 @@
 .stab:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
-.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; }
-.sb-tab-panel.active { display: block; }
+/* Flex column so a bottom dock can pin via margin-top:auto when content is
+   short; sticky (see .sb-dock) still pins it while the panel scrolls. */
+.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; flex-direction: column; }
+.sb-tab-panel.active { display: flex; }
 
 /* ── Collapsible section support (shared section pattern) ──────── */
 .sb-section.collapsed .sb-body { display: none; }
@@ -137,7 +139,7 @@
 /* ── Bottom dock: collapsed non-first sections pin here as compact pills ── */
 .sb-dock {
     display: flex; flex-direction: column; gap: 4px;
-    margin-top: 8px; padding-top: 6px;
+    margin-top: auto; padding-top: 6px;
     border-top: 1px solid var(--border);
     position: sticky; bottom: 0;
     background: var(--panel-bg);
