@@ -74,11 +74,18 @@
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .07em; color: var(--addr-fg);
 }
-/* Disclosure — native button (Enter/Space), labelled by the section h3. */
+/* Disclosure — native button (Enter/Space), labelled by the section h3.
+   Full-row click target: width:100% fills .sb-section-title row.
+   24px hit area without row growth: symmetric padding enlarges the pointer
+   box, matching negative margins cancel the layout size (tri-angle stays
+   centered via ::before top:50%). */
 .sb-section-toggle {
-    position: relative; padding: 0 0 0 14px;
+    position: relative; padding: 12px 0 12px 14px;
+    margin: -12px 0;
     background: none; border: none;
-    display: inline-flex; align-items: center;
+    display: flex; width: 100%;
+    justify-content: flex-start; text-align: left;
+    align-items: center;
     font: inherit; color: inherit;
     cursor: pointer; user-select: none;
 }

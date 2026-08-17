@@ -369,6 +369,7 @@ export class SidebarSections {
 
         const title = document.createElement('h3');
         title.className = 'sb-section-title';
+        title.id = `${this.idPrefix}-${spec.id}-title`;
 
         const label = document.createElement('span');
         label.className = 'sb-section-label';
@@ -383,6 +384,7 @@ export class SidebarSections {
         body.className = 'sb-body';
         body.id = `${this.idPrefix}-${spec.id}-body`;
         body.setAttribute('role', 'region');
+        body.setAttribute('aria-labelledby', title.id);
 
         let toggle: HTMLButtonElement | null = null;
         if (spec.collapsible !== false) {
