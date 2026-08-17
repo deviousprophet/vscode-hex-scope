@@ -253,6 +253,22 @@ export function formatHexHtml(hexStr: string): string {
     return `<span class="si-hex-prefix">${prefix}</span><span class="si-hex-body">${body}</span>`;
 }
 
+/**
+ * Flash a "copied" confirmation on a copy target: adds `.copied` for ~1s
+ * (styled per target via CSS) and optionally swaps the element's text to
+ * "Copied" until the flash ends. Pure DOM/CSS feedback — clipboard writes
+ * are untouched and stay with the existing copy callbacks.
+ */
+export function flashCopied(el: HTMLElement, swapText = false): void {
+    el.classList.add('copied');
+    const prev = swapText ? el.textContent : null;
+    if (swapText) { el.textContent = 'Copied'; }
+    window.setTimeout(() => {
+        el.classList.remove('copied');
+        if (prev !== null) { el.textContent = prev; }
+    }, 1000);
+}
+
 /** Direct wrappers around DataView BigInt reads (centralized for future fallbacks). */
 export function getBigUint64(dv: DataView, offset: number, littleEndian: boolean): bigint {
     return dv.getBigUint64(offset, littleEndian);

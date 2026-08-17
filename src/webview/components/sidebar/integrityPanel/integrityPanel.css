@@ -324,6 +324,9 @@
 .integrity-copy-btn:hover,
 .integrity-copy-btn:focus-visible { color: var(--high-color); }
 
+/* 'Copied' flash on the ⧉ button (`.copied` added by flashCopied for ~1s). */
+.integrity-copy-btn.copied { color: var(--vscode-testing-iconPassed, #73c991); }
+
 .integrity-copy-btn:disabled {
     cursor: default;
     opacity: .35;

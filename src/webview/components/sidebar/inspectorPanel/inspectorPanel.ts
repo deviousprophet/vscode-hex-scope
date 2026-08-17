@@ -11,7 +11,7 @@
 // label-form state machine in inspectorLabelForm.ts (operating on this
 // panel as its host).
 
-import { esc, wireActionBtns } from '../../../utils';
+import { esc, flashCopied, wireActionBtns } from '../../../utils';
 import type { SegmentLabel, SerializedSegment } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import {
@@ -23,7 +23,7 @@ import {
     inspectorSelectionLength,
     labelItemsHtml,
     multiByteInspectorHtml,
-    multiPadNoteHtml,
+    multiContextHtml,
     multiValueGroupHtml,
     multiWidth,
     popcount,
@@ -226,6 +226,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
             el.addEventListener('click', () => {
                 this.cb.onCopy?.(el.dataset.copy!, el.dataset.label ?? 'value');
+                flashCopied(el, true);
             });
         });
     }
@@ -312,7 +313,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         const groupHtml = multiValueGroupHtml(width, readMultiValues(raw, le));
 
         el.innerHTML =
-            multiPadNoteHtml(selLen, width) +
+            multiContextHtml(this.endian, width, selLen) +
             `<div class="mi-group">${groupHtml}</div>`;
 
         wireMultiInlineCopies(el, (text, label) => this.cb.onCopy?.(text, label));
@@ -417,12 +418,14 @@ function wireMultiInlineCopies(el: HTMLElement, cb: (text: string, label: string
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'decimal');
+            flashCopied(span, true);
         });
     });
     el.querySelectorAll<HTMLElement>('.mi-hex[data-copy]').forEach(span => {
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'hex');
+            flashCopied(span, true);
         });
     });
 }

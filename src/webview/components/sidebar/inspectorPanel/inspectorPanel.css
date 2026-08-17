@@ -51,6 +51,38 @@
 }
 .insp-byte-line:hover { color: var(--fg); }
 
+/* ── Copy affordance + feedback ─────────────────────────────── */
+
+/* Low-key copy cues: underline-on-hover on chips/values (no layout change,
+   box-shadow instead of border), persistent ⧉ glyph on the primary byte line. */
+.insp-hex-chip,
+.insp-dec-chip,
+.insp-bin-row,
+.mi-dec[data-copy],
+.mi-hex[data-copy] {
+    box-shadow: inset 0 -1px 0 transparent;
+    transition: box-shadow .1s, opacity .1s, color .1s;
+}
+.insp-hex-chip:hover,
+.insp-dec-chip:hover,
+.insp-bin-row:hover,
+.mi-dec[data-copy]:hover,
+.mi-hex[data-copy]:hover { box-shadow: inset 0 -1px 0 currentColor; }
+.insp-byte-line::after { content: ' ⧉'; opacity: .4; font-size: 10px; }
+.insp-byte-line:hover::after { opacity: .95; }
+
+/* 'Copied' flash (`.copied` added by flashCopied for ~1s, text swaps to
+   "Copied"); green read matches the Integrity panel's confirmation color. */
+.insp-hex-chip.copied,
+.insp-dec-chip.copied,
+.insp-bin-row.copied,
+.insp-byte-line.copied,
+.mi-dec.copied,
+.mi-hex.copied {
+    color: var(--vscode-testing-iconPassed, #73c991);
+    box-shadow: none;
+}
+
 /* ── Bit viewer (internal disclosure inside the Inspector section) ── */
 
 /* Internal disclosure header for the Bits block (scriptsPanel pattern). */
@@ -125,6 +157,8 @@
 /* zero-pad note */
 .mi-pad-row  { margin-bottom: 5px; }
 .mi-pad-note { font-size: 9px; color: var(--non-graphic); font-style: italic; }
+/* Decode-context tag ([LE · 4-byte]): same pad-note language, less muted. */
+.mi-endian-note { font-style: normal; color: var(--addr-fg); font-weight: 600; }
 
 /* group — shared 2-col grid so type names and values align across all rows */
 .mi-group     { display: grid; grid-template-columns: auto 1fr; gap: 1px 0; }

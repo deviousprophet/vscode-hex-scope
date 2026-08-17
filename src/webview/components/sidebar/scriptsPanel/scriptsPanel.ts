@@ -83,6 +83,15 @@ export class ScriptsPanel {
         this.render();
     }
 
+    /**
+     * Aborts in-flight timers (pending-run spinner window, output-batch flush).
+     * Host/teardown calls this so no timer callback touches a destroyed DOM.
+     */
+    dispose(): void {
+        if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null; }
+        if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
+    }
+
     private ensureScriptsRoot(root: HTMLElement): HTMLElement {
         const existing = root.querySelector<HTMLElement>('#s-scripts');
         if (existing) { return existing; }

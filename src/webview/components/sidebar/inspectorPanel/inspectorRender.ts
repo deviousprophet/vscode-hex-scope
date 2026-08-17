@@ -171,10 +171,18 @@ export function multiValueGroupHtml(width: number, values: MultiValues): string 
     );
 }
 
-export function multiPadNoteHtml(selLen: number, width: number): string {
-    return selLen < width
-        ? `<div class="mi-pad-row"><span class="mi-pad-note">zero-padded to ${width * 8}-bit</span></div>`
+/**
+ * Decode-context note for the multi-byte interpreter: endian tag + zero-pad
+ * note when the selection is narrower than the decode width. Pure markup;
+ * styled with the pad-note language (`.mi-pad-note`), endian part honed with
+ * `.mi-endian-note`.
+ */
+export function multiContextHtml(endian: 'le' | 'be', width: number, selLen: number): string {
+    const tag = `<span class="mi-pad-note mi-endian-note">[${endian.toUpperCase()} · ${width}-byte]</span>`;
+    const pad = selLen < width
+        ? `<span class="mi-pad-note">zero-padded to ${width * 8}-bit</span>`
         : '';
+    return `<div class="mi-pad-row">${tag}${pad}</div>`;
 }
 
 export function gapPaddingNoteHtml(skipped: number): string {

@@ -5,6 +5,7 @@ import '../../../cssImportHook';
 import { ScriptsPanel, type ScriptInfo } from '../../../../../webview/components/sidebar/scriptsPanel/scriptsPanel';
 
 let currentDom: JSDOM | null = null;
+let currentPanel: ScriptsPanel | null = null;
 
 type Globalish = {
     window: Window;
@@ -61,11 +62,17 @@ function installDom(): Harness {
         getGeneration: () => generation.value,
     });
     panel.mount(document.getElementById('host')!);
+    currentPanel = panel;
     return { dom, panel, cb, sel, generation };
 }
 
 function cleanupDom(): void {
     if (currentDom) {
+        // Cancel any pending spinner/flush timer FIRST so its callback can
+        // never fire after the jsdom globals are deleted (previously a
+        // flaky ReferenceError: document is not defined under suite load).
+        currentPanel?.dispose();
+        currentPanel = null;
         currentDom.window.close();
         currentDom = null;
         delete (globalThis as unknown as { window?: Window }).window;
@@ -227,11 +234,6 @@ suite('ScriptsPanel run/cancel state machine', () => {
         currentDom = dom;
     });
 
-    teardown(() => {
-        // clear any pending 200ms spinner timer so it never fires after DOM teardown
-        panel.showResult(A, [], [], '', undefined, 0);
-    });
-
     teardown(cleanupDom);
 
     test('click run reports onRunScript with generation + selection', () => {
@@ -276,6 +278,18 @@ suite('ScriptsPanel run/cancel state machine', () => {
         click(dom, runBtn(A));
         assert.deepStrictEqual(cb.cancels, [A]);
         assert.strictEqual(cb.runs.length, 1);
+    });
+
+    test('dispose cancels the pending spinner timer (teardown flake regression)', async () => {
+        panel.setScripts(SCRIPTS, true);
+        startRun(dom, A);
+        const btn = runBtn(A);
+        assert.ok(btn.querySelector('.script-btn-icon.spin'), 'spinner during 200ms pending');
+        panel.dispose(); // what cleanupDom does at teardown
+        await sleep(250); // past the 200ms window
+        assert.ok(btn.querySelector('.script-btn-icon.spin'), 'timer cleared — icon never flips to stop after teardown');
+        click(dom, btn); // panel still interactive: cancel path intact
+        assert.deepStrictEqual(cb.cancels, [A]);
     });
 
     test('while one script runs, other run buttons are truly disabled (tab-skipped, tooltip, no click path)', () => {
@@ -566,11 +580,6 @@ suite('ScriptsPanel appendOutput streaming', () => {
         currentDom = dom;
         panel.setScripts(SCRIPTS, true);
         startRun(dom, A); // start a run so the running card resolves
-    });
-
-    teardown(() => {
-        // clear the pending 200ms spinner timer so it never fires after DOM teardown
-        panel.showResult(A, [], [], '', undefined, 0);
     });
 
     teardown(cleanupDom);

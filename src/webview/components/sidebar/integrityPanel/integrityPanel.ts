@@ -23,9 +23,8 @@ import {
     type IntegrityCheckConfig,
     type IntegrityCheckSet,
     type IntegrityProfile,
-    type IntegrityResult,
 } from '../../../../core/integrity';
-import { esc } from '../../../utils';
+import { esc, flashCopied } from '../../../utils';
 import {
     applyIntegrityDraft,
     blankIntegrityDraft,
@@ -413,18 +412,12 @@ export class IntegrityPanel implements IntegrityProfileHost {
     }
 
     private copyCalculatedValue(event: MouseEvent): void {
-        const target = this.calculatedCopyTarget(event);
-        if (!target) { return; }
-        const display = { label: 'Calculated', value: target.result.value };
-        this.cb.onCopyText?.(`0x${display.value}`, `${algorithmLabel(target.algorithm)} calculated value`);
-    }
-
-    private calculatedCopyTarget(event: MouseEvent): { result: IntegrityResult; algorithm: IntegrityAlgorithm } | null {
         const button = (event.target as HTMLElement).closest<HTMLElement>('[data-copy-calculated]');
-        if (!button) { return null; }
+        if (!button) { return; }
         const check = this.checks.find(item => item.id === Number(button.dataset.checkId));
-        if (!check?.result) { return null; }
-        return { result: check.result, algorithm: check.algorithm };
+        if (!check?.result) { return; }
+        this.cb.onCopyText?.(`0x${check.result.value}`, `${algorithmLabel(check.algorithm)} calculated value`);
+        flashCopied(button, true);
     }
 
     private toggleHighlightedCheck(id: number): void {
