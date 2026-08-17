@@ -238,7 +238,7 @@ export function defaultLabelRange(selection: { start: number | null; end: number
 
 export function labelSwatchesHtml(chosenColor: string): string {
     return LABEL_COLORS.map(c =>
-        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}"></span>`
+        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}" aria-label="Use ${c.name} label color"></span>`
     ).join('');
 }
 

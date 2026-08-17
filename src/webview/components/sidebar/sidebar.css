@@ -31,7 +31,7 @@
     display: flex;
     flex-shrink: 0;
     font-family: var(--font-ui);
-    font-size: 9px;
+    font-size: 10px;
     justify-content: space-between;
     padding: 5px 12px;
     text-transform: uppercase;
@@ -40,16 +40,9 @@
 .sidebar-endian-tabs button { padding: 1px 6px; }
 .sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 
-/* Legacy inline header — still used by the label-form title inside section
-   bodies; top-level section headers migrated to .sb-section-head/.sb-section-label. */
-.sb-hdr {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .07em; color: var(--addr-fg); margin-bottom: 8px;
-}
 .sb-badge {
     background: rgba(134,180,212,.14); color: var(--high-color);
-    border-radius: 8px; padding: 0 5px; font-size: 9px; font-weight: 600;
+    border-radius: 8px; padding: 0 5px; font-size: 10px; font-weight: 600;
     letter-spacing: 0; text-transform: none;
 }
 /* Opt-in danger variant — same pill geometry, err colors (setBadge danger flag). */

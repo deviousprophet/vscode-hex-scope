@@ -3,7 +3,7 @@
   "name": "ux-typography-density",
   "title": "UX typography: 8-9px floor + labels",
   "description": "Systemic: 8-9px microtype (si-f-type 8px structPanel.css:450, sd-meta 9px, header rows 9px) below legible floor - raise to 10-11px; icon-only title-only controls everywhere (run, copy, reorder, hide, delete, manage-types, pointer, profile-actions) - visible labels/icons + aria; dead CSS si-del-btn (structPanel.css:333); two header styles sb-hdr vs sb-section-label (inspectorLabels.ts:68).",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

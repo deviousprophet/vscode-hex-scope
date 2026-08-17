@@ -36,7 +36,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sd-meta {
-    flex-shrink: 0; font-size: 9px; color: var(--addr-fg);
+    flex-shrink: 0; font-size: 10px; color: var(--addr-fg);
     font-family: var(--font-editor); white-space: nowrap;
 }
 
@@ -54,7 +54,7 @@
     display: grid;
     grid-template-columns: 64px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center;
-    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
     padding-bottom: 3px; border-bottom: 1px solid var(--border);
 }
@@ -86,7 +86,7 @@
 .sfe-arr-toggle {
     background: transparent; border: 1px dashed var(--border);
     border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 9px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
+    font-size: 10px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
     white-space: nowrap; flex-shrink: 0; text-align: center;
     transition: border-color .1s, color .1s, background .1s;
 }
@@ -117,7 +117,7 @@
     width: 28px; flex-shrink: 0; text-align: center;
     background: transparent; border: 1px dashed var(--border);
     border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 9px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
+    font-size: 10px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
     white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
 }
 .sfe-bit-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
@@ -160,7 +160,7 @@
 .sfe-bf-child-width::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .sfe-bf-child-unit {
     flex-shrink: 0;
-    font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
     user-select: none;
 }
 .sfe-bf-child-move {
@@ -280,17 +280,17 @@
     display: flex; align-items: baseline; gap: 5px;
 }
 .si-ctype {
-    font-size: 9px; color: var(--high-color); opacity: .65;
+    font-size: 10px; color: var(--high-color); opacity: .65;
     font-family: var(--font-editor); white-space: nowrap;
     flex-shrink: 0;
 }
 .si-caddr {
-    font-size: 9px; color: var(--addr-fg);
+    font-size: 10px; color: var(--addr-fg);
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
 .si-csource {
-    font-size: 9px; color: var(--muted-fg);
+    font-size: 10px; color: var(--muted-fg);
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
@@ -412,14 +412,14 @@
 .si-field:hover    { background: var(--hover-bg); }
 .si-field.si-selected { background: rgba(79,195,247,.12) !important; }
 
-.si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
+.si-f-off  { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
 .si-f-type {
     display: block;
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 8px;
+    font-size: 10px;
     color: var(--addr-fg);
     opacity: .55;
     font-family: var(--font-editor);
@@ -547,7 +547,7 @@
     color: var(--fg);
 }
 .si-arr-addr {
-    font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
     font-variant-numeric: tabular-nums;
     white-space: nowrap; flex-shrink: 0;
 }

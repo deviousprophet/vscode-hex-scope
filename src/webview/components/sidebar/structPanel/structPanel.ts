@@ -305,6 +305,7 @@ private updateHeaderActions(): void {
     if (close) {
         close.hidden = !(this._editingType || this._editingPinId);
         close.title = this.typePanelCloseTitle();
+        close.setAttribute('aria-label', this.typePanelCloseTitle());
     }
 }
 
@@ -329,6 +330,7 @@ private mountTypesAction(root: HTMLElement): void {
     close.className = 'sb-btn sb-btn-secondary sb-section-action';
     close.textContent = '\u2190';
     close.title = this.typePanelCloseTitle();
+    close.setAttribute('aria-label', this.typePanelCloseTitle());
     close.hidden = true;
     close.addEventListener('click', () => {
         this._editorError = null;
@@ -701,7 +703,7 @@ private bitChildButtonState(remainingBits: number): { addBtnDisabled: string; ad
 private deleteFieldCellHtml(isOnly: boolean): string {
     return isOnly
         ? `<span class="sfe-del-placeholder"></span>`
-        : `<button class="sfe-del-btn" title="Remove field">\u2715</button>`;
+        : `<button class="sfe-del-btn" title="Remove field" aria-label="Remove field">\u2715</button>`;
 }
 
 private disabledAttr(isDisabled: boolean): string {
@@ -716,7 +718,7 @@ private fieldArrayCellHtml(f: StructField): string {
     const isArr = f.count > 1;
     return (
         `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
-        `<button class="sfe-arr-toggle${this.activeClassAttr(isArr)}" title="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
+        `<button class="sfe-arr-toggle${this.activeClassAttr(isArr)}" title="${isArr ? 'Remove array' : 'Make array'}" aria-label="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
         `<input class="sfe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
                `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
         `</div>`
@@ -727,7 +729,7 @@ private fieldBitToggleHtml(f: StructField, isBitContainer: boolean): string {
     f = normalizeStructField(f);
     const isUnsigned = this.isUnsignedScalarType(f.type);
     const bitBtnClass = isUnsigned && isBitContainer ? ' sfe-bit-btn-on' : '';
-    return `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details"${this.disabledAttr(!isUnsigned || f.isPointer === true)}>:N</button>`;
+    return `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details" aria-label="Toggle bit-field details"${this.disabledAttr(!isUnsigned || f.isPointer === true)}>:N</button>`;
 }
 
 /** Pointer declaration is exposed via the per-field context menu (see wireEditorInSec). */
@@ -773,7 +775,7 @@ private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): stri
     const dnDis  = ci === total - 1 ? ' disabled' : '';
     const delCell = total <= 1
         ? `<span class="sfe-del-placeholder"></span>`
-        : `<button class="sfe-bf-del-child" title="Remove child">\u2715</button>`;
+        : `<button class="sfe-bf-del-child" title="Remove child" aria-label="Remove child">\u2715</button>`;
     return (
         `<div class="sfe-bf-child-row" data-child-idx="${ci}">` +
         `<span class="sfe-bf-child-indent"></span>` +
@@ -1116,6 +1118,7 @@ private wireEditorInSec(sec: HTMLElement): void {
             cell.classList.toggle('is-array', nowArr);
             btn.classList.toggle('active', nowArr);
             btn.title = nowArr ? 'Remove array' : 'Make array';
+            btn.setAttribute('aria-label', btn.title);
             if (nowArr) {
                 const inp = cell.querySelector<HTMLInputElement>('.sfe-count-inp')!;
                 if (!inp.value) { inp.value = '2'; }
@@ -1511,7 +1514,7 @@ private addStructPinTypeRowHtml(all: StructDef[]): string {
     return (
         `<div class="sa-row">` +
         `<select id="sa-struct-sel" class="sb-select">${structOpts}</select>` +
-        `<button id="sa-new-type-btn" class="si-add-type-btn" title="New type">\uff0b</button>` +
+        `<button id="sa-new-type-btn" class="si-add-type-btn" title="New type" aria-label="New type">\uff0b</button>` +
         `</div>` +
         previewHtml
     );
@@ -2377,7 +2380,7 @@ private emptyBitUnitHeaderHtml(
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         `<span class="si-f-off">+000</span>` +
         this.typeCellHtml('u8', 'uint8') +
-        `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -2472,7 +2475,7 @@ private populatedBitUnitHeaderHtml(
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         offsetHtml +
         this.typeCellHtml(abbrev, fullTypeLabel) +
-        `<button class="${buttonClass}">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -2717,7 +2720,7 @@ private structArrayElementHtml(
         `<div class="${groupClass}" data-arr-el-key="${esc(elementKey)}">` +
         `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${byteStart}" data-byte-cnt="${byteCnt}"${offsetAttr}>` +
         this.compositeHeaderPrefixHtml(isOpen, first.byteOffset, hideOffsets) +
-        `<button class="si-arr-el-exp-btn">${this.expandGlyph(isOpen)}</button>` +
+        `<button class="si-arr-el-exp-btn" title="${isOpen ? 'Collapse element' : 'Expand element'}" aria-label="${isOpen ? 'Collapse element' : 'Expand element'}">${this.expandGlyph(isOpen)}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">[${element.idx}]</span>` +
         `<span class="si-f-lead"></span>` +
@@ -3028,7 +3031,7 @@ private compositeHeaderHtml(
     return (
         `<div class="si-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}"${hideOffset ? '' : ` data-offset-label="${this.offsetLabel(byteOffset)}"`}>` +
         this.compositeHeaderPrefixHtml(isOpen, byteOffset, hideOffset) +
-        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(name)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -3260,7 +3263,7 @@ private structPointerHeaderHtml(
     return (
         this.structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         this.structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        `<button class="si-arr-exp-btn">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
         this.structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
@@ -3349,7 +3352,7 @@ private pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, chil
         this.sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(child.key)}">` +
         this.compositeHeaderPrefixHtml(child.isOpen, row.byteOffset, true) +
-        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}">${child.isOpen ? '▾' : '▸'}</button>` +
+        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">${child.isOpen ? '▾' : '▸'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(child.name)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -3499,7 +3502,7 @@ private instanceHeaderHtml(
 ): string {
     return (
         `<div class="sb-card-hdr">` +
-        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}">${expanded ? '\u25be' : '\u25b8'}</button>` +
+        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">${expanded ? '\u25be' : '\u25b8'}</button>` +
         `<div class="sb-card-info">` +
         `<span class="si-cname">${esc(pin.name)}</span>` +
         `<div class="si-cmeta-row">` +

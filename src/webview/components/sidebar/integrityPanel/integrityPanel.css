@@ -97,7 +97,7 @@
 .integrity-profile-name-form .sb-input { min-width: 0; }
 
 .integrity-profile-name-form .sb-btn {
-    font-size: 9px;
+    font-size: 10px;
     padding: 2px 7px;
 }
 
@@ -126,7 +126,7 @@
 .integrity-card-meta {
     color: var(--addr-fg);
     font-family: var(--font-editor);
-    font-size: 9px;
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -197,7 +197,7 @@
     display: inline-flex;
     flex-shrink: 0;
     font-family: var(--font-ui);
-    font-size: 8px;
+    font-size: 10px;
     gap: 4px;
     padding: 2px 4px;
     transition: background .1s, border-color .1s, color .1s;
@@ -273,7 +273,7 @@
 .integrity-card-empty,
 .integrity-result-meta {
     color: var(--addr-fg);
-    font-size: 9px;
+    font-size: 10px;
 }
 
 .integrity-comparison {
@@ -298,7 +298,7 @@
     display: block;
     color: var(--addr-fg);
     font-family: var(--font-ui);
-    font-size: 9px;
+    font-size: 10px;
     text-transform: uppercase;
 }
 
@@ -408,7 +408,7 @@
 .integrity-form-field > span {
     color: var(--addr-fg);
     font-family: var(--font-ui);
-    font-size: 9px;
+    font-size: 10px;
 }
 
 .integrity-form-field .sb-select {

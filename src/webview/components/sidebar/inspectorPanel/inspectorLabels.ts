@@ -49,7 +49,7 @@ export function labelItemHtml(label: SegmentLabel): string {
                     <div class="label-nm">${esc(label.name)}</div>
                     <div class="label-rng">0x${label.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(label.length)}</div>
                 </div>
-                <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}">${visibility.icon}</button>
+                <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}" aria-label="${visibility.title}">${visibility.icon}</button>
                 ${actionBtnsHtml(`data-id="${label.id}"`, `data-id="${label.id}"`)}
             </div>`;
 }
@@ -59,7 +59,7 @@ export function labelFormHtml(editing: SegmentLabel | undefined, swatchHtml: str
         ? { title: 'Edit Label', saveLabel: 'Update' }
         : { title: 'New Label', saveLabel: 'Add' };
     return `
-        <div class="sb-hdr">${mode.title}</div>
+        <div class="sb-section-label sb-label-form-title">${mode.title}</div>
         <div class="lbl-form">
             <div class="lf-field">
                 <span class="lf-lbl">Name</span>

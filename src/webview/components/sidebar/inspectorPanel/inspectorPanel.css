@@ -156,7 +156,7 @@
 /* two-row control area */
 /* zero-pad note */
 .mi-pad-row  { margin-bottom: 5px; }
-.mi-pad-note { font-size: 9px; color: var(--non-graphic); font-style: italic; }
+.mi-pad-note { font-size: 10px; color: var(--non-graphic); font-style: italic; }
 /* Decode-context tag ([LE · 4-byte]): same pad-note language, less muted. */
 .mi-endian-note { font-style: normal; color: var(--addr-fg); font-weight: 600; }
 
@@ -219,6 +219,9 @@
 
 /* ── Label inline form ───────────────────────────────────────── */
 .lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+/* Form title — framework .sb-section-label look (10px/700/uppercase/.07em),
+   block + 8px gap because the form title sits above .lbl-form (replaces .sb-hdr). */
+.sb-label-form-title { display: block; margin-bottom: 8px; }
 .lf-field    { display: flex; flex-direction: column; gap: 3px; }
 .lf-lbl      { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
 .lf-range-row  { display: flex; gap: 5px; align-items: center; }

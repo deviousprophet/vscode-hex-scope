@@ -117,6 +117,7 @@ export class ScriptsPanel {
         refresh.id = 'scripts-refresh';
         refresh.className = 'sb-btn sb-btn-secondary sb-section-action';
         refresh.title = 'Refresh script list';
+        refresh.setAttribute('aria-label', 'Refresh script list');
         refresh.textContent = '\u21BB';
         refresh.addEventListener('click', () => this.cb.onRequestList?.());
         root.appendChild(refresh);
@@ -346,7 +347,7 @@ export class ScriptsPanel {
 
     private runBtnTitle(isRun: boolean, otherRunning: boolean): string {
         if (isRun) { return this.pendingTimer !== null ? 'Running…' : 'Click to cancel'; }
-        return otherRunning ? 'A script is already running' : '';
+        return otherRunning ? 'A script is already running' : 'Run script';
     }
 
     private renderRunStates(): void {
@@ -461,7 +462,7 @@ export class ScriptsPanel {
         const h = this.headerFor(err, errType);
         const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
         return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
-        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}<button class="script-clear" data-clear title="Clear results">&#10005;</button></div>
+        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}<button class="script-clear" data-clear title="Clear results" aria-label="Clear results">&#10005;</button></div>
         <div class="script-output-body-wrap">${this.errorBlockHtml(err)}${this.resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
     }
 
@@ -577,7 +578,7 @@ function extLabel(name: string): string {
 function btnTitle(noTrust: boolean, extTs: boolean): string {
     if (noTrust) { return ' title="Workspace not trusted"'; }
     if (extTs) { return ' title="TypeScript scripts require esbuild. Use .js or run npm install."'; }
-    return '';
+    return ' title="Run script"';
 }
 
 function btnClass(path: string, noTrust: boolean, extTs: boolean, runningPath: string | null): string {
