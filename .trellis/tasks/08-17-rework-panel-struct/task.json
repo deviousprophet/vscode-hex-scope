@@ -3,7 +3,7 @@
   "name": "rework-panel-struct",
   "title": "Rework panel: Struct",
   "description": "Feature audit: hamburger icon-only manage-types undiscoverable; hover-only card controls (si-type-btn/si-edit-type-btn opacity 0 until hover) fail touch/keyboard; 8px field-type font; LSB/MSB toggle wording incomprehensible; pointer-select dashed icon-only button; slide-track transitions only on manage-types not on cancel-back; 7-col dense field grid.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
