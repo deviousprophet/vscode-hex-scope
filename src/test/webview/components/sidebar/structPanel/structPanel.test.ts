@@ -2171,10 +2171,13 @@ suite('StructPanel deep-render harness', () => {
         click(dom, toggle);
         assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'), 'toggle should collapse types');
         assert.strictEqual(toggle!.getAttribute('aria-expanded'), 'false', 'collapse should update aria-expanded');
+        assert.strictEqual(document.querySelector<HTMLElement>('.sb-dock #si-types'), document.getElementById('si-types'), 'collapsed types should dock to the bottom bar');
+        assert.strictEqual(document.getElementById('si-types')!.parentElement?.className, 'sb-dock', 'docked section reparents into the dock');
         click(dom, document.getElementById('si-types')!.querySelector('.sb-section-toggle'));
         assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'toggle should expand types again');
         assert.strictEqual(toggle!.getAttribute('aria-expanded'), 'true', 'expand should update aria-expanded');
         assert.ok(document.querySelector('.sd-row'), 'type rows should be visible again');
+        assert.strictEqual(document.querySelector<HTMLElement>('.sb-dock #si-types'), null, 'expanded types leaves the dock');
     });
 
     test('editor field rows expose pointer via context menu, not a row button', async () => {

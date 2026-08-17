@@ -282,7 +282,9 @@ export class SidebarSections {
         if (this.dockContainer) {
             root.appendChild(this.dockContainer);
             // Default-collapsed sections start docked.
-            for (const [id] of this.collapsed) { this.moveForCollapse(id, true); }
+            for (const [id, collapsed] of this.collapsed) {
+                if (collapsed) { this.moveForCollapse(id, true); }
+            }
             this.syncDock();
         }
     }

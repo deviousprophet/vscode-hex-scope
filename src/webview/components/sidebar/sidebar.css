@@ -38,7 +38,12 @@
 }
 
 .sidebar-endian-tabs button { padding: 1px 6px; }
-.sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.sb-section {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-rows: auto 1fr;
+    transition: grid-template-rows .18s ease;
+}
+.sb-section .sb-body { min-height: 0; overflow: hidden; }
 
 .sb-badge {
     background: rgba(134,180,212,.14); color: var(--high-color);
@@ -134,7 +139,9 @@
 .sb-tab-panel.active { display: flex; }
 
 /* ── Collapsible section support (shared section pattern) ──────── */
-.sb-section.collapsed .sb-body { display: none; }
+/* Collapse animates the body row 1fr -> 0fr (smooth, VS Code-style).
+   .sb-body overflow:hidden + min-height:0 make the height transition work. */
+.sb-section.collapsed { grid-template-rows: auto 0fr; }
 
 /* ── Bottom dock: collapsed non-first sections pin here as compact pills ── */
 .sb-dock {
@@ -149,6 +156,10 @@
     padding: 4px 8px;
     border: 1px solid var(--border); border-radius: 4px;
     background: rgba(255,255,255,.03);
+    animation: sb-dock-in .18s ease;
+}
+@keyframes sb-dock-in {
+    from { opacity: 0; transform: translateY(4px); }
 }
 .sb-dock .sb-section.docked .sb-section-head { margin-bottom: 0; }
 

@@ -248,10 +248,13 @@ constructor(cb: StructCallbacks) {
 mount(root: HTMLElement): void {
     this._root = root;
     root.innerHTML = '';
+    const dock = document.createElement('div');
+    dock.className = 'sb-dock';
+    dock.hidden = true;
     this.sections = new SidebarSections(root, 'si', [
         { id: 'instances', label: 'Struct Instances', collapsible: false, mountActions: r => this.mountInstancesAction(r) },
         { id: 'types', label: 'Struct Types', collapsible: true, defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
-    ]);
+    ], dock);
     // Click-outside for per-card "⋮" menus lives in the shared popup wiring
     // (sidebar.ts), so shell re-mounts never stack document listeners.
     this.render();
