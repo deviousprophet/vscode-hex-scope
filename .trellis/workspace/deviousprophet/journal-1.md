@@ -489,3 +489,24 @@ Executed remaining UX audit backlog: full-row 24px disclosure toggle + aria-labe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: Code-review fix batch
+
+**Date**: 2026-08-17
+**Task**: Code-review fix batch
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Fixed all 7 two-axis code-review findings on feat/ui-consistency: shared --ok .copied rule, registry-based document click-outside (no listener stacking), single shared popup helper for struct/integrity menus, css-guidelines reconciled to 10px floor, byteLineParts dead field removed, flashCopied race-free, card-menu opacity. 782 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `883620a` | (see git log) |
+
+### Status
+
+[OK] **Completed**

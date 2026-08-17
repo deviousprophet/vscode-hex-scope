@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
+- **Total Sessions**: 20
 - **Last Active**: 2026-08-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~491 | Active |
+| `journal-1.md` | ~512 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-08-17 | Code-review fix batch | `883620a` | `feat/ui-consistency` |
 | 19 | 2026-08-17 | Backlog: a11y targets + copy feedback + typography floor | `ac09aea`, `c79f3ab`, `35d60ac` | `feat/ui-consistency` |
 | 18 | 2026-08-17 | Sidebar section framework + 4-panel UX rework | `dda5000`, `d7b77cb`, `15004c8`, `c933ea0` | `feat/ui-consistency` |
 | 17 | 2026-08-16 | Sidebar panel UI consistency (5 child migration) | `d3007d6`, `cbed3fe`, `28e28c8`, `115e8cc`, `8f98a9d` | `feat/ui-consistency` |
