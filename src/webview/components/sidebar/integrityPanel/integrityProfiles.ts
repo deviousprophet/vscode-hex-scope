@@ -41,6 +41,7 @@ export function wireProfileControls(panel: IntegrityProfileHost): void {
         setProfileError(panel, '');
         updateProfileButtonState(panel);
     });
+    wireProfileMenu();
     document.getElementById('integrity-profile-apply')?.addEventListener('click', () => applySelectedProfile(panel));
     document.getElementById('integrity-profile-save')?.addEventListener('click', () => saveProfileAs(panel));
     document.getElementById('integrity-profile-update')?.addEventListener('click', () => updateSelectedProfile(panel));
@@ -48,6 +49,50 @@ export function wireProfileControls(panel: IntegrityProfileHost): void {
     document.getElementById('integrity-profile-delete')?.addEventListener('click', () => deleteSelectedProfile(panel));
     wireProfileNameForm(panel);
     updateProfileButtonState(panel);
+}
+
+/** ⋮ popover menu toggle: open/close, Escape, click-outside, aria state. */
+function wireProfileMenu(): void {
+    const button = document.getElementById('integrity-profile-menu-btn') as HTMLButtonElement | null;
+    const pop = document.getElementById('integrity-profile-menu-pop');
+    if (!button || !pop) { return; }
+    button.addEventListener('click', event => {
+        event.stopPropagation();
+        toggleProfileMenu(pop, button);
+    });
+    pop.addEventListener('click', event => {
+        if ((event.target as HTMLElement).closest('.integrity-profile-menu-item')) {
+            closeProfileMenu(pop, button);
+        }
+    });
+    pop.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            event.stopPropagation();
+            closeProfileMenu(pop, button);
+            button.focus();
+        }
+    });
+    document.addEventListener('click', event => {
+        if (!pop.isConnected || pop.hidden) { return; }
+        if (!(event.target as HTMLElement).closest('.integrity-profile-menu')) {
+            closeProfileMenu(pop, button);
+        }
+    });
+}
+
+function toggleProfileMenu(pop: HTMLElement, button: HTMLButtonElement): void {
+    if (pop.hidden) {
+        pop.hidden = false;
+        button.setAttribute('aria-expanded', 'true');
+        pop.querySelector<HTMLElement>('.integrity-profile-menu-item:not(:disabled)')?.focus();
+    } else {
+        closeProfileMenu(pop, button);
+    }
+}
+
+function closeProfileMenu(pop: HTMLElement, button: HTMLButtonElement): void {
+    pop.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
 }
 
 function wireProfileNameForm(panel: IntegrityProfileHost): void {
@@ -252,12 +297,16 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
         <select id="integrity-profile-select" class="sb-select" title="Saved integrity profile">
             <option value="">Saved profiles…</option>${options}
         </select>
-        <div class="integrity-profile-actions">
-            <button id="integrity-profile-apply" class="sb-btn sb-btn-primary" type="button">Apply</button>
-            <button id="integrity-profile-save" class="sb-btn sb-btn-secondary" type="button">Save as</button>
-            <button id="integrity-profile-update" class="sb-btn sb-btn-secondary" title="Update profile" aria-label="Update profile" type="button">↻</button>
-            <button id="integrity-profile-rename" class="sb-btn sb-btn-secondary" title="Rename profile" aria-label="Rename profile" type="button">✎</button>
-            <button id="integrity-profile-delete" class="sb-btn sb-btn-secondary" title="Delete profile" aria-label="Delete profile" type="button">🗑︎</button>
+        <div class="integrity-profile-menu">
+            <button id="integrity-profile-menu-btn" class="sb-btn sb-btn-secondary" type="button"
+                title="Profile actions" aria-label="Profile actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
+            <div id="integrity-profile-menu-pop" class="integrity-profile-menu-pop" role="menu" hidden>
+                <button id="integrity-profile-apply" class="integrity-profile-menu-item" type="button" role="menuitem">Apply</button>
+                <button id="integrity-profile-save" class="integrity-profile-menu-item" type="button" role="menuitem">Save as…</button>
+                <button id="integrity-profile-update" class="integrity-profile-menu-item" type="button" role="menuitem">Update</button>
+                <button id="integrity-profile-rename" class="integrity-profile-menu-item" type="button" role="menuitem">Rename</button>
+                <button id="integrity-profile-delete" class="integrity-profile-menu-item" type="button" role="menuitem">Delete</button>
+            </div>
         </div>
         ${profileNameFormHtml(panel)}
         <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(panel.profileError)}</div>

@@ -22,21 +22,43 @@
 
 .integrity-profiles > .sb-select { min-width: 0; }
 
-.integrity-profile-actions {
-    align-items: center;
+/* ── Profile ⋮ menu (replaces the 4-button admin cluster) ───────── */
+.integrity-profile-menu {
+    position: relative;
+}
+
+.integrity-profile-menu-pop {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.35);
     display: flex;
-    gap: 3px;
+    flex-direction: column;
+    min-width: 132px;
+    padding: 3px;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 30;
 }
 
-/* ponytail: apply/update/rename/delete converge to the small secondary
-   sizing (was `.struct-btn` 9px/2px6px vs `.si-icon-btn` 10px/2px4px);
-   split sizes back per-button if the icons feel cramped. */
-.integrity-profile-actions .sb-btn {
-    font-size: 9px;
-    padding: 2px 6px;
+.integrity-profile-menu-pop[hidden] { display: none; }
+
+.integrity-profile-menu-item {
+    background: transparent;
+    border: 0;
+    color: var(--fg);
+    cursor: pointer;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    padding: 5px 8px;
+    text-align: left;
 }
 
-.integrity-profile-actions button:disabled {
+.integrity-profile-menu-item:hover,
+.integrity-profile-menu-item:focus-visible { background: rgba(255,255,255,.08); }
+
+.integrity-profile-menu-item:disabled {
     cursor: not-allowed;
     opacity: .35;
 }
@@ -126,6 +148,7 @@
     justify-content: center;
     line-height: 1;
     padding: 0;
+    position: relative;
     width: 16px;
 }
 
@@ -140,7 +163,24 @@
     color: var(--err);
 }
 
-.integrity-card-status.calculating { color: var(--high-color); }
+/* Calculating: border-spin ring overlay (16px circle unchanged → no layout
+   jump); glyph hidden under the ring, aria-label still carries the state. */
+.integrity-card-status.calculating {
+    border-color: rgba(79,195,247,.35);
+    color: transparent;
+}
+
+.integrity-card-status.calculating::before {
+    animation: integrity-spin .7s linear infinite;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    border-top-color: var(--high-color);
+    content: '';
+    inset: 1px;
+    position: absolute;
+}
+
+@keyframes integrity-spin { to { transform: rotate(360deg); } }
 
 .integrity-card-status.calculated {
     border-color: rgba(79,195,247,.35);

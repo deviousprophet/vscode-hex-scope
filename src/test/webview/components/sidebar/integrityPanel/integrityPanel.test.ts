@@ -108,6 +108,16 @@ async function waitForCalculation(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 350));
 }
 
+async function waitForBadge(expected: string, timeoutMs = 2_000): Promise<void> {
+    const start = Date.now();
+    const badge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
+    while (badge.textContent !== expected) {
+        assert.ok(Date.now() - start < timeoutMs,
+            `badge never became ${JSON.stringify(expected)} (was ${JSON.stringify(badge.textContent)})`);
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+}
+
 function integrityCard(index = 0): HTMLElement {
     return document.querySelectorAll<HTMLElement>('.integrity-card')[index];
 }
@@ -342,6 +352,43 @@ suite('IntegrityPanel results + auto fix', () => {
         await waitForCalculation();
         assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.stored code')!.textContent, '0x0304');
     });
+
+    test('status circle carries calculating class while pending and clears on result', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1002');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        const status = integrityCard().querySelector<HTMLElement>('[data-check-status]')!;
+        assert.ok(status.classList.contains('calculating'), 'spinner class while pending');
+        assert.strictEqual(status.textContent, '…');
+        await waitForCalculation();
+        assert.ok(!status.classList.contains('calculating'), 'spinner clears on result');
+        assert.strictEqual(status.textContent, '∑');
+    });
+
+    test('header badge shows mismatch in danger color; Fix all clears it', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'crc16-ccitt-false');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1001');
+        setDraftValue(form, 'stored', '1002');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        const badge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
+        assert.strictEqual(badge.textContent, '1', 'plain count while calculating');
+        assert.ok(!badge.classList.contains('sb-badge-danger'));
+        await waitForCalculation();
+        assert.strictEqual(badge.textContent, '1 · 1!', 'total · mismatch!');
+        assert.ok(badge.classList.contains('sb-badge-danger'), 'danger class on mismatch');
+        click(dom, document.getElementById('integrity-fix-all'));
+        assert.strictEqual(badge.textContent, '1', 'plain count after fix');
+        assert.ok(!badge.classList.contains('sb-badge-danger'), 'danger cleared after fix');
+    });
 });
 
 suite('IntegrityPanel highlight + profiles', () => {
@@ -509,6 +556,57 @@ suite('IntegrityPanel highlight + profiles', () => {
         const created = cb.created[0] as { name: string; checks: unknown[] };
         assert.strictEqual(created.name, 'New Layout');
         assert.strictEqual(created.checks.length, 1);
+    });
+
+    test('badge totals checks and mismatches across many cards', async function () {
+        this.timeout(5_000);
+        S.edits.clear(); // Fix all in earlier tests stages edits; this test needs raw bytes.
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        let form = integrityForm('add');
+        setAlgorithm(dom, form, 'crc16-ccitt-false');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1001');
+        setDraftValue(form, 'stored', '1002');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        click(dom, document.getElementById('integrity-add-btn'));
+        form = integrityForm('add');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1002');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        await waitForBadge('2 · 1!');
+        const badge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
+        assert.strictEqual(badge.textContent, '2 · 1!');
+        assert.ok(badge.classList.contains('sb-badge-danger'));
+    });
+
+    test('profile menu opens from ⋮; Escape closes; rename runs through the menu', async () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        panel.setProfiles([{
+            schemaVersion: 1,
+            id: 'p1',
+            name: 'STM32 Layout',
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
+        }]);
+        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        select.value = 'p1';
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        const menuBtn = document.getElementById('integrity-profile-menu-btn') as HTMLButtonElement;
+        const pop = document.getElementById('integrity-profile-menu-pop') as HTMLElement;
+        assert.ok(pop.hidden, 'menu closed by default');
+        click(dom, menuBtn);
+        assert.ok(!pop.hidden, 'menu opens on ⋮ click');
+        assert.strictEqual(menuBtn.getAttribute('aria-expanded'), 'true');
+        click(dom, menuBtn);
+        assert.ok(pop.hidden, 'menu closes on second ⋮ click');
+        click(dom, menuBtn);
+        click(dom, document.getElementById('integrity-profile-rename'));
+        assert.ok(pop.hidden, 'menu closes after item action');
+        const nameInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
+        assert.strictEqual(nameInput.value, 'STM32 Layout', 'rename form prefilled via menu');
+        nameInput.value = 'Renamed';
+        click(dom, document.getElementById('integrity-profile-name-save'));
+        assert.deepStrictEqual(cb.renamed.at(-1), { id: 'p1', name: 'Renamed' });
     });
 
     test('setTabActive lazy-init: notify is a no-op until first activation', () => {

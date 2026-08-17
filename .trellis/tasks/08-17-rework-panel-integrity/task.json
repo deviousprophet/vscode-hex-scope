@@ -3,7 +3,7 @@
   "name": "rework-panel-integrity",
   "title": "Rework panel: Integrity",
   "description": "Feature audit: profile-actions cluster (apply/update/rename/delete) 9px/2px6 cramped icon-only row; check status circle calculating = color-only no indeterminate indicator; integrity-copy-btn invisible glyph-only borderless; value panes copy affordance title-only; no profile empty-guidance.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

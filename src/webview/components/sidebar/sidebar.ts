@@ -298,12 +298,13 @@ export class SidebarSections {
         entry.label.textContent = label;
     }
 
-    /** Badge text right of the label; null/empty hides the badge. */
-    setBadge(id: string, text: string | null): void {
+    /** Badge text right of the label; null/empty hides the badge. `danger` adds the danger variant. */
+    setBadge(id: string, text: string | null, danger = false): void {
         const entry = this.dom.get(id);
         if (!entry?.badge) { return; }
         entry.badge.textContent = text ?? '';
         entry.badge.hidden = text === null || text === '';
+        entry.badge.classList.toggle('sb-badge-danger', danger);
     }
 
     /** Collapse/expand a collapsible section (no-op for non-collapsible headers). */

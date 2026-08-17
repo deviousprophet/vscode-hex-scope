@@ -52,6 +52,11 @@
     border-radius: 8px; padding: 0 5px; font-size: 9px; font-weight: 600;
     letter-spacing: 0; text-transform: none;
 }
+/* Opt-in danger variant — same pill geometry, err colors (setBadge danger flag). */
+.sb-badge-danger {
+    background: rgba(241,76,76,.18);
+    color: var(--err);
+}
 .sb-empty { color: var(--non-graphic); font-size: 11px; font-style: italic; }
 
 /* ── Framework section shell (rendered by SidebarSections in sidebar.ts) ── */
