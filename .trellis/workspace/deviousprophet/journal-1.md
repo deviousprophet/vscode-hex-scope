@@ -442,3 +442,27 @@ Planned parent+5-child task via grilling (D1 structured primitives, D2 tree, D3 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: Sidebar section framework + 4-panel UX rework
+
+**Date**: 2026-08-17
+**Task**: Sidebar section framework + 4-panel UX rework
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Unbiased UX/UI audit of sidebar panels; 7 follow-up tasks logged. Grilled panel-by-panel redesigns (Inspector/Struct/Integrity/Scripts), planned all four, implemented+checked+committed: section shell framework with dock support, merged segments/labels with permanent rows, stacked struct sections with card menus + unified editor, integrity danger badge + profile menu + calc spinner, scripts run history + true disabled + capability gate. 777 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dda5000` | (see git log) |
+| `d7b77cb` | (see git log) |
+| `15004c8` | (see git log) |
+| `c933ea0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
