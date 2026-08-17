@@ -3,7 +3,7 @@
   "name": "rework-panel-scripts",
   "title": "Rework panel: Scripts",
   "description": "Feature audit: run button icon-only morphing play/stop/spinner title-only; aria-disabled run buttons still focusable/tabbable while another script runs; emoji capability badges render OS-dependent no legend; output blocks stack forever no clear-results affordance; no delete/rename/edit UI for scripts.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

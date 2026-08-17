@@ -1,7 +1,7 @@
 /** Scripts Panel — self-contained sidebar panel for the script runner.
 Owns the full `#s-scripts` shell: framework section header (title/count/refresh
-action), script cards (name/ext/capability badges/status dot/run-cancel state
-machine), embedded result areas (output streaming with batching, collapse/expand,
+action), script cards (name/ext/status dot/run-cancel state machine, run-time
+capability confirm), embedded result areas (output streaming with batching, collapse/expand,
 error-type headers, writes-pending notice), and all UI state (`currentScripts`,
 `trusted`, `scriptStatus`, `runningPath`, `pendingTimer`, output batching state).
 Data is pushed via setters; actions report via callbacks. This module never
@@ -25,8 +25,6 @@ export interface ScriptsCallbacks {
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;
     /** Cancel: host posts cancelScript. */
     onCancelScript?: (scriptPath: string) => void;
-    /** Run blocked because another script is already running → host notice. */
-    onBlockedRun?: () => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -36,8 +34,12 @@ export interface ScriptsCallbacks {
 type ScriptStatus = 'success' | 'error' | null;
 type ErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | undefined;
 type ScriptResultValue = { label: string; value: string };
+/** One completed run of a script, kept collapsed in the result area (run history). */
+type RunRecord = { num: number; at: string; ok: boolean; errCls: string; bodyHtml: string };
 
 const BATCH_THRESHOLD = 100;
+/** Max collapsed run rows kept per script card; older rows dropped (design: cap 5 + clear affordance). */
+const HISTORY_CAP = 5;
 
 const ERROR_HEADERS: Record<string, { icon: string; label: string; cssClass: string }> = {
     compile: { icon: '&#9888;', label: 'Compile Error', cssClass: ' script-output-hdr-err-compile' },
@@ -60,6 +62,12 @@ export class ScriptsPanel {
     private outputBuffer: string[] = [];
     private flushTimer: ReturnType<typeof setTimeout> | null = null;
     private batchPath: string | null = null;
+    /** Per-script run history (oldest first); rendered as collapsed rows under the latest block. */
+    private readonly runHistory = new Map<string, RunRecord[]>();
+    /** Per-script completed-run counter for stable "run #n" labels. */
+    private readonly runCounter = new Map<string, number>();
+    /** Paths whose capabilities were accepted at the run-time gate (session state; resets on remount). */
+    private readonly confirmedCaps = new Set<string>();
 
     constructor(cb: ScriptsCallbacks = {}) {
         this.cb = cb;
@@ -132,6 +140,7 @@ export class ScriptsPanel {
         }
         list.innerHTML = this.scriptListHtml();
         this.wireScriptList(list);
+        this.renderRunStates();
     }
 
     /** Terminal result for a script (was updateScriptResult → showResult). */
@@ -144,10 +153,12 @@ export class ScriptsPanel {
 
         const area = this.resultAreaFor(scriptPath);
         if (!area) { return; }
-        area.innerHTML = this.scriptResultHtml(scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount);
+        this.storeRunRecord(area);
+        area.innerHTML = this.scriptResultHtml(scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount) + this.historyRowsHtml(scriptPath);
         const block = area.querySelector('.script-output-block');
         if (block) { block.classList.remove('collapsed'); }
         this.wireCollapse(area);
+        this.wireClear(area, scriptPath);
     }
 
     /** Streamed output line (was updateScriptOutput → appendOutput). The target card is resolved from the running button, matching pre-refactor. */
@@ -205,6 +216,14 @@ export class ScriptsPanel {
     private runScript(filePath: string): void {
         if (this.runningPath) { return; }
         this.resetOutputState();
+        // New run auto-presses the prior result block into a one-line collapsed history row
+        // before streaming starts, so streamed lines never pollute the stored run.
+        const area = this.resultAreaFor(filePath);
+        if (area) {
+            this.storeRunRecord(area);
+            area.innerHTML = this.historyRowsHtml(filePath);
+            this.wireCollapse(area);
+        }
         this.setRunning(filePath);
         this.cb.onRunScript?.(filePath, this.currentGeneration(), this.currentSelectionRange());
     }
@@ -244,13 +263,12 @@ export class ScriptsPanel {
         const extTs = ext === 'ts' && !noTrust;
         const attrs = scriptBtnAttrs(s.filePath, noTrust, extTs, this.runningPath);
         const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
-        const caps = s.capabilities.length > 0 ? capBadges(s.capabilities) : '';
         return `
         <div class="script-card sb-card" data-path="${esc(s.filePath)}">
             <div class="script-card-info">
                 ${this.statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
-                ${extBadge}${caps}
+                ${extBadge}
                 <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
                 </button>
@@ -283,7 +301,11 @@ export class ScriptsPanel {
     private onRunBtnClick(btn: HTMLButtonElement): void {
         const path = btn.dataset.path;
         if (path === undefined) { return; }
-        if (btn.classList.contains('disabled-run')) { this.cb.onBlockedRun?.(); return; }
+        const script = this.currentScripts.find(s => s.filePath === path);
+        if (script && script.capabilities.length > 0 && !this.confirmedCaps.has(path)) {
+            this.showCapsConfirm(script);
+            return;
+        }
         this.toggleScript(path);
     }
 
@@ -298,21 +320,11 @@ export class ScriptsPanel {
         const isRun = this.runningPath === path;
         const otherRunning = isRun ? false : this.runningPath !== null;
         btn.classList.toggle('running', isRun);
-        btn.classList.toggle('disabled-run', otherRunning);
-        this.setBlockedState(btn, otherRunning);
+        btn.disabled = otherRunning;
         btn.innerHTML = this.runIconHtml(path);
         btn.setAttribute('aria-label', this.runBtnAria(isRun));
         if (this.keepsInitialTooltip(btn)) { return; }
         btn.title = this.runBtnTitle(isRun, otherRunning);
-    }
-
-    private setBlockedState(btn: HTMLButtonElement, blocked: boolean): void {
-        if (blocked) {
-            btn.removeAttribute('disabled');
-            btn.setAttribute('aria-disabled', 'true');
-        } else {
-            btn.removeAttribute('aria-disabled');
-        }
     }
 
     private keepsInitialTooltip(btn: HTMLButtonElement): boolean {
@@ -355,10 +367,12 @@ export class ScriptsPanel {
     }
 
     private ensureLogArea(area: HTMLElement): HTMLElement | null {
-        let log = area.querySelector('.script-output-log') as HTMLElement | null;
+        let block = area.querySelector<HTMLElement>('.script-output-block:not(.script-run-row)');
+        let log = block?.querySelector<HTMLElement>('.script-output-log') ?? null;
         if (!log) {
-            area.innerHTML = this.logAreaHtml(area.dataset.path);
-            log = area.querySelector('.script-output-log') as HTMLElement | null;
+            area.insertAdjacentHTML('afterbegin', this.logAreaHtml(area.dataset.path));
+            block = area.querySelector<HTMLElement>('.script-output-block:not(.script-run-row)');
+            log = block?.querySelector<HTMLElement>('.script-output-log') ?? null;
             this.wireCollapse(area);
         }
         return log;
@@ -438,17 +452,104 @@ export class ScriptsPanel {
         const h = this.headerFor(err, errType);
         const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
         return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
-        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}</div>
+        <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}<button class="script-clear" data-clear title="Clear results">&#10005;</button></div>
         <div class="script-output-body-wrap">${this.errorBlockHtml(err)}${this.resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
     }
 
     private wireCollapse(area: HTMLElement): void {
         area.querySelectorAll('[data-collapse]').forEach(hdr => {
-            hdr.addEventListener('click', () => {
-                const block = (hdr as HTMLElement).closest('.script-output-block');
+            const el = hdr as HTMLElement;
+            if (el.dataset.wired === '1') { return; } // idempotent: ensureLogArea re-wires area while streaming
+            el.dataset.wired = '1';
+            el.addEventListener('click', () => {
+                const block = el.closest('.script-output-block');
                 if (block) { block.classList.toggle('collapsed'); }
             });
         });
+    }
+
+    // ── Run history (collapsed old runs) ────────────────────────────
+
+    /** Snapshots the area's current result block into per-path history (skips the
+    ephemeral streaming "Running" block and already-collapsed history rows). */
+    private storeRunRecord(area: HTMLElement): void {
+        const block = area.querySelector<HTMLElement>('.script-output-block');
+        if (!block || block.classList.contains('script-run-row')) { return; }
+        const hdr = block.querySelector<HTMLElement>('.script-output-hdr');
+        const path = area.dataset.path;
+        if (!hdr || !path) { return; }
+        const hdrText = hdr.textContent?.trim() ?? '';
+        if (hdrText === 'Running') { return; }
+        const num = (this.runCounter.get(path) ?? 0) + 1;
+        this.runCounter.set(path, num);
+        const records = this.runHistory.get(path) ?? [];
+        records.push({
+            num,
+            at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            ok: ![...hdr.classList].some(c => c.startsWith('script-output-hdr-err')),
+            errCls: [...hdr.classList].find(c => c.startsWith('script-output-hdr-err')) ?? '',
+            bodyHtml: block.querySelector('.script-output-body-wrap')?.innerHTML ?? '',
+        });
+        while (records.length > HISTORY_CAP) { records.shift(); }
+        this.runHistory.set(path, records);
+    }
+
+    /** Collapsed one-line rows for completed runs, newest first, under the latest block. */
+    private historyRowsHtml(path: string): string {
+        const records = this.runHistory.get(path) ?? [];
+        return [...records].reverse().map(r => `
+        <div class="script-output-block collapsed script-run-row" data-path="${esc(path)}">
+        <div class="script-output-hdr script-run-hdr${r.errCls ? ' ' + r.errCls : ''}" data-collapse>run #${r.num} · ${esc(r.at)} ${r.ok ? '&#10003;' : '&#10007;'}</div>
+        <div class="script-output-body-wrap">${r.bodyHtml}</div></div>`).join('');
+    }
+
+    /** Clear-results button only exists on the latest block header. */
+    private wireClear(area: HTMLElement, path: string): void {
+        area.querySelectorAll<HTMLElement>('[data-clear]').forEach(btn => {
+            btn.addEventListener('click', ev => {
+                ev.stopPropagation();
+                this.clearResults(path);
+            });
+        });
+    }
+
+    private clearResults(path: string): void {
+        this.runHistory.delete(path);
+        const area = this.resultAreaFor(path);
+        if (area) { area.innerHTML = ''; }
+        this.scriptStatus.set(path, null);
+        this.updateStatusDot(path);
+    }
+
+    // ── Run-time capability gate ────────────────────────────────────
+
+    /** Inline confirm before the first run of a capability-bearing script. */
+    private showCapsConfirm(script: ScriptInfo): void {
+        this.removeCapsConfirm();
+        const card = document.querySelector<HTMLElement>(`.script-card[data-path="${cssEscape(script.filePath)}"]`);
+        const area = card?.querySelector<HTMLElement>('.script-result-area');
+        if (!card || !area) { return; }
+        const panel = document.createElement('div');
+        panel.className = 'script-caps-confirm';
+        const capsHtml = script.capabilities.map(c => esc(c)).join(', ');
+        panel.innerHTML = `
+            <div class="script-caps-confirm-title">Run ${esc(script.name)}?</div>
+            <div class="script-caps-confirm-caps">Requires: ${capsHtml}</div>
+            <div class="script-caps-confirm-actions">
+                <button class="sb-btn sb-btn-primary" data-caps-run>Run</button>
+                <button class="sb-btn" data-caps-cancel>Cancel</button>
+            </div>`;
+        card.insertBefore(panel, area);
+        panel.querySelector('[data-caps-run]')!.addEventListener('click', () => {
+            this.confirmedCaps.add(script.filePath);
+            this.removeCapsConfirm();
+            this.toggleScript(script.filePath);
+        });
+        panel.querySelector('[data-caps-cancel]')!.addEventListener('click', () => this.removeCapsConfirm());
+    }
+
+    private removeCapsConfirm(): void {
+        document.querySelectorAll('.script-caps-confirm').forEach(el => el.remove());
     }
 }
 
@@ -462,13 +563,6 @@ function cssEscape(path: string): string {
 function extLabel(name: string): string {
     const idx = name.lastIndexOf('.');
     return idx > 0 ? name.slice(idx + 1) : '';
-}
-
-function capBadges(capabilities: string[]): string {
-    return capabilities.map(c => {
-        const label = c === 'exec' ? '⚡ exec' : c === 'network' ? '🌐 net' : c;
-        return `<span class="script-cap">${esc(label)}</span>`;
-    }).join('');
 }
 
 function btnTitle(noTrust: boolean, extTs: boolean): string {

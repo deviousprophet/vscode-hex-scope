@@ -44,8 +44,7 @@
 .script-run-btn.running:hover { background: var(--err); opacity: 1; }
 .script-run-btn.disabled-ts { opacity: .35; cursor: not-allowed; }
 .script-run-btn.disabled-ts:hover { background: var(--btn-bg); }
-.script-run-btn.disabled-run { opacity: .35; cursor: not-allowed; }
-.script-run-btn.disabled-run:hover { background: var(--btn-bg); }
+/* Blocked-while-running uses the real disabled attribute; visual comes from .sb-btn:disabled. */
 
 .script-btn-icon { pointer-events: none; line-height: 1; }
 .script-btn-icon.stop { font-size: 11px; }
@@ -71,6 +70,26 @@
 .script-output-hdr::before { content: '▼'; font-size: 8px; margin-right: 2px; }
 .script-output-block.collapsed .script-output-hdr::before { content: '▶'; }
 .script-output-block.collapsed .script-output-body-wrap { display: none; }
+
+/* Run history rows — collapsed one-line headers for completed runs (latest stays open) */
+.script-run-hdr { text-transform: none; font-weight: 500; opacity: .75; }
+.script-run-hdr:hover { opacity: 1; }
+
+/* Clear-results button inside the latest block header */
+.script-clear {
+    margin-left: auto; background: none; border: none; cursor: pointer;
+    color: var(--addr-fg); font-size: 10px; line-height: 1; padding: 0 2px;
+}
+.script-clear:hover { color: var(--fg); }
+
+/* Run-time capability confirmation gate (inline panel above results) */
+.script-caps-confirm {
+    border-top: 1px solid var(--border); padding: 8px 10px; font-size: 11px;
+    background: rgba(255,255,255,.03);
+}
+.script-caps-confirm-title { font-weight: 600; color: var(--fg); margin-bottom: 2px; }
+.script-caps-confirm-caps { color: var(--addr-fg); margin-bottom: 6px; }
+.script-caps-confirm-actions { display: flex; gap: 6px; }
 
 /* Error type header variants */
 .script-output-hdr-err { color: var(--err); background: rgba(241,76,76,.08); }

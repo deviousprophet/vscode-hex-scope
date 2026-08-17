@@ -208,7 +208,6 @@ const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
-    onBlockedRun: () => toolbar.setStatus('A script is already running — cancel it or wait for it to finish.'),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });

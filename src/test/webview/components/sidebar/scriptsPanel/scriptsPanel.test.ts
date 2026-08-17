@@ -17,7 +17,6 @@ type Cb = {
     requested: number;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
     cancels: string[];
-    blocked: number;
 };
 
 type Harness = {
@@ -49,7 +48,7 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, runs: [], cancels: [], blocked: 0 };
+    const cb: Cb = { requested: 0, runs: [], cancels: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
@@ -58,7 +57,6 @@ function installDom(): Harness {
             cb.runs.push({ path: scriptPath, generation: gen, selection: selectionRange });
         },
         onCancelScript: path => { cb.cancels.push(path); },
-        onBlockedRun: () => { cb.blocked++; },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -88,6 +86,13 @@ function cardFor(path: string): HTMLElement {
 
 function runBtn(path: string): HTMLButtonElement {
     return cardFor(path).querySelector<HTMLButtonElement>('.script-run-btn')!;
+}
+
+/** Clicks a run button and accepts the run-time capability confirm if one appears. */
+function startRun(dom: JSDOM, path: string): void {
+    click(dom, runBtn(path));
+    const ok = document.querySelector('.script-caps-confirm [data-caps-run]');
+    if (ok) { click(dom, ok); }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -154,7 +159,7 @@ suite('ScriptsPanel setScripts', () => {
 
     teardown(cleanupDom);
 
-    test('renders script cards with name/ext/capability badges and status dots', () => {
+    test('renders script cards with name/ext badges and status dots; no capability badges', () => {
         panel.setScripts(SCRIPTS, true);
         assert.strictEqual(document.querySelectorAll('.script-card').length, 3);
         const card = cardFor(A);
@@ -162,7 +167,7 @@ suite('ScriptsPanel setScripts', () => {
         assert.strictEqual(card.querySelector('.script-name')?.textContent, 'crc-check.js');
         assert.strictEqual(card.querySelector('.script-name')?.getAttribute('title'), A);
         assert.strictEqual(card.querySelector('.script-ext')?.textContent, 'js');
-        assert.strictEqual(card.querySelector('.script-cap')?.textContent, '⚡ exec');
+        assert.strictEqual(card.querySelector('.script-cap'), null, 'capability emoji badges removed from cards');
         assert.ok(runBtn(A).classList.contains('sb-btn-primary'), 'run button rides sb-btn-primary');
         assert.ok(card.querySelector('.sb-status-dot.idle'));
         assert.strictEqual((card.querySelector('.sb-status-dot') as HTMLElement).title, 'Not yet run');
@@ -233,14 +238,14 @@ suite('ScriptsPanel run/cancel state machine', () => {
         panel.setScripts(SCRIPTS, true);
         harness.sel.value = { start: 0x1000, end: 0x1002 };
         harness.generation.value = 7;
-        click(dom, runBtn(A));
+        startRun(dom, A);
         assert.deepStrictEqual(cb.runs, [{ path: A, generation: 7, selection: { start: 0x1000, end: 0x1002 } }]);
         assert.strictEqual(cb.cancels.length, 0);
     });
 
     test('no selection reports onRunScript without selection field', () => {
         panel.setScripts(SCRIPTS, true);
-        click(dom, runBtn(A));
+        startRun(dom, A);
         assert.deepStrictEqual(cb.runs, [{ path: A, generation: 0, selection: undefined }]);
         assert.strictEqual(cb.runs[0].selection, undefined);
     });
@@ -250,7 +255,7 @@ suite('ScriptsPanel run/cancel state machine', () => {
         const btn = runBtn(A);
         assert.ok(btn.querySelector('.script-btn-icon.play'));
 
-        click(dom, btn);
+        startRun(dom, A);
         assert.ok(btn.classList.contains('running'));
         assert.ok(btn.querySelector('.script-btn-icon.spin'), 'spinner during 200ms pending');
         assert.strictEqual(btn.title, 'Running…');
@@ -267,39 +272,188 @@ suite('ScriptsPanel run/cancel state machine', () => {
 
     test('clicking the running button cancels during pending', () => {
         panel.setScripts(SCRIPTS, true);
-        click(dom, runBtn(A));
+        startRun(dom, A);
         click(dom, runBtn(A));
         assert.deepStrictEqual(cb.cancels, [A]);
         assert.strictEqual(cb.runs.length, 1);
     });
 
-    test('another script run is ignored while one is running; its button reports blocked', () => {
+    test('while one script runs, other run buttons are truly disabled (tab-skipped, tooltip, no click path)', () => {
         panel.setScripts(SCRIPTS, true);
-        click(dom, runBtn(A));
+        startRun(dom, A);
         const btnB = runBtn(B);
-        assert.ok(btnB.classList.contains('disabled-run'), 'other run button visually disabled');
-        assert.ok(!btnB.disabled, 'other run button stays clickable to explain why');
-        assert.strictEqual(btnB.getAttribute('aria-disabled'), 'true', 'other run button aria-disabled');
+        assert.ok(btnB.disabled, 'other run button carries real disabled attribute');
+        assert.strictEqual(btnB.getAttribute('aria-disabled'), null, 'no fake aria-disabled path');
         assert.strictEqual(btnB.title, 'A script is already running');
-        cb.runs.length = 0;
+        const before = cb.runs.length;
         click(dom, btnB);
-        assert.strictEqual(cb.runs.length, 0, 'no second run started');
+        assert.strictEqual(cb.runs.length, before, 'disabled button swallows the click');
         assert.strictEqual(cb.cancels.length, 0, 'no cancel of the first');
-        assert.strictEqual(cb.blocked, 1, 'blocked click reported');
 
         panel.showResult(A, [], [], '', undefined, 0);
         assert.ok(!runBtn(B).disabled, 'run button re-enabled after the run clears');
-        assert.ok(!runBtn(B).classList.contains('disabled-run'));
     });
 
     test('terminal showResult returns the button to play', async () => {
         panel.setScripts(SCRIPTS, true);
         const btn = runBtn(A);
-        click(dom, btn);
+        startRun(dom, A);
         await sleep(250);
         assert.ok(btn.querySelector('.script-btn-icon.stop'));
         panel.showResult(A, [], [], '', undefined, 0);
         assert.ok(btn.querySelector('.script-btn-icon.play'));
+    });
+});
+
+suite('ScriptsPanel run history', () => {
+    let harness: Harness;
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    test('new result collapses prior run into a one-line history row; latest block stays top', () => {
+        panel.showResult(A, [{ label: 'first', value: '1' }], ['first-log'], '', undefined, 0);
+        panel.showResult(A, [{ label: 'second', value: '2' }], ['second-log'], '', undefined, 0);
+        const area = cardFor(A).querySelector('.script-result-area')!;
+        const blocks = area.querySelectorAll('.script-output-block');
+        assert.strictEqual(blocks.length, 2);
+        const latest = blocks[0];
+        const row = blocks[1];
+        assert.ok(!latest.classList.contains('collapsed'), 'latest block expanded');
+        assert.strictEqual(area.querySelector('.script-result-label')?.textContent, 'second', 'latest-top order');
+        assert.ok(row.classList.contains('collapsed'), 'older run collapsed');
+        assert.ok(row.classList.contains('script-run-row'));
+        assert.match(row.querySelector('.script-output-hdr')!.textContent!, /run #1 · \d{1,2}:\d{2} ✓/);
+        click(dom, row.querySelector('[data-collapse]'));
+        assert.ok(!row.classList.contains('collapsed'), 'clicking row header expands old block');
+        assert.match(row.textContent!, /first/);
+    });
+
+    test('history rows stay expandable while a new run is streaming', () => {
+        panel.showResult(A, [], ['old-log'], '', undefined, 0);
+        startRun(dom, A); // snapshots run1 into a collapsed row, clears the area
+        panel.appendOutput(A, 'stream line'); // ensureLogArea re-wires the area after inserting the Running block
+        const row = cardFor(A).querySelector('.script-run-row')!;
+        assert.ok(row.classList.contains('collapsed'));
+        click(dom, row.querySelector('[data-collapse]'));
+        assert.ok(!row.classList.contains('collapsed'), 'single toggle expands the row; no double-wired listeners');
+        assert.match(row.textContent!, /old-log/);
+        panel.showResult(A, [], [], '', undefined, 0); // clear pending spinner timer before DOM teardown
+    });
+
+    test('streamed output does not pollute collapsed history', () => {
+        panel.showResult(A, [], ['first-log'], '', undefined, 0);
+        startRun(dom, A); // new run snapshots run1 into history, clears the result area
+        panel.appendOutput(A, 'stream line');
+        panel.showResult(A, [], ['second-log'], '', undefined, 0);
+        const row = cardFor(A).querySelector('.script-run-row')!;
+        assert.match(row.textContent!, /first-log/, 'history row keeps run1 output');
+        assert.ok(!row.textContent?.includes('stream line'), 'stream of run2 never enters run1 history');
+        const latest = cardFor(A).querySelector('.script-output-block:not(.script-run-row)')!;
+        assert.match(latest.textContent!, /second-log/);
+    });
+
+    test('clear button removes all rows and resets status to idle', () => {
+        panel.showResult(A, [], ['one'], '', undefined, 0);
+        panel.showResult(A, [], ['two'], '', undefined, 0);
+        assert.ok(cardFor(A).querySelector('.script-run-row'));
+        click(dom, cardFor(A).querySelector('[data-clear]'));
+        assert.strictEqual(cardFor(A).querySelectorAll('.script-output-block').length, 0, 'result area emptied');
+        assert.strictEqual(cardFor(A).querySelector('.script-run-row'), null);
+        assert.ok(cardFor(A).querySelector('.sb-status-dot.idle'), 'status dot back to idle');
+    });
+
+    test('history is capped at 5 collapsed rows per script', () => {
+        for (let i = 1; i <= 7; i++) { panel.showResult(A, [], [`run${i}`], '', undefined, 0); }
+        const area = cardFor(A).querySelector('.script-result-area')!;
+        assert.strictEqual(area.querySelectorAll('.script-run-row').length, 5, 'oldest rows dropped');
+        const latest = area.querySelector('.script-output-block:not(.script-run-row)')!;
+        assert.match(latest.textContent!, /run7/);
+        const newestRow = area.querySelector('.script-run-row .script-output-hdr')!;
+        assert.match(newestRow.textContent!, /run #6/, 'kept rows are the most recent');
+    });
+});
+
+suite('ScriptsPanel capability gate', () => {
+    let harness: Harness;
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    test('first run of capability-bearing script shows confirm listing caps; accept runs and persists per script', () => {
+        click(dom, runBtn(A));
+        const confirm = document.querySelector('.script-caps-confirm')!;
+        assert.ok(confirm, 'confirm panel appears before first run');
+        assert.match(confirm.textContent!, /crc-check\.js/);
+        assert.match(confirm.textContent!, /exec/, 'confirm lists the capability');
+        assert.strictEqual(cb.runs.length, 0, 'no run before accept');
+
+        click(dom, confirm.querySelector('[data-caps-run]'));
+        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0);
+        assert.deepStrictEqual(cb.runs, [{ path: A, generation: 0, selection: undefined }]);
+
+        panel.showResult(A, [], [], '', undefined, 0);
+        click(dom, runBtn(A));
+        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0, 'accepted run skips re-confirm');
+        assert.strictEqual(cb.runs.length, 2);
+    });
+
+    test('declined confirm does not start the script and leaves state clean', () => {
+        click(dom, runBtn(A));
+        click(dom, document.querySelector('.script-caps-confirm [data-caps-cancel]'));
+        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0);
+        assert.strictEqual(cb.runs.length, 0, 'no run on decline');
+        assert.strictEqual(cb.cancels.length, 0);
+        assert.ok(!runBtn(A).classList.contains('running'), 'no partial run state');
+        assert.ok(!runBtn(B).disabled, 'other buttons stay enabled');
+
+        click(dom, runBtn(A));
+        assert.ok(document.querySelector('.script-caps-confirm'), 'declined script still asks again');
+        assert.strictEqual(cb.runs.length, 0);
+    });
+
+    test('capability-less script runs without confirm', () => {
+        click(dom, runBtn(B));
+        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0);
+        assert.deepStrictEqual(cb.runs, [{ path: B, generation: 0, selection: undefined }]);
+    });
+
+    test('confirmation resets on panel remount', () => {
+        click(dom, runBtn(A));
+        click(dom, document.querySelector('.script-caps-confirm [data-caps-run]'));
+        assert.strictEqual(cb.runs.length, 1);
+
+        cleanupDom();
+        harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        panel.setScripts(SCRIPTS, true);
+        click(dom, runBtn(A));
+        assert.ok(document.querySelector('.script-caps-confirm'), 'fresh panel re-confirms capabilities');
     });
 });
 
@@ -367,12 +521,15 @@ suite('ScriptsPanel showResult', () => {
         assert.match(cardFor(A).querySelector('.script-output-writes')?.textContent!, /3 byte\(s\) written \(not yet saved\)/);
     });
 
-    test('re-run replaces prior result', () => {
+    test('re-run collapses prior result into history row and shows latest', () => {
         panel.showResult(A, [{ label: 'first', value: '1' }], [], '', undefined, 0);
         panel.showResult(A, [{ label: 'second', value: '2' }], [], '', undefined, 0);
-        const labels = cardFor(A).querySelectorAll('.script-result-label');
+        const area = cardFor(A).querySelector('.script-result-area')!;
+        const latest = area.querySelector('.script-output-block:not(.script-run-row)')!;
+        const labels = latest.querySelectorAll('.script-result-label');
         assert.strictEqual(labels.length, 1);
         assert.strictEqual(labels[0].textContent, 'second');
+        assert.strictEqual(area.querySelectorAll('.script-run-row').length, 1);
     });
 
     test('escapes user text in results/log/error', () => {
@@ -408,7 +565,7 @@ suite('ScriptsPanel appendOutput streaming', () => {
         cb = harness.cb;
         currentDom = dom;
         panel.setScripts(SCRIPTS, true);
-        click(dom, runBtn(A)); // start a run so the running card resolves
+        startRun(dom, A); // start a run so the running card resolves
     });
 
     teardown(() => {
