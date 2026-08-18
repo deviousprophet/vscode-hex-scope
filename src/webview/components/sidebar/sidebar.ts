@@ -401,6 +401,15 @@ export class SidebarSections {
         this.collapsed.set(id, collapsed);
         entry.section.classList.toggle('collapsed', collapsed);
         entry.head.setAttribute('aria-expanded', String(!collapsed));
+        if (!collapsed && this.sizing.get(id)!.saved === null) {
+            // First-time expand (no persisted/user size): default to an EVEN
+            // split across all expanded panes instead of giving this pane only
+            // the remainder of the siblings' saved sizes. Defaults stay
+            // in-memory; a later user adjustment persists.
+            for (const [otherId, other] of this.sizing) {
+                if (otherId !== id && !this.collapsed.get(otherId)) { other.saved = null; }
+            }
+        }
         this.layout();
     }
 
@@ -593,6 +602,9 @@ export class SidebarSections {
             if (!neighbors) { return; }
             event.preventDefault();
             sash.classList.add('dragging');
+            // Disable the flex-basis transition while dragging so panes track
+            // the cursor exactly (VS Code only animates collapse/expand).
+            this.paneView.classList.add('dragging');
             document.body.style.cursor = 'row-resize';
             document.body.style.userSelect = 'none';
             let lastY = event.clientY;
@@ -605,6 +617,7 @@ export class SidebarSections {
             };
             const stopDrag = (): void => {
                 sash.classList.remove('dragging');
+                this.paneView.classList.remove('dragging');
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
                 window.removeEventListener('mousemove', onMove);

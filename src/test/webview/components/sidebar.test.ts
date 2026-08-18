@@ -495,6 +495,33 @@ suite('SidebarSections pane view', () => {
         assert.strictEqual(basis('second'), 82);
     });
 
+    test('first-time expand splits evenly even when a sibling filled the space', () => {
+        sections = new SidebarSections(root, 'test', [
+            { id: 'first', label: 'First' },
+            { id: 'second', label: 'Second', defaultCollapsed: true },
+        ], PANEL_ID);
+        Object.defineProperty(root.querySelector<HTMLElement>('.sb-pane-view')!, 'clientHeight', {
+            value: 300,
+            configurable: true,
+        });
+        sections.setCollapsed('first', false);
+        assert.strictEqual(basis('second'), 22, 'second starts collapsed');
+        assert.ok(basis('first') > 250, 'first alone fills the space');
+        sections.setCollapsed('second', false);
+        assert.ok(Math.abs(basis('first') - basis('second')) <= 1, 'first-time expand defaults to an even split');
+        assert.strictEqual(basis('first') + basis('second'), 297, 'total unchanged (height minus one sash)');
+    });
+
+    test('sash drag toggles the no-transition dragging state on the pane view', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const view = root.querySelector<HTMLElement>('.sb-pane-view')!;
+        const sash = sashes()[0];
+        sash.dispatchEvent(new dom.window.MouseEvent('mousedown', { button: 0, clientY: 0, bubbles: true }));
+        assert.ok(view.classList.contains('dragging'), 'transition disabled while dragging');
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+        assert.ok(!view.classList.contains('dragging'), 'transition restored after drag');
+    });
+
     test('sash ArrowUp/ArrowDown resize by 10px; double-click resets to 50/50', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         const sash = sashes()[0];
