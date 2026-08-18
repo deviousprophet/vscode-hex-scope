@@ -510,3 +510,24 @@ Fixed all 7 two-axis code-review findings on feat/ui-consistency: shared --ok .c
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: Sidebar VS Code header model
+
+**Date**: 2026-08-18
+**Task**: Sidebar VS Code header model
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Researched VS Code paneview.ts/viewPane.ts header + collapse animation; grilled design (whole-head toggle, always-visible actions, animate-in-place, no dock); removed bottom dock + zone-split machinery (was 3 failing tests), implemented whole-header role=button toggle with decorative chevron, keyboard nav (Enter/Space/Left/Right/Up/Down), grid 1fr->0fr collapse, plain non-collapsible heads focusable via nav; fixed jsdom activeElement identity test quirk and tabindex-1 nav gap; reconciled component-sidebar + inspector + css-guidelines specs. 784 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7d4c219` | (see git log) |
+
+### Status
+
+[OK] **Completed**
