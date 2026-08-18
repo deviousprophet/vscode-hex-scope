@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
+- **Total Sessions**: 22
 - **Last Active**: 2026-08-18
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~533 | Active |
+| `journal-1.md` | ~554 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-08-18 | Sidebar VS Code-exact header look | `ac71f09` | `feat/ui-consistency` |
 | 21 | 2026-08-18 | Sidebar VS Code header model | `7d4c219` | `feat/ui-consistency` |
 | 20 | 2026-08-17 | Code-review fix batch | `883620a` | `feat/ui-consistency` |
 | 19 | 2026-08-17 | Backlog: a11y targets + copy feedback + typography floor | `ac09aea`, `c79f3ab`, `35d60ac` | `feat/ui-consistency` |

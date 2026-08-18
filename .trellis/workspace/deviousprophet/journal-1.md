@@ -531,3 +531,24 @@ Researched VS Code paneview.ts/viewPane.ts header + collapse animation; grilled 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 22: Sidebar VS Code-exact header look
+
+**Date**: 2026-08-18
+**Task**: Sidebar VS Code-exact header look
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled (Q1 A / Q2 A) and applied exact VS Code paneview.css header params: fixed 22px row, 11px bold uppercase nowrap-ellipsis title, decorative chevron-down first child (rotated chevron-right collapsed, translateY(1px) open) reading '> Section Name', first-section no top border + +border-top dividers, actions right 8px, non-collapsible title indent, 150ms ease-out collapse + prefers-reduced-motion 0s, body stays in DOM. css-guidelines + component-sidebar specs reconciled. 784 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac71f09` | (see git log) |
+
+### Status
+
+[OK] **Completed**
