@@ -552,3 +552,24 @@ Grilled (Q1 A / Q2 A) and applied exact VS Code paneview.css header params: fixe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: Sidebar PaneView (resizable collapsible sections)
+
+**Date**: 2026-08-18
+**Task**: Sidebar PaneView (resizable collapsible sections)
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled (Q1-A..Q5-A) and ported VS Code PaneView/SplitView: panels = flex pane-views; each section a resizable pane (22px header + independent scroll); drag sashes between sections (ArrowUp/Down +-10, dblclick 50/50, role=separator); collapse animates flex-basis 150ms and bottom-packs slim headers; expand restores last size / first-time 50/50; sizes persist to localStorage with clamp + invalid-drop; all sections collapsible (non-collapsible variant removed). Check agent fixed expand-order scramble, stale sash aria-label, focusable disabled sash. 796 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b93e57a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
