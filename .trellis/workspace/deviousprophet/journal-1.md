@@ -573,3 +573,24 @@ Grilled (Q1-A..Q5-A) and ported VS Code PaneView/SplitView: panels = flex pane-v
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: PaneView in-place collapse fix
+
+**Date**: 2026-08-18
+**Task**: PaneView in-place collapse fix
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grill Q1-A: replaced bottom-pack DOM move with VS Code-true in-place collapse — collapsed panes stay in DOM order at 22px, expanded panes fill free space. Removed packCollapsed/restoreOrder, disabled-sash state (aria-disabled/tabindex toggling), dynamic sash relabeling; sashes static between their panes. Fixes first-pane-collapse jump. Specs + tests updated. 796 green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `37eb2b0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
