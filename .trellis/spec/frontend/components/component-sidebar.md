@@ -48,36 +48,37 @@ class Sidebar {
     toHtml(): string;                 // full shell markup regenerated from the panels config
 }
 
-// Section-shell framework (one shared header/collapse implementation).
+// Section-shell framework (one shared header/collapse/pane-resize implementation).
 interface SidebarSectionSpec {
     id: string;                       // unique within the section list (constructor throws on duplicates)
     label: string;                    // text-only heading; escaped into the rendered DOM
-    defaultCollapsed?: boolean;       // collapsed on first render (collapsible sections only)
-    collapsible?: boolean;            // default true; false = plain non-disclosure header, body always visible
+    defaultCollapsed?: boolean;       // collapsed on first render; default false. Every section is collapsible
     mountActions?: (root: HTMLElement) => void;  // compact header-action chrome, mounted once
 }
 
 class SidebarSections {
-    constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[]);
+    constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[], panelId?: string);
     body(id: string): HTMLElement | null;        // section body root — panels write/rewrite only this
     setLabel(id: string, label: string): void;
     setBadge(id: string, text: string | null): void;  // null/empty hides the badge
-    setCollapsed(id: string, collapsed: boolean): void;  // no-op for non-collapsible headers
+    setCollapsed(id: string, collapsed: boolean): void;
     isCollapsed(id: string): boolean;
 }
 ```
 
 ## Section-shell contract
 
-- Rendered DOM (collapsible): `<section class="sb-section" id="<prefix>-<id>">` → `.sb-section-head` (`role="button"`, `tabindex="0"`, `aria-expanded`, `aria-controls="<prefix>-<id>-body"`, `aria-label` = section label) whose **first child** is a decorative `.sb-section-chevron` span (`aria-hidden="true"`, chevron-down open / rotated chevron-right collapsed — reads "▸ Section Name"), followed by `.sb-section-title` `h3` (`.sb-section-label` + `.sb-badge`) and optional `.sb-section-actions` → `.sb-body` (id `<prefix>-<id>-body`, `role="region"`, `aria-labelledby="<prefix>-<id>-title"`). Header is a fixed 22px row (VS Code `--pane-header-size`), 11px bold uppercase nowrap-ellipsis title; first `.sb-section` has no top border (`+ .sb-section` divider rule).
-- Non-collapsible sections use the same head/body rhythm with a plain `.sb-section-label` and `.sb-section-head.not-collapsible` (no role/tabindex/aria-expanded/chevron, `tabindex="-1"` so Up/Down header nav can still focus it); body stays visible.
-- Collapse state is per mounted instance (map), survives body re-renders, resets when the panel shell is rebuilt — exactly the old Inspector lifecycle. No localStorage persistence.
-- The whole header row is the toggle (VS Code model): click anywhere on `.sb-section-head` except `.sb-section-actions` toggles; Enter/Space toggle; ArrowLeft collapses; ArrowRight expands (native semantics on the `role=button` head). The chevron is decorative, never a separate button. ArrowUp/ArrowDown on a focused header moves focus to the adjacent section header (stop at ends).
-- Header-action controls are inside the head; the actions container `stopPropagation`s click/keydown so actions never toggle the header.
-- Collapse animates the body height via CSS grid `grid-template-rows: auto 1fr → auto 0fr` (150ms ease-out, VS Code duration; `prefers-reduced-motion` → 0s); body stays in the DOM (hidden via `0fr` + `overflow:hidden`). Collapsed sections shrink to a slim header row in place — no dock/reparent.
-- Every framework section exposes an `h3` heading; for collapsible sections the decorative chevron precedes it as a header-row sibling.
+The section shell is a **PaneView/SplitView port** (VS Code `paneview.ts`/`splitview.ts`, Extensions-view style): each section is a resizable pane with a fixed 22px whole-header toggle, an independently scrolling body, and a drag sash between consecutive sections. Collapsed panes shrink to the 22px header and are physically packed to the bottom of the pane-view (bottom-pack); re-expanding restores the pane's saved height. Sizes persist per panel/section in `localStorage` under `hexScope.sidebarPanes.<panelId>.<sectionId>` (clamped on restore, malformed values dropped).
+
+- Rendered DOM: `<div class="sb-pane-view">` (flex:1 column) containing per-section `<section class="sb-section sb-pane" id="<prefix>-<id>" [.collapsed]>` with `style="flex-basis:<px>px"`, separated by `<div class="sb-pane-sash" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize <above> section">` (only when there are ≥2 sections; single-section panels degrade to one pane filling the panel, no sash).
+- Each `.sb-pane` → `.sb-section-head` (`role="button"`, `tabindex="0"`, `aria-expanded`, `aria-controls="<prefix>-<id>-body"`, `aria-label` = section label) whose **first child** is a decorative `.sb-section-chevron` span (`aria-hidden="true"`, chevron-down open / rotated chevron-right collapsed — reads "▸ Section Name"), followed by `.sb-section-title` `h3` (`.sb-section-label` + `.sb-badge`) and optional `.sb-section-actions` → `.sb-body` (id `<prefix>-<id>-body`, `role="region"`, `aria-labelledby="<prefix>-<id>-title"`, `overflow-y:auto` — each expanded pane scrolls itself; the panel root never scrolls). Header is a fixed 22px row (VS Code `--pane-header-size`), 11px bold uppercase nowrap-ellipsis title. Every section is collapsible — there is no non-collapsible variant.
+- Collapse state is per mounted instance (map), survives body re-renders, resets when the panel shell is rebuilt. Collapse physically moves the section (and its divider) to the bottom of the pane-view and animates `flex-basis` to 22px (150ms ease-out, VS Code duration; `prefers-reduced-motion` → 0s); the body stays in the DOM (clipped by the 22px pane). Expand restores the saved px (or an equal share of the free space the first time); siblings shrink proportionally. No grid rows, no timers.
+- The whole header row is the toggle (VS Code model): click anywhere on `.sb-section-head` except `.sb-section-actions` toggles; Enter/Space toggle; ArrowLeft collapses; ArrowRight expands. The chevron is decorative, never a separate button. ArrowUp/ArrowDown on a focused header moves focus to the adjacent section header (stop at ends).
+- Sash UX: drag resizes the pane above (clamped so every pane keeps min = header 22px + 60px); ArrowUp/ArrowDown resize by ±10px; double-click resets the two adjacent panes' combined space 50/50. Sashes adjacent to a collapsed pane get `.disabled` (inert; out of the tab order, `aria-disabled`). Sash drags persist the adjacent sizes continuously during the drag; arrow-resize and dblclick persist immediately.
+- Header-action controls are inside the head; the actions container `stopPropagation`s click/keydown so actions never toggle the header. They are primary/status controls usable while collapsed; body controls are secondary/configuration. Current placement: Inspector none; Struct Instances Add; Struct Types ← Back/Cancel; Integrity none (title/count only); Scripts Refresh. All sections are collapsible; Scripts result-block collapse stays panel-owned.
+- Every framework section exposes an `h3` heading; the decorative chevron precedes it as a header-row sibling.
 - `.sb-section-actions` must not wrap and header-action controls use the compact `.sb-section-action` contract (`font-size: 10px; padding: 2px 8px; line-height: 1.2; max-height: 22px`) so action chrome cannot enlarge the header. Controls that need more room (wide selects, multi-row layout, secondary/configuration) belong in the section body.
-- Header actions are primary/status controls usable while collapsed; body controls are secondary/configuration. Current placement: Inspector none; Struct Instances Add; Struct Types ← Back/Cancel; Integrity none (title/count only); Scripts Refresh. Struct/Integrity/Scripts are `collapsible: false` — no hide/show behavior; Scripts result-block collapse stays panel-owned.
+- Persistence: `hexScope.sidebarPanes.<panelId>.<sectionId>` stores the pane's last expanded px (collapse keeps it so re-expand restores). Restore parses, clamps to the valid minimum, and drops NaN/≤0 entries (removing the key); oversized values clamp to the available pool on the first layout. First-time default shares (50/50 among expanded) are not persisted until the user drags or resizes.
 
 ## Rules
 
@@ -96,7 +97,7 @@ class SidebarSections {
 
 - Default tab is `inspector` (matches pre-refactor); no tab persistence.
 - Record-view sidebar visibility stays host-managed (`updateMemoryOnlyControls` toggles `#sidebar`/`#side-tabs` display); the shell is unaware of the view.
-- The shared collapsible-section pattern (`.sb-section`/`.sb-section-head`/`.sb-section-title`/`.sb-section-chevron`/`.sb-section-label`/`.sb-section-actions`/`.sb-body` + grid `1fr→0fr` collapse transition) lives in `sidebar.css`; panel sections use it via `SidebarSections`. `.sb-hdr` was removed (10px type floor); body-level form titles (label form) are plain `.lbl-form` titles. There is no bottom dock and no `.sb-dock`/`.sb-panel-scroll`.
+- The shared PaneView pattern (`.sb-pane-view`/`.sb-pane`/`.sb-pane-sash`/`.sb-section-head`/`.sb-section-title`/`.sb-section-chevron`/`.sb-section-label`/`.sb-section-actions`/`.sb-body` + flex-basis transition) lives in `sidebar.css`; panel sections use it via `SidebarSections`. `.sb-hdr` was removed (10px type floor); body-level form titles (label form) are plain `.lbl-form` titles. There is no bottom dock and no `.sb-dock`/`.sb-panel-scroll`.
 
 ## Known-bug (fixed in this task)
 
@@ -116,7 +117,7 @@ Endian toggle previously wiped inspector data: host `setFileEndian` called shell
 
 ## Tests Required
 
-`src/test/webview/components/sidebar.test.ts` (mocha + jsdom + cssImportHook): generic render (tabs/slots/header slot from config, arbitrary panel ids/labels verbatim), tab switch (active classes + slot visibility + `onTabChange`/`onPanelActivate`), lazy first-activation mount once, idempotent mount, `setCallbacks`, resizer (width init/restore/drag/persist/clamp), and the **section-shell header model** (whole-head role/tabindex/aria-expanded/aria-label + decorative chevron, click/Enter/Space/ArrowLeft/ArrowRight toggle, actions stopPropagation, ArrowUp/Down header nav stop-at-ends, plain non-collapsible headers `tabindex="-1"` no role/chevron). Existing `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity gate).
+`src/test/webview/components/sidebar.test.ts` (mocha + jsdom + cssImportHook): generic render (tabs/slots/header slot from config, arbitrary panel ids/labels verbatim), tab switch (active classes + slot visibility + `onTabChange`/`onPanelActivate`), lazy first-activation mount once, idempotent mount, `setCallbacks`, resizer (width init/restore/drag/persist/clamp), and the **section-shell split model** (whole-head role/tabindex/aria-expanded/aria-label + decorative chevron on every section, click/Enter/Space/ArrowLeft/ArrowRight toggle, actions stopPropagation, ArrowUp/Down header nav stop-at-ends, split DOM with `.sb-pane-view`/sash role+aria, single-pane no-sash, equal-share first mount, collapse bottom-pack + sibling growth, expand-restore saved size, sash drag/arrows/±10px/dblclick-50/50 with clamp + persist, localStorage round-trip + invalid-drop). Existing `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity gate).
 
 ## Anti-patterns
 

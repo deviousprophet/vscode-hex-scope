@@ -1948,18 +1948,25 @@ suite('StructPanel deep-render harness', () => {
 
     // ── Contract-folded assertions (formerly struct.test.ts) ───────────────
 
-    test('renders stacked sections with empty states', async () => {
+    test('renders pane-view sections with empty states', async () => {
         await createMountedPanel();
-        assert.strictEqual(document.querySelector('#s-struct-pins > .sb-section')?.id, 'si-instances');
-        assert.strictEqual(document.querySelector<HTMLElement>('#s-struct-pins > .sb-section + .sb-section')?.id, 'si-types');
+        const view = document.querySelector('#s-struct-pins > .sb-pane-view')!;
+        assert.ok(view, 'sections live in a .sb-pane-view split container');
+        const sections = view.querySelectorAll('.sb-section');
+        assert.strictEqual(sections.length, 2);
+        assert.strictEqual(sections[0].id, 'si-instances');
+        assert.strictEqual(sections[1].id, 'si-types');
+        assert.strictEqual(view.querySelectorAll('.sb-pane-sash').length, 1, 'one sash between the two panes');
         const instancesHead = document.querySelector<HTMLElement>('#si-instances .sb-section-head')!;
         const typesHead = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
         assert.strictEqual(typesHead.getAttribute('role'), 'button');
         assert.strictEqual(typesHead.getAttribute('aria-expanded'), 'true');
         assert.ok(typesHead.querySelector('.sb-section-chevron'));
         assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'types section should default open');
-        assert.strictEqual(instancesHead.getAttribute('role'), null, 'instances header should be plain');
-        assert.strictEqual(instancesHead.querySelector('.sb-section-chevron'), null);
+        // All sections are collapsible now — instances is a full disclosure header too.
+        assert.strictEqual(instancesHead.getAttribute('role'), 'button');
+        assert.strictEqual(instancesHead.getAttribute('aria-expanded'), 'true');
+        assert.ok(instancesHead.querySelector('.sb-section-chevron'));
         assert.match(document.getElementById('si-instances')!.textContent!, /No instances yet/);
         assert.strictEqual(document.querySelector('#si-types .sb-empty')?.textContent, 'No types defined yet.');
         assert.strictEqual(document.getElementById('si-types-btn'), null, 'no hamburger manage-types control');

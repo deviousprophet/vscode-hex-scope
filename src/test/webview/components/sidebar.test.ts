@@ -220,7 +220,7 @@ suite('SidebarSections header model', () => {
                 button.addEventListener('click', () => { actionRuns++; });
                 actionRoot.appendChild(button);
             } },
-            { id: 'plain', label: 'Plain', collapsible: false },
+            { id: 'plain', label: 'Plain' },
         ]);
     });
 
@@ -228,20 +228,19 @@ suite('SidebarSections header model', () => {
         dom.window.close();
         delete (globalThis as unknown as { window?: Window }).window;
         delete (globalThis as unknown as { document?: Document }).document;
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
     });
 
-    test('uses whole-header semantics and preserves plain headers', () => {
-        const head = document.querySelector<HTMLElement>('#test-first .sb-section-head')!;
-        const plain = document.querySelector<HTMLElement>('#test-plain .sb-section-head')!;
-        assert.strictEqual(head.getAttribute('role'), 'button');
-        assert.strictEqual(head.tabIndex, 0);
-        assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
-        assert.strictEqual(head.getAttribute('aria-label'), 'First');
-        assert.strictEqual(head.querySelector('.sb-section-chevron')?.getAttribute('aria-hidden'), 'true');
-        assert.strictEqual(plain.getAttribute('role'), null);
-        assert.strictEqual(plain.getAttribute('tabindex'), '-1', 'plain headers are programmatically focusable only (header nav)');
-        assert.strictEqual(plain.getAttribute('aria-expanded'), null);
-        assert.strictEqual(plain.querySelector('.sb-section-chevron'), null);
+    test('every section uses whole-header semantics (all collapsible)', () => {
+        const heads = document.querySelectorAll<HTMLElement>('#test-first .sb-section-head, #test-last .sb-section-head, #test-plain .sb-section-head');
+        assert.strictEqual(heads.length, 3);
+        for (const head of heads) {
+            assert.strictEqual(head.getAttribute('role'), 'button');
+            assert.strictEqual(head.tabIndex, 0);
+            assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
+            assert.ok(head.getAttribute('aria-label'));
+            assert.strictEqual(head.querySelector('.sb-section-chevron')?.getAttribute('aria-hidden'), 'true');
+        }
     });
 
     test('click and keyboard toggle collapse state', () => {
@@ -347,5 +346,213 @@ suite('Sidebar resizer', () => {
         dom.window.dispatchEvent(new dom.window.MouseEvent('mousemove', { clientX: 2000, bubbles: true }));
         dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
         assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarWidth'), '260');
+    });
+});
+
+suite('SidebarSections pane view', () => {
+    let dom: JSDOM;
+    let root: HTMLElement;
+    let sections: SidebarSections;
+
+    const PANEL_ID = 'panetest';
+
+    setup(() => {
+        dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://hexscope.test/' });
+        const g = globalThis as unknown as Globalish;
+        g.window = dom.window as unknown as Window;
+        g.document = dom.window.document as unknown as Document;
+        g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window) as typeof getComputedStyle;
+        g.localStorage = dom.window.localStorage;
+        root = document.body.appendChild(document.createElement('div'));
+    });
+
+    teardown(() => {
+        dom.window.close();
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
+    });
+
+    function mount(idsAndLabels: Array<[string, string]>, height = 300): void {
+        sections = new SidebarSections(root, 'test', idsAndLabels.map(([id, label]) => ({ id, label })), PANEL_ID);
+        // jsdom reports clientHeight 0; give the pane-view a real height so
+        // layout() distributes instead of bailing out, then force a layout.
+        Object.defineProperty(root.querySelector<HTMLElement>('.sb-pane-view')!, 'clientHeight', {
+            value: height,
+            configurable: true,
+        });
+        sections.setCollapsed(idsAndLabels[0][0], false);
+    }
+
+    function pane(id: string): HTMLElement {
+        return document.getElementById(`test-${id}`)!;
+    }
+
+    function basis(id: string): number {
+        return parseFloat(pane(id).style.flexBasis);
+    }
+
+    function paneOrder(): string[] {
+        return [...root.querySelectorAll<HTMLElement>('.sb-pane-view > .sb-section')].map(el => el.id.slice('test-'.length));
+    }
+
+    function sashes(): HTMLElement[] {
+        return [...root.querySelectorAll<HTMLElement>('.sb-pane-view > .sb-pane-sash')];
+    }
+
+    function dragSash(sash: HTMLElement, dy: number): void {
+        sash.dispatchEvent(new dom.window.MouseEvent('mousedown', { button: 0, clientY: 0, bubbles: true }));
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mousemove', { clientY: dy, bubbles: true }));
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    }
+
+    test('renders a split container with one sash between consecutive sections', () => {
+        mount([['first', 'First'], ['second', 'Second'], ['third', 'Third']]);
+        const view = root.querySelector<HTMLElement>('.sb-pane-view')!;
+        assert.ok(view, 'renders .sb-pane-view');
+        assert.strictEqual(view.querySelectorAll('.sb-section.sb-pane').length, 3, 'sections carry sb-pane');
+        const sashEls = sashes();
+        assert.strictEqual(sashEls.length, 2, 'sashes = sections - 1');
+        assert.strictEqual(sashEls[0].getAttribute('role'), 'separator');
+        assert.strictEqual(sashEls[0].getAttribute('aria-orientation'), 'vertical');
+        assert.strictEqual(sashEls[0].tabIndex, 0);
+        assert.strictEqual(sashEls[0].getAttribute('aria-label'), 'Resize First section');
+        // Sashes are direct children between their sections.
+        assert.strictEqual(sashEls[0].previousElementSibling?.id, 'test-first');
+        assert.strictEqual(sashEls[0].nextElementSibling?.id, 'test-second');
+        assert.strictEqual(sashEls[1].previousElementSibling?.id, 'test-second');
+    });
+
+    test('single-section panel: one pane fills, no sash', () => {
+        mount([['only', 'Only']]);
+        assert.strictEqual(sashes().length, 0);
+        assert.ok(pane('only').classList.contains('sb-pane'));
+    });
+
+    test('first mount distributes free space equally among expanded panes', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        assert.strictEqual(basis('first') + basis('second'), 297, 'height minus one sash');
+        assert.ok(Math.abs(basis('first') - basis('second')) <= 1, '50/50 default split');
+    });
+
+    test('collapsing packs the pane to the bottom and grows its sibling', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const before = basis('second');
+        sections.setCollapsed('first', true);
+        assert.deepStrictEqual(paneOrder(), ['second', 'first'], 'collapsed pane packs to bottom');
+        assert.ok(pane('first').classList.contains('collapsed'));
+        assert.strictEqual(basis('first'), 22, 'collapsed basis = header height');
+        assert.ok(basis('second') > before, 'expanded sibling grows');
+        // Divider stays between the expanded pane and the collapsed header.
+        const sash = sashes()[0];
+        assert.strictEqual(sash.previousElementSibling?.id, 'test-second');
+        assert.strictEqual(sash.nextElementSibling?.id, 'test-first');
+        assert.ok(sash.classList.contains('disabled'), 'sash next to a collapsed pane is inert');
+        assert.strictEqual(sash.getAttribute('aria-disabled'), 'true');
+        assert.strictEqual(sash.tabIndex, -1, 'disabled sash leaves the tab order');
+        assert.strictEqual(pane('first').getAttribute('aria-expanded') ?? sash.getAttribute('aria-expanded'), null);
+        assert.strictEqual(document.querySelector<HTMLElement>('#test-first .sb-section-head')!.getAttribute('aria-expanded'), 'false');
+    });
+
+    test('expand restores spec order and re-enables the sash', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        sections.setCollapsed('first', true);
+        sections.setCollapsed('first', false);
+        assert.deepStrictEqual(paneOrder(), ['first', 'second'], 'section returns to its spec-order slot');
+        const sash = sashes()[0];
+        assert.strictEqual(sash.previousElementSibling?.id, 'test-first');
+        assert.strictEqual(sash.nextElementSibling?.id, 'test-second');
+        assert.ok(!sash.classList.contains('disabled'));
+        assert.strictEqual(sash.getAttribute('aria-disabled'), null);
+        assert.strictEqual(sash.tabIndex, 0);
+        assert.strictEqual(sash.getAttribute('aria-label'), 'Resize First section', 'label follows the pane above the sash');
+    });
+
+    test('collapsing a middle section packs it last; expanding restores original order', () => {
+        mount([['first', 'First'], ['second', 'Second'], ['third', 'Third']], 400);
+        sections.setCollapsed('second', true);
+        assert.deepStrictEqual(paneOrder(), ['first', 'third', 'second'], 'collapsed middle packs to the bottom');
+        sections.setCollapsed('second', false);
+        assert.deepStrictEqual(paneOrder(), ['first', 'second', 'third']);
+        // Sash between first/third was active during the pack; labels re-derive.
+        const sashesEls = sashes();
+        assert.strictEqual(sashesEls[0].getAttribute('aria-label'), 'Resize First section');
+        assert.strictEqual(sashesEls[1].getAttribute('aria-label'), 'Resize Second section');
+    });
+
+    test('expand restores the saved height; sibling shrinks', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        sections.setCollapsed('first', true);
+        const grew = basis('second');
+        sections.setCollapsed('first', false);
+        assert.ok(!pane('first').classList.contains('collapsed'));
+        assert.strictEqual(basis('first'), 148, 'restores the px it had before collapsing');
+        assert.strictEqual(basis('second'), 149, 'sibling shrinks back proportionally');
+        assert.strictEqual(basis('second') + basis('first'), 297, 'total unchanged');
+    });
+
+    test('sash drag moves the pane above and the pane below absorbs, clamped', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const beforeA = basis('first');
+        const beforeB = basis('second');
+        dragSash(sashes()[0], 40);
+        assert.strictEqual(basis('first'), beforeA + 40, 'above pane grows by the delta');
+        assert.strictEqual(basis('second'), beforeB - 40, 'below pane absorbs the delta');
+        // Clamp: growing beyond (combined - MIN_PANE) leaves the below pane at MIN_PANE.
+        dragSash(sashes()[0], 10000);
+        assert.strictEqual(basis('first'), beforeA + beforeB - 82, 'above clamped so below keeps MIN_PANE');
+        assert.strictEqual(basis('second'), 82);
+    });
+
+    test('sash ArrowUp/ArrowDown resize by 10px; double-click resets to 50/50', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const sash = sashes()[0];
+        // DOM order after mount: [first, sash, second]. The sash resizes the pane
+        // above it (first). Collapse round-trip below uses the pack order instead.
+        const beforeA = basis('first');
+        const beforeB = basis('second');
+        sash.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+        assert.strictEqual(basis('first'), beforeA + 10, 'ArrowUp grows the pane above the sash');
+        assert.strictEqual(basis('second'), beforeB - 10, 'below absorbs the same 10px');
+        sash.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        assert.strictEqual(basis('first'), beforeA, 'ArrowDown shrinks it back');
+        sash.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }));
+        assert.ok(Math.abs(basis('first') - basis('second')) <= 1, 'double-click splits 50/50');
+    });
+
+    test('sizes persist to localStorage on resize and restore across mounts', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        dragSash(sashes()[0], 40);
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '188');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), '109');
+        // Fresh mount with the persisted sizes restores them.
+        root.innerHTML = '';
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        assert.strictEqual(basis('first'), 188);
+        assert.strictEqual(basis('second'), 109);
+    });
+
+    test('restore clamps out-of-range values and drops malformed entries', () => {
+        dom.window.localStorage.setItem('hexScope.sidebarPanes.panetest.first', '9999'); // clamped on layout
+        dom.window.localStorage.setItem('hexScope.sidebarPanes.panetest.second', 'abc'); // dropped as invalid
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        assert.strictEqual(basis('first'), 149, 'oversized persisted px clamps to the available pool');
+        assert.strictEqual(basis('second'), 148, 'malformed entry falls back to the equal default');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), null, 'invalid key removed');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '149', 'oversized key self-heals to the clamped px');
+    });
+
+    test('collapse keeps the last expanded sizes for re-expand across reloads', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        dragSash(sashes()[0], 40); // first=188, second=109 persisted
+        sections.setCollapsed('first', true);
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '188', 'collapse keeps the last expanded px');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), '275', 'grown sibling persisted');
+        root.innerHTML = '';
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        sections.setCollapsed('first', true); // restore keeps saved px across reloads
+        sections.setCollapsed('first', false);
+        assert.strictEqual(basis('first'), 188, 're-expand after reload restores the saved px');
+        assert.strictEqual(basis('second'), 109);
     });
 });

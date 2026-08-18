@@ -62,26 +62,27 @@ The four sidebar panels converge on shared `.sb-*` primitives defined in `compon
 
 ### Spacing Ownership
 
-Sidebar primitives own shared rhythm: panel roots use `10px 12px`, header-to-body space is `8px`, card stacks use `4px`, and normal `.sb-btn` controls use `2px 8px` padding. Panels must not restate those values. Document an exception only for genuinely denser controls: Struct field-grid inputs and bit-field-child add buttons; Integrity compact profile actions. Header actions use the framework compact contract (`.sb-section-action`) and must not enlarge the header; Scripts uses the shared non-collapsible header (no border separator).
+Sidebar primitives own shared rhythm: panel roots use `10px 12px`, header-to-body space is `8px`, card stacks use `4px`, and normal `.sb-btn` controls use `2px 8px` padding. Panels must not restate those values. Document an exception only for genuinely denser controls: Struct field-grid inputs and bit-field-child add buttons; Integrity compact profile actions. Header actions use the framework compact contract (`.sb-section-action`) and must not enlarge the header.
 
 ## Section / Header Pattern
 
-Sidebar sections are rendered by the `SidebarSections` framework (`sidebar.ts`) using the `.sb-section` → `.sb-section-head` → `.sb-body` pattern:
+Sidebar sections are rendered by the `SidebarSections` framework (`sidebar.ts`) as a **PaneView/SplitView** (`paneview.ts`/`splitview.ts`): each section is a resizable pane, `.sb-pane-view` → `.sb-pane` (`.sb-section`) → `.sb-section-head` → `.sb-body`, with `.sb-pane-sash` dividers between panes:
 
 ```css
-.sb-section { padding: 10px 12px; display: grid; grid-template-rows: auto 1fr; transition: grid-template-rows .15s ease-out; }
-.sb-section.collapsed { grid-template-rows: auto 0fr; }
-.sb-section + .sb-section { border-top: 1px solid var(--border); } /* first section: no top border (VS Code rule) */
-.sb-section-head { display: flex; align-items: center; gap: 6px; height: 22px; line-height: 22px; overflow: hidden; box-sizing: border-box; margin-bottom: 8px; }
+.sb-pane-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sb-pane { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; overflow: hidden; box-sizing: border-box; transition: flex-basis .15s ease-out; } /* flex-basis: <px> managed inline by SidebarSections */
+.sb-pane .sb-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px 12px; box-sizing: border-box; } /* each expanded pane scrolls itself; panel root never scrolls */
+.sb-pane-sash { height: 3px; flex: 0 0 auto; cursor: row-resize; border-top: 1px solid var(--border); }
+.sb-section-head { display: flex; align-items: center; gap: 6px; height: 22px; line-height: 22px; overflow: hidden; flex-shrink: 0; box-sizing: border-box; }
 .sb-section-title { flex: 1; min-width: 0; margin: 0; font: inherit; color: inherit; }
 .sb-section-chevron { /* decorative aria-hidden chevron-down; rotate(-90deg) when collapsed (chevron-right), translateY(1px) when open — VS Code .twisty-container */ }
 .sb-section-label { /* 11px bold uppercase header type (VS Code), nowrap + ellipsis + min-width 3ch, --addr-fg */ }
 .sb-section-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: 8px; flex-shrink: 0; }
 .sb-section-action { /* compact contract: 10px / 2px 8px / 1.2 / max-height 22px */ }
-@media (prefers-reduced-motion: reduce) { .sb-section, .sb-section-chevron { transition-duration: 0s !important; } }
+@media (prefers-reduced-motion: reduce) { .sb-pane, .sb-section-chevron { transition-duration: 0s !important; } }
 ```
 
-The section header is the collapse control (VS Code model): the whole `.sb-section-head` carries `role="button"`, `tabindex="0"`, `aria-expanded`/`aria-controls`/`aria-label` on collapsible sections; a decorative `.sb-section-chevron` span (aria-hidden, first child — reads "▸ Section Name", VS Code `.twisty-container`) is chevron-down when open and rotates -90° (chevron-right) when collapsed. The head is a fixed 22px row (VS Code `--pane-header-size`), 11px bold uppercase nowrap-ellipsis title. The whole head toggles on click/Enter/Space/ArrowLeft/ArrowRight; `.sb-section-actions` stopPropagation so actions never toggle. Body collapse animates via the grid row `1fr → 0fr` (150ms ease-out, VS Code duration) with `.sb-body` `overflow:hidden`; body stays in the DOM and collapsed sections shrink to a slim header in place (no dock/reparent). Non-collapsible sections (`collapsible: false`) use the plain `.sb-section-label` with `.sb-section-head.not-collapsible` (no chevron, title margin-left 8px, `tabindex="-1"` for Up/Down header nav) — same `8px` header→body gap.
+The section header is the collapse control (VS Code model): every `.sb-section-head` carries `role="button"`, `tabindex="0"`, `aria-expanded`/`aria-controls`/`aria-label` (all sections are collapsible — there is no non-collapsible variant); a decorative `.sb-section-chevron` span (aria-hidden, first child — reads "▸ Section Name", VS Code `.twisty-container`) is chevron-down when open and rotates -90° (chevron-right) when collapsed. The head is a fixed 22px row (VS Code `--pane-header-size`), 11px bold uppercase nowrap-ellipsis title. The whole head toggles on click/Enter/Space/ArrowLeft/ArrowRight; `.sb-section-actions` stopPropagation so actions never toggle. Collapse animates `flex-basis` to 22px (150ms ease-out, VS Code duration) with the body clipped (overflow hidden on the pane); the body stays in the DOM and the collapsed pane is packed to the bottom of the pane-view. Sash drag resizes the pane above (ArrowUp/Down ±10px, double-click 50/50); sashes adjacent to a collapsed pane get `.disabled`.
 
 `.sb-hdr` was removed in the 10px type-floor pass; body-level form titles (e.g. the label form) render as plain `.lbl-form` titles with the shared 10px metadata floor. There is no `.sb-hdr` fallback and no collapsible-triangle inheritance to override.
 

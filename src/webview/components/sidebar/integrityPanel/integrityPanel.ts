@@ -130,7 +130,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this._panel = root.id === 's-integrity' ? root : this.ensureIntegrityRoot(root);
         this._panel.innerHTML = '';
         this.sections = new SidebarSections(this._panel, 'integrity', [
-            { id: 'main', label: 'Integrity Checks', collapsible: false },
+            { id: 'main', label: 'Integrity Checks' },
         ]);
         this.render();
     }

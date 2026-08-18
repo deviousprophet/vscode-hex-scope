@@ -38,17 +38,41 @@
 }
 
 .sidebar-endian-tabs button { padding: 1px 6px; }
-.sb-section {
-    padding: 10px 12px;
-    display: grid; grid-template-rows: auto 1fr;
-    transition: grid-template-rows .15s ease-out;
+/* ── PaneView sections (VS Code PaneView/SplitView model) ────────────
+   Each section is a resizable pane: fixed 22px whole-header toggle,
+   independently scrolling body, drag sash between consecutive sections.
+   Sizing is managed inline by SidebarSections (flex-basis per pane);
+   CSS only supplies the container model + the height transition. */
+.sb-pane-view {
+    display: flex; flex-direction: column;
+    flex: 1; min-height: 0;
 }
-/* VS Code divider rule: first section shows no top border; the divider
-   belongs to the second-and-later headers. */
-.sb-section + .sb-section { border-top: 1px solid var(--border); }
-.sb-section .sb-body { min-height: 0; overflow: hidden; }
+.sb-pane {
+    display: flex; flex-direction: column;
+    flex: 0 0 auto; min-height: 0; overflow: hidden;
+    box-sizing: border-box;
+    transition: flex-basis .15s ease-out;
+}
+.sb-pane .sb-body {
+    flex: 1; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    padding: 10px 12px; box-sizing: border-box;
+}
+.sb-pane-sash {
+    height: 3px; flex: 0 0 auto; box-sizing: border-box;
+    cursor: row-resize; user-select: none;
+    border-top: 1px solid var(--border);
+    transition: background .12s ease, border-color .12s ease;
+}
+.sb-pane-sash:hover,
+.sb-pane-sash.dragging {
+    background: rgba(156,220,254,.15);
+    border-top-color: rgba(156,220,254,.55);
+}
+.sb-pane-sash.disabled { cursor: default; opacity: .4; }
+.sb-pane-sash:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 @media (prefers-reduced-motion: reduce) {
-    .sb-section { transition-duration: 0s !important; }
+    .sb-pane { transition-duration: 0s !important; }
     .sb-section-chevron { transition-duration: 0s !important; }
 }
 
@@ -71,8 +95,7 @@
 .sb-section-head {
     display: flex; align-items: center; gap: 6px;
     height: 22px; line-height: 22px;
-    overflow: hidden; box-sizing: border-box;
-    margin-bottom: 8px;
+    overflow: hidden; flex-shrink: 0; box-sizing: border-box;
 }
 .sb-section-head[role="button"] {
     cursor: pointer; user-select: none;
@@ -80,8 +103,6 @@
 .sb-section-head[role="button"]:hover { background: var(--hover-bg); }
 .sb-section-head[role="button"]:active { background: rgba(134,180,212,.14); }
 .sb-section-head:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
-.sb-section-head.not-collapsible { cursor: default; }
-.sb-section-head.not-collapsible .sb-section-title { margin-left: 8px; }
 .sb-section-title {
     display: flex; align-items: center; gap: 6px;
     flex: 1; min-width: 0;
@@ -140,12 +161,10 @@
 .stab:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
-.sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; flex-direction: column; }
+/* Panel root is the pane-view's flex parent; it never scrolls as a whole —
+   each expanded pane body scrolls itself. */
+.sb-tab-panel { flex: 1; display: none; min-height: 0; flex-direction: column; }
 .sb-tab-panel.active { display: flex; }
-
-/* ── Collapsible section support (shared section pattern) ──────── */
-/* Collapse animates the body row 1fr -> 0fr. */
-.sb-section.collapsed { grid-template-rows: auto 0fr; }
 
 
 /* ── Shared UI primitives ────────────────────────────────────────── */

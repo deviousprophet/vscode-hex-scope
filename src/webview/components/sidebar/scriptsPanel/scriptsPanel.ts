@@ -78,7 +78,7 @@ export class ScriptsPanel {
         this._panel = root.id === 's-scripts' ? root : this.ensureScriptsRoot(root);
         this._panel.innerHTML = '';
         this.sections = new SidebarSections(this._panel, 'scripts', [
-            { id: 'main', label: 'Scripts', collapsible: false, mountActions: r => this.mountToolbarActions(r) },
+            { id: 'main', label: 'Scripts', mountActions: r => this.mountToolbarActions(r) },
         ]);
         this.render();
     }

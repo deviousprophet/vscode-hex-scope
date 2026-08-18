@@ -68,8 +68,8 @@ export class InspectorPanel implements InspectorLabelFormHost {
         // Remount resets sticky bit-block collapse (no persistence).
         this.bitsCollapsed = false;
         this.sections = new SidebarSections(root, 's', [
-            { id: 'insp', label: 'Inspector', collapsible: true, defaultCollapsed: false },
-            { id: 'labels', label: 'Labels', collapsible: true, defaultCollapsed: true },
+            { id: 'insp', label: 'Inspector' },
+            { id: 'labels', label: 'Labels', defaultCollapsed: true },
         ]);
         this.renderInspectorShell();
         this.renderLabels();

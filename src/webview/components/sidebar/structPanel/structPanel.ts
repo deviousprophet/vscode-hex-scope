@@ -249,8 +249,8 @@ mount(root: HTMLElement): void {
     this._root = root;
     root.innerHTML = '';
         this.sections = new SidebarSections(root, 'si', [
-            { id: 'instances', label: 'Struct Instances', collapsible: false, mountActions: r => this.mountInstancesAction(r) },
-            { id: 'types', label: 'Struct Types', collapsible: true, defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
+            { id: 'instances', label: 'Struct Instances', mountActions: r => this.mountInstancesAction(r) },
+            { id: 'types', label: 'Struct Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
         ]);
     // Click-outside for per-card "⋮" menus lives in the shared popup wiring
     // (sidebar.ts), so shell re-mounts never stack document listeners.
@@ -304,7 +304,7 @@ private updateHeaderActions(): void {
     }
 }
 
-/** Instances header action: ＋ Add (primary/status control usable while collapsed — non-collapsible here). */
+/** Instances header action: ＋ Add (primary/status control usable while collapsed). */
 private mountInstancesAction(root: HTMLElement): void {
     const add = document.createElement('button');
     add.id = 'si-add-btn';

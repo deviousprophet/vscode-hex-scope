@@ -51,7 +51,7 @@ class InspectorPanel {
 
 ## Behaviour
 
-- Default: Inspector expanded, Labels collapsed (slim header in place). Bit View lives inside the Inspector section as an internal sticky-collapsible block (auto-expands on new selection unless the user collapsed it this mount). Segments are merged into Labels as permanent (non-deletable) rows; no separate Segments section.
+- Default: Inspector expanded, Labels collapsed (slim 22px header packed to the bottom of the pane view). Bit View lives inside the Inspector section as an internal sticky-collapsible block (auto-expands on new selection unless the user collapsed it this mount). Segments are merged into Labels as permanent (non-deletable) rows; no separate Segments section.
 - Selection paints address/vals (+ copy chips), the merged byte line (honest copy of rendered bytes, no silent ellipsis), bit rows, and the multi-byte interpreter (`[LE/BE · N-byte]` context tag); `setEndian` re-decodes the interpreter (LE/BE).
 - Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm.
 - Hex-view selection updates an open label form's start/range (`syncLabelForm`).
@@ -70,7 +70,7 @@ class InspectorPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/badge/jump), `setLabels` (rows/badge/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, docked-labels collapse/expand. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
+`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/badge/jump), `setLabels` (rows/badge/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, labels collapse/expand in the pane view. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
 
 ## Anti-patterns
 

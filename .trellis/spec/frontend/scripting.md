@@ -188,7 +188,7 @@ Scripts (3)  [↻]
 - Replaces the `sb-section` collapsible pattern inherited from Inspector
 - Shows script count badge
 - Refresh ↻ button re-scans `.hexscope/scripts/` directory
-- No collapse toggle — the scripts tab has only one section
+- Single section pane (fills the panel, no sash) — the section header toggles the whole pane like every other sidebar section
 
 #### Empty state
 

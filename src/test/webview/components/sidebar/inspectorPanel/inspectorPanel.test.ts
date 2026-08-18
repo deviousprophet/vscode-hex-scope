@@ -206,11 +206,11 @@ suite('Inspector segments merge into Labels', () => {
         assert.strictEqual(badge.textContent, '3', 'badge counts total rows');
     });
 
-    test('labels default collapsed stays in the panel stack and expands from its header', () => {
+    test('labels default collapsed stays in the pane stack and expands from its header', () => {
         const section = document.getElementById('s-labels')!;
         const head = section.querySelector<HTMLElement>('.sb-section-head')!;
         assert.ok(section.classList.contains('collapsed'));
-        assert.strictEqual(section.parentElement, document.body.firstElementChild);
+        assert.strictEqual(section.parentElement?.classList.contains('sb-pane-view'), true, 'sections live in the pane view');
         head.click();
         assert.ok(!section.classList.contains('collapsed'));
         assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
