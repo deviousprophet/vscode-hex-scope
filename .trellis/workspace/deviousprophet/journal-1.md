@@ -615,3 +615,24 @@ First-time expand (no persisted size) now splits evenly across all expanded pane
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: Archive consolidation + PR task map
+
+**Date**: 2026-08-18
+**Task**: Archive consolidation + PR task map
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Archived-task cleanup (grill Q1-B): folded 2 PaneView follow-up dirs into sidebar-paneview/iterations/ and the header exact-look task into sidebar-header-vscode/iterations/; added archive/2026-08/PR-consolidation-note.md mapping the full feat/ui-consistency deliverable trail. 19 archive dirs now; full history preserved in git + journals 18-25.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2ebace5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
