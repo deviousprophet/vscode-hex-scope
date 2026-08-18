@@ -235,9 +235,9 @@ function resizeKeyDelta(key: string): number {
 // PaneView model (VS Code PaneView/SplitView, Extensions-style): each
 // section is a resizable pane with a fixed 22px whole-header toggle, an
 // independently scrolling body, and a drag sash (`role=separator`) between
-// consecutive sections. Collapsed panes physically move to the bottom of
-// the pane-view (bottom-pack) with their divider; their sizes stay saved so
-// re-expanding restores the last height.
+// consecutive sections. Collapsed panes stay in DOM order at the 22px header
+// (in-place collapse) and expanded panes fill the freed space; sizes stay
+// saved so re-expanding restores the last height.
 
 export interface SidebarSectionSpec {
     id: string;
@@ -330,14 +330,10 @@ export class SidebarSections {
     private readonly panelId: string;
     private readonly root: HTMLElement;
     private readonly paneView: HTMLElement;
-    /** Section ids in spec order — collapse packs move sections to the bottom, expand restores this order. */
-    private readonly sectionOrder: readonly string[];
     private readonly collapsed: Map<string, boolean>;
     /** Per-section pane sizing: `saved` = px to restore on expand (persisted), `px` = last allocated px. */
     private readonly sizing: Map<string, { saved: number | null; px: number }>;
     private readonly dom: Map<string, SidebarSectionDom>;
-    /** Sash leading each section (i.e. the divider above it); keyed by that section's id. */
-    private readonly sashes = new Map<string, HTMLElement>();
     private resizeObserver: ResizeObserver | null = null;
 
     constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[], panelId?: string) {
@@ -349,7 +345,6 @@ export class SidebarSections {
         this.idPrefix = idPrefix;
         this.panelId = panelId ?? panelIdFromRoot(root, idPrefix);
         this.root = root;
-        this.sectionOrder = sections.map(s => s.id);
         this.collapsed = new Map(sections.map(s => [s.id, s.defaultCollapsed === true]));
         this.sizing = new Map(sections.map(s => [s.id, { saved: loadSavedPx(this.panelId, s.id), px: HEADER_H }]));
         this.dom = new Map();
@@ -360,7 +355,7 @@ export class SidebarSections {
             this.dom.set(spec.id, this.buildSection(fragment, spec));
             if (i < sections.length - 1) {
                 // Sash belongs to the section below it (divides it from the section above).
-                this.sashes.set(sections[i + 1].id, this.buildSash(fragment, spec, sections[i + 1]));
+                this.buildSash(fragment, spec, sections[i + 1]);
             }
         });
         this.paneView.appendChild(fragment);
@@ -395,11 +390,10 @@ export class SidebarSections {
     }
 
     /**
-     * Collapse/expand a section. Collapse moves the section (with its divider)
-     * to the bottom of the pane-view (bottom-pack) and animates flex-basis to
-     * the 22px header; expand restores the section to its spec-order slot and
-     * restores the saved px (or an equal share the first time), redistributing
-     * the freed space over all expanded panes.
+     * Collapse/expand a section. Panes stay in DOM order (in-place collapse —
+     * VS Code model): collapse shrinks flex-basis to the 22px header, expand
+     * restores the saved px (or an equal share the first time); the freed
+     * space redistributes over all expanded panes.
      */
     setCollapsed(id: string, collapsed: boolean): void {
         const entry = this.dom.get(id);
@@ -407,7 +401,6 @@ export class SidebarSections {
         this.collapsed.set(id, collapsed);
         entry.section.classList.toggle('collapsed', collapsed);
         entry.head.setAttribute('aria-expanded', String(!collapsed));
-        if (collapsed) { this.packCollapsed(id); } else { this.restoreOrder(); }
         this.layout();
     }
 
@@ -422,7 +415,7 @@ export class SidebarSections {
         const ids = [...this.dom.keys()];
         const expanded = ids.filter(id => !this.collapsed.get(id));
         const collapsedCount = ids.length - expanded.length;
-        // All dividers stay in the flex column (disabled ones keep the 3px line).
+        // All dividers stay in the flex column (they double as the 3px divider line).
         const free = Math.max(0, height - collapsedCount * HEADER_H - (ids.length - 1) * SASH_H);
         const alloc = allocatePanes(free, expanded.map(id => ({ id, saved: this.sizing.get(id)!.saved })));
         for (const id of ids) {
@@ -438,50 +431,6 @@ export class SidebarSections {
                 st.saved = px;
             }
             this.dom.get(id)!.section.style.flexBasis = `${px}px`;
-        }
-        this.paintSashStates();
-    }
-
-    /** Sashes adjacent to a collapsed pane become inert (dimmed, out of the tab
-        order, aria-disabled); active sashes relabel to the pane above them so
-        labels survive bottom-pack moves. */
-    private paintSashStates(): void {
-        for (const sash of this.sashes.values()) {
-            const aboveId = this.sectionIdOf(sash.previousElementSibling as HTMLElement | null);
-            const belowId = this.sectionIdOf(sash.nextElementSibling as HTMLElement | null);
-            const disabled = aboveId === null
-                || belowId === null
-                || this.collapsed.get(aboveId) === true
-                || this.collapsed.get(belowId) === true;
-            sash.classList.toggle('disabled', disabled);
-            if (disabled) {
-                sash.setAttribute('aria-disabled', 'true');
-                sash.tabIndex = -1;
-            } else {
-                sash.removeAttribute('aria-disabled');
-                sash.tabIndex = 0;
-                const aboveLabel = this.dom.get(aboveId!)?.label.textContent ?? '';
-                sash.setAttribute('aria-label', `Resize ${aboveLabel} section`);
-            }
-        }
-    }
-
-    /** Bottom-pack: move a collapsed section — and the divider after it, so the
-        divider line stays between the section above and the collapsed header. */
-    private packCollapsed(id: string): void {
-        const section = this.dom.get(id)?.section;
-        if (!section || section === this.paneView.lastElementChild) { return; }
-        const divider = section.nextElementSibling as HTMLElement | null;
-        if (divider?.classList.contains('sb-pane-sash')) { this.paneView.appendChild(divider); }
-        this.paneView.appendChild(section);
-    }
-
-    /** Restore spec order after an expand: each section back under its leading sash. */
-    private restoreOrder(): void {
-        for (const id of this.sectionOrder) {
-            const sash = this.sashes.get(id); // divider above this section
-            if (sash) { this.paneView.appendChild(sash); }
-            this.paneView.appendChild(this.dom.get(id)!.section);
         }
     }
 

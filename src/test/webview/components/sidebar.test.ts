@@ -435,49 +435,40 @@ suite('SidebarSections pane view', () => {
         assert.ok(Math.abs(basis('first') - basis('second')) <= 1, '50/50 default split');
     });
 
-    test('collapsing packs the pane to the bottom and grows its sibling', () => {
+    test('collapsing keeps the pane in place at 22px and grows the sibling', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         const before = basis('second');
         sections.setCollapsed('first', true);
-        assert.deepStrictEqual(paneOrder(), ['second', 'first'], 'collapsed pane packs to bottom');
+        assert.deepStrictEqual(paneOrder(), ['first', 'second'], 'pane stays in DOM order (in-place collapse)');
         assert.ok(pane('first').classList.contains('collapsed'));
         assert.strictEqual(basis('first'), 22, 'collapsed basis = header height');
-        assert.ok(basis('second') > before, 'expanded sibling grows');
-        // Divider stays between the expanded pane and the collapsed header.
-        const sash = sashes()[0];
-        assert.strictEqual(sash.previousElementSibling?.id, 'test-second');
-        assert.strictEqual(sash.nextElementSibling?.id, 'test-first');
-        assert.ok(sash.classList.contains('disabled'), 'sash next to a collapsed pane is inert');
-        assert.strictEqual(sash.getAttribute('aria-disabled'), 'true');
-        assert.strictEqual(sash.tabIndex, -1, 'disabled sash leaves the tab order');
-        assert.strictEqual(pane('first').getAttribute('aria-expanded') ?? sash.getAttribute('aria-expanded'), null);
+        assert.ok(basis('second') > before, 'expanded sibling grows into the freed space');
         assert.strictEqual(document.querySelector<HTMLElement>('#test-first .sb-section-head')!.getAttribute('aria-expanded'), 'false');
     });
 
-    test('expand restores spec order and re-enables the sash', () => {
+    test('expand keeps in-place order and the sash never disables', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         sections.setCollapsed('first', true);
         sections.setCollapsed('first', false);
-        assert.deepStrictEqual(paneOrder(), ['first', 'second'], 'section returns to its spec-order slot');
+        assert.deepStrictEqual(paneOrder(), ['first', 'second'], 'no reorder across a collapse/expand cycle');
         const sash = sashes()[0];
         assert.strictEqual(sash.previousElementSibling?.id, 'test-first');
         assert.strictEqual(sash.nextElementSibling?.id, 'test-second');
-        assert.ok(!sash.classList.contains('disabled'));
+        assert.ok(!sash.classList.contains('disabled'), 'sash is never disabled');
         assert.strictEqual(sash.getAttribute('aria-disabled'), null);
-        assert.strictEqual(sash.tabIndex, 0);
-        assert.strictEqual(sash.getAttribute('aria-label'), 'Resize First section', 'label follows the pane above the sash');
+        assert.strictEqual(sash.tabIndex, 0, 'sash stays in the tab order');
+        assert.strictEqual(sash.getAttribute('aria-label'), 'Resize First section', 'label references the pane above the sash');
     });
 
-    test('collapsing a middle section packs it last; expanding restores original order', () => {
+    test('collapsing a middle section keeps DOM order', () => {
         mount([['first', 'First'], ['second', 'Second'], ['third', 'Third']], 400);
         sections.setCollapsed('second', true);
-        assert.deepStrictEqual(paneOrder(), ['first', 'third', 'second'], 'collapsed middle packs to the bottom');
+        assert.deepStrictEqual(paneOrder(), ['first', 'second', 'third'], 'middle pane stays in place');
         sections.setCollapsed('second', false);
         assert.deepStrictEqual(paneOrder(), ['first', 'second', 'third']);
-        // Sash between first/third was active during the pack; labels re-derive.
-        const sashesEls = sashes();
-        assert.strictEqual(sashesEls[0].getAttribute('aria-label'), 'Resize First section');
-        assert.strictEqual(sashesEls[1].getAttribute('aria-label'), 'Resize Second section');
+        const sashEls = sashes();
+        assert.strictEqual(sashEls[0].getAttribute('aria-label'), 'Resize First section');
+        assert.strictEqual(sashEls[1].getAttribute('aria-label'), 'Resize Second section');
     });
 
     test('expand restores the saved height; sibling shrinks', () => {

@@ -69,7 +69,6 @@
     background: rgba(156,220,254,.15);
     border-top-color: rgba(156,220,254,.55);
 }
-.sb-pane-sash.disabled { cursor: default; opacity: .4; }
 .sb-pane-sash:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 @media (prefers-reduced-motion: reduce) {
     .sb-pane { transition-duration: 0s !important; }
