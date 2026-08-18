@@ -1950,14 +1950,16 @@ suite('StructPanel deep-render harness', () => {
 
     test('renders stacked sections with empty states', async () => {
         await createMountedPanel();
-        // Both sections are direct stacked children of the panel root (no slide-track).
         assert.strictEqual(document.querySelector('#s-struct-pins > .sb-section')?.id, 'si-instances');
         assert.strictEqual(document.querySelector<HTMLElement>('#s-struct-pins > .sb-section + .sb-section')?.id, 'si-types');
-        assert.ok(document.getElementById('si-instances'));
-        assert.ok(document.getElementById('si-types'));
-        assert.ok(document.querySelector('#si-types .sb-section-toggle'), 'types section should be collapsible');
+        const instancesHead = document.querySelector<HTMLElement>('#si-instances .sb-section-head')!;
+        const typesHead = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
+        assert.strictEqual(typesHead.getAttribute('role'), 'button');
+        assert.strictEqual(typesHead.getAttribute('aria-expanded'), 'true');
+        assert.ok(typesHead.querySelector('.sb-section-chevron'));
         assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'types section should default open');
-        assert.strictEqual(document.getElementById('si-instances')!.querySelector('.sb-section-toggle'), null, 'instances header should not be collapsible');
+        assert.strictEqual(instancesHead.getAttribute('role'), null, 'instances header should be plain');
+        assert.strictEqual(instancesHead.querySelector('.sb-section-chevron'), null);
         assert.match(document.getElementById('si-instances')!.textContent!, /No instances yet/);
         assert.strictEqual(document.querySelector('#si-types .sb-empty')?.textContent, 'No types defined yet.');
         assert.strictEqual(document.getElementById('si-types-btn'), null, 'no hamburger manage-types control');
@@ -2162,22 +2164,21 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(S.structPins, []);
     });
 
-    test('types section collapses and expands via header toggle', async () => {
+    test('types section header handles click and keyboard collapse', async () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        const toggle = document.querySelector<HTMLElement>('#si-types .sb-section-toggle');
-        assert.ok(toggle, 'types header toggle should render');
-        click(dom, toggle);
-        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'), 'toggle should collapse types');
-        assert.strictEqual(toggle!.getAttribute('aria-expanded'), 'false', 'collapse should update aria-expanded');
-        assert.strictEqual(document.querySelector<HTMLElement>('.sb-dock #si-types'), document.getElementById('si-types'), 'collapsed types should dock to the bottom bar');
-        assert.strictEqual(document.getElementById('si-types')!.parentElement?.className, 'sb-dock', 'docked section reparents into the dock');
-        click(dom, document.getElementById('si-types')!.querySelector('.sb-section-toggle'));
-        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'toggle should expand types again');
-        assert.strictEqual(toggle!.getAttribute('aria-expanded'), 'true', 'expand should update aria-expanded');
-        assert.ok(document.querySelector('.sd-row'), 'type rows should be visible again');
-        assert.strictEqual(document.querySelector<HTMLElement>('.sb-dock #si-types'), null, 'expanded types leaves the dock');
+        const head = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
+        click(dom, head);
+        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'false');
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.ok(document.querySelector('.sd-row'));
     });
 
     test('editor field rows expose pointer via context menu, not a row button', async () => {

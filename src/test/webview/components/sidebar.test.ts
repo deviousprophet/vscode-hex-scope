@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import '../cssImportHook';
 
-import { Sidebar, type SidebarPanel } from '../../../webview/components/sidebar/sidebar';
+import { Sidebar, SidebarSections, type SidebarPanel } from '../../../webview/components/sidebar/sidebar';
 
 let currentDom: JSDOM | null = null;
 
@@ -195,6 +195,101 @@ suite('Sidebar interaction', () => {
         document.getElementById('stab-struct')!.click();
         assert.deepStrictEqual(first, []);
         assert.deepStrictEqual(second, ['struct']);
+    });
+});
+
+suite('SidebarSections header model', () => {
+    let dom: JSDOM;
+    let root: HTMLElement;
+    let actions: HTMLElement;
+    let actionRuns: number;
+
+    setup(() => {
+        dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://hexscope.test/' });
+        const g = globalThis as unknown as Globalish;
+        g.window = dom.window as unknown as Window;
+        g.document = dom.window.document as unknown as Document;
+        root = document.body.appendChild(document.createElement('div'));
+        actionRuns = 0;
+        new SidebarSections(root, 'test', [
+            { id: 'first', label: 'First' },
+            { id: 'last', label: 'Last', mountActions: actionRoot => {
+                actions = actionRoot;
+                const button = document.createElement('button');
+                button.textContent = 'Run';
+                button.addEventListener('click', () => { actionRuns++; });
+                actionRoot.appendChild(button);
+            } },
+            { id: 'plain', label: 'Plain', collapsible: false },
+        ]);
+    });
+
+    teardown(() => {
+        dom.window.close();
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+    });
+
+    test('uses whole-header semantics and preserves plain headers', () => {
+        const head = document.querySelector<HTMLElement>('#test-first .sb-section-head')!;
+        const plain = document.querySelector<HTMLElement>('#test-plain .sb-section-head')!;
+        assert.strictEqual(head.getAttribute('role'), 'button');
+        assert.strictEqual(head.tabIndex, 0);
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(head.getAttribute('aria-label'), 'First');
+        assert.strictEqual(head.querySelector('.sb-section-chevron')?.getAttribute('aria-hidden'), 'true');
+        assert.strictEqual(plain.getAttribute('role'), null);
+        assert.strictEqual(plain.getAttribute('tabindex'), '-1', 'plain headers are programmatically focusable only (header nav)');
+        assert.strictEqual(plain.getAttribute('aria-expanded'), null);
+        assert.strictEqual(plain.querySelector('.sb-section-chevron'), null);
+    });
+
+    test('click and keyboard toggle collapse state', () => {
+        const head = document.querySelector<HTMLElement>('#test-first .sb-section-head')!;
+        const section = document.getElementById('test-first')!;
+        head.click();
+        assert.ok(section.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        assert.ok(!section.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        assert.ok(section.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        assert.ok(!section.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        assert.ok(section.classList.contains('collapsed'));
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'false');
+    });
+
+    test('actions run without toggling their header on click or keydown', () => {
+        const head = document.querySelector<HTMLElement>('#test-last .sb-section-head')!;
+        const section = document.getElementById('test-last')!;
+        const button = actions.querySelector<HTMLButtonElement>('button')!;
+        button.click();
+        assert.strictEqual(actionRuns, 1);
+        assert.ok(!section.classList.contains('collapsed'));
+        button.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        assert.ok(!section.classList.contains('collapsed'));
+        head.click();
+        assert.ok(section.classList.contains('collapsed'));
+    });
+
+    test('ArrowUp and ArrowDown move among headers and stop at ends', () => {
+        const activeSection = () => document.activeElement?.closest<HTMLElement>('.sb-section')?.id;
+        const first = document.querySelector<HTMLElement>('#test-first .sb-section-head')!;
+        const last = document.querySelector<HTMLElement>('#test-last .sb-section-head')!;
+        const plain = document.querySelector<HTMLElement>('#test-plain .sb-section-head')!;
+        first.focus();
+        first.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        assert.strictEqual(activeSection(), 'test-last');
+        last.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        assert.strictEqual(activeSection(), 'test-plain');
+        plain.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        assert.strictEqual(activeSection(), 'test-plain');
+        plain.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+        assert.strictEqual(activeSection(), 'test-last');
+        first.focus();
+        first.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+        assert.strictEqual(activeSection(), 'test-first');
     });
 });
 

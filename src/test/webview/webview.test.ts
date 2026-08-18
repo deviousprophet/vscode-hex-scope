@@ -555,28 +555,23 @@ suite('Parsed Segment Navigator', () => {
         assert.strictEqual(jumpedTo, 0x1000);
     });
 
-    test('labels default collapsed and docked; empty state and badge', async () => {
+    test('labels default collapsed in place; empty state and badge', async () => {
         const { setSegments } = await mountInspector();
         setSegments([]);
 
         const section = document.getElementById('s-labels')!;
-        const dock = document.querySelector<HTMLElement>('.sb-dock')!;
-        const toggle = section.querySelector<HTMLElement>('.sb-section-toggle')!;
-        assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false', 'default collapsed');
+        const head = section.querySelector<HTMLElement>('.sb-section-head')!;
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'false', 'default collapsed');
         assert.ok(section.classList.contains('collapsed'));
-        assert.strictEqual(section.parentElement, dock, 'docked to bottom pill');
-        assert.ok(!dock.hidden);
         assert.strictEqual(section.querySelector('.sb-empty')?.textContent, 'No labels defined');
         const badge = section.querySelector('.sb-badge')!;
         assert.strictEqual(badge.textContent, '');
         assert.ok((badge as HTMLElement).hidden, 'badge hidden when no rows');
 
-        toggle.click();
-        assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true');
-        assert.strictEqual(section.parentElement, document.getElementById('host'), 'expanding rejoins the top stack');
-        assert.ok(dock.hidden, 'empty dock hides');
+        head.click();
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
         setSegments([]);
-        assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true', 'expansion survives re-set');
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'true', 'expansion survives re-set');
         assert.ok(!section.classList.contains('collapsed'));
     });
 });
@@ -661,7 +656,7 @@ suite('Record View rendering', () => {
             // Tab round-trip must not re-mount content (mount-once parity): collapse
             // state and selection data survive switching away and back.
             const inspSection = document.getElementById('s-insp')!;
-            inspSection.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+            inspSection.querySelector<HTMLElement>('.sb-section-head')!.click();
             assert.ok(inspSection.classList.contains('collapsed'), 'inspector section collapsed');
             document.getElementById('stab-struct')!.click();
             document.getElementById('stab-inspector')!.click();

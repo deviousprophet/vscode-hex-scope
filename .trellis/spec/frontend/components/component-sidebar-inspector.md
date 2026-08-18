@@ -2,7 +2,7 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`) + `inspectorPanel.css`: the sidebar Inspector panel — Inspector address/values, Bit View, the Multi-Byte interpreter, Parsed Segments, and Segment Labels (including the inline add/edit form). The component owns the four section shells, their collapse state, bit-hover highlight, label-form UI state, and interaction. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
+Owns `src/webview/components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`) + `inspectorPanel.css`: the sidebar Inspector panel — Inspector address/values, Bit View (internal block), the Multi-Byte interpreter, and Segment Labels (permanent segment rows merged with editable labels, including the inline add/edit form). The component owns the two section shells, their collapse state, bit-hover highlight, label-form UI state, and interaction. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
 
 Host (`hexViewer.ts`) owns: `S` state, label persistence (`saveLabels` + memory rebuild + invalidation), selection, endian, segment data, and jumps.
 
@@ -42,19 +42,18 @@ class InspectorPanel {
 
 ## Rules
 
-- Component holds only UI/transient state (collapse per section in DOM `dataset.collapsed`, bit-hover column, label-form draft/range-mode/pendingWarning, stored labels/segments/selection/endian). Persistent/domain state lives in the host.
+- Component holds only UI/transient state (section collapse via the shared `SidebarSections` framework, sticky bit-block collapse, bit-hover column, label-form draft/range-mode/pendingWarning, stored labels/segments/selection/endian). Persistent/domain state lives in the host.
 - Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte` is injected so byte access stays host-owned.
 - `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or struct-field selection).
 - Label mutations report `onLabelsChange`; the host persists (`saveLabels`) and invalidates (memory + labels rerender). Confirm-on-warning is component UI state.
-- Collapse toggle is one shared `applyCollapsibleSection(sec, defaultCollapsed)` helper used by all five sections.
+- Collapse toggle is the shared `SidebarSections` whole-header control (two sections: `insp`, `labels`); the internal Bits block uses its own local `.sb-inner-toggle` disclosure.
 - Markup is byte-identical to pre-refactor (same ids/classes). Untrusted text escaped with `esc()`.
 
 ## Behaviour
 
-- Default: Inspector + Segments expanded, Bit View + Labels collapsed (pre-refactor parity).
-- Selection paints address/vals (+ copy chips), bit rows, and the multi-byte interpreter; `setEndian` re-decodes the interpreter (LE/BE).
-- Segments sort by start address; item click/keyboard Enter/Space → `onJumpTo`.
-- Labels: visibility toggle, move up/down, edit/delete (delete via inline confirm), row-click → `onJumpTo`; add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm.
+- Default: Inspector expanded, Labels collapsed (slim header in place). Bit View lives inside the Inspector section as an internal sticky-collapsible block (auto-expands on new selection unless the user collapsed it this mount). Segments are merged into Labels as permanent (non-deletable) rows; no separate Segments section.
+- Selection paints address/vals (+ copy chips), the merged byte line (honest copy of rendered bytes, no silent ellipsis), bit rows, and the multi-byte interpreter (`[LE/BE · N-byte]` context tag); `setEndian` re-decodes the interpreter (LE/BE).
+- Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm.
 - Hex-view selection updates an open label form's start/range (`syncLabelForm`).
 
 ## Validation & Error Matrix
@@ -71,11 +70,11 @@ class InspectorPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (4 sections, empty states), `setSelection` single + multi (chips, raw dump, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (sort/badge/jump/collapse-preserve), `setLabels` (rows/badge/jump), visibility/move/delete, add form save + validation + confirm-on-warning, edit form. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
+`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/badge/jump), `setLabels` (rows/badge/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, docked-labels collapse/expand. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
 
 ## Anti-patterns
 
 - `inspectorPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, or feature modules.
 - `setSelection` also driving the label form (parity drift — `syncLabelForm` is host-driven from hex-view selection only).
 - Global-DOM-id queries outside the component root.
-- Duplicate collapse-toggle blocks (use `applyCollapsibleSection`).
+- Duplicate collapse-toggle logic (use the shared `SidebarSections` whole-header control; internal blocks only where nested, e.g. Bits).

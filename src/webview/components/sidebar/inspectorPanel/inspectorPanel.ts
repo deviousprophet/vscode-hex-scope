@@ -2,9 +2,7 @@
 // Self-contained sidebar Inspector panel: owns the section shells
 // (Inspector with internal Bit View block / merged Labels), their
 // markup, collapse state, bit hover, label-form UI state, and
-// interaction. The Labels section docks to the panel bottom when
-// collapsed; collapsed sections reparent through SidebarSections'
-// optional dock container. Data is pushed via setters; byte reads go
+// interaction. Collapsed sections remain in the panel stack. Data is pushed via setters; byte reads go
 // through the injected `readByte` accessor; actions report via
 // callbacks. This module never imports the `S` global and never posts
 // provider messages. Pure markup lives in inspectorRender.ts; the
@@ -69,13 +67,10 @@ export class InspectorPanel implements InspectorLabelFormHost {
         root.innerHTML = '';
         // Remount resets sticky bit-block collapse (no persistence).
         this.bitsCollapsed = false;
-        const dock = document.createElement('div');
-        dock.className = 'sb-dock';
-        dock.hidden = true;
         this.sections = new SidebarSections(root, 's', [
             { id: 'insp', label: 'Inspector', collapsible: true, defaultCollapsed: false },
             { id: 'labels', label: 'Labels', collapsible: true, defaultCollapsed: true },
-        ], dock);
+        ]);
         this.renderInspectorShell();
         this.renderLabels();
         this.paintInspectorData();

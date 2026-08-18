@@ -206,39 +206,14 @@ suite('Inspector segments merge into Labels', () => {
         assert.strictEqual(badge.textContent, '3', 'badge counts total rows');
     });
 
-    test('docking: labels default collapsed docks to bottom; expanding returns to slot', () => {
+    test('labels default collapsed stays in the panel stack and expands from its header', () => {
         const section = document.getElementById('s-labels')!;
-        const dock = document.querySelector<HTMLElement>('.sb-dock')!;
-        assert.ok(section.classList.contains('collapsed'), 'default collapsed');
-        assert.strictEqual(section.parentElement, dock, 'docked on mount');
-        assert.ok(!dock.hidden);
-
-        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
-        assert.ok(!section.classList.contains('collapsed'));
-        assert.strictEqual(section.parentElement, document.getElementById('host'), 'restored to top stack');
-        assert.ok(dock.hidden, 'empty dock hides');
-
-        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
-        assert.strictEqual(section.parentElement, dock, 're-collapse returns to dock');
-    });
-
-    test('inspector section never docks when collapsed', () => {
-        const section = document.getElementById('s-insp')!;
-        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+        const head = section.querySelector<HTMLElement>('.sb-section-head')!;
         assert.ok(section.classList.contains('collapsed'));
-        assert.strictEqual(section.parentElement, document.getElementById('host'));
-    });
-
-    test('labels collapsed state survives re-set while docked', () => {
-        inspector.setSegments([]);
-        const section = document.getElementById('s-labels')!;
-        const dock = document.querySelector<HTMLElement>('.sb-dock')!;
-        section.querySelector<HTMLElement>('.sb-section-toggle')!.click();
+        assert.strictEqual(section.parentElement, document.body.firstElementChild);
+        head.click();
         assert.ok(!section.classList.contains('collapsed'));
-        assert.strictEqual(section.parentElement, document.getElementById('host'));
-        inspector.setSegments(segments);
-        assert.ok(!section.classList.contains('collapsed'), 'expand survives re-set');
-        assert.ok(section.querySelectorAll('.label-perma').length === 2);
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
     });
 });
 

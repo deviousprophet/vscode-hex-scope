@@ -246,7 +246,7 @@ export interface SidebarSectionSpec {
 interface SidebarSectionDom {
     section: HTMLElement;
     body: HTMLElement;
-    toggle: HTMLButtonElement | null;
+    head: HTMLElement | null;
     label: HTMLElement;
     badge: HTMLElement | null;
 }
@@ -254,14 +254,10 @@ interface SidebarSectionDom {
 export class SidebarSections {
     private readonly idPrefix: string;
     private readonly root: HTMLElement;
-    /** Optional bottom-dock reparent target for collapsed non-first sections. */
-    private readonly dockContainer: HTMLElement | null;
     private readonly collapsed: Map<string, boolean>;
     private readonly dom: Map<string, SidebarSectionDom>;
-    /** Original insertion index per section id (dock restore target slot). */
-    private readonly order: Map<string, number>;
 
-    constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[], dockContainer?: HTMLElement) {
+    constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[]) {
         const seen = new Set<string>();
         for (const spec of sections) {
             if (seen.has(spec.id)) { throw new Error(`SidebarSections: duplicate section id "${spec.id}"`); }
@@ -269,24 +265,12 @@ export class SidebarSections {
         }
         this.idPrefix = idPrefix;
         this.root = root;
-        this.dockContainer = dockContainer ?? null;
         this.collapsed = new Map(sections.map(s => [s.id, s.collapsible !== false && s.defaultCollapsed === true]));
         this.dom = new Map();
-        this.order = new Map();
         const fragment = document.createDocumentFragment();
-        sections.forEach((spec, index) => {
-            this.order.set(spec.id, index);
-            this.dom.set(spec.id, this.buildSection(fragment, spec));
-        });
+        sections.forEach(spec => this.dom.set(spec.id, this.buildSection(fragment, spec)));
         root.appendChild(fragment);
-        if (this.dockContainer) {
-            root.appendChild(this.dockContainer);
-            // Default-collapsed sections start docked.
-            for (const [id, collapsed] of this.collapsed) {
-                if (collapsed) { this.moveForCollapse(id, true); }
-            }
-            this.syncDock();
-        }
+        root.addEventListener('keydown', this.navigateHeaders);
     }
 
     /** Section body root — panels write/rewrite only this. */
@@ -298,6 +282,7 @@ export class SidebarSections {
         const entry = this.dom.get(id);
         if (!entry) { return; }
         entry.label.textContent = label;
+        entry.head?.setAttribute('aria-label', label);
     }
 
     /** Badge text right of the label; null/empty hides the badge. `danger` adds the danger variant. */
@@ -312,53 +297,27 @@ export class SidebarSections {
     /** Collapse/expand a collapsible section (no-op for non-collapsible headers). */
     setCollapsed(id: string, collapsed: boolean): void {
         const entry = this.dom.get(id);
-        if (!entry?.toggle) { return; }
+        if (!entry?.head) { return; }
         this.collapsed.set(id, collapsed);
         entry.section.classList.toggle('collapsed', collapsed);
-        entry.toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        this.moveForCollapse(id, collapsed);
+        entry.head.setAttribute('aria-expanded', String(!collapsed));
     }
 
     isCollapsed(id: string): boolean {
         return this.collapsed.get(id) ?? false;
     }
 
-    /**
-     * Bottom-dock support: a collapsed non-first section reparents into the
-     * dock container (compact pill); expanding restores its original slot.
-     * The first section (original index 0) never docks — panels without a
-     * dockContainer keep the plain stacked behavior unchanged.
-     */
-    private moveForCollapse(id: string, collapsed: boolean): void {
-        const dock = this.dockContainer;
-        const entry = this.dom.get(id);
-        const index = this.order.get(id) ?? 0;
-        if (!dock || !entry || index === 0) { return; }
-        const section = entry.section;
-        if (collapsed && section.parentNode !== dock) {
-            section.classList.add('docked');
-            dock.appendChild(section);
-        } else if (!collapsed && section.parentNode !== this.root) {
-            section.classList.remove('docked');
-            this.restoreToSlot(section, index);
-        }
-        this.syncDock();
-    }
-
-    /** Reinsert a docked section before its next non-docked sibling in original order. */
-    private restoreToSlot(section: HTMLElement, index: number): void {
-        const next = [...this.order.entries()]
-            .filter(([, i]) => i > index)
-            .map(([id]) => this.dom.get(id)?.section)
-            .find(s => s !== undefined && s.parentNode === this.root);
-        this.root.insertBefore(section, next ?? this.dockContainer);
-    }
-
-    private syncDock(): void {
-        const dock = this.dockContainer;
-        if (!dock) { return; }
-        dock.hidden = dock.childElementCount === 0;
-    }
+    private readonly navigateHeaders = (event: KeyboardEvent): void => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') { return; }
+        const HTMLElementCtor = this.root.ownerDocument.defaultView?.HTMLElement;
+        const head = HTMLElementCtor && event.target instanceof HTMLElementCtor && event.target.matches('.sb-section-head') ? event.target : null;
+        if (!head) { return; }
+        const heads = [...this.root.querySelectorAll<HTMLElement>('.sb-section-head')];
+        const next = heads[heads.indexOf(head) + (event.key === 'ArrowUp' ? -1 : 1)];
+        if (!next) { return; }
+        event.preventDefault();
+        next.focus();
+    };
 
     /** Build one `<section class="sb-section">` shell and append it to `fragment`. */
     private buildSection(fragment: DocumentFragment, spec: SidebarSectionSpec): SidebarSectionDom {
@@ -388,26 +347,50 @@ export class SidebarSections {
         body.setAttribute('role', 'region');
         body.setAttribute('aria-labelledby', title.id);
 
-        let toggle: HTMLButtonElement | null = null;
-        if (spec.collapsible !== false) {
-            toggle = document.createElement('button');
-            toggle.type = 'button';
-            toggle.className = 'sb-section-toggle';
-            toggle.setAttribute('aria-controls', body.id);
+        const collapsible = spec.collapsible !== false;
+        if (collapsible) {
             const initial = this.collapsed.get(spec.id) ?? false;
+            head.setAttribute('role', 'button');
+            head.tabIndex = 0;
+            head.setAttribute('aria-controls', body.id);
+            head.setAttribute('aria-expanded', String(!initial));
+            head.setAttribute('aria-label', spec.label);
             section.classList.toggle('collapsed', initial);
-            toggle.setAttribute('aria-expanded', initial ? 'false' : 'true');
-            toggle.addEventListener('click', () => this.setCollapsed(spec.id, !this.isCollapsed(spec.id)));
-            toggle.appendChild(label);
-            title.appendChild(toggle);
+            const chevron = document.createElement('span');
+            chevron.className = 'sb-section-chevron';
+            chevron.setAttribute('aria-hidden', 'true');
+            title.appendChild(chevron);
+            head.addEventListener('click', event => {
+                if (!(event.target as HTMLElement).closest('.sb-section-actions')) {
+                    this.setCollapsed(spec.id, !this.isCollapsed(spec.id));
+                }
+            });
+            head.addEventListener('keydown', event => {
+                if (event.target !== head) { return; }
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.setCollapsed(spec.id, !this.isCollapsed(spec.id));
+                } else if (event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    this.setCollapsed(spec.id, true);
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    this.setCollapsed(spec.id, false);
+                }
+            });
         } else {
-            title.appendChild(label);
+            head.classList.add('not-collapsible');
+            // Focusable programmatically only (Up/Down header nav), never in the Tab order.
+            head.tabIndex = -1;
         }
+        title.appendChild(label);
         head.appendChild(title);
 
         if (spec.mountActions) {
             const actions = document.createElement('div');
             actions.className = 'sb-section-actions';
+            actions.addEventListener('click', event => event.stopPropagation());
+            actions.addEventListener('keydown', event => event.stopPropagation());
             head.appendChild(actions);
             spec.mountActions(actions);
         }
@@ -415,7 +398,7 @@ export class SidebarSections {
         section.appendChild(head);
         section.appendChild(body);
         fragment.appendChild(section);
-        return { section, body, toggle, label, badge };
+        return { section, body, head: collapsible ? head : null, label, badge };
     }
 }
 

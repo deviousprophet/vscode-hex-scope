@@ -6,7 +6,7 @@
 
 Owns `src/webview/components/sidebar/sidebar.ts` + `sidebar.css`: the generic tabbed sidebar shell — `#sidebar` + `#side-tabs` + `#sidebar-resizer` + `#sidebar-common-settings` markup, tab switching/visibility, and the resizer drag (with width persistence). Panels are **injected** via a `panels` config; the shell never imports panel modules, never reads/writes the `S` global, never posts provider messages, and holds no feature/panel logic.
 
-`sidebar.ts` also exports the **section-shell framework** (`SidebarSectionSpec` + `SidebarSections`): one shared section header + collapse implementation. The shell renders each section's `<h3>` header (label, disclosure toggle, optional header-actions slot) and its body root once per mount; panels write/rewrite only body content. This replaced per-panel `applyCollapsibleSection` / `dataset.collapsed` hand-rolling (staged migration, all four panels adopted).
+`sidebar.ts` also exports the **section-shell framework** (`SidebarSectionSpec` + `SidebarSections`): one shared section header + collapse implementation modeled on VS Code's pane header (`viewPane.ts`/`paneview.ts`). The whole `.sb-section-head` row is the collapse control (`role=button`, `tabindex`, `aria-expanded`) with a decorative chevron; panels write/rewrite only body content. This replaced per-panel `applyCollapsibleSection` / `dataset.collapsed` hand-rolling (staged migration, all four panels adopted).
 
 Host (`hexViewer.ts`) owns: panel descriptors (wrapping existing render fns), the header slot (endian toggle), per-tab activation side effects, `S.sidebarTab`, and record-view sidebar visibility (`updateMemoryOnlyControls`).
 
@@ -18,7 +18,7 @@ Boundary rule: each component owns its markup, UI state, input behaviours, and s
 src/webview/components/sidebar/
     sidebar.ts       types + class Sidebar (generic tabbed shell: panels + headerSlot config)
                      + SidebarSectionSpec + class SidebarSections (section-shell framework)
-    sidebar.css      shell rules (moved from styles/layout.css + styles/sidebar.css) + shared `.sb-*` UI primitives (`.sb-btn*`, `.sb-input`/`.sb-select`, `.sb-card*`, `.sb-status-dot`) + framework `.sb-section-head/-title/-toggle/-label/-actions/-action`
+    sidebar.css      shell rules (moved from styles/layout.css + styles/sidebar.css) + shared `.sb-*` UI primitives (`.sb-btn*`, `.sb-input`/`.sb-select`, `.sb-card*`, `.sb-status-dot`) + framework `.sb-section-head/-title/-chevron/-label/-actions/-action`
 src/webview/hexViewer.ts    host wiring (panel config + tab orchestration + activation side effects)
 src/test/webview/components/sidebar.test.ts   (mocha + jsdom)
 ```
@@ -69,11 +69,13 @@ class SidebarSections {
 
 ## Section-shell contract
 
-- Rendered DOM (collapsible): `<section class="sb-section" id="<prefix>-<id>">` → `.sb-section-head` (`.sb-section-title` `h3` wrapping `.sb-section-toggle` disclosure `<button aria-expanded aria-controls="<prefix>-<id>-body">` containing `.sb-section-label` + `.sb-badge`, plus optional `.sb-section-actions`) → `.sb-body` (id `<prefix>-<id>-body`, `role="region"`).
-- Non-collapsible sections use the same head/body rhythm with a plain `.sb-section-label` (no button, no `aria-expanded`); body stays visible.
+- Rendered DOM (collapsible): `<section class="sb-section" id="<prefix>-<id>">` → `.sb-section-head` (`role="button"`, `tabindex="0"`, `aria-expanded`, `aria-controls="<prefix>-<id>-body"`, `aria-label` = section label) containing `.sb-section-title` `h3` (decorative `.sb-section-chevron` span `aria-hidden="true"` + `.sb-section-label` + `.sb-badge`) and optional `.sb-section-actions` → `.sb-body` (id `<prefix>-<id>-body`, `role="region"`, `aria-labelledby="<prefix>-<id>-title"`).
+- Non-collapsible sections use the same head/body rhythm with a plain `.sb-section-label` and `.sb-section-head.not-collapsible` (no role/tabindex/aria-expanded/chevron, `tabindex="-1"` so Up/Down header nav can still focus it); body stays visible.
 - Collapse state is per mounted instance (map), survives body re-renders, resets when the panel shell is rebuilt — exactly the old Inspector lifecycle. No localStorage persistence.
-- Disclosure button alone toggles collapse (native `<button>` Enter/Space). Header-action controls are siblings, so no `stopPropagation` is needed.
-- Every framework section exposes an `h3` heading. Collapsible sections nest the disclosure inside it; non-collapsible render the plain title inside it.
+- The whole header row is the toggle (VS Code model): click anywhere on `.sb-section-head` except `.sb-section-actions` toggles; Enter/Space toggle; ArrowLeft collapses; ArrowRight expands (native semantics on the `role=button` head). The chevron is decorative, never a separate button. ArrowUp/ArrowDown on a focused header moves focus to the adjacent section header (stop at ends).
+- Header-action controls are inside the head; the actions container `stopPropagation`s click/keydown so actions never toggle the header.
+- Collapse animates the body height via CSS grid `grid-template-rows: auto 1fr → auto 0fr` (~180ms); body stays in the DOM (hidden via `0fr` + `overflow:hidden`). Collapsed sections shrink to a slim header row in place — no dock/reparent.
+- Every framework section exposes an `h3` heading; the chevron sits inside it for collapsible sections.
 - `.sb-section-actions` must not wrap and header-action controls use the compact `.sb-section-action` contract (`font-size: 10px; padding: 2px 8px; line-height: 1.2; max-height: 22px`) so action chrome cannot enlarge the header. Controls that need more room (wide selects, multi-row layout, secondary/configuration) belong in the section body.
 - Header actions are primary/status controls usable while collapsed; body controls are secondary/configuration. Current placement: Inspector none; Struct Instances Add; Struct Types ← Back/Cancel; Integrity none (title/count only); Scripts Refresh. Struct/Integrity/Scripts are `collapsible: false` — no hide/show behavior; Scripts result-block collapse stays panel-owned.
 
@@ -94,7 +96,7 @@ class SidebarSections {
 
 - Default tab is `inspector` (matches pre-refactor); no tab persistence.
 - Record-view sidebar visibility stays host-managed (`updateMemoryOnlyControls` toggles `#sidebar`/`#side-tabs` display); the shell is unaware of the view.
-- The shared collapsible-section pattern (`.sb-section`/`.sb-section-head`/`.sb-section-title`/`.sb-section-toggle`/`.sb-section-label`/`.sb-section-actions`/`.sb-body` + `.sb-section-toggle::before` triangle + `.sb-section.collapsed`) lives in `sidebar.css`; panel sections use it via `SidebarSections`. `.sb-hdr` was removed (10px type floor); body-level form titles (label form) are plain `.lbl-form` titles.
+- The shared collapsible-section pattern (`.sb-section`/`.sb-section-head`/`.sb-section-title`/`.sb-section-chevron`/`.sb-section-label`/`.sb-section-actions`/`.sb-body` + grid `1fr→0fr` collapse transition) lives in `sidebar.css`; panel sections use it via `SidebarSections`. `.sb-hdr` was removed (10px type floor); body-level form titles (label form) are plain `.lbl-form` titles. There is no bottom dock and no `.sb-dock`/`.sb-panel-scroll`.
 
 ## Known-bug (fixed in this task)
 
@@ -114,7 +116,7 @@ Endian toggle previously wiped inspector data: host `setFileEndian` called shell
 
 ## Tests Required
 
-`src/test/webview/components/sidebar.test.ts` (mocha + jsdom + cssImportHook): generic render (tabs/slots/header slot from config, arbitrary panel ids/labels verbatim), tab switch (active classes + slot visibility + `onTabChange`/`onPanelActivate`), lazy first-activation mount once, idempotent mount, `setCallbacks`, resizer (width init/restore/drag/persist/clamp). Existing `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity gate).
+`src/test/webview/components/sidebar.test.ts` (mocha + jsdom + cssImportHook): generic render (tabs/slots/header slot from config, arbitrary panel ids/labels verbatim), tab switch (active classes + slot visibility + `onTabChange`/`onPanelActivate`), lazy first-activation mount once, idempotent mount, `setCallbacks`, resizer (width init/restore/drag/persist/clamp), and the **section-shell header model** (whole-head role/tabindex/aria-expanded/aria-label + decorative chevron, click/Enter/Space/ArrowLeft/ArrowRight toggle, actions stopPropagation, ArrowUp/Down header nav stop-at-ends, plain non-collapsible headers `tabindex="-1"` no role/chevron). Existing `webview.test.ts` sidebar/tab/endian/resizer assertions pass unchanged (parity gate).
 
 ## Anti-patterns
 

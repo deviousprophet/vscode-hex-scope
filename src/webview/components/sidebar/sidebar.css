@@ -62,7 +62,15 @@
     display: flex; align-items: center; gap: 6px;
     margin-bottom: 8px;
 }
+.sb-section-head[role="button"] {
+    cursor: pointer; user-select: none;
+}
+.sb-section-head[role="button"]:hover { background: var(--hover-bg); }
+.sb-section-head[role="button"]:active { background: rgba(134,180,212,.14); }
+.sb-section-head:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 2px; }
+.sb-section-head.not-collapsible { cursor: default; }
 .sb-section-title {
+    display: flex; align-items: center; gap: 6px;
     flex: 1; min-width: 0;
     margin: 0;
     font: inherit; color: inherit;
@@ -72,33 +80,15 @@
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .07em; color: var(--addr-fg);
 }
-/* Disclosure — native button (Enter/Space), labelled by the section h3.
-   Full-row click target: width:100% fills .sb-section-title row.
-   24px hit area without row growth: symmetric padding enlarges the pointer
-   box, matching negative margins cancel the layout size (tri-angle stays
-   centered via ::before top:50%). */
-.sb-section-toggle {
-    position: relative; padding: 12px 0 12px 14px;
-    margin: -12px 0;
-    background: none; border: none;
-    display: flex; width: 100%;
-    justify-content: flex-start; text-align: left;
-    align-items: center;
-    font: inherit; color: inherit;
-    cursor: pointer; user-select: none;
-}
-.sb-section-toggle::before {
-    content: '\25B6'; /* right-pointing triangle */
-    position: absolute; left: 0; top: 50%;
-    margin-top: -6px;
+.sb-section-chevron {
+    display: inline-block;
+    color: var(--addr-fg);
     font-size: 12px;
     line-height: 1;
     transition: transform .15s;
-    color: var(--addr-fg);
 }
-.sb-section:not(.collapsed) .sb-section-toggle::before {
-    transform: rotate(90deg);
-}
+.sb-section-chevron::before { content: '\25B6'; }
+.sb-section-head[aria-expanded="true"] .sb-section-chevron { transform: rotate(90deg); }
 .sb-section-actions {
     display: flex; align-items: center; gap: 4px;
     flex-shrink: 0; margin-left: auto;
@@ -133,35 +123,13 @@
 .stab:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 
 /* ── Sidebar tab panels ─────────────────────────────────────────── */
-/* Flex column so a bottom dock can pin via margin-top:auto when content is
-   short; sticky (see .sb-dock) still pins it while the panel scrolls. */
 .sb-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; min-height: 0; scrollbar-gutter: stable; flex-direction: column; }
 .sb-tab-panel.active { display: flex; }
 
 /* ── Collapsible section support (shared section pattern) ──────── */
-/* Collapse animates the body row 1fr -> 0fr (smooth, VS Code-style).
-   .sb-body overflow:hidden + min-height:0 make the height transition work. */
+/* Collapse animates the body row 1fr -> 0fr. */
 .sb-section.collapsed { grid-template-rows: auto 0fr; }
 
-/* ── Bottom dock: collapsed non-first sections pin here as compact pills ── */
-.sb-dock {
-    display: flex; flex-direction: column; gap: 4px;
-    margin-top: auto; padding-top: 6px;
-    border-top: 1px solid var(--border);
-    position: sticky; bottom: 0;
-    background: var(--panel-bg);
-}
-.sb-dock[hidden] { display: none; }
-.sb-dock .sb-section.docked {
-    padding: 4px 8px;
-    border: 1px solid var(--border); border-radius: 4px;
-    background: rgba(255,255,255,.03);
-    animation: sb-dock-in .18s ease;
-}
-@keyframes sb-dock-in {
-    from { opacity: 0; transform: translateY(4px); }
-}
-.sb-dock .sb-section.docked .sb-section-head { margin-bottom: 0; }
 
 /* ── Shared UI primitives ────────────────────────────────────────── */
 /* All four sidebar panels converge on these classes. CSS guidelines: */
