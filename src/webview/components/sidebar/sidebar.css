@@ -39,11 +39,18 @@
 
 .sidebar-endian-tabs button { padding: 1px 6px; }
 .sb-section {
-    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
     display: grid; grid-template-rows: auto 1fr;
-    transition: grid-template-rows .18s ease;
+    transition: grid-template-rows .15s ease-out;
 }
+/* VS Code divider rule: first section shows no top border; the divider
+   belongs to the second-and-later headers. */
+.sb-section + .sb-section { border-top: 1px solid var(--border); }
 .sb-section .sb-body { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+    .sb-section { transition-duration: 0s !important; }
+    .sb-section-chevron { transition-duration: 0s !important; }
+}
 
 .sb-badge {
     background: rgba(134,180,212,.14); color: var(--high-color);
@@ -58,8 +65,13 @@
 .sb-empty { color: var(--non-graphic); font-size: 11px; font-style: italic; }
 
 /* ── Framework section shell (rendered by SidebarSections in sidebar.ts) ── */
+/* Header geometry mirrors VS Code paneview.css (.pane-header): fixed 22px,
+   11px bold uppercase title, nowrap ellipsis, whole-row toggle, decorative
+   chevron as the first child (reads "▸ Section Name"). */
 .sb-section-head {
     display: flex; align-items: center; gap: 6px;
+    height: 22px; line-height: 22px;
+    overflow: hidden; box-sizing: border-box;
     margin-bottom: 8px;
 }
 .sb-section-head[role="button"] {
@@ -67,8 +79,9 @@
 }
 .sb-section-head[role="button"]:hover { background: var(--hover-bg); }
 .sb-section-head[role="button"]:active { background: rgba(134,180,212,.14); }
-.sb-section-head:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 2px; }
+.sb-section-head:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 .sb-section-head.not-collapsible { cursor: default; }
+.sb-section-head.not-collapsible .sb-section-title { margin-left: 8px; }
 .sb-section-title {
     display: flex; align-items: center; gap: 6px;
     flex: 1; min-width: 0;
@@ -77,21 +90,25 @@
 }
 .sb-section-label {
     display: inline-flex; align-items: center; gap: 6px;
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .07em; color: var(--addr-fg);
-}
-.sb-section-chevron {
-    display: inline-block;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    white-space: nowrap; text-overflow: ellipsis; overflow: hidden; min-width: 3ch;
     color: var(--addr-fg);
-    font-size: 12px;
-    line-height: 1;
-    transition: transform .15s;
 }
-.sb-section-chevron::before { content: '\25B6'; }
-.sb-section-head[aria-expanded="true"] .sb-section-chevron { transform: rotate(90deg); }
+/* Decorative chevron (VS Code .twisty-container): chevron-down when open
+   (nudged down 1px like VS Code), rotated to chevron-right when collapsed. */
+.sb-section-chevron {
+    display: inline-block; flex-shrink: 0;
+    color: var(--addr-fg);
+    font-size: 11px;
+    line-height: 1;
+    transition: transform .15s ease-out;
+}
+.sb-section-chevron::before { content: '\25BC'; }
+.sb-section-head[aria-expanded="true"] .sb-section-chevron { transform: translateY(1px); }
+.sb-section-head[aria-expanded="false"] .sb-section-chevron { transform: rotate(-90deg); }
 .sb-section-actions {
     display: flex; align-items: center; gap: 4px;
-    flex-shrink: 0; margin-left: auto;
+    flex-shrink: 0; margin-left: auto; margin-right: 8px;
 }
 /* Compact header-action contract: cannot enlarge the header height. */
 .sb-section-actions .sb-section-action {

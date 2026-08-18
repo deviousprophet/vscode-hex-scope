@@ -69,17 +69,19 @@ Sidebar primitives own shared rhythm: panel roots use `10px 12px`, header-to-bod
 Sidebar sections are rendered by the `SidebarSections` framework (`sidebar.ts`) using the `.sb-section` → `.sb-section-head` → `.sb-body` pattern:
 
 ```css
-.sb-section { padding: 10px 12px; border-bottom: 1px solid var(--border); display: grid; grid-template-rows: auto 1fr; transition: grid-template-rows .18s ease; }
+.sb-section { padding: 10px 12px; display: grid; grid-template-rows: auto 1fr; transition: grid-template-rows .15s ease-out; }
 .sb-section.collapsed { grid-template-rows: auto 0fr; }
-.sb-section-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.sb-section + .sb-section { border-top: 1px solid var(--border); } /* first section: no top border (VS Code rule) */
+.sb-section-head { display: flex; align-items: center; gap: 6px; height: 22px; line-height: 22px; overflow: hidden; box-sizing: border-box; margin-bottom: 8px; }
 .sb-section-title { flex: 1; min-width: 0; margin: 0; font: inherit; color: inherit; }
-.sb-section-chevron { /* decorative aria-hidden chevron; rotates 90deg when expanded */ }
-.sb-section-label { /* 10px uppercase bold header type, --addr-fg */ }
-.sb-section-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: auto; }
+.sb-section-chevron { /* decorative aria-hidden chevron-down; rotate(-90deg) when collapsed (chevron-right), translateY(1px) when open — VS Code .twisty-container */ }
+.sb-section-label { /* 11px bold uppercase header type (VS Code), nowrap + ellipsis + min-width 3ch, --addr-fg */ }
+.sb-section-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: 8px; flex-shrink: 0; }
 .sb-section-action { /* compact contract: 10px / 2px 8px / 1.2 / max-height 22px */ }
+@media (prefers-reduced-motion: reduce) { .sb-section, .sb-section-chevron { transition-duration: 0s !important; } }
 ```
 
-The section header is the collapse control (VS Code model): `.sb-section-head` carries `role="button"`, `tabindex="0"`, `aria-expanded`/`aria-controls`/`aria-label` on collapsible sections; a decorative `.sb-section-chevron` span (aria-hidden) rotates 90° when expanded. The whole head toggles on click/Enter/Space/ArrowLeft/ArrowRight; `.sb-section-actions` stopPropagation so actions never toggle. Body collapse animates via the grid row `1fr → 0fr` (~180ms) with `.sb-body` `overflow:hidden`; body stays in the DOM and collapsed sections shrink to a slim header in place (no dock/reparent). Non-collapsible sections (`collapsible: false`) use the plain `.sb-section-label` with `.sb-section-head.not-collapsible` (`tabindex="-1"` for Up/Down header nav) — same `8px` header→body gap, no border separator.
+The section header is the collapse control (VS Code model): the whole `.sb-section-head` carries `role="button"`, `tabindex="0"`, `aria-expanded`/`aria-controls`/`aria-label` on collapsible sections; a decorative `.sb-section-chevron` span (aria-hidden, first child — reads "▸ Section Name", VS Code `.twisty-container`) is chevron-down when open and rotates -90° (chevron-right) when collapsed. The head is a fixed 22px row (VS Code `--pane-header-size`), 11px bold uppercase nowrap-ellipsis title. The whole head toggles on click/Enter/Space/ArrowLeft/ArrowRight; `.sb-section-actions` stopPropagation so actions never toggle. Body collapse animates via the grid row `1fr → 0fr` (150ms ease-out, VS Code duration) with `.sb-body` `overflow:hidden`; body stays in the DOM and collapsed sections shrink to a slim header in place (no dock/reparent). Non-collapsible sections (`collapsible: false`) use the plain `.sb-section-label` with `.sb-section-head.not-collapsible` (no chevron, title margin-left 8px, `tabindex="-1"` for Up/Down header nav) — same `8px` header→body gap.
 
 `.sb-hdr` was removed in the 10px type-floor pass; body-level form titles (e.g. the label form) render as plain `.lbl-form` titles with the shared 10px metadata floor. There is no `.sb-hdr` fallback and no collapsible-triangle inheritance to override.
 

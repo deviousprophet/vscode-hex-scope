@@ -359,7 +359,9 @@ export class SidebarSections {
             const chevron = document.createElement('span');
             chevron.className = 'sb-section-chevron';
             chevron.setAttribute('aria-hidden', 'true');
-            title.appendChild(chevron);
+            // Header-row sibling before the title (VS Code .twisty-container):
+            // reads "▸ Section Name".
+            head.appendChild(chevron);
             head.addEventListener('click', event => {
                 if (!(event.target as HTMLElement).closest('.sb-section-actions')) {
                     this.setCollapsed(spec.id, !this.isCollapsed(spec.id));
