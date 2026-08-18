@@ -594,3 +594,24 @@ Grill Q1-A: replaced bottom-pack DOM move with VS Code-true in-place collapse â€
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: PaneView even first-expand + drag-lag fix
+
+**Date**: 2026-08-18
+**Task**: PaneView even first-expand + drag-lag fix
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+First-time expand (no persisted size) now splits evenly across all expanded panes (siblings' saved sizes not kept) - fixes Labels opening tiny next to a large Inspector. Sash drags disable the flex-basis transition (sb-pane-view.dragging) so panes track the cursor exactly. 2 new tests; spec updated. 798 green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb8312b` | (see git log) |
+
+### Status
+
+[OK] **Completed**

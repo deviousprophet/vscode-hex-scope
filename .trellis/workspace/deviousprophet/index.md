@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-08-18
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~596 | Active |
+| `journal-1.md` | ~617 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-08-18 | PaneView even first-expand + drag-lag fix | `cb8312b` | `feat/ui-consistency` |
 | 24 | 2026-08-18 | PaneView in-place collapse fix | `37eb2b0` | `feat/ui-consistency` |
 | 23 | 2026-08-18 | Sidebar PaneView (resizable collapsible sections) | `b93e57a` | `feat/ui-consistency` |
 | 22 | 2026-08-18 | Sidebar VS Code-exact header look | `ac71f09` | `feat/ui-consistency` |
