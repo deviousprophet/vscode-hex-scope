@@ -12,6 +12,9 @@ export interface ScriptInfo {
     name: string;
     filePath: string;
     capabilities: string[];
+    /** Content-change fingerprint (stat mtime, ms) — the webview uses it to
+        reset capability approvals when a script file is modified. */
+    fingerprint: string;
 }
 
 function parseManifest(source: string): string[] {
@@ -72,11 +75,15 @@ export function scanScripts(workspaceRoot: string, trusted: boolean = true): Scr
             .map(e => {
                 const filePath = path.join(dir, e.name);
                 let capabilities: string[] = [];
+                let fingerprint = '';
+                try {
+                    fingerprint = String(fs.statSync(filePath).mtimeMs);
+                } catch { /* fingerprint stays '' for unstatable files */ }
                 try {
                     const header = fs.readFileSync(filePath, 'utf-8').slice(0, 2048);
                     capabilities = parseManifest(header);
                 } catch { /* if file can't be read, no capabilities */ }
-                return { name: e.name, filePath, capabilities };
+                return { name: e.name, filePath, capabilities, fingerprint };
             })
             .sort((a, b) => a.name.localeCompare(b.name));
     } catch {

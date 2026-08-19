@@ -248,10 +248,10 @@ constructor(cb: StructCallbacks) {
 mount(root: HTMLElement): void {
     this._root = root;
     root.innerHTML = '';
-        this.sections = new SidebarSections(root, 'si', [
-            { id: 'instances', label: 'Struct Instances', mountActions: r => this.mountInstancesAction(r) },
-            { id: 'types', label: 'Struct Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
-        ]);
+    this.sections = new SidebarSections(root, 'si', [
+        { id: 'instances', label: 'Struct Instances', mountActions: r => this.mountInstancesAction(r) },
+        { id: 'types', label: 'Struct Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
+    ]);
     // Click-outside for per-card "⋮" menus lives in the shared popup wiring
     // (sidebar.ts), so shell re-mounts never stack document listeners.
     this.render();

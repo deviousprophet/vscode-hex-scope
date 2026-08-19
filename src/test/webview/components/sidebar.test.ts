@@ -446,18 +446,35 @@ suite('SidebarSections pane view', () => {
         assert.strictEqual(document.querySelector<HTMLElement>('#test-first .sb-section-head')!.getAttribute('aria-expanded'), 'false');
     });
 
-    test('expand keeps in-place order and the sash never disables', () => {
+    test('expand keeps in-place order; sash is disabled next to a collapsed pane', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         sections.setCollapsed('first', true);
+        // Collapsed neighbor → sash is inert.
+        const sash = sashes()[0];
+        assert.ok(sash.classList.contains('disabled'), 'sash next to a collapsed pane is inert');
+        assert.strictEqual(sash.getAttribute('aria-disabled'), 'true');
+        assert.strictEqual(sash.tabIndex, -1, 'disabled sash leaves the tab order');
+
         sections.setCollapsed('first', false);
         assert.deepStrictEqual(paneOrder(), ['first', 'second'], 'no reorder across a collapse/expand cycle');
-        const sash = sashes()[0];
         assert.strictEqual(sash.previousElementSibling?.id, 'test-first');
         assert.strictEqual(sash.nextElementSibling?.id, 'test-second');
-        assert.ok(!sash.classList.contains('disabled'), 'sash is never disabled');
+        assert.ok(!sash.classList.contains('disabled'), 'both expanded → sash enabled');
         assert.strictEqual(sash.getAttribute('aria-disabled'), null);
-        assert.strictEqual(sash.tabIndex, 0, 'sash stays in the tab order');
+        assert.strictEqual(sash.tabIndex, 0, 'sash back in the tab order');
         assert.strictEqual(sash.getAttribute('aria-label'), 'Resize First section', 'label references the pane above the sash');
+    });
+
+    test('collapsing a middle section disables both adjacent sashes; expanding re-enables', () => {
+        mount([['first', 'First'], ['second', 'Second'], ['third', 'Third']], 400);
+        sections.setCollapsed('second', true);
+        const sashEls = sashes();
+        assert.ok(sashEls[0].classList.contains('disabled'), 'sash above the collapsed middle is inert');
+        assert.ok(sashEls[1].classList.contains('disabled'), 'sash below the collapsed middle is inert');
+        sections.setCollapsed('second', false);
+        assert.ok(!sashEls[0].classList.contains('disabled'));
+        assert.ok(!sashEls[1].classList.contains('disabled'));
+        assert.ok(sashEls[0].tabIndex === 0 && sashEls[1].tabIndex === 0);
     });
 
     test('collapsing a middle section keeps DOM order', () => {
@@ -512,6 +529,40 @@ suite('SidebarSections pane view', () => {
         assert.strictEqual(basis('first') + basis('second'), 297, 'total unchanged (height minus one sash)');
     });
 
+    test('first-time expand keeps a persisted sibling size (no even-re-split of user sizes)', () => {
+        const key = 'hexScope.sidebarPanes.panetest.first';
+        localStorage.setItem(key, '350');
+        sections = new SidebarSections(root, 'test', [
+            { id: 'first', label: 'First' },
+            { id: 'second', label: 'Second', defaultCollapsed: true },
+        ], PANEL_ID);
+        Object.defineProperty(root.querySelector<HTMLElement>('.sb-pane-view')!, 'clientHeight', {
+            value: 400,
+            configurable: true,
+        });
+        sections.setCollapsed('first', false);
+        assert.strictEqual(basis('second'), 22, 'second starts collapsed');
+        sections.setCollapsed('second', false);
+        // First is user-persisted (350) but the free space only allows 315;
+        // it must NOT collapse to an even 50/50, and second takes its min floor.
+        assert.strictEqual(basis('second'), 82, 'second lands at the min floor');
+        assert.strictEqual(basis('first'), 400 - 3 - 82, 'persisted sibling keeps its size (clamped to space)');
+    });
+
+    test('sash drag writes to localStorage only on release', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const keyA = 'hexScope.sidebarPanes.panetest.first';
+        const keyB = 'hexScope.sidebarPanes.panetest.second';
+        const sash = sashes()[0];
+        sash.dispatchEvent(new dom.window.MouseEvent('mousedown', { button: 0, clientY: 0, bubbles: true }));
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mousemove', { clientY: 40, bubbles: true }));
+        assert.strictEqual(localStorage.getItem(keyA), null, 'no storage write mid-drag');
+        assert.strictEqual(localStorage.getItem(keyB), null);
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+        assert.ok(localStorage.getItem(keyA) !== null, 'persisted once on release');
+        assert.ok(localStorage.getItem(keyB) !== null);
+    });
+
     test('sash drag toggles the no-transition dragging state on the pane view', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         const view = root.querySelector<HTMLElement>('.sb-pane-view')!;
@@ -554,10 +605,10 @@ suite('SidebarSections pane view', () => {
         dom.window.localStorage.setItem('hexScope.sidebarPanes.panetest.first', '9999'); // clamped on layout
         dom.window.localStorage.setItem('hexScope.sidebarPanes.panetest.second', 'abc'); // dropped as invalid
         mount([['first', 'First'], ['second', 'Second']], 300);
-        assert.strictEqual(basis('first'), 149, 'oversized persisted px clamps to the available pool');
-        assert.strictEqual(basis('second'), 148, 'malformed entry falls back to the equal default');
+        assert.strictEqual(basis('first'), 215, 'oversized persisted px clamps to the pool minus the other pane\'s min');
+        assert.strictEqual(basis('second'), 82, 'malformed entry falls back to the min floor');
         assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), null, 'invalid key removed');
-        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '149', 'oversized key self-heals to the clamped px');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '215', 'oversized key self-heals to the clamped px');
     });
 
     test('collapse keeps the last expanded sizes for re-expand across reloads', () => {

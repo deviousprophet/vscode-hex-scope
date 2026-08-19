@@ -300,27 +300,37 @@ function panelIdFromRoot(root: HTMLElement, idPrefix: string): string {
  * Every pane keeps MIN_PANE when the pool allows; the last pane absorbs the
  * remainder so the sum is exact. Degenerate tiny panels floor at MIN_PANE.
  */
-function allocatePanes(free: number, panes: ReadonlyArray<{ id: string; saved: number | null }>): Map<string, number> {
+function allocatePanes(free: number, panes: ReadonlyArray<{ id: string; saved: number | null; user: boolean }>): Map<string, number> {
     const out = new Map<string, number>();
     const n = panes.length;
     if (n === 0) { return out; }
     const pool = Math.max(free, n * MIN_PANE);
-    const equal = Math.floor(pool / n);
-    const order = [...panes].sort((a, b) => {
-        const aNull = a.saved === null ? 0 : 1;
-        const bNull = b.saved === null ? 0 : 1;
-        if (aNull !== bNull) { return aNull - bNull; }
-        return (a.saved ?? 0) - (b.saved ?? 0);
-    });
     let remaining = pool;
-    for (const [i, p] of order.entries()) {
-        const isLast = i === order.length - 1;
-        const max = Math.max(MIN_PANE, remaining - (order.length - i - 1) * MIN_PANE);
-        const want = isLast ? remaining
-            : p.saved === null ? equal
-            : Math.max(MIN_PANE, Math.min(p.saved, remaining));
-        out.set(p.id, Math.min(want, max));
-        remaining -= out.get(p.id)!;
+    // A lone expanded pane always fills the available space.
+    if (n === 1) {
+        out.set(panes[0].id, pool);
+        return out;
+    }
+    // User-set (persisted or dragged) panes keep their size as much as the space
+    // allows — clamped only to leave MIN_PANE for every other pane.
+    for (const p of panes) {
+        if (!p.user || p.saved === null) { continue; }
+        const others = panes.length - out.size - 1;
+        const max = Math.max(MIN_PANE, remaining - others * MIN_PANE);
+        const want = Math.max(MIN_PANE, Math.min(p.saved, max));
+        out.set(p.id, want);
+        remaining -= want;
+    }
+    // First-time / auto-default panes split what's left evenly; the last one
+    // absorbs the remainder so the sum is exact. A single remaining pane fills
+    // the whole pool (expanded sections grow into freed space).
+    const fresh = panes.filter(p => !(p.user && p.saved !== null));
+    const m = fresh.length;
+    const equal = m > 0 ? Math.floor(remaining / m) : 0;
+    for (const [i, p] of fresh.entries()) {
+        const want = i === m - 1 ? remaining : equal;
+        out.set(p.id, want);
+        remaining -= want;
     }
     return out;
 }
@@ -331,8 +341,10 @@ export class SidebarSections {
     private readonly root: HTMLElement;
     private readonly paneView: HTMLElement;
     private readonly collapsed: Map<string, boolean>;
-    /** Per-section pane sizing: `saved` = px to restore on expand (persisted), `px` = last allocated px. */
-    private readonly sizing: Map<string, { saved: number | null; px: number }>;
+    /** Per-section pane sizing: `saved` = px to restore on expand, `px` = last
+    allocated px, `user` = whether the size was user-set (dragged/persisted);
+    auto-defaults are `user:false` and snap back to an even split on expand. */
+    private readonly sizing: Map<string, { saved: number | null; px: number; user: boolean }>;
     private readonly dom: Map<string, SidebarSectionDom>;
     private resizeObserver: ResizeObserver | null = null;
 
@@ -346,7 +358,10 @@ export class SidebarSections {
         this.panelId = panelId ?? panelIdFromRoot(root, idPrefix);
         this.root = root;
         this.collapsed = new Map(sections.map(s => [s.id, s.defaultCollapsed === true]));
-        this.sizing = new Map(sections.map(s => [s.id, { saved: loadSavedPx(this.panelId, s.id), px: HEADER_H }]));
+        this.sizing = new Map(sections.map(s => {
+            const saved = loadSavedPx(this.panelId, s.id);
+            return [s.id, { saved, px: HEADER_H, user: saved !== null }] as const;
+        }));
         this.dom = new Map();
         this.paneView = document.createElement('div');
         this.paneView.className = 'sb-pane-view';
@@ -402,12 +417,15 @@ export class SidebarSections {
         entry.section.classList.toggle('collapsed', collapsed);
         entry.head.setAttribute('aria-expanded', String(!collapsed));
         if (!collapsed && this.sizing.get(id)!.saved === null) {
-            // First-time expand (no persisted/user size): default to an EVEN
-            // split across all expanded panes instead of giving this pane only
-            // the remainder of the siblings' saved sizes. Defaults stay
-            // in-memory; a later user adjustment persists.
+            // First-time expand (no persisted/user size): default to an EVEN split
+            // across the panes that also have no USER/PERSISTED size. Siblings
+            // whose size the user set (dragged/persisted) keep theirs — never
+            // overwritten in layout()/savePanePx. Auto-defaults (user:false) snap
+            // back to an equal share.
             for (const [otherId, other] of this.sizing) {
-                if (otherId !== id && !this.collapsed.get(otherId)) { other.saved = null; }
+                if (otherId !== id && other.user === false && !this.collapsed.get(otherId)) {
+                    other.saved = null;
+                }
             }
         }
         this.layout();
@@ -426,20 +444,46 @@ export class SidebarSections {
         const collapsedCount = ids.length - expanded.length;
         // All dividers stay in the flex column (they double as the 3px divider line).
         const free = Math.max(0, height - collapsedCount * HEADER_H - (ids.length - 1) * SASH_H);
-        const alloc = allocatePanes(free, expanded.map(id => ({ id, saved: this.sizing.get(id)!.saved })));
+        const alloc = allocatePanes(free, expanded.map(id => {
+                const st = this.sizing.get(id)!;
+                return { id, saved: st.saved, user: st.user };
+            }));
         for (const id of ids) {
             const st = this.sizing.get(id)!;
             const px = this.collapsed.get(id) ? HEADER_H : alloc.get(id)!;
             st.px = px;
             if (!this.collapsed.get(id)) {
-                // Persist only once a user has set the size (saved !== null); first-time
-                // default shares stay in-memory until the first drag/expand.
-                if (st.saved !== null && st.saved !== px) {
+                // Persist only user-set sizes (dragged/persisted). Auto-defaults
+                // (user:false) stay in-memory until the user adjusts them.
+                if (st.user && st.saved !== null && st.saved !== px) {
                     savePanePx(this.panelId, id, px);
                 }
                 st.saved = px;
             }
             this.dom.get(id)!.section.style.flexBasis = `${px}px`;
+        }
+        this.paintSashStates();
+    }
+
+    /** Sashes adjacent to a collapsed pane become inert (dimmed, aria-disabled,
+        out of the tab order); a sash between two expanded panes stays enabled.
+        aria-labels are static (set in buildSash). */
+    private paintSashStates(): void {
+        for (const sash of this.paneView.querySelectorAll<HTMLElement>('.sb-pane-sash')) {
+            const aboveId = this.sectionIdOf(sash.previousElementSibling as HTMLElement | null);
+            const belowId = this.sectionIdOf(sash.nextElementSibling as HTMLElement | null);
+            const disabled = aboveId === null
+                || belowId === null
+                || this.collapsed.get(aboveId) === true
+                || this.collapsed.get(belowId) === true;
+            sash.classList.toggle('disabled', disabled);
+            if (disabled) {
+                sash.setAttribute('aria-disabled', 'true');
+                sash.tabIndex = -1;
+            } else {
+                sash.removeAttribute('aria-disabled');
+                sash.tabIndex = 0;
+            }
         }
     }
 
@@ -461,8 +505,9 @@ export class SidebarSections {
         return { above: above as HTMLElement, below: below as HTMLElement };
     }
 
-    /** Resize the pane above a sash by `delta` px; the pane below absorbs the delta. */
-    private shiftPane(above: HTMLElement, below: HTMLElement, delta: number): void {
+    /** Resize the pane above a sash by `delta` px; the pane below absorbs the delta.
+        `persist=false` during a drag — the sizes are saved once on mouseup (Q2). */
+    private shiftPane(above: HTMLElement, below: HTMLElement, delta: number, persist = true): void {
         const aboveId = this.sectionIdOf(above);
         const belowId = this.sectionIdOf(below);
         if (aboveId === null || belowId === null) { return; }
@@ -473,9 +518,19 @@ export class SidebarSections {
         const na = Math.max(MIN_PANE, Math.min((a.saved ?? a.px) + delta, combined - MIN_PANE));
         a.saved = na;
         b.saved = combined - na;
-        savePanePx(this.panelId, aboveId, na);
-        savePanePx(this.panelId, belowId, b.saved);
+        // Mark user-set immediately so layout() honors the drag during drag;
+        // persistence of the current values happens separately (per action /
+        // on release in the sash drag path).
+        a.user = true;
+        b.user = true;
+        if (persist) { this.savePair(aboveId, belowId); }
         this.layout();
+    }
+
+    /** Persist the two resized panes' current saved sizes (one write each). */
+    private savePair(aboveId: string, belowId: string): void {
+        savePanePx(this.panelId, aboveId, this.sizing.get(aboveId)!.saved!);
+        savePanePx(this.panelId, belowId, this.sizing.get(belowId)!.saved!);
     }
 
     /** Double-click: split the two adjacent panes' combined space 50/50. */
@@ -490,6 +545,8 @@ export class SidebarSections {
         const half = Math.floor(combined / 2);
         a.saved = half;
         b.saved = combined - half;
+        a.user = true;
+        b.user = true;
         savePanePx(this.panelId, aboveId, half);
         savePanePx(this.panelId, belowId, combined - half);
         this.layout();
@@ -613,13 +670,21 @@ export class SidebarSections {
             const onMove = (moveEv: MouseEvent): void => {
                 const delta = moveEv.clientY - lastY;
                 lastY = moveEv.clientY;
-                if (delta !== 0) { this.shiftPane(neighbors.above, neighbors.below, delta); }
+                if (delta !== 0) { this.shiftPane(neighbors.above, neighbors.below, delta, false); }
             };
             const stopDrag = (): void => {
                 sash.classList.remove('dragging');
                 this.paneView.classList.remove('dragging');
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
+                // Persist once on release (no per-mousemove storage writes).
+                const aboveId = this.sectionIdOf(neighbors.above);
+                const belowId = this.sectionIdOf(neighbors.below);
+                if (aboveId !== null && belowId !== null) {
+                    this.sizing.get(aboveId)!.user = true;
+                    this.sizing.get(belowId)!.user = true;
+                    this.savePair(aboveId, belowId);
+                }
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', stopDrag);
             };

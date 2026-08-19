@@ -32,9 +32,9 @@ const A = 'D:\\sample\\crc-check.js';
 const B = 'D:\\sample\\hello.js';
 
 const SCRIPTS: ScriptInfo[] = [
-    { name: 'crc-check.js', filePath: A, capabilities: ['exec'] },
-    { name: 'crc-check.ts', filePath: 'D:\\sample\\crc-check.ts', capabilities: ['exec', 'network'] },
-    { name: 'hello.js', filePath: B, capabilities: [] },
+    { name: 'crc-check.js', filePath: A, capabilities: ['exec'], fingerprint: 'fp-1' },
+    { name: 'crc-check.ts', filePath: 'D:\\sample\\crc-check.ts', capabilities: ['exec', 'network'], fingerprint: 'fp-2' },
+    { name: 'hello.js', filePath: B, capabilities: [], fingerprint: 'fp-3' },
 ];
 
 function installDom(): Harness {
@@ -196,6 +196,7 @@ suite('ScriptsPanel setScripts', () => {
         const btn = runBtn(A);
         assert.ok(btn.classList.contains('disabled-trust'));
         assert.strictEqual(btn.title, 'Workspace not trusted');
+        assert.ok(btn.disabled, 'hard disabled attribute (out of the tab order)');
         assert.ok(!btn.classList.contains('disabled-ts'));
         // disabled buttons are not click-wired
         click(dom, btn);
@@ -207,8 +208,10 @@ suite('ScriptsPanel setScripts', () => {
         panel.setScripts(SCRIPTS, true);
         const btn = runBtn('D:\\sample\\crc-check.ts');
         assert.ok(btn.classList.contains('disabled-ts'));
+        assert.ok(btn.disabled, 'hard disabled attribute (out of the tab order)');
         assert.match(btn.title, /require esbuild/);
         assert.ok(!runBtn(A).classList.contains('disabled-ts'));
+        assert.ok(!runBtn(A).disabled, 'js scripts stay enabled');
     });
 
     test('status dot flips to ok/err after showResult', () => {
@@ -468,6 +471,28 @@ suite('ScriptsPanel capability gate', () => {
         panel.setScripts(SCRIPTS, true);
         click(dom, runBtn(A));
         assert.ok(document.querySelector('.script-caps-confirm'), 'fresh panel re-confirms capabilities');
+    });
+
+    test('approval resets when the script fingerprint changes', () => {
+        click(dom, runBtn(A));
+        click(dom, document.querySelector('.script-caps-confirm [data-caps-run]'));
+        assert.strictEqual(cb.runs.length, 1);
+        panel.showResult(A, [], [], '', undefined, 0); // clear the running state
+
+        // Same fingerprint pushed again → approval kept.
+        panel.setScripts(SCRIPTS.map(s => ({ ...s })), true);
+        click(dom, runBtn(A));
+        assert.strictEqual(cb.runs.length, 2, 'same fingerprint keeps the approval');
+        panel.showResult(A, [], [], '', undefined, 0);
+
+        // Fingerprint changed → approval revoked, confirm re-asks.
+        panel.setScripts(SCRIPTS.map(s => s.filePath === A ? { ...s, fingerprint: 'fp-changed' } : s), true);
+        click(dom, runBtn(A));
+        assert.ok(document.querySelector('.script-caps-confirm'), 'modified script re-confirms');
+        assert.strictEqual(cb.runs.length, 2, 'no run before re-accept');
+
+        click(dom, document.querySelector('.script-caps-confirm [data-caps-run]'));
+        assert.strictEqual(cb.runs.length, 3, 're-accept runs');
     });
 });
 

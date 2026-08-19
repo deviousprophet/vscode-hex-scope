@@ -16,6 +16,7 @@ export interface ScriptInfo {
     name: string;
     filePath: string;
     capabilities: string[];
+    fingerprint: string;
 }
 
 export interface ScriptsCallbacks {
@@ -68,6 +69,9 @@ export class ScriptsPanel {
     private readonly runCounter = new Map<string, number>();
     /** Paths whose capabilities were accepted at the run-time gate (session state; resets on remount). */
     private readonly confirmedCaps = new Set<string>();
+    /** Per-path script file fingerprints; a changed fingerprint resets the
+        capability approval (the script was modified → re-confirm next run). */
+    private readonly fingerprints = new Map<string, string>();
 
     constructor(cb: ScriptsCallbacks = {}) {
         this.cb = cb;
@@ -128,8 +132,21 @@ export class ScriptsPanel {
         this.currentScripts = scripts;
         this.trusted = trusted;
         this.rememberScriptPaths(scripts);
+        this.revokeApprovalsForModifiedScripts(scripts);
         this.updateScriptCount();
         this.rebuildScriptList();
+    }
+
+    /** If a script file's fingerprint changed since the last push, its capability
+        approval is reset (modified script → re-confirm on the next run). */
+    private revokeApprovalsForModifiedScripts(scripts: ScriptInfo[]): void {
+        for (const s of scripts) {
+            const prev = this.fingerprints.get(s.filePath);
+            if (prev !== undefined && prev !== s.fingerprint) {
+                this.confirmedCaps.delete(s.filePath);
+            }
+            this.fingerprints.set(s.filePath, s.fingerprint);
+        }
     }
 
     private rememberScriptPaths(scripts: ScriptInfo[]): void {
@@ -279,7 +296,7 @@ export class ScriptsPanel {
                 ${this.statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
                 ${extBadge}
-                <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnTitle}>
+                <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnDisabled}${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
                 </button>
             </div>
@@ -330,7 +347,8 @@ export class ScriptsPanel {
         const isRun = this.runningPath === path;
         const otherRunning = isRun ? false : this.runningPath !== null;
         btn.classList.toggle('running', isRun);
-        btn.disabled = otherRunning;
+        const hardBlocked = btn.classList.contains('disabled-trust') || btn.classList.contains('disabled-ts');
+        btn.disabled = hardBlocked || otherRunning;
         btn.innerHTML = this.runIconHtml(path);
         btn.setAttribute('aria-label', this.runBtnAria(isRun));
         if (this.keepsInitialTooltip(btn)) { return; }
@@ -589,8 +607,14 @@ function btnClass(path: string, noTrust: boolean, extTs: boolean, runningPath: s
     return cls;
 }
 
-function scriptBtnAttrs(path: string, noTrust: boolean, extTs: boolean, runningPath: string | null): { btnClass: string; btnTitle: string } {
-    return { btnClass: btnClass(path, noTrust, extTs, runningPath), btnTitle: btnTitle(noTrust, extTs) };
+function scriptBtnAttrs(path: string, noTrust: boolean, extTs: boolean, runningPath: string | null): { btnClass: string; btnTitle: string; btnDisabled: string } {
+    return {
+        btnClass: btnClass(path, noTrust, extTs, runningPath),
+        btnTitle: btnTitle(noTrust, extTs),
+        // Hard-disabled (native attribute) for untrusted workspaces and
+        // TypeScript scripts blocked by a missing esbuild — out of the tab order.
+        btnDisabled: noTrust || extTs ? ' disabled' : '',
+    };
 }
 
 function writesBlockHtml(count: number): string {

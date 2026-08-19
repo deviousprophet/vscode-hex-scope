@@ -304,7 +304,10 @@ test('scanScripts returns scripts from .hexscope/scripts/', async () => {
         const a = scripts.find(s => s.name === 'a.js');
         assert.ok(a);
         assert.deepEqual(a.capabilities, ['exec']);
+        assert.match(a.fingerprint, /^\d+(\.\d+)?$/, 'fingerprint is the stat mtime (ms)');
         assert.ok(scripts.some(s => s.name === 'b.ts'));
+        const fps = scripts.map(s => s.fingerprint);
+        assert.strictEqual(new Set(fps).size, fps.length, 'fingerprints are unique per file');
     } finally { rmDir(dir); }
 });
 
