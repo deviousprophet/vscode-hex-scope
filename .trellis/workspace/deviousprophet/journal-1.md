@@ -636,3 +636,24 @@ Archived-task cleanup (grill Q1-B): folded 2 PaneView follow-up dirs into sideba
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: PR192 review fix batch (grilled Q1-Q7)
+
+**Date**: 2026-08-19
+**Task**: PR192 review fix batch (grilled Q1-Q7)
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Fixed all PR192 two-axis review findings per grilling: (Q1) first-time expand keeps user/persisted sibling sizes via a new user flag separating adjusted vs auto-default sizes; allocatePanes reworked (persisted exact, fresh equal, lone pane fills pool); (Q2) sash persists once on release; (Q3) disabled sash state restored next to collapsed panes; (Q4) structPanel mount indent; (Q5) none; (Q6) real disabled attribute on untrusted/ts-blocked script run buttons; (Q7) capability approval resets when a script file changes via mtime fingerprint flowing core->protocol->webview, clear-results keeps approval. 802 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d2eb70` | (see git log) |
+
+### Status
+
+[OK] **Completed**
