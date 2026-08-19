@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
+- **Total Sessions**: 30
 - **Last Active**: 2026-08-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~701 | Active |
+| `journal-1.md` | ~722 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-08-19 | Host-only expiring copy confirmation + byte-line cleanup | `0bd739a` | `feat/ui-consistency` |
 | 29 | 2026-08-19 | PaneView reopen-restore fix + thicker sash | `84b7ac2` | `feat/ui-consistency` |
 | 28 | 2026-08-19 | fallow-clean refactor | `2802b22` | `feat/ui-consistency` |
 | 27 | 2026-08-19 | PR192 review fix batch (grilled Q1-Q7) | `2d2eb70` | `feat/ui-consistency` |

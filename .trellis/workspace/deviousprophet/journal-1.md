@@ -699,3 +699,24 @@ diagnosing-bugs: built throwaway repro harness (compiled SidebarSections), confi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Host-only expiring copy confirmation + byte-line cleanup
+
+**Date**: 2026-08-19
+**Task**: Host-only expiring copy confirmation + byte-line cleanup
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled + implemented: copy feedback consolidated to the host status-bar notification (expires after 2s) - 'Copied: N bytes' for ranges, copied value for scalars; local flash reduced to green .copied tint (no text swap). Byte-line drops the redundant [N bytes] prefix (address bar carries it), tooltip 'Click to copy N bytes', count flows via data-copy-count. 803 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0bd739a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
