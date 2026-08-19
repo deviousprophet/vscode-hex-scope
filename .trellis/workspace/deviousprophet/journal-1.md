@@ -678,3 +678,24 @@ Running fallow-fix skill: 3 dead-code exports removed (byteLineParts, mergeForDi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: PaneView reopen-restore fix + thicker sash
+
+**Date**: 2026-08-19
+**Task**: PaneView reopen-restore fix + thicker sash
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+diagnosing-bugs: built throwaway repro harness (compiled SidebarSections), confirmed reopen gave MIN (82) instead of the resized 209. Root cause: layout() re-baselined a user pane's saved to its temporary full-height fill while the sibling collapsed, over-claiming the pool on reopen. Grilled Q1-A (persist wins, untouched=even). TDD: red regression test then fix - user sizes only change via user actions, layout never rebaselines/persists them; lone-pane fill is display-only. Sash thickened 3->6px (SASH_H + CSS + test literals). Persistence semantics: px (not %) in localStorage; grown sibling no longer persisted; oversized keys stay raw (display clamps). 803 tests green, fallow 0.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `84b7ac2` | (see git log) |
+
+### Status
+
+[OK] **Completed**
