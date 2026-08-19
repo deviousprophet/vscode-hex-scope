@@ -257,52 +257,68 @@ mount(root: HTMLElement): void {
     this.render();
 }
 
-/** Re-renders the whole panel from pushed state (was renderStructPins). No-op until mounted. */
-render(): void {
-    const sec = this._root;
-    if (!sec || !this.sections) { return; }
-
-    const all = allStructs(this._structs);
-    this.prepareStructPanelState(all);
-
-    if (this._editingType || this._editingPinId) { this.sections.setCollapsed('types', false); }
-
-    this.sections.setLabel('types', this.typePanelTitle());
-    this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
-        this._addingPin ? this.addStructPinFormHtml(all) : '',
-        this.instanceCardsHtml(),
-    );
-    this.sections.body('types')!.innerHTML = this.typePanelBodyHtml(this.typeRowsHtml(all));
-    this.sections.setBadge('instances', this._pins.length > 0 ? String(this._pins.length) : null);
-    this.updateHeaderActions();
-
-    this.hydrateStructPreviews(sec);
-    this.wireStructPinsPanel(sec);
-
-    this.wireInstanceCards(sec);
-
-    if (this._editingType) {
-        this.wireEditorInSec(sec);
-        sec.querySelector<HTMLInputElement>('#se-name')?.focus();
-    } else if (this._editingPinId) {
-        this.wirePinEditForm(sec);
-        sec.querySelector<HTMLInputElement>('.si-pe-name')?.focus();
+    private addPinFormOrEmpty(all: StructDef[]): string {
+        return this._addingPin ? this.addStructPinFormHtml(all) : '';
     }
-}
+
+    private pinCountBadge(): string | null {
+        return this._pins.length > 0 ? String(this._pins.length) : null;
+    }
+
+    /** Re-renders the whole panel from pushed state (was renderStructPins). No-op until mounted. */
+    render(): void {
+        const sec = this._root;
+        if (!sec || !this.sections) { return; }
+
+        const all = allStructs(this._structs);
+        this.prepareStructPanelState(all);
+
+        if (this.isEditorOpen()) { this.sections.setCollapsed('types', false); }
+
+        this.sections.setLabel('types', this.typePanelTitle());
+        this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
+            this.addPinFormOrEmpty(all),
+            this.instanceCardsHtml(),
+        );
+        this.sections.body('types')!.innerHTML = this.typePanelBodyHtml(this.typeRowsHtml(all));
+        this.sections.setBadge('instances', this.pinCountBadge());
+        this.updateHeaderActions();
+
+        this.hydrateStructPreviews(sec);
+        this.wireStructPinsPanel(sec);
+
+        this.wireInstanceCards(sec);
+        this.wireEditorState(sec);
+    }
+
+    /** Whether the type or pin editor is open (header actions + panel focus). */
+    private isEditorOpen(): boolean {
+        return Boolean(this._editingType || this._editingPinId);
+    }
+
+    private wireEditorState(sec: HTMLElement): void {
+        if (this._editingType) {
+            this.wireEditorInSec(sec);
+            sec.querySelector<HTMLInputElement>('#se-name')?.focus();
+        } else if (this._editingPinId) {
+            this.wirePinEditForm(sec);
+            sec.querySelector<HTMLInputElement>('.si-pe-name')?.focus();
+        }
+    }
 
 /** Keep compact header actions in sync with panel state (static shell across re-renders). */
-private updateHeaderActions(): void {
-    const root = this._root;
-    if (!root) { return; }
-    const add = root.querySelector<HTMLButtonElement>('#si-add-btn');
-    if (add) { add.disabled = this._addingPin; }
-    const close = root.querySelector<HTMLElement>('#sm-close-btn');
-    if (close) {
-        close.hidden = !(this._editingType || this._editingPinId);
-        close.title = this.typePanelCloseTitle();
-        close.setAttribute('aria-label', this.typePanelCloseTitle());
+    private updateHeaderActions(): void {
+        const root = this._root;
+        if (!root) { return; }
+        const add = root.querySelector<HTMLButtonElement>('#si-add-btn');
+        if (add) { add.disabled = this._addingPin; }
+        const close = root.querySelector<HTMLElement>('#sm-close-btn');
+        if (close) {
+            close.hidden = !this.isEditorOpen();
+            close.title = this.typePanelCloseTitle();
+            close.setAttribute('aria-label', this.typePanelCloseTitle());
+        }
     }
-}
 
 /** Instances header action: ＋ Add (primary/status control usable while collapsed). */
 private mountInstancesAction(root: HTMLElement): void {
@@ -709,16 +725,21 @@ private activeClassAttr(isActive: boolean): string {
     return isActive ? ' active' : '';
 }
 
-private fieldArrayCellHtml(f: StructField): string {
-    const isArr = f.count > 1;
-    return (
-        `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
-        `<button class="sfe-arr-toggle${this.activeClassAttr(isArr)}" title="${isArr ? 'Remove array' : 'Make array'}" aria-label="${isArr ? 'Remove array' : 'Make array'}">[ ]</button>` +
-        `<input class="sfe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
-               `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
-        `</div>`
-    );
-}
+    private arrayToggleLabel(isArr: boolean): string {
+        return isArr ? 'Remove array' : 'Make array';
+    }
+
+    private fieldArrayCellHtml(f: StructField): string {
+        const isArr = f.count > 1;
+        const toggleLabel = this.arrayToggleLabel(isArr);
+        return (
+            `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
+            `<button class="sfe-arr-toggle${this.activeClassAttr(isArr)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>` +
+            `<input class="sfe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+                   `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
+            `</div>`
+        );
+    }
 
 private fieldBitToggleHtml(f: StructField, isBitContainer: boolean): string {
     f = normalizeStructField(f);
@@ -1130,12 +1151,7 @@ private wireEditorInSec(sec: HTMLElement): void {
             this.showEditorFieldPointerMenu(sec, draft, row, ev);
         });
         row.addEventListener('keydown', ev => {
-            if (ev.key === 'F10' && ev.shiftKey) {
-                ev.preventDefault();
-                this.showEditorFieldPointerMenu(sec, draft, row, ev);
-                return;
-            }
-            if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === row) {
+            if (this.fieldMenuKey(ev, row)) {
                 ev.preventDefault();
                 this.showEditorFieldPointerMenu(sec, draft, row, ev);
             }
@@ -1355,50 +1371,83 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
     this.clearInvalidBitChildren(sec, draft, row, bitBtn, isUnsigned);
 }
 
-/** Pointer declaration lives on the row dataset (set by the per-field context menu). */
-private editorRowIsPointer(row: HTMLElement): boolean {
+    /** F10 / Shift+F10 and Enter/Space (when the row itself is focused) open the pointer menu. */
+    private fieldMenuKey(ev: KeyboardEvent, row: HTMLElement): boolean {
+        return this.contextMenuKey(ev) || this.activateKey(ev, row);
+    }
+
+    private contextMenuKey(ev: KeyboardEvent): boolean {
+        return ev.key === 'F10' && ev.shiftKey;
+    }
+
+    private activateKey(ev: KeyboardEvent, row: HTMLElement): boolean {
+        return (ev.key === 'Enter' || ev.key === ' ') && ev.target === row;
+    }
+
+    /** Pointer declaration lives on the row dataset (set by the per-field context menu). */
+    private editorRowIsPointer(row: HTMLElement): boolean {
     return row.dataset.ptr === '1' || (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value === 'void';
 }
 
-private toggleFieldPointer(sec: HTMLElement, draft: StructDef, row: HTMLElement, want: boolean): void {
-    this.syncEditorDraft(sec, draft);
-    const idx = parseInt(row.dataset.idx!);
-    const field = draft.fields[idx];
-    if (!field) { return; }
-    if (want && this.isBitContainerField(field)) { return; }
-    this._editorError = null;
-    field.isPointer = want ? true : undefined;
-    row.dataset.ptr = want ? '1' : '';
-    if (want) { this.clearPointerBitChildren(sec, draft, row); }
-    this.render();
-}
+    private cannotPointTo(field: StructField, want: boolean): boolean {
+        return want && this.isBitContainerField(field);
+    }
 
-/** Per-field pointer context menu (right-click / Shift+F10 / focus+Enter) — replaces the old row button. */
-private showEditorFieldPointerMenu(sec: HTMLElement, draft: StructDef, row: HTMLElement, ev: Event): void {
-    this.hideFieldValMenu();
-    this.syncEditorDraft(sec, draft);
-    const idx = parseInt(row.dataset.idx!);
-    const field = draft.fields[idx];
-    if (!field) { return; }
-    const isPtr = this.editorRowIsPointer(row);
-    const isBitContainer = this.isBitContainerField(field);
-    const items = isPtr
-        ? this.menuItemHtml('field-ptr-off', 'Clear pointer', 'Revert to a plain (non-pointer) field')
-        : (isBitContainer
-            ? this.disabledMenuItemHtml('Attach pointer', 'Bit-field fields cannot be pointers')
-            : this.menuItemHtml('field-ptr-on', 'Attach pointer', 'Mark this field as a pointer (field ↔ address)'));
-    const x = (ev as MouseEvent).clientX || row.getBoundingClientRect().left + 8;
-    const y = (ev as MouseEvent).clientY || row.getBoundingClientRect().bottom + 4;
-    const el = this.createFieldValMenu(items, x, y);
-    el.classList.add('si-field-menu');
-    this.wireFieldValMenuCommands(el, cmd => {
+    private setFieldPointerFlag(field: StructField, row: HTMLElement, want: boolean): void {
+        field.isPointer = want ? true : undefined;
+        row.dataset.ptr = want ? '1' : '';
+    }
+
+    private toggleFieldPointer(sec: HTMLElement, draft: StructDef, row: HTMLElement, want: boolean): void {
+        this.syncEditorDraft(sec, draft);
+        const field = draft.fields[parseInt(row.dataset.idx!)];
+        if (!field) { return; }
+        if (this.cannotPointTo(field, want)) { return; }
+        this._editorError = null;
+        this.setFieldPointerFlag(field, row, want);
+        if (want) { this.clearPointerBitChildren(sec, draft, row); }
+        this.render();
+    }
+
+    private fieldPointerMenuItems(row: HTMLElement, field: StructField): string {
+        if (this.editorRowIsPointer(row)) {
+            return this.menuItemHtml('field-ptr-off', 'Clear pointer', 'Revert to a plain (non-pointer) field');
+        }
+        if (this.isBitContainerField(field)) {
+            return this.disabledMenuItemHtml('Attach pointer', 'Bit-field fields cannot be pointers');
+        }
+        return this.menuItemHtml('field-ptr-on', 'Attach pointer', 'Mark this field as a pointer (field ↔ address)');
+    }
+
+    private fieldMenuX(ev: Event, row: HTMLElement): number {
+        return (ev as MouseEvent).clientX || row.getBoundingClientRect().left + 8;
+    }
+
+    private fieldMenuY(ev: Event, row: HTMLElement): number {
+        return (ev as MouseEvent).clientY || row.getBoundingClientRect().bottom + 4;
+    }
+
+    private onFieldMenuCommand(sec: HTMLElement, draft: StructDef, row: HTMLElement, cmd: string): void {
         this.hideFieldValMenu();
         if (cmd === 'field-ptr-on' || cmd === 'field-ptr-off') {
             this.toggleFieldPointer(sec, draft, row, cmd === 'field-ptr-on');
         }
-    });
-    this.finishFieldValMenu(el);
-}
+    }
+
+    /** Per-field pointer context menu (right-click / Shift+F10 / focus+Enter) — replaces the old row button. */
+    private showEditorFieldPointerMenu(sec: HTMLElement, draft: StructDef, row: HTMLElement, ev: Event): void {
+        this.hideFieldValMenu();
+        this.syncEditorDraft(sec, draft);
+        const field = draft.fields[parseInt(row.dataset.idx!)];
+        if (!field) { return; }
+        const items = this.fieldPointerMenuItems(row, field);
+        const el = this.createFieldValMenu(items, this.fieldMenuX(ev, row), this.fieldMenuY(ev, row));
+        el.classList.add('si-field-menu');
+        this.wireFieldValMenuCommands(el, cmd => {
+            this.onFieldMenuCommand(sec, draft, row, cmd);
+        });
+        this.finishFieldValMenu(el);
+    }
 
 private clearPointerBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement): void {
     this.clearBitFieldChildren(sec, draft, row, row.querySelector<HTMLElement>('.sfe-bit-btn'));
@@ -2443,42 +2492,49 @@ private firstBitUnitFieldName(rows: DecodedField[]): string {
     return rows[0]?.fieldName ?? '';
 }
 
-private populatedBitUnitHeaderHtml(
-    rows: DecodedField[],
-    agg: DecodedField,
-    headerClass: string,
-    buttonClass: string,
-    headerName: string,
-    valKey: string,
-    start: number,
-    cnt: number,
-    isOpen: boolean,
-    hideOffset: boolean,
-): string {
-    const t = this.bitUnitHeaderValueType(valKey);
-    const ptrClass = this.bitUnitPointerClass(agg);
-    const valHtml = this.bitUnitHeaderDisplayValue(rows, agg, t, start);
-    const byteCount = this.bitUnitByteCount(agg, cnt);
-    const abbrev = this.fieldTypeAbbrev(agg, byteCount);
-    const fullTypeLabel = this.fieldFullTypeLabel(agg, byteCount);
-    const offsetLabel = this.fieldOffsetLabel(agg);
+    private bitUnitOffsetHtml(offsetLabel: string, hideOffset: boolean): string {
+        return hideOffset
+            ? '<span class="si-node-pad" aria-hidden="true"></span>'
+            : `<span class="si-f-off">${offsetLabel}</span>`;
+    }
 
-    const offsetHtml = hideOffset
-        ? '<span class="si-node-pad" aria-hidden="true"></span>'
-        : `<span class="si-f-off">${offsetLabel}</span>`;
-    return (
-        `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
-        offsetHtml +
-        this.typeCellHtml(abbrev, fullTypeLabel) +
-        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
-        `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(headerName)}</span>` +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri${ptrClass}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
-        `</span>` +
-        `</div>`
-    );
-}
+    private collapsibleIconHtml(buttonClass: string, isOpen: boolean): string {
+        return `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>`;
+    }
+
+    private populatedBitUnitHeaderHtml(
+        rows: DecodedField[],
+        agg: DecodedField,
+        headerClass: string,
+        buttonClass: string,
+        headerName: string,
+        valKey: string,
+        start: number,
+        cnt: number,
+        isOpen: boolean,
+        hideOffset: boolean,
+    ): string {
+        const t = this.bitUnitHeaderValueType(valKey);
+        const ptrClass = this.bitUnitPointerClass(agg);
+        const valHtml = this.bitUnitHeaderDisplayValue(rows, agg, t, start);
+        const byteCount = this.bitUnitByteCount(agg, cnt);
+        const abbrev = this.fieldTypeAbbrev(agg, byteCount);
+        const fullTypeLabel = this.fieldFullTypeLabel(agg, byteCount);
+        const offsetLabel = this.fieldOffsetLabel(agg);
+
+        return (
+            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
+            this.bitUnitOffsetHtml(offsetLabel, hideOffset) +
+            this.typeCellHtml(abbrev, fullTypeLabel) +
+            this.collapsibleIconHtml(buttonClass, isOpen) +
+            `<span class="si-f-body">` +
+            `<span class="si-f-name">${esc(headerName)}</span>` +
+            `<span class="si-f-lead"></span>` +
+            `<span class="si-f-val si-f-pri${ptrClass}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
+            `</span>` +
+            `</div>`
+        );
+    }
 
 private bitUnitHeaderValueType(valKey: string): ColType {
     return this._fieldValTypes.get(valKey) ?? 'bin';
@@ -3012,29 +3068,34 @@ private compositeGroupHtml(key: string, isOpen: boolean, headerHtml: string, bod
     );
 }
 
-private compositeHeaderHtml(
-    isOpen: boolean,
-    byteStart: number,
-    byteCount: number,
-    byteOffset: number,
-    name: string,
-    summaryLabel: string,
-    hideOffset = false,
-    includeTitle = false,
-): string {
-    const title = includeTitle ? ` title="${esc(summaryLabel)}"` : '';
-    return (
-        `<div class="si-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}"${hideOffset ? '' : ` data-offset-label="${this.offsetLabel(byteOffset)}"`}>` +
-        this.compositeHeaderPrefixHtml(isOpen, byteOffset, hideOffset) +
-        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
-        `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(name)}</span>` +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-arr-addr"${title}>${esc(summaryLabel)}</span>` +
-        `</span>` +
-        `</div>`
-    );
-}
+    private compositeHeaderAttr(byteOffset: number, hideOffset: boolean): string {
+        return hideOffset ? '' : ` data-offset-label="${this.offsetLabel(byteOffset)}"`;
+    }
+
+    private compositeHeaderHtml(
+        isOpen: boolean,
+        byteStart: number,
+        byteCount: number,
+        byteOffset: number,
+        name: string,
+        summaryLabel: string,
+        hideOffset = false,
+        includeTitle = false,
+    ): string {
+        const title = includeTitle ? ` title="${esc(summaryLabel)}"` : '';
+        return (
+            `<div class="si-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}"` +
+            this.compositeHeaderAttr(byteOffset, hideOffset) + `>` +
+            this.compositeHeaderPrefixHtml(isOpen, byteOffset, hideOffset) +
+            this.collapsibleIconHtml('si-arr-exp-btn', isOpen) +
+            `<span class="si-f-body">` +
+            `<span class="si-f-name">${esc(name)}</span>` +
+            `<span class="si-f-lead"></span>` +
+            `<span class="si-arr-addr"${title}>${esc(summaryLabel)}</span>` +
+            `</span>` +
+            `</div>`
+        );
+    }
 
 private isStructPointerRows(rows: DecodedField[]): boolean {
     return rows.length > 0 && rows.every(row => row.isPointer === true);

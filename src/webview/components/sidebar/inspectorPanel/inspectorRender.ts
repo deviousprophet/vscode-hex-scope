@@ -37,7 +37,7 @@ export function singleByteInspectorHtml(val: number): string {
  * byte count; the copied string is exactly the rendered bytes — the
  * ellipsis is display-only and never copied.
  */
-export function byteLineParts(selBytes: number[], len: number): { display: string; copy: string } {
+function byteLineParts(selBytes: number[], len: number): { display: string; copy: string } {
     const dumpBytes = selBytes.slice(0, 8);
     const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
     const truncated = len > 8;
@@ -196,7 +196,7 @@ export function labelAddrHex(n: number): string {
 }
 
 /** One display row in the merged Labels list (segments are permanent, non-editable). */
-export type LabelDisplayRow =
+type LabelDisplayRow =
     | { kind: 'user'; label: SegmentLabel }
     | { kind: 'segment'; name: string; start: number; length: number };
 
@@ -209,7 +209,7 @@ function rowStart(row: LabelDisplayRow): number {
  * address-sorted list. Segment names rank by address order; on an
  * equal start, segments sort before user labels (stable input order).
  */
-export function mergeForDisplay(labels: SegmentLabel[], segments: SerializedSegment[]): LabelDisplayRow[] {
+function mergeForDisplay(labels: SegmentLabel[], segments: SerializedSegment[]): LabelDisplayRow[] {
     const segRows: LabelDisplayRow[] = [...segments]
         .sort((a, b) => a.startAddress - b.startAddress)
         .map((s, i) => ({ kind: 'segment', name: `Segment ${i + 1}`, start: s.startAddress, length: s.data.length }));

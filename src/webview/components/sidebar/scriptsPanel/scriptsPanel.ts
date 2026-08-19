@@ -329,11 +329,15 @@ export class ScriptsPanel {
         const path = btn.dataset.path;
         if (path === undefined) { return; }
         const script = this.currentScripts.find(s => s.filePath === path);
-        if (script && script.capabilities.length > 0 && !this.confirmedCaps.has(path)) {
+        if (script && this.unconfirmedCaps(path, script)) {
             this.showCapsConfirm(script);
             return;
         }
         this.toggleScript(path);
+    }
+
+    private unconfirmedCaps(path: string, script: ScriptInfo): boolean {
+        return script.capabilities.length > 0 && !this.confirmedCaps.has(path);
     }
 
     private toggleScript(path: string): void {
@@ -341,13 +345,21 @@ export class ScriptsPanel {
         else { this.runScript(path); }
     }
 
+    private hardBlockedBtn(btn: HTMLButtonElement): boolean {
+        return btn.classList.contains('disabled-trust') || btn.classList.contains('disabled-ts');
+    }
+
+    private anotherScriptRunning(isRun: boolean): boolean {
+        return isRun ? false : this.runningPath !== null;
+    }
+
     private updateBtnState(btn: HTMLButtonElement): void {
         const path = btn.dataset.path;
         if (!path) { return; }
         const isRun = this.runningPath === path;
-        const otherRunning = isRun ? false : this.runningPath !== null;
+        const otherRunning = this.anotherScriptRunning(isRun);
         btn.classList.toggle('running', isRun);
-        const hardBlocked = btn.classList.contains('disabled-trust') || btn.classList.contains('disabled-ts');
+        const hardBlocked = this.hardBlockedBtn(btn);
         btn.disabled = hardBlocked || otherRunning;
         btn.innerHTML = this.runIconHtml(path);
         btn.setAttribute('aria-label', this.runBtnAria(isRun));
@@ -498,28 +510,77 @@ export class ScriptsPanel {
 
     // ── Run history (collapsed old runs) ────────────────────────────
 
+    /** The latest result block is a runnable snapshot (not the ephemeral
+        streaming block and not an already-collapsed history row). */
+    private storableBlock(block: HTMLElement | null): block is HTMLElement {
+        return block !== null && !block.classList.contains('script-run-row');
+    }
+
+    private isRunningHeader(hdr: HTMLElement): boolean {
+        return (hdr.textContent?.trim() ?? '') === 'Running';
+    }
+
+    private storableHeader(hdr: HTMLElement | null, path: string | undefined): hdr is HTMLElement {
+        return hdr !== null && path !== undefined;
+    }
+
+    private nextRunNum(path: string): number {
+        const num = (this.runCounter.get(path) ?? 0) + 1;
+        this.runCounter.set(path, num);
+        return num;
+    }
+
+    private runRecordsFor(path: string): RunRecord[] {
+        return this.runHistory.get(path) ?? [];
+    }
+
+    private hdrHasErrorClass(hdr: HTMLElement): boolean {
+        return [...hdr.classList].some(c => c.startsWith('script-output-hdr-err'));
+    }
+
+    private hdrErrorClass(hdr: HTMLElement): string {
+        return [...hdr.classList].find(c => c.startsWith('script-output-hdr-err')) ?? '';
+    }
+
+    private runRecord(block: HTMLElement, path: string, num: number, hdr: HTMLElement): RunRecord {
+        return {
+            num,
+            at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            ok: !this.hdrHasErrorClass(hdr),
+            errCls: this.hdrErrorClass(hdr),
+            bodyHtml: block.querySelector('.script-output-body-wrap')?.innerHTML ?? '',
+        };
+    }
+
+    private trimHistory(records: RunRecord[]): void {
+        while (records.length > HISTORY_CAP) { records.shift(); }
+    }
+
+    /** Gather the runnable result block + its header/path, or null when the
+        area has nothing storable yet. */
+    private runSnapshot(area: HTMLElement): { path: string; hdr: HTMLElement; block: HTMLElement } | null {
+        const block = area.querySelector<HTMLElement>('.script-output-block');
+        if (!this.storableBlock(block)) { return null; }
+        const hdr = block.querySelector<HTMLElement>('.script-output-hdr');
+        const path = area.dataset.path;
+        if (this.storableHeader(hdr, path) && path) { return { path, hdr, block }; }
+        return null;
+    }
+
+    private recordRun(snap: { path: string; hdr: HTMLElement; block: HTMLElement }): void {
+        const records = this.runRecordsFor(snap.path);
+        records.push(this.runRecord(snap.block, snap.path, this.nextRunNum(snap.path), snap.hdr));
+        this.trimHistory(records);
+        this.runHistory.set(snap.path, records);
+    }
+
     /** Snapshots the area's current result block into per-path history (skips the
     ephemeral streaming "Running" block and already-collapsed history rows). */
     private storeRunRecord(area: HTMLElement): void {
-        const block = area.querySelector<HTMLElement>('.script-output-block');
-        if (!block || block.classList.contains('script-run-row')) { return; }
-        const hdr = block.querySelector<HTMLElement>('.script-output-hdr');
-        const path = area.dataset.path;
-        if (!hdr || !path) { return; }
-        const hdrText = hdr.textContent?.trim() ?? '';
-        if (hdrText === 'Running') { return; }
-        const num = (this.runCounter.get(path) ?? 0) + 1;
-        this.runCounter.set(path, num);
-        const records = this.runHistory.get(path) ?? [];
-        records.push({
-            num,
-            at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-            ok: ![...hdr.classList].some(c => c.startsWith('script-output-hdr-err')),
-            errCls: [...hdr.classList].find(c => c.startsWith('script-output-hdr-err')) ?? '',
-            bodyHtml: block.querySelector('.script-output-body-wrap')?.innerHTML ?? '',
-        });
-        while (records.length > HISTORY_CAP) { records.shift(); }
-        this.runHistory.set(path, records);
+        const snap = this.runSnapshot(area);
+        if (!snap) { return; }
+        if (this.isRunningHeader(snap.hdr)) { return; }
+        this.recordRun(snap);
     }
 
     /** Collapsed one-line rows for completed runs, newest first, under the latest block. */

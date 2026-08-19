@@ -411,12 +411,17 @@ export class IntegrityPanel implements IntegrityProfileHost {
         if (this.editingCheckId !== null) { this.wireCheckForm(`edit-${this.editingCheckId}`); }
     }
 
+    private notifyCopied(check: IntegrityCheckState, result: IntegrityCheckState['result']): void {
+        this.cb.onCopyText?.(`0x${result!.value}`, `${algorithmLabel(check.algorithm)} calculated value`);
+    }
+
     private copyCalculatedValue(event: MouseEvent): void {
         const button = (event.target as HTMLElement).closest<HTMLElement>('[data-copy-calculated]');
         if (!button) { return; }
         const check = this.checks.find(item => item.id === Number(button.dataset.checkId));
-        if (!check?.result) { return; }
-        this.cb.onCopyText?.(`0x${check.result.value}`, `${algorithmLabel(check.algorithm)} calculated value`);
+        const result = check?.result;
+        if (!result) { return; }
+        this.notifyCopied(check, result);
         flashCopied(button, true);
     }
 

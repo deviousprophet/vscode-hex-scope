@@ -265,23 +265,30 @@ export function formatHexHtml(hexStr: string): string {
  */
 const flashState = new WeakMap<HTMLElement, { timer: number; prev: string | null }>();
 
+/** Restore the pre-flash text (skipped when the element was re-rendered/detached). */
+function endFlash(el: HTMLElement, prev: string | null): void {
+    flashState.delete(el);
+    if (!el.isConnected) { return; }
+    el.classList.remove('copied');
+    if (prev !== null) { el.textContent = prev; }
+}
+
+function flashPrevText(el: HTMLElement, swapText: boolean): string | null {
+    return swapText ? el.textContent : null;
+}
+
 export function flashCopied(el: HTMLElement, swapText = false): void {
     const prior = flashState.get(el);
     if (prior) { clearTimeout(prior.timer); }
     let state = prior;
     if (!state) {
-        state = { timer: 0, prev: swapText ? el.textContent : null };
+        state = { timer: 0, prev: flashPrevText(el, swapText) };
         flashState.set(el, state);
     }
     const prev = state.prev;
     el.classList.add('copied');
     if (swapText) { el.textContent = 'Copied'; }
-    state.timer = window.setTimeout(() => {
-        flashState.delete(el);
-        if (!el.isConnected) { return; }
-        el.classList.remove('copied');
-        if (prev !== null) { el.textContent = prev; }
-    }, 1000);
+    state.timer = window.setTimeout(() => endFlash(el, prev), 1000);
 }
 
 /** Direct wrappers around DataView BigInt reads (centralized for future fallbacks). */

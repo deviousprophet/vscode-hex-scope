@@ -390,15 +390,18 @@ export class InspectorPanel implements InspectorLabelFormHost {
         sec.querySelectorAll<HTMLElement>('.label-perma').forEach(item => {
             item.addEventListener('click', () => {
                 const start = Number(item.dataset.start);
-                if (Number.isFinite(start)) { this.cb.onJumpTo?.(start); }
+                this.jumpToSegment(start);
             });
             item.addEventListener('keydown', event => {
                 if (event.key !== 'Enter' && event.key !== ' ') { return; }
                 event.preventDefault();
-                const start = Number(item.dataset.start);
-                if (Number.isFinite(start)) { this.cb.onJumpTo?.(start); }
+                this.jumpToSegment(Number(item.dataset.start));
             });
         });
+    }
+
+    private jumpToSegment(start: number): void {
+        if (Number.isFinite(start)) { this.cb.onJumpTo?.(start); }
     }
 
     private wireLabelAdd(sec: HTMLElement): void {
