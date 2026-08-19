@@ -260,7 +260,7 @@ interface SidebarSectionDom {
 const HEADER_H = 22;
 /** Smallest expanded pane keeps a usable body under the header. */
 const MIN_PANE = HEADER_H + 60;
-const SASH_H = 3;
+const SASH_H = 6;
 const SASH_STEP = 10;
 const PANE_KEY_PREFIX = 'hexScope.sidebarPanes';
 
@@ -501,21 +501,17 @@ export class SidebarSections {
         }
     }
 
-    private shouldPersistAllocation(st: PaneSizing, px: number): boolean {
-        return st.user && st.saved !== null && st.saved !== px;
-    }
-
     private applyAllocation(id: string, allocatedPx: number): void {
         const st = this.sizing.get(id)!;
         const px = this.collapsed.get(id) ? HEADER_H : allocatedPx;
         st.px = px;
         if (!this.collapsed.get(id)) {
-            // Persist only user-set sizes (dragged/persisted). Auto-defaults
-            // (user:false) stay in-memory until the user adjusts them.
-            if (this.shouldPersistAllocation(st, px)) {
-                savePanePx(this.panelId, id, px);
-            }
-            st.saved = px;
+            // A user-set size is ONLY ever changed by a user action
+            // (shiftPane/resetSash). layout() must not rebaseline or persist it —
+            // otherwise a pane's temporary growth while its sibling is collapsed
+            // gets baked in and squeezes the sibling to MIN on reopen. Auto-defaults
+            // (user:false) track the allocation so they snap back to an even split.
+            if (!st.user) { st.saved = px; }
         }
         this.dom.get(id)!.section.style.flexBasis = `${px}px`;
     }

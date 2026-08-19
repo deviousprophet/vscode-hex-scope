@@ -62,7 +62,7 @@
     padding: 10px 12px; box-sizing: border-box;
 }
 .sb-pane-sash {
-    height: 3px; flex: 0 0 auto; box-sizing: border-box;
+    height: 6px; flex: 0 0 auto; box-sizing: border-box;
     cursor: row-resize; user-select: none;
     border-top: 1px solid var(--border);
     transition: background .12s ease, border-color .12s ease;

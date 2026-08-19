@@ -431,7 +431,7 @@ suite('SidebarSections pane view', () => {
 
     test('first mount distributes free space equally among expanded panes', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
-        assert.strictEqual(basis('first') + basis('second'), 297, 'height minus one sash');
+        assert.strictEqual(basis('first') + basis('second'), 294, 'height minus one sash');
         assert.ok(Math.abs(basis('first') - basis('second')) <= 1, '50/50 default split');
     });
 
@@ -494,9 +494,9 @@ suite('SidebarSections pane view', () => {
         const grew = basis('second');
         sections.setCollapsed('first', false);
         assert.ok(!pane('first').classList.contains('collapsed'));
-        assert.strictEqual(basis('first'), 148, 'restores the px it had before collapsing');
-        assert.strictEqual(basis('second'), 149, 'sibling shrinks back proportionally');
-        assert.strictEqual(basis('second') + basis('first'), 297, 'total unchanged');
+        assert.strictEqual(basis('first'), 147, 'restores the px it had before collapsing');
+        assert.strictEqual(basis('second'), 147, 'sibling shrinks back proportionally');
+        assert.strictEqual(basis('second') + basis('first'), 294, 'total unchanged');
     });
 
     test('sash drag moves the pane above and the pane below absorbs, clamped', () => {
@@ -526,7 +526,7 @@ suite('SidebarSections pane view', () => {
         assert.ok(basis('first') > 250, 'first alone fills the space');
         sections.setCollapsed('second', false);
         assert.ok(Math.abs(basis('first') - basis('second')) <= 1, 'first-time expand defaults to an even split');
-        assert.strictEqual(basis('first') + basis('second'), 297, 'total unchanged (height minus one sash)');
+        assert.strictEqual(basis('first') + basis('second'), 294, 'total unchanged (height minus one sash)');
     });
 
     test('first-time expand keeps a persisted sibling size (no even-re-split of user sizes)', () => {
@@ -543,10 +543,34 @@ suite('SidebarSections pane view', () => {
         sections.setCollapsed('first', false);
         assert.strictEqual(basis('second'), 22, 'second starts collapsed');
         sections.setCollapsed('second', false);
-        // First is user-persisted (350) but the free space only allows 315;
+        // First is user-persisted (350) but the free space only allows 312;
         // it must NOT collapse to an even 50/50, and second takes its min floor.
         assert.strictEqual(basis('second'), 82, 'second lands at the min floor');
-        assert.strictEqual(basis('first'), 400 - 3 - 82, 'persisted sibling keeps its size (clamped to space)');
+        assert.strictEqual(basis('first'), 400 - 6 - 82, 'persisted sibling keeps its size (clamped to space)');
+    });
+
+    test('reopen restores a user-resized size; untouched panes reopen evenly (no min-floor)', () => {
+        sections = new SidebarSections(root, 'test', [
+            { id: 'first', label: 'First' },
+            { id: 'second', label: 'Second', defaultCollapsed: true },
+        ], PANEL_ID);
+        Object.defineProperty(root.querySelector<HTMLElement>('.sb-pane-view')!, 'clientHeight', {
+            value: 300,
+            configurable: true,
+        });
+        sections.setCollapsed('first', false);
+        // Untouched panes: expanding the collapsed one splits evenly (50/50), not MIN.
+        sections.setCollapsed('second', false);
+        assert.ok(Math.abs(basis('first') - basis('second')) <= 1, 'untouched panes reopen evenly');
+        // User resize (drag the sash up) grows the pane below it (second).
+        dragSash(sashes()[0], -60);
+        const resized = basis('second');
+        assert.ok(resized > basis('first'), 'resize grew second beyond first');
+        // Collapse → reopen: restored, NOT the min floor.
+        sections.setCollapsed('second', true);
+        sections.setCollapsed('second', false);
+        assert.strictEqual(basis('second'), resized, 'reopen restores the resized size, not MIN');
+        assert.strictEqual(basis('first') + basis('second'), 294, 'total unchanged');
     });
 
     test('sash drag writes to localStorage only on release', () => {
@@ -592,36 +616,36 @@ suite('SidebarSections pane view', () => {
     test('sizes persist to localStorage on resize and restore across mounts', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         dragSash(sashes()[0], 40);
-        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '188');
-        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), '109');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '187');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), '107');
         // Fresh mount with the persisted sizes restores them.
         root.innerHTML = '';
         mount([['first', 'First'], ['second', 'Second']], 300);
-        assert.strictEqual(basis('first'), 188);
-        assert.strictEqual(basis('second'), 109);
+        assert.strictEqual(basis('first'), 187);
+        assert.strictEqual(basis('second'), 107);
     });
 
     test('restore clamps out-of-range values and drops malformed entries', () => {
         dom.window.localStorage.setItem('hexScope.sidebarPanes.panetest.first', '9999'); // clamped on layout
         dom.window.localStorage.setItem('hexScope.sidebarPanes.panetest.second', 'abc'); // dropped as invalid
         mount([['first', 'First'], ['second', 'Second']], 300);
-        assert.strictEqual(basis('first'), 215, 'oversized persisted px clamps to the pool minus the other pane\'s min');
+        assert.strictEqual(basis('first'), 212, 'oversized persisted px clamps to the pool minus the other pane\'s min');
         assert.strictEqual(basis('second'), 82, 'malformed entry falls back to the min floor');
         assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), null, 'invalid key removed');
-        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '215', 'oversized key self-heals to the clamped px');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '9999', 'oversized key stays raw in storage (display clamps each layout)');
     });
 
     test('collapse keeps the last expanded sizes for re-expand across reloads', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
-        dragSash(sashes()[0], 40); // first=188, second=109 persisted
+        dragSash(sashes()[0], 40); // first=187, second=107 persisted
         sections.setCollapsed('first', true);
-        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '188', 'collapse keeps the last expanded px');
-        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), '275', 'grown sibling persisted');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.first'), '187', 'collapse keeps the last expanded px');
+        assert.strictEqual(dom.window.localStorage.getItem('hexScope.sidebarPanes.panetest.second'), '107', 'grown sibling growth is display-only, not persisted');
         root.innerHTML = '';
         mount([['first', 'First'], ['second', 'Second']], 300);
         sections.setCollapsed('first', true); // restore keeps saved px across reloads
         sections.setCollapsed('first', false);
-        assert.strictEqual(basis('first'), 188, 're-expand after reload restores the saved px');
-        assert.strictEqual(basis('second'), 109);
+        assert.strictEqual(basis('first'), 187, 're-expand after reload restores the saved px');
+        assert.strictEqual(basis('second'), 107);
     });
 });
