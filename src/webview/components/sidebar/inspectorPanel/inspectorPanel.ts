@@ -220,8 +220,13 @@ export class InspectorPanel implements InspectorLabelFormHost {
     private wireInspectorCopies(valsEl: HTMLElement): void {
         valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
             el.addEventListener('click', () => {
-                this.cb.onCopy?.(el.dataset.copy!, el.dataset.label ?? 'value');
-                flashCopied(el, true);
+                // Copy confirmation is the HOST notification (expiring); the local
+                // .copied tint is visual-only — no text swap on the element.
+                const label = el.dataset.label === 'bytes'
+                    ? `${el.dataset.copyCount ?? ''} bytes`
+                    : (el.dataset.label ?? 'value');
+                this.cb.onCopy?.(el.dataset.copy!, label);
+                flashCopied(el);
             });
         });
     }
@@ -416,14 +421,14 @@ function wireMultiInlineCopies(el: HTMLElement, cb: (text: string, label: string
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'decimal');
-            flashCopied(span, true);
+            flashCopied(span);
         });
     });
     el.querySelectorAll<HTMLElement>('.mi-hex[data-copy]').forEach(span => {
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'hex');
-            flashCopied(span, true);
+            flashCopied(span);
         });
     });
 }

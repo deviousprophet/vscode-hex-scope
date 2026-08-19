@@ -33,15 +33,16 @@ export function singleByteInspectorHtml(val: number): string {
 }
 
 /**
- * Merged byte-line readout: first ≤8 bytes shown with an explicit
- * byte count; the copied string is exactly the rendered bytes — the
- * ellipsis is display-only and never copied.
+ * Merged byte-line readout: first ≤8 bytes shown (truncated selections get a
+ * display-only ellipsis — never copied); the copied string is exactly the
+ * rendered bytes. The count is carried via data-copy-count for the host copy
+ * notification; it is not duplicated in the display (the address bar shows it).
  */
 function byteLineParts(selBytes: number[], len: number): { display: string; copy: string } {
     const dumpBytes = selBytes.slice(0, 8);
     const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
     const truncated = len > 8;
-    const display   = `[${len} bytes] ${dumpStr}${truncated ? ' …' : ''}`;
+    const display   = `${dumpStr}${truncated ? ' …' : ''}`;
     return { display, copy: dumpStr };
 }
 
@@ -49,7 +50,7 @@ export function multiByteInspectorHtml(selBytes: number[], len: number): string 
     // Data readout, not a control: plain mono line, no button dressing.
     const { display, copy } = byteLineParts(selBytes, len);
     return (
-        `<div class="insp-byte-line" data-copy="${esc(copy)}" data-label="bytes" title="Click to copy ${esc(copy)}">` +
+        `<div class="insp-byte-line" data-copy="${esc(copy)}" data-label="bytes" data-copy-count="${esc(String(len))}" title="Click to copy ${esc(String(len))} bytes">` +
         `${esc(display)}` +
         `</div>`
     );

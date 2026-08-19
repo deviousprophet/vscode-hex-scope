@@ -422,7 +422,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         const result = check?.result;
         if (!result) { return; }
         this.notifyCopied(check, result);
-        flashCopied(button, true);
+        flashCopied(button);
     }
 
     private toggleHighlightedCheck(id: number): void {

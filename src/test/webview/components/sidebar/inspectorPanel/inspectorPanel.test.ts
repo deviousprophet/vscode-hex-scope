@@ -121,16 +121,17 @@ suite('Inspector selection + endian', () => {
         assert.strictEqual(line.dataset.copy, '12 34');
         assert.ok(!line.dataset.copy!.includes('…'));
         line.click();
-        assert.deepStrictEqual(cb.copies.at(-1), ['12 34', 'bytes']);
+        assert.deepStrictEqual(cb.copies.at(-1), ['12 34', '2 bytes']);
     });
 
-    test('byte line truncation shows count + ellipsis but copies visible bytes only', () => {
+    test('byte line truncation shows ellipsis but copies visible bytes only', () => {
         inspector.setSelection(0x1000, 0x1008); // 9 bytes → first 8 shown
         const line = document.querySelector<HTMLElement>('.insp-byte-line')!;
         const text = line.textContent!;
-        assert.ok(text.startsWith('[9 bytes]'), 'explicit count tag');
         assert.ok(text.includes('…'), 'ellipsis marks further bytes');
-        const visible = text.replace(/^\[\d+ bytes\] /, '').replace(' …', '');
+        assert.strictEqual(line.dataset.copyCount, '9', 'copy count carried for the host notification');
+        assert.match(line.title, /9 bytes/, 'tooltip names the byte count');
+        const visible = text.replace(' …', '');
         assert.strictEqual(line.dataset.copy, visible, 'copy equals visible bytes');
         assert.ok(!line.dataset.copy!.includes('…'), 'never copies silent ellipsis');
     });

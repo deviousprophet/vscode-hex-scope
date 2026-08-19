@@ -600,7 +600,12 @@ export class HexEditorSession {
             ),
             copyText: async msg => {
                 await vscode.env.clipboard.writeText(msg.text as string);
-                vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
+                // Expiring status-bar confirmation (single source of copy
+                // feedback). Byte-range copies carry the count in the label
+                // ("4 bytes"); scalar copies show the copied value.
+                const label = String(msg.label ?? '');
+                const notice = /bytes?$/.test(label) ? label : String(msg.text ?? '');
+                void vscode.window.setStatusBarMessage(`Copied: ${notice}`, 2000);
             },
             saveLabels: async msg => {
                 await this._context.workspaceState.update(labelKey, msg.labels);
