@@ -657,3 +657,24 @@ Fixed all PR192 two-axis review findings per grilling: (Q1) first-time expand ke
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: fallow-clean refactor
+
+**Date**: 2026-08-19
+**Task**: fallow-clean refactor
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Running fallow-fix skill: 3 dead-code exports removed (byteLineParts, mergeForDisplay, openMenuPopup — module-internal); 28 complexity findings refactored below cyclo 4 via extracted boolean helpers and split loop bodies across sidebar.ts, structPanel.ts, scriptsPanel.ts, utils.ts, integrity/inspector panels; 1 dup group eliminated. Robustified the fingerprint test (modify-and-rescan instead of same-ms uniqueness). Fallow fully green (0 issues / 0 findings / 0 dupes, exit 0). 802 tests pass
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2802b22` | (see git log) |
+
+### Status
+
+[OK] **Completed**

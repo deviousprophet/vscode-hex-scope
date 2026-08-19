@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 28
 - **Last Active**: 2026-08-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~659 | Active |
+| `journal-1.md` | ~680 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 28 | 2026-08-19 | fallow-clean refactor | `2802b22` | `feat/ui-consistency` |
 | 27 | 2026-08-19 | PR192 review fix batch (grilled Q1-Q7) | `2d2eb70` | `feat/ui-consistency` |
 | 26 | 2026-08-18 | Archive consolidation + PR task map | `2ebace5` | `feat/ui-consistency` |
 | 25 | 2026-08-18 | PaneView even first-expand + drag-lag fix | `cb8312b` | `feat/ui-consistency` |
