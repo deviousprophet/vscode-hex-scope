@@ -25,6 +25,7 @@ import {
     type IntegrityProfile,
 } from '../../../../core/integrity';
 import { esc, flashCopied } from '../../../utils';
+import { showToast } from '../../toast';
 import {
     applyIntegrityDraft,
     blankIntegrityDraft,
@@ -422,6 +423,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         const result = check?.result;
         if (!result) { return; }
         this.notifyCopied(check, result);
+        showToast('Copied ✓', { x: event.clientX, y: event.clientY });
         flashCopied(button);
     }
 

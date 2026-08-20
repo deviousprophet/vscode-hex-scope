@@ -10,6 +10,7 @@
 // panel as its host).
 
 import { esc, flashCopied, wireActionBtns } from '../../../utils';
+import { showToast } from '../../toast';
 import type { SegmentLabel, SerializedSegment } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import {
@@ -219,16 +220,24 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     private wireInspectorCopies(valsEl: HTMLElement): void {
         valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
-            el.addEventListener('click', () => {
-                // Copy confirmation is the HOST notification (expiring); the local
-                // .copied tint is visual-only — no text swap on the element.
-                const label = el.dataset.label === 'bytes'
-                    ? `${el.dataset.copyCount ?? ''} bytes`
-                    : (el.dataset.label ?? 'value');
-                this.cb.onCopy?.(el.dataset.copy!, label);
-                flashCopied(el);
-            });
+            el.addEventListener('click', (event: MouseEvent) => this.onCopyClick(el, event));
         });
+    }
+
+    /** One copy click: report to the host, toast at the click point, tint locally. */
+    private onCopyClick(el: HTMLElement, event: MouseEvent): void {
+        // Copy confirmation is the webview toast at the click point; the
+        // local .copied tint is visual-only — no text swap on the element.
+        this.cb.onCopy?.(el.dataset.copy!, this.copyLabel(el));
+        showToast('Copied ✓', { x: event.clientX, y: event.clientY });
+        flashCopied(el);
+    }
+
+    /** Host notification label: byte ranges carry the count; scalars their kind. */
+    private copyLabel(el: HTMLElement): string {
+        return el.dataset.label === 'bytes'
+            ? `${el.dataset.copyCount ?? ''} bytes`
+            : (el.dataset.label ?? 'value');
     }
 
     // ── Bit view (internal block inside the Inspector section) ───
@@ -421,6 +430,7 @@ function wireMultiInlineCopies(el: HTMLElement, cb: (text: string, label: string
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'decimal');
+            showToast('Copied ✓', { x: e.clientX, y: e.clientY });
             flashCopied(span);
         });
     });
@@ -428,6 +438,7 @@ function wireMultiInlineCopies(el: HTMLElement, cb: (text: string, label: string
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'hex');
+            showToast('Copied ✓', { x: e.clientX, y: e.clientY });
             flashCopied(span);
         });
     });

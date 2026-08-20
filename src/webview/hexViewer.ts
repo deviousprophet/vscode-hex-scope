@@ -65,6 +65,7 @@ import {
     type WebviewModelUpdate,
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
+import { showToast } from './components/toast';
 import { formatCopyCommand } from '../core/byteTools/copy';
 import { ContextMenu, type ContextMenuState } from './components/contextMenu/contextMenu';
 import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
@@ -1518,6 +1519,7 @@ function handleCtxCommand(cmd: string): void {
 function applyContextCommandResult(result: ReturnType<typeof contextCommandResult>): void {
     if (result.type === 'copyText') {
         postProviderMessage({ type: 'copyText', text: result.text, label: result.label });
+        showToast('Copied ✓');
     }
     if (result.type === 'fill') { applyFill(result.value); }
 }

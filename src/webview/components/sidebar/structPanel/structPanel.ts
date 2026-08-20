@@ -26,6 +26,7 @@ import {
 import type { DecodedField } from '../../../../core/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../../core/types';
 import { SidebarSections, closeMenuPopup, toggleMenuPopup, wireMenuPopup } from '../sidebar';
+import { showToast } from '../../toast';
 import './structPanel.css';
 
 export interface StructCallbacks {
@@ -4895,6 +4896,7 @@ private structDefById(structId: string): StructDef | undefined {
 }
 
 private copyTextToClipboard(text: string): void {
+    showToast('Copied ✓');
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).catch(() => this.fallbackCopyText(text));
     } else {
