@@ -720,3 +720,24 @@ Grilled + implemented: copy feedback consolidated to the host status-bar notific
 ### Status
 
 [OK] **Completed**
+
+
+## Session 31: Webview copy toast component
+
+**Date**: 2026-08-20
+**Task**: Webview copy toast component
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled design (placement near-click + top-center fallback, single channel, custom-text param) and implemented src/webview/components/toast.ts + toast.css: generic showToast(message, x?, y?), required message no default; 'Copied ✓' passed by call sites. 150ms in/1s hold/250ms out, replace-on-rapid, reduced-motion instant, role=status + aria-live, isConnected recreate. Wired ALL webview copy paths: sidebar chips/byte-line/mi-values, integrity value copy, struct field/addr copies, hex-view context-menu copy. Host copyText status-bar notice removed (clipboard write stays). 808 tests, fallow 0. Archived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2acc94a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
