@@ -60,46 +60,69 @@ export function labelFormHtml(
     swatchHtml: string,
     defaultStart: string,
     defaultRange: string,
-    rename?: { startAddress: number; displayName?: string },
+    renameDisplayName?: string,
 ): string {
-    const mode = rename
-        ? { title: 'Rename Segment', saveLabel: 'Save' }
-        : editing
-            ? { title: 'Edit Label', saveLabel: 'Update' }
-            : { title: 'New Label', saveLabel: 'Add' };
-    const ro = rename ? 'disabled' : '';
+    const renaming = renameDisplayName !== undefined;
+    const mode = formMode(editing, renaming);
     return `
         <div class="sb-section-label sb-label-form-title">${mode.title}</div>
         <div class="lbl-form">
-            <div class="lf-field">
-                <span class="lf-lbl">Name</span>
-                <input id="lf-name" class="sb-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? rename?.displayName ?? '')}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="sb-input" type="text" placeholder="0x08000000" value="${esc(defaultStart)}" ${ro}>
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Range</span>
-                <div class="lf-range-row">
-                    ${rename ? '' : `
-                    <div class="compact-tabs">
-                        <button class="active" data-mode="len">Length</button>
-                        <button data-mode="end">End addr</button>
-                    </div>`}
-                    <input id="lf-range" class="sb-input" type="text" placeholder="512" value="${esc(defaultRange)}" ${ro}>
-                </div>
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Color</span>
-                <div class="lf-swatches${rename ? ' lf-ro' : ''}">${swatchHtml}</div>
-            </div>
+            ${nameFieldHtml(renameDisplayName ?? editing?.name ?? '')}
+            ${startFieldHtml(defaultStart, renaming)}
+            ${rangeFieldHtml(defaultRange, renaming)}
+            ${colorFieldHtml(swatchHtml, renaming)}
             <div class="lf-warn" id="lf-warn"></div>
             <div class="lf-actions">
                 <button class="sb-btn sb-btn-primary" id="lf-save">${mode.saveLabel}</button>
                 <button class="sb-btn sb-btn-secondary" id="lf-cancel">Cancel</button>
             </div>
         </div>`;
+}
+
+function nameFieldHtml(name: string): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Name</span>
+                <input id="lf-name" class="sb-input" type="text" placeholder="My Segment" value="${esc(name)}">
+            </div>`;
+}
+
+function startFieldHtml(defaultStart: string, ro: boolean): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Start address</span>
+                <input id="lf-start" class="sb-input" type="text" placeholder="0x08000000" value="${esc(defaultStart)}"${ro ? ' disabled' : ''}>
+            </div>`;
+}
+
+function rangeFieldHtml(defaultRange: string, ro: boolean): string {
+    const tabs = ro ? '' : `
+                    <div class="compact-tabs">
+                        <button class="active" data-mode="len">Length</button>
+                        <button data-mode="end">End addr</button>
+                    </div>`;
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Range</span>
+                <div class="lf-range-row">${tabs}
+                    <input id="lf-range" class="sb-input" type="text" placeholder="512" value="${esc(defaultRange)}"${ro ? ' disabled' : ''}>
+                </div>
+            </div>`;
+}
+
+function colorFieldHtml(swatchHtml: string, ro: boolean): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Color</span>
+                <div class="lf-swatches${ro ? ' lf-ro' : ''}">${swatchHtml}</div>
+            </div>`;
+}
+
+function formMode(editing: SegmentLabel | undefined, rename: boolean): { title: string; saveLabel: string } {
+    if (rename) { return { title: 'Rename Segment', saveLabel: 'Save' }; }
+    return editing
+        ? { title: 'Edit Label', saveLabel: 'Update' }
+        : { title: 'New Label', saveLabel: 'Add' };
 }
 
 export function defaultLabelColor(editing: SegmentLabel | undefined, fallback: string): string {

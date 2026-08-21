@@ -63,20 +63,29 @@ export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string, 
     panel.sections!.setCollapsed('labels', false);
 
     const chosenColor = defaultLabelColor(editing, LABEL_COLORS[panel.labels.length % LABEL_COLORS.length].v);
-    const renameOpts = rename
-        ? { ...rename, displayName: panel.segmentNames[String(rename.startAddress)] ?? rename.parsedName }
-        : undefined;
     body.innerHTML = labelFormHtml(
         editing,
         labelSwatchesHtml(chosenColor),
-        rename ? labelAddrHex(rename.startAddress) : defaultLabelStart(panel.selection, editing),
-        rename ? `${rename.length}` : defaultLabelRange(panel.selection, editing),
-        renameOpts,
+        formDefaultStart(panel, rename, editing),
+        formDefaultRange(panel, rename, editing),
+        segmentDisplayName(panel, rename),
     );
 
     const formState: LabelFormState = { chosenColor, rangeMode: 'len', pendingWarning: false, lastFocused: null, rename };
     panel.labelFormState = formState;
     wireLabelForm(panel, body, editId, editing, formState);
+}
+
+function formDefaultStart(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined): string {
+    return rename ? labelAddrHex(rename.startAddress) : defaultLabelStart(panel.selection, editing);
+}
+
+function formDefaultRange(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined): string {
+    return rename ? `${rename.length}` : defaultLabelRange(panel.selection, editing);
+}
+
+function segmentDisplayName(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined): string | undefined {
+    return rename ? panel.segmentNames[String(rename.startAddress)] ?? rename.parsedName : undefined;
 }
 
 /**
@@ -87,28 +96,67 @@ export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string, 
  * Rename-mode forms are read-only and never touched.
  */
 export function updateLabelFormSel(panel: InspectorLabelFormHost): void {
-    const state = panel.labelFormState;
-    if (!state || state.rename) { return; }
-    const { start, end } = panel.selection;
-    if (start === null) { return; }
-    const startEl = labelStartEl(panel);
-    const rangeEl = labelRangeEl(panel);
-    if (!startEl || !rangeEl) { return; }
-
-    if (state.lastFocused === 'range') {
-        activateRangeTab(panel, 'end');
-        state.rangeMode = 'end';
-        rangeEl.placeholder = '0x0800FFFF';
-        rangeEl.value = labelAddrHex(Math.max(end ?? start, start));
+    const targets = openFormTargets(panel);
+    if (!targets) { return; }
+    if (targets.state.lastFocused === 'range') {
+        fillRangeFromSelection(panel, targets.state, targets.rangeEl);
         return;
     }
+    fillStartAndRange(panel, targets.state, targets.startEl, targets.rangeEl);
+}
 
+/** Open, non-rename form with both field elements present — else null. */
+function openFormTargets(panel: InspectorLabelFormHost): { state: LabelFormState; startEl: HTMLInputElement; rangeEl: HTMLInputElement } | null {
+    const state = panel.labelFormState;
+    const startEl = labelStartEl(panel);
+    const rangeEl = labelRangeEl(panel);
+    const blocked = [
+        !state,
+        Boolean(state?.rename),
+        panel.selection.start === null,
+        !startEl,
+        !rangeEl,
+    ];
+    if (blocked.some(Boolean)) { return null; }
+    return { state: state!, startEl: startEl!, rangeEl: rangeEl! };
+}
+
+/** Range focused → auto-switch to End addr mode and fill the selection end. */
+function fillRangeFromSelection(panel: InspectorLabelFormHost, state: LabelFormState, rangeEl: HTMLInputElement): void {
+    activateRangeTab(panel, 'end');
+    state.rangeMode = 'end';
+    const { start, end } = panel.selection;
+    rangeEl.placeholder = '0x0800FFFF';
+    rangeEl.value = labelAddrHex(Math.max(end ?? start ?? 0, start ?? 0));
+}
+
+/** Start focused (or nothing focused) → Start fills, Range follows its mode. */
+function fillStartAndRange(panel: InspectorLabelFormHost, state: LabelFormState, startEl: HTMLInputElement, rangeEl: HTMLInputElement): void {
+    const { start } = panel.selection;
+    if (start === null) { return; }
     startEl.value = labelAddrHex(start);
-    if (state.rangeMode === 'end') {
-        rangeEl.value = end !== null && end >= start ? labelAddrHex(end) : '';
-    } else if (end !== null && end >= start) {
-        rangeEl.value = String(end - start + 1);
-    }
+    fillRangeForMode(panel, state, start);
+}
+
+function fillRangeForMode(panel: InspectorLabelFormHost, state: LabelFormState, start: number): void {
+    const rangeEl = labelRangeEl(panel);
+    if (!rangeEl) { return; }
+    const selEnd = selectionEnd(start, panel.selection.end);
+    rangeEl.value = state.rangeMode === 'end'
+        ? endOrEmpty(selEnd)
+        : lengthOrEmpty(selEnd, start);
+}
+
+function endOrEmpty(end: number | null): string {
+    return end !== null ? labelAddrHex(end) : '';
+}
+
+function lengthOrEmpty(end: number | null, start: number): string {
+    return end !== null ? String(end - start + 1) : '';
+}
+
+function selectionEnd(start: number, end: number | null): number | null {
+    return end !== null && end >= start ? end : null;
 }
 
 /** Flips the compact-tabs active state without rewriting the range value. */
@@ -260,6 +308,18 @@ function saveLabel(panel: InspectorLabelFormHost, editId: string | undefined, ed
         showLabelError(panel, draft.error);
         return false;
     }
+    return confirmAndApplyLabel(panel, editId, editing, color, draft, confirmed);
+}
+
+/** Warning gate: first Save shows the warning and keeps the form open. */
+function confirmAndApplyLabel(
+    panel: InspectorLabelFormHost,
+    editId: string | undefined,
+    editing: SegmentLabel | undefined,
+    color: string,
+    draft: Extract<LabelDraftResult, { ok: true }>,
+    confirmed: boolean,
+): boolean {
     const warning = confirmed ? null : labelRangeWarning(panel, draft.startAddress, draft.length, editId);
     if (warning) {
         showLabelError(panel, warning);
@@ -276,11 +336,15 @@ function applySegmentRename(panel: InspectorLabelFormHost, rename: NonNullable<L
         showLabelError(panel, 'Name is required.');
         return false;
     }
+    setSegmentNameOverride(panel, rename, name);
+    panel.cb.onLabelsChange?.(panel.labels, panel.segmentNames);
+    return false;
+}
+
+function setSegmentNameOverride(panel: InspectorLabelFormHost, rename: NonNullable<LabelFormState['rename']>, name: string): void {
     const key = String(rename.startAddress);
     if (name === rename.parsedName) { delete panel.segmentNames[key]; }
     else { panel.segmentNames[key] = name; }
-    panel.cb.onLabelsChange?.(panel.labels, panel.segmentNames);
-    return false;
 }
 
 function showLabelError(panel: InspectorLabelFormHost, message: string): void {
