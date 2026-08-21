@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import '../../../cssImportHook';
 
 import { InspectorPanel } from '../../../../../webview/components/sidebar/inspectorPanel/inspectorPanel';
+import { labelChipText } from '../../../../../webview/components/sidebar/inspectorPanel/inspectorLabels';
 import type { SegmentLabel, SerializedSegment } from '../../../../../core/types';
 
 let currentDom: JSDOM | null = null;
@@ -13,7 +14,7 @@ type Globalish = {
     getComputedStyle: typeof getComputedStyle;
 };
 
-function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> } } {
+function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]>; drafts: Array<{ start: number; end: number; color: string } | null> } } {
     const dom = new JSDOM('<!doctype html><html><body><div id="host"></div></body></html>', { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as Globalish;
     g.window = dom.window as unknown as Window;
@@ -38,6 +39,7 @@ function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: num
         labels: [] as SegmentLabel[][],
         names: [] as Array<Record<string, string> | undefined>,
         copies: [] as Array<[string, string]>,
+        drafts: [] as Array<{ start: number; end: number; color: string } | null>,
     };
     const inspector = new InspectorPanel({
         readByte: addr => bytes.get(addr),
@@ -47,6 +49,7 @@ function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: num
             cb.names.push(segmentNames);
         },
         onCopy: (text, label) => cb.copies.push([text, label]),
+        onLabelDraftChange: draft => cb.drafts.push(draft),
     });
     inspector.mount(document.getElementById('host')!);
     return { dom, inspector, cb };
@@ -301,7 +304,7 @@ suite('Inspector labels', () => {
         document.getElementById('btn-add-lbl')!.click();
         (document.getElementById('lf-name') as HTMLInputElement).value = 'Overlap';
         (document.getElementById('lf-start') as HTMLInputElement).value = '0x1000';
-        (document.getElementById('lf-range') as HTMLInputElement).value = '4';
+        (document.getElementById('lf-range') as HTMLInputElement).value = '0x1003';
         document.getElementById('lf-save')!.click();
         assert.strictEqual(cb.labels.length, 0, 'no change on first save with warning');
         assert.ok(document.getElementById('lf-warn')!.textContent?.includes('Overlaps with'));
@@ -315,7 +318,7 @@ suite('Inspector labels', () => {
         document.getElementById('btn-add-lbl')!.click();
         (document.getElementById('lf-name') as HTMLInputElement).value = 'My Segment';
         (document.getElementById('lf-start') as HTMLInputElement).value = '0x1000';
-        (document.getElementById('lf-range') as HTMLInputElement).value = '4';
+        (document.getElementById('lf-range') as HTMLInputElement).value = '0x1003';
         document.getElementById('lf-save')!.click();
 
         assert.strictEqual(cb.labels.length, 1);
@@ -329,7 +332,7 @@ suite('Inspector labels', () => {
         document.getElementById('btn-add-lbl')!.click();
         (document.getElementById('lf-name') as HTMLInputElement).value = 'My Segment';
         (document.getElementById('lf-start') as HTMLInputElement).value = 'zzz';
-        (document.getElementById('lf-range') as HTMLInputElement).value = '4';
+        (document.getElementById('lf-range') as HTMLInputElement).value = '0x1003';
         document.getElementById('lf-save')!.click();
         assert.strictEqual(document.getElementById('lf-warn')!.textContent, 'Invalid start address.');
         assert.strictEqual(cb.labels.length, 0);
@@ -475,12 +478,17 @@ suite('Label form selection fill', () => {
         return document.getElementById('lf-start') as HTMLInputElement;
     }
 
-    test('default (start-focused): click fills Start + length Range', () => {
+    test('default (start-focused): click fills Start + end-address Range', () => {
         openAddForm();
         inspector.setSelection(0x1000, 0x1003);
         inspector.syncLabelForm();
         assert.strictEqual(startEl().value, '0x00001000');
-        assert.strictEqual(rangeEl().value, '4');
+        assert.strictEqual(rangeEl().value, '0x00001003');
+        assert.strictEqual(
+            document.querySelector<HTMLElement>('.compact-tabs button.active')!.getAttribute('data-mode'),
+            'end',
+            'End Address is the default mode',
+        );
     });
 
     test('range focused: click auto-switches to End addr mode and fills it', () => {
@@ -523,7 +531,7 @@ suite('Label form selection fill', () => {
         assert.strictEqual(rangeEl().value, '999', 'manual input untouched by typing events');
         inspector.setSelection(0x1000, 0x1003);
         inspector.syncLabelForm();
-        assert.strictEqual(rangeEl().value, '4', 'selection change rewrites per fill rules');
+        assert.strictEqual(rangeEl().value, '0x00001003', 'selection change rewrites per fill rules');
     });
 
     test('rename form ignores selection changes entirely', () => {
@@ -533,5 +541,121 @@ suite('Label form selection fill', () => {
         inspector.syncLabelForm();
         assert.strictEqual(startEl().value, '0x00001000', 'read-only fields stay frozen');
         assert.strictEqual(rangeEl().value, '2');
+    });
+});
+
+suite('Label form auto-calc chip + draft preview', () => {
+    let dom: JSDOM;
+    let inspector: InspectorPanel;
+    let cb: ReturnType<typeof installDom>['cb'];
+
+    setup(() => {
+        const installed = installDom();
+        dom = installed.dom;
+        inspector = installed.inspector;
+        cb = installed.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    function chipEl(): HTMLElement {
+        return document.getElementById('lf-chip')!;
+    }
+
+    function type(id: string, value: string): void {
+        const el = document.getElementById(id) as HTMLInputElement;
+        el.value = value;
+        el.dispatchEvent(new dom.window.Event('input'));
+    }
+
+    test('End Address mode shows a size chip; Length mode shows an end-address chip', () => {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+        type('lf-start', '0x1000');
+        type('lf-range', '0x1003');
+        assert.strictEqual(chipEl().textContent, '(4 B)', 'size chip in end mode');
+
+        document.querySelector<HTMLElement>('.compact-tabs button[data-mode="len"]')!.click();
+        assert.strictEqual(
+            (document.getElementById('lf-range') as HTMLInputElement).value,
+            '4',
+            'value converted to length on mode switch',
+        );
+        assert.strictEqual(chipEl().textContent, '0x00001003', 'end-address chip in length mode');
+    });
+
+    test('chip clears on invalid input', () => {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+        type('lf-start', '0x1000');
+        type('lf-range', '0x0FFF');
+        assert.strictEqual(chipEl().textContent, '', 'invalid end (< start) clears chip');
+    });
+
+    test('draft range is reported while typing and cleared on cancel', () => {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+        cb.drafts.length = 0;
+        type('lf-start', '0x1000');
+        type('lf-range', '0x1003');
+        assert.deepStrictEqual(cb.drafts.at(-1), { start: 0x1000, end: 0x1003, color: '#4fc3f7' });
+        document.getElementById('lf-cancel')!.click();
+        assert.strictEqual(cb.drafts.at(-1), null, 'cancel clears the draft preview');
+    });
+
+    test('invalid draft reports null', () => {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+        cb.drafts.length = 0;
+        type('lf-start', '0x1000');
+        type('lf-range', 'nope');
+        assert.strictEqual(cb.drafts.at(-1), null);
+    });
+
+    test('swatches are buttons with selection ring + aria-pressed', () => {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+        const swatches = document.querySelectorAll<HTMLElement>('.lf-swatch');
+        assert.ok(swatches.length === 8, '8 colors rendered');
+        const active = document.querySelector<HTMLElement>('.lf-swatch.selected')!;
+        assert.strictEqual(active.tagName, 'BUTTON');
+        assert.strictEqual(active.getAttribute('aria-pressed'), 'true');
+        swatches[1].click();
+        assert.strictEqual(document.querySelector('.lf-swatch.selected'), swatches[1], 'ring follows selection');
+        assert.strictEqual(swatches[0].getAttribute('aria-pressed'), 'false');
+    });
+
+    test('Escape cancels and Enter submits', () => {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+        const nameEl = document.getElementById('lf-name') as HTMLInputElement;
+        nameEl.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert.ok(!document.getElementById('lf-name'), 'Escape closed the form');
+
+        document.getElementById('btn-add-lbl')!.click();
+        (document.getElementById('lf-name') as HTMLInputElement).value = 'Key';
+        (document.getElementById('lf-start') as HTMLInputElement).value = '0x1000';
+        const range = document.getElementById('lf-range') as HTMLInputElement;
+        range.value = '0x1003';
+        range.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        assert.strictEqual(cb.labels.length, 1, 'Enter saved the label');
+        assert.strictEqual(cb.labels[0][0].name, 'Key');
+    });
+});
+
+suite('labelChipText pure helper', () => {
+    test('end mode → size chip via fmtB', () => {
+        assert.strictEqual(labelChipText('end', 0x1000, '0x1003'), '(4 B)');
+        assert.strictEqual(labelChipText('end', 0x1000, '0x1000'), '(1 B)');
+        assert.strictEqual(labelChipText('end', 0x1000, '0x0FFF'), '');
+        assert.strictEqual(labelChipText('end', NaN, '0x1003'), '');
+    });
+
+    test('len mode → end-address chip', () => {
+        assert.strictEqual(labelChipText('len', 0x1000, '4'), '0x00001003');
+        assert.strictEqual(labelChipText('len', 0x1000, '0x10'), '0x0000100F');
+        assert.strictEqual(labelChipText('len', 0x1000, '0'), '');
+        assert.strictEqual(labelChipText('len', NaN, '4'), '');
     });
 });

@@ -115,6 +115,12 @@ export function paintMemorySelection(): void {
     hexView?.paintSelection(currentSelectionRange());
 }
 
+/** Label-form draft preview: repaint the transient range tint from S.labelDraft. */
+export function paintMemoryLabelDraft(): void {
+    const draft = S.labelDraft;
+    hexView?.paintLabelDraft(draft ? { start: draft.start, end: draft.end } : null, draft?.color ?? '');
+}
+
 export function paintMemoryMatchHighlights(): void {
     hexView?.paintMatch(S.matchAddrs, S.matchIdx, getNeedleLen() ?? 0);
 }
@@ -165,6 +171,8 @@ function renderMemoryGrid(scrollContainer: HTMLElement): void {
     const container = document.getElementById('mem-rows')!;
     applyMemoryContainerLayout(container, layout);
     container.innerHTML = renderHexViewHtml(buildHexViewInput(startIdx, endIdx, layout, state, scrollContainer));
+    // Selection/matches composite declaratively; the draft tint is class-painted → repaint after rebuild.
+    paintMemoryLabelDraft();
 }
 
 function shouldSkipMemoryRender(compressed: boolean, startIdx: number, endIdx: number): boolean {

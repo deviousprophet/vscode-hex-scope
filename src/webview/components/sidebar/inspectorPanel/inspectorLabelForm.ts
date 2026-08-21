@@ -12,6 +12,7 @@ import {
     endAddressOrEmpty,
     isOutsideMappedData,
     isValidLabelEnd,
+    labelChipText,
     labelFormHtml,
     LABEL_COLORS,
     mergeLabel,
@@ -41,7 +42,7 @@ export interface InspectorLabelFormHost {
     segmentNames: Record<string, string>;
     /** Live form state; present only while the inline form is open. */
     labelFormState?: LabelFormState;
-    cb: Pick<InspectorCallbacks, 'onLabelsChange'>;
+    cb: Pick<InspectorCallbacks, 'onLabelsChange' | 'onLabelDraftChange'>;
     renderLabels(): void;
 }
 
@@ -63,25 +64,32 @@ export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string, 
     panel.sections!.setCollapsed('labels', false);
 
     const chosenColor = defaultLabelColor(editing, LABEL_COLORS[panel.labels.length % LABEL_COLORS.length].v);
+    const rangeMode: LabelRangeMode = 'end';
+    const defaultStart = formDefaultStart(panel, rename, editing);
+    const defaultRange = formDefaultRange(panel, rename, editing, rangeMode);
+    const chipText = rename ? '' : labelChipText(rangeMode, parseInt(defaultStart.replace(/^0x/i, ''), 16), defaultRange);
     body.innerHTML = labelFormHtml(
         editing,
         labelSwatchesHtml(chosenColor),
-        formDefaultStart(panel, rename, editing),
-        formDefaultRange(panel, rename, editing),
+        defaultStart,
+        defaultRange,
+        rangeMode,
+        chipText,
         segmentDisplayName(panel, rename),
     );
 
-    const formState: LabelFormState = { chosenColor, rangeMode: 'len', pendingWarning: false, lastFocused: null, rename };
+    const formState: LabelFormState = { chosenColor, rangeMode, pendingWarning: false, lastFocused: null, rename };
     panel.labelFormState = formState;
     wireLabelForm(panel, body, editId, editing, formState);
+    labelNameEl(panel)?.focus();
 }
 
 function formDefaultStart(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined): string {
     return rename ? labelAddrHex(rename.startAddress) : defaultLabelStart(panel.selection, editing);
 }
 
-function formDefaultRange(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined): string {
-    return rename ? `${rename.length}` : defaultLabelRange(panel.selection, editing);
+function formDefaultRange(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined, mode: LabelRangeMode): string {
+    return rename ? `${rename.length}` : defaultLabelRange(panel.selection, editing, mode);
 }
 
 function segmentDisplayName(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined): string | undefined {
@@ -100,9 +108,28 @@ export function updateLabelFormSel(panel: InspectorLabelFormHost): void {
     if (!targets) { return; }
     if (targets.state.lastFocused === 'range') {
         fillRangeFromSelection(panel, targets.state, targets.rangeEl);
-        return;
+    } else {
+        fillStartAndRange(panel, targets.state, targets.startEl, targets.rangeEl);
     }
-    fillStartAndRange(panel, targets.state, targets.startEl, targets.rangeEl);
+    syncDraftPreview(panel, targets.state);
+}
+
+/** Refresh the auto-calc chip + report the draft range to the host grid. */
+function syncDraftPreview(panel: InspectorLabelFormHost, state: LabelFormState): void {
+    const chip = panel.root?.querySelector<HTMLElement>('#lf-chip');
+    if (chip) {
+        const start = labelStartAddress(panel);
+        const raw = labelRangeEl(panel)?.value ?? '';
+        const text = state.rename ? '' : labelChipText(state.rangeMode, start, raw);
+        chip.textContent = text;
+        if (text) { chip.title = text; } else { chip.removeAttribute('title'); }
+    }
+    if (state.rename) { panel.cb.onLabelDraftChange?.(null); return; }
+    const start = labelStartAddress(panel);
+    const parsed = parseLabelLength(panel, state.rangeMode, start);
+    panel.cb.onLabelDraftChange?.(isNaN(start) || !parsed.ok
+        ? null
+        : { start, end: start + parsed.length - 1, color: state.chosenColor });
 }
 
 /** Open, non-rename form with both field elements present — else null. */
@@ -361,7 +388,10 @@ function wireLabelForm(
     editing: SegmentLabel | undefined,
     state: LabelFormState,
 ): void {
-    wireLabelColorSwatches(sec, color => { state.chosenColor = color; });
+    wireLabelColorSwatches(sec, color => {
+        state.chosenColor = color;
+        syncDraftPreview(panel, state);
+    });
 
     if (!state.rename) {
         sec.querySelectorAll<HTMLElement>('.compact-tabs button').forEach(btn => {
@@ -369,6 +399,7 @@ function wireLabelForm(
                 state.rangeMode = switchLabelRangeMode(panel, sec, btn, state.rangeMode, editing);
                 state.pendingWarning = false;
                 clearLabelWarning(panel);
+                syncDraftPreview(panel, state);
             });
         });
         // Focus tracking drives hex-click auto-fill (survives blur — clicking
@@ -380,10 +411,23 @@ function wireLabelForm(
     const clearPending = (): void => {
         state.pendingWarning = false;
         clearLabelWarning(panel);
+        syncDraftPreview(panel, state);
     };
     sec.querySelector<HTMLElement>('#lf-name')?.addEventListener('input', clearPending);
     sec.querySelector<HTMLElement>('#lf-start')?.addEventListener('input', clearPending);
     sec.querySelector<HTMLElement>('#lf-range')?.addEventListener('input', clearPending);
+
+    sec.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            e.stopPropagation();
+            panel.renderLabels();
+            return;
+        }
+        if (e.key === 'Enter' && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
+            e.preventDefault();
+            sec.querySelector<HTMLButtonElement>('#lf-save')?.click();
+        }
+    });
 
     sec.querySelector<HTMLElement>('#lf-cancel')?.addEventListener('click', () => panel.renderLabels());
     sec.querySelector<HTMLElement>('#lf-save')?.addEventListener('click', () => {
@@ -394,8 +438,12 @@ function wireLabelForm(
 function wireLabelColorSwatches(sec: HTMLElement, onColor: (color: string) => void): void {
     sec.querySelectorAll<HTMLElement>('.lf-swatch').forEach(sw => {
         sw.addEventListener('click', () => {
-            sec.querySelectorAll('.lf-swatch').forEach(s => s.classList.remove('selected'));
+            sec.querySelectorAll('.lf-swatch').forEach(s => {
+                s.classList.remove('selected');
+                s.setAttribute('aria-pressed', 'false');
+            });
             sw.classList.add('selected');
+            sw.setAttribute('aria-pressed', 'true');
             onColor(sw.dataset.color!);
         });
     });

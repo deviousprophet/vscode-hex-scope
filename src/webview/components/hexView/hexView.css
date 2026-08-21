@@ -136,6 +136,10 @@
     box-shadow: inset 0 0 0 2px rgba(95, 207, 255, 1), 0 0 0 1px rgba(95, 207, 255, .8);
 }
 
+/* ── Label-form draft-range preview (color set via --lf-draft-color by HexView.paintLabelDraft) ── */
+.data-cell.lf-draft:not(.sel):not(.match),
+.char-cell.lf-draft:not(.sel):not(.match) { background: var(--lf-draft-color, transparent); }
+
 .data-row.row-sel .addr-cell {
     color: var(--fg);
     background: rgba(255,255,255,.07);

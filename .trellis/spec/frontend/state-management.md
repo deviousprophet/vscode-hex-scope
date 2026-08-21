@@ -7,6 +7,7 @@
 - `src/webview/webviewMessageModel.ts`: provider-message reducers returning `WebviewInvalidations`.
 - `src/hexEditorSession.ts`: host-side file/session state and VS Code persistence.
 - Integrity and struct modules own feature-local transient UI state but persist through typed protocol messages.
+- `S.labelDraft` (`LabelDraftPreview | null`) is a host-owned transient grid preview (same category as `S.integrityHighlight`): the Inspector panel reports it via `onLabelDraftChange`; `hexViewer.ts` stores it and `memoryGrid.paintMemoryLabelDraft()` repaints it (also after every slice re-render). It is never persisted.
 
 ## Core Invariants
 

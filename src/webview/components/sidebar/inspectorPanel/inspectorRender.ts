@@ -255,15 +255,18 @@ export function defaultLabelStart(selection: { start: number | null; end: number
     return selection.start !== null ? labelAddrHex(selection.start) : '';
 }
 
-export function defaultLabelRange(selection: { start: number | null; end: number | null }, editing: SegmentLabel | undefined): string {
-    if (editing) { return `${editing.length}`; }
+export function defaultLabelRange(selection: { start: number | null; end: number | null }, editing: SegmentLabel | undefined, mode: 'len' | 'end' = 'len'): string {
+    if (editing) {
+        return mode === 'end' ? labelAddrHex(editing.startAddress + editing.length - 1) : `${editing.length}`;
+    }
     const { start, end } = selection;
-    return start !== null && end !== null ? `${end - start + 1}` : '';
+    if (start === null || end === null || end < start) { return ''; }
+    return mode === 'end' ? labelAddrHex(end) : `${end - start + 1}`;
 }
 
 export function labelSwatchesHtml(chosenColor: string): string {
     return LABEL_COLORS.map(c =>
-        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}" aria-label="Use ${c.name} label color"></span>`
+        `<button type="button" class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}" aria-label="Use ${c.name} label color" aria-pressed="${c.v === chosenColor}"></button>`
     ).join('');
 }
 

@@ -27,6 +27,7 @@ interface InspectorCallbacks {
     onJumpTo?: (address: number) => void;                  // segment/label row click
     onLabelsChange?: (labels: SegmentLabel[], segmentNames?: Record<string, string>) => void;  // any label mutation; segmentNames rides the same channel
     onCopy?: (text: string, label: string) => void;        // copy chip
+    onLabelDraftChange?: (draft: LabelDraftPreview | null) => void;  // live form draft → host grid preview; null clears
 }
 
 class InspectorPanel {
@@ -47,13 +48,15 @@ class InspectorPanel {
 - `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or struct-field selection).
 - Label mutations report `onLabelsChange`; the host persists (`saveLabels`) and invalidates (memory + labels rerender). Confirm-on-warning is component UI state.
 - Collapse toggle is the shared `SidebarSections` whole-header control (two sections: `insp`, `labels`); the internal Bits block uses its own local `.sb-inner-toggle` disclosure.
-- Markup is byte-identical to pre-refactor (same ids/classes). Untrusted text escaped with `esc()`.
+- Markup is stable per the form contract in `inspectorLabels.ts` (same ids/classes); visual restyles change class rules, not the ids. Untrusted text escaped with `esc()`.
 
 ## Behaviour
 
 - Default: Inspector expanded, Labels collapsed (slim 22px header packed to the bottom of the pane view). Bit View lives inside the Inspector section as an internal sticky-collapsible block (auto-expands on new selection unless the user collapsed it this mount). Segments are merged into Labels as permanent (non-deletable) rows; no separate Segments section.
 - Selection paints address/vals (+ copy chips), the merged byte line (displays first ≤8 bytes + ellipsis; click copies the FULL selection — matching the "Click to copy N bytes" tooltip; the ellipsis is never copied), bit rows, and the multi-byte interpreter (`[LE/BE · N-byte]` context tag); `setEndian` re-decodes the interpreter (LE/BE).
-- Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); every row shows `0xSTART–0xEND · SIZE`; add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm. Pinned segment rows are permanent but name-only renamable via ✎ → the shared form in rename mode (Name editable; Start/Range/Color read-only; saving the parsed name clears the override). Name overrides are keyed by start address (decimal string) and persist through `onLabelsChange`/`saveLabels` (`segmentNames` map); renamed rows show the override with the parsed name as tooltip.
+- Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); every row shows `0xSTART–0xEND · SIZE`; add/edit form with name/start/range (End Address | Size·Length modes via a shared `.compact-tabs` switch above the field, default **End Address**)/color swatches; a read-only auto-calc chip shows the counterpart (size in End mode, end address in Length mode); validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm. Pinned segment rows are permanent but name-only renamable via ✎ → the shared form in rename mode (Name editable; Start/Range/Color read-only, no tabs/chip; saving the parsed name clears the override). Name overrides are keyed by start address (decimal string) and persist through `onLabelsChange`/`saveLabels` (`segmentNames` map); renamed rows show the override with the parsed name as tooltip.
+- Color swatches are `<button type="button" class="lf-swatch">` with a selection ring and `aria-pressed` (active swatch `true`, others `false`). Esc cancels the form; Enter (from an input) submits; the first field autofocuses on open.
+- The form reports a live draft range via `onLabelDraftChange` on every input/mode-switch/swatch change (invalid/partial input or rename mode reports `null`); `renderLabels()` (any labels rerender, incl. cancel/save) is the teardown choke point that clears the preview.
 - Hex-view selection updates an open label form's start/range (`syncLabelForm`). Auto-fill fires only on selection changes, never keystrokes; the last-focused field receives the fill — Start focused fills Start (+ Range per mode); Range focused auto-switches to End addr mode and fills the selection end. Rename-mode forms ignore selection changes.
 
 ## Validation & Error Matrix

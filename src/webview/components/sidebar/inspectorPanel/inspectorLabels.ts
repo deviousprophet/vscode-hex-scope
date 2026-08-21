@@ -60,6 +60,8 @@ export function labelFormHtml(
     swatchHtml: string,
     defaultStart: string,
     defaultRange: string,
+    rangeMode: LabelRangeMode,
+    chipText: string,
     renameDisplayName?: string,
 ): string {
     const renaming = renameDisplayName !== undefined;
@@ -69,12 +71,12 @@ export function labelFormHtml(
         <div class="lbl-form">
             ${nameFieldHtml(renameDisplayName ?? editing?.name ?? '')}
             ${startFieldHtml(defaultStart, renaming)}
-            ${rangeFieldHtml(defaultRange, renaming)}
+            ${rangeFieldHtml(defaultRange, rangeMode, chipText, renaming)}
             ${colorFieldHtml(swatchHtml, renaming)}
-            <div class="lf-warn" id="lf-warn"></div>
+            <div class="lf-warn" id="lf-warn" role="alert"></div>
             <div class="lf-actions">
-                <button class="sb-btn sb-btn-primary" id="lf-save">${mode.saveLabel}</button>
                 <button class="sb-btn sb-btn-secondary" id="lf-cancel">Cancel</button>
+                <button class="sb-btn sb-btn-primary" id="lf-save">${mode.saveLabel}</button>
             </div>
         </div>`;
 }
@@ -82,7 +84,7 @@ export function labelFormHtml(
 function nameFieldHtml(name: string): string {
     return `
             <div class="lf-field">
-                <span class="lf-lbl">Name</span>
+                <span class="lf-lbl">Label Name</span>
                 <input id="lf-name" class="sb-input" type="text" placeholder="My Segment" value="${esc(name)}">
             </div>`;
 }
@@ -90,22 +92,23 @@ function nameFieldHtml(name: string): string {
 function startFieldHtml(defaultStart: string, ro: boolean): string {
     return `
             <div class="lf-field">
-                <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="sb-input" type="text" placeholder="0x08000000" value="${esc(defaultStart)}"${ro ? ' disabled' : ''}>
+                <span class="lf-lbl">Start Address</span>
+                <input id="lf-start" class="sb-input lf-hex" type="text" placeholder="0x08000000" value="${esc(defaultStart)}"${ro ? ' disabled' : ''}>
             </div>`;
 }
 
-function rangeFieldHtml(defaultRange: string, ro: boolean): string {
+function rangeFieldHtml(defaultRange: string, mode: LabelRangeMode, chipText: string, ro: boolean): string {
     const tabs = ro ? '' : `
-                    <div class="compact-tabs">
-                        <button class="active" data-mode="len">Length</button>
-                        <button data-mode="end">End addr</button>
+                    <div class="compact-tabs lf-mode-tabs">
+                        <button data-mode="end"${mode === 'end' ? ' class="active"' : ''}>End Address</button>
+                        <button data-mode="len"${mode === 'len' ? ' class="active"' : ''}>Size &middot; Length</button>
                     </div>`;
     return `
             <div class="lf-field">
-                <span class="lf-lbl">Range</span>
-                <div class="lf-range-row">${tabs}
-                    <input id="lf-range" class="sb-input" type="text" placeholder="512" value="${esc(defaultRange)}"${ro ? ' disabled' : ''}>
+                <span class="lf-lbl">Define End By</span>${tabs}
+                <div class="lf-range-row">
+                    <input id="lf-range" class="sb-input lf-hex" type="text" placeholder="${mode === 'end' ? '0x0800FFFF' : '512'}" value="${esc(defaultRange)}"${ro ? ' disabled' : ''}>
+                    <span class="lf-chip" id="lf-chip"${chipText ? ` title="${esc(chipText)}"` : ''}>${esc(chipText)}</span>
                 </div>
             </div>`;
 }
@@ -152,6 +155,21 @@ export function parseExplicitLength(raw: string): LabelLengthResult {
     const length = /^0x/i.test(raw) ? parseInt(raw, 16) : parseInt(raw, 10);
     if (isNaN(length) || length <= 0) { return { ok: false, error: 'Invalid length.' }; }
     return { ok: true, length };
+}
+
+/**
+ * Derived counterpart text for the representation the user is NOT editing:
+ * End Address mode → human-readable size chip; Length mode → end-address chip.
+ * Empty string when the raw value does not (yet) parse against startAddress.
+ */
+export function labelChipText(mode: LabelRangeMode, startAddress: number, raw: string): string {
+    if (isNaN(startAddress)) { return ''; }
+    if (mode === 'end') {
+        const parsed = parseEndAddressLength(raw, startAddress);
+        return parsed.ok ? `(${fmtB(parsed.length)})` : '';
+    }
+    const parsed = parseExplicitLength(raw);
+    return parsed.ok ? endAddressOrEmpty(startAddress, parsed.length) : '';
 }
 
 export function isOutsideMappedData(segments: SerializedSegment[], startAddress: number, endAddress: number): boolean {

@@ -53,6 +53,13 @@ export interface SegmentLabel {
     hidden?: boolean;
 }
 
+/** Live label-form draft range previewed in the grid while the form is open. */
+export interface LabelDraftPreview {
+    start: number;
+    end: number;
+    color: string;
+}
+
 export type SearchMode = 'bytes' | 'value' | 'ascii' | 'addr';
 export type SearchEndianness = 'auto' | 'be' | 'le';
 export type BitFieldAllocation = 'lsb' | 'msb';

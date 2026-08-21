@@ -35,6 +35,7 @@ import {
     updateLabelFormSel,
     type InspectorLabelFormHost,
 } from './inspectorLabelForm';
+import type { LabelDraftPreview } from '../../../../core/types';
 import './inspectorPanel.css';
 
 export interface InspectorCallbacks {
@@ -46,6 +47,8 @@ export interface InspectorCallbacks {
     onLabelsChange?: (labels: SegmentLabel[], segmentNames?: Record<string, string>) => void;
     /** Copy chip → host posts copyText. */
     onCopy?: (text: string, label: string) => void;
+    /** Label-form draft range → host paints a live preview in the grid; null clears it. */
+    onLabelDraftChange?: (draft: LabelDraftPreview | null) => void;
 }
 
 export class InspectorPanel implements InspectorLabelFormHost {
@@ -353,6 +356,8 @@ export class InspectorPanel implements InspectorLabelFormHost {
     renderLabels(): void {
         const body = this.sections?.body('labels');
         if (!body) { return; }
+        // Form teardown choke point: any labels rerender clears the draft preview.
+        this.cb.onLabelDraftChange?.(null);
         const itemsHtml = labelItemsHtml(this.labels, this.segments, this.segmentNames);
         body.innerHTML = `${itemsHtml}
             <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>`;

@@ -13,6 +13,7 @@ import {
     mountHexView,
     paintCell,
     paintClearStructHighlight,
+    paintMemoryLabelDraft,
     paintMemoryMatchHighlights,
     paintMemorySelection,
     paintStructHighlight,
@@ -27,7 +28,7 @@ import { StructPanel } from './components/sidebar/structPanel/structPanel';
 import { clearSearch, initSearch, invalidateSearchIfDiverged, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/searchBar/searchBar';
 import { Toolbar } from './components/toolbar/toolbar';
-import type { SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
+import type { LabelDraftPreview, SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
 import type { SidebarTab } from './components/sidebar/sidebar';
 import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
@@ -107,7 +108,14 @@ const inspectorPanel = new InspectorPanel({
     onJumpTo: address => rerender.jumpTo(address),
     onLabelsChange: applyInspectorLabels,
     onCopy: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
+    onLabelDraftChange: applyLabelDraftPreview,
 });
+
+/** Live label-form draft: store the range and repaint the grid tint. */
+function applyLabelDraftPreview(draft: LabelDraftPreview | null): void {
+    S.labelDraft = draft;
+    if (S.currentView === 'memory') { paintMemoryLabelDraft(); }
+}
 
 /** Persist label mutations from the Inspector component and invalidate. */
 function applyInspectorLabels(labels: typeof S.labels, segmentNames?: typeof S.segmentNames): void {

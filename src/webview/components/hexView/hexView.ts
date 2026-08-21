@@ -146,6 +146,22 @@ export class HexView {
         root.querySelectorAll<HTMLElement>(`.${cls}`).forEach(el => el.classList.remove(cls));
     }
 
+    /**
+     * Host-invoked label-form draft preview: tint every mapped cell in
+     * `range` with `color` (root-scoped). Iterates visible cells once, so
+     * huge draft ranges cost the same as small ones. null clears.
+     */
+    paintLabelDraft(range: HexViewRange | null, color: string): void {
+        const root = this.rootEl();
+        if (!root) { return; }
+        // ~19% alpha suffix keeps glyphs readable under the tint (banner pattern).
+        root.style.setProperty('--lf-draft-color', range ? `${color}30` : 'transparent');
+        root.querySelectorAll<HTMLElement>('[data-addr]').forEach(el => {
+            const addr = cellAddress(el);
+            el.classList.toggle('lf-draft', addr !== null && !!range && addr >= range.start && addr <= range.end);
+        });
+    }
+
     // ── Element lookup (scoped, survives host full re-renders) ────
 
     private rootEl(): HTMLElement | null {

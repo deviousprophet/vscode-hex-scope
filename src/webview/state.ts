@@ -1,7 +1,7 @@
 // ── Shared mutable state ─────────────────────────────────────────
 // All modules import this object and mutate it directly.
 
-import type { SerializedParseResult, SegmentLabel, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from '../core/types';
+import type { SerializedParseResult, SegmentLabel, LabelDraftPreview, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
 import type { SidebarTab } from './components/sidebar/sidebar';
 
@@ -40,6 +40,8 @@ export const S = {
         storedLength?: number;
         status: 'match' | 'mismatch' | 'unverified';
     },
+    /** Live label-form draft range previewed in the grid (null = no form open / invalid draft). */
+    labelDraft: null as LabelDraftPreview | null,
     sidebarTab:     'inspector' as SidebarTab,  // active sidebar tab
     lockedDueToExternalChange: false as boolean,  // view is locked pending external change action
     lastClickColumn: null as 'hex' | 'char' | null,  // last memory view cell click column
