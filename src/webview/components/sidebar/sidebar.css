@@ -94,11 +94,12 @@
 /* ── Framework section shell (rendered by SidebarSections in sidebar.ts) ── */
 /* Header geometry mirrors VS Code paneview.css (.pane-header): fixed 22px,
    11px bold uppercase title, nowrap ellipsis, whole-row toggle, decorative
-   chevron as the first child (reads "▸ Section Name"). */
+   chevron as the first child (reads "▶ Section Name"). */
 .sb-section-head {
     display: flex; align-items: center; gap: 6px;
     height: 22px; line-height: 22px;
     overflow: hidden; flex-shrink: 0; box-sizing: border-box;
+    padding-left: 12px;
 }
 .sb-section-head[role="button"] {
     cursor: pointer; user-select: none;

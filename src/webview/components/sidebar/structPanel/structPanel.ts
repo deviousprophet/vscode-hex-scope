@@ -2425,7 +2425,7 @@ private emptyBitUnitHeaderHtml(
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         `<span class="si-f-off">+000</span>` +
         this.typeCellHtml('u8', 'uint8') +
-        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▼' : '▶'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -2500,7 +2500,7 @@ private firstBitUnitFieldName(rows: DecodedField[]): string {
     }
 
     private collapsibleIconHtml(buttonClass: string, isOpen: boolean): string {
-        return `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>`;
+        return `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▼' : '▶'}</button>`;
     }
 
     private populatedBitUnitHeaderHtml(
@@ -2797,7 +2797,7 @@ private structArrayElementBodyStyle(isOpen: boolean): string {
 }
 
 private expandGlyph(isOpen: boolean): string {
-    return isOpen ? '▾' : '▸';
+    return isOpen ? '▼' : '▶';
 }
 
 private offsetLabel(byteOffset: number): string {
@@ -3320,7 +3320,7 @@ private structPointerHeaderHtml(
     return (
         this.structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         this.structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▾' : '▸'}</button>` +
+        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▼' : '▶'}</button>` +
         this.structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
@@ -3409,7 +3409,7 @@ private pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, chil
         this.sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(child.key)}">` +
         this.compositeHeaderPrefixHtml(child.isOpen, row.byteOffset, true) +
-        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">${child.isOpen ? '▾' : '▸'}</button>` +
+        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">${child.isOpen ? '▼' : '▶'}</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(child.name)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -3559,7 +3559,7 @@ private instanceHeaderHtml(
 ): string {
     return (
         `<div class="sb-card-hdr">` +
-        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">${expanded ? '\u25be' : '\u25b8'}</button>` +
+        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">${expanded ? '\u25bc' : '\u25b6'}</button>` +
         `<div class="sb-card-info">` +
         `<span class="si-cname">${esc(pin.name)}</span>` +
         `<div class="si-cmeta-row">` +
@@ -4920,14 +4920,14 @@ private toggleCompositeGroup(
         expandedKeys.delete(key);
         grp.classList.remove('open');
         body.style.display = 'none';
-        expBtn.textContent = '▸';
+        expBtn.textContent = '▶';
         this.syncCompositeHeaderOffset(hdr, false);
         return;
     }
     expandedKeys.add(key);
     grp.classList.add('open');
     body.style.display = '';
-    expBtn.textContent = '▾';
+    expBtn.textContent = '▼';
     this.syncCompositeHeaderOffset(hdr, true);
 }
 

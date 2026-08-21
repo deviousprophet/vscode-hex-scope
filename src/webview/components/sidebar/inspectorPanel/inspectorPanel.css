@@ -90,17 +90,17 @@
 #insp-bits.collapsed .sb-inner-body { display: none; }
 .sb-inner-toggle {
     display: inline-flex; align-items: center; gap: 6px;
-    width: 100%; padding: 0;
+    width: 100%; height: 22px; padding: 0 0 0 12px;
     background: none; border: none; font: inherit; color: inherit;
     cursor: pointer; user-select: none;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .07em; color: var(--addr-fg);
 }
 .sb-inner-toggle-icon {
-    display: inline-block; font-size: 12px; line-height: 1;
+    display: inline-block; font-size: 10px; line-height: 1;
     color: var(--addr-fg); transition: transform .15s;
 }
-#insp-bits:not(.collapsed) .sb-inner-toggle-icon { transform: rotate(90deg); }
+#insp-bits.collapsed .sb-inner-toggle-icon { transform: rotate(-90deg); }
 .sb-inner-toggle .sb-badge { margin-left: auto; }
 .sb-inner-body { padding-top: 8px; }
 

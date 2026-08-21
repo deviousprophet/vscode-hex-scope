@@ -172,8 +172,8 @@ preserving the behavior contracts below.
 #### Wrong
 
 ```text
-+001 | u16* | ▾ next | -> 0x00001000
-+000 |      | ▸      | { }
++001 | u16* | ▼ next | -> 0x00001000
++000 |      | ▶      | { }
 ```
 
 This conflates scalar dereference with an object, exposes a meaningless root, and makes
@@ -182,7 +182,7 @@ the target-relative zero offset look like pointer-storage nesting.
 #### Correct
 
 ```text
-+001 | u16* | ▾ next | -> 0x00001000
++001 | u16* | ▼ next | -> 0x00001000
      | u16  | *      | 0x002A
 ```
 
@@ -266,7 +266,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
   - Expanded child row hides the visible target-relative `+000` offset because every scalar dereference starts at the target base; keep byte selection and target address available through row metadata/tooltip/accessibility text instead.
   - Expanded child row must not render an expand button, blank field name, or `{ }` object root.
 
-        +001 | u16*   | ▾ next         | -> 0x00001000
+        +001 | u16*   | ▼ next         | -> 0x00001000
               | u16    | *              | 0x002A
 
 ### Void pointer
@@ -280,8 +280,8 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 
 - Struct pointer target preview should use `{ }` as the target object root, then show struct member children:
 
-        +001 | Header*| ▾ hdr          | -> 0x00000020
-              |        | ▾ { }          | Header @ 0x00000020
+        +001 | Header*| ▼ hdr          | -> 0x00000020
+              |        | ▼ { }          | Header @ 0x00000020
         +000 | u8     | tag            | 0xAB
         +001 | u16    | size           | 0x0010
 
@@ -395,10 +395,10 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Preview:
 
         Collapsed:
-        +020 |        | ▸ data         | u16[3]
+        +020 |        | ▶ data         | u16[3]
 
         Expanded:
-              |        | ▾ data         | u16[3]
+              |        | ▼ data         | u16[3]
         +020 | u16    | [0]            | 0x0011
         +022 | u16    | [1]            | 0x0022
         +024 | u16    | [2]            | 0x0033
@@ -442,10 +442,10 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Preview:
 
         Collapsed:
-        +040 |        | ▸ header       | Header
+        +040 |        | ▶ header       | Header
 
         Expanded:
-              |        | ▾ header       | Header
+              |        | ▼ header       | Header
         +040 | u8     | tag            | 0xAB
         +041 | u16    | size           | 0x0010
 - Offset display:
@@ -472,19 +472,19 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Preview:
 
         Collapsed:
-        +080 |        | ▸ nodes        | ChildNode[2]
+        +080 |        | ▶ nodes        | ChildNode[2]
 
         Expanded:
-              |        | ▾ nodes        | ChildNode[2]
-        +080 |        | ▸ [0]          | ChildNode
-        +090 |        | ▸ [1]          | ChildNode
+              |        | ▼ nodes        | ChildNode[2]
+        +080 |        | ▶ [0]          | ChildNode
+        +090 |        | ▶ [1]          | ChildNode
 
         Element expanded:
-              |        | ▾ nodes        | ChildNode[2]
-        +080 |        | ▾ [0]          | ChildNode
+              |        | ▼ nodes        | ChildNode[2]
+        +080 |        | ▼ [0]          | ChildNode
         +080 | u8     | tag            | 0xAB
         +081 | u16    | size           | 0x0010
-        +090 |        | ▸ [1]          | ChildNode
+        +090 |        | ▶ [1]          | ChildNode
 - Offset display:
   - Parent follows collapsed/expanded offset rule.
   - Element headers show own offsets (unless inherited hidden context in pointer-inline rendering).
@@ -526,10 +526,10 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Preview:
 
         Collapsed:
-        +000 | u8     | ▸ control      | 0011 0011
+        +000 | u8     | ▶ control      | 0011 0011
 
         Expanded:
-        +000 | u8     | ▾ control      | 0011 0011
+        +000 | u8     | ▼ control      | 0011 0011
         .0   | bit:2  | mode           | 11
         .2   | bit:3  | code           | 001
         .5   | bit:3  | flags          | 011
@@ -557,19 +557,19 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Preview:
 
         Collapsed:
-        +010 |        | ▸ regs         | u8[2]
+        +010 |        | ▶ regs         | u8[2]
 
         Expanded:
-              |        | ▾ regs         | u8[2]
-        +010 | u8     | ▸ [0]          | 1010 1100
-        +011 | u8     | ▸ [1]          | 0011 0101
+              |        | ▼ regs         | u8[2]
+        +010 | u8     | ▶ [0]          | 1010 1100
+        +011 | u8     | ▶ [1]          | 0011 0101
 
         Element expanded:
-              |        | ▾ regs         | u8[2]
-        +010 | u8     | ▾ [0]          | 1010 1100
+              |        | ▼ regs         | u8[2]
+        +010 | u8     | ▼ [0]          | 1010 1100
         .0   | bit:4  | lo             | 1100
         .4   | bit:4  | hi             | 1010
-        +011 | u8     | ▸ [1]          | 0011 0101
+        +011 | u8     | ▶ [1]          | 0011 0101
 - Offset display:
   - Parent and element headers follow same collapsed/expanded offset rules as array/composite rows.
   - Child rows keep own bit offsets.

@@ -277,7 +277,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         const collapsed = this.bitsCollapsed;
         block.innerHTML =
             `<button type="button" class="sb-inner-toggle" data-collapse aria-expanded="${collapsed ? 'false' : 'true'}">` +
-            `<span class="sb-inner-toggle-icon" aria-hidden="true">&#9658;</span>` +
+            `<span class="sb-inner-toggle-icon" aria-hidden="true">▼</span>` +
             `<span class="sb-inner-label">Bits</span>` +
             (badge ? `<span class="sb-badge">${esc(badge)}</span>` : '') +
             `</button>` +

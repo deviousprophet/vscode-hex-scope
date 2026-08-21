@@ -720,7 +720,7 @@ export class SidebarSections {
         chevron.className = 'sb-section-chevron';
         chevron.setAttribute('aria-hidden', 'true');
         // Header-row sibling before the title (VS Code .twisty-container):
-        // reads "▸ Section Name".
+        // reads "▶ Section Name".
         head.appendChild(chevron);
         head.addEventListener('click', event => {
             if (!(event.target as HTMLElement).closest('.sb-section-actions')) {
