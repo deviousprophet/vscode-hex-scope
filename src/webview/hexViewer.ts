@@ -110,9 +110,10 @@ const inspectorPanel = new InspectorPanel({
 });
 
 /** Persist label mutations from the Inspector component and invalidate. */
-function applyInspectorLabels(labels: typeof S.labels): void {
+function applyInspectorLabels(labels: typeof S.labels, segmentNames?: typeof S.segmentNames): void {
     S.labels = labels;
-    postProviderMessage({ type: 'saveLabels', labels });
+    if (segmentNames) { S.segmentNames = segmentNames; }
+    postProviderMessage({ type: 'saveLabels', labels, segmentNames: S.segmentNames });
     buildMemRows();
     rerender.labels();
     if (S.currentView === 'memory') { rerender.memory(); }
@@ -122,7 +123,7 @@ function applyInspectorLabels(labels: typeof S.labels): void {
 function pushInspectorState(): void {
     inspectorPanel.setEndian(S.endian);
     inspectorPanel.setSegments(S.parseResult?.segments ?? []);
-    inspectorPanel.setLabels(S.labels);
+    inspectorPanel.setLabels(S.labels, S.segmentNames);
     inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
 
@@ -1073,7 +1074,7 @@ function setupLockInterception(): void {
 
 function setupRerenderCallbacks(): void {
     rerender.memory   = () => memRerender();
-    rerender.labels   = () => inspectorPanel.setLabels(S.labels);
+    rerender.labels   = () => inspectorPanel.setLabels(S.labels, S.segmentNames);
     rerender.inspector = () => inspectorPanel.setSelection(S.selStart, S.selEnd);
     rerender.toMemory = () => switchView('memory');
     rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
@@ -1090,7 +1091,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => structPanel.resetViewState(),
-    struct: () => inspectorPanel.setLabels(S.labels),
+    struct: () => inspectorPanel.setLabels(S.labels, S.segmentNames),
     integrity: () => integrityPanel.setTabActive(true),
     scripts: () => scriptsPanel.setTabActive(true),
 };

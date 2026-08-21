@@ -25,7 +25,7 @@ Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badg
 interface InspectorCallbacks {
     readByte: (addr: number) => number | undefined;        // required — host memory adapter
     onJumpTo?: (address: number) => void;                  // segment/label row click
-    onLabelsChange?: (labels: SegmentLabel[]) => void;     // any label mutation
+    onLabelsChange?: (labels: SegmentLabel[], segmentNames?: Record<string, string>) => void;  // any label mutation; segmentNames rides the same channel
     onCopy?: (text: string, label: string) => void;        // copy chip
 }
 
@@ -34,7 +34,7 @@ class InspectorPanel {
     mount(root: HTMLElement): void;                        // renders 4 sections; idempotent
     setSelection(start: number | null, end: number | null): void;   // data path (was updateInspector)
     setSegments(segments: SerializedSegment[]): void;      // was renderSegments
-    setLabels(labels: SegmentLabel[]): void;               // was renderLabels
+    setLabels(labels: SegmentLabel[], segmentNames?: Record<string, string>): void;  // was renderLabels
     setEndian(endian: 'le' | 'be'): void;                  // multi-byte re-decode
     syncLabelForm(): void;                                 // hex-view selection → live-update open label form
 }
@@ -42,7 +42,7 @@ class InspectorPanel {
 
 ## Rules
 
-- Component holds only UI/transient state (section collapse via the shared `SidebarSections` framework, sticky bit-block collapse, bit-hover column, label-form draft/range-mode/pendingWarning, stored labels/segments/selection/endian). Persistent/domain state lives in the host.
+- Component holds only UI/transient state (section collapse via the shared `SidebarSections` framework, sticky bit-block collapse, bit-hover column, label-form draft/range-mode/pendingWarning/lastFocused/rename, stored labels/segments/segmentNames/selection/endian). Persistent/domain state lives in the host.
 - Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte` is injected so byte access stays host-owned.
 - `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or struct-field selection).
 - Label mutations report `onLabelsChange`; the host persists (`saveLabels`) and invalidates (memory + labels rerender). Confirm-on-warning is component UI state.
@@ -53,8 +53,8 @@ class InspectorPanel {
 
 - Default: Inspector expanded, Labels collapsed (slim 22px header packed to the bottom of the pane view). Bit View lives inside the Inspector section as an internal sticky-collapsible block (auto-expands on new selection unless the user collapsed it this mount). Segments are merged into Labels as permanent (non-deletable) rows; no separate Segments section.
 - Selection paints address/vals (+ copy chips), the merged byte line (displays first ≤8 bytes + ellipsis; click copies the FULL selection — matching the "Click to copy N bytes" tooltip; the ellipsis is never copied), bit rows, and the multi-byte interpreter (`[LE/BE · N-byte]` context tag); `setEndian` re-decodes the interpreter (LE/BE).
-- Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm.
-- Hex-view selection updates an open label form's start/range (`syncLabelForm`).
+- Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); every row shows `0xSTART–0xEND · SIZE`; add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm. Pinned segment rows are permanent but name-only renamable via ✎ → the shared form in rename mode (Name editable; Start/Range/Color read-only; saving the parsed name clears the override). Name overrides are keyed by start address (decimal string) and persist through `onLabelsChange`/`saveLabels` (`segmentNames` map); renamed rows show the override with the parsed name as tooltip.
+- Hex-view selection updates an open label form's start/range (`syncLabelForm`). Auto-fill fires only on selection changes, never keystrokes; the last-focused field receives the fill — Start focused fills Start (+ Range per mode); Range focused auto-switches to End addr mode and fills the selection end. Rename-mode forms ignore selection changes.
 
 ## Validation & Error Matrix
 

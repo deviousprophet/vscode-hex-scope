@@ -214,6 +214,9 @@
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
+/* Rename-mode form: color swatches shown read-only */
+.lbl-form .lf-ro { opacity: .45; pointer-events: none; }
+
 /* Add-label button uses the shared .sb-btn-add primitive; keep the full-width row filler */
 #s-labels .sb-btn-add { width: 100%; margin-top: 8px; }
 

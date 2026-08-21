@@ -386,6 +386,7 @@ export class HexEditorSession {
         }).catch(() => resources.dispose());
 
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
+        const segmentNamesKey = `hexScope.segmentNames.${document.uri.toString()}`;
 
         const structKey = `hexScope.structs.${document.uri.toString()}`;
         const globalStructKey = 'hexScope.structs.global.v2';
@@ -489,6 +490,7 @@ export class HexEditorSession {
                 generation: currentGeneration,
                 parseResult: serialized,
                 labels:      this._context.workspaceState.get(labelKey, []),
+                segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
                 structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
                 endian: loadEndian(),
@@ -552,6 +554,7 @@ export class HexEditorSession {
                             generation: loaded.generation,
                             parseResult: serializeParseResult(newResult, format),
                             labels: this._context.workspaceState.get(labelKey, []),
+                            segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
                             checksumErrors: newResult.checksumErrors,
                             malformedLines: newResult.malformedLines,
                             errorCount: newResult.checksumErrors + newResult.malformedLines,
@@ -568,6 +571,7 @@ export class HexEditorSession {
                         generation: loaded.generation,
                         parseResult: serializeParseResult(newResult, format),
                         labels: this._context.workspaceState.get(labelKey, []),
+                        segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
                     });
                 } catch { /* file transiently unavailable */ }
             }, 200);
@@ -604,6 +608,9 @@ export class HexEditorSession {
             },
             saveLabels: async msg => {
                 await this._context.workspaceState.update(labelKey, msg.labels);
+                if (msg.segmentNames) {
+                    await this._context.workspaceState.update(segmentNamesKey, msg.segmentNames);
+                }
             },
             saveStructs: async msg => {
                 const { defs } = normalizeStructDefs(msg.structs);

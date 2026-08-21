@@ -148,7 +148,7 @@ function applyExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>)
 }
 
 function applyExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChangeError'>): WebviewModelUpdate {
-    loadIncomingFile(incomingFile(msg.parseResult, msg.labels, msg.generation));
+    loadIncomingFile(incomingFile(msg.parseResult, msg.labels, msg.generation, msg.segmentNames));
     lockForExternalChange();
     clearUnsavedEditsForExternalError();
     return {
@@ -196,5 +196,5 @@ function applyRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>)
 function incomingFileFromExternalChange(
     msg: Extract<WebviewMessage, { type: 'externalChange' }>,
 ): IncomingFile {
-    return incomingFile(msg.parseResult, msg.labels, msg.generation);
+    return incomingFile(msg.parseResult, msg.labels, msg.generation, msg.segmentNames);
 }

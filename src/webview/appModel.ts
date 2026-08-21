@@ -8,6 +8,7 @@ export type IncomingFile = {
     parseResult: SerializedParseResult;
     generation: number;
     labels: SegmentLabel[];
+    segmentNames?: Record<string, string>;
 };
 
 export type ClearEditReason = 'refresh' | 'discard';
@@ -16,6 +17,7 @@ export function applyInitialState(msg: InitMessage): void {
     S.documentGeneration = msg.generation;
     loadParsedMemory(hydrateParseResult(msg.parseResult));
     S.labels = messageArray(msg.labels);
+    S.segmentNames = messageRecord(msg.segmentNames);
     S.structs = messageArray(msg.structs);
     S.structPins = messageArray(msg.structPins);
     S.endian = msg.endian;
@@ -38,6 +40,10 @@ function messageArray<T>(value: T[]): T[] {
     return Array.isArray(value) ? value : [];
 }
 
+function messageRecord(value: Record<string, string> | undefined): Record<string, string> {
+    return value && typeof value === 'object' ? value : {};
+}
+
 export function loadParsedMemory(parseResult: SerializedParseResult): void {
     S.parseResult = parseResult;
     initFlatBytes();
@@ -56,14 +62,20 @@ export function updateLabel(label: SegmentLabel): void {
     S.labels = S.labels.map(item => item.id === label.id ? label : item);
 }
 
-export function incomingFile(parseResult: WireParseResult, labels: SegmentLabel[], generation: number): IncomingFile {
-    return { parseResult: hydrateParseResult(parseResult), labels, generation };
+export function incomingFile(
+    parseResult: WireParseResult,
+    labels: SegmentLabel[],
+    generation: number,
+    segmentNames?: Record<string, string>,
+): IncomingFile {
+    return { parseResult: hydrateParseResult(parseResult), labels, generation, segmentNames };
 }
 
 export function loadIncomingFile(file: IncomingFile): void {
     loadParsedMemory(file.parseResult);
     S.documentGeneration = file.generation;
     S.labels = file.labels;
+    S.segmentNames = file.segmentNames ?? {};
 }
 
 export function lockForExternalChange(): void {

@@ -7,12 +7,16 @@ export const RECORD_PAGE_SIZE = 512;
 
 export type HexScopeEndian = 'le' | 'be';
 
+/** Pinned-segment name overrides, keyed by segment start address (decimal string). */
+export type SegmentNameOverrides = Record<string, string>;
+
 export type ProviderToWebviewMessage =
     | {
         type: 'init';
         generation: number;
         parseResult: WireParseResult;
         labels: SegmentLabel[];
+        segmentNames?: SegmentNameOverrides;
         structs: StructDef[];
         structPins: StructPin[];
         endian: HexScopeEndian;
@@ -25,12 +29,13 @@ export type ProviderToWebviewMessage =
     | { type: 'updateLabel'; label: SegmentLabel }
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
     | { type: 'savedEdits'; generation: number; parseResult: WireParseResult }
-    | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[] }
+    | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';
         generation: number;
         parseResult: WireParseResult;
         labels: SegmentLabel[];
+        segmentNames?: SegmentNameOverrides;
         checksumErrors: number;
         malformedLines: number;
         errorCount: number;
@@ -48,7 +53,7 @@ export type WebviewToProviderMessage =
     | { type: 'requestRecordPage'; generation: number; start: number; count: number }
     | { type: 'reloadAccepted' }
     | { type: 'copyText'; text: string; label?: string }
-    | { type: 'saveLabels'; labels: SegmentLabel[] }
+    | { type: 'saveLabels'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | { type: 'saveStructs'; structs: StructDef[] }
     | { type: 'saveStructPins'; pins: StructPin[] }
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }

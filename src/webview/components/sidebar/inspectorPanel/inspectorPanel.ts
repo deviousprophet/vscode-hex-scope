@@ -25,6 +25,7 @@ import {
     multiContextHtml,
     multiValueGroupHtml,
     multiWidth,
+    parsedSegmentName,
     popcount,
     readMultiValues,
     singleByteInspectorHtml,
@@ -41,8 +42,8 @@ export interface InspectorCallbacks {
     readByte: (addr: number) => number | undefined;
     /** Segment/label row click → host jumps. */
     onJumpTo?: (address: number) => void;
-    /** Any label mutation → host persists + invalidates. */
-    onLabelsChange?: (labels: SegmentLabel[]) => void;
+    /** Any label mutation → host persists + invalidates (segmentNames rides the same channel). */
+    onLabelsChange?: (labels: SegmentLabel[], segmentNames?: Record<string, string>) => void;
     /** Copy chip → host posts copyText. */
     onCopy?: (text: string, label: string) => void;
 }
@@ -55,6 +56,8 @@ export class InspectorPanel implements InspectorLabelFormHost {
     private bitsCollapsed = false;
     segments: SerializedSegment[] = [];
     labels: SegmentLabel[] = [];
+    /** Pinned-segment name overrides keyed by start address (decimal string). */
+    segmentNames: Record<string, string> = {};
     root: HTMLElement | null = null;
     sections: SidebarSections | null = null;
 
@@ -93,8 +96,9 @@ export class InspectorPanel implements InspectorLabelFormHost {
         this.renderLabels();
     }
 
-    setLabels(labels: SegmentLabel[]): void {
+    setLabels(labels: SegmentLabel[], segmentNames?: Record<string, string>): void {
         this.labels = labels;
+        if (segmentNames) { this.segmentNames = segmentNames; }
         this.renderLabels();
     }
 
@@ -349,7 +353,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
     renderLabels(): void {
         const body = this.sections?.body('labels');
         if (!body) { return; }
-        const itemsHtml = labelItemsHtml(this.labels, this.segments);
+        const itemsHtml = labelItemsHtml(this.labels, this.segments, this.segmentNames);
         body.innerHTML = `${itemsHtml}
             <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>`;
 
@@ -370,7 +374,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
             el => renderLabelForm(this, el.dataset.id),
             el => {
                 this.labels = this.labels.filter(l => l.id !== el.dataset.id);
-                this.cb.onLabelsChange?.(this.labels);
+                this.cb.onLabelsChange?.(this.labels, this.segmentNames);
             },
         );
     }
@@ -381,7 +385,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
                 const id = el.dataset.id!;
                 const hidden = el.dataset.hidden !== '1';
                 this.labels = this.labels.map(l => l.id === id ? { ...l, hidden } : l);
-                this.cb.onLabelsChange?.(this.labels);
+                this.cb.onLabelsChange?.(this.labels, this.segmentNames);
             });
         });
     }
@@ -402,14 +406,28 @@ export class InspectorPanel implements InspectorLabelFormHost {
     /** Permanent segment rows: click / Enter / Space jump to the segment start. */
     private wireLabelJumpPermanent(sec: HTMLElement): void {
         sec.querySelectorAll<HTMLElement>('.label-perma').forEach(item => {
-            item.addEventListener('click', () => {
-                const start = Number(item.dataset.start);
-                this.jumpToSegment(start);
+            item.addEventListener('click', e => {
+                if ((e.target as HTMLElement).closest('.label-act')) { return; }
+                this.jumpToSegment(Number(item.dataset.start));
             });
             item.addEventListener('keydown', event => {
                 if (event.key !== 'Enter' && event.key !== ' ') { return; }
                 event.preventDefault();
                 this.jumpToSegment(Number(item.dataset.start));
+            });
+        });
+        // ✎ on a pinned row → shared label form in rename mode (name-only).
+        sec.querySelectorAll<HTMLElement>('.label-seg-edit').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                const start = Number(btn.dataset.start);
+                const seg = this.segments.find(s => s.startAddress === start);
+                if (!seg) { return; }
+                renderLabelForm(this, undefined, {
+                    startAddress: start,
+                    length: seg.data.length,
+                    parsedName: parsedSegmentName(this.segments, start),
+                });
             });
         });
     }

@@ -198,24 +198,46 @@ export function labelAddrHex(n: number): string {
     return `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
 }
 
-/** One display row in the merged Labels list (segments are permanent, non-editable). */
+/** One display row in the merged Labels list (segments are permanent, name-only editable). */
 type LabelDisplayRow =
     | { kind: 'user'; label: SegmentLabel }
-    | { kind: 'segment'; name: string; start: number; length: number };
+    | { kind: 'segment'; name: string; parsedName: string; start: number; length: number };
 
 function rowStart(row: LabelDisplayRow): number {
     return row.kind === 'user' ? row.label.startAddress : row.start;
+}
+
+/** Parsed segment names rank by address order: "Segment 1", "Segment 2", … */
+export function parsedSegmentName(segments: SerializedSegment[], startAddress: number): string {
+    const idx = [...segments]
+        .sort((a, b) => a.startAddress - b.startAddress)
+        .findIndex(s => s.startAddress === startAddress);
+    return `Segment ${idx + 1}`;
 }
 
 /**
  * Merges segments (permanent rows) with user labels into one
  * address-sorted list. Segment names rank by address order; on an
  * equal start, segments sort before user labels (stable input order).
+ * `segmentNames` overrides a segment's display name by start address.
  */
-function mergeForDisplay(labels: SegmentLabel[], segments: SerializedSegment[]): LabelDisplayRow[] {
+function mergeForDisplay(
+    labels: SegmentLabel[],
+    segments: SerializedSegment[],
+    segmentNames: Record<string, string> = {},
+): LabelDisplayRow[] {
     const segRows: LabelDisplayRow[] = [...segments]
         .sort((a, b) => a.startAddress - b.startAddress)
-        .map((s, i) => ({ kind: 'segment', name: `Segment ${i + 1}`, start: s.startAddress, length: s.data.length }));
+        .map(s => {
+            const parsedName = parsedSegmentName(segments, s.startAddress);
+            return {
+                kind: 'segment' as const,
+                name: segmentNames[String(s.startAddress)] ?? parsedName,
+                parsedName,
+                start: s.startAddress,
+                length: s.data.length,
+            };
+        });
     const userRows: LabelDisplayRow[] = labels.map(label => ({ kind: 'user', label }));
     return [...segRows, ...userRows].sort((a, b) => rowStart(a) - rowStart(b));
 }
@@ -245,23 +267,29 @@ export function labelSwatchesHtml(chosenColor: string): string {
     ).join('');
 }
 
-export function labelItemsHtml(labels: SegmentLabel[], segments: SerializedSegment[]): string {
-    const rows = mergeForDisplay(labels, segments);
+export function labelItemsHtml(
+    labels: SegmentLabel[],
+    segments: SerializedSegment[],
+    segmentNames: Record<string, string> = {},
+): string {
+    const rows = mergeForDisplay(labels, segments, segmentNames);
     if (rows.length === 0) { return '<div class="sb-empty">No labels defined</div>'; }
     return rows.map(row => row.kind === 'user' ? labelItemHtml(row.label) : segmentLabelItemHtml(row)).join('');
 }
 
-/** Permanent segment row: jump-only, no edit/delete/visibility controls. */
+/** Permanent segment row: jump + ✎ rename; no delete/color/visibility controls. */
 function segmentLabelItemHtml(seg: LabelDisplayRow & { kind: 'segment' }): string {
     const start = labelAddrHex(seg.start);
     const end = labelAddrHex(seg.start + seg.length - 1);
+    const renamed = seg.name !== seg.parsedName;
     return `
         <div class="label-item label-perma" data-start="${seg.start}" role="button" tabindex="0"
              title="Jump to ${start}" aria-label="Jump to ${esc(seg.name)} at ${start}">
             <div class="label-sw label-sw-perma" aria-hidden="true"></div>
             <div class="label-inf">
-                <div class="label-nm"><span class="label-perma-name">${esc(seg.name)}</span><span class="label-perma-glyph" aria-hidden="true">&#128204;&#xFE0E;</span></div>
+                <div class="label-nm"><span class="label-perma-name"${renamed ? ` title="${esc(seg.parsedName)}"` : ''}>${esc(seg.name)}</span><span class="label-perma-glyph" aria-hidden="true">&#128204;&#xFE0E;</span></div>
                 <div class="label-rng">${start}&ndash;${end} &middot; ${fmtB(seg.length)}</div>
             </div>
+            <button type="button" class="label-act label-seg-edit" data-start="${seg.start}" title="Rename segment" aria-label="Rename segment">&#9998;</button>
         </div>`;
 }

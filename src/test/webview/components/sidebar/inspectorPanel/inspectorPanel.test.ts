@@ -13,7 +13,7 @@ type Globalish = {
     getComputedStyle: typeof getComputedStyle;
 };
 
-function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: number[]; labels: SegmentLabel[][]; copies: Array<[string, string]> } } {
+function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> } } {
     const dom = new JSDOM('<!doctype html><html><body><div id="host"></div></body></html>', { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as Globalish;
     g.window = dom.window as unknown as Window;
@@ -33,11 +33,19 @@ function installDom(): { dom: JSDOM; inspector: InspectorPanel; cb: { jumps: num
         [0x1007, 0xF0],
         [0x1008, 0x12],
     ]);
-    const cb = { jumps: [] as number[], labels: [] as SegmentLabel[][], copies: [] as Array<[string, string]> };
+    const cb = {
+        jumps: [] as number[],
+        labels: [] as SegmentLabel[][],
+        names: [] as Array<Record<string, string> | undefined>,
+        copies: [] as Array<[string, string]>,
+    };
     const inspector = new InspectorPanel({
         readByte: addr => bytes.get(addr),
         onJumpTo: address => cb.jumps.push(address),
-        onLabelsChange: labels => cb.labels.push(labels),
+        onLabelsChange: (labels, segmentNames) => {
+            cb.labels.push(labels);
+            cb.names.push(segmentNames);
+        },
         onCopy: (text, label) => cb.copies.push([text, label]),
     });
     inspector.mount(document.getElementById('host')!);
@@ -90,7 +98,7 @@ suite('Inspector mount + sections', () => {
 suite('Inspector selection + endian', () => {
     let dom: JSDOM;
     let inspector: InspectorPanel;
-    let cb: { jumps: number[]; labels: SegmentLabel[][]; copies: Array<[string, string]> };
+    let cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> };
 
     setup(() => {
         const installed = installDom();
@@ -166,7 +174,7 @@ suite('Inspector selection + endian', () => {
 suite('Inspector segments merge into Labels', () => {
     let dom: JSDOM;
     let inspector: InspectorPanel;
-    let cb: { jumps: number[]; labels: SegmentLabel[][]; copies: Array<[string, string]> };
+    let cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> };
 
     setup(() => {
         const installed = installDom();
@@ -187,8 +195,10 @@ suite('Inspector segments merge into Labels', () => {
         assert.ok(!(badge as HTMLElement).hidden);
         assert.strictEqual(items[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
         assert.ok(items[0].querySelector('.label-rng')!.textContent?.includes('0x00001000'));
-        assert.strictEqual(items[0].querySelectorAll('.label-act, .act-btn-edit, .act-btn-del').length, 0,
-            'permanent rows have no edit/delete/visibility controls');
+        assert.strictEqual(items[0].querySelectorAll('.act-btn-edit, .act-btn-del, .label-vis').length, 0,
+            'permanent rows have no delete/visibility controls');
+        assert.strictEqual(items[0].querySelectorAll('.label-seg-edit').length, 1,
+            'permanent rows offer the ✎ rename affordance');
         items[0].click();
         assert.deepStrictEqual(cb.jumps, [0x1000]);
         assert.strictEqual(document.getElementById('s-segments'), null);
@@ -221,7 +231,7 @@ suite('Inspector segments merge into Labels', () => {
 suite('Inspector labels', () => {
     let dom: JSDOM;
     let inspector: InspectorPanel;
-    let cb: { jumps: number[]; labels: SegmentLabel[][]; copies: Array<[string, string]> };
+    let cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> };
 
     setup(() => {
         const installed = installDom();
@@ -323,5 +333,205 @@ suite('Inspector labels', () => {
         document.getElementById('lf-save')!.click();
         assert.strictEqual(document.getElementById('lf-warn')!.textContent, 'Invalid start address.');
         assert.strictEqual(cb.labels.length, 0);
+    });
+});
+
+suite('Pinned segment rename', () => {
+    let dom: JSDOM;
+    let inspector: InspectorPanel;
+    let cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> };
+
+    setup(() => {
+        const installed = installDom();
+        dom = installed.dom;
+        inspector = installed.inspector;
+        cb = installed.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    test('✎ opens the shared form prefilled; start/range/color read-only', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        assert.strictEqual(document.querySelector('.sb-label-form-title')!.textContent, 'Rename Segment');
+        assert.strictEqual((document.getElementById('lf-name') as HTMLInputElement).value, 'Segment 1');
+        assert.strictEqual((document.getElementById('lf-start') as HTMLInputElement).disabled, true);
+        assert.strictEqual((document.getElementById('lf-start') as HTMLInputElement).value, '0x00001000');
+        assert.strictEqual((document.getElementById('lf-range') as HTMLInputElement).disabled, true);
+        assert.strictEqual((document.getElementById('lf-range') as HTMLInputElement).value, '2');
+        assert.ok(document.querySelector('.lbl-form .lf-ro'), 'color swatches rendered read-only');
+    });
+
+    test('rename save persists segmentNames override keyed by start address', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        (document.getElementById('lf-name') as HTMLInputElement).value = 'Boot';
+        document.getElementById('lf-save')!.click();
+        assert.strictEqual(cb.labels.length, 1);
+        assert.deepStrictEqual(cb.names.at(-1), { '4096': 'Boot' }, '0x1000 → decimal-string key');
+    });
+
+    test('reload: pushed override shows custom name + original parsed name as tooltip', () => {
+        inspector.setSegments(segments);
+        inspector.setLabels([], { '4096': 'Boot' });
+        const row = document.querySelector<HTMLElement>('.label-perma')!;
+        assert.strictEqual(row.querySelector('.label-perma-name')!.textContent, 'Boot');
+        assert.strictEqual(row.querySelector('.label-perma-name')!.getAttribute('title'), 'Segment 1');
+        assert.ok(row.querySelector('.label-perma-glyph'), 'pinned glyph stays');
+        // Unrenamed rows carry no tooltip.
+        const other = document.querySelectorAll<HTMLElement>('.label-perma')[1];
+        assert.strictEqual(other.querySelector('.label-perma-name')!.textContent, 'Segment 2');
+        assert.strictEqual(other.querySelector('.label-perma-name')!.getAttribute('title'), null);
+    });
+
+    test('renaming back to the parsed name clears the override', () => {
+        inspector.setSegments(segments);
+        inspector.setLabels([], { '4096': 'Boot' });
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        assert.strictEqual((document.getElementById('lf-name') as HTMLInputElement).value, 'Boot', 'override prefills');
+        (document.getElementById('lf-name') as HTMLInputElement).value = 'Segment 1';
+        document.getElementById('lf-save')!.click();
+        assert.deepStrictEqual(cb.names.at(-1), {}, 'override removed');
+    });
+
+    test('rename requires a non-empty name', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        (document.getElementById('lf-name') as HTMLInputElement).value = '   ';
+        document.getElementById('lf-save')!.click();
+        assert.strictEqual(document.getElementById('lf-warn')!.textContent, 'Name is required.');
+        assert.strictEqual(cb.labels.length, 0);
+    });
+
+    test('✎ click does not jump; row click still jumps', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        assert.deepStrictEqual(cb.jumps, [], 'edit affordance never jumps');
+        assert.ok(document.getElementById('lf-name'), 'form opened instead');
+        document.getElementById('lf-cancel')!.click();
+        document.querySelector<HTMLElement>('.label-perma')!.click();
+        assert.deepStrictEqual(cb.jumps, [0x1000]);
+    });
+});
+
+suite('Label row range display', () => {
+    let dom: JSDOM;
+    let inspector: InspectorPanel;
+
+    setup(() => {
+        const installed = installDom();
+        dom = installed.dom;
+        inspector = installed.inspector;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    test('user label rows show start – end · size like segment rows', () => {
+        inspector.setLabels(labels); // 0x1000 len 4
+        assert.strictEqual(
+            document.querySelector<HTMLElement>('.label-item:not(.label-perma) .label-rng')!.textContent,
+            '0x00001000–0x00001003 · 4 B',
+        );
+    });
+
+    test('pinned segment rows keep start – end · size', () => {
+        inspector.setSegments(segments);
+        assert.strictEqual(
+            document.querySelector<HTMLElement>('.label-perma .label-rng')!.textContent,
+            '0x00001000–0x00001001 · 2 B',
+        );
+    });
+});
+
+suite('Label form selection fill', () => {
+    let dom: JSDOM;
+    let inspector: InspectorPanel;
+
+    setup(() => {
+        const installed = installDom();
+        dom = installed.dom;
+        inspector = installed.inspector;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    function openAddForm(): void {
+        inspector.setLabels([]);
+        document.getElementById('btn-add-lbl')!.click();
+    }
+
+    function focusField(id: string): void {
+        document.getElementById(id)!.dispatchEvent(new dom.window.Event('focus'));
+    }
+
+    function rangeEl(): HTMLInputElement {
+        return document.getElementById('lf-range') as HTMLInputElement;
+    }
+
+    function startEl(): HTMLInputElement {
+        return document.getElementById('lf-start') as HTMLInputElement;
+    }
+
+    test('default (start-focused): click fills Start + length Range', () => {
+        openAddForm();
+        inspector.setSelection(0x1000, 0x1003);
+        inspector.syncLabelForm();
+        assert.strictEqual(startEl().value, '0x00001000');
+        assert.strictEqual(rangeEl().value, '4');
+    });
+
+    test('range focused: click auto-switches to End addr mode and fills it', () => {
+        openAddForm();
+        focusField('lf-range');
+        inspector.setSelection(0x1004, 0x1004);
+        inspector.syncLabelForm();
+        assert.strictEqual(rangeEl().value, '0x00001004');
+        assert.strictEqual(
+            document.querySelector<HTMLElement>('.compact-tabs button.active')!.getAttribute('data-mode'),
+            'end',
+            'mode auto-switched',
+        );
+    });
+
+    test('range focused: drag fills End addr with the selection end', () => {
+        openAddForm();
+        focusField('lf-range');
+        inspector.setSelection(0x1000, 0x1002);
+        inspector.syncLabelForm();
+        assert.strictEqual(rangeEl().value, '0x00001002');
+    });
+
+    test('end mode + start focused: drag updates Start and end-address Range', () => {
+        openAddForm();
+        focusField('lf-range');
+        inspector.setSelection(0x1004, 0x1004);
+        inspector.syncLabelForm(); // switches to end mode
+        focusField('lf-start');
+        inspector.setSelection(0x1000, 0x1002);
+        inspector.syncLabelForm();
+        assert.strictEqual(startEl().value, '0x00001000');
+        assert.strictEqual(rangeEl().value, '0x00001002', 'end mode keeps filling end addresses');
+    });
+
+    test('typing is only ever replaced by a selection change, never a keystroke', () => {
+        openAddForm();
+        rangeEl().value = '999';
+        rangeEl().dispatchEvent(new dom.window.Event('input'));
+        assert.strictEqual(rangeEl().value, '999', 'manual input untouched by typing events');
+        inspector.setSelection(0x1000, 0x1003);
+        inspector.syncLabelForm();
+        assert.strictEqual(rangeEl().value, '4', 'selection change rewrites per fill rules');
+    });
+
+    test('rename form ignores selection changes entirely', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        inspector.setSelection(0x1000, 0x1003);
+        inspector.syncLabelForm();
+        assert.strictEqual(startEl().value, '0x00001000', 'read-only fields stay frozen');
+        assert.strictEqual(rangeEl().value, '2');
     });
 });

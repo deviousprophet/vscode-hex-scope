@@ -11,6 +11,8 @@ export const S = {
     documentGeneration: 0,
     parseResult:  null   as SerializedParseResult | null,
     labels:       []     as SegmentLabel[],
+    /** Pinned-segment name overrides keyed by start address (decimal string). */
+    segmentNames: {}     as Record<string, string>,
     /** Segment index for O(log n) byte access (built on parseResult change) */
     segmentIndex: [] as SegmentIndexEntry[],
     currentView: 'memory' as 'record' | 'memory',

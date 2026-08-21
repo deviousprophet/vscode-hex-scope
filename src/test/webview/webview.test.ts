@@ -547,8 +547,10 @@ suite('Parsed Segment Navigator', () => {
         assert.strictEqual(items[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
         assert.strictEqual(items[0].querySelector('.label-rng')!.textContent, '0x00001000–0x00001001 · 2 B');
         assert.strictEqual(items[1].querySelector('.label-rng')!.textContent, '0x00002000–0x00002003 · 4 B');
-        assert.strictEqual(items[0].querySelectorAll('.label-act, .act-btn-edit, .act-btn-del').length, 0,
-            'permanent rows have no edit/delete controls');
+        assert.strictEqual(items[0].querySelectorAll('.act-btn-edit, .act-btn-del, .label-vis').length, 0,
+            'permanent rows have no delete/visibility controls');
+        assert.strictEqual(items[0].querySelectorAll('.label-seg-edit').length, 1,
+            'permanent rows offer the ✎ rename affordance');
         assert.strictEqual(document.getElementById('s-segments'), null, 'no Segments section remains');
 
         items[0].click();

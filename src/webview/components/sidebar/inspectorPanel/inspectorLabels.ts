@@ -42,46 +42,57 @@ function labelVisibilityUi(label: SegmentLabel): { itemClass: string; background
 
 export function labelItemHtml(label: SegmentLabel): string {
     const visibility = labelVisibilityUi(label);
+    const hex = (n: number): string => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
     return `
             <div class="label-item${visibility.itemClass}" data-id="${label.id}">
                 <div class="label-sw" style="background:${visibility.background};border:1px solid ${label.color}"></div>
                 <div class="label-inf">
                     <div class="label-nm">${esc(label.name)}</div>
-                    <div class="label-rng">0x${label.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(label.length)}</div>
+                    <div class="label-rng">${hex(label.startAddress)}&ndash;${hex(label.startAddress + label.length - 1)} &middot; ${fmtB(label.length)}</div>
                 </div>
                 <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}" aria-label="${visibility.title}">${visibility.icon}</button>
                 ${actionBtnsHtml(`data-id="${label.id}"`, `data-id="${label.id}"`)}
             </div>`;
 }
 
-export function labelFormHtml(editing: SegmentLabel | undefined, swatchHtml: string, defaultStart: string, defaultRange: string): string {
-    const mode = editing
-        ? { title: 'Edit Label', saveLabel: 'Update' }
-        : { title: 'New Label', saveLabel: 'Add' };
+export function labelFormHtml(
+    editing: SegmentLabel | undefined,
+    swatchHtml: string,
+    defaultStart: string,
+    defaultRange: string,
+    rename?: { startAddress: number; displayName?: string },
+): string {
+    const mode = rename
+        ? { title: 'Rename Segment', saveLabel: 'Save' }
+        : editing
+            ? { title: 'Edit Label', saveLabel: 'Update' }
+            : { title: 'New Label', saveLabel: 'Add' };
+    const ro = rename ? 'disabled' : '';
     return `
         <div class="sb-section-label sb-label-form-title">${mode.title}</div>
         <div class="lbl-form">
             <div class="lf-field">
                 <span class="lf-lbl">Name</span>
-                <input id="lf-name" class="sb-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? '')}">
+                <input id="lf-name" class="sb-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? rename?.displayName ?? '')}">
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="sb-input" type="text" placeholder="0x08000000" value="${esc(defaultStart)}">
+                <input id="lf-start" class="sb-input" type="text" placeholder="0x08000000" value="${esc(defaultStart)}" ${ro}>
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Range</span>
                 <div class="lf-range-row">
+                    ${rename ? '' : `
                     <div class="compact-tabs">
                         <button class="active" data-mode="len">Length</button>
                         <button data-mode="end">End addr</button>
-                    </div>
-                    <input id="lf-range" class="sb-input" type="text" placeholder="512" value="${esc(defaultRange)}">
+                    </div>`}
+                    <input id="lf-range" class="sb-input" type="text" placeholder="512" value="${esc(defaultRange)}" ${ro}>
                 </div>
             </div>
             <div class="lf-field">
                 <span class="lf-lbl">Color</span>
-                <div class="lf-swatches">${swatchHtml}</div>
+                <div class="lf-swatches${rename ? ' lf-ro' : ''}">${swatchHtml}</div>
             </div>
             <div class="lf-warn" id="lf-warn"></div>
             <div class="lf-actions">
