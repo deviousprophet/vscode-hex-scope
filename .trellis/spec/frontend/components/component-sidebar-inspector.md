@@ -52,7 +52,7 @@ class InspectorPanel {
 ## Behaviour
 
 - Default: Inspector expanded, Labels collapsed (slim 22px header packed to the bottom of the pane view). Bit View lives inside the Inspector section as an internal sticky-collapsible block (auto-expands on new selection unless the user collapsed it this mount). Segments are merged into Labels as permanent (non-deletable) rows; no separate Segments section.
-- Selection paints address/vals (+ copy chips), the merged byte line (honest copy of rendered bytes, no silent ellipsis), bit rows, and the multi-byte interpreter (`[LE/BE · N-byte]` context tag); `setEndian` re-decodes the interpreter (LE/BE).
+- Selection paints address/vals (+ copy chips), the merged byte line (displays first ≤8 bytes + ellipsis; click copies the FULL selection — matching the "Click to copy N bytes" tooltip; the ellipsis is never copied), bit rows, and the multi-byte interpreter (`[LE/BE · N-byte]` context tag); `setEndian` re-decodes the interpreter (LE/BE).
 - Labels: visibility toggle, edit/delete (delete via inline confirm), row-click → `onJumpTo`; rows address-sorted (no manual reorder); add/edit form with name/start/range (length|end modes)/color swatches; validation errors inline; out-of-mapped-data and overlap warnings require a second Save to confirm.
 - Hex-view selection updates an open label form's start/range (`syncLabelForm`).
 

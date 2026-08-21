@@ -34,16 +34,18 @@ export function singleByteInspectorHtml(val: number): string {
 
 /**
  * Merged byte-line readout: first ≤8 bytes shown (truncated selections get a
- * display-only ellipsis — never copied); the copied string is exactly the
- * rendered bytes. The count is carried via data-copy-count for the host copy
- * notification; it is not duplicated in the display (the address bar shows it).
+ * display-only ellipsis — never copied); the copied string is the FULL
+ * selection hex, matching the "Click to copy N bytes" tooltip. The count is
+ * carried via data-copy-count for the host copy notification; it is not
+ * duplicated in the display (the address bar shows it).
  */
 function byteLineParts(selBytes: number[], len: number): { display: string; copy: string } {
     const dumpBytes = selBytes.slice(0, 8);
     const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
     const truncated = len > 8;
     const display   = `${dumpStr}${truncated ? ' …' : ''}`;
-    return { display, copy: dumpStr };
+    const copy      = selBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    return { display, copy };
 }
 
 export function multiByteInspectorHtml(selBytes: number[], len: number): string {
