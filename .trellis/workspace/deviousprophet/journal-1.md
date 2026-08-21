@@ -762,3 +762,24 @@ Grill Q1-A: byte-line click now copies the FULL selection (tooltip 'Click to cop
 ### Status
 
 [OK] **Completed**
+
+
+## Session 33: Labels rework: renamable pinned segments + selection-driven form
+
+**Date**: 2026-08-21
+**Task**: Labels rework: renamable pinned segments + selection-driven form
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Issue #189 follow-ups (grilled Q1-Q5): pinned segment rows renamable via existing label form (Name editable, rest read-only), persisted as segmentNames overrides in workspaceState riding saveLabels; custom name displayed, parsed name in tooltip. All label rows show start-end-size (segment style). Label form mirrors hex-view selection focus-aware: last-focused field receives clicks (Range auto-switches to End addr + fills), drag-fill per mode, manual input protected. Check fixed indentation + spec drift, accepted workspaceState-key deviation. 822 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2abb188` | (see git log) |
+
+### Status
+
+[OK] **Completed**
