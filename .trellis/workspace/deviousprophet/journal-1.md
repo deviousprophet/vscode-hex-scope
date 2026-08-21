@@ -741,3 +741,24 @@ Grilled design (placement near-click + top-center fallback, single channel, cust
 ### Status
 
 [OK] **Completed**
+
+
+## Session 32: Byte-line copies full selection
+
+**Date**: 2026-08-21
+**Task**: Byte-line copies full selection
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grill Q1-A: byte-line click now copies the FULL selection (tooltip 'Click to copy N bytes' made true); display stays compact (first <=8 + ellipsis, never copied). TDD red-first; inspector spec line updated. 808 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4785391` | (see git log) |
+
+### Status
+
+[OK] **Completed**

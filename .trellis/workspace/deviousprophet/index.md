@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
-- **Last Active**: 2026-08-20
+- **Total Sessions**: 32
+- **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~743 | Active |
+| `journal-1.md` | ~764 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-08-21 | Byte-line copies full selection | `4785391` | `feat/ui-consistency` |
 | 31 | 2026-08-20 | Webview copy toast component | `2acc94a` | `feat/ui-consistency` |
 | 30 | 2026-08-19 | Host-only expiring copy confirmation + byte-line cleanup | `0bd739a` | `feat/ui-consistency` |
 | 29 | 2026-08-19 | PaneView reopen-restore fix + thicker sash | `84b7ac2` | `feat/ui-consistency` |
