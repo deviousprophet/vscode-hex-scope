@@ -56,8 +56,8 @@ class StructPanel {
 
 ## Behaviour
 
-- Pins track: add-pin form (hex address, struct picker), instance cards (expand/collapse, edit, delete w/ inline confirm), decoded rows incl. scalar/array/struct/bitfield/pointer rows + pointer follow/create; bit-layout LSB/MSB toggle.
-- Types track: type list, struct editor (name/packed/fields incl. bit-fields, arrays, pointers, move/delete), C preview.
+- Pins track: add-pin form (hex address, struct picker), instance cards (expand/collapse `›` chevron, always-visible Edit/View-type/Delete actions, delete w/ inline confirm), decoded rows incl. scalar/array/struct/bitfield/pointer rows + pointer follow/create; bit-layout LSB/MSB toggle. The Instances `＋ Add` header button is disabled when no struct types exist (tooltip "No struct types defined").
+- Types track: type list, struct editor (name/packed/fields incl. bit-fields, arrays, pointers, move/delete), C preview. The Types `＋ Add` header button opens the new-type editor (disabled while an editor is open); there is no in-body "New type" button and no `←` back button.
 - Hex-view selection clears stale struct selection and syncs add/edit-form address inputs (`setSelection`); the `S.sidebarTab === 'struct'` guard is replaced by `setTabActive`.
 - Row/header click selects the corresponding byte range → `onSelectRange`; hover highlights hex rows via callback.
 - Field-value context menus: sticky `View as` per row identity, `Copy as`, pointer jump/create — all report-only.
@@ -66,7 +66,8 @@ class StructPanel {
 
 | Condition | Behaviour |
 |---|---|
-| Empty pins | "No instances yet" empty state |
+| Empty pins, no types | "Define a struct type first." empty state; Instances `＋ Add` disabled |
+| Empty pins, types exist | "No instances yet" empty state |
 | Empty types | "No types defined yet" empty state |
 | Pin address invalid/partial/overflow | Rejected (`parseStructPinAddressInput` → null) |
 | Struct editor invalid (name/count/type/bitfield) | Inline `se-error`; no `onStructsChange` |

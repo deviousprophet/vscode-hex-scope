@@ -97,10 +97,12 @@
     letter-spacing: .07em; color: var(--addr-fg);
 }
 .sb-inner-toggle-icon {
-    display: inline-block; font-size: 10px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px;
+    font-size: 14px; line-height: 1;
     color: var(--addr-fg); transition: transform .15s;
 }
-#insp-bits.collapsed .sb-inner-toggle-icon { transform: rotate(-90deg); }
+#insp-bits:not(.collapsed) .sb-inner-toggle-icon { transform: rotate(90deg); }
 .sb-inner-toggle .sb-badge { margin-left: auto; }
 .sb-inner-body { padding-top: 8px; }
 

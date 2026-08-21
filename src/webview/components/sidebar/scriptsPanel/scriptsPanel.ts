@@ -110,7 +110,6 @@ export class ScriptsPanel {
         const body = this.sections?.body('main');
         if (!body) { return; }
         body.innerHTML = `<div class="script-list">${this.scriptListHtml()}</div>`;
-        this.updateScriptCount();
         const list = body.querySelector<HTMLElement>('.script-list');
         if (list) { this.wireScriptList(list); }
     }
@@ -133,7 +132,6 @@ export class ScriptsPanel {
         this.trusted = trusted;
         this.rememberScriptPaths(scripts);
         this.revokeApprovalsForModifiedScripts(scripts);
-        this.updateScriptCount();
         this.rebuildScriptList();
     }
 
@@ -268,13 +266,6 @@ export class ScriptsPanel {
         if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null; }
         this.renderRunStates();
         this.cb.onCancelScript?.(filePath);
-    }
-
-    private updateScriptCount(): void {
-        const sections = this.sections;
-        if (!sections) { return; }
-        const count = this.currentScripts.length;
-        sections.setBadge('main', count > 0 ? String(count) : null);
     }
 
     private scriptListHtml(): string {

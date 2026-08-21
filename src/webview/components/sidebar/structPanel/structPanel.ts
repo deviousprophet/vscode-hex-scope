@@ -10,7 +10,6 @@ touches the render registry. Pure codec logic lives in structCodec.ts. */
 import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../../../utils';
 import {
     makeStructPin,
-    parseStructPinAddressInput,
     uniqueStructPinName as uniquePinName,
     upsertPointerStructPin,
     withEditedStructPin,
@@ -25,7 +24,7 @@ import {
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../../core/types';
-import { SidebarSections, closeMenuPopup, toggleMenuPopup, wireMenuPopup } from '../sidebar';
+import { SidebarSections, wireMenuPopup } from '../sidebar';
 import { showToast } from '../../toast';
 import './structPanel.css';
 
@@ -234,11 +233,10 @@ private _editingPinDraftStructId: string | null = null;
 /**
  * When non-null the section is in "type editor" mode.
  * `existing` is null for new types, or the original def being edited.
- * `draft`    holds the working copy being modified.
- * `fromAdd`  is true when the editor was opened from the add-instance form.
+ * `draft` holds the working copy being modified.
  * `fromManage` is true when opened from the manage-types list.
  */
-private _editingType: { draft: StructDef; existing: StructDef | null; fromAdd: boolean; fromManage: boolean } | null = null;
+private _editingType: { draft: StructDef; existing: StructDef | null; fromManage: boolean } | null = null;
 private _editorError: string | null = null;
 
 constructor(cb: StructCallbacks) {
@@ -259,11 +257,7 @@ mount(root: HTMLElement): void {
 }
 
     private addPinFormOrEmpty(all: StructDef[]): string {
-        return this._addingPin ? this.addStructPinFormHtml(all) : '';
-    }
-
-    private pinCountBadge(): string | null {
-        return this._pins.length > 0 ? String(this._pins.length) : null;
+        return (this._addingPin || this._editingPinId) ? this.addStructPinFormHtml(all) : '';
     }
 
     /** Re-renders the whole panel from pushed state (was renderStructPins). No-op until mounted. */
@@ -282,7 +276,6 @@ mount(root: HTMLElement): void {
             this.instanceCardsHtml(),
         );
         this.sections.body('types')!.innerHTML = this.typePanelBodyHtml(this.typeRowsHtml(all));
-        this.sections.setBadge('instances', this.pinCountBadge());
         this.updateHeaderActions();
 
         this.hydrateStructPreviews(sec);
@@ -292,18 +285,15 @@ mount(root: HTMLElement): void {
         this.wireEditorState(sec);
     }
 
-    /** Whether the type or pin editor is open (header actions + panel focus). */
+    /** Whether the type editor is open (header actions + panel focus). */
     private isEditorOpen(): boolean {
-        return Boolean(this._editingType || this._editingPinId);
+        return Boolean(this._editingType);
     }
 
     private wireEditorState(sec: HTMLElement): void {
         if (this._editingType) {
             this.wireEditorInSec(sec);
             sec.querySelector<HTMLInputElement>('#se-name')?.focus();
-        } else if (this._editingPinId) {
-            this.wirePinEditForm(sec);
-            sec.querySelector<HTMLInputElement>('.si-pe-name')?.focus();
         }
     }
 
@@ -312,13 +302,14 @@ mount(root: HTMLElement): void {
         const root = this._root;
         if (!root) { return; }
         const add = root.querySelector<HTMLButtonElement>('#si-add-btn');
-        if (add) { add.disabled = this._addingPin; }
-        const close = root.querySelector<HTMLElement>('#sm-close-btn');
-        if (close) {
-            close.hidden = !this.isEditorOpen();
-            close.title = this.typePanelCloseTitle();
-            close.setAttribute('aria-label', this.typePanelCloseTitle());
+        if (add) {
+            const noTypes = allStructs(this._structs).length === 0;
+            add.disabled = this._addingPin || this._editingPinId !== null || noTypes;
+            add.title = noTypes ? 'No struct types defined' : 'Add instance';
+            add.setAttribute('aria-label', add.title);
         }
+        const addType = root.querySelector<HTMLButtonElement>('#sm-add-btn');
+        if (addType) { addType.disabled = this.isEditorOpen(); }
     }
 
 /** Instances header action: ＋ Add (primary/status control usable while collapsed). */
@@ -335,27 +326,23 @@ private mountInstancesAction(root: HTMLElement): void {
     root.appendChild(add);
 }
 
-/** Types header action: ← Back/Cancel — editor-back when type/instance editor is open (hidden otherwise). */
+/** Types header action: ＋ Add — opens the new-type editor (disabled while an editor is open). */
 private mountTypesAction(root: HTMLElement): void {
-    const close = document.createElement('button');
-    close.id = 'sm-close-btn';
-    close.className = 'sb-btn sb-btn-secondary sb-section-action';
-    close.textContent = '\u2190';
-    close.title = this.typePanelCloseTitle();
-    close.setAttribute('aria-label', this.typePanelCloseTitle());
-    close.hidden = true;
-    close.addEventListener('click', () => {
+    const add = document.createElement('button');
+    add.id = 'sm-add-btn';
+    add.className = 'sb-btn sb-btn-add sb-section-action';
+    add.textContent = '\uff0b Add';
+    add.addEventListener('click', () => {
         this._editorError = null;
-        if (this._editingType) {
-            const { fromAdd } = this._editingType;
-            this._editingType = null;
-            if (fromAdd) { this._addingPin = true; }
-        } else if (this._editingPinId) {
-            this.closePinEditForm();
-        }
+        const draftId = `user_${Date.now()}`;
+        this._editingType = {
+            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
+            existing: null,
+            fromManage: true,
+        };
         this.render();
     });
-    root.appendChild(close);
+    root.appendChild(add);
 }
 
 /** Push both tracks' data (after full render / external change) and re-render. */
@@ -1283,15 +1270,11 @@ private wireEditorInSec(sec: HTMLElement): void {
         this.saveEditorDraft(sec, draft);
     });
 
-    sec.querySelector('#se-cancel')!.addEventListener('click', () => {
-        this._editorError = null;
-        const { fromAdd } = this._editingType!;
-        this._editingType = null;
-        if (fromAdd) {
-            this._addingPin = true;
-        }
-        this.render();
-    });
+        sec.querySelector('#se-cancel')!.addEventListener('click', () => {
+            this._editorError = null;
+            this._editingType = null;
+            this.render();
+        });
 }
 
 private saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
@@ -1309,7 +1292,7 @@ private saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
     this._editorError = null;
     this._structs = this.upsertStructList(this._structs, def);
     this.cb.onStructsChange?.(this._structs);
-    this.closeEditorAfterSave(def.id);
+    this.closeEditorAfterSave();
     this.render();
 }
 
@@ -1353,13 +1336,9 @@ private upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
     return clone;
 }
 
-private closeEditorAfterSave(defId: string): void {
-    const { fromAdd } = this._editingType!;
-    this._editingType = null;
-    if (!fromAdd) { return; }
-    this._applyStructId = defId;
-    this._addingPin = true;
-}
+    private closeEditorAfterSave(): void {
+        this._editingType = null;
+    }
 
 private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
     const row = sel.closest<HTMLElement>('.struct-field-row');
@@ -1515,15 +1494,22 @@ private structTypeRowHtml(def: StructDef): string {
 }
 
 private addStructPinFormHtml(all: StructDef[]): string {
-    const addrVal = this._activeStructAddr !== null
-        ? this._activeStructAddr.toString(16).toUpperCase().padStart(8, '0')
-        : '';
+    const editingPin = this._editingPinId
+        ? this._pins.find(p => p.id === this._editingPinId) ?? null
+        : null;
+    const nameVal = editingPin ? editingPin.name : '';
+    const addrVal = editingPin
+        ? editingPin.addr.toString(16).toUpperCase().padStart(8, '0')
+        : (this._activeStructAddr !== null ? this._activeStructAddr.toString(16).toUpperCase().padStart(8, '0') : '');
+    const header = editingPin ? '\u270E Edit Instance' : '\uff0b New Instance';
+    const headerClass = editingPin ? 'sa-form-hdr-edit' : 'sa-form-hdr-new';
+    const confirmLabel = editingPin ? 'Save' : 'Confirm';
     return (
         `<div id="si-add-form" class="si-add-form">` +
-        `<div class="sa-form-hdr sa-form-hdr-new">\uff0b New Instance</div>` +
+        `<div class="sa-form-hdr ${headerClass}">${header}</div>` +
         `<div class="sa-row">` +
         `<input id="sa-name" class="sa-name-inp sb-input" type="text" maxlength="40" ` +
-               `placeholder="instance name" spellcheck="false" autocomplete="off">` +
+               `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(nameVal)}">` +
         `</div>` +
         `<div class="sa-row">` +
         `<span class="struct-addr-pfx">0x</span>` +
@@ -1532,7 +1518,7 @@ private addStructPinFormHtml(all: StructDef[]): string {
         `</div>` +
         this.addStructPinTypeRowHtml(all) +
         `<div class="sa-row sa-btn-row">` +
-        `<button id="sa-confirm" class="sb-btn sb-btn-primary"${!this._applyStructId ? ' disabled' : ''}>Confirm</button>` +
+        `<button id="sa-confirm" class="sb-btn sb-btn-primary"${!this.selectedApplyStructId() ? ' disabled' : ''}>${confirmLabel}</button>` +
         `<button id="sa-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `</div>`
@@ -1540,43 +1526,46 @@ private addStructPinFormHtml(all: StructDef[]): string {
 }
 
 private addStructPinTypeRowHtml(all: StructDef[]): string {
-    if (all.length === 0) {
-        return (
-            `<div class="sa-row sa-no-types-row">` +
-            `<span class="sa-no-types-msg">No struct types yet — create one first.</span>` +
-            `<button id="sa-new-type-btn" class="sb-btn sb-btn-secondary">New type</button>` +
-            `</div>`
-        );
-    }
-
+    const selectedId = this.selectedApplyStructId();
     const structOpts = all.map(d =>
-        `<option value="${esc(d.id)}"${d.id === this._applyStructId ? ' selected' : ''}>${esc(d.name)}</option>`
+        `<option value="${esc(d.id)}"${d.id === selectedId ? ' selected' : ''}>${esc(d.name)}</option>`
     ).join('');
-    const applyDef = all.find(d => d.id === this._applyStructId);
+    const applyDef = all.find(d => d.id === selectedId);
     const previewHtml = applyDef
         ? `<pre class="si-c-preview" data-struct-preview-id="${esc(applyDef.id)}"></pre>`
         : '';
     return (
         `<div class="sa-row">` +
         `<select id="sa-struct-sel" class="sb-select">${structOpts}</select>` +
-        `<button id="sa-new-type-btn" class="si-add-type-btn" title="New type" aria-label="New type">\uff0b</button>` +
         `</div>` +
         previewHtml
     );
 }
 
+private selectedApplyStructId(): string | null {
+    if (this._editingPinId) {
+        const pin = this._pins.find(p => p.id === this._editingPinId);
+        return this._editingPinDraftStructId ?? pin?.structId ?? null;
+    }
+    return this._applyStructId;
+}
+
 private instanceCardsHtml(): string {
-    return this._pins.length === 0
-        ? `<div class="sb-empty">No instances yet. Click [\uff0b Add] to create one.</div>`
-        : this._pins.map((pin, i) => this.buildInstanceCard(pin, i)).join('');
+    if (this._pins.length > 0) {
+        return this._pins.map((pin, i) => this.buildInstanceCard(pin, i)).join('');
+    }
+    const msg = allStructs(this._structs).length === 0
+        ? 'Define a struct type first.'
+        : 'No instances yet. Click [\uff0b Add] to create one.';
+    return `<div class="sb-empty">${msg}</div>`;
 }
 
 private structInstancesBodyHtml(addFormHtml: string, instHtml: string): string {
+    if (addFormHtml) { return addFormHtml; }
     return (
         `<div class="si-hdr-row">` +
         this.bitLayoutToggleHtml() +
         `</div>` +
-        addFormHtml +
         `<div id="si-list">${instHtml}</div>`
     );
 }
@@ -1592,25 +1581,15 @@ private bitLayoutToggleHtml(): string {
     );
 }
 
-private typePanelCloseTitle(): string {
-    return this._editingType || this._editingPinId ? 'Cancel' : 'Back';
-}
+    private typePanelTitle(): string {
+        if (!this._editingType) { return 'Struct Types'; }
+        return this._editingType.existing ? 'Edit Type' : 'New Type';
+    }
 
-private typePanelTitle(): string {
-    if (this._editingPinId) { return 'Edit Instance'; }
-    if (!this._editingType) { return 'Struct Types'; }
-    return this._editingType.existing ? 'Edit Type' : 'New Type';
-}
-
-private typePanelNewButtonHtml(): string {
-    return this._editingType || this._editingPinId ? '' : `<div class="si-hdr-row"><button id="sm-new-btn" class="sb-btn sb-btn-secondary">New type</button></div>`;
-}
-
-private typePanelBodyHtml(typeRows: string): string {
-    if (this._editingType) { return this.editorHtml(this._editingType.draft, this._editingType.existing); }
-    if (this._editingPinId) { return this.pinEditorHtml(); }
-    return `<div id="sm-list">${this.typePanelNewButtonHtml()}${typeRows}</div>`;
-}
+    private typePanelBodyHtml(typeRows: string): string {
+        if (this._editingType) { return this.editorHtml(this._editingType.draft, this._editingType.existing); }
+        return `<div id="sm-list">${typeRows}</div>`;
+    }
 
 private wireStructPinsPanel(sec: HTMLElement): void {
     this.wireTypesPanelControls(sec);
@@ -1618,20 +1597,8 @@ private wireStructPinsPanel(sec: HTMLElement): void {
     this.wireBitLayoutTabs(sec);
 }
 
-private wireTypesPanelControls(sec: HTMLElement): void {
-    sec.querySelector('#sm-new-btn')?.addEventListener('click', () => {
-        this._editorError = null;
-        const draftId = `user_${Date.now()}`;
-        this._editingType = {
-            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
-            existing: null,
-            fromAdd: false,
-            fromManage: true,
-        };
-        this.render();
-    });
-
-    const typesPanel = sec.querySelector<HTMLElement>('#si-types-body')!;
+    private wireTypesPanelControls(sec: HTMLElement): void {
+        const typesPanel = sec.querySelector<HTMLElement>('#si-types-body')!;
     wireActionBtns(
         typesPanel,
         '.act-btn-edit',
@@ -1643,7 +1610,6 @@ private wireTypesPanelControls(sec: HTMLElement): void {
             this._editingType = {
                 draft: { id: existing.id, name: existing.name, packed: existing.packed ?? false, fields: existing.fields.map(f => ({ ...f })) },
                 existing,
-                fromAdd: false,
                 fromManage: true,
             };
             this.render();
@@ -1661,23 +1627,13 @@ private wireTypesPanelControls(sec: HTMLElement): void {
 }
 
 private wireAddStructPinControls(sec: HTMLElement): void {
-    if (!this._addingPin) { return; }
+    if (!this._addingPin && !this._editingPinId) { return; }
 
     sec.querySelector('#sa-struct-sel')?.addEventListener('change', e => {
-        this._applyStructId = (e.target as HTMLSelectElement).value || null;
+        const value = (e.target as HTMLSelectElement).value || null;
+        if (this._editingPinId) { this._editingPinDraftStructId = value; }
+        else { this._applyStructId = value; }
         this.preservePendingStructAddress();
-        this.render();
-    });
-    sec.querySelector('#sa-new-type-btn')?.addEventListener('click', () => {
-        this._editorError = null;
-        this._addingPin = false;
-        const draftId = `user_${Date.now()}`;
-        this._editingType = {
-            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
-            existing: null,
-            fromAdd: true,
-            fromManage: false,
-        };
         this.render();
     });
     sec.querySelector('#sa-addr')?.addEventListener('input', () => {
@@ -1685,13 +1641,15 @@ private wireAddStructPinControls(sec: HTMLElement): void {
         const confirmBtn = sec.querySelector<HTMLButtonElement>('#sa-confirm');
         if (!addrInp || !confirmBtn) { return; }
         const hasAddr = addrInp.value.trim().length > 0;
-        confirmBtn.disabled = !this._applyStructId || !hasAddr;
+        confirmBtn.disabled = !this.selectedApplyStructId() || !hasAddr;
     });
     sec.querySelector('#sa-confirm')?.addEventListener('click', () => {
-        this.confirmAddStructPin();
+        this.confirmStructPin();
     });
     sec.querySelector('#sa-cancel')?.addEventListener('click', () => {
         this._addingPin = false;
+        this._editingPinId = null;
+        this._editingPinDraftStructId = null;
         this.render();
     });
 }
@@ -1711,24 +1669,34 @@ private wireBitLayoutTabs(sec: HTMLElement): void {
     });
 }
 
-private confirmAddStructPin(): void {
+private confirmStructPin(): void {
     const addrInp = this._root?.querySelector<HTMLInputElement>('#sa-addr');
     const nameInp = this._root?.querySelector<HTMLInputElement>('#sa-name');
-    if (!this.canAddPin(addrInp, nameInp)) { return; }
-    const addr = this.parseStructApplyAddress(addrInp!);
+    const structId = this.selectedApplyStructId();
+    if (!addrInp || !nameInp || !structId) { return; }
+    const addr = this.parseStructApplyAddress(addrInp);
     if (addr === null) { return; }
-    const name = this.structApplyName(nameInp!);
-    const pin = makeStructPin({ structId: this._applyStructId!, addr, name }, this.makePinId);
-    this._pins       = [...this._pins, pin];
-    this._activeStructAddr = addr;
-    this._expanded.add(pin.id);
-    this._addingPin = false;
-    this.cb.onPinsChange?.(this._pins);
+    if (this._editingPinId) {
+        const pin = this._pins.find(p => p.id === this._editingPinId);
+        const idx = this._pins.findIndex(p => p.id === this._editingPinId);
+        if (idx >= 0) {
+            const name = nameInp.value.trim() || pin?.name || 'inst';
+            this._pins = withEditedStructPin(this._pins, idx, { name, addr, structId });
+            this._activeStructAddr = addr;
+            this.cb.onPinsChange?.(this._pins);
+        }
+        this._editingPinId = null;
+        this._editingPinDraftStructId = null;
+    } else {
+        const name = this.structApplyName(nameInp);
+        const pin = makeStructPin({ structId, addr, name }, this.makePinId);
+        this._pins = [...this._pins, pin];
+        this._activeStructAddr = addr;
+        this._expanded.add(pin.id);
+        this._addingPin = false;
+        this.cb.onPinsChange?.(this._pins);
+    }
     this.render();
-}
-
-private canAddPin(addrInp: HTMLInputElement | null | undefined, nameInp: HTMLInputElement | null | undefined): boolean {
-    return !!this._applyStructId && !!addrInp && !!nameInp;
 }
 
 private parseStructApplyAddress(addrInp: HTMLInputElement): number | null {
@@ -2425,7 +2393,7 @@ private emptyBitUnitHeaderHtml(
         `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
         `<span class="si-f-off">+000</span>` +
         this.typeCellHtml('u8', 'uint8') +
-        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▼' : '▶'}</button>` +
+        `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(headerName)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -2500,7 +2468,7 @@ private firstBitUnitFieldName(rows: DecodedField[]): string {
     }
 
     private collapsibleIconHtml(buttonClass: string, isOpen: boolean): string {
-        return `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▼' : '▶'}</button>`;
+        return `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>`;
     }
 
     private populatedBitUnitHeaderHtml(
@@ -2772,7 +2740,7 @@ private structArrayElementHtml(
         `<div class="${groupClass}" data-arr-el-key="${esc(elementKey)}">` +
         `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${byteStart}" data-byte-cnt="${byteCnt}"${offsetAttr}>` +
         this.compositeHeaderPrefixHtml(isOpen, first.byteOffset, hideOffsets) +
-        `<button class="si-arr-el-exp-btn" title="${isOpen ? 'Collapse element' : 'Expand element'}" aria-label="${isOpen ? 'Collapse element' : 'Expand element'}">${this.expandGlyph(isOpen)}</button>` +
+        `<button class="si-arr-el-exp-btn" title="${isOpen ? 'Collapse element' : 'Expand element'}" aria-label="${isOpen ? 'Collapse element' : 'Expand element'}">›</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">[${element.idx}]</span>` +
         `<span class="si-f-lead"></span>` +
@@ -2794,10 +2762,6 @@ private structArrayElementOffsetAttr(byteOffset: number, hideOffsets: boolean): 
 
 private structArrayElementBodyStyle(isOpen: boolean): string {
     return isOpen ? '' : ' style="display:none"';
-}
-
-private expandGlyph(isOpen: boolean): string {
-    return isOpen ? '▼' : '▶';
 }
 
 private offsetLabel(byteOffset: number): string {
@@ -3320,7 +3284,7 @@ private structPointerHeaderHtml(
     return (
         this.structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         this.structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">${isOpen ? '▼' : '▶'}</button>` +
+        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>` +
         this.structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
@@ -3409,7 +3373,7 @@ private pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, chil
         this.sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(child.key)}">` +
         this.compositeHeaderPrefixHtml(child.isOpen, row.byteOffset, true) +
-        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">${child.isOpen ? '▼' : '▶'}</button>` +
+        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">›</button>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(child.name)}</span>` +
         `<span class="si-f-lead"></span>` +
@@ -3489,63 +3453,17 @@ private instanceTypePreviewHtml(def: StructDef | undefined, pin: StructPin): str
         : '';
 }
 
-/** Full-width instance editor — mounted in the Types section body, same shape as the type editor. */
-private pinEditorHtml(): string {
-    const pin = this._pins.find(p => p.id === this._editingPinId);
-    if (!pin) { return ''; }
-
-    const draftStructId = this._editingPinDraftStructId ?? pin.structId;
-    const addrHex = pin.addr.toString(16).toUpperCase().padStart(8, '0');
-    const structOpts = allStructs(this._structs).map(d =>
-        `<option value="${esc(d.id)}"${d.id === draftStructId ? ' selected' : ''}>${esc(d.name)}</option>`
-    ).join('');
-    const editDef = allStructs(this._structs).find(d => d.id === draftStructId);
-    const editPreviewHtml = editDef
-        ? `<pre class="si-c-preview" data-struct-preview-id="${esc(editDef.id)}"></pre>`
-        : '';
-
-    return (
-        `<div class="si-pin-editor si-editor-wrap">` +
-        `<div class="se-form">` +
-        `<div class="sa-form-hdr sa-form-hdr-edit">&#9998; Edit Instance</div>` +
-        `<div class="sa-row">` +
-        `<input class="si-pe-name sa-name-inp sb-input" type="text" maxlength="40" ` +
-               `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin.name)}">` +
-        `</div>` +
-        `<div class="sa-row">` +
-        `<span class="struct-addr-pfx">0x</span>` +
-        `<input class="si-pe-addr sb-input sa-addr-inp" type="text" maxlength="8" ` +
-               `autocomplete="off" spellcheck="false" placeholder="08000000" value="${esc(addrHex)}">` +
-        `</div>` +
-        `<div class="sa-row">` +
-        `<select class="si-pe-type sb-select">${structOpts}</select>` +
-        `</div>` +
-        editPreviewHtml +
-        `<div class="se-btns">` +
-        `<button class="si-pe-save sb-btn sb-btn-primary">Save</button>` +
-        `<button class="si-pe-cancel sb-btn sb-btn-secondary">Cancel</button>` +
-        `</div>` +
-        `</div>` +
-        `</div>`
-    );
-}
-
 private instanceBodyHtml(def: StructDef | undefined, pin: StructPin, expanded: boolean): string {
     return expanded && def ? this.renderStructBody(def, pin) : '';
 }
 
-/** Always-visible "⋮" menu on each instance card (Edit | Delete | View type). */
+/** Always-visible card actions: Edit | View type | Delete. */
 private instanceActionsHtml(pin: StructPin, index: number): string {
+    const previewActive = this._previewedPins.has(pin.id) ? ' active' : '';
     return (
-        `<div class="si-card-menu-wrap">` +
-        `<button type="button" class="si-card-menu" data-pin-id="${esc(pin.id)}" ` +
-                `aria-haspopup="menu" aria-expanded="false" title="Actions" aria-label="Actions for ${esc(pin.name)}">&#8942;</button>` +
-        `<div class="si-card-menu-pop" role="menu" hidden>` +
-        `<button type="button" class="act-btn act-btn-edit" data-pin-id="${esc(pin.id)}" role="menuitem" title="Edit">&#9998; Edit</button>` +
-        `<button type="button" class="act-btn act-btn-del" data-idx="${index}" role="menuitem" title="Delete">&#128465;&#xFE0E; Delete</button>` +
-        `<button type="button" class="act-btn act-btn-view-type" data-pin-id="${esc(pin.id)}" role="menuitem" title="View type definition">{ } View type</button>` +
-        `</div>` +
-        `</div>`
+        `<button type="button" class="act-btn act-btn-edit" data-pin-id="${esc(pin.id)}" title="Edit" aria-label="Edit">&#9998;</button>` +
+        `<button type="button" class="act-btn act-btn-view-type${previewActive}" data-pin-id="${esc(pin.id)}" title="View type definition" aria-label="View type definition">{ }</button>` +
+        `<button type="button" class="act-btn act-btn-del" data-idx="${index}" title="Delete" aria-label="Delete">&#128465;&#xFE0E;</button>`
     );
 }
 
@@ -3559,7 +3477,7 @@ private instanceHeaderHtml(
 ): string {
     return (
         `<div class="sb-card-hdr">` +
-        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">${expanded ? '\u25bc' : '\u25b6'}</button>` +
+        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">›</button>` +
         `<div class="sb-card-info">` +
         `<span class="si-cname">${esc(pin.name)}</span>` +
         `<div class="si-cmeta-row">` +
@@ -3697,7 +3615,7 @@ private wireInstanceCards(sec: HTMLElement): void {
             expBtn.addEventListener('click', e => {
                 e.stopPropagation();
                 if ((expBtn as HTMLButtonElement).disabled) { return; }
-                this.toggleCompositeGroup(hdr, expBtn, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', this._expandedArrayFields);
+                this.toggleCompositeGroup(hdr, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', this._expandedArrayFields);
             });
         }
 
@@ -3725,7 +3643,7 @@ private wireInstanceCards(sec: HTMLElement): void {
 
         expBtn.addEventListener('click', e => {
             e.stopPropagation();
-            this.toggleCompositeGroup(hdr, expBtn, '.si-arr-el-grp', '.si-arr-el-body', 'arrElKey', this._expandedArrayElements);
+            this.toggleCompositeGroup(hdr, '.si-arr-el-grp', '.si-arr-el-body', 'arrElKey', this._expandedArrayElements);
         });
 
         this.wireStructHoverRange(hdr, start, cnt);
@@ -3745,23 +3663,10 @@ private wireInstanceCards(sec: HTMLElement): void {
         hdr.addEventListener('click', e => this.onCardHeaderClick(sec, hdr, e));
     });
 
-    // Wire the always-visible "⋮" menu on each instance card (shared popup
-    // wiring: open/close, Escape, click-outside, aria-expanded; items act on pin.id).
+    // Always-visible card actions: Edit | Delete | View type.
     sec.querySelectorAll<HTMLElement>('.sb-card').forEach(card => {
-        const menuBtn = card.querySelector<HTMLButtonElement>('.si-card-menu');
-        const pop = card.querySelector<HTMLElement>('.si-card-menu-pop');
-        if (!menuBtn || !pop) { return; }
-
-        wireMenuPopup(pop, { button: menuBtn, root: menuBtn.closest('.si-card-menu-wrap') ?? undefined });
-
-        menuBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            this.closeAllCardMenus(sec, menuBtn);
-            toggleMenuPopup(pop);
-        });
-
         wireActionBtns(
-            pop,
+            card,
             '.act-btn-edit',
             '.act-btn-del',
             btn => {
@@ -3769,7 +3674,6 @@ private wireInstanceCards(sec: HTMLElement): void {
                 const editedPin = this._pins.find(p => p.id === this._editingPinId);
                 this._editingPinDraftStructId = editedPin?.structId ?? null;
                 this._expanded.delete(this._editingPinId);
-                this.closeAllCardMenus(sec, null);
                 this.render();
             },
             btn => {
@@ -3778,15 +3682,13 @@ private wireInstanceCards(sec: HTMLElement): void {
                 if (pin) { this._expanded.delete(pin.id); }
                 this._pins = withoutStructPin(this._pins, idx);
                 this.cb.onPinsChange?.(this._pins);
-                this.closeAllCardMenus(sec, null);
                 this.render();
             },
         );
-        pop.querySelectorAll<HTMLElement>('.act-btn-view-type').forEach(btn => {
+        card.querySelectorAll<HTMLElement>('.act-btn-view-type').forEach(btn => {
             btn.addEventListener('click', e => {
                 e.stopPropagation();
                 this.toggleTypePreview(btn);
-                this.closeAllCardMenus(sec, null);
             });
         });
     });
@@ -3867,16 +3769,9 @@ private wireInstanceCards(sec: HTMLElement): void {
     this.restoreStructSelection(sec);
 }
 
-/** Close every open per-card menu; missing popovers are a no-op. */
-private closeAllCardMenus(sec: HTMLElement, except: HTMLElement | null): void {
-    sec.querySelectorAll<HTMLElement>('.si-card-menu-pop').forEach(pop => { pop.hidden = true; });
-    sec.querySelectorAll<HTMLElement>('.si-card-menu').forEach(btn => {
-        if (btn !== except) { btn.setAttribute('aria-expanded', 'false'); }
-    });
-}
 
-private onCardHeaderClick(sec: HTMLElement, hdr: HTMLElement, e: Event): void {
-    if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions, .si-card-menu-wrap')) { return; }
+    private onCardHeaderClick(sec: HTMLElement, hdr: HTMLElement, e: Event): void {
+        if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions')) { return; }
     this.clearArrSep();
     this.clearSelRow();
     this._selectedBitRange = null;
@@ -3921,58 +3816,6 @@ private setTypePreviewOpen(id: string, btn: HTMLElement, preview: HTMLElement | 
     else { this._previewedPins.delete(id); }
     btn.classList.toggle('active', isOpen);
     if (preview) { preview.style.display = isOpen ? '' : 'none'; }
-}
-
-private wirePinEditForm(sec: HTMLElement): void {
-    if (!this._editingPinId) { return; }
-    const editForm = sec.querySelector<HTMLElement>('.si-pin-editor');
-    if (!editForm) { return; }
-
-    const pinId = this._editingPinId;
-    editForm.querySelector<HTMLSelectElement>('.si-pe-type')?.addEventListener('change', e => {
-        this._editingPinDraftStructId = (e.target as HTMLSelectElement).value || null;
-        this.render();
-    });
-    editForm.querySelector<HTMLElement>('.si-pe-save')!.addEventListener('click', e => {
-        e.stopPropagation();
-        this.savePinEditForm(editForm, pinId);
-    });
-    editForm.querySelector<HTMLElement>('.si-pe-cancel')!.addEventListener('click', e => {
-        e.stopPropagation();
-        this.closePinEditForm();
-        this.render();
-    });
-}
-
-private savePinEditForm(editForm: HTMLElement, pinId: string): void {
-    const addr = this.readPinEditAddress(editForm);
-    if (addr === null) { return; }
-    const idx = this._pins.findIndex(p => p.id === pinId);
-    if (idx >= 0) { this.applyPinEdit(editForm, idx, addr); }
-    this.closePinEditForm();
-    this.render();
-}
-
-private readPinEditAddress(editForm: HTMLElement): number | null {
-    const addrInput = editForm.querySelector('.si-pe-addr') as HTMLInputElement;
-    const addr = parseStructPinAddressInput(addrInput.value);
-    if (addr !== null) { addrInput.style.borderColor = ''; return addr; }
-    addrInput.style.borderColor = 'var(--err)';
-    return null;
-}
-
-private applyPinEdit(editForm: HTMLElement, idx: number, addr: number): void {
-    const pin = this._pins[idx];
-    const nameVal = (editForm.querySelector('.si-pe-name') as HTMLInputElement).value.trim();
-    const typeVal = (editForm.querySelector('.si-pe-type') as HTMLSelectElement).value;
-    this._pins = withEditedStructPin(this._pins, idx, { name: nameVal || pin.name, addr, structId: typeVal });
-    this._activeStructAddr = addr;
-    this.cb.onPinsChange?.(this._pins);
-}
-
-private closePinEditForm(): void {
-    this._editingPinId = null;
-    this._editingPinDraftStructId = null;
 }
 
 private restoreStructSelection(sec: HTMLElement): void {
@@ -4906,7 +4749,6 @@ private copyTextToClipboard(text: string): void {
 
 private toggleCompositeGroup(
     hdr: HTMLElement,
-    expBtn: HTMLElement,
     groupSelector: string,
     bodySelector: string,
     keyName: string,
@@ -4920,14 +4762,12 @@ private toggleCompositeGroup(
         expandedKeys.delete(key);
         grp.classList.remove('open');
         body.style.display = 'none';
-        expBtn.textContent = '▶';
         this.syncCompositeHeaderOffset(hdr, false);
         return;
     }
     expandedKeys.add(key);
     grp.classList.add('open');
     body.style.display = '';
-    expBtn.textContent = '▼';
     this.syncCompositeHeaderOffset(hdr, true);
 }
 
@@ -4992,34 +4832,27 @@ private clearStructSelectionState(): void {
     this._selectedPinId     = null;
 }
 
-private updateStructAddressInputs(addr: number): void {
-    if (!this._tabActive) { return; }
-    const addrHex = addr.toString(16).toUpperCase().padStart(8, '0');
-    if (this._addingPin) {
-        this.updateAddPinAddressInput(addrHex);
-        return;
+    private updateStructAddressInputs(addr: number): void {
+        if (!this._tabActive) { return; }
+        const addrHex = addr.toString(16).toUpperCase().padStart(8, '0');
+        if (this._addingPin || this._editingPinId) {
+            this.updateAddPinAddressInput(addrHex);
+        }
     }
-    if (this._editingPinId) { this.updateEditPinAddressInput(addrHex); }
-}
 
-private updateAddPinAddressInput(addrHex: string): void {
-    const inp = this.addPinAddressInput();
-    if (!inp) { return; }
-    inp.value = addrHex;
-    const confirmBtn = this.addPinConfirmButton();
-    if (confirmBtn) { confirmBtn.disabled = !this._applyStructId; }
-}
+    private updateAddPinAddressInput(addrHex: string): void {
+        const inp = this.addPinAddressInput();
+        if (!inp) { return; }
+        inp.value = addrHex;
+        const confirmBtn = this.addPinConfirmButton();
+        if (confirmBtn) { confirmBtn.disabled = !this.selectedApplyStructId(); }
+    }
 
-private addPinAddressInput(): HTMLInputElement | null {
-    return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
-}
+    private addPinAddressInput(): HTMLInputElement | null {
+        return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
+    }
 
-private addPinConfirmButton(): HTMLButtonElement | null {
-    return this._root?.querySelector<HTMLButtonElement>('#sa-confirm') ?? null;
-}
-
-private updateEditPinAddressInput(addrHex: string): void {
-    const inp = this._root?.querySelector<HTMLInputElement>('.si-pe-addr');
-    if (inp) { inp.value = addrHex; }
-}
+    private addPinConfirmButton(): HTMLButtonElement | null {
+        return this._root?.querySelector<HTMLButtonElement>('#sa-confirm') ?? null;
+    }
 }

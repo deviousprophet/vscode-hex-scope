@@ -58,7 +58,7 @@ class ScriptsPanel {
 
 ## Behaviour
 
-- Default: empty script list renders "No scripts found in .hexscope/scripts/"; count badge hidden when zero.
+- Default: empty script list renders "No scripts found in .hexscope/scripts/"; no section-header count badge.
 - Card: status dot (gray idle / green ok / red err), name (ellipsis + path tooltip), ext badge, fixed-width run/cancel button. No capability badges on cards — capabilities surface at the run-time confirm gate (see below).
 - Button state machine: ▶ play → ⟳ spinner (200 ms pending) → ⏹ stop (click to cancel) → ▶ play on any terminal state. Clicking the running button cancels during pending; while one script runs, every other card's run button carries the real `disabled` attribute (out of tab order; tooltip "A script is already running"; native disabled swallows clicks — no click-wired blocked-run notice, no `aria-disabled`). `.ts` cards get `disabled-ts` (esbuild tooltip); untrusted workspace cards get `disabled-trust` ("Workspace not trusted") and neither is click-wired.
 - Run history (per script, session-only): the latest result block stays expanded on top; each completed run collapses into a one-line row `run #N · HH:MM ✓/✕` (`.script-run-row`, `.script-run-hdr`), newest first, capped at `HISTORY_CAP` (5) per card. A new run snapshots the prior result block into history before streaming starts (streamed output never pollutes stored runs). A `✕` clear button on the latest block header empties the card's results and resets its status dot. Re-render order is latest-top.
@@ -73,7 +73,7 @@ class ScriptsPanel {
 
 | Condition | Behaviour |
 |---|---|
-| No scripts | "No scripts found in .hexscope/scripts/" empty state; count badge hidden |
+| No scripts | "No scripts found in .hexscope/scripts/" empty state |
 | Untrusted workspace | Run disabled (`disabled-trust`) + "Workspace not trusted" tooltip; no click wiring |
 | `.ts` script (trusted) | Run disabled (`disabled-ts`) + esbuild tooltip |
 | Click run | `onRunScript` with generation + selection (or no `selectionRange` when no selection) |
@@ -91,7 +91,7 @@ class ScriptsPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts`: mount/render (toolbar + empty state + idempotent), refresh → `onRequestList`, `setScripts` (cards: name/ext/status dots (no cap badges), count badge, trusted vs untrusted disabled, `.ts` `disabled-ts`), run/cancel state machine (payload shape with generation/selection, play→spinner→stop→play, cancel during pending, other run button truly disabled), run history (latest-top collapse, expand, no stream pollution, clear, 5-row cap), capability gate (confirm listing caps, accept persists, decline no-run, remount resets, cap-less no confirm), `showResult` (success/compile/runtime/timeout/cancel headers, results rows, log, writes notice, auto-expand + collapse toggle, re-run collapses, escaping, unknown-path no-op), `appendOutput` (realtime + first-100-then-batched flush, escaping, no-run no-op), `setTabActive` lazy-init gate. Existing `webviewMessageModel.test.ts` script protocol rows + `webview.test.ts` pass unchanged (parity gate).
+`src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts`: mount/render (toolbar + empty state + idempotent), refresh → `onRequestList`, `setScripts` (cards: name/ext/status dots (no cap badges), no count badge, trusted vs untrusted disabled, `.ts` `disabled-ts`), run/cancel state machine (payload shape with generation/selection, play→spinner→stop→play, cancel during pending, other run button truly disabled), run history (latest-top collapse, expand, no stream pollution, clear, 5-row cap), capability gate (confirm listing caps, accept persists, decline no-run, remount resets, cap-less no confirm), `showResult` (success/compile/runtime/timeout/cancel headers, results rows, log, writes notice, auto-expand + collapse toggle, re-run collapses, escaping, unknown-path no-op), `appendOutput` (realtime + first-100-then-batched flush, escaping, no-run no-op), `setTabActive` lazy-init gate. Existing `webviewMessageModel.test.ts` script protocol rows + `webview.test.ts` pass unchanged (parity gate).
 
 ## Anti-patterns
 

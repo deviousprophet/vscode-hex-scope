@@ -170,7 +170,7 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?
 #### Result block behavior
 
 - Auto-expands when new result arrives (overrides previous collapsed state)
-- Header clickable to collapse/expand (▶/▼ indicator)
+- Header clickable to collapse/expand (`›` chevron indicator, rotates when open)
 - Different headers for each terminal state:
   - **Success**: "▶ Result — filename" (default style)
   - **Runtime error**: "🔴 Script Error — filename" (red header)

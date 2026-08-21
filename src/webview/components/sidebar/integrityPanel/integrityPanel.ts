@@ -150,17 +150,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         const body = this.sections?.body('main');
         if (!body) { return; }
         body.innerHTML = this.integrityBodyHtml();
-        this.updateBadge();
         this.wireRenderedIntegrity(body);
-    }
-
-    /** Header badge: total checks, mismatch count appended in danger style when bad>0. */
-    private updateBadge(): void {
-        const bad = this.checks.filter(check => isMismatchedCheck(check)).length;
-        const text = bad > 0
-            ? `${this.checks.length} · ${bad}!`
-            : (this.checks.length > 0 ? String(this.checks.length) : null);
-        this.sections?.setBadge('main', text, bad > 0);
     }
 
     /** Push profiles + active checks (was setIntegrityProfiles). */
@@ -633,7 +623,6 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this.updateCheckCardStatus(card, check);
         this.updateCheckCardBody(card, check);
         this.updateFixAllControl();
-        this.updateBadge();
     }
 
     private updateCheckCardStatus(card: HTMLElement, check: IntegrityCheckState): void {

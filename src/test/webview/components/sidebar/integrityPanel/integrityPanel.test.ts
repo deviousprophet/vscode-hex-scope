@@ -108,16 +108,6 @@ async function waitForCalculation(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 350));
 }
 
-async function waitForBadge(expected: string, timeoutMs = 2_000): Promise<void> {
-    const start = Date.now();
-    const badge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
-    while (badge.textContent !== expected) {
-        assert.ok(Date.now() - start < timeoutMs,
-            `badge never became ${JSON.stringify(expected)} (was ${JSON.stringify(badge.textContent)})`);
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
-}
-
 function integrityCard(index = 0): HTMLElement {
     return document.querySelectorAll<HTMLElement>('.integrity-card')[index];
 }
@@ -369,7 +359,7 @@ suite('IntegrityPanel results + auto fix', () => {
         assert.strictEqual(status.textContent, '∑');
     });
 
-    test('header badge shows mismatch in danger color; Fix all clears it', async function () {
+    test('card status shows mismatch; Fix all clears it', async function () {
         this.timeout(5_000);
         setBytesInSegment(0x1000, [1, 2, 3, 4]);
         click(dom, document.getElementById('integrity-add-btn'));
@@ -379,15 +369,13 @@ suite('IntegrityPanel results + auto fix', () => {
         setDraftValue(form, 'end', '1001');
         setDraftValue(form, 'stored', '1002');
         click(dom, form.querySelector('[data-form-action="save"]'));
-        const badge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
-        assert.strictEqual(badge.textContent, '1', 'plain count while calculating');
-        assert.ok(!badge.classList.contains('sb-badge-danger'));
+        const headerBadge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
+        assert.ok(headerBadge.hidden, 'no header badge');
         await waitForCalculation();
-        assert.strictEqual(badge.textContent, '1 · 1!', 'total · mismatch!');
-        assert.ok(badge.classList.contains('sb-badge-danger'), 'danger class on mismatch');
+        const status = document.querySelector<HTMLElement>('.integrity-card-status')!;
+        assert.strictEqual(status.getAttribute('aria-label'), 'Mismatch');
         click(dom, document.getElementById('integrity-fix-all'));
-        assert.strictEqual(badge.textContent, '1', 'plain count after fix');
-        assert.ok(!badge.classList.contains('sb-badge-danger'), 'danger cleared after fix');
+        assert.strictEqual(document.querySelector<HTMLElement>('.integrity-card-status')!.getAttribute('aria-label'), 'Match');
     });
 });
 
@@ -558,7 +546,7 @@ suite('IntegrityPanel highlight + profiles', () => {
         assert.strictEqual(created.checks.length, 1);
     });
 
-    test('badge totals checks and mismatches across many cards', async function () {
+    test('mismatch shows on the mismatching card, not a header badge', async function () {
         this.timeout(5_000);
         S.edits.clear(); // Fix all in earlier tests stages edits; this test needs raw bytes.
         setBytesInSegment(0x1000, [1, 2, 3, 4]);
@@ -574,10 +562,12 @@ suite('IntegrityPanel highlight + profiles', () => {
         setDraftValue(form, 'start', '1000');
         setDraftValue(form, 'end', '1002');
         click(dom, form.querySelector('[data-form-action="save"]'));
-        await waitForBadge('2 · 1!');
-        const badge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
-        assert.strictEqual(badge.textContent, '2 · 1!');
-        assert.ok(badge.classList.contains('sb-badge-danger'));
+        await waitForCalculation();
+        const headerBadge = document.querySelector<HTMLElement>('#s-integrity .sb-badge')!;
+        assert.ok(headerBadge.hidden, 'no header badge');
+        const statuses = [...document.querySelectorAll<HTMLElement>('.integrity-card-status')];
+        assert.strictEqual(statuses.length, 2);
+        assert.ok(statuses.some(s => s.getAttribute('aria-label') === 'Mismatch'));
     });
 
     test('profile menu opens from ⋮; Escape closes; rename runs through the menu', async () => {

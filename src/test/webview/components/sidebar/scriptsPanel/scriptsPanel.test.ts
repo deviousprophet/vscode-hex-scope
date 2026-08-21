@@ -180,14 +180,12 @@ suite('ScriptsPanel setScripts', () => {
         assert.strictEqual((card.querySelector('.sb-status-dot') as HTMLElement).title, 'Not yet run');
     });
 
-    test('updates the count badge', () => {
+    test('section header has no count badge', () => {
         const badge = () => document.querySelector<HTMLElement>('#s-scripts .sb-badge')!;
         assert.ok(badge().hidden);
         panel.setScripts(SCRIPTS, true);
-        assert.strictEqual(badge().textContent, '3');
-        assert.ok(!badge().hidden);
+        assert.ok(badge().hidden);
         panel.setScripts([], true);
-        assert.strictEqual(badge().textContent, '');
         assert.ok(badge().hidden);
     });
 

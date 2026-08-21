@@ -542,8 +542,7 @@ suite('Parsed Segment Navigator', () => {
         const items = document.querySelectorAll<HTMLElement>('.label-perma');
         assert.strictEqual(items.length, 2);
         const badge = document.querySelector('#s-labels .sb-badge')!;
-        assert.strictEqual(badge.textContent, '2');
-        assert.ok(!(badge as HTMLElement).hidden);
+        assert.ok((badge as HTMLElement).hidden, 'no count badge on section header');
         assert.strictEqual(items[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
         assert.strictEqual(items[0].querySelector('.label-rng')!.textContent, '0x00001000–0x00001001 · 2 B');
         assert.strictEqual(items[1].querySelector('.label-rng')!.textContent, '0x00002000–0x00002003 · 4 B');

@@ -185,7 +185,7 @@ export function multiContextHtml(endian: 'le' | 'be', width: number, selLen: num
     const pad = selLen < width
         ? `<span class="mi-pad-note">zero-padded to ${width * 8}-bit</span>`
         : '';
-    return `<div class="mi-pad-row">${tag}${pad}</div>`;
+    return `<div class="mi-pad-row">${tag}${pad ? ` ${pad}` : ''}</div>`;
 }
 
 export function gapPaddingNoteHtml(skipped: number): string {

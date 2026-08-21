@@ -169,6 +169,7 @@ html, body {
 
 .act-btn:hover       { background: rgba(255,255,255,.08); color: var(--fg); }
 .act-btn:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }
+.act-btn.active      { background: rgba(134,180,212,.18); color: var(--high-color); opacity: 1; }
 .act-btn-edit:hover  { color: var(--high-color); background: rgba(134,180,212,.1); }
 .act-btn-del:hover   { color: var(--err);         background: rgba(244,135,113,.1); }
 

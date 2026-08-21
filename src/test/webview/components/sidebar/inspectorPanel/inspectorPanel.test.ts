@@ -194,8 +194,7 @@ suite('Inspector segments merge into Labels', () => {
         const items = document.querySelectorAll<HTMLElement>('.label-perma');
         assert.strictEqual(items.length, 2);
         const badge = document.querySelector('#s-labels .sb-badge')!;
-        assert.strictEqual(badge.textContent, '2');
-        assert.ok(!(badge as HTMLElement).hidden);
+        assert.ok((badge as HTMLElement).hidden, 'no count badge on section header');
         assert.strictEqual(items[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
         assert.ok(items[0].querySelector('.label-rng')!.textContent?.includes('0x00001000'));
         assert.strictEqual(items[0].querySelectorAll('.act-btn-edit, .act-btn-del, .label-vis').length, 0,
@@ -217,7 +216,7 @@ suite('Inspector segments merge into Labels', () => {
         assert.strictEqual(rows[1].querySelector('.label-nm')!.textContent, 'Start');
         assert.strictEqual(rows[2].querySelector('.label-perma-name')!.textContent, 'Segment 2');
         const badge = document.querySelector('#s-labels .sb-badge')!;
-        assert.strictEqual(badge.textContent, '3', 'badge counts total rows');
+        assert.ok((badge as HTMLElement).hidden, 'no count badge on section header');
     });
 
     test('labels default collapsed stays in the pane stack and expands from its header', () => {
@@ -246,13 +245,12 @@ suite('Inspector labels', () => {
 
     teardown(cleanupDom);
 
-    test('setLabels renders rows + badge; row click jumps', () => {
+    test('setLabels renders rows; row click jumps', () => {
         inspector.setLabels(labels);
         const row = document.querySelector<HTMLElement>('.label-item')!;
         assert.strictEqual(row.querySelector('.label-nm')!.textContent, 'Start');
         const badge = document.querySelector('#s-labels .sb-badge')!;
-        assert.strictEqual(badge.textContent, '1');
-        assert.ok(!(badge as HTMLElement).hidden);
+        assert.ok((badge as HTMLElement).hidden, 'no count badge on section header');
         row.click();
         assert.deepStrictEqual(cb.jumps, [0x1000]);
     });

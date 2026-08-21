@@ -277,7 +277,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         const collapsed = this.bitsCollapsed;
         block.innerHTML =
             `<button type="button" class="sb-inner-toggle" data-collapse aria-expanded="${collapsed ? 'false' : 'true'}">` +
-            `<span class="sb-inner-toggle-icon" aria-hidden="true">▼</span>` +
+            `<span class="sb-inner-toggle-icon" aria-hidden="true">›</span>` +
             `<span class="sb-inner-label">Bits</span>` +
             (badge ? `<span class="sb-badge">${esc(badge)}</span>` : '') +
             `</button>` +
@@ -360,10 +360,8 @@ export class InspectorPanel implements InspectorLabelFormHost {
         this.cb.onLabelDraftChange?.(null);
         const itemsHtml = labelItemsHtml(this.labels, this.segments, this.segmentNames);
         body.innerHTML = `${itemsHtml}
-            <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>`;
+        <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>`;
 
-        const total = this.labels.length + this.segments.length;
-        this.sections!.setBadge('labels', total > 0 ? String(total) : null);
         this.wireLabelActions(body);
         this.wireLabelVisibility(body);
         this.wireLabelJump(body);

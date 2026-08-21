@@ -67,8 +67,8 @@
     border-bottom: 1px solid var(--border); cursor: pointer;  user-select: none;
 }
 .script-output-hdr:hover { background: rgba(255,255,255,.06); }
-.script-output-hdr::before { content: '▼'; font-size: 8px; margin-right: 2px; } /* ponytail: decorative collapse glyph, not UI text — keep 8px */
-.script-output-block.collapsed .script-output-hdr::before { content: '▶'; }
+.script-output-hdr::before { content: '›'; display: inline-block; width: 14px; height: 14px; font-size: 14px; line-height: 14px; text-align: center; margin-right: 2px; transition: transform .12s ease; } /* ponytail: decorative collapse glyph, not UI text */
+.script-output-block:not(.collapsed) .script-output-hdr::before { transform: rotate(90deg); }
 .script-output-block.collapsed .script-output-body-wrap { display: none; }
 
 /* Run history rows — collapsed one-line headers for completed runs (latest stays open) */

@@ -73,7 +73,7 @@ class InspectorPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/badge/jump), `setLabels` (rows/badge/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, labels collapse/expand in the pane view. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
+`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/jump), `setLabels` (rows/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, labels collapse/expand in the pane view. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
 
 ## Anti-patterns
 

@@ -119,18 +119,17 @@
     white-space: nowrap; text-overflow: ellipsis; overflow: hidden; min-width: 3ch;
     color: var(--addr-fg);
 }
-/* Decorative chevron (VS Code .twisty-container): chevron-down when open
-   (nudged down 1px like VS Code), rotated to chevron-right when collapsed. */
+/* Decorative chevron: `›` points right when collapsed, rotates down when open. */
 .sb-section-chevron {
-    display: inline-block; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; flex-shrink: 0;
     color: var(--addr-fg);
-    font-size: 11px;
+    font-size: 14px;
     line-height: 1;
     transition: transform .15s ease-out;
 }
-.sb-section-chevron::before { content: '\25BC'; }
-.sb-section-head[aria-expanded="true"] .sb-section-chevron { transform: translateY(1px); }
-.sb-section-head[aria-expanded="false"] .sb-section-chevron { transform: rotate(-90deg); }
+.sb-section-chevron::before { content: '\203A'; }
+.sb-section-head[aria-expanded="true"] .sb-section-chevron { transform: rotate(90deg); }
 .sb-section-actions {
     display: flex; align-items: center; gap: 4px;
     flex-shrink: 0; margin-left: auto; margin-right: 8px;
