@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 34
+- **Total Sessions**: 35
 - **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~806 | Active |
+| `journal-1.md` | ~828 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 35 | 2026-08-21 | Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename | `383b3b6`, `6993c17` | `feat/ui-consistency` |
 | 34 | 2026-08-21 | fallow-clean labels form | `bb94ef0` | `feat/ui-consistency` |
 | 33 | 2026-08-21 | Labels rework: renamable pinned segments + selection-driven form | `2abb188` | `feat/ui-consistency` |
 | 32 | 2026-08-21 | Byte-line copies full selection | `4785391` | `feat/ui-consistency` |

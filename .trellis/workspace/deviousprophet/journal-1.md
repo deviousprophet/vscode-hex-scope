@@ -804,3 +804,25 @@ fallow-fix on the labels-rework changes: 5 findings (2 critical, 3 moderate) ref
 ### Status
 
 [OK] **Completed**
+
+
+## Session 35: Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename
+
+**Date**: 2026-08-21
+**Task**: Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Redesigned Inspector label form (create/edit): End Address default mode, bidirectional auto-calc chips (fmtB size / end-addr), Title Case labels + monospace hex inputs, swatch buttons with ring + aria-pressed, right-aligned Cancel/Add, Esc/Enter + autofocus, and a live draft-range preview painted into the hex grid via onLabelDraftChange -> S.labelDraft -> HexView.paintLabelDraft. Replaced pinned-segment rename form with an inline name editor (Enter commit / Esc revert / blur commit; blank clears override). Single-line mode switch. 831 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `383b3b6` | (see git log) |
+| `6993c17` | (see git log) |
+
+### Status
+
+[OK] **Completed**
