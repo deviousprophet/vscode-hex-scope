@@ -15,12 +15,13 @@ Restyle the label form (create/edit/rename) in the inspector panel to match the 
   - Chips update on every keystroke; empty/invalid input clears the chip.
 - R5 Visual hierarchy: Title Case labels ("Label Name", "Start Address", …), monospace font for hex inputs, 1px borders on inputs.
 - R6 Color swatches become real `<button>`s with a visible selection ring on the active color and `aria-pressed` state.
-- R7 Actions bottom-right: `Cancel` (secondary) left of `Add` (primary). Verb by mode: create = "Add", edit = "Update", rename = "Save".
+- R7 Actions bottom-right: `Cancel` (secondary) left of `Add` (primary). Verb by mode: create = "Add", edit = "Update".
 - R8 Invalid input (end < start, bad hex, zero/negative length): Add stays enabled; clicking shows an inline error under the field; error clears on next edit. Existing `showLabelError` pattern reused.
 - R9 Range-overlap two-step confirm gate preserved (first Add warns and keeps form open, second Add commits).
-- R10 Same component serves create, edit, and pinned-segment rename (rename stays name-only with frozen fields).
+- R10 Pinned-segment rename is an **inline name editor** (no form): ✎ swaps the row's name span for an autofocused input; Enter commits, Escape reverts, blur commits; blank/matching-parsed-name clears the override. User-created label edit keeps the full form.
 - R11 Keyboard & a11y: Esc cancels the form, Enter submits, focus moves to the first field when the form opens.
 - R12 Live draft-range highlight: while fields parse to a valid range, those bytes are painted in the hex grid using the currently chosen swatch color; invalid/partial input clears the preview. New reverse sync path (form → grid).
+- R13 The "Size · Length" switch button renders on a single line (no wrap).
 
 ## Constraints
 
@@ -36,7 +37,8 @@ Restyle the label form (create/edit/rename) in the inspector panel to match the 
 - [ ] Invalid range + Add → inline error appears, no label created; editing any field clears it.
 - [ ] Overlapping range + first Add → warning shown, form stays open; second Add creates the label.
 - [ ] Swatches are buttons; active swatch shows a ring and `aria-pressed="true"`; others `aria-pressed="false"`.
-- [ ] Esc closes the form without saving; Enter submits (create/edit modes); rename unaffected except styling.
+- [ ] Esc closes the form without saving; Enter submits (create/edit modes).
+- [ ] ✎ on a pinned row opens an inline name input (no form); Enter commits, Escape reverts, blur commits; blank/matching-parsed-name clears the override.
 - [ ] Typing a valid start+range paints that byte range in the grid with the chosen color; clearing/invalidating input removes the paint; saving/cancelling removes it.
 - [ ] Hex-view click/drag still auto-fills the last-focused field while the form is open.
 - [ ] `npm run lint`, `npm run check-types`, full test suite green; unit tests added for new pure helpers (chip formatting) and updated for changed markup/default mode.

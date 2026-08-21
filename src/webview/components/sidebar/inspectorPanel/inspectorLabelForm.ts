@@ -52,11 +52,9 @@ export interface LabelFormState {
     pendingWarning: boolean;
     /** Last-focused field → receives hex-view click/drag auto-fill. */
     lastFocused: 'start' | 'range' | null;
-    /** Rename mode: pinned-segment name-only edit (start/range/color frozen). */
-    rename?: { startAddress: number; length: number; parsedName: string };
 }
 
-export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string, rename?: LabelFormState['rename']): void {
+export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string): void {
     const body = panel.sections?.body('labels');
     if (!body) { return; }
     const editing = panel.labels.find(l => l.id === editId);
@@ -65,9 +63,9 @@ export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string, 
 
     const chosenColor = defaultLabelColor(editing, LABEL_COLORS[panel.labels.length % LABEL_COLORS.length].v);
     const rangeMode: LabelRangeMode = 'end';
-    const defaultStart = formDefaultStart(panel, rename, editing);
-    const defaultRange = formDefaultRange(panel, rename, editing, rangeMode);
-    const chipText = rename ? '' : labelChipText(rangeMode, parseInt(defaultStart.replace(/^0x/i, ''), 16), defaultRange);
+    const defaultStart = formDefaultStart(panel, editing);
+    const defaultRange = formDefaultRange(panel, editing, rangeMode);
+    const chipText = labelChipText(rangeMode, parseInt(defaultStart.replace(/^0x/i, ''), 16), defaultRange);
     body.innerHTML = labelFormHtml(
         editing,
         labelSwatchesHtml(chosenColor),
@@ -75,25 +73,20 @@ export function renderLabelForm(panel: InspectorLabelFormHost, editId?: string, 
         defaultRange,
         rangeMode,
         chipText,
-        segmentDisplayName(panel, rename),
     );
 
-    const formState: LabelFormState = { chosenColor, rangeMode, pendingWarning: false, lastFocused: null, rename };
+    const formState: LabelFormState = { chosenColor, rangeMode, pendingWarning: false, lastFocused: null };
     panel.labelFormState = formState;
     wireLabelForm(panel, body, editId, editing, formState);
     labelNameEl(panel)?.focus();
 }
 
-function formDefaultStart(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined): string {
-    return rename ? labelAddrHex(rename.startAddress) : defaultLabelStart(panel.selection, editing);
+function formDefaultStart(panel: InspectorLabelFormHost, editing: SegmentLabel | undefined): string {
+    return defaultLabelStart(panel.selection, editing);
 }
 
-function formDefaultRange(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined, editing: SegmentLabel | undefined, mode: LabelRangeMode): string {
-    return rename ? `${rename.length}` : defaultLabelRange(panel.selection, editing, mode);
-}
-
-function segmentDisplayName(panel: InspectorLabelFormHost, rename: LabelFormState['rename'] | undefined): string | undefined {
-    return rename ? panel.segmentNames[String(rename.startAddress)] ?? rename.parsedName : undefined;
+function formDefaultRange(panel: InspectorLabelFormHost, editing: SegmentLabel | undefined, mode: LabelRangeMode): string {
+    return defaultLabelRange(panel.selection, editing, mode);
 }
 
 /**
@@ -101,7 +94,6 @@ function segmentDisplayName(panel: InspectorLabelFormHost, rename: LabelFormStat
  * ONLY here (never on keystrokes): the last-focused field receives the fill.
  * - Range focused → switch to End addr mode and fill the selection end.
  * - Otherwise → fill Start, then Range per current mode (length or end).
- * Rename-mode forms are read-only and never touched.
  */
 export function updateLabelFormSel(panel: InspectorLabelFormHost): void {
     const targets = openFormTargets(panel);
@@ -120,11 +112,10 @@ function syncDraftPreview(panel: InspectorLabelFormHost, state: LabelFormState):
     if (chip) {
         const start = labelStartAddress(panel);
         const raw = labelRangeEl(panel)?.value ?? '';
-        const text = state.rename ? '' : labelChipText(state.rangeMode, start, raw);
+        const text = labelChipText(state.rangeMode, start, raw);
         chip.textContent = text;
         if (text) { chip.title = text; } else { chip.removeAttribute('title'); }
     }
-    if (state.rename) { panel.cb.onLabelDraftChange?.(null); return; }
     const start = labelStartAddress(panel);
     const parsed = parseLabelLength(panel, state.rangeMode, start);
     panel.cb.onLabelDraftChange?.(isNaN(start) || !parsed.ok
@@ -132,14 +123,13 @@ function syncDraftPreview(panel: InspectorLabelFormHost, state: LabelFormState):
         : { start, end: start + parsed.length - 1, color: state.chosenColor });
 }
 
-/** Open, non-rename form with both field elements present — else null. */
+/** Open form with both field elements present — else null. */
 function openFormTargets(panel: InspectorLabelFormHost): { state: LabelFormState; startEl: HTMLInputElement; rangeEl: HTMLInputElement } | null {
     const state = panel.labelFormState;
     const startEl = labelStartEl(panel);
     const rangeEl = labelRangeEl(panel);
     const blocked = [
         !state,
-        Boolean(state?.rename),
         panel.selection.start === null,
         !startEl,
         !rangeEl,
@@ -328,8 +318,6 @@ function applyLabel(panel: InspectorLabelFormHost, editId: string | undefined, e
 
 function saveLabel(panel: InspectorLabelFormHost, editId: string | undefined, editing: SegmentLabel | undefined, color: string, rangeMode: LabelRangeMode, confirmed: boolean): boolean {
     clearLabelWarning(panel);
-    const rename = panel.labelFormState?.rename;
-    if (rename) { return applySegmentRename(panel, rename); }
     const draft = readLabelDraft(panel, rangeMode);
     if (!draft.ok) {
         showLabelError(panel, draft.error);
@@ -356,24 +344,6 @@ function confirmAndApplyLabel(
     return false;
 }
 
-/** Rename-mode save: name-only; matching the parsed name clears the override. */
-function applySegmentRename(panel: InspectorLabelFormHost, rename: NonNullable<LabelFormState['rename']>): boolean {
-    const name = labelNameEl(panel)?.value.trim() ?? '';
-    if (!name) {
-        showLabelError(panel, 'Name is required.');
-        return false;
-    }
-    setSegmentNameOverride(panel, rename, name);
-    panel.cb.onLabelsChange?.(panel.labels, panel.segmentNames);
-    return false;
-}
-
-function setSegmentNameOverride(panel: InspectorLabelFormHost, rename: NonNullable<LabelFormState['rename']>, name: string): void {
-    const key = String(rename.startAddress);
-    if (name === rename.parsedName) { delete panel.segmentNames[key]; }
-    else { panel.segmentNames[key] = name; }
-}
-
 function showLabelError(panel: InspectorLabelFormHost, message: string): void {
     const warn = labelWarnEl(panel);
     if (warn) { warn.textContent = message; }
@@ -393,20 +363,18 @@ function wireLabelForm(
         syncDraftPreview(panel, state);
     });
 
-    if (!state.rename) {
-        sec.querySelectorAll<HTMLElement>('.compact-tabs button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                state.rangeMode = switchLabelRangeMode(panel, sec, btn, state.rangeMode, editing);
-                state.pendingWarning = false;
-                clearLabelWarning(panel);
-                syncDraftPreview(panel, state);
-            });
+    sec.querySelectorAll<HTMLElement>('.compact-tabs button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.rangeMode = switchLabelRangeMode(panel, sec, btn, state.rangeMode, editing);
+            state.pendingWarning = false;
+            clearLabelWarning(panel);
+            syncDraftPreview(panel, state);
         });
-        // Focus tracking drives hex-click auto-fill (survives blur — clicking
-        // the hex view moves focus, but the last-focused field stays the target).
-        sec.querySelector<HTMLElement>('#lf-start')?.addEventListener('focus', () => { state.lastFocused = 'start'; });
-        sec.querySelector<HTMLElement>('#lf-range')?.addEventListener('focus', () => { state.lastFocused = 'range'; });
-    }
+    });
+    // Focus tracking drives hex-click auto-fill (survives blur — clicking
+    // the hex view moves focus, but the last-focused field stays the target).
+    sec.querySelector<HTMLElement>('#lf-start')?.addEventListener('focus', () => { state.lastFocused = 'start'; });
+    sec.querySelector<HTMLElement>('#lf-range')?.addEventListener('focus', () => { state.lastFocused = 'range'; });
 
     const clearPending = (): void => {
         state.pendingWarning = false;

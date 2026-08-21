@@ -342,7 +342,7 @@ suite('Inspector labels', () => {
 suite('Pinned segment rename', () => {
     let dom: JSDOM;
     let inspector: InspectorPanel;
-    let cb: { jumps: number[]; labels: SegmentLabel[][]; names: Array<Record<string, string> | undefined>; copies: Array<[string, string]> };
+    let cb: ReturnType<typeof installDom>['cb'];
 
     setup(() => {
         const installed = installDom();
@@ -354,25 +354,44 @@ suite('Pinned segment rename', () => {
 
     teardown(cleanupDom);
 
-    test('✎ opens the shared form prefilled; start/range/color read-only', () => {
+    function nameInput(): HTMLInputElement {
+        return document.querySelector<HTMLInputElement>('.label-perma-edit')!;
+    }
+
+    function commit(value: string): void {
+        nameInput().value = value;
+        nameInput().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+
+    test('✎ swaps the name for an inline input (no form)', () => {
         inspector.setSegments(segments);
         document.querySelector<HTMLElement>('.label-seg-edit')!.click();
-        assert.strictEqual(document.querySelector('.sb-label-form-title')!.textContent, 'Rename Segment');
-        assert.strictEqual((document.getElementById('lf-name') as HTMLInputElement).value, 'Segment 1');
-        assert.strictEqual((document.getElementById('lf-start') as HTMLInputElement).disabled, true);
-        assert.strictEqual((document.getElementById('lf-start') as HTMLInputElement).value, '0x00001000');
-        assert.strictEqual((document.getElementById('lf-range') as HTMLInputElement).disabled, true);
-        assert.strictEqual((document.getElementById('lf-range') as HTMLInputElement).value, '2');
-        assert.ok(document.querySelector('.lbl-form .lf-ro'), 'color swatches rendered read-only');
+        assert.ok(nameInput(), 'inline input opened');
+        assert.ok(!document.querySelector('.lbl-form'), 'no label form opens');
+        assert.strictEqual(nameInput().value, 'Segment 1');
     });
 
-    test('rename save persists segmentNames override keyed by start address', () => {
+    test('Enter commits the override keyed by start address', () => {
         inspector.setSegments(segments);
         document.querySelector<HTMLElement>('.label-seg-edit')!.click();
-        (document.getElementById('lf-name') as HTMLInputElement).value = 'Boot';
-        document.getElementById('lf-save')!.click();
-        assert.strictEqual(cb.labels.length, 1);
+        commit('Boot');
         assert.deepStrictEqual(cb.names.at(-1), { '4096': 'Boot' }, '0x1000 → decimal-string key');
+    });
+
+    test('Escape reverts without reporting a change', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        nameInput().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert.strictEqual(cb.names.length, 0, 'no onLabelsChange on Escape');
+        assert.strictEqual(document.querySelector('.label-perma-name')!.textContent, 'Segment 1');
+    });
+
+    test('blur commits', () => {
+        inspector.setSegments(segments);
+        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
+        nameInput().value = 'Boot';
+        nameInput().dispatchEvent(new dom.window.Event('blur'));
+        assert.deepStrictEqual(cb.names.at(-1), { '4096': 'Boot' });
     });
 
     test('reload: pushed override shows custom name + original parsed name as tooltip', () => {
@@ -392,27 +411,25 @@ suite('Pinned segment rename', () => {
         inspector.setSegments(segments);
         inspector.setLabels([], { '4096': 'Boot' });
         document.querySelector<HTMLElement>('.label-seg-edit')!.click();
-        assert.strictEqual((document.getElementById('lf-name') as HTMLInputElement).value, 'Boot', 'override prefills');
-        (document.getElementById('lf-name') as HTMLInputElement).value = 'Segment 1';
-        document.getElementById('lf-save')!.click();
+        assert.strictEqual(nameInput().value, 'Boot', 'override prefills');
+        commit('Segment 1');
         assert.deepStrictEqual(cb.names.at(-1), {}, 'override removed');
     });
 
-    test('rename requires a non-empty name', () => {
+    test('blank name clears the override (reverts to parsed name)', () => {
         inspector.setSegments(segments);
+        inspector.setLabels([], { '4096': 'Boot' });
         document.querySelector<HTMLElement>('.label-seg-edit')!.click();
-        (document.getElementById('lf-name') as HTMLInputElement).value = '   ';
-        document.getElementById('lf-save')!.click();
-        assert.strictEqual(document.getElementById('lf-warn')!.textContent, 'Name is required.');
-        assert.strictEqual(cb.labels.length, 0);
+        commit('   ');
+        assert.deepStrictEqual(cb.names.at(-1), {}, 'blank clears override');
     });
 
     test('✎ click does not jump; row click still jumps', () => {
         inspector.setSegments(segments);
         document.querySelector<HTMLElement>('.label-seg-edit')!.click();
         assert.deepStrictEqual(cb.jumps, [], 'edit affordance never jumps');
-        assert.ok(document.getElementById('lf-name'), 'form opened instead');
-        document.getElementById('lf-cancel')!.click();
+        assert.ok(nameInput(), 'inline input opened instead');
+        nameInput().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         document.querySelector<HTMLElement>('.label-perma')!.click();
         assert.deepStrictEqual(cb.jumps, [0x1000]);
     });
@@ -532,15 +549,6 @@ suite('Label form selection fill', () => {
         inspector.setSelection(0x1000, 0x1003);
         inspector.syncLabelForm();
         assert.strictEqual(rangeEl().value, '0x00001003', 'selection change rewrites per fill rules');
-    });
-
-    test('rename form ignores selection changes entirely', () => {
-        inspector.setSegments(segments);
-        document.querySelector<HTMLElement>('.label-seg-edit')!.click();
-        inspector.setSelection(0x1000, 0x1003);
-        inspector.syncLabelForm();
-        assert.strictEqual(startEl().value, '0x00001000', 'read-only fields stay frozen');
-        assert.strictEqual(rangeEl().value, '2');
     });
 });
 

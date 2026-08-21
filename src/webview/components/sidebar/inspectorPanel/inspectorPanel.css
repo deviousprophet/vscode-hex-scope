@@ -214,9 +214,6 @@
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
-/* Rename-mode form: color swatches shown read-only */
-.lbl-form .lf-ro { opacity: .45; pointer-events: none; }
-
 /* Add-label button uses the shared .sb-btn-add primitive; keep the full-width row filler */
 #s-labels .sb-btn-add { width: 100%; margin-top: 8px; }
 
@@ -231,6 +228,7 @@
 .lf-hex      { font-family: var(--font-editor); }
 /* Mode switch sits above the range input; shared .compact-tabs styling untouched. */
 .lf-mode-tabs { align-self: flex-start; }
+.lf-mode-tabs button { white-space: nowrap; }
 .lf-range-row  { display: flex; gap: 5px; align-items: center; }
 .lf-range-row .sb-input { flex: 1; min-width: 0; }
 /* Auto-calc counterpart chip (size in End-Address mode; end addr in Length mode). */

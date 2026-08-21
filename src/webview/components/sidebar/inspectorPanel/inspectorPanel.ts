@@ -421,20 +421,58 @@ export class InspectorPanel implements InspectorLabelFormHost {
                 this.jumpToSegment(Number(item.dataset.start));
             });
         });
-        // ✎ on a pinned row → shared label form in rename mode (name-only).
+        // ✎ on a pinned row → inline name editor (name-only; start/range/color stay on the row).
         sec.querySelectorAll<HTMLElement>('.label-seg-edit').forEach(btn => {
             btn.addEventListener('click', e => {
                 e.stopPropagation();
-                const start = Number(btn.dataset.start);
-                const seg = this.segments.find(s => s.startAddress === start);
-                if (!seg) { return; }
-                renderLabelForm(this, undefined, {
-                    startAddress: start,
-                    length: seg.data.length,
-                    parsedName: parsedSegmentName(this.segments, start),
-                });
+                this.beginSegmentRename(Number(btn.dataset.start));
             });
         });
+    }
+
+    /** Swap the pinned row's name span for an autofocused inline input. */
+    private beginSegmentRename(start: number): void {
+        const row = this.root?.querySelector<HTMLElement>(`.label-perma[data-start="${start}"]`);
+        const nameEl = row?.querySelector<HTMLElement>('.label-perma-name');
+        if (!row || !nameEl) { return; }
+        const parsed = parsedSegmentName(this.segments, start);
+        const current = this.segmentNames[String(start)] ?? parsed;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'sb-input label-perma-edit';
+        input.value = current;
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+        let done = false;
+        const commit = (): void => {
+            if (done) { return; }
+            done = true;
+            this.commitSegmentRename(start, parsed, input.value);
+        };
+        const cancel = (): void => {
+            if (done) { return; }
+            done = true;
+            input.replaceWith(nameEl);
+        };
+        // Isolate the editor from the row's jump-on-click/Enter/Space handlers.
+        input.addEventListener('click', e => e.stopPropagation());
+        input.addEventListener('mousedown', e => e.stopPropagation());
+        input.addEventListener('keydown', e => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        });
+        input.addEventListener('blur', () => commit());
+    }
+
+    /** Persist an inline segment rename; blank or parsed name clears the override. */
+    private commitSegmentRename(start: number, parsedName: string, rawName: string): void {
+        const name = rawName.trim();
+        const key = String(start);
+        if (name === '' || name === parsedName) { delete this.segmentNames[key]; }
+        else { this.segmentNames[key] = name; }
+        this.cb.onLabelsChange?.(this.labels, this.segmentNames);
     }
 
     private jumpToSegment(start: number): void {

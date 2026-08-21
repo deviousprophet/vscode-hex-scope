@@ -62,17 +62,15 @@ export function labelFormHtml(
     defaultRange: string,
     rangeMode: LabelRangeMode,
     chipText: string,
-    renameDisplayName?: string,
 ): string {
-    const renaming = renameDisplayName !== undefined;
-    const mode = formMode(editing, renaming);
+    const mode = formMode(editing);
     return `
         <div class="sb-section-label sb-label-form-title">${mode.title}</div>
         <div class="lbl-form">
-            ${nameFieldHtml(renameDisplayName ?? editing?.name ?? '')}
-            ${startFieldHtml(defaultStart, renaming)}
-            ${rangeFieldHtml(defaultRange, rangeMode, chipText, renaming)}
-            ${colorFieldHtml(swatchHtml, renaming)}
+            ${nameFieldHtml(editing?.name ?? '')}
+            ${startFieldHtml(defaultStart)}
+            ${rangeFieldHtml(defaultRange, rangeMode, chipText)}
+            ${colorFieldHtml(swatchHtml)}
             <div class="lf-warn" id="lf-warn" role="alert"></div>
             <div class="lf-actions">
                 <button class="sb-btn sb-btn-secondary" id="lf-cancel">Cancel</button>
@@ -89,40 +87,38 @@ function nameFieldHtml(name: string): string {
             </div>`;
 }
 
-function startFieldHtml(defaultStart: string, ro: boolean): string {
+function startFieldHtml(defaultStart: string): string {
     return `
             <div class="lf-field">
                 <span class="lf-lbl">Start Address</span>
-                <input id="lf-start" class="sb-input lf-hex" type="text" placeholder="0x08000000" value="${esc(defaultStart)}"${ro ? ' disabled' : ''}>
+                <input id="lf-start" class="sb-input lf-hex" type="text" placeholder="0x08000000" value="${esc(defaultStart)}">
             </div>`;
 }
 
-function rangeFieldHtml(defaultRange: string, mode: LabelRangeMode, chipText: string, ro: boolean): string {
-    const tabs = ro ? '' : `
+function rangeFieldHtml(defaultRange: string, mode: LabelRangeMode, chipText: string): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Define End By</span>
                     <div class="compact-tabs lf-mode-tabs">
                         <button data-mode="end"${mode === 'end' ? ' class="active"' : ''}>End Address</button>
                         <button data-mode="len"${mode === 'len' ? ' class="active"' : ''}>Size &middot; Length</button>
-                    </div>`;
-    return `
-            <div class="lf-field">
-                <span class="lf-lbl">Define End By</span>${tabs}
+                    </div>
                 <div class="lf-range-row">
-                    <input id="lf-range" class="sb-input lf-hex" type="text" placeholder="${mode === 'end' ? '0x0800FFFF' : '512'}" value="${esc(defaultRange)}"${ro ? ' disabled' : ''}>
+                    <input id="lf-range" class="sb-input lf-hex" type="text" placeholder="${mode === 'end' ? '0x0800FFFF' : '512'}" value="${esc(defaultRange)}">
                     <span class="lf-chip" id="lf-chip"${chipText ? ` title="${esc(chipText)}"` : ''}>${esc(chipText)}</span>
                 </div>
             </div>`;
 }
 
-function colorFieldHtml(swatchHtml: string, ro: boolean): string {
+function colorFieldHtml(swatchHtml: string): string {
     return `
             <div class="lf-field">
                 <span class="lf-lbl">Color</span>
-                <div class="lf-swatches${ro ? ' lf-ro' : ''}">${swatchHtml}</div>
+                <div class="lf-swatches">${swatchHtml}</div>
             </div>`;
 }
 
-function formMode(editing: SegmentLabel | undefined, rename: boolean): { title: string; saveLabel: string } {
-    if (rename) { return { title: 'Rename Segment', saveLabel: 'Save' }; }
+function formMode(editing: SegmentLabel | undefined): { title: string; saveLabel: string } {
     return editing
         ? { title: 'Edit Label', saveLabel: 'Update' }
         : { title: 'New Label', saveLabel: 'Add' };
