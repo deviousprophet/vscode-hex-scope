@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Token/primitive rules; toggle groups must inherit .compact-tabs, no per-context font overrides"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-inspector.md", "reason": "Inspector panel + label form conventions this task restyles"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Grid render-input/paint path the new draft-range overlay must use"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Where S.labelDraft belongs and state update flow"}
