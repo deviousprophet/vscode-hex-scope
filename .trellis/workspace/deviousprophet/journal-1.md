@@ -783,3 +783,24 @@ Issue #189 follow-ups (grilled Q1-Q5): pinned segment rows renamable via existin
 ### Status
 
 [OK] **Completed**
+
+
+## Session 34: fallow-clean labels form
+
+**Date**: 2026-08-21
+**Task**: fallow-clean labels form
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+fallow-fix on the labels-rework changes: 5 findings (2 critical, 3 moderate) refactored below cyclo 4 - updateLabelFormSel split into openFormTargets guard + fillRangeFromSelection/fillStartAndRange with endOrEmpty/lengthOrEmpty helpers; labelFormHtml decomposed into per-field builders + formMode; saveLabel warning gate extracted; applySegmentRename override logic in setSegmentNameOverride. Fallow fully green. 822 tests pass.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb94ef0` | (see git log) |
+
+### Status
+
+[OK] **Completed**

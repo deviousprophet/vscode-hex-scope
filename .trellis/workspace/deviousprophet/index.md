@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 33
+- **Total Sessions**: 34
 - **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~785 | Active |
+| `journal-1.md` | ~806 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 34 | 2026-08-21 | fallow-clean labels form | `bb94ef0` | `feat/ui-consistency` |
 | 33 | 2026-08-21 | Labels rework: renamable pinned segments + selection-driven form | `2abb188` | `feat/ui-consistency` |
 | 32 | 2026-08-21 | Byte-line copies full selection | `4785391` | `feat/ui-consistency` |
 | 31 | 2026-08-20 | Webview copy toast component | `2acc94a` | `feat/ui-consistency` |
