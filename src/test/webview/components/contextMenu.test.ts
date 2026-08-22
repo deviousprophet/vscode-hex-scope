@@ -240,6 +240,66 @@ suite('webview ContextMenu component', () => {
         assert.strictEqual(document.activeElement, first, 'focus moves to the first enabled submenu item');
     });
 
+    test('ArrowRight on a submenu row opens it and focuses the first item inside', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        assert.strictEqual(sub.style.display, 'block', 'ArrowRight opens the submenu');
+        const first = sub.querySelector<HTMLElement>('.ctx-row:not(.ctx-disabled)')!;
+        assert.strictEqual(document.activeElement, first, 'focus moves to the first enabled submenu item');
+    });
+
+    test('ArrowLeft closes the open submenu and returns focus to the parent row', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+        assert.strictEqual(sub.style.display, 'none');
+        assert.strictEqual(document.activeElement, subRow, 'focus returns to the parent row');
+    });
+
+    test('ArrowUp/Down navigate only within the open submenu and wrap inside it', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        const items = sub.querySelectorAll<HTMLElement>('.ctx-row:not(.ctx-disabled)');
+        assert.ok(items.length > 2, 'copy-as submenu has several items');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        assert.strictEqual(document.activeElement, items[1], 'ArrowDown moves to the next submenu item');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp' }));
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp' }));
+        assert.strictEqual(document.activeElement, items[items.length - 1], 'ArrowUp wraps to the last submenu item');
+        assert.strictEqual(document.activeElement!.closest('.ctx-submenu'), sub, 'navigation never leaves the submenu');
+    });
+
+    test('ArrowUp/Down from parent rows never enter a collapsed submenu scope', () => {
+        const { dom } = createHarness();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        const active = document.activeElement as HTMLElement;
+        assert.ok(!active.closest('.ctx-submenu'), 'parent navigation stays in the parent menu');
+        assert.strictEqual(active.closest('.ctx-has-sub'), null, 'never lands on the submenu trigger row');
+    });
+
+    test('Escape closes the open submenu first, then the menu on the second press', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+        assert.strictEqual(sub.style.display, 'none', 'first Escape closes the submenu');
+        assert.strictEqual(document.activeElement, subRow, 'focus returns to the parent row');
+        assert.ok(visible(dom), 'menu stays open after the first Escape');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+        assert.ok(!visible(dom), 'second Escape hides the menu');
+    });
+
     test('custom fill: valid Enter applies fill command and hides', () => {
         const { dom, calls } = createHarness({ editMode: true });
         const input = ctxMenuEl(dom).querySelector<HTMLInputElement>('.ctx-fill-input');

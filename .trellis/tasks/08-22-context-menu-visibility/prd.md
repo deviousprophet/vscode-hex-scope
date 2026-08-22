@@ -23,6 +23,10 @@ field-value menu (same shared code).
   mouse-open shows no focus highlight (hover bg unaffected); first `keydown` adds `.ctx-kb`;
   keyboard-open (ContextMenu key / Shift+F10) shows it immediately; `pointerdown` hides it.
   Focus keeps moving to the first row on open either way (arrows still navigate from there).
+- R9 (decision A): WAI-ARIA submenu keyboard pattern — ArrowRight on a submenu row opens it
+  and focuses the first item; ArrowLeft inside closes it and returns focus to the parent row;
+  ArrowUp/Down navigate strictly within the open submenu (wrap at ends), never leaking into the
+  parent menu; Enter/Space activates; Escape closes the submenu first, then the whole menu.
 
 ## Acceptance Criteria
 
@@ -33,6 +37,7 @@ field-value menu (same shared code).
 - [x] AC5: Struct panel field-value menu + its submenus pass AC1–AC3 too.
 - [x] AC6: focus moves outside the open menu (Tab, focusable click, window blur) closes it; focus moves inside keep it open.
 - [x] AC7: mouse-open menu hides the keyboard-selection highlight; first keydown reveals it; pointerdown hides it; context-menu-key/SF10 open shows it immediately.
+- [x] AC8: ArrowRight opens focused submenu + focuses first item; ArrowLeft closes submenu + refocuses parent row; ArrowUp/Down never leave the open submenu (wrap inside); Escape closes submenu (menu on second press); all submenu items reachable by keys.
 
 ## Technical notes (approach)
 
