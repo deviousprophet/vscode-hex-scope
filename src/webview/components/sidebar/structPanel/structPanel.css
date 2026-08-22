@@ -432,7 +432,7 @@
     padding-right: .5ch;
 }
 .si-ieee-val { color: var(--val-ieee-value-color); font-weight: 600; }
-.si-f-val[data-val-type="ascii"] { color: var(--print-color); }
+.si-f-val[data-val-type="ascii"] { color: var(--print-color); white-space: pre; }
 .si-f-val[data-val-type="bin"]   { color: var(--fg); white-space: normal; }
 .si-bit { font-family: var(--font-editor); display: inline-block; letter-spacing: 0; padding: 0 .25ch; }
 .si-bit.one  { color: var(--fg); font-weight: 700; }

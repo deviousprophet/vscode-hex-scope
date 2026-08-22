@@ -378,7 +378,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Value display defaults:
   - Integers: Hex by default.
   - Floats: Decimal by default.
-  - Ascii fields: ASCII by default.
+  - Ascii fields: ASCII by default. Ascii value cells use `white-space: pre` (`.si-f-val[data-val-type="ascii"]`) so runs of `0x20`, leading, and trailing spaces render exactly as decoded; non-printable bytes still show `.`.
 - Value display menu options (`View as`):
   - Integer-like: Hex, Decimal, Binary, ASCII.
   - `float32/float64`: Hex, Decimal, IEEE754, Binary.
