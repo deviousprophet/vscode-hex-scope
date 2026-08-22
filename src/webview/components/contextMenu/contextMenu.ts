@@ -190,6 +190,8 @@ export class ContextMenu {
         this.mounted = true;
         document.addEventListener('click', this.onDocClick);
         document.addEventListener('keydown', this.onDocKeydown);
+        document.addEventListener('focusout', this.onDocFocusOut);
+        window.addEventListener('blur', this.onWindowBlur);
     }
 
     show(x: number, y: number, state: ContextMenuState): void {
@@ -224,6 +226,19 @@ export class ContextMenu {
         if (target === null || !menu) { return; }
         if (this.outsideMenu(target, menu)) { this.hide(); return; }
         this.runRowCommand(target, menu);
+    };
+
+    /** Focus moved out of the open menu (Tab, focusable click) or nowhere → close. Moves inside preserve it. */
+    private onDocFocusOut = (e: FocusEvent): void => {
+        const menu = this.openMenu();
+        if (!menu) { return; }
+        const next = e.relatedTarget as Node | null;
+        if (next === null || !menu.contains(next)) { this.hide(); }
+    };
+
+    /** Webview lost window focus entirely (VS Code chrome, another editor, alt-tab) → close. */
+    private onWindowBlur = (): void => {
+        this.hide();
     };
 
     private ctxMenuEntryPoint(target: EventTarget | null): HTMLElement | null {

@@ -53,6 +53,14 @@
     padding: 3px 0; min-width: 230px; z-index: 10000;
 }
 
+/* last-resort cap for menus/submenus taller than the viewport (set by JS) */
+#ctx-menu.ctx-scroll,
+.ctx-menu.ctx-scroll,
+.ctx-submenu.ctx-scroll {
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+}
+
 .ctx-sep { height: 1px; background: var(--border); margin: 3px 0; }
 
 /* Custom fill/patch row */

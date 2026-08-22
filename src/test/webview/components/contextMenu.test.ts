@@ -8,6 +8,7 @@ import {
     type ContextMenuCallbacks,
     type ContextMenuState,
 } from '../../../webview/components/contextMenu/contextMenu';
+import { positionContextMenu, wireHoverSubmenus } from '../../../webview/utils';
 
 interface Calls {
     commands: string[];
@@ -290,5 +291,149 @@ suite('webview ContextMenu component', () => {
         menu.mount();
         clickRow(dom, 'copy-ascii');
         assert.deepStrictEqual(calls.commands, ['copy-ascii']);
+    });
+
+    test('focus leaving the menu closes it (Tab / focusable click outside)', () => {
+        const { dom } = createHarness();
+        (document.activeElement as HTMLElement).dispatchEvent(
+            new dom.window.FocusEvent('focusout', { bubbles: true, relatedTarget: dom.window.document.body }),
+        );
+        assert.ok(!visible(dom));
+    });
+
+    test('focus moving between rows inside the menu keeps it open', () => {
+        const { dom } = createHarness();
+        const inside = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-row[data-cmd]')!;
+        (document.activeElement as HTMLElement).dispatchEvent(
+            new dom.window.FocusEvent('focusout', { bubbles: true, relatedTarget: inside }),
+        );
+        assert.ok(visible(dom));
+    });
+
+    test('window blur (click outside the webview) closes the menu', () => {
+        const { dom } = createHarness();
+        dom.window.dispatchEvent(new dom.window.Event('blur'));
+        assert.ok(!visible(dom));
+    });
+});
+
+suite('webview context menu positioning (utils)', () => {
+    teardown(() => {
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    function setViewport(dom: JSDOM, w: number, h: number): void {
+        const win = dom.window as unknown as { innerWidth: number; innerHeight: number };
+        Object.defineProperty(win, 'innerWidth', { value: w, configurable: true });
+        Object.defineProperty(win, 'innerHeight', { value: h, configurable: true });
+    }
+
+    function stubMetrics(el: HTMLElement, w: number, h: number): void {
+        Object.defineProperty(el, 'offsetWidth', { configurable: true, get: () => w });
+        Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => h });
+    }
+
+    function menuEl(): HTMLElement {
+        const dom = installDom();
+        currentDom = dom;
+        const el = dom.window.document.getElementById('ctx-menu') as HTMLElement;
+        el.innerHTML = '<div class="ctx-row ctx-has-sub" data-sub="copy">Copy as\u2026</div>';
+        return el;
+    }
+
+    test('clamps to the bottom-right with an 8px gutter', () => {
+        const el = menuEl();
+        setViewport(currentDom!, 800, 600);
+        stubMetrics(el, 300, 200);
+        positionContextMenu(el, 1000, 500);
+        assert.strictEqual(el.style.left, '492px');
+        assert.strictEqual(el.style.top, '392px');
+    });
+
+    test('keeps a non-negative 8px gutter when the menu is larger than the viewport', () => {
+        const el = menuEl();
+        setViewport(currentDom!, 300, 300);
+        stubMetrics(el, 400, 400);
+        positionContextMenu(el, 1000, 1000);
+        assert.strictEqual(el.style.left, '8px');
+        assert.strictEqual(el.style.top, '8px');
+    });
+
+    test('adds ctx-scroll only when the menu is taller than the viewport gutter', () => {
+        const el = menuEl();
+        setViewport(currentDom!, 800, 300);
+        stubMetrics(el, 200, 280);
+        positionContextMenu(el, 10, 10);
+        assert.ok(!el.classList.contains('ctx-scroll'));
+        stubMetrics(el, 200, 292);
+        positionContextMenu(el, 10, 10);
+        assert.ok(el.classList.contains('ctx-scroll'));
+    });
+});
+
+suite('webview context submenu flip (utils.wireHoverSubmenus)', () => {
+    teardown(() => {
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    function setViewport(dom: JSDOM, w: number, h: number): void {
+        const win = dom.window as unknown as { innerWidth: number; innerHeight: number };
+        Object.defineProperty(win, 'innerWidth', { value: w, configurable: true });
+        Object.defineProperty(win, 'innerHeight', { value: h, configurable: true });
+    }
+
+    function stubMetrics(el: HTMLElement, w: number, h: number): void {
+        Object.defineProperty(el, 'offsetWidth', { configurable: true, get: () => w });
+        Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => h });
+    }
+
+    function stubRect(row: HTMLElement, top: number, right: number): void {
+        row.getBoundingClientRect = () => ({
+            top, right, bottom: top + 27, left: 0, width: 200, height: 27, x: 0, y: top, toJSON: () => ({}),
+        } as DOMRect);
+    }
+
+    function harness(): { dom: JSDOM; row: HTMLElement; sub: HTMLElement } {
+        const dom = installDom();
+        currentDom = dom;
+        const el = dom.window.document.getElementById('ctx-menu') as HTMLElement;
+        el.innerHTML = '<div class="ctx-row ctx-has-sub" data-sub="copy">Copy as\u2026<div class="ctx-submenu"><div class="ctx-row" data-cmd="hex-raw">Hex</div></div></div>';
+        const row = el.querySelector<HTMLElement>('.ctx-has-sub')!;
+        const sub = el.querySelector<HTMLElement>('.ctx-submenu')!;
+        wireHoverSubmenus(el);
+        return { dom, row, sub };
+    }
+
+    test('submenu near the bottom edge flips up', () => {
+        const { dom, row, sub } = harness();
+        setViewport(dom, 800, 600);
+        stubRect(row, 500, 200);
+        stubMetrics(sub, 220, 200);
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+        assert.strictEqual(sub.style.top, 'auto');
+        assert.strictEqual(sub.style.bottom, '-4px');
+        assert.strictEqual(sub.style.left, '100%');
+        assert.strictEqual(sub.style.right, 'auto');
+    });
+
+    test('submenu near the right edge flips left, top-left rows stay put', () => {
+        const { dom, row, sub } = harness();
+        setViewport(dom, 800, 600);
+        stubRect(row, 100, 700);
+        stubMetrics(sub, 220, 100);
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+        assert.strictEqual(sub.style.left, 'auto');
+        assert.strictEqual(sub.style.right, '100%');
+        assert.strictEqual(sub.style.top, '-4px');
+        assert.strictEqual(sub.style.bottom, 'auto');
+    });
+
+    test('submenu taller than the viewport gets ctx-scroll', () => {
+        const { dom, row, sub } = harness();
+        setViewport(dom, 800, 600);
+        stubRect(row, 100, 100);
+        stubMetrics(sub, 220, 700);
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+        assert.ok(sub.classList.contains('ctx-scroll'));
     });
 });

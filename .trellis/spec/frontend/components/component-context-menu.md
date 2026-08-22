@@ -49,9 +49,9 @@ export class ContextMenu {
 - **Layout:** direct Copy Hex (`copy-hex`), Copy ASCII (`copy-ascii`), Copy C Array (`copy-c-array`, multi only); submenus Copy as… (raw/binary/arrays/Base64/Decimal), Analyze (Sum/XOR/CRC-8/16/32, multi only), Patch/Fill (edit mode only). Single-byte variant: Copy Hex, Copy ASCII **only when the byte is printable** (`formatAsciiByte(b) !== '.'`), Copy as…(Decimal/Binary), Patch — NO Analyze, NO Go address.
 - **Go address:** only when `len===4`, follows `S.endian` (host-computed), preview `0x… + endian`; invalid (unmapped) row is `.ctx-disabled` inert + `title="Not mapped"` tooltip (no inline hint).
 - **Copy cmd normalization:** direct cmds `copy-hex`/`copy-ascii`/`copy-c-array` are normalized by host `contextCommandResult` (`copy-c-array → c-array`); Analyze/fill cmds unchanged.
-- **Interaction:** doc-delegated mount; click-outside → hide; Escape → hide; hover `.ctx-has-sub` → submenu (reuse `wireHoverSubmenus`); custom-fill input Enter applies / Escape dismisses / `.ctx-fill-invalid` on invalid (`.ctx-fill-apply` button). Inline inputs stopPropagation on click/mousedown.
+- **Interaction:** doc-delegated mount; click-outside → hide; Escape → hide; **focus leaves the menu (`focusout` whose `relatedTarget` is outside `#ctx-menu` or null) → hide**; **window `blur` (click into VS Code chrome / another editor / alt-tab) → hide**; focus moves *inside* the menu (row→row, row→custom-fill input→Apply) never close it. hover `.ctx-has-sub` → submenu (reuse `wireHoverSubmenus`); custom-fill input Enter applies / Escape dismisses / `.ctx-fill-invalid` on invalid (`.ctx-fill-apply` button). Inline inputs stopPropagation on click/mousedown.
 - **Keyboard/ARIA:** `#ctx-menu` has `role="menu"`; rows are `role="menuitem" tabindex="-1"` (disabled rows `aria-disabled`), separators `role="separator"`. `show()` focuses the first enabled row; ArrowUp/ArrowDown move focus among enabled rows (disabled/submenu-input rows skipped); Enter/Space runs the focused command, or on a `.ctx-has-sub` row opens its submenu and focuses the first enabled item inside; Escape hides. The host opens the menu on the grid `ContextMenu` key / Shift+F10. `show()` records the previously focused element; `hide()` restores focus to it (when still connected) so keyboard control returns to the triggering grid/sidebar row instead of the body.
-- **Positioning:** `positionContextMenu` from `utils.ts` (viewport-edge flips).
+- **Positioning:** `positionContextMenu` (root) + `wireHoverSubmenus` (submenu flips) from `utils.ts`. Guarantee: menu and every submenu stay fully on-screen at any window size/position — root and submenus clamp to an 8px gutter (`max(8, …)` on both axes, so left/top never negative); submenus flip **left** when they would overflow the right edge and flip **up** (`top:auto; bottom:-4px`) when they would overflow the bottom edge; any menu/submenu taller than the viewport gets the `.ctx-scroll` class (CSS `max-height: calc(100vh - 16px); overflow-y: auto`, last-resort cap — no permanent scrollbars). Gutter constant shared with the submenu width/height fallbacks. Same shared code guarantees the Struct panel field-value menu.
 - Markup byte-identical to pre-refactor menu classes (`.ctx-*`); all labels/previews escaped via `esc()`.
 - Zero `S` import; no command logic; no size math beyond host-fed layout.
 
@@ -70,6 +70,7 @@ export class ContextMenu {
 | Go address unmapped | Row `.ctx-disabled`, inert, `title="Not mapped"`; `onCommand` not fired. |
 | Custom fill invalid hex | `.ctx-fill-invalid`, input refocused, no command. |
 | Click outside / Escape | Menu hides. |
+| Focus leaves menu / window blur | Menu hides (`focusout` + `blur`; inside-menu focus moves keep it open). |
 | Hover submenu row | Submenu shown. |
 
 ## Tests Required
