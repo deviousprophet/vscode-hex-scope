@@ -53,7 +53,8 @@ export function serializeSRec(originalRaw: string, parseResult: ParseResult, edi
 // Save path for large files: scan raw lines cheaply (address from the line
 // text, no full HexRecord parse/checksum), rebuild only data records whose
 // address range overlaps the edited set, splice them back. Everything else is
-// byte-identical. The one full-file cost is split + join + write.
+// byte-identical. The plan exposes per-line byte patches so the host can write
+// positionally (only edited ranges hit the disk) instead of rewriting the file.
 
 interface SplicedLine {
     lineIndex: number;
@@ -65,16 +66,56 @@ interface SplicedLine {
     data: number[];
 }
 
+/** A byte-range rewrite of one record line (byte offset in the file). */
+export interface SplicePatch {
+    offset: number;
+    bytes: Uint8Array;
+}
+
+export interface SplicePlan {
+    /** Patched full text — what the file must contain after the save. */
+    newRaw: string;
+    /** Positional patches for the edited lines; null when a full write is required
+        (non-ASCII content or a rebuilt line length would change). */
+    patches: SplicePatch[] | null;
+}
+
 export function spliceEditedLines(originalRaw: string, edits: Map<number, number>, format: HexScopeFormat): string {
-    if (edits.size === 0) { return originalRaw; }
+    return buildSplicePlan(originalRaw, edits, format).newRaw;
+}
+
+export function buildSplicePlan(originalRaw: string, edits: Map<number, number>, format: HexScopeFormat): SplicePlan {
+    if (edits.size === 0) { return { newRaw: originalRaw, patches: [] }; }
     const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
+    const eolLen = eol.length;
     const lines = originalRaw.split(/\r?\n/);
     const owners = format === 'srec' ? srecOwnerLines(lines, edits) : intelOwnerLines(lines, edits);
+
+    const replacements = new Map<number, string>();
+    let safe = true;
     for (const owner of owners) {
         const rebuilt = rebuiltSpliceLine(owner, edits);
-        if (rebuilt !== null) { lines[owner.lineIndex] = replaceRecordText(lines[owner.lineIndex], rebuilt); }
+        if (rebuilt === null) { continue; }
+        const full = replaceRecordText(lines[owner.lineIndex], rebuilt);
+        replacements.set(owner.lineIndex, full);
+        if (full.length !== lines[owner.lineIndex].length) { safe = false; }
     }
-    return lines.join(eol);
+    for (const [i, line] of lines.entries()) {
+        if (safe && /[^\x00-\x7F]/.test(line)) { safe = false; }
+        const full = replacements.get(i);
+        if (full !== undefined) { lines[i] = full; }
+    }
+
+    if (!safe) { return { newRaw: lines.join(eol), patches: null }; }
+    const patches: SplicePatch[] = [];
+    const encoder = new TextEncoder();
+    let byteOffset = 0;
+    for (const [i, line] of lines.entries()) {
+        const patchText = replacements.get(i);
+        if (patchText !== undefined) { patches.push({ offset: byteOffset, bytes: encoder.encode(patchText) }); }
+        byteOffset += line.length + eolLen;
+    }
+    return { newRaw: lines.join(eol), patches };
 }
 
 function intelOwnerLines(lines: string[], edits: Map<number, number>): SplicedLine[] {

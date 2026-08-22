@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { spliceEditedLines } from '../../core/document';
+import { buildSplicePlan, spliceEditedLines, type SplicePatch } from '../../core/document';
 import { parseIntelHex } from '../../core/parser/intelHexParser';
 import { parseSRec } from '../../core/parser/srecParser';
 
@@ -92,5 +92,57 @@ suite('spliceEditedLines', () => {
     test('no edits returns the original string', () => {
         const raw = `${intelLine(16, 0x1000, 0, DATA16)}\n${intelLine(0, 0, 1, '')}`;
         assert.strictEqual(spliceEditedLines(raw, new Map(), 'ihex'), raw);
+    });
+});
+
+function reassemble(raw: string, patches: SplicePatch[]): string {
+    const out = new Uint8Array(Buffer.byteLength(raw, 'utf-8'));
+    for (let i = 0; i < out.length; i++) { out[i] = raw.charCodeAt(i) & 0xFF; }
+    const enc = new TextEncoder();
+    for (const p of patches) {
+        const bytes = enc.encode(String.fromCharCode(...Array.from(p.bytes)));
+        out.set(bytes, p.offset);
+    }
+    return new TextDecoder().decode(out);
+}
+
+suite('buildSplicePlan', () => {
+    test('patch covers only the edited record line at its byte offset (CRLF)', () => {
+        const ela = intelLine(2, 0x0000, 4, '0000');
+        const data = intelLine(16, 0x1000, 0, DATA16);
+        const eof = intelLine(0, 0, 1, '');
+        const raw = `${ela}\r\n${data}\r\n${eof}`;
+
+        const plan = buildSplicePlan(raw, new Map([[0x1000, 0xFF]]), 'ihex');
+
+        assert.strictEqual(plan.patches?.length, 1, 'only the edited record line');
+        assert.strictEqual(plan.patches![0].offset, ela.length + 2, 'offset = ELA line + CRLF');
+        const parsed = parseIntelHex(plan.newRaw);
+        assert.strictEqual(parsed.checksumErrors, 0);
+        assert.strictEqual(parsed.segments[0].data[0], 0xFF);
+    });
+
+    test('parity: applying patches to the original reproduces newRaw exactly', () => {
+        const raw = `${intelLine(2, 0, 4, '0000')}\r\n${intelLine(16, 0x1000, 0, DATA16)}\r\n${intelLine(0, 0, 1, '')}`;
+        const plan = buildSplicePlan(raw, new Map([[0x1000, 0xFF], [0x1003, 0xEE]]), 'ihex');
+        assert.ok(plan.patches);
+        assert.strictEqual(
+            reassemble(raw, plan.patches!).replace(/\r\n$/, ''),
+            plan.newRaw.replace(/\r\n$/, ''),
+            'positional chunks == whole splice result',
+        );
+    });
+
+    test('non-ASCII content forces whole-write fallback', () => {
+        const raw = `; café header\r\n${intelLine(16, 0x1000, 0, DATA16)}\r\n${intelLine(0, 0, 1, '')}`;
+        const plan = buildSplicePlan(raw, new Map([[0x1000, 0xFF]]), 'ihex');
+        assert.strictEqual(plan.patches, null, 'positional unsafe → null');
+        assert.strictEqual(parseIntelHex(plan.newRaw).checksumErrors, 0, 'text still patched correctly');
+    });
+
+    test('no edits → empty patch list', () => {
+        const plan = buildSplicePlan(':00000001FF', new Map(), 'ihex');
+        assert.deepStrictEqual(plan.patches, []);
+        assert.strictEqual(plan.newRaw, ':00000001FF');
     });
 });
