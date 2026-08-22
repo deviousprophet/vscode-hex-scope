@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify no shared .compact-tabs/.sb-input violations, token usage"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-inspector.md", "reason": "Check form markup/wiring matches inspector component conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test + lint gate expectations"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Callback/state type extension conventions"}

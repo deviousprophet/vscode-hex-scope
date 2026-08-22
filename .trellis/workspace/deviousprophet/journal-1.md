@@ -417,3 +417,496 @@ Added address-gutter drag to select multiple rows: component onAddressRowDrag (d
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: Sidebar panel UI consistency (5 child migration)
+
+**Date**: 2026-08-16
+**Task**: Sidebar panel UI consistency (5 child migration)
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Planned parent+5-child task via grilling (D1 structured primitives, D2 tree, D3 scripts visual-only, D4 one-look-per-role). ui-primitives: .sb-btn{-primary,-secondary,-danger,-add}/.sb-input(-sm)/.sb-select/.sb-card*/.sb-status-dot in components/sidebar/sidebar.css; .compact-tabs->base.css; deleted styles/sidebar.css; added --muted-fg/--info-fg tokens; refreshed css-guidelines/component-sidebar/directory-structure specs. Migrated inspector (.lf-*->primitives, .lf-mode->.compact-tabs), struct (buttons/inputs/cards->primitives, kept borrow rules for integrity), integrity (fully decoupled from struct CSS, check found+fixed si-hdr-row/si-hex-body/sa-form-hdr leaks, deleted structPanel dead rules), scripts (visual-only, .sb-hdr header, sb-status-dot tokens, non-collapsible kept). 753 tests green each step.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d3007d6` | (see git log) |
+| `cbed3fe` | (see git log) |
+| `28e28c8` | (see git log) |
+| `115e8cc` | (see git log) |
+| `8f98a9d` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 18: Sidebar section framework + 4-panel UX rework
+
+**Date**: 2026-08-17
+**Task**: Sidebar section framework + 4-panel UX rework
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Unbiased UX/UI audit of sidebar panels; 7 follow-up tasks logged. Grilled panel-by-panel redesigns (Inspector/Struct/Integrity/Scripts), planned all four, implemented+checked+committed: section shell framework with dock support, merged segments/labels with permanent rows, stacked struct sections with card menus + unified editor, integrity danger badge + profile menu + calc spinner, scripts run history + true disabled + capability gate. 777 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dda5000` | (see git log) |
+| `d7b77cb` | (see git log) |
+| `15004c8` | (see git log) |
+| `c933ea0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 19: Backlog: a11y targets + copy feedback + typography floor
+
+**Date**: 2026-08-17
+**Task**: Backlog: a11y targets + copy feedback + typography floor
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Executed remaining UX audit backlog: full-row 24px disclosure toggle + aria-labelledby regions; copy feedback flashes + endian/width tag on multi-byte interpreter; scripts teardown flake fixed via dispose(); 10px type floor across sidebar + aria-labels on all icon-only controls; legacy .sb-hdr removed. 778 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac09aea` | (see git log) |
+| `c79f3ab` | (see git log) |
+| `35d60ac` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 20: Code-review fix batch
+
+**Date**: 2026-08-17
+**Task**: Code-review fix batch
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Fixed all 7 two-axis code-review findings on feat/ui-consistency: shared --ok .copied rule, registry-based document click-outside (no listener stacking), single shared popup helper for struct/integrity menus, css-guidelines reconciled to 10px floor, byteLineParts dead field removed, flashCopied race-free, card-menu opacity. 782 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `883620a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 21: Sidebar VS Code header model
+
+**Date**: 2026-08-18
+**Task**: Sidebar VS Code header model
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Researched VS Code paneview.ts/viewPane.ts header + collapse animation; grilled design (whole-head toggle, always-visible actions, animate-in-place, no dock); removed bottom dock + zone-split machinery (was 3 failing tests), implemented whole-header role=button toggle with decorative chevron, keyboard nav (Enter/Space/Left/Right/Up/Down), grid 1fr->0fr collapse, plain non-collapsible heads focusable via nav; fixed jsdom activeElement identity test quirk and tabindex-1 nav gap; reconciled component-sidebar + inspector + css-guidelines specs. 784 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7d4c219` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 22: Sidebar VS Code-exact header look
+
+**Date**: 2026-08-18
+**Task**: Sidebar VS Code-exact header look
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled (Q1 A / Q2 A) and applied exact VS Code paneview.css header params: fixed 22px row, 11px bold uppercase nowrap-ellipsis title, decorative chevron-down first child (rotated chevron-right collapsed, translateY(1px) open) reading '> Section Name', first-section no top border + +border-top dividers, actions right 8px, non-collapsible title indent, 150ms ease-out collapse + prefers-reduced-motion 0s, body stays in DOM. css-guidelines + component-sidebar specs reconciled. 784 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac71f09` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 23: Sidebar PaneView (resizable collapsible sections)
+
+**Date**: 2026-08-18
+**Task**: Sidebar PaneView (resizable collapsible sections)
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled (Q1-A..Q5-A) and ported VS Code PaneView/SplitView: panels = flex pane-views; each section a resizable pane (22px header + independent scroll); drag sashes between sections (ArrowUp/Down +-10, dblclick 50/50, role=separator); collapse animates flex-basis 150ms and bottom-packs slim headers; expand restores last size / first-time 50/50; sizes persist to localStorage with clamp + invalid-drop; all sections collapsible (non-collapsible variant removed). Check agent fixed expand-order scramble, stale sash aria-label, focusable disabled sash. 796 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b93e57a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 24: PaneView in-place collapse fix
+
+**Date**: 2026-08-18
+**Task**: PaneView in-place collapse fix
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grill Q1-A: replaced bottom-pack DOM move with VS Code-true in-place collapse — collapsed panes stay in DOM order at 22px, expanded panes fill free space. Removed packCollapsed/restoreOrder, disabled-sash state (aria-disabled/tabindex toggling), dynamic sash relabeling; sashes static between their panes. Fixes first-pane-collapse jump. Specs + tests updated. 796 green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `37eb2b0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 25: PaneView even first-expand + drag-lag fix
+
+**Date**: 2026-08-18
+**Task**: PaneView even first-expand + drag-lag fix
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+First-time expand (no persisted size) now splits evenly across all expanded panes (siblings' saved sizes not kept) - fixes Labels opening tiny next to a large Inspector. Sash drags disable the flex-basis transition (sb-pane-view.dragging) so panes track the cursor exactly. 2 new tests; spec updated. 798 green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb8312b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 26: Archive consolidation + PR task map
+
+**Date**: 2026-08-18
+**Task**: Archive consolidation + PR task map
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Archived-task cleanup (grill Q1-B): folded 2 PaneView follow-up dirs into sidebar-paneview/iterations/ and the header exact-look task into sidebar-header-vscode/iterations/; added archive/2026-08/PR-consolidation-note.md mapping the full feat/ui-consistency deliverable trail. 19 archive dirs now; full history preserved in git + journals 18-25.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2ebace5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 27: PR192 review fix batch (grilled Q1-Q7)
+
+**Date**: 2026-08-19
+**Task**: PR192 review fix batch (grilled Q1-Q7)
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Fixed all PR192 two-axis review findings per grilling: (Q1) first-time expand keeps user/persisted sibling sizes via a new user flag separating adjusted vs auto-default sizes; allocatePanes reworked (persisted exact, fresh equal, lone pane fills pool); (Q2) sash persists once on release; (Q3) disabled sash state restored next to collapsed panes; (Q4) structPanel mount indent; (Q5) none; (Q6) real disabled attribute on untrusted/ts-blocked script run buttons; (Q7) capability approval resets when a script file changes via mtime fingerprint flowing core->protocol->webview, clear-results keeps approval. 802 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d2eb70` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 28: fallow-clean refactor
+
+**Date**: 2026-08-19
+**Task**: fallow-clean refactor
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Running fallow-fix skill: 3 dead-code exports removed (byteLineParts, mergeForDisplay, openMenuPopup — module-internal); 28 complexity findings refactored below cyclo 4 via extracted boolean helpers and split loop bodies across sidebar.ts, structPanel.ts, scriptsPanel.ts, utils.ts, integrity/inspector panels; 1 dup group eliminated. Robustified the fingerprint test (modify-and-rescan instead of same-ms uniqueness). Fallow fully green (0 issues / 0 findings / 0 dupes, exit 0). 802 tests pass
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2802b22` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 29: PaneView reopen-restore fix + thicker sash
+
+**Date**: 2026-08-19
+**Task**: PaneView reopen-restore fix + thicker sash
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+diagnosing-bugs: built throwaway repro harness (compiled SidebarSections), confirmed reopen gave MIN (82) instead of the resized 209. Root cause: layout() re-baselined a user pane's saved to its temporary full-height fill while the sibling collapsed, over-claiming the pool on reopen. Grilled Q1-A (persist wins, untouched=even). TDD: red regression test then fix - user sizes only change via user actions, layout never rebaselines/persists them; lone-pane fill is display-only. Sash thickened 3->6px (SASH_H + CSS + test literals). Persistence semantics: px (not %) in localStorage; grown sibling no longer persisted; oversized keys stay raw (display clamps). 803 tests green, fallow 0.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `84b7ac2` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 30: Host-only expiring copy confirmation + byte-line cleanup
+
+**Date**: 2026-08-19
+**Task**: Host-only expiring copy confirmation + byte-line cleanup
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled + implemented: copy feedback consolidated to the host status-bar notification (expires after 2s) - 'Copied: N bytes' for ranges, copied value for scalars; local flash reduced to green .copied tint (no text swap). Byte-line drops the redundant [N bytes] prefix (address bar carries it), tooltip 'Click to copy N bytes', count flows via data-copy-count. 803 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0bd739a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 31: Webview copy toast component
+
+**Date**: 2026-08-20
+**Task**: Webview copy toast component
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grilled design (placement near-click + top-center fallback, single channel, custom-text param) and implemented src/webview/components/toast.ts + toast.css: generic showToast(message, x?, y?), required message no default; 'Copied ✓' passed by call sites. 150ms in/1s hold/250ms out, replace-on-rapid, reduced-motion instant, role=status + aria-live, isConnected recreate. Wired ALL webview copy paths: sidebar chips/byte-line/mi-values, integrity value copy, struct field/addr copies, hex-view context-menu copy. Host copyText status-bar notice removed (clipboard write stays). 808 tests, fallow 0. Archived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2acc94a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 32: Byte-line copies full selection
+
+**Date**: 2026-08-21
+**Task**: Byte-line copies full selection
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Grill Q1-A: byte-line click now copies the FULL selection (tooltip 'Click to copy N bytes' made true); display stays compact (first <=8 + ellipsis, never copied). TDD red-first; inspector spec line updated. 808 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4785391` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 33: Labels rework: renamable pinned segments + selection-driven form
+
+**Date**: 2026-08-21
+**Task**: Labels rework: renamable pinned segments + selection-driven form
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Issue #189 follow-ups (grilled Q1-Q5): pinned segment rows renamable via existing label form (Name editable, rest read-only), persisted as segmentNames overrides in workspaceState riding saveLabels; custom name displayed, parsed name in tooltip. All label rows show start-end-size (segment style). Label form mirrors hex-view selection focus-aware: last-focused field receives clicks (Range auto-switches to End addr + fills), drag-fill per mode, manual input protected. Check fixed indentation + spec drift, accepted workspaceState-key deviation. 822 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2abb188` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 34: fallow-clean labels form
+
+**Date**: 2026-08-21
+**Task**: fallow-clean labels form
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+fallow-fix on the labels-rework changes: 5 findings (2 critical, 3 moderate) refactored below cyclo 4 - updateLabelFormSel split into openFormTargets guard + fillRangeFromSelection/fillStartAndRange with endOrEmpty/lengthOrEmpty helpers; labelFormHtml decomposed into per-field builders + formMode; saveLabel warning gate extracted; applySegmentRename override logic in setSegmentNameOverride. Fallow fully green. 822 tests pass.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb94ef0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 35: Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename
+
+**Date**: 2026-08-21
+**Task**: Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Redesigned Inspector label form (create/edit): End Address default mode, bidirectional auto-calc chips (fmtB size / end-addr), Title Case labels + monospace hex inputs, swatch buttons with ring + aria-pressed, right-aligned Cancel/Add, Esc/Enter + autofocus, and a live draft-range preview painted into the hex grid via onLabelDraftChange -> S.labelDraft -> HexView.paintLabelDraft. Replaced pinned-segment rename form with an inline name editor (Enter commit / Esc revert / blur commit; blank clears override). Single-line mode switch. 831 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `383b3b6` | (see git log) |
+| `6993c17` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 36: Integrity panel: check names + autofill + profile rework
+
+**Date**: 2026-08-22
+**Task**: Integrity panel: check names + autofill + profile rework
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Optional check name (fallback algorithm label, 40-char cap, persisted via config normalize); add-check autofill selection->full-file->blank plus label-parity live refill (focus-targeted, end-only when end focused, never on keystrokes); integrity header Profile label + Fix all/Add same line, dropdown select + visible Save-as + Update/Rename/Delete menu; auto-apply on select w/ revert-on-cancel confirm; no placeholder, empty hint, preselect-first; sb-btn-add header height parity; sb-tab-panel wrapper flex fix. 840 tests green, trellis-check PASS.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `638e967` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 37: Script hex.write staging: Apply & Save / Discard
+
+**Date**: 2026-08-22
+**Task**: Script hex.write staging: Apply & Save / Discard
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+scriptResult carries pendingWrites (addr/value); Scripts panel writes row becomes actionable Apply & Save (stages mapped bytes into S.edits then saveEdits) / Discard (clears stored writes). Legacy count-only payload keeps plain notice. Optional protocol field + callbacks; backward compatible. Root-caused prior write-patch.js no-op: pendingWrites were counted but never applied. 843 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05afdfd` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 38: Fast edit save + undo across save
+
+**Date**: 2026-08-22
+**Task**: Fast edit save + undo across save
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+saveEdits now spliceEditedLines (regex line scan, owner records only + checksum), skips materialize/reparse, folds into host segments; light savedEdits {generation}; webview folds S.edits locally + clears overlay only, keeps undo/redo/edit mode (Ctrl+Z reverts a save). Legacy parseResult fallback kept. 849 tests green. Specs updated.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ed9aad3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 39: Save watcher horizon + positional writes
+
+**Date**: 2026-08-22
+**Task**: Save watcher horizon + positional writes
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+1s self-write horizon replaces one-shot suppressReload in onExternalChange (save/repair stamp lastSelfWriteAt) so own writes never surface as external change. buildSplicePlan returns newRaw + byte patches with cumulative offsets; saveEdits writes only edited record ranges via node:fs fd (r+), silent whole-file fallback on non-ASCII/length-change/fs error; parity asserted. 853 tests green. Specs updated.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9944e56` | (see git log) |
+
+### Status
+
+[OK] **Completed**

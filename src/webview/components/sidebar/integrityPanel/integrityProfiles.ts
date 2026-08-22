@@ -10,6 +10,7 @@ import {
     type IntegrityProfile,
 } from '../../../../core/integrity';
 import { esc, inlineConfirm } from '../../../utils';
+import { closeMenuPopup, toggleMenuPopup, wireMenuPopup } from '../sidebar';
 import {
     integrityCheckConfigsFromStates,
     integrityCheckSetFromStates,
@@ -37,17 +38,39 @@ export interface IntegrityProfileHost {
 export function wireProfileControls(panel: IntegrityProfileHost): void {
     const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
     select.addEventListener('change', () => {
+        const prev = panel.selectedProfileId;
         panel.selectedProfileId = select.value;
         setProfileError(panel, '');
-        updateProfileButtonState(panel);
+        applySelectedProfile(panel, prev);
     });
-    document.getElementById('integrity-profile-apply')?.addEventListener('click', () => applySelectedProfile(panel));
+    wireProfileMenu();
     document.getElementById('integrity-profile-save')?.addEventListener('click', () => saveProfileAs(panel));
     document.getElementById('integrity-profile-update')?.addEventListener('click', () => updateSelectedProfile(panel));
     document.getElementById('integrity-profile-rename')?.addEventListener('click', () => renameSelectedProfile(panel));
     document.getElementById('integrity-profile-delete')?.addEventListener('click', () => deleteSelectedProfile(panel));
     wireProfileNameForm(panel);
     updateProfileButtonState(panel);
+}
+
+/** ⋮ popover menu: shared open/close, Escape, click-outside, aria state (sidebar.ts). */
+function wireProfileMenu(): void {
+    const button = document.getElementById('integrity-profile-menu-btn') as HTMLButtonElement | null;
+    const pop = document.getElementById('integrity-profile-menu-pop');
+    if (!button || !pop) { return; }
+    wireMenuPopup(pop, {
+        button,
+        root: button.closest('.integrity-profile-menu') ?? undefined,
+        focusFirst: '.integrity-profile-menu-item:not(:disabled)',
+    });
+    button.addEventListener('click', event => {
+        event.stopPropagation();
+        toggleMenuPopup(pop);
+    });
+    pop.addEventListener('click', event => {
+        if ((event.target as HTMLElement).closest('.integrity-profile-menu-item')) {
+            closeMenuPopup(pop);
+        }
+    });
 }
 
 function wireProfileNameForm(panel: IntegrityProfileHost): void {
@@ -63,7 +86,7 @@ function wireProfileNameForm(panel: IntegrityProfileHost): void {
 
 function updateProfileButtonState(panel: IntegrityProfileHost): void {
     const noProfile = !panel.selectedProfileId;
-    ['apply', 'rename', 'delete'].forEach(action => {
+    ['rename', 'delete'].forEach(action => {
         const button = document.getElementById(`integrity-profile-${action}`) as HTMLButtonElement | null;
         if (button) { button.disabled = noProfile; }
     });
@@ -86,20 +109,33 @@ export function persistChecks(panel: IntegrityProfileHost): void {
     if (state.ok) { panel.cb.onPersistChecks?.(state.value); }
 }
 
-function applySelectedProfile(panel: IntegrityProfileHost): void {
+function applySelectedProfile(panel: IntegrityProfileHost, prevId: string): void {
     const profile = panel.profiles.find(item => item.id === panel.selectedProfileId);
     if (!profile) { return; }
-    if (confirmProfileApply(panel, profile)) { return; }
+    if (confirmProfileApply(panel, profile, prevId)) { return; }
     applyProfileChecks(panel, profile);
 }
 
-/** Show the overwrite confirmation; true when it took over the click. */
-function confirmProfileApply(panel: IntegrityProfileHost, profile: IntegrityProfile): boolean {
+/** Show the overwrite confirmation; true when it took over the click. Cancelling
+    (No/outside/Escape) reverts the dropdown to the previously selected profile. */
+function confirmProfileApply(panel: IntegrityProfileHost, profile: IntegrityProfile, prevId: string): boolean {
     if (!hasUnsavedProfileDraft(panel) && !wouldOverwriteChangedChecks(panel, profile)) { return false; }
-    const applyBtn = document.getElementById('integrity-profile-apply') as HTMLElement | null;
-    if (!applyBtn) { return false; }
-    inlineConfirm(applyBtn, () => applyProfileChecks(panel, profile), 'Apply profile? Current checks will be replaced.');
+    const anchor = document.getElementById('integrity-profile-select') as HTMLElement | null;
+    if (!anchor) { return false; }
+    inlineConfirm(
+        anchor,
+        () => applyProfileChecks(panel, profile),
+        'Apply profile? Current checks will be replaced.',
+        () => revertProfileSelection(panel, prevId),
+    );
     return true;
+}
+
+/** Dropdown reverted to the previously selected profile — no change event fired. */
+function revertProfileSelection(panel: IntegrityProfileHost, prevId: string): void {
+    panel.selectedProfileId = prevId;
+    const select = document.getElementById('integrity-profile-select') as HTMLSelectElement | null;
+    if (select) { select.value = prevId; }
 }
 
 function hasUnsavedProfileDraft(panel: IntegrityProfileHost): boolean {
@@ -247,18 +283,29 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
     const options = panel.profiles.map(profile =>
         `<option value="${esc(profile.id)}"${profile.id === panel.selectedProfileId ? ' selected' : ''}>${esc(profile.name)}</option>`
     ).join('');
+    const disabled = panel.profiles.length === 0 ? ' disabled' : '';
+    const emptyHint = panel.profiles.length === 0
+        ? '<div class="sb-empty integrity-profile-empty">No profiles yet — add a check, then Save as…</div>'
+        : '';
     return `
     <div class="integrity-profiles">
-        <select id="integrity-profile-select" class="struct-sel" title="Saved integrity profile">
-            <option value="">Saved profiles…</option>${options}
-        </select>
-        <div class="integrity-profile-actions">
-            <button id="integrity-profile-apply" class="struct-btn struct-btn-apply" type="button">Apply</button>
-            <button id="integrity-profile-save" class="struct-btn struct-btn-secondary" type="button">Save as</button>
-            <button id="integrity-profile-update" class="si-icon-btn" title="Update profile" aria-label="Update profile" type="button">↻</button>
-            <button id="integrity-profile-rename" class="si-icon-btn" title="Rename profile" aria-label="Rename profile" type="button">✎</button>
-            <button id="integrity-profile-delete" class="si-icon-btn" title="Delete profile" aria-label="Delete profile" type="button">🗑︎</button>
+        <div class="integrity-profile-row">
+            <select id="integrity-profile-select" class="sb-select" title="Saved integrity profile"${disabled}>
+                ${options}
+            </select>
+            <button id="integrity-profile-save" class="sb-btn sb-btn-secondary" type="button"
+                title="Save current checks as a new profile">Save as…</button>
+            <div class="integrity-profile-menu">
+                <button id="integrity-profile-menu-btn" class="sb-btn sb-btn-secondary" type="button"
+                    title="Profile actions" aria-label="Profile actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
+                <div id="integrity-profile-menu-pop" class="integrity-profile-menu-pop" role="menu" hidden>
+                    <button id="integrity-profile-update" class="integrity-profile-menu-item" type="button" role="menuitem">Update</button>
+                    <button id="integrity-profile-rename" class="integrity-profile-menu-item" type="button" role="menuitem">Rename</button>
+                    <button id="integrity-profile-delete" class="integrity-profile-menu-item" type="button" role="menuitem">Delete</button>
+                </div>
+            </div>
         </div>
+        ${emptyHint}
         ${profileNameFormHtml(panel)}
         <div id="integrity-profile-error" class="integrity-error" role="alert">${esc(panel.profileError)}</div>
     </div>`;
@@ -267,10 +314,10 @@ export function profileLibraryHtml(panel: IntegrityProfileHost): string {
 function profileNameFormHtml(panel: IntegrityProfileHost): string {
     if (!panel.profileNameMode) { return ''; }
     return `<div class="integrity-profile-name-form">
-    <input id="integrity-profile-name" class="struct-addr-inp" type="text" maxlength="80"
+    <input id="integrity-profile-name" class="sb-input" type="text" maxlength="80"
         value="${esc(profileNameValue(panel))}" placeholder="Profile name" autocomplete="off" spellcheck="false">
-    <button id="integrity-profile-name-save" class="struct-btn struct-btn-apply" type="button">${profileNameAction(panel)}</button>
-    <button id="integrity-profile-name-cancel" class="struct-btn struct-btn-cancel" type="button">Cancel</button>
+    <button id="integrity-profile-name-save" class="sb-btn sb-btn-primary" type="button">${profileNameAction(panel)}</button>
+    <button id="integrity-profile-name-cancel" class="sb-btn sb-btn-secondary" type="button">Cancel</button>
 </div>`;
 }
 

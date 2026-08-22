@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify primitives conformance, tokens, selector depth, no !important unreported"}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Verify integrityPanel integrates via shared pattern + colocated CSS; no struct borrows remain"}

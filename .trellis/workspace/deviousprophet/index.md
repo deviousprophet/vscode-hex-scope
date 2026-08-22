@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
-- **Last Active**: 2026-08-15
+- **Total Sessions**: 39
+- **Last Active**: 2026-08-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~419 | Active |
+| `journal-1.md` | ~912 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,29 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 39 | 2026-08-22 | Save watcher horizon + positional writes | `9944e56` | `feat/ui-consistency` |
+| 38 | 2026-08-22 | Fast edit save + undo across save | `ed9aad3` | `feat/ui-consistency` |
+| 37 | 2026-08-22 | Script hex.write staging: Apply & Save / Discard | `05afdfd` | `feat/ui-consistency` |
+| 36 | 2026-08-22 | Integrity panel: check names + autofill + profile rework | `638e967` | `feat/ui-consistency` |
+| 35 | 2026-08-21 | Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename | `383b3b6`, `6993c17` | `feat/ui-consistency` |
+| 34 | 2026-08-21 | fallow-clean labels form | `bb94ef0` | `feat/ui-consistency` |
+| 33 | 2026-08-21 | Labels rework: renamable pinned segments + selection-driven form | `2abb188` | `feat/ui-consistency` |
+| 32 | 2026-08-21 | Byte-line copies full selection | `4785391` | `feat/ui-consistency` |
+| 31 | 2026-08-20 | Webview copy toast component | `2acc94a` | `feat/ui-consistency` |
+| 30 | 2026-08-19 | Host-only expiring copy confirmation + byte-line cleanup | `0bd739a` | `feat/ui-consistency` |
+| 29 | 2026-08-19 | PaneView reopen-restore fix + thicker sash | `84b7ac2` | `feat/ui-consistency` |
+| 28 | 2026-08-19 | fallow-clean refactor | `2802b22` | `feat/ui-consistency` |
+| 27 | 2026-08-19 | PR192 review fix batch (grilled Q1-Q7) | `2d2eb70` | `feat/ui-consistency` |
+| 26 | 2026-08-18 | Archive consolidation + PR task map | `2ebace5` | `feat/ui-consistency` |
+| 25 | 2026-08-18 | PaneView even first-expand + drag-lag fix | `cb8312b` | `feat/ui-consistency` |
+| 24 | 2026-08-18 | PaneView in-place collapse fix | `37eb2b0` | `feat/ui-consistency` |
+| 23 | 2026-08-18 | Sidebar PaneView (resizable collapsible sections) | `b93e57a` | `feat/ui-consistency` |
+| 22 | 2026-08-18 | Sidebar VS Code-exact header look | `ac71f09` | `feat/ui-consistency` |
+| 21 | 2026-08-18 | Sidebar VS Code header model | `7d4c219` | `feat/ui-consistency` |
+| 20 | 2026-08-17 | Code-review fix batch | `883620a` | `feat/ui-consistency` |
+| 19 | 2026-08-17 | Backlog: a11y targets + copy feedback + typography floor | `ac09aea`, `c79f3ab`, `35d60ac` | `feat/ui-consistency` |
+| 18 | 2026-08-17 | Sidebar section framework + 4-panel UX rework | `dda5000`, `d7b77cb`, `15004c8`, `c933ea0` | `feat/ui-consistency` |
+| 17 | 2026-08-16 | Sidebar panel UI consistency (5 child migration) | `d3007d6`, `cbed3fe`, `28e28c8`, `115e8cc`, `8f98a9d` | `feat/ui-consistency` |
 | 16 | 2026-08-15 | Drag-select multiple address rows in hex view | `971776d` | `fix/uiux-followups` |
 | 15 | 2026-08-15 | Fix hex-grid keyboard nav focus | `7a1b005`, `606537a`, `1973c36` | `fix/uiux-followups` |
 | 14 | 2026-08-11 | UI/UX follow-up fixes (7 tasks) - PR #176 | `998ec90` | `fix/uiux-followups` |

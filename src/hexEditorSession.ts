@@ -1,13 +1,14 @@
 import * as crypto from 'crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
 import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
-import type { ParseResult } from './core/parser/types';
+import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
-import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from './core/document';
+import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
@@ -56,6 +57,42 @@ function materializeParseResult(result: CompactParseResult, source: string, form
         malformedLines: result.malformedLines,
         startAddress: result.startAddress,
     };
+}
+
+/** Apply a save's edits to the in-memory segment bytes (no reparse). */
+function foldEditsIntoSegments(segments: MemorySegment[], editMap: Map<number, number>): void {
+    for (const [addr, value] of editMap) { patchSegmentsAt(segments, addr, value); }
+}
+
+function patchSegmentsAt(segments: MemorySegment[], addr: number, value: number): void {
+    for (const seg of segments) {
+        const off = addr - seg.startAddress;
+        if (off >= 0 && off < seg.data.length) { seg.data[off] = value; return; }
+    }
+}
+
+/** Write only the edited byte ranges into the file (positional save). */
+async function writeSplices(uri: vscode.Uri, patches: SplicePatch[]): Promise<void> {
+    const fh = await fs.promises.open(uri.fsPath, 'r+');
+    try {
+        for (const patch of patches) {
+            const buf = Buffer.from(patch.bytes.buffer, patch.bytes.byteOffset, patch.bytes.byteLength);
+            await fh.write(buf, 0, buf.length, patch.offset);
+        }
+    } finally {
+        await fh.close();
+    }
+}
+
+/** Positional write when the plan allows it; whole-file write otherwise (fallback safe). */
+async function writePlanToFile(uri: vscode.Uri, plan: SplicePlan): Promise<void> {
+    if (plan.patches) {
+        try {
+            await writeSplices(uri, plan.patches);
+            return;
+        } catch { /* positional write failed → whole-file fallback below */ }
+    }
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(plan.newRaw));
 }
 
 function postToPanel(panel: vscode.WebviewPanel, msg: ProviderToWebviewMessage): void {
@@ -386,6 +423,7 @@ export class HexEditorSession {
         }).catch(() => resources.dispose());
 
         const labelKey = `hexScope.labels.${document.uri.toString()}`;
+        const segmentNamesKey = `hexScope.segmentNames.${document.uri.toString()}`;
 
         const structKey = `hexScope.structs.${document.uri.toString()}`;
         const globalStructKey = 'hexScope.structs.global.v2';
@@ -489,6 +527,7 @@ export class HexEditorSession {
                 generation: currentGeneration,
                 parseResult: serialized,
                 labels:      this._context.workspaceState.get(labelKey, []),
+                segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
                 structs,
                 structPins:  this._context.workspaceState.get(structPinKey, []),
                 endian: loadEndian(),
@@ -519,8 +558,12 @@ export class HexEditorSession {
         };
 
         // ── Live reload on external file changes ──────────────────────────
-        // suppress the single watcher event caused by our own writes
-        let suppressReload = false;
+        // Self-writes are ignored within a short horizon so our own save/repair
+        // never surfaces as an "external change" — even when the FS watcher
+        // emits several events per write (flag was the old one-shot version).
+        const SELF_WRITE_HORIZON_MS = 1000;
+        let lastSelfWriteAt = 0;
+        const markSelfWrite = () => { lastSelfWriteAt = Date.now(); };
         const watcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
                 document.uri.path.split('/').pop()!)
@@ -528,7 +571,7 @@ export class HexEditorSession {
         resources.add(watcher);
 
         const onExternalChange = () => {
-            if (suppressReload) { suppressReload = false; return; }
+            if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
             clearTimeout(reloadTimer);
             reloadTimer = setTimeout(async () => {
                 try {
@@ -552,6 +595,7 @@ export class HexEditorSession {
                             generation: loaded.generation,
                             parseResult: serializeParseResult(newResult, format),
                             labels: this._context.workspaceState.get(labelKey, []),
+                            segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
                             checksumErrors: newResult.checksumErrors,
                             malformedLines: newResult.malformedLines,
                             errorCount: newResult.checksumErrors + newResult.malformedLines,
@@ -568,6 +612,7 @@ export class HexEditorSession {
                         generation: loaded.generation,
                         parseResult: serializeParseResult(newResult, format),
                         labels: this._context.workspaceState.get(labelKey, []),
+                        segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
                     });
                 } catch { /* file transiently unavailable */ }
             }, 200);
@@ -580,8 +625,8 @@ export class HexEditorSession {
 
         const currentFileName = () => document.uri.fsPath.split(/[\/\\]/).pop();
         const writeRawAndReparse = async (nextRaw: string): Promise<{ result: CompactParseResult; generation: number }> => {
-            suppressReload = true;
             await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(nextRaw));
+            markSelfWrite();
             raw = nextRaw;
             const loaded = await parseCompactSource(raw);
             parseResult = loaded.result;
@@ -600,10 +645,13 @@ export class HexEditorSession {
             ),
             copyText: async msg => {
                 await vscode.env.clipboard.writeText(msg.text as string);
-                vscode.window.showInformationMessage(`Copied: ${msg.label ?? ''}`);
+                // Copy confirmation lives in the webview toast; no host notice.
             },
             saveLabels: async msg => {
                 await this._context.workspaceState.update(labelKey, msg.labels);
+                if (msg.segmentNames) {
+                    await this._context.workspaceState.update(segmentNamesKey, msg.segmentNames);
+                }
             },
             saveStructs: async msg => {
                 const { defs } = normalizeStructDefs(msg.structs);
@@ -680,19 +728,22 @@ export class HexEditorSession {
             },
             saveEdits: async msg => {
                 if (!parseResult) { return; }
-                const edits = msg.edits;
-                const editMap = new Map<number, number>(edits);
-                const materialized = materializeParseResult(parseResult, raw, format);
-                const newHex = format === 'srec'
-                    ? await serializeSRecAsync(raw, materialized, editMap)
-                    : await serializeIntelHexAsync(raw, materialized, editMap);
-                const loaded = await writeRawAndReparse(newHex);
+                const editMap = new Map<number, number>(msg.edits);
+                // Fast save: splice only the edited record lines, then write
+                // positionally (just those byte ranges) when the plan is
+                // ASCII/same-length safe; otherwise fall back to a whole write.
+                // No materialize (every record) and no full reparse.
+                const plan = buildSplicePlan(raw, editMap, format);
+                await writePlanToFile(document.uri, plan);
+                markSelfWrite();
+                raw = plan.newRaw;
+                foldEditsIntoSegments(parseResult.segments, editMap);
+                currentGeneration = ++generation;
                 void postToWebview(webviewPanel.webview, {
                     type: 'savedEdits',
-                    generation: loaded.generation,
-                    parseResult: serializeParseResult(loaded.result, format),
+                    generation: currentGeneration,
                 });
-                vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
+                vscode.window.showInformationMessage(`HexScope: saved ${msg.edits.length} byte${msg.edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
             },
             reloadAccepted: async () => {
                 if (!pendingExternalReload) { return; }
@@ -743,6 +794,7 @@ export class HexEditorSession {
                     type: 'scriptResult', scriptPath, result: output,
                     error: output.error ?? '', errorType: output.errorType,
                     pendingWriteCount: host.pendingWrites.length,
+                    pendingWrites: host.pendingWrites.map(w => [w.address, w.value] as [number, number]),
                 });
             },
             cancelScript: async msg => {
@@ -777,7 +829,7 @@ export class HexEditorSession {
         );
 
         const cssFiles = [
-            'base', 'statsBar', 'layout', 'sidebar',
+            'base', 'statsBar', 'layout',
         ];
         const cssLinks = cssFiles.map(name => {
             const uri = webview.asWebviewUri(

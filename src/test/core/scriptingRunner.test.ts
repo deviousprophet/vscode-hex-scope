@@ -304,7 +304,14 @@ test('scanScripts returns scripts from .hexscope/scripts/', async () => {
         const a = scripts.find(s => s.name === 'a.js');
         assert.ok(a);
         assert.deepEqual(a.capabilities, ['exec']);
+        assert.match(a.fingerprint, /^\d+(\.\d+)?$/, 'fingerprint is the stat mtime (ms)');
         assert.ok(scripts.some(s => s.name === 'b.ts'));
+        // Modifying a script changes its fingerprint (drives the trust reset).
+        const before = a.fingerprint;
+        await new Promise(resolve => setTimeout(resolve, 5));
+        fs.writeFileSync(path.join(scriptsDir, 'a.js'), '/** @requires exec */\nmodule.exports = { run(api) { api.hex.write(0, [1]); } };', 'utf-8');
+        const rescan = scanScripts(dir);
+        assert.notStrictEqual(rescan.find(s => s.name === 'a.js')!.fingerprint, before, 'modified script gets a new fingerprint');
     } finally { rmDir(dir); }
 });
 

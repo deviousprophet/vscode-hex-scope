@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify migrated markup/CSS conforms: no hardcoded token colors, primitives per spec, no deep selectors"}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Verify shared pattern ownership boundary preserved; panel CSS stays colocated"}

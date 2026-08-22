@@ -1,7 +1,7 @@
 // ── Inspector markup + pure derivation ─────────────────────────────
-// DOM-free HTML builders + pure state derivation for the Inspector,
-// Bit View, Multi-Byte interpreter, Segments, and Labels sections
-// (split out of InspectorPanel.ts). No DOM access; all inputs passed in.
+// DOM-free HTML builders + pure state derivation for the Inspector
+// (address/vals/byte line, multi-byte interpreter, internal Bit View
+// block, merged Labels list). No DOM access; all inputs passed in.
 
 import { esc, fmtB, formatDecimal, formatHex } from '../../../utils';
 import type { SegmentLabel, SerializedSegment } from '../../../../core/types';
@@ -32,13 +32,28 @@ export function singleByteInspectorHtml(val: number): string {
     );
 }
 
-export function multiByteInspectorHtml(selBytes: number[], len: number): string {
+/**
+ * Merged byte-line readout: first ≤8 bytes shown (truncated selections get a
+ * display-only ellipsis — never copied); the copied string is the FULL
+ * selection hex, matching the "Click to copy N bytes" tooltip. The count is
+ * carried via data-copy-count for the host copy notification; it is not
+ * duplicated in the display (the address bar shows it).
+ */
+function byteLineParts(selBytes: number[], len: number): { display: string; copy: string } {
     const dumpBytes = selBytes.slice(0, 8);
     const dumpStr   = dumpBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    const copyStr   = len > 8 ? `${dumpStr} …` : dumpStr;
+    const truncated = len > 8;
+    const display   = `${dumpStr}${truncated ? ' …' : ''}`;
+    const copy      = selBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    return { display, copy };
+}
+
+export function multiByteInspectorHtml(selBytes: number[], len: number): string {
+    // Data readout, not a control: plain mono line, no button dressing.
+    const { display, copy } = byteLineParts(selBytes, len);
     return (
-        `<div class="insp-raw-dump" data-copy="${esc(copyStr)}" data-label="bytes" title="Click to copy">` +
-        `${dumpStr}${len > 8 ? ' <span class="insp-dump-ellipsis">…</span>' : ''}` +
+        `<div class="insp-byte-line" data-copy="${esc(copy)}" data-label="bytes" data-copy-count="${esc(String(len))}" title="Click to copy ${esc(String(len))} bytes">` +
+        `${esc(display)}` +
         `</div>`
     );
 }
@@ -159,46 +174,72 @@ export function multiValueGroupHtml(width: number, values: MultiValues): string 
     );
 }
 
-export function multiPadNoteHtml(selLen: number, width: number): string {
-    return selLen < width
-        ? `<div class="mi-pad-row"><span class="mi-pad-note">zero-padded to ${width * 8}-bit</span></div>`
+/**
+ * Decode-context note for the multi-byte interpreter: endian tag + zero-pad
+ * note when the selection is narrower than the decode width. Pure markup;
+ * styled with the pad-note language (`.mi-pad-note`), endian part honed with
+ * `.mi-endian-note`.
+ */
+export function multiContextHtml(endian: 'le' | 'be', width: number, selLen: number): string {
+    const tag = `<span class="mi-pad-note mi-endian-note">[${endian.toUpperCase()} · ${width}-byte]</span>`;
+    const pad = selLen < width
+        ? `<span class="mi-pad-note">zero-padded to ${width * 8}-bit</span>`
         : '';
+    return `<div class="mi-pad-row">${tag}${pad ? ` ${pad}` : ''}</div>`;
 }
 
 export function gapPaddingNoteHtml(skipped: number): string {
     return `<div class="mi-pad-row"><span class="mi-pad-note">${esc(String(skipped))} gap byte${skipped > 1 ? 's' : ''} zero-padded</span></div>`;
 }
 
-// ── Segments ─────────────────────────────────────────────────────
-
-function segmentAddress(address: number): string {
-    return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
-}
-
-export function segmentBadgeHtml(segments: SerializedSegment[]): string {
-    return segments.length > 0 ? `<span class="sb-badge">${segments.length}</span>` : '';
-}
-
-export function segmentItemsHtml(segments: SerializedSegment[]): string {
-    if (segments.length === 0) { return '<div class="sb-empty">No segments</div>'; }
-    return segments.map((s, i) => segmentItemHtml(s, i)).join('');
-}
-
-function segmentItemHtml(segment: SerializedSegment, index: number): string {
-    const endAddress = segment.startAddress + segment.data.length - 1;
-    const start = segmentAddress(segment.startAddress);
-    return `
-        <div class="segment-item" data-start="${segment.startAddress}" role="button" tabindex="0"
-             title="Jump to ${start}" aria-label="Jump to Segment ${index + 1} at ${start}">
-            <div class="segment-nm">Segment ${index + 1}</div>
-            <div class="segment-rng">${start}&ndash;${segmentAddress(endAddress)} &middot; ${fmtB(segment.data.length)}</div>
-        </div>`;
-}
-
-// ── Labels (markup + defaults) ───────────────────────────────────
+// ── Labels (merged user labels + permanent segment rows) ────────
 
 export function labelAddrHex(n: number): string {
     return `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+/** One display row in the merged Labels list (segments are permanent, name-only editable). */
+type LabelDisplayRow =
+    | { kind: 'user'; label: SegmentLabel }
+    | { kind: 'segment'; name: string; parsedName: string; start: number; length: number };
+
+function rowStart(row: LabelDisplayRow): number {
+    return row.kind === 'user' ? row.label.startAddress : row.start;
+}
+
+/** Parsed segment names rank by address order: "Segment 1", "Segment 2", … */
+export function parsedSegmentName(segments: SerializedSegment[], startAddress: number): string {
+    const idx = [...segments]
+        .sort((a, b) => a.startAddress - b.startAddress)
+        .findIndex(s => s.startAddress === startAddress);
+    return `Segment ${idx + 1}`;
+}
+
+/**
+ * Merges segments (permanent rows) with user labels into one
+ * address-sorted list. Segment names rank by address order; on an
+ * equal start, segments sort before user labels (stable input order).
+ * `segmentNames` overrides a segment's display name by start address.
+ */
+function mergeForDisplay(
+    labels: SegmentLabel[],
+    segments: SerializedSegment[],
+    segmentNames: Record<string, string> = {},
+): LabelDisplayRow[] {
+    const segRows: LabelDisplayRow[] = [...segments]
+        .sort((a, b) => a.startAddress - b.startAddress)
+        .map(s => {
+            const parsedName = parsedSegmentName(segments, s.startAddress);
+            return {
+                kind: 'segment' as const,
+                name: segmentNames[String(s.startAddress)] ?? parsedName,
+                parsedName,
+                start: s.startAddress,
+                length: s.data.length,
+            };
+        });
+    const userRows: LabelDisplayRow[] = labels.map(label => ({ kind: 'user', label }));
+    return [...segRows, ...userRows].sort((a, b) => rowStart(a) - rowStart(b));
 }
 
 export function nextLabelName(labels: SegmentLabel[]): string {
@@ -214,20 +255,56 @@ export function defaultLabelStart(selection: { start: number | null; end: number
     return selection.start !== null ? labelAddrHex(selection.start) : '';
 }
 
-export function defaultLabelRange(selection: { start: number | null; end: number | null }, editing: SegmentLabel | undefined): string {
-    if (editing) { return `${editing.length}`; }
+export function defaultLabelRange(selection: { start: number | null; end: number | null }, editing: SegmentLabel | undefined, mode: 'len' | 'end' = 'len'): string {
+    if (editing) { return editingRange(editing, mode); }
+    return selectionRange(selection, mode);
+}
+
+function editingRange(editing: SegmentLabel, mode: 'len' | 'end'): string {
+    return mode === 'end'
+        ? labelAddrHex(editing.startAddress + editing.length - 1)
+        : `${editing.length}`;
+}
+
+function selectionRange(selection: { start: number | null; end: number | null }, mode: 'len' | 'end'): string {
     const { start, end } = selection;
-    return start !== null && end !== null ? `${end - start + 1}` : '';
+    if (!validSelectionRange(start, end)) { return ''; }
+    return mode === 'end' ? labelAddrHex(end!) : `${end! - start! + 1}`;
+}
+
+function validSelectionRange(start: number | null, end: number | null): boolean {
+    return start !== null && end !== null && end >= start;
 }
 
 export function labelSwatchesHtml(chosenColor: string): string {
     return LABEL_COLORS.map(c =>
-        `<span class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}"></span>`
+        `<button type="button" class="lf-swatch${c.v === chosenColor ? ' selected' : ''}" data-color="${c.v}" style="background:${c.v}" title="${c.name}" aria-label="Use ${c.name} label color" aria-pressed="${c.v === chosenColor}"></button>`
     ).join('');
 }
 
-export function labelItemsHtml(labels: SegmentLabel[]): string {
-    return labels.length === 0
-        ? '<div class="sb-empty">No labels defined</div>'
-        : labels.map((label, index) => labelItemHtml(label, index, labels.length)).join('');
+export function labelItemsHtml(
+    labels: SegmentLabel[],
+    segments: SerializedSegment[],
+    segmentNames: Record<string, string> = {},
+): string {
+    const rows = mergeForDisplay(labels, segments, segmentNames);
+    if (rows.length === 0) { return '<div class="sb-empty">No labels defined</div>'; }
+    return rows.map(row => row.kind === 'user' ? labelItemHtml(row.label) : segmentLabelItemHtml(row)).join('');
+}
+
+/** Permanent segment row: jump + ✎ rename; no delete/color/visibility controls. */
+function segmentLabelItemHtml(seg: LabelDisplayRow & { kind: 'segment' }): string {
+    const start = labelAddrHex(seg.start);
+    const end = labelAddrHex(seg.start + seg.length - 1);
+    const renamed = seg.name !== seg.parsedName;
+    return `
+        <div class="label-item label-perma" data-start="${seg.start}" role="button" tabindex="0"
+             title="Jump to ${start}" aria-label="Jump to ${esc(seg.name)} at ${start}">
+            <div class="label-sw label-sw-perma" aria-hidden="true"></div>
+            <div class="label-inf">
+                <div class="label-nm"><span class="label-perma-name"${renamed ? ` title="${esc(seg.parsedName)}"` : ''}>${esc(seg.name)}</span><span class="label-perma-glyph" aria-hidden="true">&#128204;&#xFE0E;</span></div>
+                <div class="label-rng">${start}&ndash;${end} &middot; ${fmtB(seg.length)}</div>
+            </div>
+            <button type="button" class="label-act label-seg-edit" data-start="${seg.start}" title="Rename segment" aria-label="Rename segment">&#9998;</button>
+        </div>`;
 }

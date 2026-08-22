@@ -521,7 +521,7 @@ suite('Parsed Segment Navigator', () => {
         };
     }
 
-    test('sorts segments, renders inclusive ranges and size, and jumps to start', async () => {
+    test('segments render as address-sorted permanent rows in Labels and jump', async () => {
         S.parseResult = {
             records: [],
             segments: [
@@ -539,31 +539,41 @@ suite('Parsed Segment Navigator', () => {
         const { setSegments } = await mountInspector();
         setSegments(S.parseResult?.segments ?? []);
 
-        const items = document.querySelectorAll<HTMLElement>('.segment-item');
+        const items = document.querySelectorAll<HTMLElement>('.label-perma');
         assert.strictEqual(items.length, 2);
-        assert.strictEqual(document.querySelector('.sb-badge')!.textContent, '2');
-        assert.strictEqual(items[0].querySelector('.segment-nm')!.textContent, 'Segment 1');
-        assert.strictEqual(items[0].querySelector('.segment-rng')!.textContent, '0x00001000–0x00001001 · 2 B');
-        assert.strictEqual(items[1].querySelector('.segment-rng')!.textContent, '0x00002000–0x00002003 · 4 B');
+        const badge = document.querySelector('#s-labels .sb-badge')!;
+        assert.ok((badge as HTMLElement).hidden, 'no count badge on section header');
+        assert.strictEqual(items[0].querySelector('.label-perma-name')!.textContent, 'Segment 1');
+        assert.strictEqual(items[0].querySelector('.label-rng')!.textContent, '0x00001000–0x00001001 · 2 B');
+        assert.strictEqual(items[1].querySelector('.label-rng')!.textContent, '0x00002000–0x00002003 · 4 B');
+        assert.strictEqual(items[0].querySelectorAll('.act-btn-edit, .act-btn-del, .label-vis').length, 0,
+            'permanent rows have no delete/visibility controls');
+        assert.strictEqual(items[0].querySelectorAll('.label-seg-edit').length, 1,
+            'permanent rows offer the ✎ rename affordance');
+        assert.strictEqual(document.getElementById('s-segments'), null, 'no Segments section remains');
 
         items[0].click();
         assert.strictEqual(jumpedTo, 0x1000);
     });
 
-    test('renders empty state and preserves collapsed state', async () => {
+    test('labels default collapsed in place; empty state and badge', async () => {
         const { setSegments } = await mountInspector();
         setSegments([]);
 
-        const section = document.getElementById('s-segments')!;
-        assert.strictEqual(section.dataset.collapsed, 'false');
-        assert.strictEqual(section.querySelector('.sb-empty')?.textContent, 'No segments');
-        assert.strictEqual(section.querySelector('.sb-badge'), null);
-
-        section.querySelector<HTMLElement>('.sb-hdr')!.click();
-        assert.strictEqual(section.dataset.collapsed, 'true');
-        setSegments([]);
-        assert.strictEqual(section.dataset.collapsed, 'true');
+        const section = document.getElementById('s-labels')!;
+        const head = section.querySelector<HTMLElement>('.sb-section-head')!;
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'false', 'default collapsed');
         assert.ok(section.classList.contains('collapsed'));
+        assert.strictEqual(section.querySelector('.sb-empty')?.textContent, 'No labels defined');
+        const badge = section.querySelector('.sb-badge')!;
+        assert.strictEqual(badge.textContent, '');
+        assert.ok((badge as HTMLElement).hidden, 'badge hidden when no rows');
+
+        head.click();
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'true');
+        setSegments([]);
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'true', 'expansion survives re-set');
+        assert.ok(!section.classList.contains('collapsed'));
     });
 });
 
@@ -631,7 +641,7 @@ suite('Record View rendering', () => {
             S.selStart = 0x08000000;
             S.selEnd = 0x08000001;
             rerender.inspector();
-            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
+            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-byte-line'),
                 'inspector shows selected byte data before toggle');
             assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x0201'),
                 'little-endian uint16 renders 0x0201');
@@ -639,7 +649,7 @@ suite('Record View rendering', () => {
             document.getElementById('sidebar-btn-be')!.click();
             assert.strictEqual(S.endian, 'be');
             assert.deepStrictEqual(posted.at(-1), { type: 'saveEndian', endian: 'be' });
-            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
+            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-byte-line'),
                 'endian toggle does not wipe inspector selection data');
             assert.ok(document.querySelector('#insp-multi .mi-hex')?.textContent?.includes('0x0102'),
                 'multi-byte interpreter re-decodes with new endian');
@@ -647,13 +657,13 @@ suite('Record View rendering', () => {
             // Tab round-trip must not re-mount content (mount-once parity): collapse
             // state and selection data survive switching away and back.
             const inspSection = document.getElementById('s-insp')!;
-            inspSection.querySelector<HTMLElement>('.sb-hdr')!.click();
+            inspSection.querySelector<HTMLElement>('.sb-section-head')!.click();
             assert.ok(inspSection.classList.contains('collapsed'), 'inspector section collapsed');
             document.getElementById('stab-struct')!.click();
             document.getElementById('stab-inspector')!.click();
             assert.ok(document.getElementById('s-insp')!.classList.contains('collapsed'),
                 'collapse state survives tab round-trip');
-            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-raw-dump'),
+            assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-byte-line'),
                 'selection data survives tab round-trip');
         } finally {
             api.vscode.postMessage = originalPostMessage;
@@ -710,7 +720,7 @@ suite('Integrity Checks sidebar', () => {
 
     teardown(() => cleanupWebviewDom(dom));
 
-    test('uses struct-style cards, shared byte order, edit forms, and profiles', async function () {
+    test('uses shared sb-card cards, byte order, edit forms, and profiles', async function () {
         this.timeout(5_000);
         const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
@@ -872,7 +882,6 @@ suite('Integrity Checks sidebar', () => {
             const profileSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
             profileSelect.value = 'stm32-profile';
             profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-            document.getElementById('integrity-profile-apply')!.click();
             const applyConfirm = document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement | null;
             if (applyConfirm) { applyConfirm.click(); }
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);

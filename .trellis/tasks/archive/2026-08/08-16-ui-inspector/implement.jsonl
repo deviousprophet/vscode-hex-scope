@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Button Standards + Section/Header Pattern + Sidebar Primitives — defines .sb-btn*/input/card/dot specs used in migration"}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Sidebar shell owns shared .sb-* primitives and sb-section/sb-hdr/sb-body pattern"}

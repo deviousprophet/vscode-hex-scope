@@ -7,12 +7,16 @@ export const RECORD_PAGE_SIZE = 512;
 
 export type HexScopeEndian = 'le' | 'be';
 
+/** Pinned-segment name overrides, keyed by segment start address (decimal string). */
+export type SegmentNameOverrides = Record<string, string>;
+
 export type ProviderToWebviewMessage =
     | {
         type: 'init';
         generation: number;
         parseResult: WireParseResult;
         labels: SegmentLabel[];
+        segmentNames?: SegmentNameOverrides;
         structs: StructDef[];
         structPins: StructPin[];
         endian: HexScopeEndian;
@@ -24,13 +28,14 @@ export type ProviderToWebviewMessage =
     | { type: 'addLabel'; label: SegmentLabel }
     | { type: 'updateLabel'; label: SegmentLabel }
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
-    | { type: 'savedEdits'; generation: number; parseResult: WireParseResult }
-    | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[] }
+    | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
+    | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';
         generation: number;
         parseResult: WireParseResult;
         labels: SegmentLabel[];
+        segmentNames?: SegmentNameOverrides;
         checksumErrors: number;
         malformedLines: number;
         errorCount: number;
@@ -38,8 +43,8 @@ export type ProviderToWebviewMessage =
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
     | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
-    | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[] }> }
-    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
+    | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[]; fingerprint: string }> }
+    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number; pendingWrites?: Array<[number, number]> }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
     | { type: 'activateScriptsTab' };
 
@@ -48,7 +53,7 @@ export type WebviewToProviderMessage =
     | { type: 'requestRecordPage'; generation: number; start: number; count: number }
     | { type: 'reloadAccepted' }
     | { type: 'copyText'; text: string; label?: string }
-    | { type: 'saveLabels'; labels: SegmentLabel[] }
+    | { type: 'saveLabels'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | { type: 'saveStructs'; structs: StructDef[] }
     | { type: 'saveStructPins'; pins: StructPin[] }
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }

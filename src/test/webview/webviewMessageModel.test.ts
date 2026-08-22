@@ -102,6 +102,36 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(update.invalidations.integrityBytesChanged, true);
     });
 
+    test('light savedEdits (no parseResult) folds bytes, keeps undo/edit state, no reload', () => {
+        applyProviderMessageToModel({
+            type: 'init',
+            generation: 1,
+            parseResult: parseResultForTest({
+                segments: [{ startAddress: 0x1000, data: new Uint8Array([1, 2, 3]).buffer }],
+                totalDataBytes: 3,
+            }),
+            labels: [],
+            structs: [],
+            structPins: [],
+            endian: 'le',
+            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+        });
+        S.editMode = true;
+        S.edits.set(0x1001, 0xAA);
+        const memRowsBefore = S.memRows;
+
+        const update = applyProviderMessageToModel({ type: 'savedEdits', generation: 7 });
+
+        assert.strictEqual(S.documentGeneration, 7);
+        assert.strictEqual(S.editMode, true, 'undo remains available after save');
+        assert.strictEqual(S.edits.size, 0, 'overlay cleared');
+        assert.strictEqual((S.parseResult!.segments[0].data as Uint8Array)[1], 0xAA, 'saved byte folded into segments');
+        assert.strictEqual((S.parseResult!.segments[0].data as Uint8Array)[0], 1, 'untouched byte intact');
+        assert.strictEqual(S.memRows, memRowsBefore, 'memory rows not rebuilt (no reload)');
+        assert.strictEqual(update.invalidations.segments, undefined, 'no segment invalidation');
+        assert.strictEqual(update.invalidations.dirtyBar, true);
+    });
+
     test('externalChange records lock state and conflict decision', () => {
         S.editMode = true;
         S.edits.set(0x1000, 0xAA);

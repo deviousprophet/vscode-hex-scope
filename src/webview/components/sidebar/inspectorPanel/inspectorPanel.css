@@ -43,17 +43,68 @@
 }
 .insp-bin-row:hover { color: var(--fg); }
 
-/* Multi-byte raw dump */
-.insp-raw-dump {
+/* Multi-byte byte line — plain mono data readout, not a button */
+.insp-byte-line {
     font-family: var(--font-editor); font-size: 11px; letter-spacing: .06em;
-    color: var(--print-color); cursor: pointer;
-    padding: 4px 6px; background: rgba(0,0,0,.2); border-radius: 3px;
+    color: var(--addr-fg); cursor: pointer;
     word-break: break-all;
 }
-.insp-raw-dump:hover { background: rgba(255,255,255,.05); }
-.insp-dump-ellipsis { color: var(--addr-fg); opacity: .5; }
+.insp-byte-line:hover { color: var(--fg); }
 
-/* ── Bit viewer ──────────────────────────────────────────────── */
+/* ── Copy affordance + feedback ─────────────────────────────── */
+
+/* Low-key copy cues: underline-on-hover on chips/values (no layout change,
+   box-shadow instead of border), persistent ⧉ glyph on the primary byte line. */
+.insp-hex-chip,
+.insp-dec-chip,
+.insp-bin-row,
+.mi-dec[data-copy],
+.mi-hex[data-copy] {
+    box-shadow: inset 0 -1px 0 transparent;
+    transition: box-shadow .1s, opacity .1s, color .1s;
+}
+.insp-hex-chip:hover,
+.insp-dec-chip:hover,
+.insp-bin-row:hover,
+.mi-dec[data-copy]:hover,
+.mi-hex[data-copy]:hover { box-shadow: inset 0 -1px 0 currentColor; }
+.insp-byte-line::after { content: ' ⧉'; opacity: .4; font-size: 10px; }
+.insp-byte-line:hover::after { opacity: .95; }
+
+/* 'Copied' tint (`.copied` added by flashCopied for ~1s — visual only, no text
+   swap; the confirmation is the host status-bar notification). Color comes from
+   the shared `.copied` rule (var(--ok)). */
+.insp-hex-chip.copied,
+.insp-dec-chip.copied,
+.insp-bin-row.copied,
+.insp-byte-line.copied,
+.mi-dec.copied,
+.mi-hex.copied {
+    box-shadow: none;
+}
+
+/* ── Bit viewer (internal disclosure inside the Inspector section) ── */
+
+/* Internal disclosure header for the Bits block (scriptsPanel pattern). */
+#insp-bits { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+#insp-bits.collapsed .sb-inner-body { display: none; }
+.sb-inner-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    width: 100%; height: 22px; padding: 0 0 0 12px;
+    background: none; border: none; font: inherit; color: inherit;
+    cursor: pointer; user-select: none;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--addr-fg);
+}
+.sb-inner-toggle-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px;
+    font-size: 14px; line-height: 1;
+    color: var(--addr-fg); transition: transform .15s;
+}
+#insp-bits:not(.collapsed) .sb-inner-toggle-icon { transform: rotate(90deg); }
+.sb-inner-toggle .sb-badge { margin-left: auto; }
+.sb-inner-body { padding-top: 8px; }
 
 /* Inspector inline multi-byte */
 #insp-multi { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -107,7 +158,9 @@
 /* two-row control area */
 /* zero-pad note */
 .mi-pad-row  { margin-bottom: 5px; }
-.mi-pad-note { font-size: 9px; color: var(--non-graphic); font-style: italic; }
+.mi-pad-note { font-size: 10px; color: var(--non-graphic); font-style: italic; }
+/* Decode-context tag ([LE · 4-byte]): same pad-note language, less muted. */
+.mi-endian-note { font-style: normal; color: var(--addr-fg); font-weight: 600; }
 
 /* group — shared 2-col grid so type names and values align across all rows */
 .mi-group     { display: grid; grid-template-columns: auto 1fr; gap: 1px 0; }
@@ -134,16 +187,15 @@
 .mi-hex[data-copy]{ cursor: pointer; }
 .mi-hex[data-copy]:hover { opacity: 1; color: var(--fg); }
 
-/* ── Segment labels ──────────────────────────────────────────── */
-.segment-item {
-    padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04);
-    cursor: pointer; border-radius: 2px;
-}
-.segment-item:last-child { border-bottom: none; }
-.segment-item:hover,
-.segment-item:focus-visible { background: rgba(255,255,255,.06); outline: none; }
-.segment-nm  { font-size: 11px; font-weight: 600; }
-.segment-rng { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); margin-top: 1px; }
+/* ── Permanent segment rows inside Labels (merged, non-editable) ── */
+.label-perma { cursor: pointer; }
+.label-perma .label-nm { color: var(--addr-fg); font-weight: 600; }
+.label-perma:hover,
+.label-perma:focus-visible { background: rgba(255,255,255,.06); outline: none; }
+.label-perma:hover .label-nm,
+.label-perma:focus-visible .label-nm { color: var(--fg); }
+.label-sw-perma { background: transparent; border: 1px dashed var(--addr-fg); opacity: .5; }
+.label-perma-glyph { margin-left: 5px; color: var(--addr-fg); font-size: 10px; opacity: .65; }
 
 .label-item {
     display: flex; align-items: center; gap: 5px;
@@ -164,40 +216,36 @@
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
-.lf-add-btn {
-    width: 100%; margin-top: 8px; padding: 5px;
-    background: transparent; color: var(--high-color);
-    border: 1px dashed rgba(134,180,212,.28); border-radius: 3px;
-    cursor: pointer; font-size: 10px; font-family: var(--font-ui);
-    transition: background .1s, border-style .1s;
-}
-.lf-add-btn:hover { background: rgba(134,180,212,.07); border-style: solid; }
+/* Add-label button uses the shared .sb-btn-add primitive; keep the full-width row filler */
+#s-labels .sb-btn-add { width: 100%; margin-top: 8px; }
 
 /* ── Label inline form ───────────────────────────────────────── */
 .lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+/* Form title — framework .sb-section-label look (10px/700/uppercase/.07em),
+   block + 8px gap because the form title sits above .lbl-form (replaces .sb-hdr). */
+.sb-label-form-title { display: block; margin-bottom: 8px; }
 .lf-field    { display: flex; flex-direction: column; gap: 3px; }
-.lf-lbl      { font-size: 10px; color: var(--addr-fg); text-transform: uppercase; letter-spacing: .06em; }
-.lf-input    { background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--input-bdr);
-               border-radius: 3px; padding: 4px 6px; font-family: var(--font-editor); font-size: 11px;
-               outline: none; width: 100%; box-sizing: border-box; }
-.lf-input:focus { border-color: var(--focus-bdr); }
+.lf-lbl      { font-size: 10px; color: var(--fg); font-weight: 600; }
+/* Hex inputs use the editor monospace stack for address/length alignment. */
+.lf-hex      { font-family: var(--font-editor); }
+/* Mode switch sits above the range input; shared .compact-tabs styling untouched. */
+.lf-mode-tabs { align-self: flex-start; }
+.lf-mode-tabs button { white-space: nowrap; }
 .lf-range-row  { display: flex; gap: 5px; align-items: center; }
-.lf-mode-grp   { display: flex; gap: 2px; flex-shrink: 0; }
-.lf-mode       { background: transparent; color: var(--addr-fg); border: 1px solid var(--border);
-                 border-radius: 2px; padding: 3px 7px; cursor: pointer;
-                 font-size: 10px; font-family: var(--font-ui); transition: background .1s, color .1s; }
-.lf-mode.active { background: var(--btn-bg); color: var(--btn-fg); border-color: var(--btn-bg); }
+.lf-range-row .sb-input { flex: 1; min-width: 0; }
+/* Auto-calc counterpart chip (size in End-Address mode; end addr in Length mode). */
+.lf-chip     { flex-shrink: 0; font-size: 10px; font-family: var(--font-editor);
+               color: var(--addr-fg); padding: 2px 5px; border: 1px solid var(--border);
+               border-radius: 3px; min-height: 18px; line-height: 14px; }
+.lf-chip:empty { display: none; }
 .lf-swatches   { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
-.lf-swatch     { width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
-                 border: 2px solid transparent; transition: transform .1s, border-color .1s; flex-shrink: 0; }
+.lf-swatch     { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; padding: 0;
+                 border: 2px solid transparent; background-clip: padding-box;
+                 transition: transform .1s, border-color .1s, box-shadow .1s; flex-shrink: 0; }
 .lf-swatch:hover   { transform: scale(1.2); }
-.lf-swatch.selected { border-color: var(--fg); }
+/* Selection ring: clear border/ring indicator around the active color. */
+.lf-swatch.selected { border-color: var(--bg); box-shadow: 0 0 0 2px var(--fg); }
 .lf-warn       { font-size: 10px; color: var(--match-hi); min-height: 14px; }
-.lf-actions    { display: flex; gap: 5px; }
-.lf-btn        { flex: 1; border-radius: 3px; padding: 5px; cursor: pointer;
-                 font-size: 11px; font-family: var(--font-ui); border: none; }
-.lf-save       { background: var(--btn-bg); color: var(--btn-fg); transition: background .1s; }
-.lf-save:hover { background: var(--btn-hover); }
-.lf-cancel     { background: transparent; color: var(--addr-fg); border: 1px solid var(--border) !important;
-                 transition: color .1s, border-color .1s; }
-.lf-cancel:hover { color: var(--fg); border-color: var(--fg); }
+.lf-actions { display: flex; gap: 5px; justify-content: flex-end; margin-top: 2px; }
+/* Right-aligned primary/secondary pair: cancel (secondary) left of the primary action. */
+.lf-actions .sb-btn { flex: 0 0 auto; min-width: 64px; justify-content: center; }

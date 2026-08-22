@@ -1,16 +1,18 @@
 // ── InspectorPanel component ──────────────────────────────────────
-// Self-contained sidebar Inspector panel: owns the four section shells
-// (Inspector / Bit View / Multi-Byte interpreter / Segments / Labels),
-// their markup, collapse state, bit hover, label-form UI state, and
-// interaction. Data is pushed via setters; byte reads go through the
-// injected `readByte` accessor; actions report via callbacks. This
-// module never imports the `S` global and never posts provider messages.
-// Pure markup lives in inspectorRender.ts; the label-form state machine
-// in inspectorLabelForm.ts (operating on this panel as its host).
+// Self-contained sidebar Inspector panel: owns the section shells
+// (Inspector with internal Bit View block / merged Labels), their
+// markup, collapse state, bit hover, label-form UI state, and
+// interaction. Collapsed sections remain in the panel stack. Data is pushed via setters; byte reads go
+// through the injected `readByte` accessor; actions report via
+// callbacks. This module never imports the `S` global and never posts
+// provider messages. Pure markup lives in inspectorRender.ts; the
+// label-form state machine in inspectorLabelForm.ts (operating on this
+// panel as its host).
 
-import { esc, wireActionBtns } from '../../../utils';
+import { esc, flashCopied, wireActionBtns } from '../../../utils';
+import { showToast } from '../../toast';
 import type { SegmentLabel, SerializedSegment } from '../../../../core/types';
-import { labelsBadgeHtml } from './inspectorLabels';
+import { SidebarSections } from '../sidebar';
 import {
     bitIndexRowHtml,
     bitRowsHtml,
@@ -20,13 +22,12 @@ import {
     inspectorSelectionLength,
     labelItemsHtml,
     multiByteInspectorHtml,
-    multiPadNoteHtml,
+    multiContextHtml,
     multiValueGroupHtml,
     multiWidth,
+    parsedSegmentName,
     popcount,
     readMultiValues,
-    segmentBadgeHtml,
-    segmentItemsHtml,
     singleByteInspectorHtml,
 } from './inspectorRender';
 import {
@@ -34,6 +35,7 @@ import {
     updateLabelFormSel,
     type InspectorLabelFormHost,
 } from './inspectorLabelForm';
+import type { LabelDraftPreview } from '../../../../core/types';
 import './inspectorPanel.css';
 
 export interface InspectorCallbacks {
@@ -41,35 +43,42 @@ export interface InspectorCallbacks {
     readByte: (addr: number) => number | undefined;
     /** Segment/label row click → host jumps. */
     onJumpTo?: (address: number) => void;
-    /** Any label mutation → host persists + invalidates. */
-    onLabelsChange?: (labels: SegmentLabel[]) => void;
+    /** Any label mutation → host persists + invalidates (segmentNames rides the same channel). */
+    onLabelsChange?: (labels: SegmentLabel[], segmentNames?: Record<string, string>) => void;
     /** Copy chip → host posts copyText. */
     onCopy?: (text: string, label: string) => void;
+    /** Label-form draft range → host paints a live preview in the grid; null clears it. */
+    onLabelDraftChange?: (draft: LabelDraftPreview | null) => void;
 }
 
 export class InspectorPanel implements InspectorLabelFormHost {
     readonly cb: InspectorCallbacks;
     selection: { start: number | null; end: number | null } = { start: null, end: null };
     private endian: 'le' | 'be' = 'le';
+    /** Sticky per-mount: user collapse of the internal Bits block. */
+    private bitsCollapsed = false;
     segments: SerializedSegment[] = [];
     labels: SegmentLabel[] = [];
+    /** Pinned-segment name overrides keyed by start address (decimal string). */
+    segmentNames: Record<string, string> = {};
     root: HTMLElement | null = null;
+    sections: SidebarSections | null = null;
 
     constructor(cb: InspectorCallbacks) {
         this.cb = cb;
     }
 
-    /** Renders the four section shells and wires doc-delegated listeners (idempotent). */
+    /** Renders the section shells and wires doc-delegated listeners (idempotent). */
     mount(root: HTMLElement): void {
         this.root = root;
-        root.innerHTML = `
-            <div class="sb-section" id="s-insp"></div>
-            <div class="sb-section" id="s-bits"></div>
-            <div class="sb-section" id="s-segments"></div>
-            <div class="sb-section" id="s-labels"></div>`;
+        root.innerHTML = '';
+        // Remount resets sticky bit-block collapse (no persistence).
+        this.bitsCollapsed = false;
+        this.sections = new SidebarSections(root, 's', [
+            { id: 'insp', label: 'Inspector' },
+            { id: 'labels', label: 'Labels', defaultCollapsed: true },
+        ]);
         this.renderInspectorShell();
-        this.renderBits();
-        this.renderSegments();
         this.renderLabels();
         this.paintInspectorData();
     }
@@ -87,11 +96,12 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     setSegments(segments: SerializedSegment[]): void {
         this.segments = segments;
-        this.renderSegments();
+        this.renderLabels();
     }
 
-    setLabels(labels: SegmentLabel[]): void {
+    setLabels(labels: SegmentLabel[], segmentNames?: Record<string, string>): void {
         this.labels = labels;
+        if (segmentNames) { this.segmentNames = segmentNames; }
         this.renderLabels();
     }
 
@@ -104,29 +114,13 @@ export class InspectorPanel implements InspectorLabelFormHost {
     // ── Inspector (address/vals/multi-byte) ─────────────────────
 
     private renderInspectorShell(): void {
-        const sec = this.root?.querySelector<HTMLElement>('#s-insp');
-        if (!sec) { return; }
-        sec.innerHTML =
-            `<div class="sb-hdr">Inspector</div>
-             <div class="sb-body">
-               <div id="insp-addr" style="display:none"></div>
-               <div id="insp-vals"><div class="sb-empty">Click a byte to inspect</div></div>
-               <div id="insp-multi"></div>
-             </div>`;
-        this.applyCollapsibleSection(sec, false);
-    }
-
-    private applyCollapsibleSection(sec: HTMLElement, defaultCollapsed: boolean): void {
-        if (sec.dataset.collapsed === undefined) { sec.dataset.collapsed = String(defaultCollapsed); }
-        sec.classList.toggle('collapsed', sec.dataset.collapsed === 'true');
-
-        const hdr = sec.querySelector<HTMLElement>('.sb-hdr');
-        if (!hdr) { return; }
-        hdr.addEventListener('click', () => {
-            const now = sec.dataset.collapsed === 'true' ? 'false' : 'true';
-            sec.dataset.collapsed = now;
-            sec.classList.toggle('collapsed', now === 'true');
-        });
+        const body = this.sections?.body('insp');
+        if (!body) { return; }
+        body.innerHTML =
+            `<div id="insp-addr" style="display:none"></div>` +
+            `<div id="insp-vals"><div class="sb-empty">Click a byte to inspect</div></div>` +
+            `<div id="insp-multi"></div>` +
+            `<div id="insp-bits"></div>`;
     }
 
     private renderInspectorNoSelection(addrEl: HTMLElement, valsEl: HTMLElement): void {
@@ -233,51 +227,76 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     private wireInspectorCopies(valsEl: HTMLElement): void {
         valsEl.querySelectorAll<HTMLElement>('[data-copy]').forEach(el => {
-            el.addEventListener('click', () => {
-                this.cb.onCopy?.(el.dataset.copy!, el.dataset.label ?? 'value');
-            });
+            el.addEventListener('click', (event: MouseEvent) => this.onCopyClick(el, event));
         });
     }
 
-    // ── Bit view ─────────────────────────────────────────────────
+    /** One copy click: report to the host, toast at the click point, tint locally. */
+    private onCopyClick(el: HTMLElement, event: MouseEvent): void {
+        // Copy confirmation is the webview toast at the click point; the
+        // local .copied tint is visual-only — no text swap on the element.
+        this.cb.onCopy?.(el.dataset.copy!, this.copyLabel(el));
+        showToast('Copied ✓', { x: event.clientX, y: event.clientY });
+        flashCopied(el);
+    }
+
+    /** Host notification label: byte ranges carry the count; scalars their kind. */
+    private copyLabel(el: HTMLElement): string {
+        return el.dataset.label === 'bytes'
+            ? `${el.dataset.copyCount ?? ''} bytes`
+            : (el.dataset.label ?? 'value');
+    }
+
+    // ── Bit view (internal block inside the Inspector section) ───
 
     private renderBits(val?: number): void {
-        const sec = this.root?.querySelector<HTMLElement>('#s-bits') ?? null;
-        if (!sec) { return; }
-        if (val === undefined) {
-            sec.innerHTML =
-                `<div class="sb-hdr">Bit View</div>` +
-                `<div class="sb-body"><div class="sb-empty">—</div></div>`;
-        } else {
-            const pc = popcount(val);
-            sec.innerHTML =
-                `<div class="sb-hdr">Bit View</div>` +
-                `<div class="sb-body">` +
-                `<div class="bitgrid-wrap">${bitIndexRowHtml()}${byteRowHtml(val, null)}</div>` +
-                `<span class="bit-pc">${esc(String(pc))}/8 bits set</span></div>`;
-        }
-        this.applyCollapsibleSection(sec, true);
-        this.wireBitColHover();
+        const block = this.bitsBlock();
+        if (!block) { return; }
+        const inner = val === undefined
+            ? '<div class="sb-empty">—</div>'
+            : `<div class="bitgrid-wrap">${bitIndexRowHtml()}${byteRowHtml(val, null)}</div>` +
+              `<span class="bit-pc">${esc(String(popcount(val)))}/8 bits set</span>`;
+        this.renderBitsBlock(block, inner, null);
     }
 
     private renderBitsMulti(bytes: number[]): void {
-        const sec = this.root?.querySelector<HTMLElement>('#s-bits') ?? null;
-        if (!sec) { return; }
-        const rowsHtml = bitRowsHtml(bytes);
-        const total = bitTotalCount(bytes);
-        sec.innerHTML =
-            `<div class="sb-hdr">Bit View ` +
-            `<span class="sb-badge" style="font-weight:400;opacity:.6">${esc(String(bytes.length))} byte${bytes.length > 1 ? 's' : ''}</span></div>` +
-            `<div class="sb-body">` +
-            `<div class="bitgrid-wrap">${bitIndexRowHtml()}${rowsHtml}</div>` +
-            `<span class="bit-pc">${esc(String(total))}/${esc(String(bytes.length * 8))} bits set</span></div>`;
+        const block = this.bitsBlock();
+        if (!block) { return; }
+        const inner =
+            `<div class="bitgrid-wrap">${bitIndexRowHtml()}${bitRowsHtml(bytes)}</div>` +
+            `<span class="bit-pc">${esc(String(bitTotalCount(bytes)))}/${esc(String(bytes.length * 8))} bits set</span>`;
+        this.renderBitsBlock(block, inner, `${bytes.length} byte${bytes.length > 1 ? 's' : ''}`);
+    }
 
-        this.applyCollapsibleSection(sec, true);
+    /**
+     * Renders the internal "Bits" disclosure inside #insp-bits (pattern:
+     * scriptsPanel output-block collapse). Expansion is content-driven:
+     * every paint starts expanded unless the user collapsed it this mount.
+     */
+    private renderBitsBlock(block: HTMLElement, innerHtml: string, badge: string | null): void {
+        const collapsed = this.bitsCollapsed;
+        block.innerHTML =
+            `<button type="button" class="sb-inner-toggle" data-collapse aria-expanded="${collapsed ? 'false' : 'true'}">` +
+            `<span class="sb-inner-toggle-icon" aria-hidden="true">›</span>` +
+            `<span class="sb-inner-label">Bits</span>` +
+            (badge ? `<span class="sb-badge">${esc(badge)}</span>` : '') +
+            `</button>` +
+            `<div class="sb-inner-body">${innerHtml}</div>`;
+        block.classList.toggle('collapsed', collapsed);
+        block.querySelector<HTMLElement>('[data-collapse]')?.addEventListener('click', () => {
+            this.bitsCollapsed = !this.bitsCollapsed;
+            block.classList.toggle('collapsed', this.bitsCollapsed);
+            block.querySelector<HTMLElement>('[data-collapse]')?.setAttribute('aria-expanded', String(!this.bitsCollapsed));
+        });
         this.wireBitColHover();
     }
 
+    private bitsBlock(): HTMLElement | null {
+        return this.root?.querySelector<HTMLElement>('#insp-bits') ?? null;
+    }
+
     private wireBitColHover(): void {
-        const wrap = this.root?.querySelector<HTMLElement>('#s-bits .bitgrid-wrap');
+        const wrap = this.root?.querySelector<HTMLElement>('#insp-bits .bitgrid-wrap');
         if (!wrap) { return; }
         let active: string | null = null;
         const setCol = (bit: string | null) => {
@@ -310,7 +329,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
         const groupHtml = multiValueGroupHtml(width, readMultiValues(raw, le));
 
         el.innerHTML =
-            multiPadNoteHtml(selLen, width) +
+            multiContextHtml(this.endian, width, selLen) +
             `<div class="mi-group">${groupHtml}</div>`;
 
         wireMultiInlineCopies(el, (text, label) => this.cb.onCopy?.(text, label));
@@ -332,54 +351,22 @@ export class InspectorPanel implements InspectorLabelFormHost {
         });
     }
 
-    // ── Segments ─────────────────────────────────────────────────
-
-    private renderSegments(): void {
-        const sec = this.root?.querySelector<HTMLElement>('#s-segments') ?? null;
-        if (!sec) { return; }
-        const segments = [...this.segments].sort((a, b) => a.startAddress - b.startAddress);
-        sec.innerHTML = `
-            <div class="sb-hdr">Segments ${segmentBadgeHtml(segments)}</div>
-            <div class="sb-body">${segmentItemsHtml(segments)}</div>`;
-
-        this.applyCollapsibleSection(sec, false);
-        sec.querySelectorAll<HTMLElement>('.segment-item').forEach(item => {
-            item.addEventListener('click', () => this.jumpToSegment(item));
-            item.addEventListener('keydown', event => this.handleSegmentKeydown(event, item));
-        });
-    }
-
-    private jumpToSegment(item: HTMLElement): void {
-        const startAddress = Number(item.dataset.start);
-        if (Number.isFinite(startAddress)) { this.cb.onJumpTo?.(startAddress); }
-    }
-
-    private handleSegmentKeydown(event: KeyboardEvent, item: HTMLElement): void {
-        if (event.key !== 'Enter' && event.key !== ' ') { return; }
-        event.preventDefault();
-        this.jumpToSegment(item);
-    }
-
-    // ── Labels ───────────────────────────────────────────────────
+    // ── Labels (merged segment rows + user labels) ─────────────────
 
     renderLabels(): void {
-        const sec = this.root?.querySelector<HTMLElement>('#s-labels') ?? null;
-        if (!sec) { return; }
-        const badgeHtml = labelsBadgeHtml(this.labels.length);
-        const itemsHtml = labelItemsHtml(this.labels);
-        sec.innerHTML = `
-            <div class="sb-hdr">Labels ${badgeHtml}</div>
-            <div class="sb-body">${itemsHtml}
-            <button class="lf-add-btn" id="btn-add-lbl">+ Add Segment Label</button>
-            </div>`;
+        const body = this.sections?.body('labels');
+        if (!body) { return; }
+        // Form teardown choke point: any labels rerender clears the draft preview.
+        this.cb.onLabelDraftChange?.(null);
+        const itemsHtml = labelItemsHtml(this.labels, this.segments, this.segmentNames);
+        body.innerHTML = `${itemsHtml}
+        <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>`;
 
-        this.applyCollapsibleSection(sec, true);
-        this.wireLabelActions(sec);
-        this.wireLabelVisibility(sec);
-        this.wireLabelMoveUp(sec);
-        this.wireLabelMoveDown(sec);
-        this.wireLabelJump(sec);
-        this.wireLabelAdd(sec);
+        this.wireLabelActions(body);
+        this.wireLabelVisibility(body);
+        this.wireLabelJump(body);
+        this.wireLabelJumpPermanent(body);
+        this.wireLabelAdd(body);
     }
 
     private wireLabelActions(sec: HTMLElement): void {
@@ -390,7 +377,7 @@ export class InspectorPanel implements InspectorLabelFormHost {
             el => renderLabelForm(this, el.dataset.id),
             el => {
                 this.labels = this.labels.filter(l => l.id !== el.dataset.id);
-                this.cb.onLabelsChange?.(this.labels);
+                this.cb.onLabelsChange?.(this.labels, this.segmentNames);
             },
         );
     }
@@ -401,39 +388,14 @@ export class InspectorPanel implements InspectorLabelFormHost {
                 const id = el.dataset.id!;
                 const hidden = el.dataset.hidden !== '1';
                 this.labels = this.labels.map(l => l.id === id ? { ...l, hidden } : l);
-                this.cb.onLabelsChange?.(this.labels);
-            });
-        });
-    }
-
-    private wireLabelMoveUp(sec: HTMLElement): void {
-        sec.querySelectorAll<HTMLElement>('.label-up').forEach(el => {
-            el.addEventListener('click', () => {
-                const idx = this.labels.findIndex(l => l.id === el.dataset.id);
-                if (idx <= 0) { return; }
-                const next = [...this.labels];
-                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                this.labels = next;
-                this.cb.onLabelsChange?.(this.labels);
-            });
-        });
-    }
-
-    private wireLabelMoveDown(sec: HTMLElement): void {
-        sec.querySelectorAll<HTMLElement>('.label-dn').forEach(el => {
-            el.addEventListener('click', () => {
-                const idx = this.labels.findIndex(l => l.id === el.dataset.id);
-                if (idx < 0 || idx >= this.labels.length - 1) { return; }
-                const next = [...this.labels];
-                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                this.labels = next;
-                this.cb.onLabelsChange?.(this.labels);
+                this.cb.onLabelsChange?.(this.labels, this.segmentNames);
             });
         });
     }
 
     private wireLabelJump(sec: HTMLElement): void {
         sec.querySelectorAll<HTMLElement>('.label-item').forEach(item => {
+            if (item.classList.contains('label-perma')) { return; }
             item.style.cursor = 'pointer';
             item.addEventListener('click', e => {
                 if ((e.target as HTMLElement).closest('.label-act')) { return; }
@@ -442,6 +404,77 @@ export class InspectorPanel implements InspectorLabelFormHost {
                 if (lbl) { this.cb.onJumpTo?.(lbl.startAddress); }
             });
         });
+    }
+
+    /** Permanent segment rows: click / Enter / Space jump to the segment start. */
+    private wireLabelJumpPermanent(sec: HTMLElement): void {
+        sec.querySelectorAll<HTMLElement>('.label-perma').forEach(item => {
+            item.addEventListener('click', e => {
+                if ((e.target as HTMLElement).closest('.label-act')) { return; }
+                this.jumpToSegment(Number(item.dataset.start));
+            });
+            item.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') { return; }
+                event.preventDefault();
+                this.jumpToSegment(Number(item.dataset.start));
+            });
+        });
+        // ✎ on a pinned row → inline name editor (name-only; start/range/color stay on the row).
+        sec.querySelectorAll<HTMLElement>('.label-seg-edit').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                this.beginSegmentRename(Number(btn.dataset.start));
+            });
+        });
+    }
+
+    /** Swap the pinned row's name span for an autofocused inline input. */
+    private beginSegmentRename(start: number): void {
+        const row = this.root?.querySelector<HTMLElement>(`.label-perma[data-start="${start}"]`);
+        const nameEl = row?.querySelector<HTMLElement>('.label-perma-name');
+        if (!row || !nameEl) { return; }
+        const parsed = parsedSegmentName(this.segments, start);
+        const current = this.segmentNames[String(start)] ?? parsed;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'sb-input label-perma-edit';
+        input.value = current;
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+        let done = false;
+        const commit = (): void => {
+            if (done) { return; }
+            done = true;
+            this.commitSegmentRename(start, parsed, input.value);
+        };
+        const cancel = (): void => {
+            if (done) { return; }
+            done = true;
+            input.replaceWith(nameEl);
+        };
+        // Isolate the editor from the row's jump-on-click/Enter/Space handlers.
+        input.addEventListener('click', e => e.stopPropagation());
+        input.addEventListener('mousedown', e => e.stopPropagation());
+        input.addEventListener('keydown', e => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        });
+        input.addEventListener('blur', () => commit());
+    }
+
+    /** Persist an inline segment rename; blank or parsed name clears the override. */
+    private commitSegmentRename(start: number, parsedName: string, rawName: string): void {
+        const name = rawName.trim();
+        const key = String(start);
+        if (name === '' || name === parsedName) { delete this.segmentNames[key]; }
+        else { this.segmentNames[key] = name; }
+        this.cb.onLabelsChange?.(this.labels, this.segmentNames);
+    }
+
+    private jumpToSegment(start: number): void {
+        if (Number.isFinite(start)) { this.cb.onJumpTo?.(start); }
     }
 
     private wireLabelAdd(sec: HTMLElement): void {
@@ -456,12 +489,16 @@ function wireMultiInlineCopies(el: HTMLElement, cb: (text: string, label: string
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'decimal');
+            showToast('Copied ✓', { x: e.clientX, y: e.clientY });
+            flashCopied(span);
         });
     });
     el.querySelectorAll<HTMLElement>('.mi-hex[data-copy]').forEach(span => {
         span.addEventListener('click', e => {
             e.stopPropagation();
             cb(span.dataset.copy!, 'hex');
+            showToast('Copied ✓', { x: e.clientX, y: e.clientY });
+            flashCopied(span);
         });
     });
 }

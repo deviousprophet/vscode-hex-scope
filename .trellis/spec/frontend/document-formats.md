@@ -28,6 +28,7 @@ function serializeIntelHex(raw: string, result: ParseResult, edits: Map<number, 
 function serializeSRec(raw: string, result: ParseResult, edits: Map<number, number>): string;
 function serializeIntelHexAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
 function serializeSRecAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
+function spliceEditedLines(raw: string, edits: Map<number, number>, format: HexScopeFormat): string;
 function repairChecksums(raw: string, result: ParseResult): string;
 ```
 
@@ -46,6 +47,8 @@ function repairChecksums(raw: string, result: ParseResult): string;
 - SREC supports S0-S3 and S5-S9; S4 is reserved; S1/S2/S3 alone carry memory data; S7/S8/S9 provide execution start address.
 - Serializers rewrite only affected valid data records. Preserve non-data records, blank lines, surrounding line whitespace, untouched lines, and original LF/CRLF style.
 - Async serializers use the shared 24 ms work budget and yield between record batches on large edited documents; save flows must await them.
+- Fast save: `buildSplicePlan(raw, edits, format)` scans lines with a minimal regex decode (no `HexRecord` materialize) and rebuilds only data records whose absolute address range overlaps the edit set (checksum recomputed). Returns `newRaw` + per-line byte `patches` (byte offsets); `spliceEditedLines` = `plan.newRaw`. The save path writes positionally (only patch ranges via `node:fs` fd) when the plan is ASCII/same-length safe, else falls back to a whole-file write. A few edits on a 70 MB file cost O(edits + split/join + one small write), not a full serialize/reparse.
+- Assert reparsing serialized output produces expected bytes and zero new checksum errors.
 - Empty edit maps return original text exactly.
 - Checksum repair changes the final checksum byte of invalid, otherwise parseable records; malformed records remain unchanged.
 

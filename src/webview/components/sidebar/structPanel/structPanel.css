@@ -8,49 +8,15 @@
     padding: 2px 0 2px 2px;
     user-select: none;
 }
-.struct-addr-inp {
-    flex: 1; min-width: 0;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 3px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 11px; padding: 2px 6px; outline: none;
-}
-.struct-addr-inp:focus { border-color: var(--high-color); }
 
-.struct-sel {
-    flex: 1; min-width: 0;
-    background: var(--input-bg); border: 1px solid var(--input-bdr);
-    border-radius: 3px; color: var(--input-fg); font-family: var(--font-ui);
-    font-size: 11px; padding: 2px 4px; outline: none;
-}
-.struct-sel:focus { border-color: var(--focus-bdr); }
-
-.struct-btn {
-    border-radius: 3px; font-size: 10px; font-family: var(--font-ui); font-weight: 600;
-    padding: 2px 9px; cursor: pointer; white-space: nowrap;
-    transition: background .1s, border-color .1s;
-}
-.struct-btn-apply {
-    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.4);
-    color: var(--high-color);
-}
-.struct-btn-apply:hover { background: rgba(79,195,247,.25); border-color: var(--high-color); }
-.struct-btn-secondary {
-    background: rgba(255,255,255,.06); border: 1px solid var(--border);
-    color: var(--addr-fg);
-}
-.struct-btn-secondary:hover { background: rgba(255,255,255,.12); border-color: var(--fg); }
-.struct-btn-danger {
-    background: rgba(255,80,80,.08); border: 1px solid rgba(255,80,80,.35);
-    color: rgba(255,120,120,1); margin-left: auto;
-}
-.struct-btn-danger:hover { background: rgba(255,80,80,.18); border-color: rgba(255,80,80,.7); }
-
-/* sb-hdr with inline button */
-.sb-hdr-row {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 6px;
-}
-.sb-hdr-row .sb-hdr { margin-bottom: 0; }
+/* -- Shared .sb-* primitive adaptation ----------------------------- */
+/* Spacing now comes from the primitives (sidebar.css): .sb-btn 2px 8px,
+   .sb-btn-add 5px 8px. Only non-spacing adaptations stay here. */
+.sa-row .sb-select { flex: 1; min-width: 0; }
+.se-form > .sb-btn-add { width: 100%; }
+.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px 4px; }
+#si-add-btn { flex-shrink: 0; }
+#sm-close-btn { flex-shrink: 0; }
 
 /* -- Struct Types list (#s-struct) ------------------------------ */
 
@@ -70,7 +36,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sd-meta {
-    flex-shrink: 0; font-size: 9px; color: var(--addr-fg);
+    flex-shrink: 0; font-size: 10px; color: var(--addr-fg);
     font-family: var(--font-editor); white-space: nowrap;
 }
 
@@ -79,19 +45,16 @@
 .se-form { display: flex; flex-direction: column; gap: 5px; }
 
 .se-name-inp {
-    width: 100%; box-sizing: border-box;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 3px; color: var(--fg); font-family: var(--font-ui);
-    font-size: 11px; font-weight: 600; padding: 3px 6px; outline: none;
+    width: 100%;
+    font-family: var(--font-ui); font-weight: 600;
 }
-.se-name-inp:focus { border-color: var(--high-color); }
 
-/* Field header + rows */
+/* Field header + rows (Ptr column removed — pointer declared via field context menu) */
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 64px 22px 1fr 40px 72px 30px 18px;
+    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center;
-    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
     padding-bottom: 3px; border-bottom: 1px solid var(--border);
 }
@@ -99,17 +62,14 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 64px 22px 1fr 40px 72px 30px 18px;
+    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
+.struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 
 .sfe-name-inp {
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 4px; outline: none; width: 100%;
-    box-sizing: border-box;
+    width: 100%;
 }
-.sfe-name-inp:focus { border-color: var(--focus-bdr); }
 
 .sfe-type-sel {
     background: var(--input-bg); border: 1px solid var(--input-bdr);
@@ -119,20 +79,6 @@
 }
 .sfe-type-sel:focus { border-color: var(--focus-bdr); }
 
-.sfe-ptr-btn {
-    width: 22px; flex-shrink: 0; text-align: center;
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 11px; cursor: pointer; padding: 0; line-height: 1.4;
-    transition: border-color .1s, color .1s, background .1s;
-}
-.sfe-ptr-btn:hover:not(:disabled) { border-color: var(--high-color); color: var(--high-color); }
-.sfe-ptr-btn.active { border-style: solid; border-color: var(--high-color);
-                      color: var(--high-color); background: rgba(79,195,247,.1); }
-.sfe-ptr-btn.active:hover { border-color: var(--err); color: var(--err);
-                            background: rgba(255,80,80,.08); }
-.sfe-ptr-btn:disabled { opacity: .35; cursor: not-allowed; }
-
 /* Array cell */
 .sfe-arr-cell {
     display: flex; align-items: center; gap: 2px; width: 100%;
@@ -140,7 +86,7 @@
 .sfe-arr-toggle {
     background: transparent; border: 1px dashed var(--border);
     border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 9px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
+    font-size: 10px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
     white-space: nowrap; flex-shrink: 0; text-align: center;
     transition: border-color .1s, color .1s, background .1s;
 }
@@ -152,15 +98,11 @@
 .sfe-count-inp,
 .sfe-bf-child-width {
     width: 32px; text-align: center;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 2px; outline: none; box-sizing: border-box;
     appearance: textfield;
 }
 .sfe-count-inp { display: none; }
 .sfe-count-inp::-webkit-outer-spin-button,
 .sfe-count-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sfe-count-inp:focus { border-color: var(--focus-bdr); }
 .sfe-arr-cell.is-array .sfe-count-inp { display: block; }
 
 .sfe-del-btn {
@@ -175,7 +117,7 @@
     width: 28px; flex-shrink: 0; text-align: center;
     background: transparent; border: 1px dashed var(--border);
     border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 9px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
+    font-size: 10px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
     white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
 }
 .sfe-bit-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
@@ -212,19 +154,13 @@
     flex-shrink: 0; width: 8px;
 }
 .sfe-bf-child-name {
-    flex: 1; min-width: 0;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 2px; color: var(--fg); font-family: var(--font-editor);
-    font-size: 10px; padding: 1px 4px; outline: none; width: 60px;
-    box-sizing: border-box;
+    flex: 1; min-width: 0; width: 60px;
 }
-.sfe-bf-child-name:focus { border-color: var(--focus-bdr); }
 .sfe-bf-child-width::-webkit-outer-spin-button,
 .sfe-bf-child-width::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sfe-bf-child-width:focus { border-color: var(--focus-bdr); }
 .sfe-bf-child-unit {
     flex-shrink: 0;
-    font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
     user-select: none;
 }
 .sfe-bf-child-move {
@@ -235,14 +171,6 @@
     font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
 }
 .sfe-bf-del-child:hover { color: var(--err); }
-.sfe-bf-add-child {
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 2px; color: var(--addr-fg); font-size: 9px;
-    font-family: var(--font-ui); padding: 2px 6px; cursor: pointer;
-    transition: border-color .1s, color .1s; text-align: center;
-    margin: 2px 4px;
-}
-.sfe-bf-add-child:hover { border-color: var(--high-color); color: var(--high-color); }
 
 .sfe-move-btns {
     display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1px;
@@ -256,14 +184,6 @@
 .sfe-move-btn:hover:not(:disabled) { color: var(--fg); }
 .sfe-move-btn:disabled { opacity: .2; cursor: default; }
 
-.struct-add-field-btn {
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 3px; color: var(--addr-fg); font-size: 10px;
-    font-family: var(--font-ui); padding: 3px 0; cursor: pointer;
-    transition: border-color .1s, color .1s; text-align: center;
-}
-.struct-add-field-btn:hover { border-color: var(--high-color); color: var(--high-color); }
-
 .se-btns { display: flex; gap: 6px; margin-top: 2px; }
 .se-error {
     margin-top: 6px;
@@ -272,64 +192,16 @@
     line-height: 1.3;
 }
 
-/* -- Instances panel (#s-struct-pins) ---------------------------- */
-#s-struct-pins { padding: 10px 12px; }
-
-/* Sliding two-panel track: main (instances) ?? types */
-.si-panel-clip {
-    overflow: hidden; /* clips the off-screen panel */
-}
-.si-panel-track {
-    display: flex;
-    width: 200%;
-    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.si-panel-track.si-showing-types {
-    transform: translateX(-50%);
-}
-.si-main-panel,
-.si-types-panel {
-    width: 50%; /* 50% of 200% = 100% of actual panel width */
-    min-width: 0;
-    flex-shrink: 0;
-}
-.si-types-panel {
-    padding-left: 1px; /* prevent border clipping on slide edge */
-}
-
-/* Header row: title + badge + toggles + + Add + ? Types */
+/* Header row: body controls below the framework section header */
 .si-hdr-row {
     display: flex; align-items: flex-start; gap: 6px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
-.si-hdr-row .sb-hdr { flex: 1; margin-bottom: 0; }
 .si-toggle-group {
     display: flex; flex-direction: column; align-items: center; gap: 1px;
     flex-shrink: 0;
 }
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
-
-.si-add-btn {
-    flex-shrink: 0; margin-left: auto;
-    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.35);
-    border-radius: 3px; color: var(--high-color);
-    font-size: 10px; font-family: var(--font-ui); font-weight: 600;
-    padding: 2px 7px; cursor: pointer;
-    transition: background .1s, border-color .1s;
-}
-.si-add-btn:hover:not([disabled]) { background: rgba(79,195,247,.22); border-color: rgba(79,195,247,.6); }
-.si-add-btn[disabled] { opacity: .35; cursor: not-allowed; }
-
-/* Muted icon button (e.g. manage-types, edit-pin) */
-.si-icon-btn {
-    flex-shrink: 0;
-    background: transparent; border: 1px solid transparent;
-    border-radius: 3px; color: var(--addr-fg);
-    font-size: 11px; font-family: var(--font-ui);
-    padding: 2px 5px; cursor: pointer;
-    transition: background .1s, border-color .1s, color .1s;
-}
-.si-icon-btn:hover { background: rgba(255,255,255,.08); border-color: var(--border); color: var(--fg); }
 
 /* Inline add form */
 .si-add-form {
@@ -353,21 +225,6 @@
 .sa-btn-row { gap: 6px; }
 .sa-bit-order-tabs { flex-shrink: 0; }
 
-/* Inline instance-edit form inside a card */
-.si-pin-edit-form {
-    display: flex; flex-direction: column; gap: 5px;
-    background: rgba(0,0,0,.18); border-top: 1px solid var(--border);
-    padding: 8px;
-}
-
-.struct-btn-cancel {
-    background: transparent; border: 1px solid var(--border);
-    border-radius: 3px; color: var(--addr-fg);
-    font-size: 10px; font-family: var(--font-ui); font-weight: 600;
-    transition: border-color .1s, color .1s;
-}
-.struct-btn-cancel:hover { border-color: var(--fg); color: var(--fg); }
-
 /* C-code type preview (used in add-form and card type-preview) */
 .sa-preview {
     background: rgba(0,0,0,.18); border: 1px solid var(--border);
@@ -387,46 +244,27 @@
 .sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float … */
 .sc-cmt       { color: #6a9955; }          /* C comments */
 
-.sa-addr-inp { flex: 0 0 90px; }
+.sa-addr-inp { flex: 0 0 90px; min-width: 0; }
 
 .sa-name-inp {
     flex: 1; min-width: 0;
-    background: rgba(0,0,0,.25); border: 1px solid var(--border);
-    border-radius: 3px; color: var(--fg); font-family: var(--font-ui);
-    font-size: 11px; padding: 2px 6px; outline: none;
 }
-.sa-name-inp:focus { border-color: var(--high-color); }
 
 /* -- Saved instances (expandable cards) -------------------------- */
 
-.si-card {
-    border: 1px solid var(--border); border-radius: 4px;
-    margin-bottom: 4px; overflow: hidden;
-    transition: border-color .1s;
-}
-.si-card:hover { border-color: rgba(255,255,255,.2); }
-.si-card.si-expanded { border-color: rgba(79,195,247,.35); }
-.si-card.si-card-selected { border-color: rgba(79,195,247,.6); }
-
-.si-card-hdr {
-    display: flex; align-items: center; gap: 4px;
-    padding: 5px 6px; cursor: pointer;
-    user-select: none;
-}
-.si-card-hdr:hover { background: var(--hover-bg); }
+/* Struct cards ride the shared .sb-card primitive; state borders carried as modifiers */
+.sb-card.si-expanded { border-color: rgba(79,195,247,.35); }
+.sb-card.si-card-selected { border-color: rgba(79,195,247,.6); }
 
 .si-expand-btn {
     flex-shrink: 0; width: 16px; height: 16px;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: none; padding: 0;
-    color: var(--addr-fg); font-size: 12px; cursor: pointer;
+    color: var(--addr-fg); font-size: 14px; cursor: pointer;
     line-height: 1; align-self: flex-start; margin-top: 2px;
+    transition: transform .12s ease;
 }
 
-.si-card-info {
-    flex: 1; min-width: 0;
-    display: flex; flex-direction: column; gap: 2px;
-}
 .si-cname {
     font-size: 11px; font-weight: 600; color: var(--fg);
     font-family: var(--font-ui);
@@ -436,48 +274,28 @@
     display: flex; align-items: baseline; gap: 5px;
 }
 .si-ctype {
-    font-size: 9px; color: var(--high-color); opacity: .65;
+    font-size: 10px; color: var(--high-color); opacity: .65;
     font-family: var(--font-editor); white-space: nowrap;
     flex-shrink: 0;
 }
 .si-caddr {
-    font-size: 9px; color: var(--addr-fg);
+    font-size: 10px; color: var(--addr-fg);
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
 .si-csource {
-    font-size: 9px; color: var(--muted-fg);
+    font-size: 10px; color: var(--muted-fg);
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
 }
-.si-del-btn { display: none; } /* superseded by .act-btn — kept to avoid selector errors */
 
-/* Action buttons group (edit + delete) at top-right of card */
+/* Action button group (edit + delete + view-type) at top-right of card */
 .si-card-actions {
     flex-shrink: 0; display: flex; align-items: center; gap: 0;
 }
 
-/* Type-definition preview toggle button (in si-cmeta-row) */
-.si-type-btn {
-    flex-shrink: 0; padding: 0 3px;
-    background: transparent; border: none;
-    color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 8px; cursor: pointer; border-radius: 2px;
-    opacity: 0; transition: opacity .1s, color .1s; line-height: 1;
-}
-.si-card:hover .si-type-btn { opacity: 1; }
-.si-type-btn:hover { color: var(--high-color); }
-.si-type-btn.active { opacity: 1; color: var(--high-color); }
-
-/* Edit-type button on card (?) */
-.si-edit-type-btn {
-    flex-shrink: 0; padding: 0 3px;
-    background: transparent; border: none;
-    color: var(--addr-fg); font-size: 10px; cursor: pointer;
-    border-radius: 2px; opacity: 0; transition: opacity .1s, color .1s;
-}
-.si-card:hover .si-edit-type-btn { opacity: 1; }
-.si-edit-type-btn:hover { color: var(--high-color); }
+/* Per-field pointer context menu (editor field rows) */
+.si-field-menu { min-width: 220px; }
 
 /* + new-type button in add form type row */
 .si-add-type-btn {
@@ -560,14 +378,14 @@
 .si-field:hover    { background: var(--hover-bg); }
 .si-field.si-selected { background: rgba(79,195,247,.12) !important; }
 
-.si-f-off  { font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
+.si-f-off  { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
 .si-f-type {
     display: block;
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 8px;
+    font-size: 10px;
     color: var(--addr-fg);
     opacity: .55;
     font-family: var(--font-editor);
@@ -684,18 +502,25 @@
     color: var(--addr-fg); font-size: 12px; cursor: pointer; line-height: 1;
     position: relative;
     z-index: 2;
+    transition: transform .12s ease;
 }
 .si-arr-exp-btn {
     border-radius: 3px;
-    transition: background .12s ease, color .12s ease;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
 }
 .si-arr-exp-btn:hover,
 .si-arr-el-exp-btn:hover {
     background: rgba(255,255,255,.08);
     color: var(--fg);
 }
+/* Chevron `›` points right when collapsed; open groups rotate it down. */
+.sb-card.si-expanded .si-expand-btn,
+.si-arr-grp.open > .si-arr-grp-hdr .si-arr-exp-btn,
+.si-arr-el-grp.open > .si-arr-el-hdr .si-arr-el-exp-btn {
+    transform: rotate(90deg);
+}
 .si-arr-addr {
-    font-size: 9px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
     font-variant-numeric: tabular-nums;
     white-space: nowrap; flex-shrink: 0;
 }

@@ -170,7 +170,7 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?
 #### Result block behavior
 
 - Auto-expands when new result arrives (overrides previous collapsed state)
-- Header clickable to collapse/expand (▶/▼ indicator)
+- Header clickable to collapse/expand (`›` chevron indicator, rotates when open)
 - Different headers for each terminal state:
   - **Success**: "▶ Result — filename" (default style)
   - **Runtime error**: "🔴 Script Error — filename" (red header)
@@ -188,7 +188,7 @@ Scripts (3)  [↻]
 - Replaces the `sb-section` collapsible pattern inherited from Inspector
 - Shows script count badge
 - Refresh ↻ button re-scans `.hexscope/scripts/` directory
-- No collapse toggle — the scripts tab has only one section
+- Single section pane (fills the panel, no sash) — the section header toggles the whole pane like every other sidebar section
 
 #### Empty state
 
@@ -308,7 +308,7 @@ if (runResult && typeof runResult.then === 'function') {
 
 #### 9.6 CSS specificity for toolbar overrides
 
-The `.sb-section .sb-hdr` selector (used for collapsible section headers) has higher specificity than `.scripts-toolbar`. To override `cursor: pointer`, use `.sb-section .scripts-toolbar` or `!important`.
+`.sb-section` headers are rendered by `SidebarSections` (`.sb-section-head`/`.sb-section-title`/`.sb-section-actions`); `.sb-hdr` no longer exists. Section header actions ride `.sb-section-actions`/`.sb-section-action`, so no specificity override is needed.
 
 ### 10. Patterns
 

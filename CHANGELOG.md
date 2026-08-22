@@ -10,6 +10,15 @@
 - Added undo and redo keyboard shortcuts — `Ctrl/Cmd+Z` undoes and `Ctrl/Cmd+Y` (or `Ctrl/Cmd+Shift+Z`) redoes the latest staged edit
 - Added one-click row selection in the memory hex view — clicking an address gutter cell selects the whole row
 - Address-gutter row selection now drags — dragging vertically over the gutter selects all mapped bytes across the dragged rows, holding the last row when the pointer crosses an unmapped gap and continuing on the next data row (single click still selects one row)
+- Sidebar panels now use VS Code-style section headers — every panel (Labels, Inspector, Bit View, Multi-byte, Struct Overlay, Scripts, Integrity) is a collapsible section toggled by the whole 22px header, with a labelled region and an accessible chevron
+- Added resizable sidebar sections — drag sashes between sections (double-click 50/50, keyboard accessible), sizes persist across sessions
+- Added inline renaming of pinned segments in the Labels list
+- Added a copy-confirmation toast shown at the copy location
+- Label form defaults to End Address mode with auto-calculated size/end chips and a live draft preview on the hex grid
+- Added a collapsible script run history — the latest result stays expanded and older runs collapse into one-line rows
+- Added a capability confirmation gate — scripts that declare capabilities show the permission list and ask before their first run
+- Added optional custom names to integrity checks — empty names fall back to the algorithm label, card titles show the name, and names persist across reloads and profile save/apply
+- Added address autofill when creating an integrity check — prefilled from the active hex selection (else the whole file) and refilled live as the selection changes (end field focused → end only)
 
 ### Changed
 
@@ -22,6 +31,13 @@
 - Pasting text that ends at an unmapped region now reports "Pasted X of Y bytes" in a transient status notice that auto-clears (X counts the bytes that actually change)
 - Toolbar now scrolls horizontally in narrow windows; the search input shrinks before the fixed controls so nothing gets clipped
 - Memory and record views re-slice when the container is resized
+- Sidebar controls use a denser 10px type scale with labeled icon-only buttons for a consistent look across panels
+- Collapse/expand controls unified to a rotating `›` chevron across all panels
+- Struct instances require a defined struct type first — the Add button is disabled until one exists; editing an instance reuses the inline form; section headers no longer show count badges
+- Inspector multi-byte decode shows an endian tag (`LE · 4-byte`) beside the zero-pad note
+- Integrity profile selection is now one action — picking a profile in the dropdown applies it immediately (inline confirm when different checks would be replaced; cancelling reverts the dropdown); the action menu is Update/Rename/Delete behind ⋮ with a visible "Save as…" button
+- Saving edits no longer re-parses or reloads the file — only the edited record lines are re-encoded with checksums recomputed and written positionally; the viewer updates in place and `Ctrl/Cmd+Z` still undoes a saved edit (`Ctrl/Cmd+Y` redoes)
+- Script `hex.write` output is actionable — a run's writes stage as editable grid bytes with Apply & Save / Discard controls
 
 ### Fixed
 

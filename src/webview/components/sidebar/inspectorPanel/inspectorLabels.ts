@@ -40,65 +40,100 @@ function labelVisibilityUi(label: SegmentLabel): { itemClass: string; background
     };
 }
 
-function labelActionDisabled(disabled: boolean): string {
-    return disabled ? 'disabled style="opacity:.3;pointer-events:none"' : '';
-}
-
-export function labelItemHtml(label: SegmentLabel, index: number, count: number): string {
+export function labelItemHtml(label: SegmentLabel): string {
     const visibility = labelVisibilityUi(label);
+    const hex = (n: number): string => `0x${n.toString(16).toUpperCase().padStart(8, '0')}`;
     return `
             <div class="label-item${visibility.itemClass}" data-id="${label.id}">
                 <div class="label-sw" style="background:${visibility.background};border:1px solid ${label.color}"></div>
                 <div class="label-inf">
                     <div class="label-nm">${esc(label.name)}</div>
-                    <div class="label-rng">0x${label.startAddress.toString(16).toUpperCase().padStart(8, '0')} &middot; ${fmtB(label.length)}</div>
+                    <div class="label-rng">${hex(label.startAddress)}&ndash;${hex(label.startAddress + label.length - 1)} &middot; ${fmtB(label.length)}</div>
                 </div>
-                <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}">${visibility.icon}</button>
-                <button type="button" class="label-act label-up"  data-id="${label.id}" title="Move up"   ${labelActionDisabled(index === 0)}>&#8593;</button>
-                <button type="button" class="label-act label-dn"  data-id="${label.id}" title="Move down" ${labelActionDisabled(index === count - 1)}>&#8595;</button>
+                <button type="button" class="label-act label-vis" data-id="${label.id}" data-hidden="${visibility.hiddenFlag}" title="${visibility.title}" aria-label="${visibility.title}">${visibility.icon}</button>
                 ${actionBtnsHtml(`data-id="${label.id}"`, `data-id="${label.id}"`)}
             </div>`;
 }
 
-export function labelFormHtml(editing: SegmentLabel | undefined, swatchHtml: string, defaultStart: string, defaultRange: string): string {
-    const mode = editing
-        ? { title: 'Edit Label', saveLabel: 'Update' }
-        : { title: 'New Label', saveLabel: 'Add' };
+export function labelFormHtml(
+    editing: SegmentLabel | undefined,
+    swatchHtml: string,
+    defaultStart: string,
+    defaultRange: string,
+    rangeMode: LabelRangeMode,
+    chipText: string,
+): string {
+    const mode = formMode(editing);
     return `
-        <div class="sb-hdr">${mode.title}</div>
+        <div class="sb-section-label sb-label-form-title">${mode.title}</div>
         <div class="lbl-form">
-            <div class="lf-field">
-                <span class="lf-lbl">Name</span>
-                <input id="lf-name" class="lf-input" type="text" placeholder="My Segment" value="${esc(editing?.name ?? '')}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Start address</span>
-                <input id="lf-start" class="lf-input" type="text" placeholder="0x08000000" value="${esc(defaultStart)}">
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Range</span>
-                <div class="lf-range-row">
-                    <div class="lf-mode-grp">
-                        <button class="lf-mode active" data-mode="len">Length</button>
-                        <button class="lf-mode" data-mode="end">End addr</button>
-                    </div>
-                    <input id="lf-range" class="lf-input" type="text" placeholder="512" value="${esc(defaultRange)}">
-                </div>
-            </div>
-            <div class="lf-field">
-                <span class="lf-lbl">Color</span>
-                <div class="lf-swatches">${swatchHtml}</div>
-            </div>
-            <div class="lf-warn" id="lf-warn"></div>
+            ${nameFieldHtml(editing?.name ?? '')}
+            ${startFieldHtml(defaultStart)}
+            ${rangeFieldHtml(defaultRange, rangeMode, chipText)}
+            ${colorFieldHtml(swatchHtml)}
+            <div class="lf-warn" id="lf-warn" role="alert"></div>
             <div class="lf-actions">
-                <button class="lf-btn lf-save" id="lf-save">${mode.saveLabel}</button>
-                <button class="lf-btn lf-cancel" id="lf-cancel">Cancel</button>
+                <button class="sb-btn sb-btn-secondary" id="lf-cancel">Cancel</button>
+                <button class="sb-btn sb-btn-primary" id="lf-save">${mode.saveLabel}</button>
             </div>
         </div>`;
 }
 
-export function labelsBadgeHtml(count: number): string {
-    return count > 0 ? `<span class="sb-badge">${count}</span>` : '';
+function nameFieldHtml(name: string): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Label Name</span>
+                <input id="lf-name" class="sb-input" type="text" placeholder="My Segment" value="${esc(name)}">
+            </div>`;
+}
+
+function startFieldHtml(defaultStart: string): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Start Address</span>
+                <input id="lf-start" class="sb-input lf-hex" type="text" placeholder="0x08000000" value="${esc(defaultStart)}">
+            </div>`;
+}
+
+function rangeFieldHtml(defaultRange: string, mode: LabelRangeMode, chipText: string): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Define End By</span>
+                    <div class="compact-tabs lf-mode-tabs">
+                        ${modeTab('end', 'End Address', mode)}
+                        ${modeTab('len', 'Size &middot; Length', mode)}
+                    </div>
+                <div class="lf-range-row">
+                    <input id="lf-range" class="sb-input lf-hex" type="text" placeholder="${rangePlaceholder(mode)}" value="${esc(defaultRange)}">
+                    <span class="lf-chip" id="lf-chip"${chipAttrs(chipText)}>${esc(chipText)}</span>
+                </div>
+            </div>`;
+}
+
+function modeTab(dataMode: string, label: string, mode: LabelRangeMode): string {
+    return `<button data-mode="${dataMode}"${mode === dataMode ? ' class="active"' : ''}>${label}</button>`;
+}
+
+function rangePlaceholder(mode: LabelRangeMode): string {
+    return mode === 'end' ? '0x0800FFFF' : '512';
+}
+
+function chipAttrs(chipText: string): string {
+    return chipText ? ` title="${esc(chipText)}"` : '';
+}
+
+function colorFieldHtml(swatchHtml: string): string {
+    return `
+            <div class="lf-field">
+                <span class="lf-lbl">Color</span>
+                <div class="lf-swatches">${swatchHtml}</div>
+            </div>`;
+}
+
+function formMode(editing: SegmentLabel | undefined): { title: string; saveLabel: string } {
+    return editing
+        ? { title: 'Edit Label', saveLabel: 'Update' }
+        : { title: 'New Label', saveLabel: 'Add' };
 }
 
 export function defaultLabelColor(editing: SegmentLabel | undefined, fallback: string): string {
@@ -128,6 +163,26 @@ export function parseExplicitLength(raw: string): LabelLengthResult {
     const length = /^0x/i.test(raw) ? parseInt(raw, 16) : parseInt(raw, 10);
     if (isNaN(length) || length <= 0) { return { ok: false, error: 'Invalid length.' }; }
     return { ok: true, length };
+}
+
+/**
+ * Derived counterpart text for the representation the user is NOT editing:
+ * End Address mode → human-readable size chip; Length mode → end-address chip.
+ * Empty string when the raw value does not (yet) parse against startAddress.
+ */
+export function labelChipText(mode: LabelRangeMode, startAddress: number, raw: string): string {
+    if (isNaN(startAddress)) { return ''; }
+    return mode === 'end' ? endModeChip(raw, startAddress) : lengthModeChip(raw, startAddress);
+}
+
+function endModeChip(raw: string, startAddress: number): string {
+    const parsed = parseEndAddressLength(raw, startAddress);
+    return parsed.ok ? `(${fmtB(parsed.length)})` : '';
+}
+
+function lengthModeChip(raw: string, startAddress: number): string {
+    const parsed = parseExplicitLength(raw);
+    return parsed.ok ? endAddressOrEmpty(startAddress, parsed.length) : '';
 }
 
 export function isOutsideMappedData(segments: SerializedSegment[], startAddress: number, endAddress: number): boolean {

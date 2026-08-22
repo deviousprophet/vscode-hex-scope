@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 
-import { formatDecimal, formatHex, formatHexHtml, asUint64 } from '../../webview/utils';
+import { formatDecimal, formatHex, formatHexHtml, asUint64, flashCopied } from '../../webview/utils';
+import { JSDOM } from 'jsdom';
 
 suite('webview utils formatting', () => {
     test('formatDecimal number uses en locale grouping', () => {
@@ -31,5 +32,67 @@ suite('webview utils formatting', () => {
     test('asUint64 converts negative BigInt to two\'s-complement unsigned', () => {
         const u = asUint64(-1n);
         assert.strictEqual(u, BigInt('0xFFFFFFFFFFFFFFFF'));
+    });
+});
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+suite('webview utils flashCopied', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        dom = new JSDOM('<!doctype html><html><body><span id="t">0xAB</span></body></html>', { url: 'https://hexscope.test/' });
+        Object.defineProperty(globalThis, 'window', {
+            value: dom.window,
+            configurable: true,
+            writable: true,
+        });
+        Object.defineProperty(globalThis, 'document', {
+            value: dom.window.document,
+            configurable: true,
+            writable: true,
+        });
+    });
+
+    teardown(() => {
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        dom.window.close();
+    });
+
+    test('flash swaps text to Copied and restores the original', async () => {
+        const el = document.getElementById('t')!;
+        flashCopied(el, true);
+        assert.strictEqual(el.textContent, 'Copied');
+        assert.ok(el.classList.contains('copied'));
+        await sleep(1100);
+        assert.strictEqual(el.textContent, '0xAB');
+        assert.ok(!el.classList.contains('copied'));
+    });
+
+    test('rapid re-click resets the timer and restores the ORIGINAL text', async () => {
+        const el = document.getElementById('t')!;
+        flashCopied(el, true);
+        await sleep(300);
+        flashCopied(el, true); // re-click mid-flash
+        assert.strictEqual(el.textContent, 'Copied');
+        await sleep(1100);
+        assert.strictEqual(el.textContent, '0xAB', 'restores the original text, not a stale "Copied"');
+        assert.ok(!el.classList.contains('copied'));
+    });
+
+    test('stale restore is skipped when the element was re-rendered mid-flash', async () => {
+        const el = document.getElementById('t')!;
+        flashCopied(el, true);
+        const replacement = document.createElement('span');
+        replacement.id = 't';
+        replacement.textContent = '0xCD';
+        el.replaceWith(replacement);
+        await sleep(1100);
+        const live = document.getElementById('t')!;
+        assert.strictEqual(live.textContent, '0xCD', 're-rendered element keeps its own text');
+        assert.ok(!live.classList.contains('copied'));
     });
 });

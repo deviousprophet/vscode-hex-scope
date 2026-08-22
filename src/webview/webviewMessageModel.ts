@@ -123,19 +123,51 @@ function applyCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): Webv
 
 function applySavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): WebviewModelUpdate {
     S.documentGeneration = msg.generation;
-    loadParsedMemory(hydrateParseResult(msg.parseResult));
-    clearEditModel();
+    if (msg.parseResult) {
+        // Legacy/fallback: host pushed the whole parse result → full reload.
+        loadParsedMemory(hydrateParseResult(msg.parseResult));
+        clearEditModel();
+        return {
+            invalidations: {
+                editControls: true,
+                dirtyBar: true,
+                stats: true,
+                segments: true,
+                structPins: true,
+                currentDataView: true,
+                integrityBytesChanged: true,
+            },
+        };
+    }
+    // Fast path: fold saved bytes into local segments, clear only the overlay.
+    // Undo/redo stacks + edit mode survive so Ctrl+Z still reverts the save.
+    foldLocalEdits();
+    S.edits.clear();
     return {
         invalidations: {
-            editControls: true,
             dirtyBar: true,
-            stats: true,
-            segments: true,
-            structPins: true,
+            editControls: true,
             currentDataView: true,
             integrityBytesChanged: true,
         },
     };
+}
+
+/** Apply pending edits into the local segment bytes (grid reads via getByteAt).
+    Also keeps undo/redo base (getOriginalByte) truthful after a save. */
+function foldLocalEdits(): void {
+    if (!S.parseResult) { return; }
+    for (const [addr, value] of S.edits) { patchLocalSegment(addr, value); }
+}
+
+function patchLocalSegment(addr: number, value: number): void {
+    for (const seg of S.parseResult!.segments) {
+        const off = addr - seg.startAddress;
+        if (off >= 0 && off < seg.data.length) {
+            (seg.data as unknown as Uint8Array)[off] = value;
+            return;
+        }
+    }
 }
 
 function applyExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>): WebviewModelUpdate {
@@ -148,7 +180,7 @@ function applyExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>)
 }
 
 function applyExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChangeError'>): WebviewModelUpdate {
-    loadIncomingFile(incomingFile(msg.parseResult, msg.labels, msg.generation));
+    loadIncomingFile(incomingFile(msg.parseResult, msg.labels, msg.generation, msg.segmentNames));
     lockForExternalChange();
     clearUnsavedEditsForExternalError();
     return {
@@ -196,5 +228,5 @@ function applyRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>)
 function incomingFileFromExternalChange(
     msg: Extract<WebviewMessage, { type: 'externalChange' }>,
 ): IncomingFile {
-    return incomingFile(msg.parseResult, msg.labels, msg.generation);
+    return incomingFile(msg.parseResult, msg.labels, msg.generation, msg.segmentNames);
 }

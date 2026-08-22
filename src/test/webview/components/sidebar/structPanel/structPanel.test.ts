@@ -1948,13 +1948,29 @@ suite('StructPanel deep-render harness', () => {
 
     // ── Contract-folded assertions (formerly struct.test.ts) ───────────────
 
-    test('renders both tracks with empty states', async () => {
+    test('renders pane-view sections with empty states', async () => {
         await createMountedPanel();
-        assert.ok(document.getElementById('si-track'));
-        assert.ok(document.querySelector('.si-main-panel'));
-        assert.ok(document.querySelector('.si-types-panel'));
-        assert.match(document.querySelector('.si-main-panel')!.textContent!, /No instances yet/);
-        assert.strictEqual(document.querySelector('.si-types-panel .sb-empty')?.textContent, 'No types defined yet.');
+        const view = document.querySelector('#s-struct-pins > .sb-pane-view')!;
+        assert.ok(view, 'sections live in a .sb-pane-view split container');
+        const sections = view.querySelectorAll('.sb-section');
+        assert.strictEqual(sections.length, 2);
+        assert.strictEqual(sections[0].id, 'si-instances');
+        assert.strictEqual(sections[1].id, 'si-types');
+        assert.strictEqual(view.querySelectorAll('.sb-pane-sash').length, 1, 'one sash between the two panes');
+        const instancesHead = document.querySelector<HTMLElement>('#si-instances .sb-section-head')!;
+        const typesHead = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
+        assert.strictEqual(typesHead.getAttribute('role'), 'button');
+        assert.strictEqual(typesHead.getAttribute('aria-expanded'), 'true');
+        assert.ok(typesHead.querySelector('.sb-section-chevron'));
+        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'types section should default open');
+        // All sections are collapsible now — instances is a full disclosure header too.
+        assert.strictEqual(instancesHead.getAttribute('role'), 'button');
+        assert.strictEqual(instancesHead.getAttribute('aria-expanded'), 'true');
+        assert.ok(instancesHead.querySelector('.sb-section-chevron'));
+        assert.match(document.getElementById('si-instances')!.textContent!, /Define a struct type first/);
+        assert.strictEqual(document.querySelector('#si-types .sb-empty')?.textContent, 'No types defined yet.');
+        assert.strictEqual(document.getElementById('si-types-btn'), null, 'no hamburger manage-types control');
+        assert.strictEqual(document.getElementById('si-track'), null, 'no slide-track container');
     });
 
     test('mount is idempotent: re-mount into the same root re-renders without errors', async () => {
@@ -1963,8 +1979,28 @@ suite('StructPanel deep-render harness', () => {
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
         panel.mount(document.getElementById('s-struct-pins')!);
-        assert.ok(document.querySelector('.si-card'));
-        assert.strictEqual(document.querySelectorAll('.si-card').length, 1);
+        assert.ok(document.querySelector('.sb-card'));
+        assert.strictEqual(document.querySelectorAll('.sb-card').length, 1);
+    });
+
+    test('re-mount registers no additional document click listener (no handler stacking)', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin3', structId: 'scalar', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x34, 0x12]);
+        let docClickCount = 0;
+        const origAdd = document.addEventListener.bind(document);
+        document.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) => {
+            if (type === 'click') { docClickCount++; }
+            return origAdd(type, listener as EventListenerOrEventListenerObject, options);
+        }) as typeof document.addEventListener;
+        try {
+            await createMountedPanel();
+            const afterFirstMount = docClickCount;
+            await createMountedPanel(); // full-shell re-mount into the same root
+            assert.strictEqual(docClickCount, afterFirstMount, 're-mount must not stack document click listeners');
+        } finally {
+            document.addEventListener = origAdd;
+        }
     });
 
     test('setData renders instance cards; expansion persists across re-render', async () => {
@@ -1978,10 +2014,10 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.querySelector('.si-expand-btn'));
         assert.strictEqual(document.querySelector('.si-field .si-f-name')?.textContent, 'count');
         assert.match(elementText(document.querySelector('.si-field .si-f-val')!), /0x1234/);
-        assert.ok(document.getElementById('si-track')?.classList.contains('si-showing-types') === false);
+        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'types should stay expanded by default');
 
         panel.render();
-        assert.ok(document.querySelector('.si-card')?.classList.contains('si-expanded'), 'card expansion survives re-render');
+        assert.ok(document.querySelector('.sb-card')?.classList.contains('si-expanded'), 'card expansion survives re-render');
         assert.strictEqual(document.querySelector('.si-field .si-f-name')?.textContent, 'count');
     });
 
@@ -2011,8 +2047,7 @@ suite('StructPanel deep-render harness', () => {
 
     test('new type editor saves and renders C preview', async () => {
         await createMountedPanel();
-        click(dom, document.getElementById('si-types-btn'));
-        click(dom, document.getElementById('sm-new-btn'));
+        click(dom, document.getElementById('sm-add-btn'));
         assert.ok(document.getElementById('se-name'));
         assert.ok(document.getElementById('se-preview'));
 
@@ -2030,7 +2065,6 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [childDef, parentDef];
         S.structPins = [{ id: 'pin1', structId: 'parent', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.getElementById('si-types-btn'));
         const delBtn = document.querySelector<HTMLElement>('.sd-row .act-btn-del[data-struct-id="parent"]');
         assert.ok(delBtn, 'type row delete button should render');
         click(dom, delBtn);
@@ -2067,27 +2101,124 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual((document.getElementById('sa-addr') as HTMLInputElement).value, '00002000');
     });
 
-    test('edit form save updates the pin', async () => {
+    test('edit form save updates the pin via inline add form', async () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.querySelector('.si-card .act-btn-edit'));
-        assert.ok(document.querySelector('.si-pin-edit-form'));
-        (document.querySelector('.si-pe-name') as HTMLInputElement).value = 'renamed';
-        (document.querySelector('.si-pe-addr') as HTMLInputElement).value = '00001111';
-        click(dom, document.querySelector('.si-pe-save'));
+        click(dom, document.querySelector('.sb-card .act-btn-edit'));
+        assert.ok(document.getElementById('si-add-form'), 'inline edit form should open');
+        assert.strictEqual((document.getElementById('sa-name') as HTMLInputElement).value, 'inst', 'name prefilled');
+        assert.strictEqual((document.getElementById('sa-addr') as HTMLInputElement).value, '00000000', 'addr prefilled');
+        (document.getElementById('sa-name') as HTMLInputElement).value = 'renamed';
+        (document.getElementById('sa-addr') as HTMLInputElement).value = '00001111';
+        click(dom, document.getElementById('sa-confirm'));
         assert.strictEqual(S.structPins[0].name, 'renamed');
         assert.strictEqual(S.structPins[0].addr, 0x1111);
+        assert.strictEqual(document.getElementById('si-add-form'), null, 'form should close after save');
     });
 
-    test('delete pin removes it', async () => {
+    test('instance card always-visible actions: view-type, edit cancel', async () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.querySelector('.si-card .act-btn-del'));
+
+        const card = document.querySelector<HTMLElement>('.sb-card');
+        assert.ok(card, 'card should render');
+        assert.ok(card!.querySelector('.act-btn-edit'), 'edit action always present');
+        assert.ok(card!.querySelector('.act-btn-del'), 'delete action always present');
+        assert.ok(card!.querySelector('.act-btn-view-type'), 'view-type action always present');
+        assert.strictEqual(card!.querySelector('.si-card-menu'), null, 'no ⋮ menu');
+        assert.strictEqual(document.querySelector('.si-type-btn'), null, 'no hover-only type button on card');
+
+        // View type toggles the card preview.
+        click(dom, card!.querySelector('.act-btn-view-type'));
+        const preview = document.querySelector<HTMLElement>('.si-type-preview');
+        assert.ok(preview && preview!.style.display !== 'none', 'view-type should reveal the C preview');
+        click(dom, card!.querySelector('.act-btn-view-type'));
+        assert.ok(document.querySelector<HTMLElement>('.si-type-preview')!.style.display === 'none', 'view-type should toggle the preview closed');
+
+        // Edit opens the inline form; cancel closes without mutating.
+        click(dom, card!.querySelector('.act-btn-edit'));
+        assert.ok(document.getElementById('si-add-form'), 'edit should open the inline form');
+        click(dom, document.getElementById('sa-cancel'));
+        assert.strictEqual(document.getElementById('si-add-form'), null, 'cancel should close the form');
+        assert.strictEqual(S.structPins[0].name, 'inst', 'cancel should not mutate the pin');
+    });
+
+    test('delete pin removes it via card action', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        await createMountedPanel();
+        click(dom, document.querySelector('.sb-card .act-btn-del'));
         confirmDelete(dom);
         // Flush the inline-confirm popover's deferred listener timer before teardown.
         await new Promise(resolve => setTimeout(resolve, 0));
         assert.deepStrictEqual(S.structPins, []);
+    });
+
+    test('types section header handles click and keyboard collapse', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        await createMountedPanel();
+        const head = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
+        click(dom, head);
+        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.strictEqual(head.getAttribute('aria-expanded'), 'false');
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'));
+        head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.ok(document.querySelector('.sd-row'));
+    });
+
+    test('editor field rows expose pointer via context menu, not a row button', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        let row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(row, 'editor field row should render');
+        assert.strictEqual(row!.querySelector('.sfe-ptr-btn'), null, 'no pointer row button in editor grid');
+
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const attach = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-on"]');
+        assert.ok(attach, 'attach pointer item should render');
+        click(dom, attach);
+
+        // Re-query the row after each render (re-render replaces the editor rows).
+        row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(row, 'editor field row should re-render');
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const clear = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-off"]');
+        assert.ok(clear, 'clear pointer item should render once attached');
+        click(dom, clear);
+
+        // Attach again, then save and verify the draft is saved as a pointer field.
+        row = document.querySelector<HTMLElement>('.struct-field-row');
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        click(dom, document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-on"]'));
+        (document.getElementById('se-name') as HTMLInputElement).value = 'PtrType';
+        click(dom, document.getElementById('se-save'));
+        const saved = S.structs.find(d => d.name === 'PtrType');
+        assert.ok(saved, 'saved type should exist');
+        assert.strictEqual(saved!.fields[0].isPointer, true, 'saved field should be a pointer');
+    });
+
+    test('pointer attach is disabled for bit-field container fields', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const bitBtn = document.querySelector<HTMLElement>('.sfe-bit-btn');
+        assert.ok(bitBtn, 'bit toggle should render');
+        click(dom, bitBtn);
+        const row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(row, 'editor field row should re-render after bit toggle');
+        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const attach = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-on"]');
+        assert.ok(!attach, 'attach pointer should be hidden for bit-field containers');
+        assert.ok(document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled')?.textContent?.includes('Attach pointer'), 'disabled item should explain bit-field conflict');
     });
 });

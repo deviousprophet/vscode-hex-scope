@@ -7,6 +7,7 @@
 - `src/webview/webviewMessageModel.ts`: provider-message reducers returning `WebviewInvalidations`.
 - `src/hexEditorSession.ts`: host-side file/session state and VS Code persistence.
 - Integrity and struct modules own feature-local transient UI state but persist through typed protocol messages.
+- `S.labelDraft` (`LabelDraftPreview | null`) is a host-owned transient grid preview (same category as `S.integrityHighlight`): the Inspector panel reports it via `onLabelDraftChange`; `hexViewer.ts` stores it and `memoryGrid.paintMemoryLabelDraft()` repaints it (also after every slice re-render). It is never persisted.
 
 ## Core Invariants
 
@@ -15,7 +16,7 @@
 - A selection is inclusive (`start`, `end`) with `start <= end`.
 - External changes lock editing until reload/repair resolution.
 - `clearEditModel()` clears pending edits and undo/redo history together.
-- Provider `savedEdits` reloads parsed memory, clears edits, and invalidates edit controls, stats, segments, structs, current view, and integrity.
+- Provider `savedEdits` (light, no `parseResult`) folds pending edits into local segment bytes, clears the overlay, and keeps undo/redo/edit mode so a save is reversible (Ctrl+Z); legacy `parseResult` payloads still reload parsed memory and clear edit state.
 
 ## Provider Message Flow
 

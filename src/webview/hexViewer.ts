@@ -13,6 +13,7 @@ import {
     mountHexView,
     paintCell,
     paintClearStructHighlight,
+    paintMemoryLabelDraft,
     paintMemoryMatchHighlights,
     paintMemorySelection,
     paintStructHighlight,
@@ -27,7 +28,7 @@ import { StructPanel } from './components/sidebar/structPanel/structPanel';
 import { clearSearch, initSearch, invalidateSearchIfDiverged, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/searchBar/searchBar';
 import { Toolbar } from './components/toolbar/toolbar';
-import type { SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
+import type { LabelDraftPreview, SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
 import type { SidebarTab } from './components/sidebar/sidebar';
 import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
@@ -65,6 +66,7 @@ import {
     type WebviewModelUpdate,
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
+import { showToast } from './components/toast';
 import { formatCopyCommand } from '../core/byteTools/copy';
 import { ContextMenu, type ContextMenuState } from './components/contextMenu/contextMenu';
 import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
@@ -106,12 +108,20 @@ const inspectorPanel = new InspectorPanel({
     onJumpTo: address => rerender.jumpTo(address),
     onLabelsChange: applyInspectorLabels,
     onCopy: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
+    onLabelDraftChange: applyLabelDraftPreview,
 });
 
+/** Live label-form draft: store the range and repaint the grid tint. */
+function applyLabelDraftPreview(draft: LabelDraftPreview | null): void {
+    S.labelDraft = draft;
+    if (S.currentView === 'memory') { paintMemoryLabelDraft(); }
+}
+
 /** Persist label mutations from the Inspector component and invalidate. */
-function applyInspectorLabels(labels: typeof S.labels): void {
+function applyInspectorLabels(labels: typeof S.labels, segmentNames?: typeof S.segmentNames): void {
     S.labels = labels;
-    postProviderMessage({ type: 'saveLabels', labels });
+    if (segmentNames) { S.segmentNames = segmentNames; }
+    postProviderMessage({ type: 'saveLabels', labels, segmentNames: S.segmentNames });
     buildMemRows();
     rerender.labels();
     if (S.currentView === 'memory') { rerender.memory(); }
@@ -121,7 +131,7 @@ function applyInspectorLabels(labels: typeof S.labels): void {
 function pushInspectorState(): void {
     inspectorPanel.setEndian(S.endian);
     inspectorPanel.setSegments(S.parseResult?.segments ?? []);
-    inspectorPanel.setLabels(S.labels);
+    inspectorPanel.setLabels(S.labels, S.segmentNames);
     inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
 
@@ -188,6 +198,7 @@ const integrityPanel = new IntegrityPanel({
     readByte: getByte,
     onStoredValueEdits: stageIntegrityEdits,
     getSelection: () => (S.selStart !== null && S.selEnd !== null ? { start: S.selStart, end: S.selEnd } : null),
+    getDataRange: dataRangeFromSegments,
     getEndian: () => S.endian,
     onHighlightChange: applyIntegrityHighlight,
     onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
@@ -204,14 +215,48 @@ function applyIntegrityHighlight(highlight: IntegrityHighlight | null): void {
     if (S.currentView === 'memory') { rerender.memory(); }
 }
 
+/** Full-file mapped range (min segment start → max segment end); null when no data. */
+function dataRangeFromSegments(): { start: number; end: number } | null {
+    const segments = S.parseResult?.segments;
+    if (!segments || segments.length === 0) { return null; }
+    return spanOf(segments);
+}
+
+function spanOf(segments: ReadonlyArray<{ startAddress: number; data: ArrayLike<number> }>): { start: number; end: number } {
+    let start = Number.MAX_SAFE_INTEGER;
+    let end = -1;
+    for (const seg of segments) {
+        start = Math.min(start, seg.startAddress);
+        end = Math.max(end, seg.startAddress + seg.data.length - 1);
+    }
+    return { start, end };
+}
+
 const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
-    onBlockedRun: () => toolbar.setStatus('A script is already running — cancel it or wait for it to finish.'),
+    onApplyScriptWrites: (_scriptPath, writes) => applyScriptWrites(writes),
+    onDiscardScriptWrites: () => {},
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
+
+/** Stage script-written bytes as viewer edits (mapped addresses only), then save. */
+function applyScriptWrites(writes: Array<[number, number]>): void {
+    const mapped = mappedScriptWrites(writes);
+    if (mapped.length === 0) { return; }
+    for (const [addr, value] of mapped) { S.edits.set(addr, value); }
+    S.editMode = true;
+    toolbar.setEditMode(true);
+    saveEdits();
+    refreshAfterLocalEdit();
+}
+
+function mappedScriptWrites(writes: Array<[number, number]>): Array<[number, number]> {
+    const segments = S.parseResult?.segments ?? [];
+    return writes.filter(([addr]) => segments.some(s => addr >= s.startAddress && addr <= s.startAddress + s.data.length - 1));
+}
 
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspectorPanel.mount(root) },
@@ -839,7 +884,7 @@ function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void 
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
-    scriptsPanel.showResult(msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType, msg.pendingWriteCount);
+    scriptsPanel.showResult(msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType, msg.pendingWriteCount, msg.pendingWrites);
 }
 
 function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): void {
@@ -1073,7 +1118,7 @@ function setupLockInterception(): void {
 
 function setupRerenderCallbacks(): void {
     rerender.memory   = () => memRerender();
-    rerender.labels   = () => inspectorPanel.setLabels(S.labels);
+    rerender.labels   = () => inspectorPanel.setLabels(S.labels, S.segmentNames);
     rerender.inspector = () => inspectorPanel.setSelection(S.selStart, S.selEnd);
     rerender.toMemory = () => switchView('memory');
     rerender.jumpTo   = (addr: number) => { switchView('memory'); scrollTo(addr); };
@@ -1090,7 +1135,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => structPanel.resetViewState(),
-    struct: () => inspectorPanel.setLabels(S.labels),
+    struct: () => inspectorPanel.setLabels(S.labels, S.segmentNames),
     integrity: () => integrityPanel.setTabActive(true),
     scripts: () => scriptsPanel.setTabActive(true),
 };
@@ -1429,6 +1474,7 @@ function onHexViewSelectionChange(range: HexViewRange): void {
     paintMemorySelection();
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     inspectorPanel.syncLabelForm();
+    integrityPanel.notifySelectionChanged();
 }
 
 function selLen(): number {
@@ -1519,6 +1565,7 @@ function handleCtxCommand(cmd: string): void {
 function applyContextCommandResult(result: ReturnType<typeof contextCommandResult>): void {
     if (result.type === 'copyText') {
         postProviderMessage({ type: 'copyText', text: result.text, label: result.label });
+        showToast('Copied ✓');
     }
     if (result.type === 'fill') { applyFill(result.value); }
 }

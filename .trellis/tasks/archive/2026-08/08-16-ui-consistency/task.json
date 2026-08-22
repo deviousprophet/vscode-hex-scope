@@ -1,0 +1,32 @@
+{
+  "id": "ui-consistency",
+  "name": "ui-consistency",
+  "title": "Sidebar panel UI consistency",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "deviousprophet",
+  "assignee": "deviousprophet",
+  "createdAt": "2026-08-16",
+  "completedAt": "2026-08-16",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-16-ui-primitives",
+    "08-16-ui-inspector",
+    "08-16-ui-struct",
+    "08-16-ui-integrity",
+    "08-16-ui-scripts"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

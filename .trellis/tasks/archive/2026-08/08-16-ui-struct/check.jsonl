@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify primitives spec conformance, token usage, selector depth, no !important, colocation"}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Verify shared shell pattern boundary preserved; struct-specific rows stay in structPanel.css"}

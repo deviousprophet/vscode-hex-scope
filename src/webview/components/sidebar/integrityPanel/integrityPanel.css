@@ -1,5 +1,3 @@
-#s-integrity { padding: 10px 12px; }
-
 .integrity-shell {
     box-sizing: border-box;
     color: var(--fg);
@@ -7,33 +5,89 @@
     min-width: 0;
 }
 
-.integrity-hdr-row { margin-bottom: 7px; }
+/* Body controls row (Profile label + Fix all/Add) under the framework section header */
+.integrity-hdr-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.integrity-hdr-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+/* Profiles: selector row (select + Save as… + ⋮ menu) under the header row. */
 .integrity-profiles {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 5px;
-    grid-template-columns: minmax(0, 1fr) auto;
     margin-bottom: 8px;
 }
 
-.integrity-profiles > .struct-sel { min-width: 0; }
+.integrity-profiles > .sb-select { width: 100%; min-width: 0; }
 
-.integrity-profile-actions {
-    align-items: center;
+.integrity-profile-row {
     display: flex;
-    gap: 3px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
 }
 
-.integrity-profile-actions .struct-btn {
-    font-size: 9px;
-    padding: 2px 6px;
-}
+.integrity-profile-row .sb-select { flex: 1; min-width: 0; }
 
-.integrity-profile-actions .si-icon-btn {
+/* Header "Profile" field label (rides the hdr-row, aligns with the buttons). */
+.integrity-profile-label {
+    font-family: var(--font-ui);
     font-size: 10px;
-    padding: 2px 4px;
+    font-weight: 600;
+    color: var(--addr-fg);
+    white-space: nowrap;
 }
 
-.integrity-profile-actions button:disabled {
+.integrity-profile-empty { margin-top: 2px; }
+
+/* Header Add rides the compact primitives size — matches Fix all height. */
+.integrity-hdr-row .sb-btn-add { padding: 2px 8px; }
+
+/* ── Profile ⋮ menu (replaces the 4-button admin cluster) ───────── */
+.integrity-profile-menu {
+    position: relative;
+}
+
+.integrity-profile-menu-pop {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.35);
+    display: flex;
+    flex-direction: column;
+    min-width: 132px;
+    padding: 3px;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 30;
+}
+
+.integrity-profile-menu-pop[hidden] { display: none; }
+
+.integrity-profile-menu-item {
+    background: transparent;
+    border: 0;
+    color: var(--fg);
+    cursor: pointer;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    padding: 5px 8px;
+    text-align: left;
+}
+
+.integrity-profile-menu-item:hover,
+.integrity-profile-menu-item:focus-visible { background: rgba(255,255,255,.08); }
+
+.integrity-profile-menu-item:disabled {
     cursor: not-allowed;
     opacity: .35;
 }
@@ -42,6 +96,9 @@
     cursor: not-allowed;
     opacity: .35;
 }
+
+/* Buttons ride the shared .sb-btn primitive (sidebar.css), which now owns
+   padding (2px 8px). Tighter 9px contexts use the dense-grid exception. */
 
 .integrity-error,
 .integrity-form-error {
@@ -66,31 +123,23 @@
     grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
-.integrity-profile-name-form .struct-addr-inp { min-width: 0; }
+.integrity-profile-name-form .sb-input { min-width: 0; }
 
-.integrity-profile-name-form .struct-btn {
-    font-size: 9px;
+.integrity-profile-name-form .sb-btn {
+    font-size: 10px;
     padding: 2px 7px;
 }
 
 .integrity-empty { padding: 10px 4px; }
-
-.integrity-card {
-    margin-bottom: 4px;
-}
 
 .integrity-card-selected {
     border-color: var(--vscode-focusBorder, #4f9de8);
     box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4f9de8);
 }
 
-.integrity-card-info {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
+/* Status badge: deliberately NOT `.sb-status-dot` — that primitive is an
+   unlabelled 8px color dot, while this is a 16px labelled circle carrying
+   ✓/✕/! text states. Kept local. */
 
 .integrity-card-title {
     color: var(--fg);
@@ -106,7 +155,7 @@
 .integrity-card-meta {
     color: var(--addr-fg);
     font-family: var(--font-editor);
-    font-size: 9px;
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -128,12 +177,13 @@
     justify-content: center;
     line-height: 1;
     padding: 0;
+    position: relative;
     width: 16px;
 }
 
 .integrity-card-status.match {
-    border-color: rgba(115,201,145,.45);
-    color: var(--vscode-testing-iconPassed, #73c991);
+    border-color: rgba(78,201,160,.45);
+    color: var(--ok);
 }
 
 .integrity-card-status.mismatch,
@@ -142,7 +192,24 @@
     color: var(--err);
 }
 
-.integrity-card-status.calculating { color: var(--high-color); }
+/* Calculating: border-spin ring overlay (16px circle unchanged → no layout
+   jump); glyph hidden under the ring, aria-label still carries the state. */
+.integrity-card-status.calculating {
+    border-color: rgba(79,195,247,.35);
+    color: transparent;
+}
+
+.integrity-card-status.calculating::before {
+    animation: integrity-spin .7s linear infinite;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    border-top-color: var(--high-color);
+    content: '';
+    inset: 1px;
+    position: absolute;
+}
+
+@keyframes integrity-spin { to { transform: rotate(360deg); } }
 
 .integrity-card-status.calculated {
     border-color: rgba(79,195,247,.35);
@@ -159,7 +226,7 @@
     display: inline-flex;
     flex-shrink: 0;
     font-family: var(--font-ui);
-    font-size: 8px;
+    font-size: 10px;
     gap: 4px;
     padding: 2px 4px;
     transition: background .1s, border-color .1s, color .1s;
@@ -235,7 +302,7 @@
 .integrity-card-empty,
 .integrity-result-meta {
     color: var(--addr-fg);
-    font-size: 9px;
+    font-size: 10px;
 }
 
 .integrity-comparison {
@@ -260,7 +327,7 @@
     display: block;
     color: var(--addr-fg);
     font-family: var(--font-ui);
-    font-size: 9px;
+    font-size: 10px;
     text-transform: uppercase;
 }
 
@@ -303,7 +370,10 @@
     user-select: text;
 }
 
-.integrity-value-pane code .si-hex-body {
+/* Hex-body span inside the value pane: structural selector (last child of
+   `<code>` produced by shared `formatHexHtml`) so this panel never names
+   the struct-owned `.si-hex-body` class. */
+.integrity-value-pane code > span:last-child {
     min-width: 0;
     overflow-wrap: anywhere;
     word-break: break-all;
@@ -312,7 +382,7 @@
 .integrity-value-pane.pending code { color: var(--addr-fg); }
 
 .integrity-value-pane.stored.match { background: rgba(55,190,105,.12); border-color: rgba(55,190,105,.48); }
-.integrity-value-pane.stored.match code { color: var(--vscode-testing-iconPassed, #73c991); }
+.integrity-value-pane.stored.match code { color: var(--ok); }
 .integrity-value-pane.stored.mismatch { background: rgba(241,76,76,.14); border-color: rgba(241,76,76,.52); }
 .integrity-value-pane.stored.mismatch code { color: var(--err); }
 .integrity-value-pane.stored.unverified { background: rgba(225,165,45,.1); border-color: rgba(225,165,45,.4); }
@@ -323,6 +393,21 @@
     flex-direction: column;
     gap: 6px;
     padding: 8px;
+}
+
+/* Form header + action row — local copies of the legacy `.sa-form-hdr` /
+   `.sa-row .sa-btn-row` rules so the panel stops borrowing struct-owned classes. */
+.integrity-form-hdr {
+    font-size: 10px; font-weight: 600; font-family: var(--font-ui);
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1px;
+    user-select: none;
+}
+.integrity-form-hdr-new  { color: var(--high-color); }
+.integrity-form-hdr-edit { color: var(--addr-fg); }
+.integrity-form-actions {
+    display: flex; align-items: center; gap: 6px;
 }
 
 .integrity-add-form {
@@ -349,10 +434,10 @@
 .integrity-form-field > span {
     color: var(--addr-fg);
     font-family: var(--font-ui);
-    font-size: 9px;
+    font-size: 10px;
 }
 
-.integrity-form-field .struct-sel {
+.integrity-form-field .sb-select {
     box-sizing: border-box;
     width: 100%;
 }
@@ -363,7 +448,18 @@
     min-width: 0;
 }
 
-.integrity-address-input .struct-addr-inp {
+/* Address prefix — local copy of the legacy `.struct-addr-pfx` so the panel
+   stops borrowing a struct-owned class (that rule stays in structPanel.css
+   for struct's own markup). */
+.integrity-addr-pfx {
+    flex-shrink: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg); line-height: 1;
+    padding: 2px 0 2px 2px;
+    user-select: none;
+}
+
+.integrity-address-input .sb-input {
     box-sizing: border-box;
     flex: 1;
     min-width: 0;

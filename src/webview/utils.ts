@@ -147,7 +147,7 @@ export function wireActionBtns(
  * Clicking Yes calls `onConfirm`; clicking No or outside dismisses it.
  * Only one popover is live at a time. `message` overrides the default "Delete?".
  */
-export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, message = 'Delete?'): void {
+export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, message = 'Delete?', onCancel?: () => void): void {
     // Remove any existing popover first
     dismissConfirmPopover();
 
@@ -191,7 +191,7 @@ export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, messag
         pop.remove();
         document.removeEventListener('mousedown', outsideHandler, true);
         document.removeEventListener('keydown',   keyHandler,     true);
-        if (confirmed) { onConfirm(); }
+        if (confirmed) { onConfirm(); } else { onCancel?.(); }
     };
 
     pop.querySelector<HTMLElement>('.dcp-yes')!.addEventListener('click', e => {
@@ -251,6 +251,44 @@ export function formatHexHtml(hexStr: string): string {
     const prefix = esc(hexStr.slice(0, 2));
     const body = esc(hexStr.slice(2));
     return `<span class="si-hex-prefix">${prefix}</span><span class="si-hex-body">${body}</span>`;
+}
+
+/**
+ * Flash a "copied" confirmation on a copy target: adds `.copied` for ~1s
+ * (styled per target via CSS) and optionally swaps the element's text to
+ * "Copied" until the flash ends. Pure DOM/CSS feedback — clipboard writes
+ * are untouched and stay with the existing copy callbacks.
+ *
+ * Rapid re-clicks reset the pending timer and keep the ORIGINAL pre-flash
+ * text (never a stale "Copied"). If the element was re-rendered (detached)
+ * while flashing, the class/text restore is skipped.
+ */
+const flashState = new WeakMap<HTMLElement, { timer: number; prev: string | null }>();
+
+/** Restore the pre-flash text (skipped when the element was re-rendered/detached). */
+function endFlash(el: HTMLElement, prev: string | null): void {
+    flashState.delete(el);
+    if (!el.isConnected) { return; }
+    el.classList.remove('copied');
+    if (prev !== null) { el.textContent = prev; }
+}
+
+function flashPrevText(el: HTMLElement, swapText: boolean): string | null {
+    return swapText ? el.textContent : null;
+}
+
+export function flashCopied(el: HTMLElement, swapText = false): void {
+    const prior = flashState.get(el);
+    if (prior) { clearTimeout(prior.timer); }
+    let state = prior;
+    if (!state) {
+        state = { timer: 0, prev: flashPrevText(el, swapText) };
+        flashState.set(el, state);
+    }
+    const prev = state.prev;
+    el.classList.add('copied');
+    if (swapText) { el.textContent = 'Copied'; }
+    state.timer = window.setTimeout(() => endFlash(el, prev), 1000);
 }
 
 /** Direct wrappers around DataView BigInt reads (centralized for future fallbacks). */

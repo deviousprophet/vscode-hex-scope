@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Sidebar Primitives (+ sb-status-dot), Button Standards, Section/Header Pattern, Design Tokens for the visual-only migration"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "ScriptsPanel contract: markup parity, run/cancel state machine, output blocks (component-specific, keep local)"}

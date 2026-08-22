@@ -227,6 +227,19 @@ suite('integrity check-set normalization', () => {
         assert.strictEqual(normalized?.checks[0].autoFixStoredValue, true);
     });
 
+    test('carries optional check names, dropping empty/oversized ones', () => {
+        const named = normalizeIntegrityCheckSet({
+            schemaVersion: 1,
+            checks: [{ algorithm: 'sha-256', startAddress: 0, endAddress: 3, autoFixStoredValue: false, name: ' Boot hash ' }],
+        });
+        assert.strictEqual(named?.checks[0].name, 'Boot hash');
+        const unnamed = normalizeIntegrityCheckSet({
+            schemaVersion: 1,
+            checks: [{ algorithm: 'sha-256', startAddress: 0, endAddress: 3, autoFixStoredValue: false, name: 'x'.repeat(41) }],
+        });
+        assert.ok(unnamed?.checks[0].name === undefined);
+    });
+
     test('rejects malformed per-file check sets', () => {
         assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 2, checks: [] }), null);
         assert.strictEqual(normalizeIntegrityCheckSet({ schemaVersion: 1, checks: [{}] }), null);

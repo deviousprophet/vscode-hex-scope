@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Sidebar Primitives + Button Standards + Design Tokens + selector depth rules for the migration"}
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Shared shell pattern boundary; integrity card/check CSS stays colocated"}
