@@ -889,3 +889,24 @@ saveEdits now spliceEditedLines (regex line scan, owner records only + checksum)
 ### Status
 
 [OK] **Completed**
+
+
+## Session 39: Save watcher horizon + positional writes
+
+**Date**: 2026-08-22
+**Task**: Save watcher horizon + positional writes
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+1s self-write horizon replaces one-shot suppressReload in onExternalChange (save/repair stamp lastSelfWriteAt) so own writes never surface as external change. buildSplicePlan returns newRaw + byte patches with cumulative offsets; saveEdits writes only edited record ranges via node:fs fd (r+), silent whole-file fallback on non-ASCII/length-change/fs error; parity asserted. 853 tests green. Specs updated.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9944e56` | (see git log) |
+
+### Status
+
+[OK] **Completed**
