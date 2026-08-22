@@ -18,6 +18,8 @@ type Cb = {
     requested: number;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
     cancels: string[];
+    applied: Array<[string, Array<[number, number]>]>;
+    discarded: string[];
 };
 
 type Harness = {
@@ -49,7 +51,7 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, runs: [], cancels: [] };
+    const cb: Cb = { requested: 0, runs: [], cancels: [], applied: [], discarded: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
@@ -58,6 +60,8 @@ function installDom(): Harness {
             cb.runs.push({ path: scriptPath, generation: gen, selection: selectionRange });
         },
         onCancelScript: path => { cb.cancels.push(path); },
+        onApplyScriptWrites: (path, writes) => { cb.applied.push([path, writes]); },
+        onDiscardScriptWrites: path => { cb.discarded.push(path); },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -556,6 +560,36 @@ suite('ScriptsPanel showResult', () => {
     test('writes notice when pendingWriteCount > 0', () => {
         panel.showResult(A, [], [], '', undefined, 3);
         assert.match(cardFor(A).querySelector('.script-output-writes')?.textContent!, /3 byte\(s\) written \(not yet saved\)/);
+    });
+
+    test('writes row with list renders Apply & Save / Discard and wires callbacks', () => {
+        panel.showResult(A, [], [], '', undefined, 2, [[0x0000, 0xAA], [0x0001, 0x55]]);
+        const latestWrites = () => cardFor(A).querySelector('.script-output-block:not(.script-run-row) .script-output-writes') as HTMLElement | null;
+        const row = latestWrites();
+        assert.ok(row, 'actionable writes row');
+        assert.match(row!.textContent!, /2 byte/);
+        const applyBtn = row!.querySelector('[data-writes-apply]') as HTMLButtonElement | null;
+        const discardBtn = row!.querySelector('[data-writes-discard]') as HTMLButtonElement | null;
+        assert.ok(applyBtn && discardBtn);
+        applyBtn!.click();
+        assert.deepStrictEqual(cb.applied, [[A, [[0x0000, 0xAA], [0x0001, 0x55]]]]);
+        discardBtn!.click();
+        assert.deepStrictEqual(cb.discarded, [A]);
+        assert.strictEqual(latestWrites(), null, 'row removed after discard');
+    });
+
+    test('writes row renders plain notice (no buttons) when list absent', () => {
+        panel.showResult(A, [], [], '', undefined, 3);
+        const row = cardFor(A).querySelector('.script-output-writes') as HTMLElement | null;
+        assert.ok(row);
+        assert.strictEqual(row!.querySelector('[data-writes-apply]'), null, 'no action buttons for legacy payload');
+    });
+
+    test('next run without writes clears the stored writes row', () => {
+        panel.showResult(A, [], [], '', undefined, 1, [[0x0000, 0x09]]);
+        assert.ok(cardFor(A).querySelector('.script-output-block:not(.script-run-row) [data-writes-apply]'));
+        panel.showResult(A, [], [], '', undefined, 1);
+        assert.strictEqual(cardFor(A).querySelector('.script-output-block:not(.script-run-row) [data-writes-apply]'), null);
     });
 
     test('re-run collapses prior result into history row and shows latest', () => {

@@ -232,9 +232,23 @@ const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
+    onApplyScriptWrites: (_scriptPath, writes) => applyScriptWrites(writes),
+    onDiscardScriptWrites: () => {},
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
+
+/** Stage script-written bytes as viewer edits (mapped addresses only), then save. */
+function applyScriptWrites(writes: Array<[number, number]>): void {
+    const segments = S.parseResult?.segments ?? [];
+    const mapped = writes.filter(([addr]) => segments.some(s => addr >= s.startAddress && addr <= s.startAddress + s.data.length - 1));
+    if (mapped.length === 0) { return; }
+    for (const [addr, value] of mapped) { S.edits.set(addr, value); }
+    S.editMode = true;
+    toolbar.setEditMode(true);
+    saveEdits();
+    refreshAfterLocalEdit();
+}
 
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspectorPanel.mount(root) },
@@ -862,7 +876,7 @@ function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void 
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
-    scriptsPanel.showResult(msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType, msg.pendingWriteCount);
+    scriptsPanel.showResult(msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType, msg.pendingWriteCount, msg.pendingWrites);
 }
 
 function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): void {

@@ -750,6 +750,7 @@ export class HexEditorSession {
                     type: 'scriptResult', scriptPath, result: output,
                     error: output.error ?? '', errorType: output.errorType,
                     pendingWriteCount: host.pendingWrites.length,
+                    pendingWrites: host.pendingWrites.map(w => [w.address, w.value] as [number, number]),
                 });
             },
             cancelScript: async msg => {

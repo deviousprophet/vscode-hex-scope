@@ -109,6 +109,8 @@
 .script-result-label { font-weight: 700; color: var(--addr-fg); white-space: nowrap; min-width: 90px; }
 .script-result-value { color: var(--fg); font-family: var(--font-editor); word-break: break-all; }
 .script-output-writes { font-size: 10px; color: var(--info-fg, #4fc3f7); padding: 3px 8px; margin-bottom: 4px; }
+.script-writes-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.script-writes-actions .sb-btn { padding: 1px 8px; line-height: 1.4; }
 .script-output-log { font-size: 11px; color: var(--addr-fg); line-height: 1.5; }
 .script-output-log div { padding: 1px 6px; white-space: pre-wrap; word-break: break-all; }
 .script-output-log div:nth-child(odd) { background: rgba(255,255,255,.01); }

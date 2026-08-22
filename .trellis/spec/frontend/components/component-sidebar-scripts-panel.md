@@ -1,4 +1,4 @@
-# Component Spec — Scripts Panel
+﻿# Component Spec — Scripts Panel
 
 ## Scope / Trigger
 
@@ -40,7 +40,7 @@ class ScriptsPanel {
     mount(root: HTMLElement): void;                  // creates #s-scripts container; idempotent
     render(): void;                                  // was renderScripts; re-renders shell
     setScripts(scripts: ScriptInfo[], trusted: boolean): void;    // was updateScriptList
-    showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null | undefined, log: string[] | null | undefined, error: string, errorType: string | undefined, pendingWriteCount: number): void;  // was updateScriptResult → showResult
+    showResult(scriptPath: string, results: Array<{ label: string; value: string }> | null | undefined, log: string[] | null | undefined, error: string, errorType: string | undefined, pendingWriteCount: number, writes?: Array<[number, number]>): void;  // was updateScriptResult → showResult
     appendOutput(scriptPath: string, text: string): void;         // was updateScriptOutput → appendOutput (target resolved from running button)
     setTabActive(active: boolean): void;             // was activateScripts lazy-init gate
 }
@@ -64,7 +64,7 @@ class ScriptsPanel {
 - Run history (per script, session-only): the latest result block stays expanded on top; each completed run collapses into a one-line row `run #N · HH:MM ✓/✕` (`.script-run-row`, `.script-run-hdr`), newest first, capped at `HISTORY_CAP` (5) per card. A new run snapshots the prior result block into history before streaming starts (streamed output never pollutes stored runs). A `✕` clear button on the latest block header empties the card's results and resets its status dot. Re-render order is latest-top.
 - Run payload: `onRunScript(path, getGeneration(), getSelection() ?? undefined)` — omitted `selectionRange` when no selection (same shape as pre-refactor `{ type: 'runScript', scriptPath, generation, selectionRange }`).
 - Output streaming: first 100 lines appended realtime to the running card's log; later lines buffered and flushed via `setTimeout(0)` debounce (BATCH_THRESHOLD=100).
-- `showResult`: clears running state, flushes pending output, sets status dot, snapshots any prior result block into run history, renders latest embedded result block (auto-expanded) + collapsed history rows, wires collapse toggle + clear button. Error-type headers: success "Result", compile "Compile Error" (⚠️ yellow), runtime "Script Error" (🔴), timeout "Timeout" (⏱️ orange), cancel "Cancelled" (dimmed, partial log preserved). Writes-pending notice when `pendingWriteCount > 0`.
+- `showResult`: clears running state, flushes pending output, sets status dot, snapshots any prior result block into run history, renders latest embedded result block (auto-expanded) + collapsed history rows, wires collapse toggle + clear button. Error-type headers: success "Result", compile "Compile Error" (⚠️ yellow), runtime "Script Error" (🔴), timeout "Timeout" (⏱️ orange), cancel "Cancelled" (dimmed, partial log preserved). Writes: when the payload carries `pendingWrites` (address/value pairs) the writes row is actionable — `N byte(s) written → [Apply & Save] [Discard]`; Apply fires `onApplyScriptWrites(path, writes)` (host stages mapped bytes into `S.edits` + saves), Discard fires `onDiscardScriptWrites(path)` and removes the row. Legacy payloads (count only) keep the plain "not yet saved" notice. `storedWrites` is per-path, cleared on new run / clear / discard.
 - Capability gate: the first interactive run of a capability-bearing script (`capabilities.length > 0`) shows an inline confirm panel (`.script-caps-confirm`) listing the script name + required capabilities with Run/Cancel buttons. Accept persists per script in-session (`confirmedCaps` Set — survives re-render, resets on panel remount); decline removes the panel with no run and no partial run state. Capability-less scripts and already-confirmed scripts run immediately. Host-initiated runs (no click) bypass the gate.
 - `appendOutput` before any run is a silent no-op (no running button).
 - Refresh button and `setTabActive(true)` both fire `onRequestList` (host re-posts `requestScriptList`).
@@ -85,7 +85,7 @@ class ScriptsPanel {
 | `appendOutput` with no running card | Silent no-op |
 | `showResult` for unknown path | Status/run state updated; no result block (no crash) |
 | Re-run | Prior result block collapsed into one-line history row (capped at 5); latest stays expanded on top |
-| Writes pending | "💾 N byte(s) written (not yet saved)" notice in result block |
+| Writes pending | Actionable row "N byte(s) written → [Apply & Save] [Discard]" (payload carries `pendingWrites`); Apply → `onApplyScriptWrites`, Discard → `onDiscardScriptWrites` + row removed. Legacy count-only payload → plain "not yet saved" notice |
 | Unmounted render / setScripts | No-op (render guards `_panel`) |
 | `setTabActive` before first activation | No list request until first `true`; request fires exactly once |
 

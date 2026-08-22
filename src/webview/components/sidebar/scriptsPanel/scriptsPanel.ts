@@ -26,6 +26,10 @@ export interface ScriptsCallbacks {
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;
     /** Cancel: host posts cancelScript. */
     onCancelScript?: (scriptPath: string) => void;
+    /** Apply script-written bytes as staged edits + save (per-run control). */
+    onApplyScriptWrites?: (scriptPath: string, writes: Array<[number, number]>) => void;
+    /** Discard the current run's script writes (never staged). */
+    onDiscardScriptWrites?: (scriptPath: string) => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -69,6 +73,8 @@ export class ScriptsPanel {
     private readonly runCounter = new Map<string, number>();
     /** Paths whose capabilities were accepted at the run-time gate (session state; resets on remount). */
     private readonly confirmedCaps = new Set<string>();
+    /** Per-path pending script writes (address/value) awaiting Apply/Discard. */
+    private readonly storedWrites = new Map<string, Array<[number, number]>>();
     /** Per-path script file fingerprints; a changed fingerprint resets the
         capability approval (the script was modified → re-confirm next run). */
     private readonly fingerprints = new Map<string, string>();
@@ -169,21 +175,27 @@ export class ScriptsPanel {
     }
 
     /** Terminal result for a script (was updateScriptResult → showResult). */
-    showResult(scriptPath: string, results: ScriptResultValue[] | null | undefined, log: string[] | null | undefined, error: string, errorType: string | undefined, pendingWriteCount: number): void {
+    showResult(
+        scriptPath: string, results: ScriptResultValue[] | null | undefined, log: string[] | null | undefined,
+        error: string, errorType: string | undefined, pendingWriteCount: number,
+        writes?: Array<[number, number]>,
+    ): void {
         this.clearRunning();
         this.outputCount = 0;
         this.flushPendingOutput();
         this.setScriptStatus(scriptPath, error ? 'error' : 'success');
         this.updateStatusDot(scriptPath);
+        if (writes !== undefined) { this.storedWrites.set(scriptPath, writes); }
 
         const area = this.resultAreaFor(scriptPath);
         if (!area) { return; }
         this.storeRunRecord(area);
-        area.innerHTML = this.scriptResultHtml(scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount) + this.historyRowsHtml(scriptPath);
+        area.innerHTML = this.scriptResultHtml(scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount, writes) + this.historyRowsHtml(scriptPath);
         const block = area.querySelector('.script-output-block');
         if (block) { block.classList.remove('collapsed'); }
         this.wireCollapse(area);
         this.wireClear(area, scriptPath);
+        this.wireWritesActions(area, scriptPath, writes);
     }
 
     /** Streamed output line (was updateScriptOutput → appendOutput). The target card is resolved from the running button, matching pre-refactor. */
@@ -241,6 +253,7 @@ export class ScriptsPanel {
     private runScript(filePath: string): void {
         if (this.runningPath) { return; }
         this.resetOutputState();
+        this.storedWrites.delete(filePath);
         // New run auto-presses the prior result block into a one-line collapsed history row
         // before streaming starts, so streamed lines never pollute the stored run.
         const area = this.resultAreaFor(filePath);
@@ -479,12 +492,34 @@ export class ScriptsPanel {
         return ERROR_HEADERS[errType ?? ''] ?? { icon: '&#9888;', label: 'Error', cssClass: ' script-output-hdr-err' };
     }
 
-    private scriptResultHtml(scriptPath: string, results: ScriptResultValue[] | null | undefined, log: string[] | null | undefined, err: string, errType: ErrorType, pendingWriteCount: number): string {
+    private scriptResultHtml(
+        scriptPath: string, results: ScriptResultValue[] | null | undefined, log: string[] | null | undefined,
+        err: string, errType: ErrorType, pendingWriteCount: number,
+        writes?: Array<[number, number]>,
+    ): string {
         const h = this.headerFor(err, errType);
         const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
         return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
         <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}<button class="script-clear" data-clear title="Clear results" aria-label="Clear results">&#10005;</button></div>
-        <div class="script-output-body-wrap">${this.errorBlockHtml(err)}${this.resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
+        <div class="script-output-body-wrap">${this.errorBlockHtml(err)}${this.resultsBlockHtml(results)}${writesBlockHtml(writes, pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
+    }
+
+    private wireWritesActions(area: HTMLElement, scriptPath: string, writes: Array<[number, number]> | undefined): void {
+        if (!writes || writes.length === 0) { return; }
+        const writesRow = area.querySelector<HTMLElement>('.script-output-block:not(.script-run-row) .script-output-writes');
+        if (!writesRow) { return; }
+        const applyBtn = writesRow.querySelector('[data-writes-apply]');
+        const discardBtn = writesRow.querySelector('[data-writes-discard]');
+        applyBtn?.addEventListener('click', ev => {
+            ev.stopPropagation();
+            this.cb.onApplyScriptWrites?.(scriptPath, this.storedWrites.get(scriptPath) ?? writes);
+        });
+        discardBtn?.addEventListener('click', ev => {
+            ev.stopPropagation();
+            this.storedWrites.delete(scriptPath);
+            writesRow.remove();
+            this.cb.onDiscardScriptWrites?.(scriptPath);
+        });
     }
 
     private wireCollapse(area: HTMLElement): void {
@@ -595,6 +630,7 @@ export class ScriptsPanel {
 
     private clearResults(path: string): void {
         this.runHistory.delete(path);
+        this.storedWrites.delete(path);
         const area = this.resultAreaFor(path);
         if (area) { area.innerHTML = ''; }
         this.scriptStatus.set(path, null);
@@ -669,7 +705,15 @@ function scriptBtnAttrs(path: string, noTrust: boolean, extTs: boolean, runningP
     };
 }
 
-function writesBlockHtml(count: number): string {
-    if (count <= 0) { return ''; }
-    return `<div class="script-output-writes">&#128190; ${count} byte(s) written (not yet saved)</div>`;
+function writesBlockHtml(writes: Array<[number, number]> | undefined, count: number): string {
+    if (writes === undefined) {
+        // Legacy/unknown provider payload: count-only notice (no action row).
+        return count > 0 ? `<div class="script-output-writes">&#128190; ${count} byte(s) written (not yet saved)</div>` : '';
+    }
+    if (writes.length === 0) { return ''; }
+    return `<div class="script-output-writes">&#128190; ${writes.length} byte(s) written
+        <span class="script-writes-actions">
+            <button class="sb-btn sb-btn-primary" data-writes-apply title="Apply these bytes as edits and save" aria-label="Apply and save script writes">Apply &amp; Save</button>
+            <button class="sb-btn sb-btn-secondary" data-writes-discard title="Discard these writes" aria-label="Discard script writes">Discard</button>
+        </span></div>`;
 }

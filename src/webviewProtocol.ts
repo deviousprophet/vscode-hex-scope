@@ -44,7 +44,7 @@ export type ProviderToWebviewMessage =
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
     | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
     | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[]; fingerprint: string }> }
-    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number }
+    | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number; pendingWrites?: Array<[number, number]> }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
     | { type: 'activateScriptsTab' };
 
