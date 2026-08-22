@@ -868,3 +868,24 @@ scriptResult carries pendingWrites (addr/value); Scripts panel writes row become
 ### Status
 
 [OK] **Completed**
+
+
+## Session 38: Fast edit save + undo across save
+
+**Date**: 2026-08-22
+**Task**: Fast edit save + undo across save
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+saveEdits now spliceEditedLines (regex line scan, owner records only + checksum), skips materialize/reparse, folds into host segments; light savedEdits {generation}; webview folds S.edits locally + clears overlay only, keeps undo/redo/edit mode (Ctrl+Z reverts a save). Legacy parseResult fallback kept. 849 tests green. Specs updated.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ed9aad3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
