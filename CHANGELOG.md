@@ -17,6 +17,8 @@
 - Label form defaults to End Address mode with auto-calculated size/end chips and a live draft preview on the hex grid
 - Added a collapsible script run history — the latest result stays expanded and older runs collapse into one-line rows
 - Added a capability confirmation gate — scripts that declare capabilities show the permission list and ask before their first run
+- Added optional custom names to integrity checks — empty names fall back to the algorithm label, card titles show the name, and names persist across reloads and profile save/apply
+- Added address autofill when creating an integrity check — prefilled from the active hex selection (else the whole file) and refilled live as the selection changes (end field focused → end only)
 
 ### Changed
 
@@ -33,6 +35,9 @@
 - Collapse/expand controls unified to a rotating `›` chevron across all panels
 - Struct instances require a defined struct type first — the Add button is disabled until one exists; editing an instance reuses the inline form; section headers no longer show count badges
 - Inspector multi-byte decode shows an endian tag (`LE · 4-byte`) beside the zero-pad note
+- Integrity profile selection is now one action — picking a profile in the dropdown applies it immediately (inline confirm when different checks would be replaced; cancelling reverts the dropdown); the action menu is Update/Rename/Delete behind ⋮ with a visible "Save as…" button
+- Saving edits no longer re-parses or reloads the file — only the edited record lines are re-encoded with checksums recomputed and written positionally; the viewer updates in place and `Ctrl/Cmd+Z` still undoes a saved edit (`Ctrl/Cmd+Y` redoes)
+- Script `hex.write` output is actionable — a run's writes stage as editable grid bytes with Apply & Save / Discard controls
 
 ### Fixed
 
@@ -43,7 +48,6 @@
 - Fixed files with zero records showing the "not loaded" unavailable message instead of a real "No Records" empty state
 - Fixed struct-field highlights in Memory view rendering seams or stray cells when the selection touched the grid edge — highlighting is now root-scoped to the grid
 - Made keyboard-inert label-list actions (visibility/move) and the orphan struct-instance Delete button real `<button>`s, reachable by Tab/Enter
-- Inspector byte-line click now copies the full selection
 
 ## [2.17.1] - 2026-08-01
 
