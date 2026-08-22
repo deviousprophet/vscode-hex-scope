@@ -315,6 +315,22 @@ suite('webview ContextMenu component', () => {
         dom.window.dispatchEvent(new dom.window.Event('blur'));
         assert.ok(!visible(dom));
     });
+
+    test('mouse-open menu has no ctx-kb highlight; a keydown reveals it', () => {
+        const { dom } = createHarness();
+        assert.ok(!ctxMenuEl(dom).classList.contains('ctx-kb'), 'mouse-open: keyboard highlight hidden');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        assert.ok(ctxMenuEl(dom).classList.contains('ctx-kb'), 'first keydown reveals keyboard highlight');
+        dom.window.document.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+        assert.ok(!ctxMenuEl(dom).classList.contains('ctx-kb'), 'pointerdown hides it again');
+    });
+
+    test('keyboard-open menu shows the ctx-kb highlight immediately', () => {
+        const { dom, menu } = createHarness();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }));
+        menu.show(10, 10, baseState());
+        assert.ok(ctxMenuEl(dom).classList.contains('ctx-kb'));
+    });
 });
 
 suite('webview context menu positioning (utils)', () => {

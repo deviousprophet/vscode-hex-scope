@@ -27,6 +27,8 @@
 }
 .ctx-row:hover { background: var(--hover-bg); }
 .ctx-row:focus-visible { background: var(--hover-bg); outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
+/* hex-grid menu: keyboard-selection highlight only after keyboard use; mouse-open rows show hover, not focus */
+#ctx-menu:not(.ctx-kb) .ctx-row:focus-visible { background: transparent; outline: none; }
 .ctx-label { flex: 1 1 auto; }
 
 /* result/preview hint — right-aligned, monospace, muted */

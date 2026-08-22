@@ -19,6 +19,10 @@ field-value menu (same shared code).
   any `focusout` whose `relatedTarget` is outside `#ctx-menu` (or null), and window `blur`
   (click in VS Code chrome, side-by-side editor, alt-tab). Focus moves *inside* the menu
   (row→row, row→fill input→Apply) never close it.
+- R8: keyboard-selection highlight on `#ctx-menu` rows shows only after keyboard use —
+  mouse-open shows no focus highlight (hover bg unaffected); first `keydown` adds `.ctx-kb`;
+  keyboard-open (ContextMenu key / Shift+F10) shows it immediately; `pointerdown` hides it.
+  Focus keeps moving to the first row on open either way (arrows still navigate from there).
 
 ## Acceptance Criteria
 
@@ -28,6 +32,7 @@ field-value menu (same shared code).
 - [x] AC4: top-left positioning unchanged from today (regression bar).
 - [x] AC5: Struct panel field-value menu + its submenus pass AC1–AC3 too.
 - [x] AC6: focus moves outside the open menu (Tab, focusable click, window blur) closes it; focus moves inside keep it open.
+- [x] AC7: mouse-open menu hides the keyboard-selection highlight; first keydown reveals it; pointerdown hides it; context-menu-key/SF10 open shows it immediately.
 
 ## Technical notes (approach)
 

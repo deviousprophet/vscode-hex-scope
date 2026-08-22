@@ -180,11 +180,14 @@ export class ContextMenu {
     /** Element focused before the menu opened; restored on hide (so keyboard control returns to its trigger). */
     private restoreFocusEl: HTMLElement | null = null;
 
+    /** Last input modality; mouse-opens hide the keyboard-selection highlight until first keypress. */
+    private inputMode: 'mouse' | 'keyboard' = 'mouse';
+
     constructor(cb: ContextMenuCallbacks = {}) {
         this.cb = cb;
     }
 
-    /** Document-delegated click-outside dismiss + Escape dismiss. Idempotent. */
+    /** Document-delegated click-outside dismiss + Escape dismiss + input-modality tracking. Idempotent. */
     mount(): void {
         if (this.mounted) { return; }
         this.mounted = true;
@@ -192,6 +195,8 @@ export class ContextMenu {
         document.addEventListener('keydown', this.onDocKeydown);
         document.addEventListener('focusout', this.onDocFocusOut);
         window.addEventListener('blur', this.onWindowBlur);
+        document.addEventListener('pointerdown', this.onPointerDown, { capture: true });
+        document.addEventListener('keydown', this.onKeyboardAttract, { capture: true });
     }
 
     show(x: number, y: number, state: ContextMenuState): void {
@@ -202,6 +207,7 @@ export class ContextMenu {
         this.wireInlineInputs(el);
         wireHoverSubmenus(el, true);
         positionContextMenu(el, x, y);
+        el.classList.toggle('ctx-kb', this.inputMode === 'keyboard');
         // Keyboard operability: move focus onto the first enabled menu item.
         el.querySelector<HTMLElement>('.ctx-row[data-cmd]:not(.ctx-disabled)')?.focus();
     }
@@ -240,6 +246,22 @@ export class ContextMenu {
     private onWindowBlur = (): void => {
         this.hide();
     };
+
+    /** Mouse interaction: hide the keyboard-selection highlight until the user actually uses keys. */
+    private onPointerDown = (): void => {
+        this.inputMode = 'mouse';
+        this.applyKbHighlight(false);
+    };
+
+    /** Any keypress (incl. the context-menu key that opens the menu) → keyboard mode: highlight on. */
+    private onKeyboardAttract = (): void => {
+        this.inputMode = 'keyboard';
+        this.applyKbHighlight(true);
+    };
+
+    private applyKbHighlight(on: boolean): void {
+        document.getElementById('ctx-menu')?.classList.toggle('ctx-kb', on);
+    }
 
     private ctxMenuEntryPoint(target: EventTarget | null): HTMLElement | null {
         const el = target as HTMLElement | null;
