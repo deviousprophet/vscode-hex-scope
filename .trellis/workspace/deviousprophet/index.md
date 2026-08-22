@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 39
+- **Total Sessions**: 40
 - **Last Active**: 2026-08-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~912 | Active |
+| `journal-1.md` | ~934 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 40 | 2026-08-22 | Bit-field parent byte selection fix | `8563b90`, `9c43c3f` | `fix/bitfield-parent-byte-selection` |
 | 39 | 2026-08-22 | Save watcher horizon + positional writes | `9944e56` | `feat/ui-consistency` |
 | 38 | 2026-08-22 | Fast edit save + undo across save | `ed9aad3` | `feat/ui-consistency` |
 | 37 | 2026-08-22 | Script hex.write staging: Apply & Save / Discard | `05afdfd` | `feat/ui-consistency` |
