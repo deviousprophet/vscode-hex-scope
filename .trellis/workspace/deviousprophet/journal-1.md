@@ -826,3 +826,24 @@ Redesigned Inspector label form (create/edit): End Address default mode, bidirec
 ### Status
 
 [OK] **Completed**
+
+
+## Session 36: Integrity panel: check names + autofill + profile rework
+
+**Date**: 2026-08-22
+**Task**: Integrity panel: check names + autofill + profile rework
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+Optional check name (fallback algorithm label, 40-char cap, persisted via config normalize); add-check autofill selection->full-file->blank plus label-parity live refill (focus-targeted, end-only when end focused, never on keystrokes); integrity header Profile label + Fix all/Add same line, dropdown select + visible Save-as + Update/Rename/Delete menu; auto-apply on select w/ revert-on-cancel confirm; no placeholder, empty hint, preselect-first; sb-btn-add header height parity; sb-tab-panel wrapper flex fix. 840 tests green, trellis-check PASS.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `638e967` | (see git log) |
+
+### Status
+
+[OK] **Completed**
