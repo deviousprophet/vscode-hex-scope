@@ -2630,7 +2630,8 @@ private structGroupSummaryLabel(rows: DecodedField[], isBitUnit: boolean, isArra
 }
 
 private structGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: boolean, count: number): number {
-    return isBitUnit && isArray ? this.decodedRowByteCount(rows[0]) * count : this.sumDecodedRowBytes(rows);
+    if (isBitUnit) { return this.decodedRowByteCount(rows[0]) * (isArray ? count : 1); }
+    return this.sumDecodedRowBytes(rows);
 }
 
 private preservePendingStructAddress(): void {

@@ -917,6 +917,43 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
     });
 
+    test('clicking non-array bit-field parent selects its storage unit size, not child sum (#179)', async () => {
+        const def: StructDef = {
+            id: 'bit_parent_size',
+            name: 'BitParentSize',
+            fields: [
+                {
+                    name: 'bits',
+                    type: 'uint16',
+                    count: 1,
+                    bitFields: [
+                        { name: 'a', bitWidth: 4 },
+                        { name: 'b', bitWidth: 6 },
+                        { name: 'c', bitWidth: 6 },
+                    ],
+                },
+            ],
+        };
+
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_parent_size', structId: 'bit_parent_size', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xAB, 0xCD]);
+
+        await renderPinsAndExpandCard();
+
+        const parentHdr = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        assert.ok(parentHdr, 'bit-field parent header should render');
+        assert.strictEqual(
+            parentHdr!.dataset.byteCnt,
+            '2',
+            'bit-field parent should span one uint16 storage unit, not the child sum',
+        );
+
+        parentHdr!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(S.selStart, 0, 'clicking bit-field parent should select its storage start');
+        assert.strictEqual(S.selEnd, 1, 'clicking bit-field parent should select exactly 2 bytes (uint16), not 6');
+    });
+
     test('uses shared byte order with a local bit-layout toggle', async () => {
         const def: StructDef = {
             id: 'bit_alloc_toggle',
