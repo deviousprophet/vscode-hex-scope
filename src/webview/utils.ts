@@ -14,12 +14,15 @@ export function fmtB(b: number): string {
     return `${(b / 1_048_576).toFixed(1)} MB`;
 }
 
+const MENU_GUTTER = 8;
+
 export function positionContextMenu(el: HTMLElement, x: number, y: number): void {
     el.style.display = 'block';
     const mw = el.offsetWidth || 220;
     const mh = el.offsetHeight || 120;
-    el.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
-    el.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+    el.style.left = `${Math.max(MENU_GUTTER, Math.min(x, window.innerWidth - mw - MENU_GUTTER))}px`;
+    el.style.top = `${Math.max(MENU_GUTTER, Math.min(y, window.innerHeight - mh - MENU_GUTTER))}px`;
+    el.classList.toggle('ctx-scroll', mh > window.innerHeight - MENU_GUTTER * 2);
 }
 
 export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = false): void {
@@ -40,7 +43,13 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
     const shouldOpenLeft = (sub: HTMLElement, row: HTMLElement): boolean => {
         const rr = row.getBoundingClientRect();
         const sw = sub.offsetWidth || 220;
-        return rr.right + sw > window.innerWidth - 8;
+        return rr.right + sw > window.innerWidth - MENU_GUTTER;
+    };
+
+    const shouldOpenUp = (sub: HTMLElement, row: HTMLElement): boolean => {
+        const rr = row.getBoundingClientRect();
+        const sh = sub.offsetHeight || 120;
+        return rr.top + sh > window.innerHeight - MENU_GUTTER;
     };
 
     const openSub = (sub: HTMLElement, row: HTMLElement) => {
@@ -53,6 +62,12 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
         } else {
             sub.style.left = '100%'; sub.style.right = 'auto';
         }
+        if (shouldOpenUp(sub, row)) {
+            sub.style.top = 'auto'; sub.style.bottom = '-4px';
+        } else {
+            sub.style.top = '-4px'; sub.style.bottom = 'auto';
+        }
+        sub.classList.toggle('ctx-scroll', (sub.offsetHeight || 120) > window.innerHeight - MENU_GUTTER);
     };
 
     const scheduledClose = (sub: HTMLElement) => {

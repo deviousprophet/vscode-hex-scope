@@ -932,3 +932,27 @@ Fixed #179: clicking a bit-field container's parent row selected the sum of chil
 ### Status
 
 [OK] **Completed**
+
+
+## Session 41: Context menu visibility, focus dismissal, keyboard navigation
+
+**Date**: 2026-08-22
+**Task**: Context menu visibility, focus dismissal, keyboard navigation
+**Branch**: `fix/context-menu-visibility`
+
+### Summary
+
+Full-viewport context menu guarantee (gutter floor, submenu up-flip, tall-menu scroll cap), focus-loss dismissal, input-modality keyboard highlight, WAI-ARIA submenu keyboard pattern, fallow CRAP refactor. PR #196 (draft). Full suite 870 passing; fallow green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `790a293` | (see git log) |
+| `109a7dc` | (see git log) |
+| `496a49e` | (see git log) |
+| `f04149b` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -5,6 +5,10 @@
 ### Fixed
 
 - Clicking a bit-field container's parent row now selects the container's underlying storage unit (e.g. 2 bytes for `uint16_t`) instead of the sum of each child bit-field's storage size
+- Context menu no longer clips off the viewport — submenus flip up at the bottom edge and menus taller than the window scroll within bounds
+- Context menu closes when focus leaves it (Tab, clicking another control) or when the webview loses window focus (VS Code chrome, another editor, alt-tab); focus moves inside the menu keep it open
+- Context menu opened by mouse no longer shows the keyboard-selection highlight on the first row — it appears at the first keypress, while menus opened by the context-menu key / Shift+F10 show it immediately
+- Context menu submenu navigation now follows the WAI-ARIA menu pattern — ArrowRight opens the focused submenu, ArrowLeft returns to the parent row, ArrowUp/Down stay inside the open submenu, and Escape backs out one level at a time
 
 ## [2.18.0] - 2026-08-22
 

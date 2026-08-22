@@ -8,6 +8,7 @@ import {
     type ContextMenuCallbacks,
     type ContextMenuState,
 } from '../../../webview/components/contextMenu/contextMenu';
+import { positionContextMenu, wireHoverSubmenus } from '../../../webview/utils';
 
 interface Calls {
     commands: string[];
@@ -239,6 +240,66 @@ suite('webview ContextMenu component', () => {
         assert.strictEqual(document.activeElement, first, 'focus moves to the first enabled submenu item');
     });
 
+    test('ArrowRight on a submenu row opens it and focuses the first item inside', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        assert.strictEqual(sub.style.display, 'block', 'ArrowRight opens the submenu');
+        const first = sub.querySelector<HTMLElement>('.ctx-row:not(.ctx-disabled)')!;
+        assert.strictEqual(document.activeElement, first, 'focus moves to the first enabled submenu item');
+    });
+
+    test('ArrowLeft closes the open submenu and returns focus to the parent row', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+        assert.strictEqual(sub.style.display, 'none');
+        assert.strictEqual(document.activeElement, subRow, 'focus returns to the parent row');
+    });
+
+    test('ArrowUp/Down navigate only within the open submenu and wrap inside it', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        const items = sub.querySelectorAll<HTMLElement>('.ctx-row:not(.ctx-disabled)');
+        assert.ok(items.length > 2, 'copy-as submenu has several items');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        assert.strictEqual(document.activeElement, items[1], 'ArrowDown moves to the next submenu item');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp' }));
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp' }));
+        assert.strictEqual(document.activeElement, items[items.length - 1], 'ArrowUp wraps to the last submenu item');
+        assert.strictEqual(document.activeElement!.closest('.ctx-submenu'), sub, 'navigation never leaves the submenu');
+    });
+
+    test('ArrowUp/Down from parent rows never enter a collapsed submenu scope', () => {
+        const { dom } = createHarness();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        const active = document.activeElement as HTMLElement;
+        assert.ok(!active.closest('.ctx-submenu'), 'parent navigation stays in the parent menu');
+        assert.strictEqual(active.closest('.ctx-has-sub'), null, 'never lands on the submenu trigger row');
+    });
+
+    test('Escape closes the open submenu first, then the menu on the second press', () => {
+        const { dom } = createHarness();
+        const subRow = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-has-sub[data-sub="copy"]')!;
+        subRow.focus();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        const sub = subRow.querySelector<HTMLElement>('.ctx-submenu')!;
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+        assert.strictEqual(sub.style.display, 'none', 'first Escape closes the submenu');
+        assert.strictEqual(document.activeElement, subRow, 'focus returns to the parent row');
+        assert.ok(visible(dom), 'menu stays open after the first Escape');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+        assert.ok(!visible(dom), 'second Escape hides the menu');
+    });
+
     test('custom fill: valid Enter applies fill command and hides', () => {
         const { dom, calls } = createHarness({ editMode: true });
         const input = ctxMenuEl(dom).querySelector<HTMLInputElement>('.ctx-fill-input');
@@ -290,5 +351,165 @@ suite('webview ContextMenu component', () => {
         menu.mount();
         clickRow(dom, 'copy-ascii');
         assert.deepStrictEqual(calls.commands, ['copy-ascii']);
+    });
+
+    test('focus leaving the menu closes it (Tab / focusable click outside)', () => {
+        const { dom } = createHarness();
+        (document.activeElement as HTMLElement).dispatchEvent(
+            new dom.window.FocusEvent('focusout', { bubbles: true, relatedTarget: dom.window.document.body }),
+        );
+        assert.ok(!visible(dom));
+    });
+
+    test('focus moving between rows inside the menu keeps it open', () => {
+        const { dom } = createHarness();
+        const inside = ctxMenuEl(dom).querySelector<HTMLElement>('.ctx-row[data-cmd]')!;
+        (document.activeElement as HTMLElement).dispatchEvent(
+            new dom.window.FocusEvent('focusout', { bubbles: true, relatedTarget: inside }),
+        );
+        assert.ok(visible(dom));
+    });
+
+    test('window blur (click outside the webview) closes the menu', () => {
+        const { dom } = createHarness();
+        dom.window.dispatchEvent(new dom.window.Event('blur'));
+        assert.ok(!visible(dom));
+    });
+
+    test('mouse-open menu has no ctx-kb highlight; a keydown reveals it', () => {
+        const { dom } = createHarness();
+        assert.ok(!ctxMenuEl(dom).classList.contains('ctx-kb'), 'mouse-open: keyboard highlight hidden');
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        assert.ok(ctxMenuEl(dom).classList.contains('ctx-kb'), 'first keydown reveals keyboard highlight');
+        dom.window.document.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+        assert.ok(!ctxMenuEl(dom).classList.contains('ctx-kb'), 'pointerdown hides it again');
+    });
+
+    test('keyboard-open menu shows the ctx-kb highlight immediately', () => {
+        const { dom, menu } = createHarness();
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }));
+        menu.show(10, 10, baseState());
+        assert.ok(ctxMenuEl(dom).classList.contains('ctx-kb'));
+    });
+});
+
+suite('webview context menu positioning (utils)', () => {
+    teardown(() => {
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    function setViewport(dom: JSDOM, w: number, h: number): void {
+        const win = dom.window as unknown as { innerWidth: number; innerHeight: number };
+        Object.defineProperty(win, 'innerWidth', { value: w, configurable: true });
+        Object.defineProperty(win, 'innerHeight', { value: h, configurable: true });
+    }
+
+    function stubMetrics(el: HTMLElement, w: number, h: number): void {
+        Object.defineProperty(el, 'offsetWidth', { configurable: true, get: () => w });
+        Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => h });
+    }
+
+    function menuEl(): HTMLElement {
+        const dom = installDom();
+        currentDom = dom;
+        const el = dom.window.document.getElementById('ctx-menu') as HTMLElement;
+        el.innerHTML = '<div class="ctx-row ctx-has-sub" data-sub="copy">Copy as\u2026</div>';
+        return el;
+    }
+
+    test('clamps to the bottom-right with an 8px gutter', () => {
+        const el = menuEl();
+        setViewport(currentDom!, 800, 600);
+        stubMetrics(el, 300, 200);
+        positionContextMenu(el, 1000, 500);
+        assert.strictEqual(el.style.left, '492px');
+        assert.strictEqual(el.style.top, '392px');
+    });
+
+    test('keeps a non-negative 8px gutter when the menu is larger than the viewport', () => {
+        const el = menuEl();
+        setViewport(currentDom!, 300, 300);
+        stubMetrics(el, 400, 400);
+        positionContextMenu(el, 1000, 1000);
+        assert.strictEqual(el.style.left, '8px');
+        assert.strictEqual(el.style.top, '8px');
+    });
+
+    test('adds ctx-scroll only when the menu is taller than the viewport gutter', () => {
+        const el = menuEl();
+        setViewport(currentDom!, 800, 300);
+        stubMetrics(el, 200, 280);
+        positionContextMenu(el, 10, 10);
+        assert.ok(!el.classList.contains('ctx-scroll'));
+        stubMetrics(el, 200, 292);
+        positionContextMenu(el, 10, 10);
+        assert.ok(el.classList.contains('ctx-scroll'));
+    });
+});
+
+suite('webview context submenu flip (utils.wireHoverSubmenus)', () => {
+    teardown(() => {
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    function setViewport(dom: JSDOM, w: number, h: number): void {
+        const win = dom.window as unknown as { innerWidth: number; innerHeight: number };
+        Object.defineProperty(win, 'innerWidth', { value: w, configurable: true });
+        Object.defineProperty(win, 'innerHeight', { value: h, configurable: true });
+    }
+
+    function stubMetrics(el: HTMLElement, w: number, h: number): void {
+        Object.defineProperty(el, 'offsetWidth', { configurable: true, get: () => w });
+        Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => h });
+    }
+
+    function stubRect(row: HTMLElement, top: number, right: number): void {
+        row.getBoundingClientRect = () => ({
+            top, right, bottom: top + 27, left: 0, width: 200, height: 27, x: 0, y: top, toJSON: () => ({}),
+        } as DOMRect);
+    }
+
+    function harness(): { dom: JSDOM; row: HTMLElement; sub: HTMLElement } {
+        const dom = installDom();
+        currentDom = dom;
+        const el = dom.window.document.getElementById('ctx-menu') as HTMLElement;
+        el.innerHTML = '<div class="ctx-row ctx-has-sub" data-sub="copy">Copy as\u2026<div class="ctx-submenu"><div class="ctx-row" data-cmd="hex-raw">Hex</div></div></div>';
+        const row = el.querySelector<HTMLElement>('.ctx-has-sub')!;
+        const sub = el.querySelector<HTMLElement>('.ctx-submenu')!;
+        wireHoverSubmenus(el);
+        return { dom, row, sub };
+    }
+
+    test('submenu near the bottom edge flips up', () => {
+        const { dom, row, sub } = harness();
+        setViewport(dom, 800, 600);
+        stubRect(row, 500, 200);
+        stubMetrics(sub, 220, 200);
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+        assert.strictEqual(sub.style.top, 'auto');
+        assert.strictEqual(sub.style.bottom, '-4px');
+        assert.strictEqual(sub.style.left, '100%');
+        assert.strictEqual(sub.style.right, 'auto');
+    });
+
+    test('submenu near the right edge flips left, top-left rows stay put', () => {
+        const { dom, row, sub } = harness();
+        setViewport(dom, 800, 600);
+        stubRect(row, 100, 700);
+        stubMetrics(sub, 220, 100);
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+        assert.strictEqual(sub.style.left, 'auto');
+        assert.strictEqual(sub.style.right, '100%');
+        assert.strictEqual(sub.style.top, '-4px');
+        assert.strictEqual(sub.style.bottom, 'auto');
+    });
+
+    test('submenu taller than the viewport gets ctx-scroll', () => {
+        const { dom, row, sub } = harness();
+        setViewport(dom, 800, 600);
+        stubRect(row, 100, 100);
+        stubMetrics(sub, 220, 700);
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+        assert.ok(sub.classList.contains('ctx-scroll'));
     });
 });

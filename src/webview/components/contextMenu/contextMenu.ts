@@ -180,16 +180,23 @@ export class ContextMenu {
     /** Element focused before the menu opened; restored on hide (so keyboard control returns to its trigger). */
     private restoreFocusEl: HTMLElement | null = null;
 
+    /** Last input modality; mouse-opens hide the keyboard-selection highlight until first keypress. */
+    private inputMode: 'mouse' | 'keyboard' = 'mouse';
+
     constructor(cb: ContextMenuCallbacks = {}) {
         this.cb = cb;
     }
 
-    /** Document-delegated click-outside dismiss + Escape dismiss. Idempotent. */
+    /** Document-delegated click-outside dismiss + Escape dismiss + input-modality tracking. Idempotent. */
     mount(): void {
         if (this.mounted) { return; }
         this.mounted = true;
         document.addEventListener('click', this.onDocClick);
         document.addEventListener('keydown', this.onDocKeydown);
+        document.addEventListener('focusout', this.onDocFocusOut);
+        window.addEventListener('blur', this.onWindowBlur);
+        document.addEventListener('pointerdown', this.onPointerDown, { capture: true });
+        document.addEventListener('keydown', this.onKeyboardAttract, { capture: true });
     }
 
     show(x: number, y: number, state: ContextMenuState): void {
@@ -200,6 +207,7 @@ export class ContextMenu {
         this.wireInlineInputs(el);
         wireHoverSubmenus(el, true);
         positionContextMenu(el, x, y);
+        el.classList.toggle('ctx-kb', this.inputMode === 'keyboard');
         // Keyboard operability: move focus onto the first enabled menu item.
         el.querySelector<HTMLElement>('.ctx-row[data-cmd]:not(.ctx-disabled)')?.focus();
     }
@@ -225,6 +233,35 @@ export class ContextMenu {
         if (this.outsideMenu(target, menu)) { this.hide(); return; }
         this.runRowCommand(target, menu);
     };
+
+    /** Focus moved out of the open menu (Tab, focusable click) or nowhere → close. Moves inside preserve it. */
+    private onDocFocusOut = (e: FocusEvent): void => {
+        const menu = this.openMenu();
+        if (!menu) { return; }
+        const next = e.relatedTarget as Node | null;
+        if (next === null || !menu.contains(next)) { this.hide(); }
+    };
+
+    /** Webview lost window focus entirely (VS Code chrome, another editor, alt-tab) → close. */
+    private onWindowBlur = (): void => {
+        this.hide();
+    };
+
+    /** Mouse interaction: hide the keyboard-selection highlight until the user actually uses keys. */
+    private onPointerDown = (): void => {
+        this.inputMode = 'mouse';
+        this.applyKbHighlight(false);
+    };
+
+    /** Any keypress (incl. the context-menu key that opens the menu) → keyboard mode: highlight on. */
+    private onKeyboardAttract = (): void => {
+        this.inputMode = 'keyboard';
+        this.applyKbHighlight(true);
+    };
+
+    private applyKbHighlight(on: boolean): void {
+        document.getElementById('ctx-menu')?.classList.toggle('ctx-kb', on);
+    }
 
     private ctxMenuEntryPoint(target: EventTarget | null): HTMLElement | null {
         const el = target as HTMLElement | null;
@@ -258,15 +295,78 @@ export class ContextMenu {
 
     private handleMenuEscape(e: KeyboardEvent): boolean {
         if (e.key !== 'Escape') { return false; }
+        e.preventDefault();
+        const sub = this.openSubmenuFromFocus();
+        if (sub) {
+            // Two-step: Escape closes the open submenu first, then the whole menu.
+            this.closeSubmenu(sub);
+            return true;
+        }
         this.hide();
         return true;
     }
 
     private handleMenuNavigationKey(e: KeyboardEvent, menu: HTMLElement): boolean {
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') { return false; }
+        if (e.key === 'ArrowRight') { return this.handleArrowFlank(e, true); }
+        if (e.key === 'ArrowLeft') { return this.handleArrowFlank(e, false); }
+        const dir = this.verticalArrowDir(e.key);
+        if (dir === 0) { return false; }
         e.preventDefault();
-        this.focusAdjacentRow(menu, e.key === 'ArrowDown' ? 1 : -1);
+        this.focusAdjacentRow(this.scopedNavigationRows(menu), dir);
         return true;
+    }
+
+    /** Shared Right/Left arrow handling: act on the flank arrow, preventDefault only when consumed. */
+    private handleArrowFlank(e: KeyboardEvent, right: boolean): boolean {
+        const handled = right ? this.handleArrowRight() : this.handleArrowLeft();
+        if (handled) { e.preventDefault(); }
+        return handled;
+    }
+
+    private verticalArrowDir(key: string): 1 | -1 | 0 {
+        if (key === 'ArrowDown') { return 1; }
+        if (key === 'ArrowUp') { return -1; }
+        return 0;
+    }
+
+    /** ArrowRight on a .ctx-has-sub row opens its submenu and focuses the first enabled item. */
+    private handleArrowRight(): boolean {
+        const row = this.activeMenuRow();
+        if (!row?.hasAttribute('data-sub')) { return false; }
+        this.openSubmenuRow(row);
+        return true;
+    }
+
+    /** ArrowLeft from inside an open submenu closes it and returns focus to the parent row. */
+    private handleArrowLeft(): boolean {
+        const sub = this.openSubmenuFromFocus();
+        if (!sub) { return false; }
+        sub.style.display = 'none';
+        sub.closest<HTMLElement>('.ctx-has-sub')?.focus();
+        return true;
+    }
+
+    /** Submenu currently open (either focused inside it or open behind the parent row). */
+    private openSubmenuFromFocus(): HTMLElement | null {
+        return this.focusedSubmenu() ?? this.firstOpenSubmenu();
+    }
+
+    private focusedSubmenu(): HTMLElement | null {
+        const active = document.activeElement as HTMLElement | null;
+        const sub = active?.closest?.('.ctx-submenu') as HTMLElement | null;
+        return sub && sub.style.display === 'block' ? sub : null;
+    }
+
+    private firstOpenSubmenu(): HTMLElement | null {
+        for (const sub of document.querySelectorAll<HTMLElement>('.ctx-submenu')) {
+            if (sub.style.display === 'block') { return sub; }
+        }
+        return null;
+    }
+
+    private closeSubmenu(sub: HTMLElement): void {
+        sub.style.display = 'none';
+        sub.closest<HTMLElement>('.ctx-has-sub')?.focus();
     }
 
     private handleMenuActivationKey(e: KeyboardEvent, menu: HTMLElement): void {
@@ -294,24 +394,38 @@ export class ContextMenu {
         return key === 'Enter' || key === ' ';
     }
 
-    private focusAdjacentRow(menu: HTMLElement, dir: 1 | -1): void {
-        const rows = this.navigableRows(menu);
+    private focusAdjacentRow(rows: HTMLElement[], dir: 1 | -1): void {
         if (rows.length === 0) { return; }
         const idx = this.currentRowIndex(rows, document.activeElement as HTMLElement | null, dir);
         rows[(idx + dir + rows.length) % rows.length].focus();
     }
 
-    private navigableRows(menu: HTMLElement): HTMLElement[] {
-        return Array.from(menu.querySelectorAll<HTMLElement>('.ctx-row'))
-            .filter(r => !r.classList.contains('ctx-disabled')
-                && !r.classList.contains('ctx-custom-row')
-                && this.rowVisible(r));
+    /** ArrowUp/Down navigate strictly within the open submenu; otherwise only the parent menu's own rows. */
+    private scopedNavigationRows(menu: HTMLElement): HTMLElement[] {
+        const active = document.activeElement as HTMLElement | null;
+        const sub = active?.closest?.('.ctx-submenu') as HTMLElement | null;
+        if (sub && sub.style.display === 'block') {
+            return this.enabledRows(sub);
+        }
+        return Array.from(menu.querySelectorAll<HTMLElement>(':scope > .ctx-row'))
+            .filter(r => this.enabledRow(r));
+    }
+
+    private enabledRows(root: HTMLElement): HTMLElement[] {
+        return Array.from(root.querySelectorAll<HTMLElement>('.ctx-row'))
+            .filter(r => this.enabledRow(r));
+    }
+
+    private enabledRow(row: HTMLElement): boolean {
+        return !row.classList.contains('ctx-disabled')
+            && !row.classList.contains('ctx-custom-row')
+            && this.rowVisible(row);
     }
 
     /** A row is navigable only when not inside a collapsed (display:none) submenu. */
     private rowVisible(row: HTMLElement): boolean {
         const sub = row.closest<HTMLElement>('.ctx-submenu');
-        return !sub || sub.style.display !== 'none';
+        return !sub || sub.style.display === 'block';
     }
 
     private currentRowIndex(rows: HTMLElement[], current: HTMLElement | null, dir: 1 | -1): number {
