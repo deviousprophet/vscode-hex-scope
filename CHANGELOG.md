@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Clicking a bit-field container's parent row now selects the container's underlying storage unit (e.g. 2 bytes for `uint16_t`) instead of the sum of each child bit-field's storage size
+
 ## [2.18.0] - 2026-08-22
 
 ### Added

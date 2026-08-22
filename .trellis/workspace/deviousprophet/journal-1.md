@@ -910,3 +910,25 @@ saveEdits now spliceEditedLines (regex line scan, owner records only + checksum)
 ### Status
 
 [OK] **Completed**
+
+
+## Session 40: Bit-field parent byte selection fix
+
+**Date**: 2026-08-22
+**Task**: Bit-field parent byte selection fix
+**Branch**: `fix/bitfield-parent-byte-selection`
+
+### Summary
+
+Fixed #179: clicking a bit-field container's parent row selected the sum of children storage bytes (6) instead of one storage unit (2). structGroupByteCount now returns decodedRowByteCount(rows[0]) for non-array bit-units; arrays keep unit*count. Added regression test (fails pre-fix, passes post-fix; full structPanel suite 54 passing). Updated CHANGELOG [Unreleased]/Fixed. Draft PR #195.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8563b90` | (see git log) |
+| `9c43c3f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
