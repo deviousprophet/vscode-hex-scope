@@ -307,20 +307,26 @@ export class ContextMenu {
     }
 
     private handleMenuNavigationKey(e: KeyboardEvent, menu: HTMLElement): boolean {
-        if (e.key === 'ArrowRight') {
-            const handled = this.handleArrowRight();
-            if (handled) { e.preventDefault(); }
-            return handled;
-        }
-        if (e.key === 'ArrowLeft') {
-            const handled = this.handleArrowLeft();
-            if (handled) { e.preventDefault(); }
-            return handled;
-        }
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') { return false; }
+        if (e.key === 'ArrowRight') { return this.handleArrowFlank(e, true); }
+        if (e.key === 'ArrowLeft') { return this.handleArrowFlank(e, false); }
+        const dir = this.verticalArrowDir(e.key);
+        if (dir === 0) { return false; }
         e.preventDefault();
-        this.focusAdjacentRow(this.scopedNavigationRows(menu), e.key === 'ArrowDown' ? 1 : -1);
+        this.focusAdjacentRow(this.scopedNavigationRows(menu), dir);
         return true;
+    }
+
+    /** Shared Right/Left arrow handling: act on the flank arrow, preventDefault only when consumed. */
+    private handleArrowFlank(e: KeyboardEvent, right: boolean): boolean {
+        const handled = right ? this.handleArrowRight() : this.handleArrowLeft();
+        if (handled) { e.preventDefault(); }
+        return handled;
+    }
+
+    private verticalArrowDir(key: string): 1 | -1 | 0 {
+        if (key === 'ArrowDown') { return 1; }
+        if (key === 'ArrowUp') { return -1; }
+        return 0;
     }
 
     /** ArrowRight on a .ctx-has-sub row opens its submenu and focuses the first enabled item. */
@@ -342,9 +348,16 @@ export class ContextMenu {
 
     /** Submenu currently open (either focused inside it or open behind the parent row). */
     private openSubmenuFromFocus(): HTMLElement | null {
+        return this.focusedSubmenu() ?? this.firstOpenSubmenu();
+    }
+
+    private focusedSubmenu(): HTMLElement | null {
         const active = document.activeElement as HTMLElement | null;
-        const focused = active?.closest?.('.ctx-submenu') as HTMLElement | null;
-        if (focused && focused.style.display === 'block') { return focused; }
+        const sub = active?.closest?.('.ctx-submenu') as HTMLElement | null;
+        return sub && sub.style.display === 'block' ? sub : null;
+    }
+
+    private firstOpenSubmenu(): HTMLElement | null {
         for (const sub of document.querySelectorAll<HTMLElement>('.ctx-submenu')) {
             if (sub.style.display === 'block') { return sub; }
         }
