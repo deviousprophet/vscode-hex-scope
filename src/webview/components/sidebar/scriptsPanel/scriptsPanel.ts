@@ -183,7 +183,7 @@ export class ScriptsPanel {
         this.clearRunning();
         this.outputCount = 0;
         this.flushPendingOutput();
-        this.setScriptStatus(scriptPath, error ? 'error' : 'success');
+        this.setScriptStatus(scriptPath, this.statusForError(error));
         this.updateStatusDot(scriptPath);
         if (writes !== undefined) { this.storedWrites.set(scriptPath, writes); }
 
@@ -196,6 +196,10 @@ export class ScriptsPanel {
         this.wireCollapse(area);
         this.wireClear(area, scriptPath);
         this.wireWritesActions(area, scriptPath, writes);
+    }
+
+    private statusForError(error: string): 'error' | 'success' {
+        return error ? 'error' : 'success';
     }
 
     /** Streamed output line (was updateScriptOutput → appendOutput). The target card is resolved from the running button, matching pre-refactor. */

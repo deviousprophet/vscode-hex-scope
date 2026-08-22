@@ -166,14 +166,18 @@ function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
     if (!isIntegrityCheckCore(raw)) { return null; }
     const verification = normalizeVerificationSettings(raw);
     if (!verification.ok) { return null; }
-    const name = normalizeCheckName(raw.name);
     return {
         algorithm: raw.algorithm,
         startAddress: raw.startAddress as number,
         endAddress: raw.endAddress as number,
-        ...(name ? { name } : {}),
+        ...checkNameField(normalizeCheckName(raw.name)),
         ...verification.value,
     };
+}
+
+/** Name field for the config; empty/oversized names are omitted. */
+function checkNameField(name: string): { name: string } | {} {
+    return name ? { name } : {};
 }
 
 /** Trim; empty or over 40 chars treated as unnamed (field dropped). */

@@ -6,7 +6,7 @@
 // DOM reads/writes happen here, model/domain state stays host-owned.
 
 import { esc } from '../../../utils';
-import type { SegmentLabel, SerializedSegment } from '../../../../core/types';
+import type { LabelDraftPreview, SegmentLabel, SerializedSegment } from '../../../../core/types';
 import {
     defaultLabelColor,
     endAddressOrEmpty,
@@ -108,19 +108,27 @@ export function updateLabelFormSel(panel: InspectorLabelFormHost): void {
 
 /** Refresh the auto-calc chip + report the draft range to the host grid. */
 function syncDraftPreview(panel: InspectorLabelFormHost, state: LabelFormState): void {
+    updateLabelChip(panel, state);
+    panel.cb.onLabelDraftChange?.(draftPreviewPayload(panel, state));
+}
+
+function updateLabelChip(panel: InspectorLabelFormHost, state: LabelFormState): void {
     const chip = panel.root?.querySelector<HTMLElement>('#lf-chip');
-    if (chip) {
-        const start = labelStartAddress(panel);
-        const raw = labelRangeEl(panel)?.value ?? '';
-        const text = labelChipText(state.rangeMode, start, raw);
-        chip.textContent = text;
-        if (text) { chip.title = text; } else { chip.removeAttribute('title'); }
-    }
+    if (!chip) { return; }
+    const text = chipTextFor(panel, state);
+    chip.textContent = text;
+    if (text) { chip.title = text; } else { chip.removeAttribute('title'); }
+}
+
+function chipTextFor(panel: InspectorLabelFormHost, state: LabelFormState): string {
+    return labelChipText(state.rangeMode, labelStartAddress(panel), labelRangeEl(panel)?.value ?? '');
+}
+
+function draftPreviewPayload(panel: InspectorLabelFormHost, state: LabelFormState): LabelDraftPreview | null {
     const start = labelStartAddress(panel);
     const parsed = parseLabelLength(panel, state.rangeMode, start);
-    panel.cb.onLabelDraftChange?.(isNaN(start) || !parsed.ok
-        ? null
-        : { start, end: start + parsed.length - 1, color: state.chosenColor });
+    if (isNaN(start) || !parsed.ok) { return null; }
+    return { start, end: start + parsed.length - 1, color: state.chosenColor };
 }
 
 /** Open form with both field elements present — else null. */
@@ -136,6 +144,20 @@ function openFormTargets(panel: InspectorLabelFormHost): { state: LabelFormState
     ];
     if (blocked.some(Boolean)) { return null; }
     return { state: state!, startEl: startEl!, rangeEl: rangeEl! };
+}
+
+/** Escape handling in the label form keydown: true when consumed. */
+function labelFormEscapeKey(panel: InspectorLabelFormHost, e: KeyboardEvent): boolean {
+    if (e.key !== 'Escape') { return false; }
+    e.stopPropagation();
+    panel.renderLabels();
+    return true;
+}
+
+function submitLabelFormOnEnter(sec: HTMLElement, e: KeyboardEvent): void {
+    if (e.key !== 'Enter' || (e.target as HTMLElement | null)?.tagName !== 'INPUT') { return; }
+    e.preventDefault();
+    sec.querySelector<HTMLButtonElement>('#lf-save')?.click();
 }
 
 /** Range focused → auto-switch to End addr mode and fill the selection end. */
@@ -386,15 +408,8 @@ function wireLabelForm(
     sec.querySelector<HTMLElement>('#lf-range')?.addEventListener('input', clearPending);
 
     sec.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-            e.stopPropagation();
-            panel.renderLabels();
-            return;
-        }
-        if (e.key === 'Enter' && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
-            e.preventDefault();
-            sec.querySelector<HTMLButtonElement>('#lf-save')?.click();
-        }
+        if (labelFormEscapeKey(panel, e)) { return; }
+        submitLabelFormOnEnter(sec, e);
     });
 
     sec.querySelector<HTMLElement>('#lf-cancel')?.addEventListener('click', () => panel.renderLabels());

@@ -105,13 +105,26 @@ export function clearIntegrityAutoFixSuppression(check: IntegrityCheckState): vo
 export function integrityCheckConfigFromState(check: IntegrityCheckState): IntegrityConfigValidation {
     const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
     if (!range.ok) { return range; }
-    const name = check.name.trim();
-    if (name.length > 40) { return { ok: false, error: 'Check name must be 40 characters or fewer.' }; }
-    const named = name ? { name } : {};
-    if (!hasStoredChecksum(check)) { return { ok: true, value: { ...range.value, ...named, autoFixStoredValue: false } }; }
+    const nameCfg = checkNameConfig(check.name);
+    if (!nameCfg.ok) { return nameCfg; }
+    const storedCfg = storedChecksumConfig(check);
+    if (!storedCfg.ok) { return storedCfg; }
+    return { ok: true, value: { ...range.value, ...nameCfg.value, ...storedCfg.value } };
+}
+
+function checkNameConfig(name: string): { ok: true; value: { name?: string } } | { ok: false; error: string } {
+    const trimmed = name.trim();
+    if (trimmed.length > 40) { return { ok: false, error: 'Check name must be 40 characters or fewer.' }; }
+    return { ok: true, value: trimmed ? { name: trimmed } : {} };
+}
+
+function storedChecksumConfig(check: IntegrityCheckState):
+    | { ok: true; value: { storedAddress?: number; autoFixStoredValue: boolean } }
+    | { ok: false; error: string } {
+    if (!hasStoredChecksum(check)) { return { ok: true, value: { autoFixStoredValue: false } }; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return stored; }
-    return { ok: true, value: { ...range.value, ...named, storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
+    return { ok: true, value: { storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
 }
 
 export function integrityCheckConfigsFromStates(checks: readonly IntegrityCheckState[]): IntegrityConfigListValidation {

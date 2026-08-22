@@ -157,13 +157,15 @@ function applySavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): Webvie
     Also keeps undo/redo base (getOriginalByte) truthful after a save. */
 function foldLocalEdits(): void {
     if (!S.parseResult) { return; }
-    for (const [addr, value] of S.edits) {
-        for (const seg of S.parseResult.segments) {
-            const off = addr - seg.startAddress;
-            if (off >= 0 && off < seg.data.length) {
-                (seg.data as unknown as Uint8Array)[off] = value;
-                break;
-            }
+    for (const [addr, value] of S.edits) { patchLocalSegment(addr, value); }
+}
+
+function patchLocalSegment(addr: number, value: number): void {
+    for (const seg of S.parseResult!.segments) {
+        const off = addr - seg.startAddress;
+        if (off >= 0 && off < seg.data.length) {
+            (seg.data as unknown as Uint8Array)[off] = value;
+            return;
         }
     }
 }

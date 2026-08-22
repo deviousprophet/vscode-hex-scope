@@ -100,14 +100,26 @@ function rangeFieldHtml(defaultRange: string, mode: LabelRangeMode, chipText: st
             <div class="lf-field">
                 <span class="lf-lbl">Define End By</span>
                     <div class="compact-tabs lf-mode-tabs">
-                        <button data-mode="end"${mode === 'end' ? ' class="active"' : ''}>End Address</button>
-                        <button data-mode="len"${mode === 'len' ? ' class="active"' : ''}>Size &middot; Length</button>
+                        ${modeTab('end', 'End Address', mode)}
+                        ${modeTab('len', 'Size &middot; Length', mode)}
                     </div>
                 <div class="lf-range-row">
-                    <input id="lf-range" class="sb-input lf-hex" type="text" placeholder="${mode === 'end' ? '0x0800FFFF' : '512'}" value="${esc(defaultRange)}">
-                    <span class="lf-chip" id="lf-chip"${chipText ? ` title="${esc(chipText)}"` : ''}>${esc(chipText)}</span>
+                    <input id="lf-range" class="sb-input lf-hex" type="text" placeholder="${rangePlaceholder(mode)}" value="${esc(defaultRange)}">
+                    <span class="lf-chip" id="lf-chip"${chipAttrs(chipText)}>${esc(chipText)}</span>
                 </div>
             </div>`;
+}
+
+function modeTab(dataMode: string, label: string, mode: LabelRangeMode): string {
+    return `<button data-mode="${dataMode}"${mode === dataMode ? ' class="active"' : ''}>${label}</button>`;
+}
+
+function rangePlaceholder(mode: LabelRangeMode): string {
+    return mode === 'end' ? '0x0800FFFF' : '512';
+}
+
+function chipAttrs(chipText: string): string {
+    return chipText ? ` title="${esc(chipText)}"` : '';
 }
 
 function colorFieldHtml(swatchHtml: string): string {
@@ -160,10 +172,15 @@ export function parseExplicitLength(raw: string): LabelLengthResult {
  */
 export function labelChipText(mode: LabelRangeMode, startAddress: number, raw: string): string {
     if (isNaN(startAddress)) { return ''; }
-    if (mode === 'end') {
-        const parsed = parseEndAddressLength(raw, startAddress);
-        return parsed.ok ? `(${fmtB(parsed.length)})` : '';
-    }
+    return mode === 'end' ? endModeChip(raw, startAddress) : lengthModeChip(raw, startAddress);
+}
+
+function endModeChip(raw: string, startAddress: number): string {
+    const parsed = parseEndAddressLength(raw, startAddress);
+    return parsed.ok ? `(${fmtB(parsed.length)})` : '';
+}
+
+function lengthModeChip(raw: string, startAddress: number): string {
     const parsed = parseExplicitLength(raw);
     return parsed.ok ? endAddressOrEmpty(startAddress, parsed.length) : '';
 }

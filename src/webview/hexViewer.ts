@@ -219,6 +219,10 @@ function applyIntegrityHighlight(highlight: IntegrityHighlight | null): void {
 function dataRangeFromSegments(): { start: number; end: number } | null {
     const segments = S.parseResult?.segments;
     if (!segments || segments.length === 0) { return null; }
+    return spanOf(segments);
+}
+
+function spanOf(segments: ReadonlyArray<{ startAddress: number; data: ArrayLike<number> }>): { start: number; end: number } {
     let start = Number.MAX_SAFE_INTEGER;
     let end = -1;
     for (const seg of segments) {
@@ -240,14 +244,18 @@ const scriptsPanel = new ScriptsPanel({
 
 /** Stage script-written bytes as viewer edits (mapped addresses only), then save. */
 function applyScriptWrites(writes: Array<[number, number]>): void {
-    const segments = S.parseResult?.segments ?? [];
-    const mapped = writes.filter(([addr]) => segments.some(s => addr >= s.startAddress && addr <= s.startAddress + s.data.length - 1));
+    const mapped = mappedScriptWrites(writes);
     if (mapped.length === 0) { return; }
     for (const [addr, value] of mapped) { S.edits.set(addr, value); }
     S.editMode = true;
     toolbar.setEditMode(true);
     saveEdits();
     refreshAfterLocalEdit();
+}
+
+function mappedScriptWrites(writes: Array<[number, number]>): Array<[number, number]> {
+    const segments = S.parseResult?.segments ?? [];
+    return writes.filter(([addr]) => segments.some(s => addr >= s.startAddress && addr <= s.startAddress + s.data.length - 1));
 }
 
 const sidebarPanels: SidebarPanel[] = [

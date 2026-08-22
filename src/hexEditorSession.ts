@@ -8,7 +8,7 @@ import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser'
 import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
-import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch } from './core/document';
+import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
@@ -61,11 +61,13 @@ function materializeParseResult(result: CompactParseResult, source: string, form
 
 /** Apply a save's edits to the in-memory segment bytes (no reparse). */
 function foldEditsIntoSegments(segments: MemorySegment[], editMap: Map<number, number>): void {
-    for (const [addr, value] of editMap) {
-        for (const seg of segments) {
-            const off = addr - seg.startAddress;
-            if (off >= 0 && off < seg.data.length) { seg.data[off] = value; break; }
-        }
+    for (const [addr, value] of editMap) { patchSegmentsAt(segments, addr, value); }
+}
+
+function patchSegmentsAt(segments: MemorySegment[], addr: number, value: number): void {
+    for (const seg of segments) {
+        const off = addr - seg.startAddress;
+        if (off >= 0 && off < seg.data.length) { seg.data[off] = value; return; }
     }
 }
 
@@ -80,6 +82,17 @@ async function writeSplices(uri: vscode.Uri, patches: SplicePatch[]): Promise<vo
     } finally {
         await fh.close();
     }
+}
+
+/** Positional write when the plan allows it; whole-file write otherwise (fallback safe). */
+async function writePlanToFile(uri: vscode.Uri, plan: SplicePlan): Promise<void> {
+    if (plan.patches) {
+        try {
+            await writeSplices(uri, plan.patches);
+            return;
+        } catch { /* positional write failed → whole-file fallback below */ }
+    }
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(plan.newRaw));
 }
 
 function postToPanel(panel: vscode.WebviewPanel, msg: ProviderToWebviewMessage): void {
@@ -715,22 +728,13 @@ export class HexEditorSession {
             },
             saveEdits: async msg => {
                 if (!parseResult) { return; }
-                const edits = msg.edits;
-                const editMap = new Map<number, number>(edits);
+                const editMap = new Map<number, number>(msg.edits);
                 // Fast save: splice only the edited record lines, then write
                 // positionally (just those byte ranges) when the plan is
                 // ASCII/same-length safe; otherwise fall back to a whole write.
                 // No materialize (every record) and no full reparse.
                 const plan = buildSplicePlan(raw, editMap, format);
-                if (plan.patches) {
-                    try {
-                        await writeSplices(document.uri, plan.patches);
-                    } catch {
-                        await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(plan.newRaw));
-                    }
-                } else {
-                    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(plan.newRaw));
-                }
+                await writePlanToFile(document.uri, plan);
                 markSelfWrite();
                 raw = plan.newRaw;
                 foldEditsIntoSegments(parseResult.segments, editMap);
@@ -739,7 +743,7 @@ export class HexEditorSession {
                     type: 'savedEdits',
                     generation: currentGeneration,
                 });
-                vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
+                vscode.window.showInformationMessage(`HexScope: saved ${msg.edits.length} byte${msg.edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
             },
             reloadAccepted: async () => {
                 if (!pendingExternalReload) { return; }

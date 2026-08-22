@@ -86,27 +86,53 @@ export function spliceEditedLines(originalRaw: string, edits: Map<number, number
 
 export function buildSplicePlan(originalRaw: string, edits: Map<number, number>, format: HexScopeFormat): SplicePlan {
     if (edits.size === 0) { return { newRaw: originalRaw, patches: [] }; }
-    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
-    const eolLen = eol.length;
     const lines = originalRaw.split(/\r?\n/);
-    const owners = format === 'srec' ? srecOwnerLines(lines, edits) : intelOwnerLines(lines, edits);
+    const owners = ownersFor(format, lines, edits);
+    const { replacements, safe: lengthSafe } = buildReplacements(lines, owners, edits);
+    const asciiSafe = applyReplacements(lines, replacements);
+    const safe = lengthSafe && asciiSafe;
+    if (!safe) { return { newRaw: lines.join(lineEol(originalRaw)), patches: null }; }
+    return { newRaw: lines.join(lineEol(originalRaw)), patches: splicePatches(lines, replacements, lineEol(originalRaw).length) };
+}
 
+function lineEol(raw: string): string {
+    return raw.includes('\r\n') ? '\r\n' : '\n';
+}
+
+function ownersFor(format: HexScopeFormat, lines: string[], edits: Map<number, number>): SplicedLine[] {
+    return format === 'srec' ? srecOwnerLines(lines, edits) : intelOwnerLines(lines, edits);
+}
+
+/** Rebuild edited record lines; `safe=false` when any rebuilt line would change length. */
+function buildReplacements(lines: string[], owners: SplicedLine[], edits: Map<number, number>): { replacements: Map<number, string>; safe: boolean } {
     const replacements = new Map<number, string>();
     let safe = true;
     for (const owner of owners) {
-        const rebuilt = rebuiltSpliceLine(owner, edits);
-        if (rebuilt === null) { continue; }
-        const full = replaceRecordText(lines[owner.lineIndex], rebuilt);
+        const full = rebuildLineText(lines, owner, edits);
+        if (full === null) { continue; }
         replacements.set(owner.lineIndex, full);
         if (full.length !== lines[owner.lineIndex].length) { safe = false; }
     }
+    return { replacements, safe };
+}
+
+function rebuildLineText(lines: string[], owner: SplicedLine, edits: Map<number, number>): string | null {
+    const rebuilt = rebuiltSpliceLine(owner, edits);
+    return rebuilt === null ? null : replaceRecordText(lines[owner.lineIndex], rebuilt);
+}
+
+/** Splice replacements in; false when any file byte is non-ASCII (positional unsafe). */
+function applyReplacements(lines: string[], replacements: Map<number, string>): boolean {
+    let safe = true;
     for (const [i, line] of lines.entries()) {
-        if (safe && /[^\x00-\x7F]/.test(line)) { safe = false; }
+        if (/[^\x00-\x7F]/.test(line)) { safe = false; }
         const full = replacements.get(i);
         if (full !== undefined) { lines[i] = full; }
     }
+    return safe;
+}
 
-    if (!safe) { return { newRaw: lines.join(eol), patches: null }; }
+function splicePatches(lines: string[], replacements: Map<number, string>, eolLen: number): SplicePatch[] {
     const patches: SplicePatch[] = [];
     const encoder = new TextEncoder();
     let byteOffset = 0;
@@ -115,69 +141,112 @@ export function buildSplicePlan(originalRaw: string, edits: Map<number, number>,
         if (patchText !== undefined) { patches.push({ offset: byteOffset, bytes: encoder.encode(patchText) }); }
         byteOffset += line.length + eolLen;
     }
-    return { newRaw: lines.join(eol), patches };
+    return patches;
 }
+
+interface IntelHeader { count: number; addr16: number; type: number }
 
 function intelOwnerLines(lines: string[], edits: Map<number, number>): SplicedLine[] {
     const out: SplicedLine[] = [];
     let upper = 0;
-    const re = /^:([0-9a-fA-F]{2})([0-9a-fA-F]{4})([0-9a-fA-F]{2})/;
     for (let i = 0; i < lines.length; i++) {
-        const m = re.exec(lines[i]);
-        if (!m) { continue; }
-        const count = parseInt(m[1], 16);
-        const addr16 = parseInt(m[2], 16);
-        const type = parseInt(m[3], 16);
-        if (type === 4 && count >= 2) {
-            const upperHex = lines[i].slice(9, 13);
-            if (/^[0-9a-fA-F]{4}$/.test(upperHex)) { upper = parseInt(upperHex, 16) << 16; }
-            continue;
-        }
-        if (type !== 0 || count === 0) { continue; }
-        const start = upper | addr16;
-        if (!hasEditInRange(edits, start, start + count - 1)) { continue; }
-        const payload = hexToBytes(lines[i].slice(9, 9 + count * 2));
-        if (payload.length === count) { out.push({ lineIndex: i, recordType: 0, address: addr16, startAddress: start, data: payload }); }
+        const step = intelLineStep(lines[i], i, upper, edits);
+        if (step.kind === 'upper') { upper = step.value; }
+        else if (step.kind === 'owner') { out.push(step.owner); }
     }
     return out;
 }
 
+type IntelStep = { kind: 'upper'; value: number } | { kind: 'owner'; owner: SplicedLine } | { kind: 'none' };
+
+function intelLineStep(line: string, lineIndex: number, upper: number, edits: Map<number, number>): IntelStep {
+    const header = intelLineHeader(line);
+    if (header === null) { return { kind: 'none' }; }
+    const upperValue = intelUpperValue(line, header);
+    if (upperValue !== null) { return { kind: 'upper', value: upperValue }; }
+    const owner = intelDataOwner(line, lineIndex, header, upper, edits);
+    return owner !== null ? { kind: 'owner', owner } : { kind: 'none' };
+}
+
+function intelLineHeader(line: string): IntelHeader | null {
+    const m = /^:([0-9a-fA-F]{2})([0-9a-fA-F]{4})([0-9a-fA-F]{2})/.exec(line);
+    if (!m) { return null; }
+    return { count: parseInt(m[1], 16), addr16: parseInt(m[2], 16), type: parseInt(m[3], 16) };
+}
+
+function intelUpperValue(line: string, header: IntelHeader): number | null {
+    if (header.type !== 4 || header.count < 2) { return null; }
+    const upperHex = line.slice(9, 13);
+    return /^[0-9a-fA-F]{4}$/.test(upperHex) ? parseInt(upperHex, 16) << 16 : null;
+}
+
+function intelDataOwner(line: string, lineIndex: number, header: IntelHeader, upper: number, edits: Map<number, number>): SplicedLine | null {
+    if (!isDataHeader(header)) { return null; }
+    const start = upper | header.addr16;
+    if (!hasEditInRange(edits, start, start + header.count - 1)) { return null; }
+    const payload = hexToBytes(line.slice(9, 9 + header.count * 2));
+    if (payload.length !== header.count) { return null; }
+    return { lineIndex, recordType: 0, address: header.addr16, startAddress: start, data: payload };
+}
+
+function isDataHeader(header: IntelHeader): boolean {
+    return header.type === 0 && header.count > 0;
+}
+
+interface SrecHeader { recordType: number; asz: number; dataLen: number }
+
 function srecOwnerLines(lines: string[], edits: Map<number, number>): SplicedLine[] {
     const out: SplicedLine[] = [];
-    const re = /^S([0-9])([0-9a-fA-F]{2})/;
     for (let i = 0; i < lines.length; i++) {
-        const m = re.exec(lines[i]);
-        if (!m) { continue; }
-        const recordType = parseInt(m[1], 10);
-        if (!srecIsData(recordType)) { continue; }
-        const byteCount = parseInt(m[2], 16);
-        const asz = SREC_ADDR_SIZES[recordType] ?? 2;
-        const dataLen = byteCount - asz - 1;
-        if (dataLen <= 0) { continue; }
-        const addrRaw = lines[i].slice(4, 4 + asz * 2);
-        if (!/^[0-9a-fA-F]+$/.test(addrRaw)) { continue; }
-        const address = parseInt(addrRaw, 16);
-        if (!hasEditInRange(edits, address, address + dataLen - 1)) { continue; }
-        const payload = hexToBytes(lines[i].slice(4 + asz * 2, 4 + asz * 2 + dataLen * 2));
-        if (payload.length === dataLen) { out.push({ lineIndex: i, recordType, address, startAddress: address, data: payload }); }
+        const header = srecLineHeader(lines[i]);
+        if (header === null) { continue; }
+        const owner = srecDataOwner(lines[i], i, header, edits);
+        if (owner !== null) { out.push(owner); }
     }
     return out;
+}
+
+function srecLineHeader(line: string): SrecHeader | null {
+    const m = /^S([0-9])([0-9a-fA-F]{2})/.exec(line);
+    if (!m) { return null; }
+    const recordType = parseInt(m[1], 10);
+    if (!srecIsData(recordType)) { return null; }
+    const asz = srecAddrWidth(recordType);
+    const dataLen = parseInt(m[2], 16) - asz - 1;
+    return dataLen > 0 ? { recordType, asz, dataLen } : null;
+}
+
+function srecAddrWidth(recordType: number): number {
+    return SREC_ADDR_SIZES[recordType] ?? 2;
+}
+
+function srecDataOwner(line: string, lineIndex: number, header: SrecHeader, edits: Map<number, number>): SplicedLine | null {
+    const addrRaw = line.slice(4, 4 + header.asz * 2);
+    if (!/^[0-9a-fA-F]+$/.test(addrRaw)) { return null; }
+    const address = parseInt(addrRaw, 16);
+    if (!hasEditInRange(edits, address, address + header.dataLen - 1)) { return null; }
+    const payload = hexToBytes(line.slice(4 + header.asz * 2, 4 + header.asz * 2 + header.dataLen * 2));
+    if (payload.length !== header.dataLen) { return null; }
+    return { lineIndex, recordType: header.recordType, address, startAddress: address, data: payload };
 }
 
 function rebuiltSpliceLine(owner: SplicedLine, edits: Map<number, number>): string | null {
     const data = owner.data.slice();
-    let changed = false;
-    for (let j = 0; j < data.length; j++) {
-        const addr = owner.startAddress + j;
-        if (edits.has(addr)) {
-            data[j] = edits.get(addr)!;
-            changed = true;
-        }
-    }
-    if (!changed) { return null; }
+    if (!applyEditedBytes(data, edits, owner.startAddress)) { return null; }
     return owner.recordType === 0
         ? buildIntelHexDataRecord(owner.address, data)
         : buildSRecDataRecord(owner.recordType, owner.address, data);
+}
+
+function applyEditedBytes(data: number[], edits: Map<number, number>, start: number): boolean {
+    let changed = false;
+    for (let j = 0; j < data.length; j++) {
+        if (edits.has(start + j)) {
+            data[j] = edits.get(start + j)!;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 function hasEditInRange(edits: Map<number, number>, start: number, end: number): boolean {

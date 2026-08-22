@@ -224,17 +224,24 @@ export class IntegrityPanel implements IntegrityProfileHost {
 
     private addDraft(): IntegrityDraft {
         const draft = blankIntegrityDraft();
-        const selection = this.cb.getSelection?.() ?? null;
-        if (selection) {
-            draft.startRaw = formatIntegrityAddress(selection.start);
-            draft.endRaw = formatIntegrityAddress(selection.end);
-            return draft;
-        }
-        const range = this.cb.getDataRange?.() ?? null;
-        if (range) {
-            draft.startRaw = formatIntegrityAddress(range.start);
-            draft.endRaw = formatIntegrityAddress(range.end);
-        }
+        const selection = this.selectionSnapshot();
+        if (selection) { return this.draftWithRange(draft, selection.start, selection.end); }
+        const range = this.dataRangeSnapshot();
+        if (range) { this.draftWithRange(draft, range.start, range.end); }
+        return draft;
+    }
+
+    private selectionSnapshot(): { start: number; end: number } | null {
+        return this.cb.getSelection?.() ?? null;
+    }
+
+    private dataRangeSnapshot(): { start: number; end: number } | null {
+        return this.cb.getDataRange?.() ?? null;
+    }
+
+    private draftWithRange(draft: IntegrityDraft, start: number, end: number): IntegrityDraft {
+        draft.startRaw = formatIntegrityAddress(start);
+        draft.endRaw = formatIntegrityAddress(end);
         return draft;
     }
 
@@ -561,8 +568,8 @@ export class IntegrityPanel implements IntegrityProfileHost {
 
     private readDraft(form: HTMLElement): DraftValidation {
         const algorithm = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value as IntegrityAlgorithm;
-        const name = (form.querySelector<HTMLInputElement>('[data-draft-control="name"]')?.value ?? '').trim();
-        if (name.length > 40) { return { ok: false, error: 'Check name must be 40 characters or fewer.' }; }
+        const nameDraft = this.readDraftName(form);
+        if (!nameDraft.ok) { return nameDraft; }
         const startRaw = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!.value;
         const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
         const range = validateIntegrityRange(startRaw, endRaw, algorithm);
@@ -573,12 +580,18 @@ export class IntegrityPanel implements IntegrityProfileHost {
             ok: true,
             value: {
                 algorithm,
-                name,
+                name: nameDraft.name,
                 startRaw: formatIntegrityAddress(range.value.startAddress),
                 endRaw: formatIntegrityAddress(range.value.endAddress),
                 storedRaw: stored.value,
             },
         };
+    }
+
+    private readDraftName(form: HTMLElement): { ok: true; name: string } | { ok: false; error: string } {
+        const name = (form.querySelector<HTMLInputElement>('[data-draft-control="name"]')?.value ?? '').trim();
+        if (name.length > 40) { return { ok: false, error: 'Check name must be 40 characters or fewer.' }; }
+        return { ok: true, name };
     }
 
     private readStoredDraft(form: HTMLElement, algorithm: IntegrityAlgorithm): StoredDraftValidation {
@@ -640,22 +653,42 @@ export class IntegrityPanel implements IntegrityProfileHost {
      * Fires only here, never on keystrokes; a null selection leaves values as-is.
      */
     notifySelectionChanged(): void {
-        if (this.addCheckDraft === null && this.editingCheckId === null) { return; }
-        const selection = this.cb.getSelection?.() ?? null;
+        const fields = this.openAddressFields();
+        if (!fields) { return; }
+        const selection = this.currentSelection();
         if (!selection) { return; }
+        const endValue = this.stripHexPrefix(formatIntegrityAddress(selection.end));
+        if (this.formLastFocused === 'end') { this.fillAddressEnd(fields.endEl, endValue); return; }
+        this.fillAddressFields(fields.startEl, fields.endEl, selection, endValue);
+    }
+
+    private currentSelection(): { start: number; end: number } | null {
+        return this.cb.getSelection?.() ?? null;
+    }
+
+    private hasOpenCheckForm(): boolean {
+        return this.addCheckDraft !== null || this.editingCheckId !== null;
+    }
+
+    private openAddressFields(): { startEl: HTMLInputElement | null; endEl: HTMLInputElement | null } | null {
+        if (!this.hasOpenCheckForm()) { return null; }
         const form = document.querySelector<HTMLElement>(
             '[data-integrity-form="add"], [data-integrity-form^="edit-"]',
         );
-        if (!form) { return; }
-        const startEl = form.querySelector<HTMLInputElement>('[data-draft-control="start"]');
-        const endEl = form.querySelector<HTMLInputElement>('[data-draft-control="end"]');
-        const endValue = this.stripHexPrefix(formatIntegrityAddress(selection.end));
-        if (this.formLastFocused === 'end') {
-            if (endEl) { endEl.value = endValue; }
-            return;
-        }
+        if (!form) { return null; }
+        return {
+            startEl: form.querySelector<HTMLInputElement>('[data-draft-control="start"]'),
+            endEl: form.querySelector<HTMLInputElement>('[data-draft-control="end"]'),
+        };
+    }
+
+    private fillAddressFields(startEl: HTMLInputElement | null, endEl: HTMLInputElement | null, selection: { start: number; end: number }, endValue: string): void {
         if (startEl) { startEl.value = this.stripHexPrefix(formatIntegrityAddress(selection.start)); }
         if (endEl) { endEl.value = endValue; }
+    }
+
+    private fillAddressEnd(endEl: HTMLInputElement | null, value: string): void {
+        if (endEl) { endEl.value = value; }
     }
 
     // ── Calculation scheduling (delegates to integrityCalculation.ts) ──

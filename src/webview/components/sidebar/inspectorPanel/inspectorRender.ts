@@ -256,12 +256,24 @@ export function defaultLabelStart(selection: { start: number | null; end: number
 }
 
 export function defaultLabelRange(selection: { start: number | null; end: number | null }, editing: SegmentLabel | undefined, mode: 'len' | 'end' = 'len'): string {
-    if (editing) {
-        return mode === 'end' ? labelAddrHex(editing.startAddress + editing.length - 1) : `${editing.length}`;
-    }
+    if (editing) { return editingRange(editing, mode); }
+    return selectionRange(selection, mode);
+}
+
+function editingRange(editing: SegmentLabel, mode: 'len' | 'end'): string {
+    return mode === 'end'
+        ? labelAddrHex(editing.startAddress + editing.length - 1)
+        : `${editing.length}`;
+}
+
+function selectionRange(selection: { start: number | null; end: number | null }, mode: 'len' | 'end'): string {
     const { start, end } = selection;
-    if (start === null || end === null || end < start) { return ''; }
-    return mode === 'end' ? labelAddrHex(end) : `${end - start + 1}`;
+    if (!validSelectionRange(start, end)) { return ''; }
+    return mode === 'end' ? labelAddrHex(end!) : `${end! - start! + 1}`;
+}
+
+function validSelectionRange(start: number | null, end: number | null): boolean {
+    return start !== null && end !== null && end >= start;
 }
 
 export function labelSwatchesHtml(chosenColor: string): string {

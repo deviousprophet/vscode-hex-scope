@@ -14,13 +14,23 @@ function intelLine(count: number, addr: number, type: number, dataHex: string): 
         + chk.toString(16).padStart(2, '0').toUpperCase();
 }
 
-function srecLine(type: number, address: number, dataHex: string): string {
-    const asz = type === 1 ? 2 : type === 2 ? 3 : 4;
+function srecAddrSize(type: number): number {
+    return type === 1 ? 2 : type === 2 ? 3 : 4;
+}
+
+function srecSum(type: number, address: number, dataHex: string): number {
+    const asz = srecAddrSize(type);
     const byteCount = asz + dataHex.length / 2 + 1;
     let sum = byteCount;
     for (let i = asz - 1; i >= 0; i--) { sum += (address >>> (i * 8)) & 0xFF; }
     for (let i = 0; i < dataHex.length; i += 2) { sum += parseInt(dataHex.slice(i, i + 2), 16); }
-    const chk = (~sum) & 0xFF;
+    return sum;
+}
+
+function srecLine(type: number, address: number, dataHex: string): string {
+    const asz = srecAddrSize(type);
+    const byteCount = asz + dataHex.length / 2 + 1;
+    const chk = (~srecSum(type, address, dataHex)) & 0xFF;
     return `S${type}` + byteCount.toString(16).padStart(2, '0').toUpperCase()
         + address.toString(16).padStart(asz * 2, '0').toUpperCase()
         + dataHex + chk.toString(16).padStart(2, '0').toUpperCase();

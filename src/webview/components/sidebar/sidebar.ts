@@ -273,11 +273,6 @@ function isValidStoredPx(n: number): boolean {
     return !Number.isFinite(n) || n <= 0;
 }
 
-/** A badge with null/empty text is hidden. */
-function isEmptyBadge(text: string | null): boolean {
-    return text === null || text === '';
-}
-
 function isArrowNavKey(key: string): boolean {
     return key === 'ArrowUp' || key === 'ArrowDown';
 }
@@ -429,15 +424,6 @@ export class SidebarSections {
         if (!entry) { return; }
         entry.label.textContent = label;
         entry.head?.setAttribute('aria-label', label);
-    }
-
-    /** Badge text right of the label; null/empty hides the badge. `danger` adds the danger variant. */
-    setBadge(id: string, text: string | null, danger = false): void {
-        const entry = this.dom.get(id);
-        if (!entry?.badge) { return; }
-        entry.badge.textContent = text ?? '';
-        entry.badge.hidden = isEmptyBadge(text);
-        entry.badge.classList.toggle('sb-badge-danger', danger);
     }
 
     private shouldResetAutoDefaults(id: string, collapsed: boolean): boolean {
