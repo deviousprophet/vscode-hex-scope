@@ -847,3 +847,24 @@ Optional check name (fallback algorithm label, 40-char cap, persisted via config
 ### Status
 
 [OK] **Completed**
+
+
+## Session 37: Script hex.write staging: Apply & Save / Discard
+
+**Date**: 2026-08-22
+**Task**: Script hex.write staging: Apply & Save / Discard
+**Branch**: `feat/ui-consistency`
+
+### Summary
+
+scriptResult carries pendingWrites (addr/value); Scripts panel writes row becomes actionable Apply & Save (stages mapped bytes into S.edits then saveEdits) / Discard (clears stored writes). Legacy count-only payload keeps plain notice. Optional protocol field + callbacks; backward compatible. Root-caused prior write-patch.js no-op: pendingWrites were counted but never applied. 843 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05afdfd` | (see git log) |
+
+### Status
+
+[OK] **Completed**

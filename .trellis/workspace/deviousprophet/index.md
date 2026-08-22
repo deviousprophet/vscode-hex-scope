@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 36
+- **Total Sessions**: 37
 - **Last Active**: 2026-08-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~849 | Active |
+| `journal-1.md` | ~870 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 37 | 2026-08-22 | Script hex.write staging: Apply & Save / Discard | `05afdfd` | `feat/ui-consistency` |
 | 36 | 2026-08-22 | Integrity panel: check names + autofill + profile rework | `638e967` | `feat/ui-consistency` |
 | 35 | 2026-08-21 | Label form redesign: End Address default, auto-calc chips, live draft grid preview, inline segment rename | `383b3b6`, `6993c17` | `feat/ui-consistency` |
 | 34 | 2026-08-21 | fallow-clean labels form | `bb94ef0` | `feat/ui-consistency` |
