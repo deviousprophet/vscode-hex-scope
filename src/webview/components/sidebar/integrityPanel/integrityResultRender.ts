@@ -153,7 +153,7 @@ export function checkCardHtml(check: IntegrityCheckState, cardClass: string, bod
         <div class="sb-card-hdr" data-check-toggle>
             <span class="integrity-card-status" data-check-status></span>
             <div class="sb-card-info">
-                <div class="integrity-card-title">${esc(algorithmLabel(check.algorithm))}</div>
+                <div class="integrity-card-title">${esc(check.name || algorithmLabel(check.algorithm))}</div>
                 <div class="integrity-card-meta">${esc(checkRangeSummary(check))}</div>
             </div>
             ${actionBtnsHtml(`data-check-id="${check.id}"`, `data-check-id="${check.id}"`)}

@@ -5,22 +5,51 @@
     min-width: 0;
 }
 
-/* Body controls row (Fix all + Add) under the framework section header */
+/* Body controls row (Profile label + Fix all/Add) under the framework section header */
 .integrity-hdr-row {
     display: flex;
-    align-items: flex-start;
-    justify-content: flex-end;
-    gap: 6px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 8px;
 }
+.integrity-hdr-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+/* Profiles: selector row (select + Save as… + ⋮ menu) under the header row. */
 .integrity-profiles {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 5px;
-    grid-template-columns: minmax(0, 1fr) auto;
     margin-bottom: 8px;
 }
 
-.integrity-profiles > .sb-select { min-width: 0; }
+.integrity-profiles > .sb-select { width: 100%; min-width: 0; }
+
+.integrity-profile-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.integrity-profile-row .sb-select { flex: 1; min-width: 0; }
+
+/* Header "Profile" field label (rides the hdr-row, aligns with the buttons). */
+.integrity-profile-label {
+    font-family: var(--font-ui);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--addr-fg);
+    white-space: nowrap;
+}
+
+.integrity-profile-empty { margin-top: 2px; }
+
+/* Header Add rides the compact primitives size — matches Fix all height. */
+.integrity-hdr-row .sb-btn-add { padding: 2px 8px; }
 
 /* ── Profile ⋮ menu (replaces the 4-button admin cluster) ───────── */
 .integrity-profile-menu {

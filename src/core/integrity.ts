@@ -24,6 +24,8 @@ export interface IntegrityCheckConfig {
     endAddress: number;
     storedAddress?: number;
     autoFixStoredValue: boolean;
+    /** Optional custom name; empty/missing falls back to the algorithm label. */
+    name?: string;
 }
 
 export interface IntegrityProfile {
@@ -164,12 +166,21 @@ function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
     if (!isIntegrityCheckCore(raw)) { return null; }
     const verification = normalizeVerificationSettings(raw);
     if (!verification.ok) { return null; }
+    const name = normalizeCheckName(raw.name);
     return {
         algorithm: raw.algorithm,
         startAddress: raw.startAddress as number,
         endAddress: raw.endAddress as number,
+        ...(name ? { name } : {}),
         ...verification.value,
     };
+}
+
+/** Trim; empty or over 40 chars treated as unnamed (field dropped). */
+function normalizeCheckName(value: unknown): string {
+    if (typeof value !== 'string') { return ''; }
+    const name = value.trim();
+    return name.length <= 40 ? name : '';
 }
 
 function normalizeVerificationSettings(raw: IntegrityCheckConfig):

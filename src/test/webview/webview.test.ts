@@ -882,7 +882,6 @@ suite('Integrity Checks sidebar', () => {
             const profileSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
             profileSelect.value = 'stm32-profile';
             profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-            document.getElementById('integrity-profile-apply')!.click();
             const applyConfirm = document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement | null;
             if (applyConfirm) { applyConfirm.click(); }
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);

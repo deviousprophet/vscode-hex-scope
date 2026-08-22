@@ -91,6 +91,8 @@ export interface IntegrityCallbacks {
     onStoredValueEdits?: (edits: Array<[number, number]>) => void;
     /** Selection snapshot for the add-check form defaults (was S.selStart/S.selEnd). */
     getSelection?: () => { start: number; end: number } | null;
+    /** Full-file mapped range for add-check defaults when no selection (null when unmappable/empty). */
+    getDataRange?: () => { start: number; end: number } | null;
     /** Shared byte-order source (was S.endian). */
     getEndian?: () => 'le' | 'be';
     /** Copy button → host posts copyText. */
@@ -118,6 +120,8 @@ export class IntegrityPanel implements IntegrityProfileHost {
     profileNameMode: 'create' | 'rename' | null = null;
     addCheckDraft: IntegrityDraft | null = null;
     editingCheckId: number | null = null;
+    /** Last-focused address field in the open add/edit form (drives hex-selection refill). */
+    private formLastFocused: 'start' | 'end' | null = null;
     private highlightedCheckId: number | null = null;
     private initialized = false;
     checks: IntegrityCheckState[] = [];
@@ -160,6 +164,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this.restoreChecks(payload);
         this.profileError = error;
         this.clearMissingSelectedProfile();
+        this.preselectFirstProfile();
         this.refreshProfilesIfRendered();
     }
 
@@ -223,6 +228,12 @@ export class IntegrityPanel implements IntegrityProfileHost {
         if (selection) {
             draft.startRaw = formatIntegrityAddress(selection.start);
             draft.endRaw = formatIntegrityAddress(selection.end);
+            return draft;
+        }
+        const range = this.cb.getDataRange?.() ?? null;
+        if (range) {
+            draft.startRaw = formatIntegrityAddress(range.start);
+            draft.endRaw = formatIntegrityAddress(range.end);
         }
         return draft;
     }
@@ -238,6 +249,15 @@ export class IntegrityPanel implements IntegrityProfileHost {
     private clearMissingSelectedProfile(): void {
         if (!this.selectedProfileId) { return; }
         if (!this.profiles.some(profile => profile.id === this.selectedProfileId)) { this.selectedProfileId = ''; }
+    }
+
+    /** No session selection yet → preselect the first profile (no auto-apply).
+        Enables Rename/Delete/Update on the lone (or first) profile after a
+        reload without applying its checks (Q5-A). */
+    private preselectFirstProfile(): void {
+        if (!this.selectedProfileId && this.profiles.length > 0) {
+            this.selectedProfileId = this.profiles[0].id;
+        }
     }
 
     private refreshProfilesIfRendered(): void {
@@ -268,8 +288,11 @@ export class IntegrityPanel implements IntegrityProfileHost {
         return `
         <div class="integrity-shell">
             <div class="integrity-hdr-row">
-                <button id="integrity-fix-all" class="sb-btn sb-btn-primary" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
-                <button id="integrity-add-btn" class="sb-btn sb-btn-add"${this.addCheckDisabledAttr()}>＋ Add</button>
+                <label class="integrity-profile-label" for="integrity-profile-select">Profile</label>
+                <div class="integrity-hdr-actions">
+                    <button id="integrity-fix-all" class="sb-btn sb-btn-primary" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
+                    <button id="integrity-add-btn" class="sb-btn sb-btn-add"${this.addCheckDisabledAttr()}>＋ Add</button>
+                </div>
             </div>
             <div id="integrity-action-error" class="integrity-error" role="alert">${esc(this.actionError)}</div>
             ${profileLibraryHtml(this)}
@@ -314,6 +337,10 @@ export class IntegrityPanel implements IntegrityProfileHost {
         return `
         <div class="integrity-check-form ${presentation.formClass}" data-integrity-form="${formId}">
             <div class="integrity-form-hdr ${presentation.headerClass}">${presentation.title}</div>
+            <label class="integrity-form-field"><span>Check name (optional)</span>
+                <input data-draft-control="name" class="sb-input" type="text" maxlength="40"
+                    placeholder="e.g. Flash checksum" value="${esc(draft.name)}" autocomplete="off" spellcheck="false">
+            </label>
             <label class="integrity-form-field"><span>Algorithm</span>
                 <select data-draft-control="algorithm" class="sb-select">${this.algorithmOptionsHtml(draft.algorithm)}</select>
             </label>
@@ -364,7 +391,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
     }
 
     private draftFromCheck(check: IntegrityCheckState): IntegrityDraft {
-        return { algorithm: check.algorithm, startRaw: check.startRaw, endRaw: check.endRaw, storedRaw: check.storedRaw };
+        return { algorithm: check.algorithm, name: check.name, startRaw: check.startRaw, endRaw: check.endRaw, storedRaw: check.storedRaw };
     }
 
     // ── Header + card wiring ───────────────────────────────────────
@@ -374,6 +401,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         document.getElementById('integrity-add-btn')?.addEventListener('click', () => {
             this.addCheckDraft = this.addDraft();
             this.editingCheckId = null;
+            this.formLastFocused = null;
             this.render();
             document.querySelector<HTMLInputElement>('[data-integrity-form="add"] [data-draft-control="start"]')?.focus();
         });
@@ -427,6 +455,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
     private editCheck(id: number): void {
         this.addCheckDraft = null;
         this.editingCheckId = id;
+        this.formLastFocused = null;
         this.render();
     }
 
@@ -511,6 +540,8 @@ export class IntegrityPanel implements IntegrityProfileHost {
         if (!form) { return; }
         form.querySelector('[data-form-action="save"]')?.addEventListener('click', () => this.saveCheckForm(formId, form));
         form.querySelector('[data-form-action="cancel"]')?.addEventListener('click', () => this.cancelCheckForm(formId));
+        form.querySelector<HTMLInputElement>('[data-draft-control="start"]')?.addEventListener('focus', () => { this.formLastFocused = 'start'; });
+        form.querySelector<HTMLInputElement>('[data-draft-control="end"]')?.addEventListener('focus', () => { this.formLastFocused = 'end'; });
         form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')?.addEventListener('change', event => {
             this.updateStoredFieldVisibility(form, (event.target as HTMLSelectElement).value as IntegrityAlgorithm);
         });
@@ -530,6 +561,8 @@ export class IntegrityPanel implements IntegrityProfileHost {
 
     private readDraft(form: HTMLElement): DraftValidation {
         const algorithm = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value as IntegrityAlgorithm;
+        const name = (form.querySelector<HTMLInputElement>('[data-draft-control="name"]')?.value ?? '').trim();
+        if (name.length > 40) { return { ok: false, error: 'Check name must be 40 characters or fewer.' }; }
         const startRaw = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!.value;
         const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
         const range = validateIntegrityRange(startRaw, endRaw, algorithm);
@@ -540,6 +573,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
             ok: true,
             value: {
                 algorithm,
+                name,
                 startRaw: formatIntegrityAddress(range.value.startAddress),
                 endRaw: formatIntegrityAddress(range.value.endAddress),
                 storedRaw: stored.value,
@@ -563,6 +597,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
 
     private saveNewCheck(draft: IntegrityDraft): void {
         const check = this.newCheck();
+        this.formLastFocused = null;
         this.applyDraft(check, draft);
         this.checks.push(check);
         this.addCheckDraft = null;
@@ -574,6 +609,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
     private saveEditedCheck(id: number, draft: IntegrityDraft): void {
         const check = this.checks.find(item => item.id === id);
         if (!check) { return; }
+        this.formLastFocused = null;
         this.applyDraft(check, draft);
         if (!check.storedRaw) { check.autoFixStoredValue = false; }
         this.editingCheckId = null;
@@ -588,11 +624,38 @@ export class IntegrityPanel implements IntegrityProfileHost {
     }
 
     private cancelCheckForm(formId: string): void {
+        this.formLastFocused = null;
         if (formId === 'add') { this.addCheckDraft = null; }
         else {
             this.editingCheckId = null;
         }
         this.render();
+    }
+
+    /**
+     * Hex-view selection change → live-refill the open add/edit form (parity
+     * with the label form): the last-focused address field receives the fill.
+     * - End focused → fill end only.
+     * - Otherwise (start or none) → fill start + end.
+     * Fires only here, never on keystrokes; a null selection leaves values as-is.
+     */
+    notifySelectionChanged(): void {
+        if (this.addCheckDraft === null && this.editingCheckId === null) { return; }
+        const selection = this.cb.getSelection?.() ?? null;
+        if (!selection) { return; }
+        const form = document.querySelector<HTMLElement>(
+            '[data-integrity-form="add"], [data-integrity-form^="edit-"]',
+        );
+        if (!form) { return; }
+        const startEl = form.querySelector<HTMLInputElement>('[data-draft-control="start"]');
+        const endEl = form.querySelector<HTMLInputElement>('[data-draft-control="end"]');
+        const endValue = this.stripHexPrefix(formatIntegrityAddress(selection.end));
+        if (this.formLastFocused === 'end') {
+            if (endEl) { endEl.value = endValue; }
+            return;
+        }
+        if (startEl) { startEl.value = this.stripHexPrefix(formatIntegrityAddress(selection.start)); }
+        if (endEl) { endEl.value = endValue; }
     }
 
     // ── Calculation scheduling (delegates to integrityCalculation.ts) ──

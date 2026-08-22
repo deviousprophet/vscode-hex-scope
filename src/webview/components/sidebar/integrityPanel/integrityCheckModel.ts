@@ -12,6 +12,7 @@ import {
 export interface IntegrityCheckState {
     id: number;
     algorithm: IntegrityAlgorithm;
+    name: string;
     startRaw: string;
     endRaw: string;
     storedRaw: string;
@@ -30,6 +31,7 @@ export interface IntegrityCheckState {
 
 export interface IntegrityDraft {
     algorithm: IntegrityAlgorithm;
+    name: string;
     startRaw: string;
     endRaw: string;
     storedRaw: string;
@@ -62,12 +64,13 @@ export function makeIntegrityCheck(id: number, config?: IntegrityCheckConfig): I
 }
 
 export function blankIntegrityDraft(): IntegrityDraft {
-    return { algorithm: 'crc32-iso-hdlc', startRaw: '', endRaw: '', storedRaw: '' };
+    return { algorithm: 'crc32-iso-hdlc', name: '', startRaw: '', endRaw: '', storedRaw: '' };
 }
 
 export function draftFromIntegrityConfig(config: IntegrityCheckConfig): IntegrityDraft {
     return {
         algorithm: config.algorithm,
+        name: config.name ?? '',
         startRaw: formatIntegrityAddress(config.startAddress),
         endRaw: formatIntegrityAddress(config.endAddress),
         storedRaw: config.storedAddress === undefined ? '' : formatIntegrityAddress(config.storedAddress),
@@ -76,6 +79,7 @@ export function draftFromIntegrityConfig(config: IntegrityCheckConfig): Integrit
 
 export function applyIntegrityDraft(check: IntegrityCheckState, draft: IntegrityDraft): void {
     check.algorithm = draft.algorithm;
+    check.name = draft.name;
     check.startRaw = draft.startRaw;
     check.endRaw = draft.endRaw;
     check.storedRaw = isChecksumAlgorithm(draft.algorithm) ? draft.storedRaw : '';
@@ -101,10 +105,13 @@ export function clearIntegrityAutoFixSuppression(check: IntegrityCheckState): vo
 export function integrityCheckConfigFromState(check: IntegrityCheckState): IntegrityConfigValidation {
     const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
     if (!range.ok) { return range; }
-    if (!hasStoredChecksum(check)) { return { ok: true, value: { ...range.value, autoFixStoredValue: false } }; }
+    const name = check.name.trim();
+    if (name.length > 40) { return { ok: false, error: 'Check name must be 40 characters or fewer.' }; }
+    const named = name ? { name } : {};
+    if (!hasStoredChecksum(check)) { return { ok: true, value: { ...range.value, ...named, autoFixStoredValue: false } }; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return stored; }
-    return { ok: true, value: { ...range.value, storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
+    return { ok: true, value: { ...range.value, ...named, storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
 }
 
 export function integrityCheckConfigsFromStates(checks: readonly IntegrityCheckState[]): IntegrityConfigListValidation {

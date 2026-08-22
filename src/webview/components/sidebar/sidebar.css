@@ -168,6 +168,13 @@
    each expanded pane body scrolls itself. */
 .sb-tab-panel { flex: 1; display: none; min-height: 0; flex-direction: column; }
 .sb-tab-panel.active { display: flex; }
+/* Panels that mount sections behind an intermediate root (#s-scripts, #s-integrity)
+   must fill the tab panel; otherwise the pane-view's flex:1 resolves to content
+   height and every section body collapses to a sliver under its 22px header. */
+.sb-tab-panel > div {
+    display: flex; flex-direction: column;
+    flex: 1; min-height: 0; box-sizing: border-box;
+}
 
 
 /* ── Shared UI primitives ────────────────────────────────────────── */

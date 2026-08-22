@@ -147,7 +147,7 @@ export function wireActionBtns(
  * Clicking Yes calls `onConfirm`; clicking No or outside dismisses it.
  * Only one popover is live at a time. `message` overrides the default "Delete?".
  */
-export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, message = 'Delete?'): void {
+export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, message = 'Delete?', onCancel?: () => void): void {
     // Remove any existing popover first
     dismissConfirmPopover();
 
@@ -191,7 +191,7 @@ export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, messag
         pop.remove();
         document.removeEventListener('mousedown', outsideHandler, true);
         document.removeEventListener('keydown',   keyHandler,     true);
-        if (confirmed) { onConfirm(); }
+        if (confirmed) { onConfirm(); } else { onCancel?.(); }
     };
 
     pop.querySelector<HTMLElement>('.dcp-yes')!.addEventListener('click', e => {

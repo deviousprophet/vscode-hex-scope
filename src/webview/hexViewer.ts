@@ -198,6 +198,7 @@ const integrityPanel = new IntegrityPanel({
     readByte: getByte,
     onStoredValueEdits: stageIntegrityEdits,
     getSelection: () => (S.selStart !== null && S.selEnd !== null ? { start: S.selStart, end: S.selEnd } : null),
+    getDataRange: dataRangeFromSegments,
     getEndian: () => S.endian,
     onHighlightChange: applyIntegrityHighlight,
     onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
@@ -212,6 +213,19 @@ const integrityPanel = new IntegrityPanel({
 function applyIntegrityHighlight(highlight: IntegrityHighlight | null): void {
     S.integrityHighlight = highlight;
     if (S.currentView === 'memory') { rerender.memory(); }
+}
+
+/** Full-file mapped range (min segment start → max segment end); null when no data. */
+function dataRangeFromSegments(): { start: number; end: number } | null {
+    const segments = S.parseResult?.segments;
+    if (!segments || segments.length === 0) { return null; }
+    let start = Number.MAX_SAFE_INTEGER;
+    let end = -1;
+    for (const seg of segments) {
+        start = Math.min(start, seg.startAddress);
+        end = Math.max(end, seg.startAddress + seg.data.length - 1);
+    }
+    return { start, end };
 }
 
 const scriptsPanel = new ScriptsPanel({
@@ -1438,6 +1452,7 @@ function onHexViewSelectionChange(range: HexViewRange): void {
     paintMemorySelection();
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     inspectorPanel.syncLabelForm();
+    integrityPanel.notifySelectionChanged();
 }
 
 function selLen(): number {

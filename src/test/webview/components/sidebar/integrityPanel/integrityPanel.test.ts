@@ -242,6 +242,80 @@ suite('IntegrityPanel checks', () => {
         assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
         assert.strictEqual((cb.persisted.at(-1) as { checks: unknown[] }).checks.length, 0);
     });
+
+    test('hex-selection change refills add form start + end when start focused', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        const startEl = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!;
+        const endEl = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!;
+        harness.sel.value = { start: 0x2000, end: 0x2004 };
+        panel.notifySelectionChanged();
+        assert.strictEqual(startEl.value, '00002000');
+        assert.strictEqual(endEl.value, '00002004');
+    });
+
+    test('hex-selection change fills end only when the end field is focused', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        const startEl = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!;
+        const endEl = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!;
+        startEl.value = '1000';
+        endEl.dispatchEvent(new dom.window.Event('focus'));
+        harness.sel.value = { start: 0x3000, end: 0x3008 };
+        panel.notifySelectionChanged();
+        assert.strictEqual(startEl.value, '1000', 'start untouched when end focused');
+        assert.strictEqual(endEl.value, '00003008');
+    });
+
+    test('hex-selection change with no selection leaves the form untouched', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        const startEl = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!;
+        harness.sel.value = { start: 0x4000, end: 0x4004 };
+        panel.notifySelectionChanged();
+        harness.sel.value = null;
+        panel.notifySelectionChanged();
+        assert.strictEqual(startEl.value, '00004000', 'deselect keeps prior fill');
+    });
+
+    test('no profiles renders a disabled select; header shows the Profile label', () => {
+        panel.setProfiles([]);
+        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        assert.strictEqual(select.disabled, true, 'no profiles → select disabled');
+        assert.strictEqual(select.querySelectorAll('option').length, 0);
+        const label = document.querySelector<HTMLElement>('.integrity-profile-label');
+        assert.ok(label, 'Profile header label present');
+        assert.strictEqual(label!.textContent, 'Profile');
+        assert.strictEqual(document.getElementById('integrity-profile-apply'), null, 'Apply menu item removed');
+        assert.match(document.querySelector<HTMLElement>('.integrity-profile-empty')!.textContent!, /Save as/);
+        const saveBtn = document.getElementById('integrity-profile-save') as HTMLButtonElement;
+        assert.ok(saveBtn, 'Save as… visible next to the ⋮ menu');
+    });
+
+    test('cancelling the apply confirm reverts the dropdown to the prior profile', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        const profile = (end: number) => ({
+            schemaVersion: 1,
+            id: `p${end}`,
+            name: `Profile ${end}`,
+            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: end, autoFixStoredValue: false }],
+        });
+        panel.setProfiles([profile(0x1001), profile(0x1003)]);
+        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        assert.strictEqual(select.value, 'p4097', 'preselect-first picks the first profile');
+        panel.checks = [panel.newCheck({ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false })];
+        panel.render();
+        const liveSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
+        liveSelect.value = 'p4099';
+        liveSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.ok(document.querySelector('#del-confirm-pop .dcp-no'), 'confirm shown for conflicting apply');
+        click(dom, document.querySelector('#del-confirm-pop .dcp-no'));
+        assert.strictEqual(liveSelect.value, 'p4097', 'dropdown reverted on cancel');
+        assert.strictEqual(cb.persisted.length, 0, 'cancel never persists');
+    });
 });
 
 suite('IntegrityPanel results + auto fix', () => {
@@ -417,7 +491,7 @@ suite('IntegrityPanel highlight + profiles', () => {
         assert.strictEqual(cb.highlights.at(-1), null);
     });
 
-    test('setProfiles renders selector; apply rebuilds checks and persists', async function () {
+    test('setProfiles renders selector; selecting a profile auto-applies and persists', async function () {
         this.timeout(5_000);
         setBytesInSegment(0x1000, [1, 2, 3, 4]);
         panel.setProfiles([{
@@ -427,14 +501,14 @@ suite('IntegrityPanel highlight + profiles', () => {
             checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
         }]);
         const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        assert.strictEqual(select.querySelectorAll('option').length, 2);
+        assert.strictEqual(select.querySelectorAll('option').length, 1, 'no placeholder option');
         assert.strictEqual((select.querySelector('option:last-child') as HTMLOptionElement).textContent, 'STM32 Layout');
         select.value = 'p1';
         select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        click(dom, document.getElementById('integrity-profile-apply'));
-        assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
+        assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1, 'select change auto-applies');
         assert.strictEqual(integrityCard().querySelector('.integrity-card-title')!.textContent, 'CRC16/CCITT-FALSE');
         assert.strictEqual((cb.persisted.at(-1) as { checks: unknown[] }).checks.length, 1);
+        assert.strictEqual(select.disabled, false);
     });
 
     test('profile CRUD reports onCreate/onUpdate/onRename/onDeleteProfile', async () => {
@@ -481,12 +555,11 @@ suite('IntegrityPanel highlight + profiles', () => {
             name: 'STM32 Layout',
             checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
         }]);
+        click(dom, document.getElementById('integrity-add-btn')); // opens the add-check form (unsaved draft)
+
         const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
         select.value = 'p1';
         select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        click(dom, document.getElementById('integrity-add-btn')); // opens the add-check form (unsaved draft)
-
-        click(dom, document.getElementById('integrity-profile-apply'));
         assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
         const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
         assert.ok(confirmYes, 'apply confirm popover shown');
@@ -511,7 +584,8 @@ suite('IntegrityPanel highlight + profiles', () => {
         select.value = 'p1';
         select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
 
-        click(dom, document.getElementById('integrity-profile-apply'));
+        select.value = 'p1';
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
         const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
         assert.ok(confirmYes, 'apply confirm popover shown when current checks differ from the profile');

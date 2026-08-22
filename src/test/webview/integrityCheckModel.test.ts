@@ -19,6 +19,7 @@ suite('integrity check model', () => {
         assert.strictEqual(check.id, 7);
         assert.deepStrictEqual(blankIntegrityDraft(), {
             algorithm: 'crc32-iso-hdlc',
+            name: '',
             startRaw: '',
             endRaw: '',
             storedRaw: '',
@@ -46,6 +47,7 @@ suite('integrity check model', () => {
 
         assert.deepStrictEqual(draft, {
             algorithm: 'crc16-ccitt-false',
+            name: '',
             startRaw: '0x00001000',
             endRaw: '0x00001003',
             storedRaw: '0x00002000',
@@ -81,6 +83,7 @@ suite('integrity check model', () => {
 
         applyIntegrityDraft(check, {
             algorithm: 'sha-256',
+            name: 'Boot image',
             startRaw: '00000000',
             endRaw: '00000003',
             storedRaw: '00000008',
@@ -149,5 +152,43 @@ suite('integrity check model', () => {
         assert.strictEqual(check.calculating, false);
         assert.strictEqual(check.suppressAutoFixOnNextResult, false);
         assert.strictEqual(check.suppressedAutoFixMismatch, '');
+    });
+
+    test('round-trips a custom name config → draft → state → config', () => {
+        const draft = draftFromIntegrityConfig({
+            algorithm: 'sha-256',
+            startAddress: 0x10,
+            endAddress: 0x20,
+            autoFixStoredValue: false,
+            name: 'Boot image',
+        });
+        assert.strictEqual(draft.name, 'Boot image');
+
+        const check = makeIntegrityCheck(1);
+        applyIntegrityDraft(check, draft);
+        assert.strictEqual(check.name, 'Boot image');
+
+        const config = integrityCheckConfigFromState(check);
+        assert.ok(config.ok);
+        if (config.ok) { assert.strictEqual(config.value.name, 'Boot image'); }
+    });
+
+    test('empty name is omitted from the emitted config', () => {
+        const check = makeIntegrityCheck(1);
+        check.startRaw = '10';
+        check.endRaw = '20';
+        const config = integrityCheckConfigFromState(check);
+        assert.ok(config.ok);
+        if (config.ok) { assert.ok(!('name' in config.value)); }
+    });
+
+    test('rejects names longer than 40 chars', () => {
+        const check = makeIntegrityCheck(1);
+        check.startRaw = '10';
+        check.endRaw = '20';
+        check.name = 'x'.repeat(41);
+        const config = integrityCheckConfigFromState(check);
+        assert.ok(!config.ok);
+        if (!config.ok) { assert.match(config.error, /40 characters/); }
     });
 });

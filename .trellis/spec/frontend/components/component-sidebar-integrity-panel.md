@@ -21,7 +21,7 @@ src/webview/hexViewer.ts    host wiring (panel descriptor, applyIntegrityHighlig
 src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar.ts`/`sidebar.css`. `core/integrity.ts` is unchanged (pure, shared).
+Panel shell (`sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar.ts`/`sidebar.css`. `core/integrity.ts` holds the shared config (`IntegrityCheckConfig.name?`) + `normalizeIntegrityCheck` (trim, >40 dropped).
 
 ## Contract
 
@@ -30,6 +30,7 @@ interface IntegrityCallbacks {
     readByte: (addr: number) => number | undefined;            // required — host memory adapter
     onStoredValueEdits?: (edits: Array<[number, number]>) => void;  // auto-fix → host stages edit transaction
     getSelection?: () => { start: number; end: number } | null;    // add-form defaults (was S.selStart/S.selEnd)
+    getDataRange?: () => { start: number; end: number } | null;    // full-file mapped range (min seg start → max seg end) — add-form fallback when no selection
     getEndian?: () => 'le' | 'be';                            // shared byte-order source (was S.endian)
     onCopyText?: (text: string, label: string) => void;       // copy chip → host posts copyText
     onPersistChecks?: (state: IntegrityCheckSet) => void;     // checks persistence → host posts saveIntegrityChecks
@@ -65,10 +66,13 @@ class IntegrityPanel {
 ## Behaviour
 
 - Default: empty check list renders "No integrity checks configured."; profile Save as disabled until a check exists.
-- Add form opens with selection defaults from `getSelection()`; algorithm change toggles the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
+- Add form opens with selection defaults from `getSelection()`; no selection → full-file range from `getDataRange()` (host derives min segment start → max segment end from `S.parseResult.segments`); neither → blank. Optional "Check name" input (`data-draft-control="name"`, maxlength 40, trimmed, duplicates allowed); empty name persists as no field. Card title = `check.name || algorithmLabel(check.algorithm)`. `IntegrityCheckConfig.name?` carried by `normalizeIntegrityCheck` (trim, >40 dropped) so names survive profile save/apply and reload; `schemaVersion` unchanged.
+- Live refill (label-form parity): `notifySelectionChanged()` on hex-view selection change (host calls it from `onHexViewSelectionChange` next to `syncLabelForm`) refills the open add/edit form — end-focused → end only, else start+end; null selection leaves values as-is; never on keystrokes. `formLastFocused` reset on open/save/cancel.
+- Profile UI: header row = "Profile" `<label for>` (left) + Fix all / ＋ Add (right, same line). Below: full-width selector + visible "Save as…" button + ⋮ menu (Update / Rename / Delete; Apply removed). No "Saved profiles…" placeholder; empty library → select disabled + "No profiles yet — add a check, then Save as…" hint. Select `change` → `applySelectedProfile`; when checks differ or an unsaved add/edit form is open, `confirmProfileApply` anchors the inline-confirm popover to the select and its `onCancel` (`inlineConfirm(…, onCancel?)`) reverts the dropdown to the previously selected profile. `setProfiles` → `preselectFirstProfile` selects the first profile on load without applying (enables menu actions on a lone profile). Header buttons share compact `.sb-btn` height (`.integrity-hdr-row .sb-btn-add { padding: 2px 8px }`).
+- Algorithm change toggles the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
 - Result cards: status symbol (✓/✕/∑/…/!/?), calculated value pane, optional stored pane (match/mismatch/unverified), copy button → `onCopyText`; Auto fix toggle stages mismatched stored values via `onStoredValueEdits`, with suppression so a discarded mismatch isn't immediately re-staged (paused state until toggle/Fix all/endian change).
 - Card header click toggles highlight → `onHighlightChange({ rangeStart, rangeEnd, status, storedStart?, storedLength? })`; edit/delete via card action buttons.
-- Profiles: selector + Apply (rebuilds checks + persists; inline confirm when an unsaved add/edit check form is open **or** when Apply would overwrite checks different from the profile), Save as / rename / update / delete via `setProfiles` push; Delete routes through `inlineConfirm`; name-form validation inline.
+- Profiles: selection auto-applies (rebuilds checks + persists; inline-confirm when an unsaved add/edit check form is open or when Apply would overwrite checks different from the profile) — cancel reverts the dropdown; visible "Save as…" / ⋮ Update/Rename/Delete; name-form validation inline.
 - `notifyEndianChanged()` clears suppression, re-renders, and re-decodes stored values per `getEndian()`.
 - Lazy init: no calculation or notify work until `setTabActive(true)` (first integrity tab activation).
 
