@@ -49,6 +49,113 @@ export function serializeSRec(originalRaw: string, parseResult: ParseResult, edi
     );
 }
 
+// ── Targeted line splice (no record materialization) ─────────────
+// Save path for large files: scan raw lines cheaply (address from the line
+// text, no full HexRecord parse/checksum), rebuild only data records whose
+// address range overlaps the edited set, splice them back. Everything else is
+// byte-identical. The one full-file cost is split + join + write.
+
+interface SplicedLine {
+    lineIndex: number;
+    recordType: number;
+    /** Record framing address (16-bit for ihex, full for srec) — used to rebuild the line. */
+    address: number;
+    /** Absolute start of the record's data — used to match edit keys. */
+    startAddress: number;
+    data: number[];
+}
+
+export function spliceEditedLines(originalRaw: string, edits: Map<number, number>, format: HexScopeFormat): string {
+    if (edits.size === 0) { return originalRaw; }
+    const eol = originalRaw.includes('\r\n') ? '\r\n' : '\n';
+    const lines = originalRaw.split(/\r?\n/);
+    const owners = format === 'srec' ? srecOwnerLines(lines, edits) : intelOwnerLines(lines, edits);
+    for (const owner of owners) {
+        const rebuilt = rebuiltSpliceLine(owner, edits);
+        if (rebuilt !== null) { lines[owner.lineIndex] = replaceRecordText(lines[owner.lineIndex], rebuilt); }
+    }
+    return lines.join(eol);
+}
+
+function intelOwnerLines(lines: string[], edits: Map<number, number>): SplicedLine[] {
+    const out: SplicedLine[] = [];
+    let upper = 0;
+    const re = /^:([0-9a-fA-F]{2})([0-9a-fA-F]{4})([0-9a-fA-F]{2})/;
+    for (let i = 0; i < lines.length; i++) {
+        const m = re.exec(lines[i]);
+        if (!m) { continue; }
+        const count = parseInt(m[1], 16);
+        const addr16 = parseInt(m[2], 16);
+        const type = parseInt(m[3], 16);
+        if (type === 4 && count >= 2) {
+            const upperHex = lines[i].slice(9, 13);
+            if (/^[0-9a-fA-F]{4}$/.test(upperHex)) { upper = parseInt(upperHex, 16) << 16; }
+            continue;
+        }
+        if (type !== 0 || count === 0) { continue; }
+        const start = upper | addr16;
+        if (!hasEditInRange(edits, start, start + count - 1)) { continue; }
+        const payload = hexToBytes(lines[i].slice(9, 9 + count * 2));
+        if (payload.length === count) { out.push({ lineIndex: i, recordType: 0, address: addr16, startAddress: start, data: payload }); }
+    }
+    return out;
+}
+
+function srecOwnerLines(lines: string[], edits: Map<number, number>): SplicedLine[] {
+    const out: SplicedLine[] = [];
+    const re = /^S([0-9])([0-9a-fA-F]{2})/;
+    for (let i = 0; i < lines.length; i++) {
+        const m = re.exec(lines[i]);
+        if (!m) { continue; }
+        const recordType = parseInt(m[1], 10);
+        if (!srecIsData(recordType)) { continue; }
+        const byteCount = parseInt(m[2], 16);
+        const asz = SREC_ADDR_SIZES[recordType] ?? 2;
+        const dataLen = byteCount - asz - 1;
+        if (dataLen <= 0) { continue; }
+        const addrRaw = lines[i].slice(4, 4 + asz * 2);
+        if (!/^[0-9a-fA-F]+$/.test(addrRaw)) { continue; }
+        const address = parseInt(addrRaw, 16);
+        if (!hasEditInRange(edits, address, address + dataLen - 1)) { continue; }
+        const payload = hexToBytes(lines[i].slice(4 + asz * 2, 4 + asz * 2 + dataLen * 2));
+        if (payload.length === dataLen) { out.push({ lineIndex: i, recordType, address, startAddress: address, data: payload }); }
+    }
+    return out;
+}
+
+function rebuiltSpliceLine(owner: SplicedLine, edits: Map<number, number>): string | null {
+    const data = owner.data.slice();
+    let changed = false;
+    for (let j = 0; j < data.length; j++) {
+        const addr = owner.startAddress + j;
+        if (edits.has(addr)) {
+            data[j] = edits.get(addr)!;
+            changed = true;
+        }
+    }
+    if (!changed) { return null; }
+    return owner.recordType === 0
+        ? buildIntelHexDataRecord(owner.address, data)
+        : buildSRecDataRecord(owner.recordType, owner.address, data);
+}
+
+function hasEditInRange(edits: Map<number, number>, start: number, end: number): boolean {
+    for (const addr of edits.keys()) {
+        if (addr >= start && addr <= end) { return true; }
+    }
+    return false;
+}
+
+function hexToBytes(text: string): number[] {
+    const bytes: number[] = [];
+    for (let i = 0; i + 1 < text.length; i += 2) {
+        const byte = parseInt(text.slice(i, i + 2), 16);
+        if (!/^[0-9a-fA-F]{2}$/.test(text.slice(i, i + 2))) { return []; }
+        bytes.push(byte);
+    }
+    return bytes;
+}
+
 export function serializeSRecAsync(
     originalRaw: string,
     parseResult: ParseResult,

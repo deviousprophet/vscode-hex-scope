@@ -28,7 +28,7 @@ export type ProviderToWebviewMessage =
     | { type: 'addLabel'; label: SegmentLabel }
     | { type: 'updateLabel'; label: SegmentLabel }
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
-    | { type: 'savedEdits'; generation: number; parseResult: WireParseResult }
+    | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
     | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';

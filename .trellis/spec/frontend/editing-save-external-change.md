@@ -41,8 +41,8 @@ type WebviewToProviderMessage =
 - Fill-selection uses the normalized inclusive selection range.
 - Fill applies per-byte with `stageIntegrityEdit` semantics: skip addresses whose current value already equals `fillVal`; if `fillVal` equals the byte's original value but a prior edit changed it, revert by removing the `S.edits` entry. Undo still records the prior current value for every byte actually changed.
 - Integrity Auto fix/Fix all enters through the same transaction owner, so it is undoable and updates all byte consumers.
-- Save sends a stable list of edits to the extension host. Host serializes through the current document format, recomputes affected record checksums, writes, reparses, then returns `savedEdits`.
-- `savedEdits` replaces parsed memory and clears edits/undo/redo only after host success.
+- Save sends a stable list of edits to the extension host. Host splices only the edited data-record lines (`spliceEditedLines`: minimal line scan, owner records rebuilt + checksum recomputed), writes the file once, folds bytes into in-memory segments — **no full materialize, no reparse, no segment rebuild** — then returns `savedEdits`.
+- `savedEdits` is light (`{ generation }`): webview folds its own `S.edits` into local segment bytes, clears only the overlay, and **keeps undo/redo stacks + edit mode** — Ctrl+Z after save restores pre-edit bytes (dirty returns; Ctrl+S persists). Legacy payloads with `parseResult` still do the full reload path (backward compatible).
 - Pending changes update Memory, Inspector, structs, search reads, integrity calculations, dirty bar, and edit controls through the shared accessor/invalidation path.
 - External file changes lock editing. With no local edits, offer reload; with local edits, show conflict choice. Parse-error changes use error UI and optional checksum repair.
 - Direct-typing (keyboard-based single-byte editing) uses a capture-phase `keydown` listener on `document`. Enters the same transaction path as fills (`S.edits`, `S.undoStack`).

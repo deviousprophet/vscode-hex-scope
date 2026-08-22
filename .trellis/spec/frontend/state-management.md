@@ -16,7 +16,7 @@
 - A selection is inclusive (`start`, `end`) with `start <= end`.
 - External changes lock editing until reload/repair resolution.
 - `clearEditModel()` clears pending edits and undo/redo history together.
-- Provider `savedEdits` reloads parsed memory, clears edits, and invalidates edit controls, stats, segments, structs, current view, and integrity.
+- Provider `savedEdits` (light, no `parseResult`) folds pending edits into local segment bytes, clears the overlay, and keeps undo/redo/edit mode so a save is reversible (Ctrl+Z); legacy `parseResult` payloads still reload parsed memory and clear edit state.
 
 ## Provider Message Flow
 

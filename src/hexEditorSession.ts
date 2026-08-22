@@ -4,10 +4,10 @@ import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
 import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
-import type { ParseResult } from './core/parser/types';
+import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
-import { detectFormatFromParts, repairChecksums, serializeIntelHexAsync, serializeSRecAsync, type HexScopeFormat } from './core/document';
+import { detectFormatFromParts, repairChecksums, spliceEditedLines, type HexScopeFormat } from './core/document';
 import {
     normalizeIntegrityCheckSet,
     normalizeIntegrityProfiles,
@@ -56,6 +56,16 @@ function materializeParseResult(result: CompactParseResult, source: string, form
         malformedLines: result.malformedLines,
         startAddress: result.startAddress,
     };
+}
+
+/** Apply a save's edits to the in-memory segment bytes (no reparse). */
+function foldEditsIntoSegments(segments: MemorySegment[], editMap: Map<number, number>): void {
+    for (const [addr, value] of editMap) {
+        for (const seg of segments) {
+            const off = addr - seg.startAddress;
+            if (off >= 0 && off < seg.data.length) { seg.data[off] = value; break; }
+        }
+    }
 }
 
 function postToPanel(panel: vscode.WebviewPanel, msg: ProviderToWebviewMessage): void {
@@ -689,15 +699,18 @@ export class HexEditorSession {
                 if (!parseResult) { return; }
                 const edits = msg.edits;
                 const editMap = new Map<number, number>(edits);
-                const materialized = materializeParseResult(parseResult, raw, format);
-                const newHex = format === 'srec'
-                    ? await serializeSRecAsync(raw, materialized, editMap)
-                    : await serializeIntelHexAsync(raw, materialized, editMap);
-                const loaded = await writeRawAndReparse(newHex);
+                const newHex = spliceEditedLines(raw, editMap, format);
+                // Fast save: one file write + in-memory segment fold — no
+                // materialize (every record) and no full reparse. Bytes only
+                // change inside records, so geometry is stable.
+                suppressReload = true;
+                await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(newHex));
+                raw = newHex;
+                foldEditsIntoSegments(parseResult.segments, editMap);
+                currentGeneration = ++generation;
                 void postToWebview(webviewPanel.webview, {
                     type: 'savedEdits',
-                    generation: loaded.generation,
-                    parseResult: serializeParseResult(loaded.result, format),
+                    generation: currentGeneration,
                 });
                 vscode.window.showInformationMessage(`HexScope: saved ${edits.length} byte${edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
             },
