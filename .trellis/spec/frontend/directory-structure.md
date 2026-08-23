@@ -38,7 +38,7 @@ src/
     |  |- toolbar/               toolbar.ts + toolbar.css
     |  |- externalChange/        externalChange.ts + externalChange.css
     |  |- recordView/            recordView.ts + recordView.css
-    |  |- contextMenu/           contextMenu.ts + contextMenu.css
+    |  |- menuController/          menuController.ts + menu.css
      |  |- sidebar/               sidebar.ts + sidebar.css (shell + shared `.sb-*` primitives; exports SidebarTab; panels injected)
      |  |  |- inspectorPanel/     inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
      |  |  |- structPanel/        structPanel.ts + structPinsModel.ts + structPanel.css

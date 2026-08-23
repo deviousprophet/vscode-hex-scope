@@ -9,7 +9,7 @@ The webview uses TypeScript modules that generate HTML strings and attach DOM li
 - `components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`): Inspector, bit view, multi-byte, segments, labels.
 - `components/sidebar/integrityPanel/integrityPanel.ts`: integrity cards and actions.
 - `components/sidebar/structPanel/structPanel.ts`: struct editor, pins, decoded instance rows.
-- `contextMenuController.ts`: menu lifecycle; `contextCommands.ts`: command results.
+- `components/menuController/menuController.ts`: shared menu lifecycle (hex/struct/integrity popovers); `contextCommands.ts`: command results.
 
 ## Required Pattern
 

@@ -30,7 +30,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | [StructPanel Component](./components/component-sidebar-struct-panel.md) | Sidebar Struct panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
 | [IntegrityPanel Component](./components/component-sidebar-integrity-panel.md) | Sidebar Integrity panel: checks + results, auto fix, profile library, fix-all |
 | [ScriptsPanel Component](./components/component-sidebar-scripts-panel.md) | Sidebar Scripts panel: script cards, run/cancel state machine, result blocks, output streaming |
-| [ContextMenu Component](./components/component-context-menu.md) | Right-click byte menu: copy/analyze/patch, go-address, select |
+| [MenuController Component](./components/component-menu-controller.md) | Headless shared menu controller: hex/struct/integrity popovers, nav, dismissal |
 
 ## Feature Code-Specs
 

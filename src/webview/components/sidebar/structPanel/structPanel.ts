@@ -7,7 +7,7 @@ Data is pushed via setters; actions report via callbacks. This module
 never imports the `S` global, never posts provider messages, and never
 touches the render registry. Pure codec logic lives in structCodec.ts. */
 
-import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64, positionContextMenu, wireHoverSubmenus } from '../../../utils';
+import { esc, actionBtnsHtml, wireActionBtns, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64 } from '../../../utils';
 import {
     makeStructPin,
     uniqueStructPinName as uniquePinName,
@@ -24,7 +24,8 @@ import {
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../../core/types';
-import { SidebarSections, wireMenuPopup } from '../sidebar';
+import { SidebarSections } from '../sidebar';
+import { menuController } from '../../menuController/menuController';
 import { showToast } from '../../toast';
 import './structPanel.css';
 
@@ -188,7 +189,6 @@ export class StructPanel {
     private _activeStructAddr: number | null = null;
     /** Whether the struct tab is the active sidebar tab (host pushes; guards add/edit address input sync). */
     private _tabActive = false;
-    private _valMenuEl: HTMLElement | null = null;
 
     // ── UI/transient state (component-owned) ──────────────────────
 
@@ -251,8 +251,9 @@ mount(root: HTMLElement): void {
         { id: 'instances', label: 'Struct Instances', mountActions: r => this.mountInstancesAction(r) },
         { id: 'types', label: 'Struct Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
     ]);
-    // Click-outside for per-card "⋮" menus lives in the shared popup wiring
-    // (sidebar.ts), so shell re-mounts never stack document listeners.
+    // Field-menu click-outside / focus-loss dismissal + keyboard nav live in the
+    // shared MenuController (menuController.ts), so shell re-mounts never stack
+    // document listeners.
     this.render();
 }
 
@@ -1422,7 +1423,6 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
     }
 
     private onFieldMenuCommand(sec: HTMLElement, draft: StructDef, row: HTMLElement, cmd: string): void {
-        this.hideFieldValMenu();
         if (cmd === 'field-ptr-on' || cmd === 'field-ptr-off') {
             this.toggleFieldPointer(sec, draft, row, cmd === 'field-ptr-on');
         }
@@ -1430,17 +1430,13 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
 
     /** Per-field pointer context menu (right-click / Shift+F10 / focus+Enter) — replaces the old row button. */
     private showEditorFieldPointerMenu(sec: HTMLElement, draft: StructDef, row: HTMLElement, ev: Event): void {
-        this.hideFieldValMenu();
         this.syncEditorDraft(sec, draft);
         const field = draft.fields[parseInt(row.dataset.idx!)];
         if (!field) { return; }
         const items = this.fieldPointerMenuItems(row, field);
-        const el = this.createFieldValMenu(items, this.fieldMenuX(ev, row), this.fieldMenuY(ev, row));
-        el.classList.add('si-field-menu');
-        this.wireFieldValMenuCommands(el, cmd => {
+        this.showFieldMenu(items, this.fieldMenuX(ev, row), this.fieldMenuY(ev, row), cmd => {
             this.onFieldMenuCommand(sec, draft, row, cmd);
         });
-        this.finishFieldValMenu(el);
     }
 
 private clearPointerBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement): void {
@@ -3844,7 +3840,7 @@ private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: StructPin; de
     return { card, pin, def };
 }
 
-/** View-type preview toggle — reached through the per-card "⋮" menu. */
+/** View-type preview toggle — always-visible card action button (`.act-btn-view-type`). */
 private toggleTypePreview(btn: HTMLElement): void {
     const id = btn.dataset.pinId!;
     const card = btn.closest<HTMLElement>('.sb-card')!;
@@ -3923,31 +3919,14 @@ private restoreSelectedArrayGroup(sec: HTMLElement): void {
         }
     });
 }
-// Floating per-field value-type menu
+// Floating per-field value-type menu (rendered into the shared MenuController container)
 
-private hideFieldValMenu = (): void => {
-    if (this._valMenuEl) { this._valMenuEl.remove(); this._valMenuEl = null; }
-};
-
-private createFieldValMenu(innerHtml: string, x: number, y: number): HTMLElement {
-    const el = document.createElement('div');
-    el.id = 'si-val-menu'; el.className = 'si-val-menu ctx-menu';
-    el.innerHTML = innerHtml;
-    document.body.appendChild(el);
-    positionContextMenu(el, x, y);
-    // Shared popup wiring: Escape + click-outside close via hideFieldValMenu
-    // (removes the element; no document listener is added per open).
-    wireMenuPopup(el, { root: document.body, onClose: () => this.hideFieldValMenu() });
-    return el;
-}
-
-private wireFieldValMenuCommands(el: HTMLElement, onCommand: (cmd: string) => void): void {
-    el.querySelectorAll<HTMLElement>('.ctx-row[data-cmd]:not(.disabled)').forEach(row => {
-        row.addEventListener('click', ev => {
-            ev.stopPropagation();
-            onCommand(row.dataset.cmd!);
-        });
-    });
+/** Show a struct field menu in the shared controller container; commands route through `onCommand`. */
+private showFieldMenu(innerHtml: string, x: number, y: number, onCommand: (cmd: string) => void): void {
+    menuController.show(x, y, { innerHTML: innerHtml, emit: onCommand });
+    // The controller owns #menu; tag it with the struct modifier so the
+    // .si-field-menu CSS (min/max width, wrapped hints) applies.
+    menuController.openMenu()?.classList.add('si-field-menu');
 }
 
 private structPinAtAddress(addr: number, pinIdx: number | undefined, allDefs: StructDef[]): StructPin | undefined {
@@ -4046,13 +4025,11 @@ private handleArrayHeaderMenuCommand(
     if (!cmd.startsWith('disp-')) { return; }
     if (!this.hasValueRows(bsList)) { return; }
     this.applyArrayHeaderDisplayType(cmd.replace('disp-', '') as ColType, bsList, keyList, findFieldAt);
-    this.hideFieldValMenu();
     this.render();
 }
 
 private copyAddressToClipboard(bs: number): void {
     this.copyTextToClipboard(`0x${bs.toString(16).toUpperCase().padStart(8, '0')}`);
-    this.hideFieldValMenu();
 }
 
 private hasValueRows(bsList: number[] | undefined): bsList is number[] {
@@ -4287,7 +4264,6 @@ private showFieldValMenu(
     pinIdx?: number,
     opts: FieldValMenuOptions = {},
 ): void {
-    this.hideFieldValMenu();
     const ctx = this.createFieldValMenuContext(bs, bsList, pinIdx, opts);
 
     if (opts.isArrayHeader) {
@@ -4388,18 +4364,18 @@ private commonFieldValueType(
 
 private menuItemHtml(cmd: string, label: string, hint = ''): string {
     return (
-        `<div class="ctx-row" data-cmd="${cmd}">` +
-        `<span class="ctx-label">${esc(label)}</span>` +
-        (hint ? `<span class="ctx-hint">${esc(hint)}</span>` : '') +
+        `<div class="menu-item" data-cmd="${cmd}" role="menuitem" tabindex="-1">` +
+        `<span class="menu-label">${esc(label)}</span>` +
+        (hint ? `<span class="menu-hint">${esc(hint)}</span>` : '') +
         `</div>`
     );
 }
 
 private disabledMenuItemHtml(label: string, hint: string): string {
     return (
-        `<div class="ctx-row disabled">` +
-        `<span class="ctx-label">${esc(label)}</span>` +
-        `<span class="ctx-hint">${esc(hint)}</span>` +
+        `<div class="menu-item menu-disabled">` +
+        `<span class="menu-label">${esc(label)}</span>` +
+        `<span class="menu-hint">${esc(hint)}</span>` +
         `</div>`
     );
 }
@@ -4413,36 +4389,35 @@ private pointerSourceSubtitleHtml(pin: StructPin): string {
 
 private menuSubHtml(label: string, id: string, body: string): string {
     return (
-        `<div class="ctx-row ctx-has-sub" data-sub="${id}">` +
-        `<span class="ctx-label">${esc(label)}</span>` +
-        `<div class="ctx-submenu">${body}</div>` +
+        `<div class="menu-item menu-has-sub" data-sub="${id}" role="menuitem" tabindex="-1">` +
+        `<span class="menu-label">${esc(label)}</span>` +
+        `<div class="menu-submenu">${body}</div>` +
         `</div>`
     );
 }
 
 private menuSeparatorHtml(): string {
-    return `<div class="ctx-sep"></div>`;
+    return `<div class="menu-sep"></div>`;
 }
 
 private displayMenuHtml(types: ColType[], cur: ColType | null): string {
     return types.map(t =>
-        `<div class="ctx-row${t === cur ? ' active' : ''}" data-cmd="disp-${t}">` +
-        `<span class="ctx-label">${TYPE_LABELS[t]}</span>` +
+        `<div class="menu-item${t === cur ? ' active' : ''}" data-cmd="disp-${t}" role="menuitem" tabindex="-1">` +
+        `<span class="menu-label">${TYPE_LABELS[t]}</span>` +
         `</div>`
     ).join('');
 }
 
 /** Build a View-as menu from a leading prefix block and route commands through onCommand. */
 private createViewAsMenu(prefixHtml: string, x: number, y: number, ctx: FieldValMenuContext, onCommand: (cmd: string) => void): void {
-    const el = this.createFieldValMenu(
+    this.showFieldMenu(
         prefixHtml +
         this.menuSeparatorHtml() +
         this.menuSubHtml('View as', 'disp', this.displayMenuHtml(ctx.types, ctx.cur)),
         x,
         y,
+        onCommand,
     );
-    this.wireFieldValMenuCommands(el, cmd => onCommand(cmd));
-    this.finishFieldValMenu(el);
 }
 
 private showArrayHeaderFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
@@ -4458,13 +4433,12 @@ private showArrayHeaderFieldValMenu(ctx: FieldValMenuContext, x: number, y: numb
 private showPointerFieldValMenu(ctx: FieldValMenuContext, x: number, y: number): void {
     const source = this.pointerMenuSource(ctx);
     const row = source?.row ?? null;
-    const el = this.createFieldValMenu(
+    this.showFieldMenu(
         this.pointerMenuHtml(row, source, ctx.opts.pointerAllowCreate === true),
         x,
         y,
+        cmd => this.handlePointerMenuCommand(cmd, ctx, row, source),
     );
-    this.wireFieldValMenuCommands(el, cmd => this.handlePointerMenuCommand(cmd, ctx, row, source));
-    this.finishFieldValMenu(el);
 }
 
 private pointerMenuHtml(row: DecodedField | null, source: PointerMenuSource | null, allowCreate: boolean): string {
@@ -4497,12 +4471,10 @@ private handlePointerMenuCommand(
 ): void {
     if (cmd === 'jump-ptr') {
         this.followPointerRow(row);
-        this.hideFieldValMenu();
         return;
     }
     if (cmd === 'create-struct-ptr') {
         this.createStructInstanceFromPointer(source);
-        this.hideFieldValMenu();
         return;
     }
     this.copyPointerFieldValue(ctx);
@@ -4671,16 +4643,10 @@ private copyMenuHtml(types: ColType[]): string {
     return types.map(t => this.menuItemHtml(`copy-${t}`, TYPE_LABELS[t], '')).join('');
 }
 
-private finishFieldValMenu(el: HTMLElement): void {
-    this.wireStructSubmenus(el);
-    this._valMenuEl = el;
-}
-
 private copyPointerFieldValue(ctx: FieldValMenuContext): void {
     const source = this.pointerMenuSource(ctx);
     const row = source?.row ?? null;
     this.copyTextToClipboard(row ? this.singleLineCopyText(this.getCopyText(row, 'hex')) : '??');
-    this.hideFieldValMenu();
 }
 
 private handleScalarValueMenuCommand(cmd: string, ctx: FieldValMenuContext): void {
@@ -4695,12 +4661,11 @@ private handleScalarValueMenuCommand(cmd: string, ctx: FieldValMenuContext): voi
 
 private copyScalarFieldValue(type: ColType, ctx: FieldValMenuContext): void {
     const source = this.findCopySourceRows(ctx.bs, ctx.pinIdx, ctx.opts);
-    if (!source) { this.hideFieldValMenu(); return; }
+    if (!source) { return; }
     const text = ctx.bsList && ctx.bsList.length > 0
         ? this.copyListText(ctx.bsList, ctx.opts.keyList, source.rows, source.baseAddr, type)
         : this.copySingleText(ctx.bs, ctx.opts.valKey, source.rows, source.baseAddr, type);
     this.copyTextToClipboard(text);
-    this.hideFieldValMenu();
 }
 
 private copyListText(bsList: number[], keyList: string[] | undefined, rows: DecodedField[], pinAddr: number, type: ColType): string {
@@ -4717,11 +4682,7 @@ private setScalarDisplayType(type: ColType, ctx: FieldValMenuContext): void {
     const implicit = this.implicitDisplayType(field, !!ctx.opts.isBitUnitHeader);
     if (type === implicit) { this._fieldValTypes.delete(ctx.key); }
     else { this._fieldValTypes.set(ctx.key, type); }
-    this.hideFieldValMenu();
     this.render();
-}
-private wireStructSubmenus(menuEl: HTMLElement): void {
-    wireHoverSubmenus(menuEl);
 }
 
 private findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructDef[]): StructPin | undefined {
