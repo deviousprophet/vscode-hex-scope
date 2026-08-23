@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Struct field and integrity profile menus now use the shared menu controller — both gain keyboard navigation (arrows, Home/End, Enter/Space, two-step Escape) and focus-loss dismissal (Tab, focus click, window blur) previously available only on the hex-grid context menu
+
 ### Fixed
 
 - Clicking a bit-field container's parent row now selects the container's underlying storage unit (e.g. 2 bytes for `uint16_t`) instead of the sum of each child bit-field's storage size
