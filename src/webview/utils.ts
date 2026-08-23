@@ -16,16 +16,16 @@ export function fmtB(b: number): string {
 
 const MENU_GUTTER = 8;
 
-export function positionContextMenu(el: HTMLElement, x: number, y: number): void {
+export function positionMenu(el: HTMLElement, x: number, y: number): void {
     el.style.display = 'block';
     const mw = el.offsetWidth || 220;
     const mh = el.offsetHeight || 120;
     el.style.left = `${Math.max(MENU_GUTTER, Math.min(x, window.innerWidth - mw - MENU_GUTTER))}px`;
     el.style.top = `${Math.max(MENU_GUTTER, Math.min(y, window.innerHeight - mh - MENU_GUTTER))}px`;
-    el.classList.toggle('ctx-scroll', mh > window.innerHeight - MENU_GUTTER * 2);
+    el.classList.toggle('menu-scroll', mh > window.innerHeight - MENU_GUTTER * 2);
 }
 
-export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = false): void {
+export function wireMenuSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = false): void {
     let closeTimer: ReturnType<typeof setTimeout> | null = null;
     let activeSub: HTMLElement | null = null;
 
@@ -67,7 +67,7 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
         } else {
             sub.style.top = '-4px'; sub.style.bottom = 'auto';
         }
-        sub.classList.toggle('ctx-scroll', (sub.offsetHeight || 120) > window.innerHeight - MENU_GUTTER);
+        sub.classList.toggle('menu-scroll', (sub.offsetHeight || 120) > window.innerHeight - MENU_GUTTER);
     };
 
     const scheduledClose = (sub: HTMLElement) => {
@@ -78,8 +78,8 @@ export function wireHoverSubmenus(menuEl: HTMLElement, keepOpenWhenFocused = fal
         }, 100);
     };
 
-    menuEl.querySelectorAll<HTMLElement>('.ctx-has-sub').forEach(row => {
-        const sub = row.querySelector<HTMLElement>('.ctx-submenu');
+    menuEl.querySelectorAll<HTMLElement>('.menu-has-sub').forEach(row => {
+        const sub = row.querySelector<HTMLElement>('.menu-submenu');
         if (!sub) { return; }
         row.addEventListener('mouseenter', () => openSub(sub, row));
         row.addEventListener('mouseleave', e => {

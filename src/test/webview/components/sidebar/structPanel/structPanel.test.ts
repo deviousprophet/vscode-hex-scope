@@ -58,7 +58,7 @@ function getTopStructFieldHeaders(): string[] {
 
 function openValueMenuLabels(target: HTMLElement, dom: JSDOM): string[] {
     target.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-    return Array.from(document.querySelectorAll<HTMLElement>('#si-val-menu .ctx-row[data-cmd^="disp-"] .ctx-label'))
+    return Array.from(document.querySelectorAll<HTMLElement>('.si-field-menu .menu-item[data-cmd^="disp-"] .menu-label'))
         .map(el => el.textContent ?? '');
 }
 
@@ -255,7 +255,7 @@ suite('StructPanel deep-render harness', () => {
         const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
         assert.ok(row, 'typed pointer row should render before opening menu');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const disabledFollow = document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled');
+        const disabledFollow = document.querySelector<HTMLElement>('.si-field-menu .menu-item.menu-disabled');
         assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
         assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
     }
@@ -371,7 +371,7 @@ suite('StructPanel deep-render harness', () => {
         const childHeader = document.querySelector<HTMLElement>('.si-ptr-child-hdr[data-pointer-allow-create="true"]');
         assert.ok(childHeader, 'struct pointer child header should render create-enabled menu source');
         childHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
+        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-struct-ptr"]');
         assert.ok(create, 'create struct instance command should be enabled');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     }
@@ -1098,14 +1098,14 @@ suite('StructPanel deep-render harness', () => {
         let firstRow = document.querySelector<HTMLElement>('.si-field');
         assert.ok(firstRow, 'first scalar row should render');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        let binItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin"]');
+        let binItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-bin"]');
         assert.ok(binItem, 'binary view menu item should render');
         binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         let firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
         assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'LE binary should display the numeric value bits, not raw memory byte order');
         firstRow = document.querySelector<HTMLElement>('.si-field');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const hexItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-hex"]');
+        const hexItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-hex"]');
         assert.ok(hexItem, 'hex view menu item should render');
         hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1123,7 +1123,7 @@ suite('StructPanel deep-render harness', () => {
         firstRow = document.querySelector<HTMLElement>('.si-field');
         assert.ok(firstRow, 'first scalar row should render after BE rerender');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        binItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin"]');
+        binItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-bin"]');
         assert.ok(binItem, 'binary view menu item should render after BE rerender');
         binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
@@ -1150,9 +1150,9 @@ suite('StructPanel deep-render harness', () => {
 
         const row = assertVoidPointerLeafRow();
         row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
+        const jump = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="jump-ptr"]');
         assert.ok(jump, 'jump pointer command should be enabled for mapped void pointer');
-        assert.strictEqual(document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]'), null, 'void pointer should not offer create struct instance');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-struct-ptr"]'), null, 'void pointer should not offer create struct instance');
 
         row.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(S.selStart, 0x20);
@@ -1191,7 +1191,7 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(S.selEnd, 3);
 
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const jump = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="jump-ptr"]');
+        const jump = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="jump-ptr"]');
         assert.ok(jump, 'jump pointer command should be enabled');
         jump!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1418,7 +1418,7 @@ suite('StructPanel deep-render harness', () => {
             .querySelector<HTMLElement>('.si-arr-grp-body .si-ptr-child-hdr[data-pointer-allow-create="true"]');
         assert.ok(nestedChild, 'nested struct pointer should expose create-enabled child row');
         nestedChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const create = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="create-struct-ptr"]');
+        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-struct-ptr"]');
         assert.ok(create, 'nested struct pointer should enable create');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1470,7 +1470,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
         assert.ok(labels.includes('Binary (bit fields only)'), 'View as should include bit-fields-only binary');
 
-        const slicedItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-bin-sliced"]');
+        const slicedItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-bin-sliced"]');
         assert.ok(slicedItem, 'sliced binary menu item should render');
         slicedItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1491,7 +1491,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(firstChild, 'first bit-field child should render');
         firstChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
 
-        const childDecItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-dec"]');
+        const childDecItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-dec"]');
         assert.ok(childDecItem, 'bit-field child decimal menu item should render');
         childDecItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1563,7 +1563,7 @@ suite('StructPanel deep-render harness', () => {
         const parent = document.querySelector<HTMLElement>('.si-bitunit-hdr');
         assert.ok(parent, 'bit-field parent should render');
         parent!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const parentCopyHex = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="copy-hex"]');
+        const parentCopyHex = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="copy-hex"]');
         assert.ok(parentCopyHex, 'parent copy hex item should render');
         parentCopyHex!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(writes.pop(), '0xB1', 'parent copy should use the aggregate storage value');
@@ -1575,7 +1575,7 @@ suite('StructPanel deep-render harness', () => {
         const children = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]'));
         assert.strictEqual(children.length, 3, 'three bit-field children should render');
         children[1]!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const childCopyDec = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="copy-dec"]');
+        const childCopyDec = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="copy-dec"]');
         assert.ok(childCopyDec, 'child copy decimal item should render');
         childCopyDec!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(writes.pop(), '6', 'child copy should use the clicked bit-field child value');
@@ -1615,7 +1615,7 @@ suite('StructPanel deep-render harness', () => {
 
         const copyFromRow = (row: HTMLElement, cmd: string): string => {
             row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-            const item = document.querySelector<HTMLElement>(`#si-val-menu .ctx-row[data-cmd="${cmd}"]`);
+            const item = document.querySelector<HTMLElement>(`.si-field-menu .menu-item[data-cmd="${cmd}"]`);
             assert.ok(item, `${cmd} menu item should render`);
             item!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
             const copied = writes.pop();
@@ -1759,7 +1759,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(arrayHeader, 'bit-field array header should render');
         arrayHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
 
-        const hexItem = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="disp-hex"]');
+        const hexItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-hex"]');
         assert.ok(hexItem, 'array header hex menu item should render');
         hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -2244,7 +2244,7 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(row!.querySelector('.sfe-ptr-btn'), null, 'no pointer row button in editor grid');
 
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const attach = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-on"]');
+        const attach = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]');
         assert.ok(attach, 'attach pointer item should render');
         click(dom, attach);
 
@@ -2252,14 +2252,14 @@ suite('StructPanel deep-render harness', () => {
         row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row, 'editor field row should re-render');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const clear = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-off"]');
+        const clear = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-off"]');
         assert.ok(clear, 'clear pointer item should render once attached');
         click(dom, clear);
 
         // Attach again, then save and verify the draft is saved as a pointer field.
         row = document.querySelector<HTMLElement>('.struct-field-row');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        click(dom, document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-on"]'));
+        click(dom, document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]'));
         (document.getElementById('se-name') as HTMLInputElement).value = 'PtrType';
         click(dom, document.getElementById('se-save'));
         const saved = S.structs.find(d => d.name === 'PtrType');
@@ -2278,8 +2278,8 @@ suite('StructPanel deep-render harness', () => {
         const row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row, 'editor field row should re-render after bit toggle');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const attach = document.querySelector<HTMLElement>('#si-val-menu .ctx-row[data-cmd="field-ptr-on"]');
+        const attach = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]');
         assert.ok(!attach, 'attach pointer should be hidden for bit-field containers');
-        assert.ok(document.querySelector<HTMLElement>('#si-val-menu .ctx-row.disabled')?.textContent?.includes('Attach pointer'), 'disabled item should explain bit-field conflict');
+        assert.ok(document.querySelector<HTMLElement>('.si-field-menu .menu-item.menu-disabled')?.textContent?.includes('Attach pointer'), 'disabled item should explain bit-field conflict');
     });
 });

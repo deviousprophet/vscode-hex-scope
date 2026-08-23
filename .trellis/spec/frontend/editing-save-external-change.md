@@ -48,7 +48,7 @@ type WebviewToProviderMessage =
 - External file changes lock editing. With no local edits, offer reload; with local edits, show conflict choice. Parse-error changes use error UI and optional checksum repair.
 - Direct-typing (keyboard-based single-byte editing) uses a capture-phase `keydown` listener on `document`. Enters the same transaction path as fills (`S.edits`, `S.undoStack`).
 - Nibble buffer is module-level state in `hexViewer.ts`. First hex keypress stores the nibble and updates cell text in-place. Second hex keypress combines into a full byte and applies the edit.
-- Key filtering: only fires when `S.editMode && !S.lockedDueToExternalChange && singleByteSelected() && activeElement not inside #search-box or #ctx-menu`.
+- Key filtering: only fires when `S.editMode && !S.lockedDueToExternalChange && singleByteSelected() && activeElement not inside #search-box` (the menu controller intercepts nav/escape keys capture-phase; grid shortcuts no longer check the menu by id).
 - `clearNibbleBuffer` is wired into `onByteDown`, `updateByteSelection`, `undoLastEdit`, and Escape handler to prevent stale buffer leaks.
 - `advanceSel` uses segment-based scan: checks if `addr+1` is in the same segment, otherwise finds the next segment's start address.
 - Partial nibble on click-away (Q3-A) is silently discarded — no edit is applied.

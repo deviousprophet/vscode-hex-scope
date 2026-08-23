@@ -10,7 +10,7 @@ import {
     type IntegrityProfile,
 } from '../../../../core/integrity';
 import { esc, inlineConfirm } from '../../../utils';
-import { closeMenuPopup, toggleMenuPopup, wireMenuPopup } from '../sidebar';
+import { menuController } from '../../menuController/menuController';
 import {
     integrityCheckConfigsFromStates,
     integrityCheckSetFromStates,
@@ -52,23 +52,27 @@ export function wireProfileControls(panel: IntegrityProfileHost): void {
     updateProfileButtonState(panel);
 }
 
-/** ⋮ popover menu: shared open/close, Escape, click-outside, aria state (sidebar.ts). */
+/** ⋮ popover menu: shared open/close, keyboard nav, dismissal, aria state (menuController). */
 function wireProfileMenu(): void {
     const button = document.getElementById('integrity-profile-menu-btn') as HTMLButtonElement | null;
     const pop = document.getElementById('integrity-profile-menu-pop');
     if (!button || !pop) { return; }
-    wireMenuPopup(pop, {
-        button,
-        root: button.closest('.integrity-profile-menu') ?? undefined,
-        focusFirst: '.integrity-profile-menu-item:not(:disabled)',
-    });
+    menuController.attach(pop);
     button.addEventListener('click', event => {
         event.stopPropagation();
-        toggleMenuPopup(pop);
+        if (pop.hidden) {
+            menuController.show(0, 0, {
+                el: pop,
+                anchor: button,
+                focusFirst: '.integrity-profile-menu-item:not(:disabled)',
+            });
+        } else {
+            menuController.close(pop);
+        }
     });
     pop.addEventListener('click', event => {
         if ((event.target as HTMLElement).closest('.integrity-profile-menu-item')) {
-            closeMenuPopup(pop);
+            menuController.close(pop);
         }
     });
 }

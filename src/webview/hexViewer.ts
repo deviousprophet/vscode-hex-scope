@@ -68,7 +68,8 @@ import {
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { showToast } from './components/toast';
 import { formatCopyCommand } from '../core/byteTools/copy';
-import { ContextMenu, type ContextMenuState } from './components/contextMenu/contextMenu';
+import { menuController } from './components/menuController/menuController';
+import { renderMenuHtml, type MenuState } from './components/menuController/menuRender';
 import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
 
 // ── Record view component ────────────────────────────────────────
@@ -495,13 +496,10 @@ const toolbar = new Toolbar({
 // lock-state transitions (lock.ts).
 const externalChange = new ExternalChange();
 
-// ── ContextMenu component ────────────────────────────────────────
-// Component owns menu markup, positioning, dismiss, hover-submenus and
-// the transient inline-input state; host owns all command execution +
-// the new action logic (go-address, select-all, select-segment).
-const contextMenu = new ContextMenu({
-    onCommand: cmd => handleCtxCommand(cmd),
-});
+// ── Context menu (MenuController) ───────────────────────────────
+// The shared MenuController owns menu markup/positioning/dismiss/
+// hover-submenus/keyboard nav; this host owns all command execution +
+// the action logic (go-address, select-all, select-segment).
 
 function enterEditMode(): void {
     S.editMode = true;
@@ -587,7 +585,7 @@ function handleEditBufferChar(selStart: number, char: string): void {
 
 function isEditBlocked(): boolean {
     return !S.editMode || S.lockedDueToExternalChange
-        || !!document.activeElement?.closest('#search-box, #ctx-menu');
+        || !!document.activeElement?.closest('#search-box, #menu');
 }
 
 function isSingleByteSelected(): boolean {
@@ -765,7 +763,7 @@ function onUndoKeydown(e: KeyboardEvent): void {
 }
 
 function onSaveShortcut(e: KeyboardEvent): void {
-    if (!isSaveShortcut(e) || !hasEditsToSave() || inContextMenu(document.activeElement)) { return; }
+    if (!isSaveShortcut(e) || !hasEditsToSave()) { return; }
     e.preventDefault();
     saveEdits();
 }
@@ -777,11 +775,6 @@ function hasEditsToSave(): boolean {
 
 function isSaveShortcut(e: KeyboardEvent): boolean {
     return (e.ctrlKey || e.metaKey) && e.key === 's';
-}
-
-/** True when `el` lives inside the context menu (its rows are tabbable; grid shortcuts must not fire there). */
-function inContextMenu(el: Element | null): boolean {
-    return !!el?.closest('#ctx-menu');
 }
 
 // Document-level keydown handlers register ONCE at module load (not per render):
@@ -1045,8 +1038,7 @@ function render(): void {
                 <div id="record-view" class="${visibleClass(S.currentView === 'record')}"></div>
             </div>
             ${sidebar.toHtml()}
-        </div>
-        <div id="ctx-menu" role="menu" style="display:none"></div>`;
+        </div>`;
 
     invalidateGridRender();
     setupRenderedUi();
@@ -1061,7 +1053,6 @@ function setupRenderedUi(): void {
     recordView.mount();
     const recordRoot = document.getElementById('record-view');
     if (recordRoot) { observeRecordResize(recordRoot); }
-    contextMenu.mount();
     toolbar.setView(S.currentView);
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
@@ -1277,7 +1268,7 @@ function isGridFocused(): boolean {
 
 function isTypingTarget(e: KeyboardEvent): boolean {
     const t = e.target as HTMLElement | null;
-    return !!t && !!(t.closest('input, select, textarea') || inContextMenu(t));
+    return !!t && !!t.closest('input, select, textarea');
 }
 
 /** Arrow key → selection movement; menu key → open the context menu at the grid center. */
@@ -1570,7 +1561,7 @@ function applyContextCommandResult(result: ReturnType<typeof contextCommandResul
     if (result.type === 'fill') { applyFill(result.value); }
 }
 
-function ctxMenuState(): ContextMenuState {
+function ctxMenuState(): MenuState {
     const len = selLen();
     return {
         selectionActive: S.selStart !== null && len > 0,
@@ -1583,11 +1574,14 @@ function ctxMenuState(): ContextMenuState {
 }
 
 function showCtxMenu(x: number, y: number): void {
-    contextMenu.show(x, y, ctxMenuState());
+    menuController.show(x, y, {
+        innerHTML: renderMenuHtml(ctxMenuState()),
+        emit: handleCtxCommand,
+    });
 }
 
 /** Go-address target: uint32 read from the 4 selected bytes in system endian. */
-function computeGoAddress(len: number): ContextMenuState['goAddress'] {
+function computeGoAddress(len: number): MenuState['goAddress'] {
     if (len !== 4 || S.selStart === null) { return null; }
     const bytes = selectedBytes();
     if (bytes.length !== 4) { return null; }

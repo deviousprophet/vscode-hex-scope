@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/frontend/components/", "reason": "MenuController unification: all menus (hex grid ctx menu, struct field menu, integrity profile menu) now share one headless MenuController + the menu-* lexicon (prd Q8 rename). Sub-agent dispatch (trellis-implement) executed the full refactor per design.md steps 1-6; implement.jsonl records this dispatch flow."}

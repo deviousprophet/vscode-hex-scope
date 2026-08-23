@@ -294,8 +294,22 @@
     flex-shrink: 0; display: flex; align-items: center; gap: 0;
 }
 
-/* Per-field pointer context menu (editor field rows) */
-.si-field-menu { min-width: 220px; }
+/* Struct field menus live in the shared #menu container; the si-field-menu
+   modifier adds the struct-specific sizing/word-break + wrapped hints. */
+.si-field-menu {
+    min-width: 260px;
+    max-width: 340px;
+    word-break: break-word;
+}
+.si-field-menu .menu-hint {
+    display: block;
+    padding: 6px 12px 0 12px;
+    font-size: 12px;
+    color: var(--addr-fg);
+    white-space: normal;
+    line-height: 1.4;
+    word-break: break-word;
+}
 
 /* + new-type button in add form type row */
 .si-add-type-btn {
@@ -470,24 +484,6 @@
     border-radius: 3px;
 }
 
-/* per-field value-type menu */
-.si-val-menu {
-    position: fixed; z-index: 9999; background: var(--panel-bg);
-    border: 1px solid var(--border); border-radius: 4px; padding: 4px;
-    box-shadow: 0 6px 18px rgba(0,0,0,.6);
-    min-width: 260px;
-    max-width: 340px;
-    word-break: break-word;
-}
-.si-val-menu .ctx-hint {
-    display: block;
-    padding: 6px 12px 0 12px;
-    font-size: 12px;
-    color: var(--addr-fg);
-    white-space: normal;
-    line-height: 1.4;
-    word-break: break-word;
-}
 .si-val-row { padding: 6px 10px; cursor: pointer; font-size: 12px; color: var(--fg); }
 .si-val-row:hover { background: var(--hover-bg); }
 .si-val-row.active { font-weight: 700; color: var(--high-color); }

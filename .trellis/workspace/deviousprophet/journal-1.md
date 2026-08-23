@@ -998,3 +998,45 @@ Grilled spec to narrow tolerance to trailing 0x1A run at EOF. Stripped pre-split
 ### Status
 
 [OK] **Completed**
+
+
+## Session 44: Unify ContextMenu + sidebar popovers into one MenuController
+
+**Date**: 2026-08-23
+**Task**: Unify ContextMenu + sidebar popovers into one MenuController
+**Branch**: `refactor/menu-controller-unification`
+
+### Summary
+
+Unified hex-grid ContextMenu and wireMenuPopup registry into a single headless MenuController; menu-* lexicon rename; full keyboard-nav + dismissal parity for struct field + integrity popovers; capture-phase interception; fallow green; consolidated suite (954 passing); spec updated; pushed refactor/menu-controller-unification.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ddfd608` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 45: Split menuController.ts (fallow refactoring target)
+
+**Date**: 2026-08-23
+**Task**: Split menuController.ts (fallow refactoring target)
+**Branch**: `refactor/menu-controller-unification`
+
+### Summary
+
+fallow-fix: addressed split-high-impact refactoring target. Extracted menuRender.ts (pure hex menu markup), menuNav.ts (stateless keyboard-nav helpers), menuFill.ts (custom-fill input wiring); controller core 694→398 LOC. Fallow green (dead 0, complexity 0, dupes 0, targets 0); 954 tests passing.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `615fa08` | (see git log) |
+
+### Status
+
+[OK] **Completed**
