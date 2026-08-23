@@ -977,3 +977,24 @@ Branched fix/struct-ascii-space-render from main. Hit: ascii struct field values
 ### Status
 
 [OK] **Completed**
+
+
+## Session 43: Tolerate trailing SUB (0x1A) EOF marker in ihex/srec
+
+**Date**: 2026-08-23
+**Task**: Tolerate trailing SUB (0x1A) EOF marker in ihex/srec
+**Branch**: `fix/hex-tolerate-subchar`
+
+### Summary
+
+Grilled spec to narrow tolerance to trailing 0x1A run at EOF. Stripped pre-split in shared records layer (sync + async) so ihex/srec and initial+live load all benefit; non-trailing 0x1A stays malformed. 8 new regression tests (ihex x5, srec x2, async compact x1). tsc/lint/882 tests green; real user file with SUB verified clean. Spec updated in document-formats.md.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98d6b47` | (see git log) |
+
+### Status
+
+[OK] **Completed**
