@@ -225,8 +225,10 @@ export function inlineConfirm(anchor: HTMLElement, onConfirm: () => void, messag
 
     // Delay adding outside-click so the originating click doesn't immediately close it
     setTimeout(() => {
-        document.addEventListener('mousedown', outsideHandler, true);
-        document.addEventListener('keydown',   keyHandler,     true);
+        try {
+            document.addEventListener('mousedown', outsideHandler, true);
+            document.addEventListener('keydown',   keyHandler,     true);
+        } catch { }
     }, 0);
 }
 
@@ -283,9 +285,11 @@ const flashState = new WeakMap<HTMLElement, { timer: number; prev: string | null
 /** Restore the pre-flash text (skipped when the element was re-rendered/detached). */
 function endFlash(el: HTMLElement, prev: string | null): void {
     flashState.delete(el);
-    if (!el.isConnected) { return; }
-    el.classList.remove('copied');
-    if (prev !== null) { el.textContent = prev; }
+    try {
+        if (!el.isConnected) { return; }
+        el.classList.remove('copied');
+        if (prev !== null) { el.textContent = prev; }
+    } catch { }
 }
 
 function flashPrevText(el: HTMLElement, swapText: boolean): string | null {
