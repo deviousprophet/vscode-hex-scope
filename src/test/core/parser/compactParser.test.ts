@@ -135,4 +135,17 @@ suite('compact async parsers', () => {
             expected.segments.map(s => Array.from(s.data)),
         );
     });
+
+    test('trailing SUB is tolerated to the compact async parser', async () => {
+        const clean = ':0400000001020304F2\n:00000001FF\n';
+        const expected = parseIntelHex(clean);
+        const actual = await parseIntelHexCompact(clean + '\u001A');
+
+        assert.strictEqual(actual.malformedLines, 0);
+        assert.strictEqual(actual.segments.length, expected.segments.length);
+        assert.deepStrictEqual(
+            actual.segments.map(s => Array.from(s.data)),
+            expected.segments.map(s => Array.from(s.data)),
+        );
+    });
 });

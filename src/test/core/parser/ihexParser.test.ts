@@ -232,4 +232,44 @@ suite('IntelHexParser', () => {
     test('whitespace-only input produces no records', () => {
         assert.strictEqual(parseIntelHex('   \n  \n').records.length, 0);
     });
+
+    // -- Trailing SUB (0x1A EOF marker) tolerance --------------------------
+
+    const cleanSrc = [dataRec(0x0000, [0x01, 0x02]), EOF].join('\n');
+
+    test('trailing SUB after final newline is tolerated', () => {
+        const result = parseIntelHex(cleanSrc + '\n\u001A');
+        assert.strictEqual(result.malformedLines, 0);
+        assert.deepStrictEqual(
+            result.records.map(r => r.raw),
+            parseIntelHex(cleanSrc).records.map(r => r.raw),
+        );
+    });
+
+    test('trailing SUB without final newline is tolerated', () => {
+        const result = parseIntelHex(cleanSrc + '\u001A');
+        assert.strictEqual(result.malformedLines, 0);
+        assert.strictEqual(result.records.length, 2);
+        assert.deepStrictEqual(
+            result.records.map(r => r.raw),
+            parseIntelHex(cleanSrc).records.map(r => r.raw),
+        );
+    });
+
+    test('run of multiple trailing SUB characters is tolerated', () => {
+        const result = parseIntelHex(cleanSrc + '\n\u001A\u001A\u001A');
+        assert.strictEqual(result.malformedLines, 0);
+        assert.strictEqual(result.records.length, 2);
+    });
+
+    test('SUB-only line in the middle of the file stays malformed', () => {
+        const src = [dataRec(0x0000, [0x01]), '\u001A', EOF].join('\n');
+        const result = parseIntelHex(src);
+        assert.strictEqual(result.malformedLines, 1);
+    });
+
+    test('SUB followed by trailing whitespace is not tolerated', () => {
+        const result = parseIntelHex(cleanSrc + '\n\u001A ');
+        assert.strictEqual(result.malformedLines, 1);
+    });
 });
