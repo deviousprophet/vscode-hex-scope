@@ -34,10 +34,9 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 ## Persistence Scope
 
-- Per-file state: labels, struct pins, endian, active integrity check set.
-- Shared/global state: struct definitions and integrity profiles.
-- Persistence adapters: host `hexViewer.ts` struct callbacks (`saveStructs`/`saveStructPins`), `integrityPersistence.ts`, and session message handlers.
-- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use.
+- All persisted state lives on disk under `.hexscope/` in the workspace (no Memento after migration): `structs.json` (shared struct definitions), `integrity.json` (shared profiles), `data/<rel>.json` (per-file labels + segment names, shared), `local/<rel>.json` (per-file struct pins + active integrity checks + endian, gitignored).
+- Persistence adapters: `src/hexScopeStorage.ts` (JsonStore, debounced write, self-heal, `.hexscope` watcher) and `src/hexEditorSession.ts` session wiring (`save*` handlers, postInit reads, per-file op queue). Legacy migration lives in `src/hexScopeMigration.ts`, run once per root at first panel open.
+- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use — the stores take normalizers so the validation functions stay in their owning modules.
 - Struct migration/deduplication belongs in `HexEditorSession` (`migrateStructDefinitions` and legacy merge helpers), not render code.
 
 ## Update Pattern

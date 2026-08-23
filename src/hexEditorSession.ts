@@ -1,13 +1,12 @@
 import * as crypto from 'crypto';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
 import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
+import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import {
     normalizeIntegrityCheckSet,
@@ -18,14 +17,28 @@ import {
 import {
     messageType,
     RECORD_PAGE_SIZE,
+    type HexScopeEndian,
     type ProviderToWebviewMessage,
+    type SegmentNameOverrides,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
 
 import { scanScripts, execute } from './core/scripting/scriptRunner';
 import { VSCodeScriptHost } from './scriptHost';
+import {
+    JsonStore,
+    integrityFileUri,
+    perFileDataUri,
+    perFileLocalUri,
+    perFileRelativePath,
+    resolveHexScopeRoot,
+    structsFileUri,
+    type NormalizedValue,
+} from './hexScopeStorage';
+import { migrateLegacyData } from './hexScopeMigration';
+import { migrateStructDefinitions, normalizeStructDefsValue } from './core/structMigration';
 
-const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
+export { migrateStructDefinitions };
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
@@ -103,8 +116,6 @@ async function postToWebview(webview: vscode.Webview, msg: ProviderToWebviewMess
     return webview.postMessage(msg);
 }
 
-type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
-type StructDefIdentity = { id: string; name: string };
 type IncomingProviderMessage = WebviewToProviderMessage;
 type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecordPage' }>;
 
@@ -272,65 +283,97 @@ async function postRecordPage(
     });
 }
 
-function stringProperty(value: unknown, key: 'id' | 'name'): string | null {
-    const prop = (value as { id?: unknown; name?: unknown })?.[key];
-    return typeof prop === 'string' ? prop : null;
+// ── .hexscope/ file normalizers ─────────────────────────────────────
+// One blob per file shape; same normalization functions as the Memento
+// era, now fed from (and self-healing back to) the on-disk JSON.
+
+interface PerFileData {
+    labels: SegmentLabel[];
+    segmentNames: SegmentNameOverrides;
 }
 
-function structDefIdentity(value: unknown): StructDefIdentity | null {
-    const id = stringProperty(value, 'id');
-    if (!id) { return null; }
-    const name = stringProperty(value, 'name');
-    return name ? { id, name } : null;
+interface PerFileLocal {
+    pins: StructPin[];
+    activeChecks: IntegrityCheckSet;
+    endian: HexScopeEndian;
 }
 
-function rememberStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): void {
-    seenIds.add(identity.id);
-    seenNames.add(identity.name);
+function emptyPerFileData(): PerFileData {
+    return { labels: [], segmentNames: {} };
 }
 
-function hasSeenStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): boolean {
-    return seenIds.has(identity.id) || seenNames.has(identity.name);
+function emptyPerFileLocal(): PerFileLocal {
+    return { pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' };
 }
 
-function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
-    const identity = structDefIdentity(item);
-    if (!identity || hasSeenStructDefIdentity(identity, seenIds, seenNames)) { return false; }
-    rememberStructDefIdentity(identity, seenIds, seenNames);
-    out.push(item as StructDef);
-    return true;
+function jsonChanged(next: unknown, previous: unknown): boolean {
+    return JSON.stringify(next) !== JSON.stringify(previous);
 }
 
-function normalizeStructDefsValue(value: unknown): StructDefsNormalization {
-    if (!Array.isArray(value)) { return { defs: [], changed: false }; }
-    const out: StructDef[] = [];
-    const seenIds = new Set<string>();
-    const seenNames = new Set<string>();
-    let changed = false;
-
-    for (const item of value) {
-        changed = !appendUniqueStructDef(item, out, seenIds, seenNames) || changed;
-    }
-    return { defs: out, changed };
+function normalizeStructsFile(raw: unknown): NormalizedValue<StructDef[]> {
+    const migrated = migrateStructDefinitions(raw);
+    const { defs, changed } = normalizeStructDefsValue(migrated);
+    return { value: defs, changed: changed || jsonChanged(migrated, raw) };
 }
 
-function createStructDefIdentitySets(defs: StructDef[]): { usedIds: Set<string>; usedNames: Set<string> } {
+function normalizeIntegrityFile(raw: unknown): NormalizedValue<IntegrityProfile[]> {
+    const value = normalizeIntegrityProfiles(raw);
+    return { value, changed: jsonChanged(value, raw) };
+}
+
+function normalizePerFileDataFile(raw: unknown): NormalizedValue<PerFileData> {
+    const obj = perFileObject<PerFileData>(raw);
+    const value = {
+        labels: Array.isArray(obj?.labels) ? obj.labels : [],
+        segmentNames: segmentNamesOrEmpty(obj?.segmentNames),
+    };
+    return { value, changed: jsonChanged(value, raw) };
+}
+
+function normalizePerFileLocalFile(raw: unknown): NormalizedValue<PerFileLocal> {
+    const obj = perFileObject<PerFileLocal>(raw);
+    const value = localFileNormalized(obj);
+    return { value, changed: jsonChanged(value, raw) };
+}
+
+function localFileNormalized(obj: Partial<PerFileLocal> | null): PerFileLocal {
     return {
-        usedIds: new Set(defs.map(s => structDefIdentity(s)?.id).filter((id): id is string => typeof id === 'string')),
-        usedNames: new Set(defs.map(s => structDefIdentity(s)?.name).filter((name): name is string => typeof name === 'string')),
+        pins: pinsOrEmpty(obj?.pins),
+        activeChecks: activeChecksOrDefault(obj),
+        endian: endianOrDefault(obj?.endian),
     };
 }
 
-function mergeLegacyStructDefs(globalArr: StructDef[], legacyArr: StructDef[]): { defs: StructDef[]; changed: boolean } {
-    if (legacyArr.length === 0) { return { defs: globalArr, changed: false }; }
-    const { usedIds, usedNames } = createStructDefIdentitySets(globalArr);
-    const migrated = legacyArr.filter(s => {
-        const identity = structDefIdentity(s);
-        if (!identity || hasSeenStructDefIdentity(identity, usedIds, usedNames)) { return false; }
-        rememberStructDefIdentity(identity, usedIds, usedNames);
-        return true;
-    });
-    return migrated.length > 0 ? { defs: [...globalArr, ...migrated], changed: true } : { defs: globalArr, changed: false };
+function pinsOrEmpty(value: StructPin[] | undefined): StructPin[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function endianOrDefault(value: HexScopeEndian | undefined): HexScopeEndian {
+    return value === 'be' ? 'be' : 'le';
+}
+
+function activeChecksOrDefault(obj: Partial<PerFileLocal> | null): IntegrityCheckSet {
+    const raw = obj !== null && typeof obj.activeChecks === 'object' ? obj.activeChecks : undefined;
+    return normalizeIntegrityCheckSet(raw) ?? { schemaVersion: 1, checks: [] };
+}
+
+function perFileObject<T>(raw: unknown): Partial<T> | null {
+    return raw !== null && typeof raw === 'object' ? raw as Partial<T> : null;
+}
+
+function segmentNamesOrEmpty(value: unknown): SegmentNameOverrides {
+    return value !== null && typeof value === 'object' ? value as SegmentNameOverrides : {};
+}
+
+/** Move a label by one position; returns null when the move is invalid. */
+function reorderedLabels(labels: SegmentLabel[], id: string, dir: number): SegmentLabel[] | null {
+    const idx = labels.findIndex(l => l.id === id);
+    if (idx < 0) { return null; }
+    const swap = idx + dir;
+    if (swap < 0 || swap >= labels.length) { return null; }
+    const next = [...labels];
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    return next;
 }
 
 export class HexEditorSession {
@@ -422,79 +465,32 @@ export class HexEditorSession {
             void postInit();
         }).catch(() => resources.dispose());
 
-        const labelKey = `hexScope.labels.${document.uri.toString()}`;
-        const segmentNamesKey = `hexScope.segmentNames.${document.uri.toString()}`;
-
-        const structKey = `hexScope.structs.${document.uri.toString()}`;
-        const globalStructKey = 'hexScope.structs.global.v2';
-        const previousGlobalStructKey = 'hexScope.structs.global.v1';
-        const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
-        const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
-        const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
+        const root = resolveHexScopeRoot(document.uri);
+        const relPath = perFileRelativePath(root, document.uri);
 
         const normalizeStructDefs = normalizeStructDefsValue;
 
-        const syncGlobalStructs = async (rawGlobal: unknown, normalizedGlobal: unknown, defs: StructDef[], changed: boolean): Promise<void> => {
-            if (rawGlobal === undefined || !Array.isArray(normalizedGlobal) || changed) {
-                await this._context.globalState.update(globalStructKey, defs);
-            }
+        // ── Live reload on external file changes ──────────────────────────
+        // Self-writes are ignored within a short horizon so our own save/repair
+        // never surfaces as an "external change" — even when the FS watcher
+        // emits several events per write (flag was the old one-shot version).
+        const SELF_WRITE_HORIZON_MS = 1000;
+        let lastSelfWriteAt = 0;
+        const markSelfWrite = () => { lastSelfWriteAt = Date.now(); };
+
+        const structsStore = new JsonStore<StructDef[]>(structsFileUri(root), root, normalizeStructsFile, () => [], markSelfWrite);
+        const integrityStore = new JsonStore<IntegrityProfile[]>(integrityFileUri(root), root, normalizeIntegrityFile, () => [], markSelfWrite);
+        const dataStore = new JsonStore<PerFileData>(perFileDataUri(root, relPath), root, normalizePerFileDataFile, emptyPerFileData, markSelfWrite);
+        const localStore = new JsonStore<PerFileLocal>(perFileLocalUri(root, relPath), root, normalizePerFileLocalFile, emptyPerFileLocal, markSelfWrite);
+
+        // Serialize read-modify-write per-file ops from concurrent handlers.
+        let perFileOpChain: Promise<void> = Promise.resolve();
+        const enqueuePerFileOp = (op: () => Promise<void>): void => {
+            perFileOpChain = perFileOpChain.then(op).catch(() => undefined);
         };
 
-        const clearPreviousGlobalStructs = async (previousGlobalStructs: unknown): Promise<void> => {
-            if (previousGlobalStructs !== undefined) {
-                await this._context.globalState.update(previousGlobalStructKey, undefined);
-            }
-        };
-
-        const persistMergedLegacyStructs = async (globalArr: StructDef[], legacyArr: StructDef[]): Promise<StructDef[]> => {
-            const merged = mergeLegacyStructDefs(globalArr, legacyArr);
-            if (merged.changed) {
-                await this._context.globalState.update(globalStructKey, merged.defs);
-            }
-            return merged.defs;
-        };
-
-        const loadStructs = async () => {
-            const currentGlobalStructs = this._context.globalState.get<unknown>(globalStructKey);
-            const previousGlobalStructs = this._context.globalState.get<unknown>(previousGlobalStructKey);
-            const globalStructs = currentGlobalStructs ?? migrateStructDefinitions(previousGlobalStructs ?? []);
-            const legacyStructs = migrateStructDefinitions(this._context.workspaceState.get<unknown>(structKey, []));
-            let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
-            const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
-
-            await syncGlobalStructs(currentGlobalStructs, globalStructs, globalArr, globalChanged);
-            await clearPreviousGlobalStructs(previousGlobalStructs);
-            globalArr = await persistMergedLegacyStructs(globalArr, legacyArr);
-
-            await this._context.workspaceState.update(structKey, undefined);
-
-            return globalArr;
-        };
-
-        const loadIntegrityProfiles = async (): Promise<IntegrityProfile[]> => {
-            const rawProfiles = this._context.globalState.get<unknown>(GLOBAL_INTEGRITY_PROFILES_KEY, []);
-            const normalized = normalizeIntegrityProfiles(rawProfiles);
-            if (JSON.stringify(rawProfiles) !== JSON.stringify(normalized)) {
-                await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, normalized);
-            }
-            return normalized;
-        };
-
-        const loadIntegrityChecks = async (): Promise<IntegrityCheckSet> => {
-            const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
-            const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
-                schemaVersion: 1,
-                checks: [],
-            };
-            if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {
-                await this._context.workspaceState.update(integrityChecksKey, normalized);
-            }
-            return normalized;
-        };
-
-        const loadEndian = (): 'le' | 'be' => {
-            return this._context.workspaceState.get<unknown>(endianKey) === 'be' ? 'be' : 'le';
-        };
+        const loadStructs = async (): Promise<StructDef[]> => structsStore.load();
+        const loadIntegrityProfiles = async (): Promise<IntegrityProfile[]> => integrityStore.load();
 
         const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
             const current = await loadIntegrityProfiles();
@@ -509,31 +505,55 @@ export class HexEditorSession {
         };
 
         const saveIntegrityProfiles = async (next: IntegrityProfile[]): Promise<void> => {
-            await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, next);
+            integrityStore.set(next);
             await broadcastIntegrityProfiles();
         };
 
+        const postPerFileDataChange = async (): Promise<void> => {
+            const data = await dataStore.load();
+            const local = await localStore.load();
+            postToPanel(webviewPanel, {
+                type: 'perFileDataChange',
+                labels: data.labels,
+                segmentNames: data.segmentNames,
+                pins: local.pins,
+                endian: local.endian,
+                activeChecks: local.activeChecks,
+            });
+        };
+
+        // One-time legacy migration, shared by every postInit path.
+        let migrationPromise: Promise<void> | null = null;
+        const runMigration = (): Promise<void> => {
+            migrationPromise ??= migrateLegacyData(this._context, root)
+                .then(() => { markSelfWrite(); })
+                .catch(() => { /* a migration failure must not block panel init */ });
+            return migrationPromise;
+        };
+
         const postInit = async () => {
+            await runMigration();
             if (!webviewReady || !parseResult) { return; }
             postProgress('transfer', 0);
             const serialized = serializeParseResult(parseResult, format);
             postProgress('transfer', 1, 1);
             const structs = await loadStructs();
+            const data = await dataStore.load();
+            const local = await localStore.load();
             const integrityProfiles = await loadIntegrityProfiles();
-            const integrityChecks = await loadIntegrityChecks();
-            
+
             const msg: ProviderToWebviewMessage = {
                 type: 'init',
                 generation: currentGeneration,
                 parseResult: serialized,
-                labels:      this._context.workspaceState.get(labelKey, []),
-                segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                labels:      data.labels,
+                segmentNames: data.segmentNames,
                 structs,
-                structPins:  this._context.workspaceState.get(structPinKey, []),
-                endian: loadEndian(),
-                integrityProfiles: { profiles: integrityProfiles, activeChecks: integrityChecks },
+                structPins:  local.pins,
+                endian: local.endian,
+                integrityProfiles: { profiles: integrityProfiles, activeChecks: local.activeChecks },
             };
-            
+
             void postToWebview(webviewPanel.webview, msg);
         };
 
@@ -558,12 +578,6 @@ export class HexEditorSession {
         };
 
         // ── Live reload on external file changes ──────────────────────────
-        // Self-writes are ignored within a short horizon so our own save/repair
-        // never surfaces as an "external change" — even when the FS watcher
-        // emits several events per write (flag was the old one-shot version).
-        const SELF_WRITE_HORIZON_MS = 1000;
-        let lastSelfWriteAt = 0;
-        const markSelfWrite = () => { lastSelfWriteAt = Date.now(); };
         const watcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
                 document.uri.path.split('/').pop()!)
@@ -594,8 +608,8 @@ export class HexEditorSession {
                             type: 'externalChangeError',
                             generation: loaded.generation,
                             parseResult: serializeParseResult(newResult, format),
-                            labels: this._context.workspaceState.get(labelKey, []),
-                            segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                            labels: cachedPerFileData().labels,
+                            segmentNames: cachedPerFileData().segmentNames,
                             checksumErrors: newResult.checksumErrors,
                             malformedLines: newResult.malformedLines,
                             errorCount: newResult.checksumErrors + newResult.malformedLines,
@@ -611,8 +625,8 @@ export class HexEditorSession {
                         type: 'externalChange',
                         generation: loaded.generation,
                         parseResult: serializeParseResult(newResult, format),
-                        labels: this._context.workspaceState.get(labelKey, []),
-                        segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                        labels: cachedPerFileData().labels,
+                        segmentNames: cachedPerFileData().segmentNames,
                     });
                 } catch { /* file transiently unavailable */ }
             }, 200);
@@ -620,6 +634,46 @@ export class HexEditorSession {
 
         watcher.onDidChange(onExternalChange);
         watcher.onDidCreate(onExternalChange);
+
+        // ── Live reload on external .hexscope/ changes ────────────────────
+        // Four independent debounced watchers, one per file slot. Genuine
+        // external edits (e.g. a teammate's `git pull`) re-read + re-normalize
+        // and push refreshed state to the webview. Self-writes within the
+        // horizon are ignored exactly like the hex-file watcher above.
+        const cachedPerFileData = (): PerFileData => dataStore.get() ?? emptyPerFileData();
+
+        const watchJsonStore = <T,>(store: JsonStore<T>, glob: string, onReload: () => Promise<void> | void): void => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const schedule = () => {
+                if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
+                clearTimeout(timer);
+                timer = setTimeout(async () => {
+                    try {
+                        await store.load(true);
+                        await onReload();
+                    } catch { /* file transiently unavailable */ }
+                }, 200);
+            };
+            const storeWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, glob));
+            storeWatcher.onDidChange(uri => { if (uri.toString() === store.uri.toString()) { schedule(); } });
+            storeWatcher.onDidCreate(uri => { if (uri.toString() === store.uri.toString()) { schedule(); } });
+            resources.add(storeWatcher);
+            resources.add(() => { if (timer) { clearTimeout(timer); } });
+        };
+
+        watchJsonStore(structsStore, '.hexscope/structs.json', async () => {
+            postToPanel(webviewPanel, { type: 'structsExternalChange', structs: await structsStore.load() });
+        });
+        watchJsonStore(integrityStore, '.hexscope/integrity.json', () => broadcastIntegrityProfiles());
+        watchJsonStore(dataStore, '.hexscope/data/**', postPerFileDataChange);
+        watchJsonStore(localStore, '.hexscope/local/**', postPerFileDataChange);
+
+        resources.add(() => {
+            void structsStore.flush();
+            void integrityStore.flush();
+            void dataStore.flush();
+            void localStore.flush();
+        });
 
         type WebviewMessageHandler = (msg: any) => Promise<void>;
 
@@ -648,26 +702,38 @@ export class HexEditorSession {
                 // Copy confirmation lives in the webview toast; no host notice.
             },
             saveLabels: async msg => {
-                await this._context.workspaceState.update(labelKey, msg.labels);
-                if (msg.segmentNames) {
-                    await this._context.workspaceState.update(segmentNamesKey, msg.segmentNames);
-                }
+                enqueuePerFileOp(async () => {
+                    const current = dataStore.get() ?? await dataStore.load();
+                    dataStore.set({
+                        labels: msg.labels,
+                        segmentNames: msg.segmentNames ?? current.segmentNames,
+                    });
+                });
             },
             saveStructs: async msg => {
                 const { defs } = normalizeStructDefs(msg.structs);
-                await this._context.globalState.update(globalStructKey, defs);
+                structsStore.set(defs);
             },
             saveStructPins: async msg => {
-                await this._context.workspaceState.update(structPinKey, msg.pins);
+                enqueuePerFileOp(async () => {
+                    const current = localStore.get() ?? await localStore.load();
+                    localStore.set({ ...current, pins: msg.pins });
+                });
             },
             saveIntegrityChecks: async msg => {
                 const state = normalizeIntegrityCheckSet(msg.state);
-                if (state) { await this._context.workspaceState.update(integrityChecksKey, state); }
+                if (!state) { return; }
+                enqueuePerFileOp(async () => {
+                    const current = localStore.get() ?? await localStore.load();
+                    localStore.set({ ...current, activeChecks: state });
+                });
             },
             saveEndian: async msg => {
-                if (msg.endian === 'le' || msg.endian === 'be') {
-                    await this._context.workspaceState.update(endianKey, msg.endian);
-                }
+                if (msg.endian !== 'le' && msg.endian !== 'be') { return; }
+                enqueuePerFileOp(async () => {
+                    const current = localStore.get() ?? await localStore.load();
+                    localStore.set({ ...current, endian: msg.endian });
+                });
             },
             createIntegrityProfile: async msg => {
                 const profile = normalizeIntegrityProfiles([msg.profile])[0];
@@ -709,22 +775,22 @@ export class HexEditorSession {
                 await saveIntegrityProfiles(current.filter(item => item.id !== id));
             },
             updateLabelVisibility: async msg => {
-                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                const next = current.map(l =>
-                    l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
-                );
-                await this._context.workspaceState.update(labelKey, next);
+                enqueuePerFileOp(async () => {
+                    const current = dataStore.get() ?? await dataStore.load();
+                    dataStore.set({
+                        ...current,
+                        labels: current.labels.map(l =>
+                            l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
+                        ),
+                    });
+                });
             },
             reorderLabel: async msg => {
-                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                const idx = current.findIndex(l => l.id === msg.id);
-                if (idx < 0) { return; }
-                const next = [...current];
-                const dir  = (msg.dir as number);
-                const swap = idx + dir;
-                if (swap < 0 || swap >= next.length) { return; }
-                [next[idx], next[swap]] = [next[swap], next[idx]];
-                await this._context.workspaceState.update(labelKey, next);
+                enqueuePerFileOp(async () => {
+                    const current = dataStore.get() ?? await dataStore.load();
+                    const next = reorderedLabels(current.labels, msg.id, msg.dir as number);
+                    if (next) { dataStore.set({ ...current, labels: next }); }
+                });
             },
             saveEdits: async msg => {
                 if (!parseResult) { return; }
@@ -764,10 +830,9 @@ export class HexEditorSession {
                 vscode.window.showInformationMessage(`HexScope: repaired checksums and reloaded ${currentFileName()}`);
             },
             requestScriptList: async () => {
-                const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-                const root = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
+                const scriptRoot = resolveHexScopeRoot(document.uri);
                 const trusted = vscode.workspace.isTrusted;
-                const scripts = scanScripts(root, trusted);
+                const scripts = scanScripts(scriptRoot, trusted);
                 void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts });
             },
             runScript: async msg => {
@@ -881,24 +946,6 @@ ${cssLinks}
 
 function sameProfileName(left: string, right: string): boolean {
     return left.toLocaleLowerCase() === right.toLocaleLowerCase();
-}
-
-export function migrateStructDefinitions(value: unknown): unknown {
-    if (!Array.isArray(value)) { return value; }
-    return value.map(item => {
-        if (item === null || typeof item !== 'object') { return item; }
-        const def = item as { fields?: unknown };
-        if (!Array.isArray(def.fields)) { return item; }
-        return {
-            ...def,
-            fields: def.fields.map(field => {
-                if (field === null || typeof field !== 'object') { return field; }
-                const clean = { ...field } as Record<string, unknown>;
-                delete clean.endian;
-                return clean;
-            }),
-        };
-    });
 }
 
 function renameIntegrityProfiles(

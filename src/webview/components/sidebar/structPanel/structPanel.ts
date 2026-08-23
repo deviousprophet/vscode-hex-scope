@@ -287,7 +287,7 @@ mount(root: HTMLElement): void {
     }
 
     /** Whether the type editor is open (header actions + panel focus). */
-    private isEditorOpen(): boolean {
+    public isEditorOpen(): boolean {
         return Boolean(this._editingType);
     }
 

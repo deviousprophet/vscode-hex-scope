@@ -712,6 +712,8 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
     integrityProfiles: handleIntegrityProfilesMessage,
+    structsExternalChange: handleStructsExternalChangeMessage,
+    perFileDataChange: handlePerFileDataChangeMessage,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
     scriptOutput: handleScriptOutputMessage,
@@ -720,6 +722,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
     applyIntegrityProfileUpdate,
+    applyPerFileDataUpdate,
     applyLoadErrorUpdate,
     applyCopyCommandUpdate,
     applyExternalBannerUpdate,
@@ -833,6 +836,24 @@ function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProf
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
+/** External change to shared structs.json. Prompt only when the user is
+    mid-edit in the struct type editor; otherwise auto-apply. */
+function handleStructsExternalChangeMessage(msg: WebviewMessageByType<'structsExternalChange'>): void {
+    if (structPanel.isEditorOpen()) {
+        const reload = window.confirm(
+            'Struct definitions changed externally. Reload and discard the type you are editing?',
+        );
+        if (!reload) { return; }
+    }
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    // Persist pruned pins (structs may have been deleted externally).
+    postProviderMessage({ type: 'saveStructPins', pins: S.structPins });
+}
+
+function handlePerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
 function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
@@ -929,6 +950,21 @@ function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
     if (update.integrityProfiles) {
         integrityPanel.setProfiles(update.integrityProfiles, update.integrityProfileError ?? '');
     }
+}
+
+function applyPerFileDataUpdate(update: WebviewModelUpdate): void {
+    if (!update.perFileDataApplied) { return; }
+    integrityPanel.setChecks(update.perFileDataApplied.activeChecks);
+    pushEndianChrome(update.perFileDataApplied.endian);
+}
+
+/** External endian change: refresh the toggle + decode sources without echoing a save. */
+function pushEndianChrome(endian: 'le' | 'be'): void {
+    const settings = document.getElementById('sidebar-common-settings');
+    if (settings) { renderEndianToggle(settings); }
+    inspectorPanel.setEndian(endian);
+    structPanel.setEndian(endian);
+    integrityPanel.notifyEndianChanged();
 }
 
 function applyLoadErrorUpdate(update: WebviewModelUpdate): void {

@@ -147,6 +147,45 @@ suite('applyProviderMessageToModel()', () => {
         assert.deepStrictEqual(update.externalChange?.incoming.labels, labels);
         assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
+
+    test('structsExternalChange replaces structs and prunes dangling pins', () => {
+        S.structs = [{ id: 'a', name: 'A', fields: [] }];
+        S.structPins = [
+            { id: 'p1', structId: 'a', addr: 0, name: 'P1' },
+            { id: 'p2', structId: 'vanished', addr: 1, name: 'P2' },
+        ];
+
+        const update = applyProviderMessageToModel({
+            type: 'structsExternalChange',
+            structs: [{ id: 'a', name: 'A-renamed', fields: [] }],
+        });
+
+        assert.strictEqual(S.structs.length, 1);
+        assert.strictEqual(S.structs[0].name, 'A-renamed');
+        assert.deepStrictEqual(S.structPins, [{ id: 'p1', structId: 'a', addr: 0, name: 'P1' }]);
+        assert.strictEqual(update.structsExternalChangeApplied, true);
+        assert.strictEqual(update.invalidations.structPins, true);
+    });
+
+    test('perFileDataChange applies labels, pins, endian, and rebuilds rows', () => {
+        const update = applyProviderMessageToModel({
+            type: 'perFileDataChange',
+            labels: [labelForTest()],
+            segmentNames: { '0': 'Boot' },
+            pins: [{ id: 'p1', structId: 'a', addr: 0, name: 'P1' }],
+            endian: 'be',
+            activeChecks: { schemaVersion: 1, checks: [] },
+        });
+
+        assert.strictEqual(S.labels.length, 1);
+        assert.strictEqual(S.segmentNames['0'], 'Boot');
+        assert.strictEqual(S.structPins.length, 1);
+        assert.strictEqual(S.endian, 'be');
+        assert.strictEqual(update.perFileDataApplied?.endian, 'be');
+        assert.deepStrictEqual(update.perFileDataApplied?.activeChecks, { schemaVersion: 1, checks: [] });
+        assert.strictEqual(update.invalidations.labelsAndMemory, true);
+        assert.strictEqual(update.invalidations.structPins, true);
+    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -163,6 +202,8 @@ function noOpHandlers(): ProviderMessageHandlers {
         externalChangeError: () => {},
         repairComplete: () => {},
         integrityProfiles: () => {},
+        structsExternalChange: () => {},
+        perFileDataChange: () => {},
         scriptInfo: () => {},
         scriptResult: () => {},
         scriptOutput: () => {},

@@ -17,6 +17,8 @@ src/
 |- extension.ts                 command registration and activation
 |- hexEditorProvider.ts         CustomReadonlyEditorProvider adapter
 |- hexEditorSession.ts          per-provider document/session orchestration
+|- hexScopeStorage.ts           host adapter: .hexscope/ JSON stores, debounce, watchers
+|- hexScopeMigration.ts         one-time Memento -> .hexscope/ migration
 |- webviewProtocol.ts           typed extension-host <-> webview seam
 |- core/
 |  |- parser/                   IHEX/SREC line parsing and segment construction

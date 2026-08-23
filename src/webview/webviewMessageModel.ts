@@ -1,5 +1,6 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
 import type { IntegrityCheckSet, IntegrityProfile } from '../core/integrity';
+import type { SegmentLabel, StructDef, StructPin } from '../core/types';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
 import { S } from './state';
 import {
@@ -48,6 +49,10 @@ export type WebviewModelUpdate = {
     removeExternalChangeErrorBanner?: boolean;
     externalChange?: { incoming: IncomingFile; hasUnsavedEdits: boolean };
     externalChangeError?: ExternalChangeErrorDetails;
+    /** `structsExternalChange` was applied (S.structs replaced, dangling pins pruned). */
+    structsExternalChangeApplied?: boolean;
+    /** `perFileDataChange` applied — effect pushes activeChecks + endian chrome. */
+    perFileDataApplied?: { activeChecks: IntegrityCheckSet; endian: 'le' | 'be' };
 };
 
 type WebviewMessage = ProviderToWebviewMessage;
@@ -69,6 +74,8 @@ const MODEL_APPLIERS: ModelAppliers = {
     externalChange: applyExternalChangeMessage,
     externalChangeError: applyExternalChangeErrorMessage,
     repairComplete: applyRepairCompleteMessage,
+    structsExternalChange: applyStructsExternalChangeMessage,
+    perFileDataChange: applyPerFileDataChangeMessage,
     scriptInfo: applyPassiveMessage,
     scriptResult: applyPassiveMessage,
     scriptOutput: applyPassiveMessage,
@@ -229,4 +236,44 @@ function incomingFileFromExternalChange(
     msg: Extract<WebviewMessage, { type: 'externalChange' }>,
 ): IncomingFile {
     return incomingFile(msg.parseResult, msg.labels, msg.generation, msg.segmentNames);
+}
+
+function applyStructsExternalChangeMessage(msg: WebviewMessageByType<'structsExternalChange'>): WebviewModelUpdate {
+    S.structs = msg.structs;
+    // Drop pins whose struct definition vanished (matches cascade-delete semantics);
+    // the host persists the pruned pins so the local file stays consistent.
+    const ids = new Set(msg.structs.map(def => def.id));
+    S.structPins = S.structPins.filter(pin => ids.has(pin.structId));
+    return {
+        structsExternalChangeApplied: true,
+        invalidations: { structPins: true },
+    };
+}
+
+function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): WebviewModelUpdate {
+    S.labels = segmentLabelArray(msg.labels);
+    S.segmentNames = segmentNamesMap(msg.segmentNames);
+    S.structPins = structPinArray(msg.pins);
+    S.endian = endianOrDefault(msg.endian);
+    rebuildMemoryRows();
+    return {
+        perFileDataApplied: { activeChecks: msg.activeChecks, endian: S.endian },
+        invalidations: { labelsAndMemory: true, structPins: true },
+    };
+}
+
+function segmentLabelArray(value: SegmentLabel[] | undefined): SegmentLabel[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function segmentNamesMap(value: Record<string, string> | undefined): Record<string, string> {
+    return value && typeof value === 'object' ? value : {};
+}
+
+function structPinArray(value: StructPin[] | undefined): StructPin[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function endianOrDefault(value: 'le' | 'be'): 'le' | 'be' {
+    return value === 'be' ? 'be' : 'le';
 }

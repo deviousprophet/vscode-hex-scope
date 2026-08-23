@@ -20,6 +20,8 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'externalChangeError',
     'repairComplete',
     'integrityProfiles',
+    'structsExternalChange',
+    'perFileDataChange',
     'scriptInfo',
     'scriptResult',
     'scriptOutput',
