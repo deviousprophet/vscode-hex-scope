@@ -10,6 +10,7 @@
 - Context menu opened by mouse no longer shows the keyboard-selection highlight on the first row — it appears at the first keypress, while menus opened by the context-menu key / Shift+F10 show it immediately
 - Context menu submenu navigation now follows the WAI-ARIA menu pattern — ArrowRight opens the focused submenu, ArrowLeft returns to the parent row, ArrowUp/Down stay inside the open submenu, and Escape backs out one level at a time
 - Struct panel `ascii` field values now preserve runs of `0x20` spaces and leading/trailing spaces exactly as decoded, instead of collapsing them to a single space
+- File loading now tolerates a trailing `0x1A` SUB end-of-file marker that legacy toolchains append to generated firmware files — such files open in the hex view instead of failing; non-trailing SUB characters remain a parse error
 
 ## [2.18.0] - 2026-08-22
 
