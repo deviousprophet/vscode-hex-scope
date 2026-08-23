@@ -67,4 +67,11 @@ suite('webview toast', () => {
         await new Promise(resolve => setTimeout(resolve, 1500));
         assert.ok(toast.hidden, 'toast fades away after ~1.4s');
     });
+
+    test('auto-hide timer does not throw after the window closes (teardown race)', async () => {
+        showToast('Copied ✓');
+        dom.window.close();
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        assert.ok(true);
+    });
 });

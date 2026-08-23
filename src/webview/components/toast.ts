@@ -70,21 +70,27 @@ function clampWithin(min: number, value: number, max: number): number {
 function hideToast(): void {
     if (!toastEl) { return; }
     hideTimer = null;
-    if (motionReduced()) {
-        toastEl.hidden = true;
+    try {
+        if (motionReduced()) {
+            toastEl.hidden = true;
+            toastEl.classList.remove('sb-toast-visible');
+            return;
+        }
         toastEl.classList.remove('sb-toast-visible');
-        return;
-    }
-    toastEl.classList.remove('sb-toast-visible');
-    hideTimer = setTimeout(() => {
-        if (toastEl) {
+        hideTimer = setTimeout(() => clearToastElement(), TOAST_OUT_MS);
+    } catch { }
+}
+
+function clearToastElement(): void {
+    if (toastEl) {
+        try {
             toastEl.hidden = true;
             toastEl.classList.remove('sb-toast--near', 'sb-toast--top-center');
             toastEl.style.left = '';
             toastEl.style.top = '';
-        }
-        hideTimer = null;
-    }, TOAST_OUT_MS);
+        } catch { }
+    }
+    hideTimer = null;
 }
 
 function motionReduced(): boolean {
