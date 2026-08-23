@@ -2,11 +2,8 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import '../../cssImportHook';
 
-import {
-    menuController,
-    renderMenuHtml,
-    type MenuState,
-} from '../../../../webview/components/menuController/menuController';
+import { menuController } from '../../../../webview/components/menuController/menuController';
+import { renderMenuHtml, type MenuState } from '../../../../webview/components/menuController/menuRender';
 import { positionMenu, wireMenuSubmenus } from '../../../../webview/utils';
 
 interface Calls {

@@ -19,29 +19,12 @@
 
 import './menu.css';
 
-import { formatAnalyzeCommand } from '../../../core/byteTools/analysis';
-import { formatCopyCommand } from '../../../core/byteTools/copy';
-import { formatAsciiByte, formatHexArrayByte, hexByte } from '../../../core/byteTools/hex';
-import { fillCommand } from '../../contextCommands';
-import { esc, positionMenu, wireMenuSubmenus } from '../../utils';
-
-const MENU_SEP = `<div class="menu-sep" role="separator"></div>`;
+import { positionMenu, wireMenuSubmenus } from '../../utils';
+import { wireFillInputs } from './menuFill';
+import * as nav from './menuNav';
 
 /** Default focus target on open: first enabled command row (skips headers/separators/disabled). */
 const DEFAULT_FOCUS_FIRST = '.menu-item[data-cmd]:not(.menu-disabled)';
-
-/** Rows the keyboard navigates: shared `menu-item` rows plus any `role="menuitem"` (integrity buttons). */
-const ITEM_SELECTOR = '.menu-item, [role="menuitem"]';
-
-export interface MenuState {
-    selectionActive: boolean;
-    len: number;
-    bytes: number[];
-    editMode: boolean;
-    endian: 'le' | 'be';
-    /** Precomputed go-address target + mapped flag. null = not applicable (len !== 4). */
-    goAddress: { address: number; valid: boolean } | null;
-}
 
 interface MenuShowOpts {
     /** Caller-rendered HTML for dynamic menus (hex, struct). Omit for static popovers. */
@@ -62,143 +45,11 @@ interface MenuEntry {
     emit?: (cmd: string) => void;
     onClose?: () => void;
     anchor?: HTMLElement;
-    /** Static popover: visibility is the `hidden` attribute (its CSS anchors it), no JS positioning. */
+/** Static popover: visibility is the `hidden` attribute (its CSS anchors it), no JS positioning. */
     attached: boolean;
-}
-
-// ── Pure rendering (hex grid menu) ───────────────────────────────
-
-export function renderMenuHtml(state: MenuState): string {
-    const body = state.len === 1 ? buildSingleByteBody(state) : buildMultiByteBody(state);
-
-    return `<div class="menu-header">${esc(`${state.len} byte${state.len === 1 ? '' : 's'} selected`)}</div>` +
-        (state.editMode ? `<div class="menu-edit-badge">&#9998; Editing</div>` : '') +
-        MENU_SEP +
-        body;
-}
-
-function menuItem(cmd: string, label: string, hint = ''): string {
-    return `<div class="menu-item" data-cmd="${cmd}" role="menuitem" tabindex="-1">` +
-        `<span class="menu-label">${esc(label)}</span>` +
-        (hint ? `<span class="menu-hint">${esc(hint)}</span>` : '') +
-        `</div>`;
-}
-
-function menuSubmenu(label: string, id: string, body: string): string {
-    return `<div class="menu-item menu-has-sub" data-sub="${id}" role="menuitem" tabindex="-1">` +
-        `<span class="menu-label">${esc(label)}</span>` +
-        `<div class="menu-submenu">${body}</div>` +
-        `</div>`;
-}
-
-function menuPreview(text: string): string {
-    return text.length > 20 ? `${text.slice(0, 18)}\u2026` : text;
-}
-
-function goAddressRow(state: MenuState): string {
-    if (!state.goAddress) { return ''; }
-    const { address, valid } = state.goAddress;
-    const preview = `0x${address.toString(16).toUpperCase().padStart(8, '0')} ${state.endian.toUpperCase()}`;
-    return `<div class="menu-item menu-go-row${valid ? '' : ' menu-disabled'}" data-cmd="go-address" role="menuitem" tabindex="-1"${valid ? '' : ' aria-disabled="true" title="Not mapped"'}>` +
-        `<span class="menu-label">Go address</span>` +
-        `<span class="menu-hint menu-go">${esc(preview)}</span>` +
-        `</div>`;
-}
-
-function interactionRows(state: MenuState): string {
-    return goAddressRow(state) +
-        menuItem('select-all', 'Select all') +
-        menuItem('select-segment', 'Select segment');
-}
-
-function buildFillMenu(len: number): string {
-    const fillPresets: [number, string][] = [
-        [0x00, 'Zero'],
-        [0xFF, 'Erased flash'],
-    ];
-    const customRow =
-        `<div class="menu-custom-row">` +
-        `<span class="menu-label">Custom</span>` +
-        `<div class="menu-custom-input-wrap">` +
-        `<span class="menu-custom-prefix">0x</span>` +
-        `<input class="menu-fill-input" type="text" maxlength="2" placeholder="FF" spellcheck="false">` +
-        `<button class="menu-fill-apply" title="Apply">&#10003;</button>` +
-        `</div></div>`;
-    const hintFor = (v: number): string => `${v === 0 ? '(0x00)' : '(0xFF)'}${len > 1 ? ` \u00d7 ${len}` : ''}`;
-
-    return fillPresets.map(([v, label]) => menuItem(`fill-${hexByte(v)}`, label, hintFor(v))).join('') +
-        MENU_SEP +
-        customRow;
-}
-
-/** Remaining copy formats: the direct top-level ones are omitted. */
-function buildMultiCopyAsMenu(bytes: number[]): string {
-    return menuItem('hex-raw', 'Hex (raw)', menuPreview(formatCopyCommand('hex-raw', bytes))) +
-        menuItem('binary', 'Binary', menuPreview(formatCopyCommand('binary', bytes))) +
-        menuItem('dec-array', 'Decimal Array', menuPreview(formatCopyCommand('dec-array', bytes))) +
-        menuItem('hex-array', 'Hex Array', menuPreview(formatCopyCommand('hex-array', bytes))) +
-        MENU_SEP +
-        menuItem('base64', 'Base64', menuPreview(formatCopyCommand('base64', bytes)));
-}
-
-function buildSingleCopyAsMenu(value: number): string {
-    const binValue = value.toString(2).padStart(8, '0');
-    return menuItem('dec', 'Decimal', `${value}`) +
-        menuItem('binary', 'Binary', `${binValue.slice(0, 4)} ${binValue.slice(4)}`);
-}
-
-function buildAnalyzeMenu(bytes: number[]): string {
-    const sum = formatAnalyzeCommand('an-sum', bytes);
-    const xor = formatAnalyzeCommand('an-xor', bytes);
-    const crc8 = formatAnalyzeCommand('an-crc8', bytes);
-    const crc16 = formatAnalyzeCommand('an-crc16', bytes);
-    const crc32 = formatAnalyzeCommand('an-crc32', bytes);
-
-    return menuItem('an-sum', 'Sum', sum.text.replace(' (', '  (')) +
-        menuItem('an-xor', 'XOR', xor.text) +
-        MENU_SEP +
-        menuItem('an-crc8', 'CRC-8', crc8.text) +
-        menuItem('an-crc16', 'CRC-16', crc16.text) +
-        menuItem('an-crc32', 'CRC-32', crc32.text);
-}
-
-function buildMultiByteBody(state: MenuState): string {
-    const { bytes, len, editMode } = state;
-    return menuItem('copy-hex', 'Copy Hex', menuPreview(formatCopyCommand('hex', bytes))) +
-        menuItem('copy-ascii', 'Copy ASCII', menuPreview(formatCopyCommand('ascii', bytes))) +
-        menuItem('copy-c-array', 'Copy C Array', menuPreview(`{${bytes.map(formatHexArrayByte).join(', ')}}`)) +
-        menuSubmenu('Copy as\u2026', 'copy', buildMultiCopyAsMenu(bytes)) +
-        MENU_SEP +
-        menuSubmenu('Analyze', 'analyze', buildAnalyzeMenu(bytes)) +
-        MENU_SEP +
-        interactionRows(state) +
-        (editMode ? MENU_SEP + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(len)) : '');
-}
-
-function buildSingleByteBody(state: MenuState): string {
-    const value = state.bytes[0] ?? 0;
-    const ascii = formatAsciiByte(value);
-    const asciiRow = ascii !== '.'
-        ? menuItem('copy-ascii', 'Copy ASCII', `'${ascii}'`)
-        : '';
-    return menuItem('copy-hex', 'Copy Hex', `0x${hexByte(value)}`) +
-        asciiRow +
-        menuSubmenu('Copy as\u2026', 'copy', buildSingleCopyAsMenu(value)) +
-        MENU_SEP +
-        interactionRows(state) +
-        (state.editMode ? MENU_SEP + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(1)) : '');
-}
+} 
 
 // ── Interaction controller ───────────────────────────────────────
-
-function keepFillSubmenuOpen(fillInput: HTMLInputElement): void {
-    const sub = fillInput.closest<HTMLElement>('.menu-submenu');
-    if (sub) { sub.style.display = 'block'; }
-}
-
-function isValidCustomFill(raw: string, value: number): boolean {
-    return raw !== '' && !isNaN(value) && value >= 0 && value <= 0xFF;
-}
 
 /** Element that can take focus right now, or null (duck-typed; no bare `HTMLElement/Element` global in jsdom). */
 function focusableActiveElement(): HTMLElement | null {
@@ -257,10 +108,10 @@ class MenuController {
         // this show() captures the fresh snapshot below).
         this.closeActiveIfDifferent(el);
         this.registry.set(el, mergeEntry(this.registry.get(el), opts, !!opts.el));
-        if (opts.innerHTML !== undefined) {
+if (opts.innerHTML !== undefined) {
             const innerHtml = opts.innerHTML;
             el.innerHTML = innerHtml;
-            this.wireInlineInputs(el);
+            wireFillInputs(el, cmd => this.runMenuCommand(cmd), () => this.hide());
         }
         wireMenuSubmenus(el, true);
         this.revealMenu(el, opts, x, y);
@@ -459,27 +310,19 @@ class MenuController {
     private handleMenuEscape(e: KeyboardEvent): boolean {
         if (e.key !== 'Escape') { return false; }
         // Two-step: Escape closes the open submenu first, then the whole menu.
-        const sub = this.openSubmenuFromFocus();
-        if (sub) { this.closeSubmenu(sub); return true; }
+        const sub = nav.openSubmenuFromFocus();
+        if (sub) { nav.closeSubmenu(sub); return true; }
         this.closeCurrent();
         return true;
     }
 
     private handleMenuNavigationKey(e: KeyboardEvent): boolean {
-        if (this.isFlankKey(e)) { return this.handleArrowFlank(e.key === 'ArrowRight'); }
-        if (this.isHomeEndKey(e)) { return this.handleHomeEnd(e.key); }
-        const dir = this.verticalArrowDir(e.key);
+        if (nav.isFlankKey(e)) { return this.handleArrowFlank(e.key === 'ArrowRight'); }
+        if (nav.isHomeEndKey(e)) { return this.handleHomeEnd(e.key); }
+        const dir = nav.verticalArrowDir(e.key);
         if (dir === 0) { return false; }
-        this.focusAdjacentRow(this.scopedNavigationRows(), dir);
+        nav.focusAdjacentRow(nav.scopedNavigationRows(this.activeEl), dir);
         return true;
-    }
-
-    private isFlankKey(e: KeyboardEvent): boolean {
-        return e.key === 'ArrowRight' || e.key === 'ArrowLeft';
-    }
-
-    private isHomeEndKey(e: KeyboardEvent): boolean {
-        return e.key === 'Home' || e.key === 'End';
     }
 
     /** Shared Right/Left arrow handling: consumed only when the controller acts on the key. */
@@ -489,74 +332,42 @@ class MenuController {
 
     /** ArrowRight on a .menu-has-sub row opens its submenu and focuses the first enabled item. */
     private handleArrowRight(): boolean {
-        const row = this.activeMenuRow();
+        const row = nav.activeMenuRow();
         if (!row?.hasAttribute('data-sub')) { return false; }
-        this.openSubmenuRow(row);
+        nav.openSubmenuRow(row);
         return true;
     }
 
     /** ArrowLeft from inside an open submenu closes it and returns focus to the parent row. */
     private handleArrowLeft(): boolean {
-        const sub = this.openSubmenuFromFocus();
+        const sub = nav.openSubmenuFromFocus();
         if (!sub) { return false; }
-        sub.style.display = 'none';
-        sub.closest<HTMLElement>('.menu-has-sub')?.focus();
+        nav.closeSubmenu(sub);
         return true;
     }
 
     /** Home/End jump to the first/last enabled item in the active scope. */
     private handleHomeEnd(key: string): boolean {
-        const rows = this.scopedNavigationRows();
+        const rows = nav.scopedNavigationRows(this.activeEl);
         if (rows.length === 0) { return true; }
         rows[key === 'Home' ? 0 : rows.length - 1].focus();
         return true;
     }
 
-    private verticalArrowDir(key: string): 1 | -1 | 0 {
-        if (key === 'ArrowDown') { return 1; }
-        if (key === 'ArrowUp') { return -1; }
-        return 0;
-    }
-
-    /** ArrowUp/Down navigate strictly within the open submenu; otherwise only the parent menu's own rows. */
-    private scopedNavigationRows(): HTMLElement[] {
-        const menu = this.activeEl;
-        if (!menu) { return []; }
-        const sub = this.activeOpenSubmenu();
-        if (sub) { return this.enabledRows(sub); }
-        return Array.from(menu.querySelectorAll<HTMLElement>(`:scope > ${ITEM_SELECTOR}`))
-            .filter(r => this.enabledRow(r));
-    }
-
-    private activeOpenSubmenu(): HTMLElement | null {
-        const active = document.activeElement as HTMLElement | null;
-        const sub = active?.closest?.('.menu-submenu') as HTMLElement | null;
-        return sub && sub.style.display === 'block' ? sub : null;
-    }
-
     /** Enter/Space: data-cmd rows emit; real buttons (no data-cmd) are left to native activation. */
     private handleMenuActivationKey(e: KeyboardEvent): boolean {
-        if (!this.isActivationKey(e)) { return false; }
+        if (!nav.isActivationKey(e)) { return false; }
         // Keys typed into an inline input (custom fill) stay native: the input's
         // own handler applies the fill; the controller must not steal them.
-        if (this.isInlineInputTarget(e)) { return false; }
-        const row = this.activeMenuRow();
+        if (nav.isInlineInputTarget(e)) { return false; }
+        const row = nav.activeMenuRow();
         if (!row) { return false; }
         return this.activateRow(row);
     }
 
-    private isActivationKey(e: KeyboardEvent): boolean {
-        return e.key === 'Enter' || e.key === ' ';
-    }
-
-    private isInlineInputTarget(e: KeyboardEvent): boolean {
-        const target = e.target as HTMLElement | null;
-        return !!target?.closest?.('input, textarea, select');
-    }
-
     private activateRow(row: HTMLElement): boolean {
         if (row.classList.contains('menu-disabled')) { return true; }
-        if (row.hasAttribute('data-sub')) { this.openSubmenuRow(row); return true; }
+        if (row.hasAttribute('data-sub')) { nav.openSubmenuRow(row); return true; }
         if (!row.dataset.cmd) { return false; }
         this.runRowCommand(row);
         return true;
@@ -573,114 +384,7 @@ class MenuController {
         this.closeCurrent();
     }
 
-    // ── Submenu helpers ──────────────────────────────────────────
-
-    /** Submenu currently open (either focused inside it or open behind the parent row). */
-    private openSubmenuFromFocus(): HTMLElement | null {
-        return this.focusedSubmenu() ?? this.firstOpenSubmenu();
-    }
-
-    private focusedSubmenu(): HTMLElement | null {
-        const active = document.activeElement as HTMLElement | null;
-        const sub = active?.closest?.('.menu-submenu') as HTMLElement | null;
-        return sub && sub.style.display === 'block' ? sub : null;
-    }
-
-    private firstOpenSubmenu(): HTMLElement | null {
-        for (const sub of document.querySelectorAll<HTMLElement>('.menu-submenu')) {
-            if (sub.style.display === 'block') { return sub; }
-        }
-        return null;
-    }
-
-    private closeSubmenu(sub: HTMLElement): void {
-        sub.style.display = 'none';
-        sub.closest<HTMLElement>('.menu-has-sub')?.focus();
-    }
-
-    private openSubmenuRow(row: HTMLElement): void {
-        const sub = row.querySelector<HTMLElement>(':scope > .menu-submenu');
-        if (!sub) { return; }
-        sub.style.display = 'block';
-        sub.querySelector<HTMLElement>('.menu-item:not(.menu-disabled), [role="menuitem"]:not([disabled])')?.focus();
-    }
-
-    // ── Row navigation ───────────────────────────────────────────
-
-    private activeMenuRow(): HTMLElement | null {
-        const active = document.activeElement;
-        return active && active.closest?.(ITEM_SELECTOR) ? active as HTMLElement : null;
-    }
-
-    private enabledRows(root: HTMLElement): HTMLElement[] {
-        return Array.from(root.querySelectorAll<HTMLElement>(ITEM_SELECTOR))
-            .filter(r => this.enabledRow(r));
-    }
-
-    private enabledRow(row: HTMLElement): boolean {
-        return !row.classList.contains('menu-disabled')
-            && !row.classList.contains('menu-custom-row')
-            && (row as { disabled?: boolean }).disabled !== true
-            && this.rowVisible(row);
-    }
-
-    /** A row is navigable only when not inside a collapsed (display:none) submenu. */
-    private rowVisible(row: HTMLElement): boolean {
-        const sub = row.closest<HTMLElement>('.menu-submenu');
-        return !sub || sub.style.display === 'block';
-    }
-
-    private focusAdjacentRow(rows: HTMLElement[], dir: 1 | -1): void {
-        if (rows.length === 0) { return; }
-        const idx = this.currentRowIndex(rows, document.activeElement as HTMLElement | null, dir);
-        rows[(idx + dir + rows.length) % rows.length].focus();
-    }
-
-    private currentRowIndex(rows: HTMLElement[], current: HTMLElement | null, dir: 1 | -1): number {
-        const found = current ? this.findRowIndex(rows, current) : -1;
-        return found === -1 ? this.wrapIndex(dir, rows.length) : found;
-    }
-
-    private findRowIndex(rows: HTMLElement[], current: HTMLElement): number {
-        return rows.findIndex(r => r === current || r.contains(current));
-    }
-
-    private wrapIndex(dir: 1 | -1, length: number): number {
-        return dir === 1 ? -1 : length;
-    }
-
     // ── Custom fill inline input (hex menu) ──────────────────────
-
-    private wireInlineInputs(el: HTMLElement): void {
-        const fillInput = el.querySelector<HTMLInputElement>('.menu-fill-input');
-        const fillApply = el.querySelector<HTMLButtonElement>('.menu-fill-apply');
-        fillInput?.addEventListener('click', ev => ev.stopPropagation());
-        fillInput?.addEventListener('mousedown', ev => ev.stopPropagation());
-        fillInput?.addEventListener('focus', () => keepFillSubmenuOpen(fillInput));
-        fillInput?.addEventListener('input', () => fillInput.classList.remove('menu-fill-invalid'));
-        fillInput?.addEventListener('keydown', ev => this.handleFillKeydown(ev, fillInput));
-        fillApply?.addEventListener('click', ev => { ev.stopPropagation(); this.applyCustomFill(fillInput); });
-        fillApply?.addEventListener('mousedown', ev => ev.stopPropagation());
-    }
-
-    private handleFillKeydown(ev: KeyboardEvent, fillInput: HTMLInputElement): void {
-        ev.stopPropagation();
-        if (ev.key === 'Enter') { this.applyCustomFill(fillInput); }
-        if (ev.key === 'Escape') { this.hide(); }
-    }
-
-    private applyCustomFill(fillInput: HTMLInputElement | null): void {
-        if (!fillInput) { return; }
-        const raw = fillInput.value.trim().replace(/^0x/i, '');
-        const value = parseInt(raw, 16);
-        if (!isValidCustomFill(raw, value)) {
-            fillInput.classList.add('menu-fill-invalid');
-            fillInput.focus();
-            return;
-        }
-        fillInput.classList.remove('menu-fill-invalid');
-        this.runMenuCommand(fillCommand(value));
-    }
 
     // ── Misc helpers ─────────────────────────────────────────────
 

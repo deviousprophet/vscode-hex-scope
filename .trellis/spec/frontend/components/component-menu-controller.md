@@ -27,7 +27,10 @@ renamed.
 ```text
 src/webview/components/menuController/
     menuController.ts   MenuController (module-private class) + singleton
-                        `menuController` + pure renderMenuHtml + MenuState
+                        `menuController` + focus/registry/dismissal core
+    menuNav.ts          stateless DOM keyboard-navigation helpers
+    menuRender.ts       pure renderMenuHtml + MenuState for the hex menu
+    menuFill.ts         hex-menu "Patch / Fill" custom-input wiring
     menu.css            renamed from contextMenu.css; `ctx-*` → `menu-*`
 src/webview/hexViewer.ts                hex grid show/emit wiring
 src/webview/components/sidebar/structPanel/structPanel.ts   struct field menu

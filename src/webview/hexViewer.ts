@@ -68,7 +68,8 @@ import {
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { showToast } from './components/toast';
 import { formatCopyCommand } from '../core/byteTools/copy';
-import { menuController, renderMenuHtml, type MenuState } from './components/menuController/menuController';
+import { menuController } from './components/menuController/menuController';
+import { renderMenuHtml, type MenuState } from './components/menuController/menuRender';
 import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
 
 // ── Record view component ────────────────────────────────────────
