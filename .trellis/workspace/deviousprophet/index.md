@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 43
+- **Total Sessions**: 44
 - **Last Active**: 2026-08-23
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1000 | Active |
+| `journal-1.md` | ~1021 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 44 | 2026-08-23 | Unify ContextMenu + sidebar popovers into one MenuController | `ddfd608` | `refactor/menu-controller-unification` |
 | 43 | 2026-08-23 | Tolerate trailing SUB (0x1A) EOF marker in ihex/srec | `98d6b47` | `fix/hex-tolerate-subchar` |
 | 42 | 2026-08-23 | Fix ascii struct field whitespace collapse (space runs) | `a95a062` | `fix/struct-ascii-space-render` |
 | 41 | 2026-08-22 | Context menu visibility, focus dismissal, keyboard navigation | `790a293`, `109a7dc`, `496a49e`, `f04149b` | `fix/context-menu-visibility` |
