@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 45
+- **Total Sessions**: 46
 - **Last Active**: 2026-08-23
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1042 | Active |
+| `journal-1.md` | ~1063 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 46 | 2026-08-23 | File Profiles: team-shared .hexscope config + sidebar panel | `e5e9ab7` | `feat/file-profiles` |
 | 45 | 2026-08-23 | Split menuController.ts (fallow refactoring target) | `615fa08` | `refactor/menu-controller-unification` |
 | 44 | 2026-08-23 | Unify ContextMenu + sidebar popovers into one MenuController | `ddfd608` | `refactor/menu-controller-unification` |
 | 43 | 2026-08-23 | Tolerate trailing SUB (0x1A) EOF marker in ihex/srec | `98d6b47` | `fix/hex-tolerate-subchar` |

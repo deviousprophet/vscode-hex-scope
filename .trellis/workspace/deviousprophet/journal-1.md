@@ -1040,3 +1040,24 @@ fallow-fix: addressed split-high-impact refactoring target. Extracted menuRender
 ### Status
 
 [OK] **Completed**
+
+
+## Session 46: File Profiles: team-shared .hexscope config + sidebar panel
+
+**Date**: 2026-08-23
+**Task**: File Profiles: team-shared .hexscope config + sidebar panel
+**Branch**: `feat/file-profiles`
+
+### Summary
+
+Issue 178: moved structs/integrity profiles/File Profiles (pins+endian+integrity ref)/per-file labels+endian into .hexscope/config.json (live write-through, auto-migrate seed, workspace-wins gap-fill merge, external reload watcher). New sidebar Profiles panel (select/apply, save-as, rename, delete). Machine-local: active profile, scratch checks. check-types+lint+971 tests green.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e5e9ab7` | (see git log) |
+
+### Status
+
+[OK] **Completed**
