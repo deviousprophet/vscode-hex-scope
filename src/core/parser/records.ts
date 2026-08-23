@@ -13,11 +13,16 @@ export interface ParsedRecordsWithRanges extends ParsedRecords {
     ranges: SourceRange[];
 }
 
+function stripTrailingSub(source: string): string {
+    return source.replace(/\u001A+$/, '');
+}
+
 export function parseSourceRecords(
     source: string,
     parseLine: (line: string, lineNumber: number) => HexRecord,
     onRecord?: (record: HexRecord) => void,
 ): ParsedRecords {
+    source = stripTrailingSub(source);
     const records: HexRecord[] = [];
     let checksumErrors = 0;
     let malformedLines = 0;
@@ -95,6 +100,7 @@ export async function parseSourceRecordsAsync(
     onRecord?: (record: HexRecord) => void,
     options: ParseWorkOptions = {},
 ): Promise<ParsedRecordsWithRanges> {
+    source = stripTrailingSub(source);
     const parsed: ParsedRecordsWithRanges = { records: [], ranges: [], checksumErrors: 0, malformedLines: 0 };
     let lineNumber = 1;
     let cursor = 0;

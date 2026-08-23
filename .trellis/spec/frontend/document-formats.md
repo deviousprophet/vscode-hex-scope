@@ -51,12 +51,15 @@ function repairChecksums(raw: string, result: ParseResult): string;
 - Assert reparsing serialized output produces expected bytes and zero new checksum errors.
 - Empty edit maps return original text exactly.
 - Checksum repair changes the final checksum byte of invalid, otherwise parseable records; malformed records remain unchanged.
+- A trailing run of SUB (0x1A) — the legacy EOF marker some toolchains append — is stripped from the source before line splitting (`source.replace(/\u001A+$/, '')`) in the shared record layer, so it never becomes a record. Tolerance is read-only: no diagnostics, `malformedLines` unchanged, serializers keep the original bytes. A 0x1A not in the trailing position (mid-file, inside a record, SUB followed by trailing whitespace) is still a malformed line.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Result |
 |---|---|
 | Blank line | Skip; not malformed. |
+| Trailing SUB (0x1A) run at EOF | Stripped pre-split; not malformed, no diagnostics. |
+| Non-trailing 0x1A (mid-file, inside record, SUB + trailing whitespace) | Normal malformed error. |
 | Missing start code / non-hex / short line | Record with `error`; increment `malformedLines`. |
 | Length or required byte count mismatch | Record with precise error; exclude from segments. |
 | Checksum mismatch | Keep record, increment `checksumErrors`, exclude from segments, allow quick repair. |

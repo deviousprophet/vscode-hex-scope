@@ -323,4 +323,23 @@ suite('SRecParser', () => {
         assert.strictEqual(result.segments.length, 0);
         assert.strictEqual(result.totalDataBytes, 0);
     });
+
+    // ── Trailing SUB (0x1A EOF marker) tolerance ──────────────────────────
+
+    test('trailing SUB after final newline is tolerated', () => {
+        const cleanSrc = [s1Rec(0x0000, [0x01]), s9Rec()].join('\n');
+        const result = parseSRec(cleanSrc + '\n\u001A');
+        assert.strictEqual(result.malformedLines, 0);
+        assert.deepStrictEqual(
+            result.records.map(r => r.raw),
+            parseSRec(cleanSrc).records.map(r => r.raw),
+        );
+    });
+
+    test('trailing SUB without final newline is tolerated', () => {
+        const cleanSrc = [s1Rec(0x0000, [0x01]), s9Rec()].join('\n');
+        const result = parseSRec(cleanSrc + '\u001A');
+        assert.strictEqual(result.malformedLines, 0);
+        assert.strictEqual(result.records.length, 2);
+    });
 });
