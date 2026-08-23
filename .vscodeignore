@@ -15,3 +15,4 @@ eslint-rules/**
 .fallowrc.json
 .*/**
 AGENTS.md
+images/demo.gif
