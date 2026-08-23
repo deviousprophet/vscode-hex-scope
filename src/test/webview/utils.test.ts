@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 
-import { formatDecimal, formatHex, formatHexHtml, asUint64, flashCopied } from '../../webview/utils';
+import { formatDecimal, formatHex, formatHexHtml, asUint64, flashCopied, inlineConfirm } from '../../webview/utils';
 import { JSDOM } from 'jsdom';
 
 suite('webview utils formatting', () => {
@@ -94,5 +94,53 @@ suite('webview utils flashCopied', () => {
         const live = document.getElementById('t')!;
         assert.strictEqual(live.textContent, '0xCD', 're-rendered element keeps its own text');
         assert.ok(!live.classList.contains('copied'));
+    });
+
+    test('pending flash timer does not throw after the window closes (teardown race)', async () => {
+        const el = document.getElementById('t')!;
+        flashCopied(el, true);
+        dom.window.close();
+        await sleep(1150);
+        assert.ok(true);
+    });
+});
+
+suite('webview utils inlineConfirm teardown race', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://hexscope.test/' });
+        Object.defineProperty(globalThis, 'window', {
+            value: dom.window,
+            configurable: true,
+            writable: true,
+        });
+        Object.defineProperty(globalThis, 'document', {
+            value: dom.window.document,
+            configurable: true,
+            writable: true,
+        });
+        Object.defineProperty(globalThis, 'requestAnimationFrame', {
+            value: (cb: FrameRequestCallback) => { cb(0); return 0; },
+            configurable: true,
+        });
+    });
+
+    teardown(() => {
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        delete (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+        dom.window.close();
+    });
+
+    test('deferred outside-click listener does not throw after the window closes', async () => {
+        const anchor = document.createElement('button');
+        document.body.appendChild(anchor);
+        inlineConfirm(anchor, () => {});
+        dom.window.close();
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        await sleep(20);
+        assert.ok(true);
     });
 });
