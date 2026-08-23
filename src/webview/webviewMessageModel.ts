@@ -1,6 +1,8 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
 import type { IntegrityCheckSet, IntegrityProfile } from '../core/integrity';
-import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import type { StructPin } from '../core/types';
+import type { FileProfile } from '../core/workspaceConfigModel';
+import type { HexScopeEndian, ProviderToWebviewMessage } from '../webviewProtocol';
 import { S } from './state';
 import {
     addLabel,
@@ -29,6 +31,8 @@ export type WebviewInvalidations = {
     structPins?: boolean;
     currentDataView?: boolean;
     integrityBytesChanged?: boolean;
+    endian?: boolean;
+    fileProfiles?: boolean;
 };
 
 export type ExternalChangeErrorDetails = {
@@ -44,6 +48,14 @@ export type WebviewModelUpdate = {
     copyCommand?: CopyCommand;
     integrityProfiles?: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet } | IntegrityProfile[];
     integrityProfileError?: string;
+    fileProfiles?: { profiles: FileProfile[]; activeFileProfileId: string | null };
+    fileProfileError?: string;
+    appliedProfile?: {
+        activeFileProfileId: string | null;
+        structPins: StructPin[];
+        endian: HexScopeEndian;
+        activeChecks: IntegrityCheckSet;
+    };
     removeExternalChangeBanners?: boolean;
     removeExternalChangeErrorBanner?: boolean;
     externalChange?: { incoming: IncomingFile; hasUnsavedEdits: boolean };
@@ -61,6 +73,9 @@ const MODEL_APPLIERS: ModelAppliers = {
     loadProgress: applyPassiveMessage,
     recordPage: applyPassiveMessage,
     integrityProfiles: applyIntegrityProfilesMessage,
+    fileProfiles: applyFileProfilesMessage,
+    fileProfileApplied: applyFileProfileAppliedMessage,
+    workspaceConfigReloaded: applyWorkspaceConfigReloadedMessage,
     loadError: applyLoadErrorMessage,
     addLabel: applyAddLabelMessage,
     updateLabel: applyUpdateLabelMessage,
@@ -86,6 +101,7 @@ function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate
     applyInitialState(msg);
     return {
         integrityProfiles: msg.integrityProfiles,
+        fileProfiles: { profiles: msg.fileProfiles, activeFileProfileId: msg.activeFileProfileId },
         invalidations: { fullRender: true },
     };
 }
@@ -95,6 +111,48 @@ function applyIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfi
         integrityProfiles: msg.profiles,
         integrityProfileError: typeof msg.error === 'string' ? msg.error : '',
         invalidations: {},
+    };
+}
+
+function applyFileProfilesMessage(msg: WebviewMessageByType<'fileProfiles'>): WebviewModelUpdate {
+    return {
+        fileProfiles: { profiles: msg.profiles, activeFileProfileId: msg.activeFileProfileId },
+        fileProfileError: typeof msg.error === 'string' ? msg.error : '',
+        invalidations: {},
+    };
+}
+
+function applyFileProfileAppliedMessage(msg: WebviewMessageByType<'fileProfileApplied'>): WebviewModelUpdate {
+    S.structPins = msg.structPins;
+    S.endian = msg.endian;
+    return {
+        appliedProfile: {
+            activeFileProfileId: msg.activeFileProfileId,
+            structPins: msg.structPins,
+            endian: msg.endian,
+            activeChecks: msg.activeChecks,
+        },
+        invalidations: { structPins: true, endian: true, integrityBytesChanged: true },
+    };
+}
+
+function applyWorkspaceConfigReloadedMessage(msg: WebviewMessageByType<'workspaceConfigReloaded'>): WebviewModelUpdate {
+    S.structs = msg.structs;
+    S.labels = msg.labels;
+    S.segmentNames = msg.segmentNames ?? {};
+    S.structPins = msg.structPins;
+    S.endian = msg.endian;
+    rebuildMemoryRows();
+    return {
+        integrityProfiles: msg.integrityProfiles,
+        fileProfiles: { profiles: msg.fileProfiles, activeFileProfileId: msg.activeFileProfileId },
+        invalidations: {
+            labelsAndMemory: true,
+            structPins: true,
+            endian: true,
+            segments: true,
+            integrityBytesChanged: true,
+        },
     };
 }
 

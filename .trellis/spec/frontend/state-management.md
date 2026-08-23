@@ -34,10 +34,13 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 ## Persistence Scope
 
-- Per-file state: labels, struct pins, endian, active integrity check set.
-- Shared/global state: struct definitions and integrity profiles.
+- **Workspace-shared (`.hexscope/config.json`, in git — live source of truth):** struct-type library, integrity-profile library, File Profiles (`{}` profile = pins + endian + referenced integrity profile), and per-firmware-file scope (labels, segment name overrides, no-profile endian) keyed by workspace-relative path.
+- **Machine-local (`workspaceState`):** the active File Profile per document (`hexScope.activeProfile.<uri>`), ad-hoc scratch integrity checks outside a profile, and the legacy per-file keys as fallback when no `.hexscope` exists.
+- Resolution order: `.hexscope` wins on id, user-global fills gaps (structs + integrity profiles by id/name), for files outside a folder the pure legacy path applies.
+- Host adapters: `src/workspaceConfigStore.ts` (FS read/write with workspace-relative scoping); `src/core/workspaceConfigModel.ts` (normalize/merge/seed + FileProfile shapes). `HexEditorSession` orchestrates auto-migration (seed on first open) and the reload watcher; editorial mutations write through to the file.
+- Mutable state owned by the webview host: `S.structs`, `S.structPins`, `S.endian`, `S.labels`, `S.segmentNames` — pushed via `init` / `workspaceConfigReloaded` / `fileProfileApplied`; `save*` messages write through on the host.
 - Persistence adapters: host `hexViewer.ts` struct callbacks (`saveStructs`/`saveStructPins`), `integrityPersistence.ts`, and session message handlers.
-- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use.
+- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`, `WorkspaceConfig`, `FileProfile`) must be normalized from `unknown` before use.
 - Struct migration/deduplication belongs in `HexEditorSession` (`migrateStructDefinitions` and legacy merge helpers), not render code.
 
 ## Update Pattern

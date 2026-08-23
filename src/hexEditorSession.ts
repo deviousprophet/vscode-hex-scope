@@ -7,7 +7,7 @@ import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexP
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
+import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import {
     normalizeIntegrityCheckSet,
@@ -20,7 +20,27 @@ import {
     RECORD_PAGE_SIZE,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
+    type HexScopeEndian,
 } from './webviewProtocol';
+import {
+    mergeIntegrityLibraries,
+    mergeStructLibraries,
+    normalizeFileProfile,
+    seedWorkspaceConfig,
+    type FileProfile,
+    type FileScopeConfig,
+    type WorkspaceConfig,
+} from './core/workspaceConfigModel';
+import {
+    fileScopeKey,
+    HEXSCOPE_DIR,
+    readWorkspaceConfig,
+    WORKSPACE_CONFIG_FILENAME,
+    workspaceConfigUri,
+    workspaceRootOf,
+    writeWorkspaceConfig,
+} from './workspaceConfigStore';
+import type { SegmentNameOverrides } from './webviewProtocol';
 
 import { scanScripts, execute } from './core/scripting/scriptRunner';
 import { VSCodeScriptHost } from './scriptHost';
@@ -431,6 +451,93 @@ export class HexEditorSession {
         const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
         const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
         const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
+        const activeProfileKey = `hexScope.activeProfile.${document.uri.toString()}`;
+
+        // ── Team-shared workspace config (.hexscope/config.json) ───────────
+        // Live source of truth: session reads it at open, mutations write
+        // through, an FS watcher reloads external edits (git pull).
+        const relKey = fileScopeKey(document.uri);
+        let workspaceConfig: WorkspaceConfig | null = null;
+        let globalStructsRef: StructDef[] = [];
+        let globalProfilesRef: IntegrityProfile[] = [];
+        let activeProfileId: string | null = this._context.workspaceState.get<string | null>(activeProfileKey, null);
+
+        const SELF_WRITE_HORIZON_MS = 1000;
+        let lastSelfWriteAt = 0;
+        const markSelfWrite = () => { lastSelfWriteAt = Date.now(); };
+
+        const isFileBacked = (): boolean => workspaceConfigUri(document.uri) !== null;
+        const isWithinSelfWriteHorizon = () => Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS;
+
+        const fileScopeFor = (): FileScopeConfig | null => {
+            if (!workspaceConfig || !relKey) { return null; }
+            const scope = workspaceConfig.files[relKey];
+            return scope ? { ...scope } : null;
+        };
+
+        const activeProfile = (): FileProfile | null => {
+            if (!workspaceConfig || !activeProfileId) { return null; }
+            return workspaceConfig.profiles.find(item => item.id === activeProfileId) ?? null;
+        };
+
+        const persistWorkspaceConfig = async (): Promise<void> => {
+            if (!workspaceConfig) { return; }
+            await writeWorkspaceConfig(document.uri, workspaceConfig);
+            markSelfWrite();
+        };
+
+        /** Read the shared file, or seed + write it from current private data on first open. */
+        const loadOrMigrateWorkspaceConfig = async (): Promise<void> => {
+            if (!isFileBacked()) { workspaceConfig = null; return; }
+            const existing = await readWorkspaceConfig(document.uri);
+            if (existing) { workspaceConfig = existing; return; }
+            const seed = seedWorkspaceConfig({ structs: globalStructsRef, integrityProfiles: globalProfilesRef });
+            workspaceConfig = seed;
+            await persistWorkspaceConfig();
+        };
+
+        const resolvedStructs = (): StructDef[] => {
+            return workspaceConfig
+                ? mergeStructLibraries(workspaceConfig.structs, globalStructsRef)
+                : globalStructsRef;
+        };
+
+        const resolvedProfiles = (): IntegrityProfile[] => {
+            return workspaceConfig
+                ? mergeIntegrityLibraries(workspaceConfig.integrityProfiles, globalProfilesRef)
+                : globalProfilesRef;
+        };
+
+        const perFileEndian = (): 'le' | 'be' => {
+            const scope = fileScopeFor();
+            if (scope) { return scope.endian; }
+            return this._context.workspaceState.get<unknown>(endianKey) === 'be' ? 'be' : 'le';
+        };
+
+        interface AppliedState {
+            pins: StructPin[];
+            endian: HexScopeEndian;
+            checks: IntegrityCheckSet;
+        }
+
+        const resolveAppliedState = (): AppliedState => {
+            const profile = activeProfile();
+            if (profile) {
+                const referenced = resolvedProfiles().find(item => item.id === profile.integrityProfileId) ?? null;
+                return {
+                    pins: profile.pins,
+                    endian: profile.endian,
+                    checks: referenced
+                        ? { schemaVersion: 1, checks: referenced.checks }
+                        : { schemaVersion: 1, checks: [] },
+                };
+            }
+            return {
+                pins: this._context.workspaceState.get<StructPin[]>(structPinKey, []),
+                endian: perFileEndian(),
+                checks: this._context.workspaceState.get<IntegrityCheckSet | undefined>(integrityChecksKey) ?? { schemaVersion: 1, checks: [] },
+            };
+        };
 
         const normalizeStructDefs = normalizeStructDefsValue;
 
@@ -468,6 +575,7 @@ export class HexEditorSession {
 
             await this._context.workspaceState.update(structKey, undefined);
 
+            globalStructsRef = globalArr;
             return globalArr;
         };
 
@@ -477,40 +585,60 @@ export class HexEditorSession {
             if (JSON.stringify(rawProfiles) !== JSON.stringify(normalized)) {
                 await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, normalized);
             }
+            globalProfilesRef = normalized;
             return normalized;
-        };
-
-        const loadIntegrityChecks = async (): Promise<IntegrityCheckSet> => {
-            const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
-            const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
-                schemaVersion: 1,
-                checks: [],
-            };
-            if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {
-                await this._context.workspaceState.update(integrityChecksKey, normalized);
-            }
-            return normalized;
-        };
-
-        const loadEndian = (): 'le' | 'be' => {
-            return this._context.workspaceState.get<unknown>(endianKey) === 'be' ? 'be' : 'le';
         };
 
         const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
-            const current = await loadIntegrityProfiles();
+            const current = resolvedProfiles();
             for (const panel of this._panels) {
                 postToPanel(panel, { type: 'integrityProfiles', profiles: current, error });
             }
         };
 
         const sendIntegrityProfileError = async (error: string): Promise<void> => {
-            const current = await loadIntegrityProfiles();
+            const current = resolvedProfiles();
             await postToWebview(webviewPanel.webview, { type: 'integrityProfiles', profiles: current, error });
         };
 
         const saveIntegrityProfiles = async (next: IntegrityProfile[]): Promise<void> => {
-            await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, next);
+            if (workspaceConfig) {
+                workspaceConfig.integrityProfiles = next;
+                await persistWorkspaceConfig();
+                globalProfilesRef = await loadIntegrityProfiles();
+            } else {
+                await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, next);
+                globalProfilesRef = next;
+            }
             await broadcastIntegrityProfiles();
+        };
+
+        const broadcastFileProfiles = async (error = ''): Promise<void> => {
+            const profiles = workspaceConfig ? workspaceConfig.profiles : [];
+            for (const panel of this._panels) {
+                postToPanel(panel, { type: 'fileProfiles', profiles, activeFileProfileId: activeProfileId, error });
+            }
+        };
+
+        const postAppliedState = (): void => {
+            const applied = resolveAppliedState();
+            void postToWebview(webviewPanel.webview, {
+                type: 'fileProfileApplied',
+                activeFileProfileId: activeProfileId,
+                structPins: applied.pins,
+                endian: applied.endian,
+                activeChecks: applied.checks,
+            });
+        };
+
+        const perFileLabels = (): { labels: SegmentLabel[]; segmentNames: SegmentNameOverrides } => {
+            const scope = fileScopeFor();
+            return scope
+                ? { labels: scope.labels, segmentNames: scope.segmentNames }
+                : {
+                    labels: this._context.workspaceState.get<SegmentLabel[]>(labelKey, []),
+                    segmentNames: this._context.workspaceState.get<SegmentNameOverrides>(segmentNamesKey, {}),
+                };
         };
 
         const postInit = async () => {
@@ -518,22 +646,31 @@ export class HexEditorSession {
             postProgress('transfer', 0);
             const serialized = serializeParseResult(parseResult, format);
             postProgress('transfer', 1, 1);
-            const structs = await loadStructs();
-            const integrityProfiles = await loadIntegrityProfiles();
-            const integrityChecks = await loadIntegrityChecks();
-            
+            globalStructsRef = await loadStructs();
+            globalProfilesRef = await loadIntegrityProfiles();
+            await loadOrMigrateWorkspaceConfig();
+
+            if (activeProfileId && !workspaceConfig?.profiles.some(profile => profile.id === activeProfileId)) {
+                activeProfileId = null;
+                await this._context.workspaceState.update(activeProfileKey, null);
+            }
+
+            const applied = resolveAppliedState();
+            const { labels, segmentNames } = perFileLabels();
             const msg: ProviderToWebviewMessage = {
                 type: 'init',
                 generation: currentGeneration,
                 parseResult: serialized,
-                labels:      this._context.workspaceState.get(labelKey, []),
-                segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
-                structs,
-                structPins:  this._context.workspaceState.get(structPinKey, []),
-                endian: loadEndian(),
-                integrityProfiles: { profiles: integrityProfiles, activeChecks: integrityChecks },
+                labels,
+                segmentNames,
+                structs: resolvedStructs(),
+                structPins: applied.pins,
+                endian: applied.endian,
+                integrityProfiles: { profiles: resolvedProfiles(), activeChecks: applied.checks },
+                fileProfiles: workspaceConfig ? workspaceConfig.profiles : [],
+                activeFileProfileId: activeProfileId,
             };
-            
+
             void postToWebview(webviewPanel.webview, msg);
         };
 
@@ -561,9 +698,6 @@ export class HexEditorSession {
         // Self-writes are ignored within a short horizon so our own save/repair
         // never surfaces as an "external change" — even when the FS watcher
         // emits several events per write (flag was the old one-shot version).
-        const SELF_WRITE_HORIZON_MS = 1000;
-        let lastSelfWriteAt = 0;
-        const markSelfWrite = () => { lastSelfWriteAt = Date.now(); };
         const watcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
                 document.uri.path.split('/').pop()!)
@@ -579,6 +713,7 @@ export class HexEditorSession {
                         await vscode.workspace.fs.readFile(document.uri));
                     const loaded = await parseCompactSource(newRaw);
                     const newResult = loaded.result;
+                    const { labels, segmentNames } = perFileLabels();
                     
                     // Validate the externally-changed file
                     if (hasParseErrors(newResult)) {
@@ -594,8 +729,8 @@ export class HexEditorSession {
                             type: 'externalChangeError',
                             generation: loaded.generation,
                             parseResult: serializeParseResult(newResult, format),
-                            labels: this._context.workspaceState.get(labelKey, []),
-                            segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                            labels,
+                            segmentNames,
                             checksumErrors: newResult.checksumErrors,
                             malformedLines: newResult.malformedLines,
                             errorCount: newResult.checksumErrors + newResult.malformedLines,
@@ -611,8 +746,8 @@ export class HexEditorSession {
                         type: 'externalChange',
                         generation: loaded.generation,
                         parseResult: serializeParseResult(newResult, format),
-                        labels: this._context.workspaceState.get(labelKey, []),
-                        segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                        labels,
+                        segmentNames,
                     });
                 } catch { /* file transiently unavailable */ }
             }, 200);
@@ -620,6 +755,55 @@ export class HexEditorSession {
 
         watcher.onDidChange(onExternalChange);
         watcher.onDidCreate(onExternalChange);
+
+        // ── Team config external reload (.hexscope/config.json) ────────────
+        // git pull / teammate edits land here; self-writes within the shared
+        // horizon are swallowed. Re-resolves the merged view and re-applies
+        // the active file profile without disturbing in-document edits.
+        const configReload = async (): Promise<void> => {
+            const reloaded = await readWorkspaceConfig(document.uri);
+            workspaceConfig = reloaded;
+            if (workspaceConfig && activeProfileId
+                && !workspaceConfig.profiles.some(profile => profile.id === activeProfileId)) {
+                activeProfileId = null;
+                await this._context.workspaceState.update(activeProfileKey, null);
+            }
+            const applied = resolveAppliedState();
+            const { labels, segmentNames } = perFileLabels();
+            void postToWebview(webviewPanel.webview, {
+                type: 'workspaceConfigReloaded',
+                structs: resolvedStructs(),
+                integrityProfiles: { profiles: resolvedProfiles(), activeChecks: applied.checks },
+                labels,
+                segmentNames,
+                structPins: applied.pins,
+                endian: applied.endian,
+                fileProfiles: workspaceConfig ? workspaceConfig.profiles : [],
+                activeFileProfileId: activeProfileId,
+            });
+            void broadcastFileProfiles();
+        };
+
+        const configUri = workspaceConfigUri(document.uri);
+        if (configUri) {
+            const configWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(
+                    workspaceRootOf(document.uri)!,
+                    `${HEXSCOPE_DIR}/${WORKSPACE_CONFIG_FILENAME}`,
+                ),
+            );
+            resources.add(configWatcher);
+            let configReloadTimer: ReturnType<typeof setTimeout> | undefined;
+            const onConfigChange = () => {
+                if (isWithinSelfWriteHorizon()) { return; }
+                clearTimeout(configReloadTimer);
+                configReloadTimer = setTimeout(() => void configReload(), 200);
+            };
+            configWatcher.onDidChange(onConfigChange);
+            configWatcher.onDidCreate(onConfigChange);
+            configWatcher.onDidDelete(onConfigChange);
+            resources.add(() => clearTimeout(configReloadTimer));
+        }
 
         type WebviewMessageHandler = (msg: any) => Promise<void>;
 
@@ -648,6 +832,16 @@ export class HexEditorSession {
                 // Copy confirmation lives in the webview toast; no host notice.
             },
             saveLabels: async msg => {
+                if (workspaceConfig && relKey) {
+                    const scope = workspaceConfig.files[relKey] ?? { labels: [], segmentNames: {}, endian: perFileEndian() };
+                    workspaceConfig.files[relKey] = {
+                        ...scope,
+                        labels: msg.labels,
+                        segmentNames: msg.segmentNames ? msg.segmentNames : scope.segmentNames,
+                    };
+                    await persistWorkspaceConfig();
+                    return;
+                }
                 await this._context.workspaceState.update(labelKey, msg.labels);
                 if (msg.segmentNames) {
                     await this._context.workspaceState.update(segmentNamesKey, msg.segmentNames);
@@ -655,19 +849,48 @@ export class HexEditorSession {
             },
             saveStructs: async msg => {
                 const { defs } = normalizeStructDefs(msg.structs);
+                if (workspaceConfig) {
+                    workspaceConfig.structs = defs;
+                    await persistWorkspaceConfig();
+                    return;
+                }
                 await this._context.globalState.update(globalStructKey, defs);
+                globalStructsRef = defs;
             },
             saveStructPins: async msg => {
+                const profile = activeProfile();
+                if (profile && workspaceConfig) {
+                    workspaceConfig.profiles = workspaceConfig.profiles.map(
+                        item => item.id === profile.id ? { ...item, pins: msg.pins } : item,
+                    );
+                    await persistWorkspaceConfig();
+                    return;
+                }
                 await this._context.workspaceState.update(structPinKey, msg.pins);
             },
             saveIntegrityChecks: async msg => {
+                // Checks under an active profile derive from its integrity ref.
+                if (activeProfile()) { return; }
                 const state = normalizeIntegrityCheckSet(msg.state);
                 if (state) { await this._context.workspaceState.update(integrityChecksKey, state); }
             },
             saveEndian: async msg => {
-                if (msg.endian === 'le' || msg.endian === 'be') {
-                    await this._context.workspaceState.update(endianKey, msg.endian);
+                if (msg.endian !== 'le' && msg.endian !== 'be') { return; }
+                const profile = activeProfile();
+                if (profile && workspaceConfig) {
+                    workspaceConfig.profiles = workspaceConfig.profiles.map(
+                        item => item.id === profile.id ? { ...item, endian: msg.endian } : item,
+                    );
+                    await persistWorkspaceConfig();
+                    return;
                 }
+                if (workspaceConfig && relKey) {
+                    const scope = workspaceConfig.files[relKey] ?? { labels: [], segmentNames: {}, endian: msg.endian };
+                    workspaceConfig.files[relKey] = { ...scope, endian: msg.endian };
+                    await persistWorkspaceConfig();
+                    return;
+                }
+                await this._context.workspaceState.update(endianKey, msg.endian);
             },
             createIntegrityProfile: async msg => {
                 const profile = normalizeIntegrityProfiles([msg.profile])[0];
@@ -708,7 +931,97 @@ export class HexEditorSession {
                 }
                 await saveIntegrityProfiles(current.filter(item => item.id !== id));
             },
+            selectFileProfile: async msg => {
+                const id = msg.id === null ? null : (typeof msg.id === 'string' ? msg.id : null);
+                if (id !== null && !workspaceConfig?.profiles.some(item => item.id === id)) {
+                    void broadcastFileProfiles('Profile no longer exists.');
+                    return;
+                }
+                activeProfileId = id;
+                await this._context.workspaceState.update(activeProfileKey, id);
+                postAppliedState();
+                void broadcastFileProfiles();
+            },
+            createFileProfile: async msg => {
+                if (!workspaceConfig) { void broadcastFileProfiles('No workspace config. Open a file inside a folder to share profiles.'); return; }
+                const name = typeof msg.name === 'string' ? msg.name.trim() : '';
+                if (!name) { void broadcastFileProfiles('Profile name is invalid.'); return; }
+                if (workspaceConfig.profiles.some(item => sameProfileName(item.name, name))) {
+                    void broadcastFileProfiles(`A profile named “${name}” already exists.`);
+                    return;
+                }
+                const profile: FileProfile = {
+                    id: crypto.randomUUID(),
+                    name,
+                    pins: Array.isArray(msg.pins) ? msg.pins : [],
+                    endian: msg.endian === 'be' ? 'be' : 'le',
+                    integrityProfileId: typeof msg.integrityProfileId === 'string' ? msg.integrityProfileId : null,
+                };
+                workspaceConfig.profiles = [...workspaceConfig.profiles, profile];
+                await persistWorkspaceConfig();
+                void broadcastFileProfiles();
+            },
+            updateFileProfile: async msg => {
+                if (!workspaceConfig) { return; }
+                const profile = normalizeFileProfile(msg.profile);
+                if (!profile) { void broadcastFileProfiles('Profile is invalid.'); return; }
+                if (!workspaceConfig.profiles.some(item => item.id === profile.id)) {
+                    void broadcastFileProfiles('Profile no longer exists.');
+                    return;
+                }
+                if (workspaceConfig.profiles.some(item => item.id !== profile.id && sameProfileName(item.name, profile.name))) {
+                    void broadcastFileProfiles(`A profile named “${profile.name}” already exists.`);
+                    return;
+                }
+                workspaceConfig.profiles = workspaceConfig.profiles.map(item => item.id === profile.id ? profile : item);
+                await persistWorkspaceConfig();
+                if (activeProfileId === profile.id) { postAppliedState(); }
+                void broadcastFileProfiles();
+            },
+            renameFileProfile: async msg => {
+                if (!workspaceConfig) { return; }
+                const id = typeof msg.id === 'string' ? msg.id : '';
+                const name = typeof msg.name === 'string' ? msg.name.trim() : '';
+                if (!id || !name) { void broadcastFileProfiles('Profile name is invalid.'); return; }
+                if (!workspaceConfig.profiles.some(item => item.id === id)) {
+                    void broadcastFileProfiles('Profile no longer exists.');
+                    return;
+                }
+                if (workspaceConfig.profiles.some(item => item.id !== id && sameProfileName(item.name, name))) {
+                    void broadcastFileProfiles(`A profile named “${name}” already exists.`);
+                    return;
+                }
+                workspaceConfig.profiles = workspaceConfig.profiles.map(item => item.id === id ? { ...item, name } : item);
+                await persistWorkspaceConfig();
+                void broadcastFileProfiles();
+            },
+            deleteFileProfile: async msg => {
+                if (!workspaceConfig) { return; }
+                const id = typeof msg.id === 'string' ? msg.id : '';
+                if (!workspaceConfig.profiles.some(item => item.id === id)) {
+                    void broadcastFileProfiles('Profile no longer exists.');
+                    return;
+                }
+                workspaceConfig.profiles = workspaceConfig.profiles.filter(item => item.id !== id);
+                await persistWorkspaceConfig();
+                if (activeProfileId === id) {
+                    activeProfileId = null;
+                    await this._context.workspaceState.update(activeProfileKey, null);
+                    postAppliedState();
+                }
+                void broadcastFileProfiles();
+            },
             updateLabelVisibility: async msg => {
+                if (workspaceConfig && relKey) {
+                    const scope = workspaceConfig.files[relKey];
+                    if (!scope) { return; }
+                    workspaceConfig.files[relKey] = {
+                        ...scope,
+                        labels: scope.labels.map(l => l.id === msg.id ? { ...l, hidden: !!msg.hidden } : l),
+                    };
+                    await persistWorkspaceConfig();
+                    return;
+                }
                 const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
                 const next = current.map(l =>
                     l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
@@ -716,14 +1029,27 @@ export class HexEditorSession {
                 await this._context.workspaceState.update(labelKey, next);
             },
             reorderLabel: async msg => {
+                const applyOrder = (labels: SegmentLabel[]): SegmentLabel[] | null => {
+                    const idx = labels.findIndex(l => l.id === msg.id);
+                    if (idx < 0) { return null; }
+                    const swap = idx + (msg.dir as number);
+                    if (swap < 0 || swap >= labels.length) { return null; }
+                    const next = [...labels];
+                    [next[idx], next[swap]] = [next[swap], next[idx]];
+                    return next;
+                };
+                if (workspaceConfig && relKey) {
+                    const scope = workspaceConfig.files[relKey];
+                    if (!scope) { return; }
+                    const next = applyOrder(scope.labels);
+                    if (!next) { return; }
+                    workspaceConfig.files[relKey] = { ...scope, labels: next };
+                    await persistWorkspaceConfig();
+                    return;
+                }
                 const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                const idx = current.findIndex(l => l.id === msg.id);
-                if (idx < 0) { return; }
-                const next = [...current];
-                const dir  = (msg.dir as number);
-                const swap = idx + dir;
-                if (swap < 0 || swap >= next.length) { return; }
-                [next[idx], next[swap]] = [next[swap], next[idx]];
+                const next = applyOrder(current);
+                if (!next) { return; }
                 await this._context.workspaceState.update(labelKey, next);
             },
             saveEdits: async msg => {

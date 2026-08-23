@@ -57,6 +57,7 @@ import {
     unlockExternalChange,
 } from './appModel';
 import { IntegrityPanel, type IntegrityHighlight } from './components/sidebar/integrityPanel/integrityPanel';
+import { FileProfilesPanel } from './components/sidebar/fileProfilesPanel/fileProfilesPanel';
 import { ScriptsPanel } from './components/sidebar/scriptsPanel/scriptsPanel';
 import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
@@ -243,6 +244,27 @@ const scriptsPanel = new ScriptsPanel({
     getGeneration: () => S.documentGeneration,
 });
 
+// ── File Profiles panel component ────────────────────────────────
+// Team-shared File Profiles (pins + endian + referenced integrity
+// profile), selected per open document. Host owns persistence
+// (create/select/rename/delete messages + applied state); the panel owns
+// list + form UI state and reports via callbacks.
+
+const fileProfilesPanel = new FileProfilesPanel({
+    onSelect: id => postProviderMessage({ type: 'selectFileProfile', id }),
+    onCreate: (name, integrityProfileId) => postProviderMessage({
+        type: 'createFileProfile',
+        name,
+        pins: S.structPins,
+        endian: S.endian,
+        integrityProfileId,
+    }),
+    onRename: (id, name) => postProviderMessage({ type: 'renameFileProfile', id, name }),
+    onDelete: id => postProviderMessage({ type: 'deleteFileProfile', id }),
+    getPins: () => S.structPins,
+    getEndian: () => S.endian,
+});
+
 /** Stage script-written bytes as viewer edits (mapped addresses only), then save. */
 function applyScriptWrites(writes: Array<[number, number]>): void {
     const mapped = mappedScriptWrites(writes);
@@ -263,6 +285,7 @@ const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspectorPanel.mount(root) },
     { id: 'struct', label: 'Struct', mount: root => structPanel.mount(root) },
     { id: 'integrity', label: 'Integrity', mount: root => integrityPanel.mount(root) },
+    { id: 'fileProfiles', label: 'Profiles', mount: root => fileProfilesPanel.mount(root) },
     { id: 'scripts', label: 'Scripts', mount: root => scriptsPanel.mount(root) },
 ];
 
@@ -712,6 +735,9 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
     integrityProfiles: handleIntegrityProfilesMessage,
+    fileProfiles: handleFileProfilesMessage,
+    fileProfileApplied: handleFileProfileAppliedMessage,
+    workspaceConfigReloaded: handleWorkspaceConfigReloadedMessage,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
     scriptOutput: handleScriptOutputMessage,
@@ -720,6 +746,8 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
     applyIntegrityProfileUpdate,
+    applyFileProfilesPanelUpdate,
+    applyAppliedProfileUpdate,
     applyLoadErrorUpdate,
     applyCopyCommandUpdate,
     applyExternalBannerUpdate,
@@ -833,6 +861,18 @@ function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProf
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
+function handleFileProfilesMessage(msg: WebviewMessageByType<'fileProfiles'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handleFileProfileAppliedMessage(msg: WebviewMessageByType<'fileProfileApplied'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handleWorkspaceConfigReloadedMessage(msg: WebviewMessageByType<'workspaceConfigReloaded'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
 function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
@@ -931,6 +971,34 @@ function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
     }
 }
 
+function applyFileProfilesPanelUpdate(update: WebviewModelUpdate): void {
+    if (!update.fileProfiles) { return; }
+    const integrityProfiles = Array.isArray(update.integrityProfiles)
+        ? update.integrityProfiles
+        : (update.integrityProfiles ? update.integrityProfiles.profiles : undefined);
+    fileProfilesPanel.setProfiles(
+        update.fileProfiles.profiles,
+        update.fileProfiles.activeFileProfileId,
+        integrityProfiles,
+    );
+    if (update.fileProfileError) { fileProfilesPanel.setError(update.fileProfileError); }
+}
+
+function applyAppliedProfileUpdate(update: WebviewModelUpdate): void {
+    if (update.appliedProfile) {
+        integrityPanel.setChecks(update.appliedProfile.activeChecks);
+    }
+}
+
+/** Host pushed a byte-order change (profile apply / config reload) → re-decode endian consumers. */
+function applyHostPushedEndian(): void {
+    inspectorPanel.setEndian(S.endian);
+    structPanel.setEndian(S.endian);
+    integrityPanel.notifyEndianChanged();
+    const settings = document.getElementById('sidebar-common-settings');
+    if (settings) { renderEndianToggle(settings); }
+}
+
 function applyLoadErrorUpdate(update: WebviewModelUpdate): void {
     if ('loadErrorMessage' in update) { renderLoadError(update.loadErrorMessage ?? ''); }
 }
@@ -986,6 +1054,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['structPins', () => structPanel.setData(S.structs, S.structPins)],
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
+        ['endian', applyHostPushedEndian],
     ];
     for (const [key, effect] of effects) {
         if (invalidations[key]) { effect(); }
@@ -1128,6 +1197,7 @@ const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => structPanel.resetViewState(),
     struct: () => inspectorPanel.setLabels(S.labels, S.segmentNames),
     integrity: () => integrityPanel.setTabActive(true),
+    fileProfiles: () => fileProfilesPanel.setTabActive(true),
     scripts: () => scriptsPanel.setTabActive(true),
 };
 

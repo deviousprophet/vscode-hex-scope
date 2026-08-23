@@ -27,11 +27,12 @@ Full union lives only in `src/webviewProtocol.ts`.
 
 - Extension activation registers the custom editor and all contributed commands from `package.json`.
 - Provider uses `retainContextWhenHidden: true` and does not support multiple editors per document.
-- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, structs, pins, endian, and integrity profiles/checks.
-- `HexEditorSession` owns file I/O, parsing, watchers, VS Code persistence, clipboard, and host-side profile/definition migration.
+- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, structs, pins, endian, integrity profiles/checks, team-shared `fileProfiles`, and the per-document `activeFileProfileId`.
+- `HexEditorSession` owns file I/O, parsing, watchers, VS Code persistence, and host-side profile/definition migration. Team-shared state reads/writes `.hexscope/config.json` through `src/workspaceConfigStore.ts` (pure model in `src/core/workspaceConfigModel.ts`): read at open, write-through on edits, FS-watcher reload for external changes (git pull), auto-migrate/seeding on first open, `.hexscope`-wins/gap-fill merge against `globalState`.
 - `hexViewer.ts` owns browser composition. It dispatches known provider messages, applies model transitions, then DOM invalidations/effects.
 - Unknown/malformed provider message types return `false` and cause no handler execution.
 - Segment bytes cross the webview seam as exact `ArrayBuffer` values and hydrate to `Uint8Array` in the browser. Record details remain host-side and cross only in aligned 512-record pages.
+- File Profile messages: `selectFileProfile`/`createFileProfile`/`updateFileProfile`/`renameFileProfile`/`deleteFileProfile` go webview→host; host replies with `fileProfiles` (list + active) and `fileProfileApplied` (pins/endian/derived checks) or broadcasts `workspaceConfigReloaded` after an external config change. Apply never disturbs document edits (no `init`/reparse).
 - Every load and record page carries a generation. Browser and host ignore stale generations after replacement, save, repair, external reload, or disposal.
 - Panel disposal aborts active parsing, clears page/document ownership, and prevents later posts.
 - Register complete panel cleanup before awaiting file reads or parsing. Early cancellation and invalid-document redirects release the same resources as a fully initialized panel.

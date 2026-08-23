@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/components/component-template.md","reason":"Component contract + anti-patterns checklist for the verification pass."}
+{"file":".trellis/spec/frontend/components/component-sidebar-integrity-panel.md","reason":"Sibling that passed the same review gates; parity expectations for profile CRUD + apply."}
+{"file":".trellis/spec/frontend/editor-lifecycle.md","reason":"Init ordering must stay compatible; verify postInit payload shape unchanged."}
+{"file":".trellis/spec/frontend/integrity-checks.md","reason":"Verify profile-derived checks + scratch-separated semantics match the spec."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Lint/type/test gate requirements."}
+{"file":".trellis/spec/frontend/editing-save-external-change.md","reason":"Watcher reload path must preserve external-change safety (no losing unsaved edits)."}

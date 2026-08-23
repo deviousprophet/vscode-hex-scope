@@ -65,6 +65,8 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'be',
             integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            fileProfiles: [],
+            activeFileProfileId: null,
         });
 
         assert.strictEqual(S.parseResult?.totalDataBytes, parseResult.totalDataBytes);
@@ -72,6 +74,7 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(update.invalidations.fullRender, true);
         assert.ok(update.integrityProfiles);
+        assert.deepStrictEqual(update.fileProfiles, { profiles: [], activeFileProfileId: null });
     });
 
     test('label messages rebuild memory and invalidate labels plus memory', () => {
@@ -115,6 +118,8 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'le',
             integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            fileProfiles: [],
+            activeFileProfileId: null,
         });
         S.editMode = true;
         S.edits.set(0x1001, 0xAA);
@@ -147,6 +152,41 @@ suite('applyProviderMessageToModel()', () => {
         assert.deepStrictEqual(update.externalChange?.incoming.labels, labels);
         assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
+
+    test('fileProfileApplied applies pins/endian and reports applied state', () => {
+        const update = applyProviderMessageToModel({
+            type: 'fileProfileApplied',
+            activeFileProfileId: 'p1',
+            structPins: [{ id: 'pin1', structId: 's1', addr: 0x1000, name: 'Header' }],
+            endian: 'be',
+            activeChecks: { schemaVersion: 1, checks: [] },
+        });
+
+        assert.strictEqual(S.structPins.length, 1);
+        assert.strictEqual(S.endian, 'be');
+        assert.strictEqual(update.appliedProfile?.activeFileProfileId, 'p1');
+        assert.strictEqual(update.invalidations.structPins, true);
+        assert.strictEqual(update.invalidations.endian, true);
+    });
+
+    test('workspaceConfigReloaded applies merged session state', () => {
+        S.labels = [];
+        const update = applyProviderMessageToModel({
+            type: 'workspaceConfigReloaded',
+            structs: [],
+            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            labels: [labelForTest()],
+            structPins: [],
+            endian: 'be',
+            fileProfiles: [],
+            activeFileProfileId: null,
+        });
+
+        assert.strictEqual(S.labels.length, 1);
+        assert.strictEqual(S.endian, 'be');
+        assert.deepStrictEqual(update.fileProfiles, { profiles: [], activeFileProfileId: null });
+        assert.strictEqual(update.invalidations.labelsAndMemory, true);
+    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -163,6 +203,9 @@ function noOpHandlers(): ProviderMessageHandlers {
         externalChangeError: () => {},
         repairComplete: () => {},
         integrityProfiles: () => {},
+        fileProfiles: () => {},
+        fileProfileApplied: () => {},
+        workspaceConfigReloaded: () => {},
         scriptInfo: () => {},
         scriptResult: () => {},
         scriptOutput: () => {},

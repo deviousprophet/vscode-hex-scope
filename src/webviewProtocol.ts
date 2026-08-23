@@ -1,6 +1,7 @@
 import type { CopyCommand } from './core/byteTools/copyCommand';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
+import type { FileProfile } from './core/workspaceConfigModel';
 import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 
 export const RECORD_PAGE_SIZE = 512;
@@ -9,6 +10,17 @@ export type HexScopeEndian = 'le' | 'be';
 
 /** Pinned-segment name overrides, keyed by segment start address (decimal string). */
 export type SegmentNameOverrides = Record<string, string>;
+
+/** Normalize untrusted segment name overrides from `unknown`. */
+export function normalizeSegmentNameOverrides(value: unknown): SegmentNameOverrides {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) { return {}; }
+    const out: SegmentNameOverrides = {};
+    const raw = value as Record<string, unknown>;
+    for (const [key, name] of Object.entries(raw)) {
+        if (typeof name === 'string') { out[key] = name; }
+    }
+    return out;
+}
 
 export type ProviderToWebviewMessage =
     | {
@@ -21,6 +33,8 @@ export type ProviderToWebviewMessage =
         structPins: StructPin[];
         endian: HexScopeEndian;
         integrityProfiles: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet };
+        fileProfiles: FileProfile[];
+        activeFileProfileId: string | null;
     }
     | { type: 'loadProgress'; generation: number; stage: 'read' | 'parse' | 'build' | 'transfer'; completed: number; total?: number }
     | { type: 'recordPage'; generation: number; start: number; records: SerializedRecord[] }
@@ -43,6 +57,25 @@ export type ProviderToWebviewMessage =
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
     | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
+    | { type: 'fileProfiles'; profiles: FileProfile[]; activeFileProfileId: string | null; error: string }
+    | {
+        type: 'fileProfileApplied';
+        activeFileProfileId: string | null;
+        structPins: StructPin[];
+        endian: HexScopeEndian;
+        activeChecks: IntegrityCheckSet;
+    }
+    | {
+        type: 'workspaceConfigReloaded';
+        structs: StructDef[];
+        integrityProfiles: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet };
+        labels: SegmentLabel[];
+        segmentNames?: SegmentNameOverrides;
+        structPins: StructPin[];
+        endian: HexScopeEndian;
+        fileProfiles: FileProfile[];
+        activeFileProfileId: string | null;
+    }
     | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[]; fingerprint: string }> }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number; pendingWrites?: Array<[number, number]> }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
@@ -64,6 +97,11 @@ export type WebviewToProviderMessage =
     | { type: 'deleteIntegrityProfile'; id: string }
     | { type: 'updateLabelVisibility'; id: string; hidden: boolean }
     | { type: 'reorderLabel'; id: string; dir: number }
+    | { type: 'selectFileProfile'; id: string | null }
+    | { type: 'createFileProfile'; name: string; pins: StructPin[]; endian: HexScopeEndian; integrityProfileId: string | null }
+    | { type: 'updateFileProfile'; profile: FileProfile }
+    | { type: 'renameFileProfile'; id: string; name: string }
+    | { type: 'deleteFileProfile'; id: string }
     | { type: 'saveEdits'; edits: Array<[number, number]> }
     | { type: 'repairAndReload' }
     | { type: 'closePanel' }

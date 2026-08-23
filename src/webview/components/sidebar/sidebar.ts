@@ -16,7 +16,7 @@
 import { esc } from '../../utils';
 import './sidebar.css';
 
-export type SidebarTab = 'inspector' | 'struct' | 'integrity' | 'scripts';
+export type SidebarTab = 'inspector' | 'struct' | 'integrity' | 'fileProfiles' | 'scripts';
 
 export interface SidebarPanel {
     id: SidebarTab;

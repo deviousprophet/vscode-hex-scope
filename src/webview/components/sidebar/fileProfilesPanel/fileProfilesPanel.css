@@ -1,0 +1,56 @@
+/* File Profiles panel rules. Uses the shared .sb-* primitives from sidebar.css. */
+
+.fp-row {
+    padding: 0 8px;
+}
+
+.fp-row .sb-select {
+    width: 100%;
+}
+
+.fp-hint {
+    padding: 2px 8px 6px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #8b8b8b);
+    min-height: 14px;
+}
+
+.fp-name-form {
+    margin: 4px 8px 8px;
+    padding: 8px;
+    border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .35));
+    border-radius: 6px;
+    background: var(--vscode-editorWidget-background, transparent);
+    display: grid;
+    gap: 6px;
+}
+
+.fp-binding-label {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #8b8b8b);
+}
+
+.fp-form-btns {
+    display: flex;
+    gap: 6px;
+}
+
+.fp-form-btns .sb-btn {
+    flex: 1;
+}
+
+.fp-actions {
+    display: flex;
+    gap: 6px;
+    padding: 0 8px 8px;
+}
+
+.fp-actions .sb-btn {
+    flex: 1;
+}
+
+.sb-fp-error {
+    margin: 0 8px 8px;
+    font-size: 12px;
+    color: var(--vscode-errorForeground, #f14c4c);
+}

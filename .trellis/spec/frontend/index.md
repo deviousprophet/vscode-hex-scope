@@ -29,6 +29,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | [Inspector Component](./components/component-sidebar-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
 | [StructPanel Component](./components/component-sidebar-struct-panel.md) | Sidebar Struct panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
 | [IntegrityPanel Component](./components/component-sidebar-integrity-panel.md) | Sidebar Integrity panel: checks + results, auto fix, profile library, fix-all |
+| [FileProfilesPanel Component](./components/component-sidebar-file-profiles-panel.md) | Sidebar Profiles panel: team-shared File Profiles picker — select/apply, save-as, rename, delete |
 | [ScriptsPanel Component](./components/component-sidebar-scripts-panel.md) | Sidebar Scripts panel: script cards, run/cancel state machine, result blocks, output streaming |
 | [MenuController Component](./components/component-menu-controller.md) | Headless shared menu controller: hex/struct/integrity popovers, nav, dismissal |
 
@@ -46,6 +47,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | [Struct Definitions, Decode, Pins, and Persistence](./struct-model.md) | Layout, validation, C text, decode, pins, migration |
 | [Struct Instance Display](./struct-instance-display.md) | Struct row rendering, pointers, selection, menus, accessibility |
 | [Scripting Support](./scripting.md) | Script runner, vm sandbox, ScriptHost adapter, API surface, sidebar UI |
+| [Team-Shared Configuration](./workspace-config.md) | `.hexscope/config.json` — structs/integrity profiles/File Profiles/per-file scope, auto-migration, write-through, reload |
 
 ## Pre-Development Checklist
 

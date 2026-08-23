@@ -1,0 +1,9 @@
+{"file":".trellis/spec/frontend/components/component-template.md","reason":"Component contract, boundary rules, and test-location convention for the new File Profiles sidebar panel."}
+{"file":".trellis/spec/frontend/components/component-sidebar-integrity-panel.md","reason":"Closest sibling: setter/callback/host contract, profile CRUD, error states the File Profiles panel mirrors."}
+{"file":".trellis/spec/frontend/components/component-sidebar-struct-panel.md","reason":"Struct pins (instances) lifecycle + callbacks; pins become File Profile content."}
+{"file":".trellis/spec/frontend/components/component-sidebar.md","reason":"Sidebar shell owning the panel descriptor seam the new panel must fit unchanged."}
+{"file":".trellis/spec/frontend/editor-lifecycle.md","reason":"Session init/load ordering and postInit payload shape that the config resolution merges into."}
+{"file":".trellis/spec/frontend/integrity-checks.md","reason":"Integrity profile/check-set normalize + derive behavior reused for the profile-referenced checks."}
+{"file":".trellis/spec/frontend/css-guidelines.md","reason":"Collocated CSS conventions for fileProfilesPanel.css."}
+{"file":".trellis/spec/frontend/editing-save-external-change.md","reason":"External-change watch/reload + self-write horizon pattern reused for the .hexscope/config.json watcher."}
+{"file":".trellis/spec/frontend/document-formats.md","reason":"Firmware path handling and file identity (relPath keying) grounding."}

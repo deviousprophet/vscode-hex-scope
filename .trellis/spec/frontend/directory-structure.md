@@ -17,6 +17,7 @@ src/
 |- extension.ts                 command registration and activation
 |- hexEditorProvider.ts         CustomReadonlyEditorProvider adapter
 |- hexEditorSession.ts          per-provider document/session orchestration
+|- workspaceConfigStore.ts      host FS adapter for .hexscope/config.json (read/write/scoping)
 |- webviewProtocol.ts           typed extension-host <-> webview seam
 |- core/
 |  |- parser/                   IHEX/SREC line parsing and segment construction
@@ -25,6 +26,7 @@ src/
 |  |- search.ts                 cancellable/chunked search engine
 |  |- integrity.ts              validation, algorithms, stored-value conversion
 |  |- structCodec.ts           struct layout, parse/export, decode
+|  |- workspaceConfigModel.ts   team-shared config model: normalize/merge/seed (runtime-neutral)
 |  `- byteTools/               pure copy/analyze/format helpers
 `- webview/
    |- hexViewer.ts              composition root and DOM effect wiring
@@ -43,6 +45,7 @@ src/
      |  |  |- inspectorPanel/     inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
      |  |  |- structPanel/        structPanel.ts + structPinsModel.ts + structPanel.css
      |  |  |- integrityPanel/     integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityProfiles.ts + integrityHighlight.ts + integrityPanel.css
+     |  |  |- fileProfilesPanel/  fileProfilesPanel.ts + fileProfilesPanel.css (team-shared File Profiles)
      |  |  `- scriptsPanel/       scriptsPanel.ts + scriptsPanel.css (script runner panel)
 
 ```
