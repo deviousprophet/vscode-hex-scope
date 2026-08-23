@@ -1,4 +1,6 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import { JSDOM } from 'jsdom';
 
 import type { StructPanel } from '../../../../../webview/components/sidebar/structPanel/structPanel';
@@ -787,6 +789,28 @@ suite('StructPanel deep-render harness', () => {
         const leafNames = Array.from(document.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(leafNames.includes('name'), 'ascii field should render as leaf field');
+    });
+
+    test('ascii field preserves runs of 0x20 spaces in the decoded value', async () => {
+        const def = simpleDef('ascii_sp', 'AsciiSp', [
+            { name: 'text', type: 'ascii', count: 5 },
+        ]);
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_ascii_sp', structId: 'ascii_sp', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x41, 0x20, 0x20, 0x42, 0x20]);
+        await renderPinsAndExpandCard();
+
+        const val = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="ascii"]');
+        assert.ok(val, 'ascii value cell should render');
+        assert.strictEqual(val!.textContent, "'A  B '", 'decoded value should keep both 0x20 spaces');
+
+        const css = fs.readFileSync(
+            path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'structPanel', 'structPanel.css'),
+            'utf8',
+        );
+        const rule = css.match(/\.si-f-val\[data-val-type="ascii"\]\s*\{([^}]*)\}/);
+        assert.ok(rule, 'ascii value rule should exist in structPanel.css');
+        assert.match(rule![1], /white-space:\s*pre/, 'ascii value rule should declare white-space: pre');
     });
 
     test('recurses nested struct arrays without disambiguation suffix labels', async () => {

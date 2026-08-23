@@ -956,3 +956,24 @@ Full-viewport context menu guarantee (gutter floor, submenu up-flip, tall-menu s
 ### Status
 
 [OK] **Completed**
+
+
+## Session 42: Fix ascii struct field whitespace collapse (space runs)
+
+**Date**: 2026-08-23
+**Task**: Fix ascii struct field whitespace collapse (space runs)
+**Branch**: `fix/struct-ascii-space-render`
+
+### Summary
+
+Branched fix/struct-ascii-space-render from main. Hit: ascii struct field values collapse runs of 0x20 to one space in struct panel. Root cause: .si-f-val[data-val-type=ascii] inherited white-space:nowrap; HTML collapses whitespace runs in text nodes; nowrap does not preserve. Fix: add white-space:pre to that rule (css:435). One CSS property + one regression test (renders ascii[5] bytes 0x41 20 20 42 20, asserts textContent keeps 'A  B ' and fs-asserts rule). Spec updated struct-instance-display.md. Full gate green: npm run lint, check-types, npm test (871 passing incl new test). 6-level-relative readFileSync path verified by check agent. Committed a95a062, archived 08-22-ascii-space-render. Next: update-changelog, create-pr.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a95a062` | (see git log) |
+
+### Status
+
+[OK] **Completed**
