@@ -1,6 +1,6 @@
 import { workBudgetRuntime, yieldWhenDue, type WorkBudgetOptions } from './workBudget';
 
-const INTEGRITY_ALGORITHMS = [
+export const INTEGRITY_ALGORITHMS = [
     'crc16-ccitt-false',
     'crc32-iso-hdlc',
     'md5',

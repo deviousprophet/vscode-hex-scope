@@ -15,6 +15,7 @@ import {
     normalizeIndexFile,
     perFileRelativePath,
     profileJsonUri,
+    seedSchemaCopies,
     withEnvelope,
     writeIfMissing,
 } from './hexScopeStorage';
@@ -98,6 +99,7 @@ async function seedProfileFromLegacy(
     // an existing committed copy — including teammate edits).
     let dir = await findProfile(root, relPath);
     if (!dir) { dir = await createProfileDir(root); }
+    await seedSchemaCopies(root);
 
     const seed = normalizeIndexFile(
         { labels: legacy.labels, segmentNames: legacy.segmentNames, pins: legacy.pins, activeChecks: legacy.checks, endian: legacy.endian },

@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hexscope-structs.schema.json",
+  "title": "Hex Scope struct definitions",
+  "description": "StructDef[] persisted per firmware profile. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "type": "object",
+  "required": [
+    "version",
+    "data"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/structDef"
+      }
+    },
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "structDef": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "fields"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/structField"
+          }
+        },
+        "packed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "structField": {
+      "type": "object",
+      "required": [
+        "name",
+        "type",
+        "count"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/structFieldType"
+        },
+        "isPointer": {
+          "type": "boolean"
+        },
+        "refStructId": {
+          "type": "string"
+        },
+        "bitFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/bitFieldChild"
+          }
+        },
+        "count": {
+          "type": "number"
+        },
+        "bitFieldsCollapsed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bitFieldChild": {
+      "type": "object",
+      "required": [
+        "name",
+        "bitWidth"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "bitWidth": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "structFieldType": {
+      "type": "string",
+      "enum": [
+        "void",
+        "ascii",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "float32",
+        "float64",
+        "pointer",
+        "struct"
+      ]
+    }
+  }
+}

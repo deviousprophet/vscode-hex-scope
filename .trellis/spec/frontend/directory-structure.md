@@ -47,6 +47,8 @@ src/
             ├── structPanel/       structPanel.ts + structPinsModel.ts + structPanel.css
             ├── integrityPanel/    integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityProfiles.ts + integrityHighlight.ts + integrityPanel.css
             └── scriptsPanel/      scriptsPanel.ts + scriptsPanel.css (script runner panel)
+
+schemas/                          JSON Schemas for .hexscope/ on-disk shapes (index/structs/integrity); bundled + jsonValidation globs
 ```
 
 ## Placement Rules

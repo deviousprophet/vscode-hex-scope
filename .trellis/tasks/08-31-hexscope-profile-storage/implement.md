@@ -28,12 +28,15 @@ Validation: `npm run compile` (check-types + lint + esbuild), `npm run test` (vs
    - `src/test/extension/hexScopeStorage.test.ts` — read/missing/corrupt/unknown-version envelope, self-heal-only-on-changed, debounce/flush/dispose, slot independence, ordinal profile create/lookup, rename-survival (relPath match wins), no gitignore seeding, migration pipeline (fake context doubles) → seeds + deletes every key.
    - Webview: reducer tests for `structsExternalChange` + `perFileDataChange`; `endianOrDefault` single home.
    - Watcher-conflict test mirroring hex-file external-change pattern (external edit auto-applies; self-write does not re-trigger).
+9. **[schemas]** `schemas/{index,structs,integrity}.schema.json` (repo, bundled + `jsonValidation` registration), `$schema` sibling injected/preserved in `hexScopeStorage`, `.hexscope/schemas/` seeded at first profile creation, docs `HEXSCOPE_STORAGE.md` schema section.
+10. **[schema tests]** `ajv` devDependency (test-only; do not add to `dependencies`) + `src/test/schemas/schemaValidation.test.ts`: validate representative fixtures against the three schemas (strict pass, negative cases: wrong type/enum/bad version), plus a drift-guard asserting each schema's `version` const equals `DATA_VERSION`.
 
 ## Gates
 
 - After step 2: `npm run check-types` green.
 - After step 4: `npm run lint` green.
 - After step 8: full `npm run compile` + `npm run test` green.
+- After step 10: `npx fallow` 4-axis green + full `npm run test` green.
 - Grep gate: no `globalState`/`workspaceState` reads in session storage paths (`hexEditorSession.ts`, migrate module only reads for deletion).
 - Grep gate: no `.gitignore` seeding / `local/` references in `src/`.
 

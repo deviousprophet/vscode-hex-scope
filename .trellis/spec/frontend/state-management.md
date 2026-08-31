@@ -48,6 +48,13 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 - Struct migration/deduplication belongs in `src/core/structMigration.ts` (`migrateStructDefinitions`, `normalizeStructDefsValue`, `mergeLegacyStructDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code.
 - Legacy Memento keys (global structs v2/v1 + per-file keys, integrity profiles, per-file labels/names/pins/checks/endian) are migrated once per workspace root by `src/hexScopeMigration.ts` and then hard-deleted.
 
+## On-disk JSON Schema contract
+
+- Three strict JSON Schemas describe the `.hexscope/` on-disk shapes so editors and AI agents can validate/author team state: `schemas/{index,structs,integrity}.schema.json` in the repo (bundled in the VSIX) and seeded into `.hexscope/schemas/` on first profile creation.
+- Every profile file is envelope `{ version: const 1, data, $schema? }`; `$schema` is a **relative path** to the workspace-seeded schema copy (`../../schemas/<name>.schema.json`) so terminal agents resolve the contract from the file itself. `readJson` unwraps the envelope before normalizing, so normalizers never see `$schema`; `writeJson` re-injects the canonical sibling on every profile-file write — self-heal cannot strip it.
+- Editors bind via `contributes.jsonValidation` globs (`.hexscope/firmware_profiles/*/{index,structs,integrity}.json`). Schemas are **strict for authoring** (`required` everywhere, enums for struct types / integrity algorithms / endian, nested `additionalProperties: false`), but the runtime **remains lenient** — normalizers tolerate the extra fields the schema flags, corrupt/unknown-version files load empty + warn once, never overwrite.
+- Drift guard: `ajv` (devDependency, test-only) validates fixtures in `src/test/schemas/schemaValidation.test.ts`, pinned to `DATA_VERSION` and the source enum consts.
+
 ## Update Pattern
 
 ```typescript

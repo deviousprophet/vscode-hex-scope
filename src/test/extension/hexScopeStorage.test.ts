@@ -14,6 +14,7 @@ import {
     emptyIndexData,
     findProfile,
     hexScopeProfilesDir,
+    hexScopeSchemasDir,
     normalizeIndexFile,
     perFileRelativePath,
     readJson,
@@ -327,9 +328,35 @@ suite('hexScopeStorage — profile lookup / creation', () => {
     test('seeds no ignore rules anywhere in the profile tree', async () => {
         await createProfile(testRoot, REL);
         const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
-        assert.deepStrictEqual(entries.map(([name]) => name), ['firmware_profiles']);
+        assert.deepStrictEqual(entries.map(([name]) => name).sort(), ['firmware_profiles', 'schemas']);
         const profiles = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeProfilesDir(testRoot)));
         assert.deepStrictEqual(profiles.map(([name]) => name), ['profiles_1']);
+        const schemas = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeSchemasDir(testRoot)));
+        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['index.schema.json', 'integrity.schema.json', 'structs.schema.json']);
+    });
+
+    test('profile files carry a $schema sibling; non-profile writes do not', async () => {
+        const dir = await createProfile(testRoot, REL);
+        const index = await readJsonValue(indexUriFor(dir)) as { data: unknown; $schema?: string };
+        assert.strictEqual(index.$schema, '../../schemas/index.schema.json');
+        const outside = vscode.Uri.file(path.join(testRoot, 'plain.json'));
+        await writeJson(outside, { version: 1, data: { x: 1 } });
+        assert.deepStrictEqual(await readJsonValue(outside), { version: 1, data: { x: 1 } });
+    });
+
+    test('self-heal preserve the $schema sibling on profile files', async () => {
+        const dir = await createProfile(testRoot, REL);
+        const uri = indexUriFor(dir);
+        await writeText(uri, JSON.stringify({
+            $schema: '../../schemas/index.schema.json',
+            version: 1,
+            data: { relPath: REL, labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' },
+        }));
+        const store = indexStoreFor(dir);
+        await store.load();
+        const healed = await readJsonValue(uri) as { data: { activeChecks: unknown }; $schema?: string };
+        assert.deepStrictEqual(healed.data.activeChecks, { schemaVersion: 1, checks: [] }, 'self-heal applied');
+        assert.strictEqual(healed.$schema, '../../schemas/index.schema.json', 'sibling preserved through self-heal');
     });
 
     test('perFileRelativePath uses posix separators', () => {

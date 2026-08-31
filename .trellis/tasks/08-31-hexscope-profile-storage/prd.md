@@ -59,6 +59,18 @@ Per-slot debounce (~400 ms, one timer per store slot) with flush-on-dispose. Par
 6. Idempotent: second open sees existing files → skips seeding, still cleans keys. In-memory once-guard per root.
 7. No user prompt.
 
+## JSON Schemas (locked decisions)
+
+- Three JSON Schema files describe the on-disk shapes so editors and AI agents can validate/author `.hexscope/` data:
+  - `index.schema.json` — `data: IndexFileData`.
+  - `structs.schema.json` — `data: StructDef[]`.
+  - `integrity.schema.json` — `data: IntegrityProfile[]`.
+- **Strict**: `required` on all scalar objects, `enum` for `StructFieldType` / `IntegrityAlgorithm` / `endian`, envelope `version: const 1`. `additionalProperties: false` on nested objects; the payload **root** tolerates extra keys (forward compat, runtime leniency documented).
+- **Editor binding**: `contributes.jsonValidation` globs map `.hexscope/firmware_profiles/*/{index,structs,integrity}.json` to the bundled schemas. Workspace-relative only (single-file-open fallback gets no editor validation).
+- **`$schema` discoverability**: every profile file carries a `$schema` sibling (relative path to a workspace-seeded copy), and schemas are **seeded once into `.hexscope/schemas/*.schema.json`** at first profile creation so installed-extension users and terminal AI agents can resolve the contract from the file itself. The extension's normalizers **preserve the `$schema` key** (never strip it in self-heal write-back).
+- Schema copies the drift risk (workspace seed vs bundled extension schema) is deferred behind a schema-version bump; the ajv drift-guard test anchors the bundled copy to the TS types.
+- Files stay `{ version, data, $schema }` — minimal tooling hint, no per-environment coupling.
+
 ## Acceptance criteria
 
 - All rows in the data map round-trip and survive an extension reload, with zero Memento reads in the storage paths after migration (grep shows no `globalState`/`workspaceState` reads in `hexEditorSession` storage wiring).
@@ -68,3 +80,4 @@ Per-slot debounce (~400 ms, one timer per store slot) with flush-on-dispose. Par
 - Migration seeds the first-opened file's profile and hard-deletes every legacy Memento key (test proves zero keys remain); existing committed profile files are preserved; rerun is a no-op.
 - `npm run compile` (check-types + lint + esbuild) and `npm run test` green; no lingering `globalState`/`workspaceState` references in session storage paths.
 - Docs (`docs/HEXSCOPE_STORAGE.md`) and specs (`state-management.md`, `directory-structure.md`) describe the new layout and correct the stale `structMigration` ownership reference.
+- JSON schemas validate all three shapes (ajv drift-guard test green); profile files persist `$schema` and schemas are seeded at `.hexscope/schemas/`; handout after `$schema` resolve without workspace-glob dependency; `npm run compile`/`npm run test` green after schema work.

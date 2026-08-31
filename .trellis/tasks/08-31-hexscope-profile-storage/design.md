@@ -120,3 +120,31 @@ Per workspace root, once, in-memory guard keyed by fsPath.
 - Fresh branch from `main`. Old branch (`feat/hexscope-fs-storage`) stashed/unpushed, never landed — discarded layout has no downstream.
 - Migration is the only behavior with cross-version reach (deletes old Memento keys). It runs at first panel open and is idempotent + writeIfMissing-guarded.
 - Forward protection: unknown envelope version is never overwritten (corrupt path), so a future schema bump cannot clobber data this release doesn't understand.
+
+## JSON Schemas (editor + agent contract)
+
+### Schema files
+
+`schemas/{index,structs,integrity}.schema.json` in the repo, bundled into the VSIX and registered in `package.json`:
+
+```json
+"jsonValidation": [
+  { "fileMatch": ".hexscope/firmware_profiles/*/index.json",     "url": "./schemas/index.schema.json" },
+  { "fileMatch": ".hexscope/firmware_profiles/*/structs.json",   "url": "./schemas/structs.schema.json" },
+  { "fileMatch": ".hexscope/firmware_profiles/*/integrity.json", "url": "./schemas/integrity.schema.json" }
+]
+```
+
+pattern `additionalProperties: false` strict required fields: `version` const 1, `StructFieldType` enum, `IntegrityAlgorithm` enum, `endian` enum, nested object strict; payload-row root tolerant extendable.
+
+`$schema` **sibling persisted on every profile file** so terminal AI agents (and editors where globs don't reach) resolve the contract from the file itself:
+
+```
+.hexscope/schemas/index.schema.json          <- workspace copy (seeded)
+.hexscope/firmware_profiles/<id>/index.json  <- "$schema": "../../schemas/index.schema.json"
+```
+
+- `writeJson`/`JsonStore.flush` inject `$schema` (relative posix path from the profile file to `../schemas/<name>.schema.json`) into the **envelope level** (`{ version, data, $schema }`), never into `data`.
+- All normalizers (`normalizeIndexFile`, structs, integrity) must **carry `$schema` through** so self-heal write-back preserves it (the changed-compare already compares `JSON.stringify(value, raw)`; if `$schema` is part of `value`, it is never stripped).
+- Seeding: on first profile creation (`createProfile`), write the three schema files into `.hexscope/schemas/` if absent (`writeIfMissing`-style; self-write-marked so the watcher ignores). Seed matches the schema the extension ships (schema-version drift deferred until a real bump).
+- Repo+VSIX copy is the source of truth authors; workspace copy is a cache. The ajv drift-guard test anchors the repo copy to the TS types.

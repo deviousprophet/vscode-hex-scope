@@ -3,6 +3,7 @@
 // are passed in per slot. src/core must not import vscode — this file
 // sits at the top level exactly because it is a host adapter.
 
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
@@ -14,10 +15,19 @@ export const DATA_VERSION = 1;
 
 const DEFAULT_DEBOUNCE_MS = 400;
 const PROFILE_CONTAINER = '.hexscope/firmware_profiles';
+const SCHEMA_DIR = '.hexscope/schemas';
 
 export type ProfileJsonName = 'index.json' | 'structs.json' | 'integrity.json';
 export type JsonRead = { status: 'ok'; value: unknown } | { status: 'missing' } | { status: 'corrupt' };
 export type NormalizedValue<T> = { value: T; changed: boolean };
+
+// The three bundled JSON Schemas; a workspace copy is seeded into .hexscope/schemas/
+// and each profile file carries the matching $schema sibling for AI-agent discovery.
+const SCHEMA_FILES: ReadonlyArray<{ file: ProfileJsonName; schema: string }> = [
+    { file: 'index.json', schema: 'index.schema.json' },
+    { file: 'structs.json', schema: 'structs.schema.json' },
+    { file: 'integrity.json', schema: 'integrity.schema.json' },
+];
 
 // ── Version envelope ──────────────────────────────────────────────
 
@@ -74,7 +84,16 @@ function dataToRead(data: unknown | null): JsonRead {
 
 export async function writeJson(uri: vscode.Uri, value: unknown): Promise<void> {
     await ensureParentDir(uri);
-    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(value, null, 2)));
+    const schemaRef = profileSchemaRef(uri);
+    const payload = schemaRef ? withSchemaSibling(value, schemaRef) : value;
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(payload, null, 2)));
+}
+
+/** Keep an existing `$schema` sibling; otherwise inject the canonical one. */
+function withSchemaSibling(value: unknown, ref: string): unknown {
+    if (!isObject(value) || !('data' in value)) { return value; }
+    const sibling = (value as { $schema?: unknown }).$schema;
+    return { ...value, $schema: typeof sibling === 'string' ? sibling : ref };
 }
 
 /** Write only when the file does not already exist. Used by migration seeding. */
@@ -122,6 +141,22 @@ export function perFileRelativePath(root: string, uri: vscode.Uri): string {
 
 export function hexScopeProfilesDir(root: string): string {
     return path.join(root, PROFILE_CONTAINER);
+}
+
+export function hexScopeSchemasDir(root: string): string {
+    return path.join(root, SCHEMA_DIR);
+}
+
+/** Relative posix path from a profile file to its .hexscope/schemas copy, or null outside a profile dir. */
+function profileSchemaRef(uri: vscode.Uri): string | null {
+    const parts = uri.fsPath.split(path.sep);
+    const file = SCHEMA_FILES.find(entry => entry.file === parts[parts.length - 1]);
+    return isProfileFile(parts) && file ? `../../schemas/${file.schema}` : null;
+}
+
+function isProfileFile(parts: string[]): boolean {
+    const hs = parts.indexOf('.hexscope');
+    return hs >= 0 && parts[hs + 1] === 'firmware_profiles' && parts[hs + 2] !== undefined;
 }
 
 function profileDir(root: string, id: string): string {
@@ -180,8 +215,28 @@ export async function createProfileDir(root: string): Promise<string> {
 /** Create a profile dir and seed index.json with the relPath + empty defaults. */
 export async function createProfile(root: string, relPath: string): Promise<string> {
     const dir = await createProfileDir(root);
+    await seedSchemaCopies(root);
     await writeJson(profileJsonUri(dir, 'index.json'), withEnvelope(emptyIndexData(relPath)));
     return dir;
+}
+
+/** Seed .hexscope/schemas with the bundled schema copies (writeIfMissing; watcher ignores this dir). */
+export async function seedSchemaCopies(root: string): Promise<void> {
+    const dir = vscode.Uri.file(hexScopeSchemasDir(root));
+    for (const { schema } of SCHEMA_FILES) {
+        const content = bundledSchema(schema);
+        if (content === undefined) { continue; }
+        await writeIfMissing(vscode.Uri.file(path.join(dir.fsPath, schema)), content);
+    }
+}
+
+/** Read a bundled schema from the extension's own install dir (out/ or dist/ → ../schemas). */
+function bundledSchema(name: string): unknown {
+    try {
+        return JSON.parse(readFileSync(path.resolve(__dirname, '..', 'schemas', name), 'utf8'));
+    } catch {
+        return undefined;
+    }
 }
 
 // ── Index file shape ──────────────────────────────────────────────

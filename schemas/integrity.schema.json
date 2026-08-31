@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hexscope-integrity.schema.json",
+  "title": "Hex Scope integrity profiles",
+  "description": "IntegrityProfile[] persisted per firmware profile. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "type": "object",
+  "required": [
+    "version",
+    "data"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/integrityProfile"
+      }
+    },
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "integrityProfile": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "id",
+        "name",
+        "checks"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/integrityCheckConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrityCheckConfig": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "startAddress",
+        "endAddress",
+        "autoFixStoredValue"
+      ],
+      "properties": {
+        "algorithm": {
+          "$ref": "#/definitions/integrityAlgorithm"
+        },
+        "startAddress": {
+          "type": "number"
+        },
+        "endAddress": {
+          "type": "number"
+        },
+        "storedAddress": {
+          "type": "number"
+        },
+        "autoFixStoredValue": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrityAlgorithm": {
+      "type": "string",
+      "enum": [
+        "crc16-ccitt-false",
+        "crc32-iso-hdlc",
+        "md5",
+        "sha-1",
+        "sha-256",
+        "sha-512"
+      ]
+    }
+  }
+}

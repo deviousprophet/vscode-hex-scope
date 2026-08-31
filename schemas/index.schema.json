@@ -1,0 +1,222 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hexscope-index.schema.json",
+  "title": "Hex Scope firmware profile index",
+  "description": "Per-firmware profile state: relPath identity plus labels, segment names, struct pins, active integrity checks, and endian. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "type": "object",
+  "required": [
+    "version",
+    "data"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "$ref": "#/definitions/indexFileData"
+    },
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "indexFileData": {
+      "type": "object",
+      "required": [
+        "relPath",
+        "labels",
+        "segmentNames",
+        "pins",
+        "activeChecks",
+        "endian"
+      ],
+      "properties": {
+        "relPath": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/segmentLabel"
+          }
+        },
+        "segmentNames": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/structPin"
+          }
+        },
+        "activeChecks": {
+          "$ref": "#/definitions/integrityCheckSet"
+        },
+        "endian": {
+          "enum": [
+            "le",
+            "be"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "segmentLabel": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "startAddress",
+        "length",
+        "color"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "startAddress": {
+          "type": "number"
+        },
+        "length": {
+          "type": "number"
+        },
+        "color": {
+          "type": "string"
+        },
+        "hidden": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "structPin": {
+      "type": "object",
+      "required": [
+        "id",
+        "structId",
+        "addr",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "structId": {
+          "type": "string"
+        },
+        "addr": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pointerSources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/structPointerSource"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "structPointerSource": {
+      "type": "object",
+      "required": [
+        "sourcePinId",
+        "sourcePinName",
+        "sourceStructId",
+        "sourceFieldPath",
+        "pointerStorageAddress",
+        "targetAddress"
+      ],
+      "properties": {
+        "sourcePinId": {
+          "type": "string"
+        },
+        "sourcePinName": {
+          "type": "string"
+        },
+        "sourceStructId": {
+          "type": "string"
+        },
+        "sourceFieldPath": {
+          "type": "string"
+        },
+        "pointerStorageAddress": {
+          "type": "number"
+        },
+        "targetAddress": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrityCheckSet": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "checks"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/integrityCheckConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrityCheckConfig": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "startAddress",
+        "endAddress",
+        "autoFixStoredValue"
+      ],
+      "properties": {
+        "algorithm": {
+          "$ref": "#/definitions/integrityAlgorithm"
+        },
+        "startAddress": {
+          "type": "number"
+        },
+        "endAddress": {
+          "type": "number"
+        },
+        "storedAddress": {
+          "type": "number"
+        },
+        "autoFixStoredValue": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrityAlgorithm": {
+      "type": "string",
+      "enum": [
+        "crc16-ccitt-false",
+        "crc32-iso-hdlc",
+        "md5",
+        "sha-1",
+        "sha-256",
+        "sha-512"
+      ]
+    }
+  }
+}

@@ -18,10 +18,11 @@ checks, and endian are shared team state by design. No trust gating applies to
 │   │   ├── structs.json     # StructDef[]
 │   │   └── integrity.json   # IntegrityProfile[]
 │   └── ...
+├── schemas/                 # seeded copies of the JSON Schemas (editor + agent contract)
 └── scripts/                 # unchanged (script runner panes)
 ```
 
-## Files (uniform version envelope `{ version, data }`)
+## Files (uniform version envelope `{ version, data, $schema? }`)
 
 | File | `data` schema |
 |---|---|
@@ -79,6 +80,38 @@ read, normalized with the shared helpers, seeded into the open document's
 profile slots with `writeIfMissing` (existing committed files are kept), then
 every touched key — including legacy variants — is hard-deleted
 (`update(key, undefined)`). Defensive deletion always runs; reruns are no-ops.
+
+## JSON Schemas (editor + AI-agent contract)
+
+Three JSON Schema files describe the on-disk shapes:
+
+| Schema | File | `data` |
+|---|---|---|
+| `schemas/index.schema.json` | `firmware_profiles/*/index.json` | `IndexFileData` |
+| `schemas/structs.schema.json` | `firmware_profiles/*/structs.json` | `StructDef[]` |
+| `schemas/integrity.schema.json` | `firmware_profiles/*/integrity.json` | `IntegrityProfile[]` |
+
+- **Locations.** The authoritative copy lives in the repo root `schemas/`
+  (bundled into the extension). At first profile creation a workspace copy is
+  seeded into `.hexscope/schemas/` (`writeIfMissing`, so a committed copy is
+  kept; the watcher ignores this directory).
+- **Editor binding.** `package.json` → `contributes.jsonValidation` maps the
+  workspace-relative globs `.hexscope/firmware_profiles/*/{index,structs,integrity}.json`
+  to the bundled schemas. Single-file opens (no workspace) get no editor
+  validation.
+- **AI-agent discovery.** Every profile file carries a `$schema` sibling
+  pointing at its `.hexscope/schemas/` copy (`"$schema": "../../schemas/<name>.schema.json"`),
+  so terminal agents can resolve the contract from the file itself. The
+  normalizers preserve the sibling through self-heal write-back and never
+  touch a `$schema` key inside `data`. Seeded schema copies ship with the
+  sibling path intact for installed-extension users.
+- **Strictness.** The envelope root tolerates extra keys (`additionalProperties:
+  true` — forward compat), `version` is `const 1`, and nested payload objects
+  are strict: `additionalProperties: false` plus `required` on all scalar
+  objects, with `enum` for `StructFieldType`, `IntegrityAlgorithm`, and
+  `endian`. The runtime still normalizes tolerantly (unknown `version` is
+  refused, extra/missing fields are normalized); schemas describe the
+  contracted shape, they do not gate loading.
 
 ## Owner modules
 
