@@ -708,6 +708,8 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     updateLabel: handleUpdateLabelMessage,
     copyCommand: handleCopyCommandMessage,
     savedEdits: handleSavedEditsMessage,
+    structsExternalChange: handleStructsExternalChangeMessage,
+    perFileDataChange: handlePerFileDataChangeMessage,
     externalChange: handleExternalChangeMessage,
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
@@ -720,6 +722,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
     applyIntegrityProfileUpdate,
+    applyActiveChecksUpdate,
     applyLoadErrorUpdate,
     applyCopyCommandUpdate,
     applyExternalBannerUpdate,
@@ -849,6 +852,14 @@ function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): voi
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
+function handleStructsExternalChangeMessage(msg: WebviewMessageByType<'structsExternalChange'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handlePerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
 function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
     clearNibbleBuffer();
     resetRecordPages(msg.generation);
@@ -931,6 +942,13 @@ function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
     }
 }
 
+/** External per-file activeChecks slice replaces the panel's check set (silent auto-apply). */
+function applyActiveChecksUpdate(update: WebviewModelUpdate): void {
+    if (update.activeChecks) {
+        integrityPanel.setChecks(update.activeChecks);
+    }
+}
+
 function applyLoadErrorUpdate(update: WebviewModelUpdate): void {
     if ('loadErrorMessage' in update) { renderLoadError(update.loadErrorMessage ?? ''); }
 }
@@ -967,6 +985,15 @@ function applyExternalChangeErrorUpdate(update: WebviewModelUpdate): void {
     );
 }
 
+/** External endian slice: re-drive every endian consumer (same as setFileEndian). */
+function applyEndianChanged(): void {
+    const settings = document.getElementById('sidebar-common-settings');
+    if (settings) { renderEndianToggle(settings); }
+    inspectorPanel.setEndian(S.endian);
+    structPanel.setEndian(S.endian);
+    integrityPanel.notifyEndianChanged();
+}
+
 function applyInvalidations(invalidations: WebviewInvalidations): void {
     if (invalidations.fullRender) {
         render();
@@ -986,6 +1013,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['structPins', () => structPanel.setData(S.structs, S.structPins)],
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
+        ['endianChanged', applyEndianChanged],
     ];
     for (const [key, effect] of effects) {
         if (invalidations[key]) { effect(); }

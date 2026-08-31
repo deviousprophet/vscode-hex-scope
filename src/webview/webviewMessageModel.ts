@@ -1,6 +1,8 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
-import type { IntegrityCheckSet, IntegrityProfile } from '../core/integrity';
+import { normalizeIntegrityCheckSet, type IntegrityCheckSet, type IntegrityProfile } from '../core/integrity';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import type { SegmentLabel, StructPin } from '../core/types';
+import { endianOrDefault } from '../webviewProtocol';
 import { S } from './state';
 import {
     addLabel,
@@ -29,6 +31,7 @@ export type WebviewInvalidations = {
     structPins?: boolean;
     currentDataView?: boolean;
     integrityBytesChanged?: boolean;
+    endianChanged?: boolean;
 };
 
 export type ExternalChangeErrorDetails = {
@@ -44,6 +47,7 @@ export type WebviewModelUpdate = {
     copyCommand?: CopyCommand;
     integrityProfiles?: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet } | IntegrityProfile[];
     integrityProfileError?: string;
+    activeChecks?: IntegrityCheckSet;
     removeExternalChangeBanners?: boolean;
     removeExternalChangeErrorBanner?: boolean;
     externalChange?: { incoming: IncomingFile; hasUnsavedEdits: boolean };
@@ -66,6 +70,8 @@ const MODEL_APPLIERS: ModelAppliers = {
     updateLabel: applyUpdateLabelMessage,
     copyCommand: applyCopyCommandMessage,
     savedEdits: applySavedEditsMessage,
+    structsExternalChange: applyStructsExternalChangeMessage,
+    perFileDataChange: applyPerFileDataChangeMessage,
     externalChange: applyExternalChangeMessage,
     externalChangeError: applyExternalChangeErrorMessage,
     repairComplete: applyRepairCompleteMessage,
@@ -119,6 +125,44 @@ function applyUpdateLabelMessage(msg: WebviewMessageByType<'updateLabel'>): Webv
 
 function applyCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): WebviewModelUpdate {
     return { copyCommand: msg.command, invalidations: {} };
+}
+
+function applyStructsExternalChangeMessage(msg: WebviewMessageByType<'structsExternalChange'>): WebviewModelUpdate {
+    S.structs = Array.isArray(msg.structs) ? msg.structs : [];
+    // Prune pins whose definition vanished (external structs replace the set).
+    const liveIds = new Set(S.structs.map(def => def.id));
+    S.structPins = S.structPins.filter(pin => liveIds.has(pin.structId));
+    return { invalidations: { structPins: true } };
+}
+
+function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): WebviewModelUpdate {
+    S.labels = labelArrayOrEmpty(msg.labels);
+    S.segmentNames = recordOrEmpty(msg.segmentNames);
+    S.structPins = pinArrayOrEmpty(msg.pins);
+    S.endian = endianOrDefault(msg.endian);
+    const activeChecks = normalizeIntegrityCheckSet(msg.activeChecks);
+    return {
+        activeChecks: activeChecks ?? undefined,
+        invalidations: {
+            labelsAndMemory: true,
+            structPins: true,
+            currentDataView: true,
+            integrityBytesChanged: true,
+            endianChanged: true,
+        },
+    };
+}
+
+function labelArrayOrEmpty(value: SegmentLabel[] | undefined): SegmentLabel[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function pinArrayOrEmpty(value: StructPin[] | undefined): StructPin[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function recordOrEmpty(value: Record<string, string> | undefined): Record<string, string> {
+    return value && typeof value === 'object' ? value : {};
 }
 
 function applySavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): WebviewModelUpdate {

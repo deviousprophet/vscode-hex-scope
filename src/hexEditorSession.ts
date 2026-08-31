@@ -7,7 +7,7 @@ import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexP
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, WireParseResult } from './core/types';
+import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import {
     normalizeIntegrityCheckSet,
@@ -15,17 +15,29 @@ import {
     type IntegrityCheckSet,
     type IntegrityProfile,
 } from './core/integrity';
+import { migrateStructDefinitions, normalizeStructDefsValue } from './core/structMigration';
 import {
     messageType,
     RECORD_PAGE_SIZE,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
+import {
+    attachProfileWatcher,
+    createProfile,
+    emptyIndexData,
+    findProfile,
+    normalizeIndexFile,
+    perFileRelativePath,
+    profileJsonUri,
+    resolveHexScopeRoot,
+    type IndexFileData,
+    JsonStore,
+} from './hexScopeStorage';
+import { migrateLegacyData } from './hexScopeMigration';
 
 import { scanScripts, execute } from './core/scripting/scriptRunner';
 import { VSCodeScriptHost } from './scriptHost';
-
-const GLOBAL_INTEGRITY_PROFILES_KEY = 'hexScope.integrityProfiles.global.v1';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
@@ -95,6 +107,14 @@ async function writePlanToFile(uri: vscode.Uri, plan: SplicePlan): Promise<void>
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(plan.newRaw));
 }
 
+/** Read-modify-write through a profile store slot. */
+async function updateStore<T>(store: JsonStore<T>, update: (current: T) => T): Promise<void> {
+    store.set(update(store.get() ?? await store.load()));
+}
+
+/** Debounce for profile-dir restructure scans (external rename/create). */
+const PROFILE_CHANGE_DEBOUNCE_MS = 400;
+
 function postToPanel(panel: vscode.WebviewPanel, msg: ProviderToWebviewMessage): void {
     void postToWebview(panel.webview, msg);
 }
@@ -103,8 +123,6 @@ async function postToWebview(webview: vscode.Webview, msg: ProviderToWebviewMess
     return webview.postMessage(msg);
 }
 
-type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
-type StructDefIdentity = { id: string; name: string };
 type IncomingProviderMessage = WebviewToProviderMessage;
 type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecordPage' }>;
 
@@ -272,67 +290,6 @@ async function postRecordPage(
     });
 }
 
-function stringProperty(value: unknown, key: 'id' | 'name'): string | null {
-    const prop = (value as { id?: unknown; name?: unknown })?.[key];
-    return typeof prop === 'string' ? prop : null;
-}
-
-function structDefIdentity(value: unknown): StructDefIdentity | null {
-    const id = stringProperty(value, 'id');
-    if (!id) { return null; }
-    const name = stringProperty(value, 'name');
-    return name ? { id, name } : null;
-}
-
-function rememberStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): void {
-    seenIds.add(identity.id);
-    seenNames.add(identity.name);
-}
-
-function hasSeenStructDefIdentity(identity: StructDefIdentity, seenIds: Set<string>, seenNames: Set<string>): boolean {
-    return seenIds.has(identity.id) || seenNames.has(identity.name);
-}
-
-function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
-    const identity = structDefIdentity(item);
-    if (!identity || hasSeenStructDefIdentity(identity, seenIds, seenNames)) { return false; }
-    rememberStructDefIdentity(identity, seenIds, seenNames);
-    out.push(item as StructDef);
-    return true;
-}
-
-function normalizeStructDefsValue(value: unknown): StructDefsNormalization {
-    if (!Array.isArray(value)) { return { defs: [], changed: false }; }
-    const out: StructDef[] = [];
-    const seenIds = new Set<string>();
-    const seenNames = new Set<string>();
-    let changed = false;
-
-    for (const item of value) {
-        changed = !appendUniqueStructDef(item, out, seenIds, seenNames) || changed;
-    }
-    return { defs: out, changed };
-}
-
-function createStructDefIdentitySets(defs: StructDef[]): { usedIds: Set<string>; usedNames: Set<string> } {
-    return {
-        usedIds: new Set(defs.map(s => structDefIdentity(s)?.id).filter((id): id is string => typeof id === 'string')),
-        usedNames: new Set(defs.map(s => structDefIdentity(s)?.name).filter((name): name is string => typeof name === 'string')),
-    };
-}
-
-function mergeLegacyStructDefs(globalArr: StructDef[], legacyArr: StructDef[]): { defs: StructDef[]; changed: boolean } {
-    if (legacyArr.length === 0) { return { defs: globalArr, changed: false }; }
-    const { usedIds, usedNames } = createStructDefIdentitySets(globalArr);
-    const migrated = legacyArr.filter(s => {
-        const identity = structDefIdentity(s);
-        if (!identity || hasSeenStructDefIdentity(identity, usedIds, usedNames)) { return false; }
-        rememberStructDefIdentity(identity, usedIds, usedNames);
-        return true;
-    });
-    return migrated.length > 0 ? { defs: [...globalArr, ...migrated], changed: true } : { defs: globalArr, changed: false };
-}
-
 export class HexEditorSession {
 
     private static _activePanel: vscode.WebviewPanel | undefined;
@@ -388,6 +345,8 @@ export class HexEditorSession {
             parseResult = null;
             pendingExternalReload = null;
             clearTimeout(reloadTimer);
+            clearTimeout(profileReloadTimer);
+            for (const store of [indexStore, structsStore, integrityStore]) { store?.dispose(); }
             this._panels.delete(webviewPanel);
             if (HexEditorSession._activePanel === webviewPanel) {
                 HexEditorSession._activePanel = undefined;
@@ -422,78 +381,107 @@ export class HexEditorSession {
             void postInit();
         }).catch(() => resources.dispose());
 
-        const labelKey = `hexScope.labels.${document.uri.toString()}`;
-        const segmentNamesKey = `hexScope.segmentNames.${document.uri.toString()}`;
+        // ── Per-file .hexscope profile stores ────────────────────────
+        // Root matches the scripts convention: workspace folder, else the
+        // document's directory. relPath in index.json is the lookup key.
+        const root = resolveHexScopeRoot(document.uri);
+        const relPath = perFileRelativePath(root, document.uri);
 
-        const structKey = `hexScope.structs.${document.uri.toString()}`;
-        const globalStructKey = 'hexScope.structs.global.v2';
-        const previousGlobalStructKey = 'hexScope.structs.global.v1';
-        const structPinKey = `hexScope.structPins.${document.uri.toString()}`;
-        const integrityChecksKey = `hexScope.integrityChecks.${document.uri.toString()}.v1`;
-        const endianKey = `hexScope.endian.${document.uri.toString()}.v1`;
+        let profileDirPath: string | null = null;
+        let indexStore: JsonStore<IndexFileData> | null = null;
+        let structsStore: JsonStore<StructDef[]> | null = null;
+        let integrityStore: JsonStore<IntegrityProfile[]> | null = null;
+        let profileReady: Promise<void> | null = null;
+        let profileReloadTimer: ReturnType<typeof setTimeout> | undefined;
+        let perFileOp: Promise<unknown> = Promise.resolve();
 
-        const normalizeStructDefs = normalizeStructDefsValue;
+        /** Serialize index-slot read-modify-write ops so concurrent messages cannot lose updates. */
+        const enqueuePerFileOp = <T>(op: () => Promise<T>): Promise<T> => {
+            const next = perFileOp.then(op, op);
+            perFileOp = next.catch(() => undefined);
+            return next;
+        };
 
-        const syncGlobalStructs = async (rawGlobal: unknown, normalizedGlobal: unknown, defs: StructDef[], changed: boolean): Promise<void> => {
-            if (rawGlobal === undefined || !Array.isArray(normalizedGlobal) || changed) {
-                await this._context.globalState.update(globalStructKey, defs);
+        const migrationDone = migrateLegacyData(root, document.uri, this._context);
+
+        const openProfileStores = (): Promise<void> => {
+            if (!profileReady) {
+                profileReady = (async () => {
+                    await migrationDone;
+                    if (disposed) { return; }
+                    let dir = await findProfile(root, relPath);
+                    if (!dir) { dir = await createProfile(root, relPath); }
+                    profileDirPath = dir;
+                    buildProfileStores(dir);
+                    resources.add(attachProfileWatcher({ root, onProfileChanged }));
+                })().catch(error => {
+                    profileReady = null;
+                    throw error;
+                });
             }
+            return profileReady;
         };
 
-        const clearPreviousGlobalStructs = async (previousGlobalStructs: unknown): Promise<void> => {
-            if (previousGlobalStructs !== undefined) {
-                await this._context.globalState.update(previousGlobalStructKey, undefined);
-            }
-        };
-
-        const persistMergedLegacyStructs = async (globalArr: StructDef[], legacyArr: StructDef[]): Promise<StructDef[]> => {
-            const merged = mergeLegacyStructDefs(globalArr, legacyArr);
-            if (merged.changed) {
-                await this._context.globalState.update(globalStructKey, merged.defs);
-            }
-            return merged.defs;
-        };
-
-        const loadStructs = async () => {
-            const currentGlobalStructs = this._context.globalState.get<unknown>(globalStructKey);
-            const previousGlobalStructs = this._context.globalState.get<unknown>(previousGlobalStructKey);
-            const globalStructs = currentGlobalStructs ?? migrateStructDefinitions(previousGlobalStructs ?? []);
-            const legacyStructs = migrateStructDefinitions(this._context.workspaceState.get<unknown>(structKey, []));
-            let { defs: globalArr, changed: globalChanged } = normalizeStructDefs(globalStructs);
-            const { defs: legacyArr } = normalizeStructDefs(legacyStructs);
-
-            await syncGlobalStructs(currentGlobalStructs, globalStructs, globalArr, globalChanged);
-            await clearPreviousGlobalStructs(previousGlobalStructs);
-            globalArr = await persistMergedLegacyStructs(globalArr, legacyArr);
-
-            await this._context.workspaceState.update(structKey, undefined);
-
-            return globalArr;
-        };
-
-        const loadIntegrityProfiles = async (): Promise<IntegrityProfile[]> => {
-            const rawProfiles = this._context.globalState.get<unknown>(GLOBAL_INTEGRITY_PROFILES_KEY, []);
-            const normalized = normalizeIntegrityProfiles(rawProfiles);
-            if (JSON.stringify(rawProfiles) !== JSON.stringify(normalized)) {
-                await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, normalized);
-            }
-            return normalized;
-        };
-
-        const loadIntegrityChecks = async (): Promise<IntegrityCheckSet> => {
-            const rawChecks = this._context.workspaceState.get<unknown>(integrityChecksKey);
-            const normalized = normalizeIntegrityCheckSet(rawChecks) ?? {
-                schemaVersion: 1,
-                checks: [],
+        const buildProfileStores = (dir: string): void => {
+            const normalizeStructs = (raw: unknown): { value: StructDef[]; changed: boolean } => {
+                const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
+                return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
             };
-            if (rawChecks !== undefined && JSON.stringify(rawChecks) !== JSON.stringify(normalized)) {
-                await this._context.workspaceState.update(integrityChecksKey, normalized);
-            }
-            return normalized;
+            const normalizeProfiles = (raw: unknown): { value: IntegrityProfile[]; changed: boolean } => {
+                const profiles = normalizeIntegrityProfiles(raw);
+                return { value: profiles, changed: JSON.stringify(raw) !== JSON.stringify(profiles) };
+            };
+
+            indexStore = new JsonStore<IndexFileData>({
+                uri: profileJsonUri(dir, 'index.json'),
+                normalizer: raw => normalizeIndexFile(raw, emptyIndexData(relPath)),
+                empty: () => emptyIndexData(relPath),
+                onSelfWrite: markSelfWrite,
+                onReload: () => void broadcastPerFileData(),
+            });
+            structsStore = new JsonStore<StructDef[]>({
+                uri: profileJsonUri(dir, 'structs.json'),
+                normalizer: normalizeStructs,
+                empty: () => [],
+                onSelfWrite: markSelfWrite,
+                onReload: () => void broadcastStructs(),
+            });
+            integrityStore = new JsonStore<IntegrityProfile[]>({
+                uri: profileJsonUri(dir, 'integrity.json'),
+                normalizer: normalizeProfiles,
+                empty: () => [],
+                onSelfWrite: markSelfWrite,
+                onReload: () => void broadcastIntegrityProfiles(),
+            });
         };
 
-        const loadEndian = (): 'le' | 'be' => {
-            return this._context.workspaceState.get<unknown>(endianKey) === 'be' ? 'be' : 'le';
+        const openStores = async (): Promise<{
+            index: JsonStore<IndexFileData>;
+            structs: JsonStore<StructDef[]>;
+            integrity: JsonStore<IntegrityProfile[]>;
+        }> => {
+            await openProfileStores();
+            return { index: indexStore!, structs: structsStore!, integrity: integrityStore! };
+        };
+
+        /** Silent auto-apply: genuine external edits to the profile index re-broadcast to the webview. */
+        const broadcastPerFileData = (): void => {
+            const index = indexStore?.get();
+            if (!index) { return; }
+            void postToWebview(webviewPanel.webview, {
+                type: 'perFileDataChange',
+                labels: index.labels,
+                segmentNames: index.segmentNames,
+                pins: index.pins,
+                endian: index.endian,
+                activeChecks: index.activeChecks,
+            });
+        };
+
+        const broadcastStructs = (): void => {
+            const structs = structsStore?.get();
+            if (!structs) { return; }
+            void postToWebview(webviewPanel.webview, { type: 'structsExternalChange', structs });
         };
 
         const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
@@ -509,8 +497,50 @@ export class HexEditorSession {
         };
 
         const saveIntegrityProfiles = async (next: IntegrityProfile[]): Promise<void> => {
-            await this._context.globalState.update(GLOBAL_INTEGRITY_PROFILES_KEY, next);
+            const { integrity } = await openStores();
+            integrity.set(next);
             await broadcastIntegrityProfiles();
+        };
+
+        const loadIntegrityProfiles = async (): Promise<IntegrityProfile[]> => {
+            const { integrity } = await openStores();
+            return integrity.get() ?? integrity.load();
+        };
+
+        const loadCurrentIndex = async (): Promise<IndexFileData> => {
+            const { index } = await openStores();
+            return index.get() ?? index.load();
+        };
+
+        /** External change to the profile dir: re-key stores on restructure, then per-slot debounced reload. */
+        const onProfileChanged = (): void => {
+            if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
+            clearTimeout(profileReloadTimer);
+            profileReloadTimer = setTimeout(() => {
+                void refreshProfileStores();
+            }, PROFILE_CHANGE_DEBOUNCE_MS);
+        };
+
+        const refreshProfileStores = async (): Promise<void> => {
+            if (disposed) { return; }
+            const current = await findProfile(root, relPath);
+            if (profileRelocated(current)) { rekeyProfileStores(current as string); }
+            scheduleProfileReload();
+        };
+
+        const profileRelocated = (current: string | null): boolean =>
+            current !== null && current !== profileDirPath;
+
+        const rekeyProfileStores = (current: string): void => {
+            // Profile dir renamed/recreated externally → re-key stores to
+            // the new path (flush nothing: the old path may no longer exist).
+            for (const store of [indexStore, structsStore, integrityStore]) { store?.dispose(false); }
+            profileDirPath = current;
+            buildProfileStores(current);
+        };
+
+        const scheduleProfileReload = (): void => {
+            for (const store of [indexStore, structsStore, integrityStore]) { store?.scheduleReload(0); }
         };
 
         const postInit = async () => {
@@ -518,22 +548,23 @@ export class HexEditorSession {
             postProgress('transfer', 0);
             const serialized = serializeParseResult(parseResult, format);
             postProgress('transfer', 1, 1);
-            const structs = await loadStructs();
-            const integrityProfiles = await loadIntegrityProfiles();
-            const integrityChecks = await loadIntegrityChecks();
-            
+            const { index, structs, integrity } = await openStores();
+            const indexData = await index.load();
+            const structDefs = await structs.load();
+            const integrityProfiles = await integrity.load();
+
             const msg: ProviderToWebviewMessage = {
                 type: 'init',
                 generation: currentGeneration,
                 parseResult: serialized,
-                labels:      this._context.workspaceState.get(labelKey, []),
-                segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
-                structs,
-                structPins:  this._context.workspaceState.get(structPinKey, []),
-                endian: loadEndian(),
-                integrityProfiles: { profiles: integrityProfiles, activeChecks: integrityChecks },
+                labels: indexData.labels,
+                segmentNames: indexData.segmentNames,
+                structs: structDefs,
+                structPins: indexData.pins,
+                endian: indexData.endian,
+                integrityProfiles: { profiles: integrityProfiles, activeChecks: indexData.activeChecks },
             };
-            
+
             void postToWebview(webviewPanel.webview, msg);
         };
 
@@ -590,12 +621,13 @@ export class HexEditorSession {
                         
                         // Quick repair only works with checksum errors; malformed lines need manual fixing
                         const canQuickRepair = newResult.malformedLines === 0;
+                        const brokenIndex = await loadCurrentIndex();
                         void postToWebview(webviewPanel.webview, {
                             type: 'externalChangeError',
                             generation: loaded.generation,
                             parseResult: serializeParseResult(newResult, format),
-                            labels: this._context.workspaceState.get(labelKey, []),
-                            segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                            labels: brokenIndex.labels,
+                            segmentNames: brokenIndex.segmentNames,
                             checksumErrors: newResult.checksumErrors,
                             malformedLines: newResult.malformedLines,
                             errorCount: newResult.checksumErrors + newResult.malformedLines,
@@ -607,12 +639,13 @@ export class HexEditorSession {
                     // Send as 'externalChange' so the webview can guard against
                     // overwriting unsaved edits
                     pendingExternalReload = { raw: newRaw, parseResult: newResult, generation: loaded.generation };
+                    const freshIndex = await loadCurrentIndex();
                     void postToWebview(webviewPanel.webview, {
                         type: 'externalChange',
                         generation: loaded.generation,
                         parseResult: serializeParseResult(newResult, format),
-                        labels: this._context.workspaceState.get(labelKey, []),
-                        segmentNames: this._context.workspaceState.get(segmentNamesKey, {}),
+                        labels: freshIndex.labels,
+                        segmentNames: freshIndex.segmentNames,
                     });
                 } catch { /* file transiently unavailable */ }
             }, 200);
@@ -648,26 +681,39 @@ export class HexEditorSession {
                 // Copy confirmation lives in the webview toast; no host notice.
             },
             saveLabels: async msg => {
-                await this._context.workspaceState.update(labelKey, msg.labels);
-                if (msg.segmentNames) {
-                    await this._context.workspaceState.update(segmentNamesKey, msg.segmentNames);
-                }
+                await enqueuePerFileOp(async () => {
+                    const { index } = await openStores();
+                    await updateStore(index, current => ({
+                        ...current,
+                        labels: msg.labels,
+                        ...(msg.segmentNames ? { segmentNames: msg.segmentNames } : {}),
+                    }));
+                });
             },
             saveStructs: async msg => {
-                const { defs } = normalizeStructDefs(msg.structs);
-                await this._context.globalState.update(globalStructKey, defs);
+                const { structs } = await openStores();
+                structs.set(normalizeStructDefsValue(migrateStructDefinitions(msg.structs)).defs);
             },
             saveStructPins: async msg => {
-                await this._context.workspaceState.update(structPinKey, msg.pins);
+                await enqueuePerFileOp(async () => {
+                    const { index } = await openStores();
+                    await updateStore(index, current => ({ ...current, pins: msg.pins }));
+                });
             },
             saveIntegrityChecks: async msg => {
                 const state = normalizeIntegrityCheckSet(msg.state);
-                if (state) { await this._context.workspaceState.update(integrityChecksKey, state); }
+                if (!state) { return; }
+                await enqueuePerFileOp(async () => {
+                    const { index } = await openStores();
+                    await updateStore(index, current => ({ ...current, activeChecks: state }));
+                });
             },
             saveEndian: async msg => {
-                if (msg.endian === 'le' || msg.endian === 'be') {
-                    await this._context.workspaceState.update(endianKey, msg.endian);
-                }
+                if (msg.endian !== 'le' && msg.endian !== 'be') { return; }
+                await enqueuePerFileOp(async () => {
+                    const { index } = await openStores();
+                    await updateStore(index, current => ({ ...current, endian: msg.endian }));
+                });
             },
             createIntegrityProfile: async msg => {
                 const profile = normalizeIntegrityProfiles([msg.profile])[0];
@@ -709,22 +755,30 @@ export class HexEditorSession {
                 await saveIntegrityProfiles(current.filter(item => item.id !== id));
             },
             updateLabelVisibility: async msg => {
-                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                const next = current.map(l =>
-                    l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
-                );
-                await this._context.workspaceState.update(labelKey, next);
+                await enqueuePerFileOp(async () => {
+                    const { index } = await openStores();
+                    await updateStore(index, current => ({
+                        ...current,
+                        labels: current.labels.map(l =>
+                            l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
+                        ),
+                    }));
+                });
             },
             reorderLabel: async msg => {
-                const current: SegmentLabel[] = this._context.workspaceState.get(labelKey, []);
-                const idx = current.findIndex(l => l.id === msg.id);
-                if (idx < 0) { return; }
-                const next = [...current];
-                const dir  = (msg.dir as number);
-                const swap = idx + dir;
-                if (swap < 0 || swap >= next.length) { return; }
-                [next[idx], next[swap]] = [next[swap], next[idx]];
-                await this._context.workspaceState.update(labelKey, next);
+                await enqueuePerFileOp(async () => {
+                    const { index } = await openStores();
+                    await updateStore(index, current => {
+                        const idx = current.labels.findIndex(l => l.id === msg.id);
+                        if (idx < 0) { return current; }
+                        const next = [...current.labels];
+                        const dir = (msg.dir as number);
+                        const swap = idx + dir;
+                        if (swap < 0 || swap >= next.length) { return current; }
+                        [next[idx], next[swap]] = [next[swap], next[idx]];
+                        return { ...current, labels: next };
+                    });
+                });
             },
             saveEdits: async msg => {
                 if (!parseResult) { return; }
@@ -881,24 +935,6 @@ ${cssLinks}
 
 function sameProfileName(left: string, right: string): boolean {
     return left.toLocaleLowerCase() === right.toLocaleLowerCase();
-}
-
-export function migrateStructDefinitions(value: unknown): unknown {
-    if (!Array.isArray(value)) { return value; }
-    return value.map(item => {
-        if (item === null || typeof item !== 'object') { return item; }
-        const def = item as { fields?: unknown };
-        if (!Array.isArray(def.fields)) { return item; }
-        return {
-            ...def,
-            fields: def.fields.map(field => {
-                if (field === null || typeof field !== 'object') { return field; }
-                const clean = { ...field } as Record<string, unknown>;
-                delete clean.endian;
-                return clean;
-            }),
-        };
-    });
 }
 
 function renameIntegrityProfiles(

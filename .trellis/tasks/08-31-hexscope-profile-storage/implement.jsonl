@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "core/ import rules and module ownership map (hexScopeStorage is a host adapter; structMigration lives in core)"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Persistence Scope section being replaced; owner rule for schema normalizers"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "external-change reload semantics being replaced by silent auto-apply"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "single-owner rule for shared normalizers (endianOrDefault), no duplicated helpers"}

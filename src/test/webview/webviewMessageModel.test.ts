@@ -1,10 +1,12 @@
 import * as assert from 'assert';
 
 import type { ProviderMessageHandlers } from '../../webview/webviewMessageDispatcher';
+import type { IntegrityCheckSet } from '../../core/integrity';
 import type { SegmentLabel, WireParseResult } from '../../core/types';
 import { dispatchProviderMessage } from '../../webview/webviewMessageDispatcher';
 import { S } from '../../webview/state';
 import { applyProviderMessageToModel } from '../../webview/webviewMessageModel';
+import { endianOrDefault } from '../../webviewProtocol';
 
 function resetState(): void {
     S.parseResult = null;
@@ -147,6 +149,66 @@ suite('applyProviderMessageToModel()', () => {
         assert.deepStrictEqual(update.externalChange?.incoming.labels, labels);
         assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
+
+    test('structsExternalChange replaces structs and prunes orphaned pins', () => {
+        S.structs = [{ id: 'gone', name: 'Gone', fields: [] }];
+        S.structPins = [
+            { id: 'p1', structId: 'gone', addr: 0, name: 'P1' },
+            { id: 'p2', structId: 'kept', addr: 8, name: 'P2' },
+        ];
+
+        const update = applyProviderMessageToModel({
+            type: 'structsExternalChange',
+            structs: [{ id: 'kept', name: 'Kept', fields: [] }],
+        });
+
+        assert.deepStrictEqual(S.structs.map(def => def.id), ['kept']);
+        assert.deepStrictEqual(S.structPins.map(pin => pin.id), ['p2'], 'pin of vanished structId pruned');
+        assert.strictEqual(update.invalidations.structPins, true);
+    });
+
+    test('perFileDataChange replaces labels, segment names, pins, endian, and active checks', () => {
+        applyProviderMessageToModel({
+            type: 'init',
+            generation: 1,
+            parseResult: parseResultForTest(),
+            labels: [],
+            structs: [],
+            structPins: [],
+            endian: 'le',
+            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+        });
+        const labels = [labelForTest({ id: 'x', name: 'X' })];
+        const segmentNames = { '0': 'Boot' };
+        const pins = [{ id: 'pin', structId: 's', addr: 0, name: 'P' }];
+        const activeChecks: IntegrityCheckSet = { schemaVersion: 1, checks: [] };
+
+        const update = applyProviderMessageToModel({
+            type: 'perFileDataChange',
+            labels,
+            segmentNames,
+            pins,
+            endian: 'be',
+            activeChecks,
+        });
+
+        assert.deepStrictEqual(S.labels, labels);
+        assert.deepStrictEqual(S.segmentNames, segmentNames);
+        assert.deepStrictEqual(S.structPins, pins);
+        assert.strictEqual(S.endian, 'be');
+        assert.deepStrictEqual(update.activeChecks, activeChecks);
+        assert.strictEqual(update.invalidations.labelsAndMemory, true);
+        assert.strictEqual(update.invalidations.structPins, true);
+        assert.strictEqual(update.invalidations.endianChanged, true);
+    });
+
+    test('endianOrDefault is the shared single normalizer (defaults to le)', () => {
+        assert.strictEqual(endianOrDefault('be'), 'be');
+        assert.strictEqual(endianOrDefault('le'), 'le');
+        assert.strictEqual(endianOrDefault(undefined), 'le');
+        assert.strictEqual(endianOrDefault('bogus'), 'le');
+        assert.strictEqual(endianOrDefault(42), 'le');
+    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -159,6 +221,8 @@ function noOpHandlers(): ProviderMessageHandlers {
         updateLabel: () => {},
         copyCommand: () => {},
         savedEdits: () => {},
+        structsExternalChange: () => {},
+        perFileDataChange: () => {},
         externalChange: () => {},
         externalChangeError: () => {},
         repairComplete: () => {},
