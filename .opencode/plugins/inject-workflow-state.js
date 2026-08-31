@@ -4,18 +4,16 @@
  *
  * Per-turn UserPromptSubmit equivalent for OpenCode.
  *
- * On every chat.message, if a Trellis task is active, inject a short
- * <workflow-state> breadcrumb reminding the main AI what task is
- * active and its expected flow. Breadcrumb text is pulled exclusively
+ * On every model request, inject a short <workflow-state> breadcrumb
+ * into the in-memory copy of the latest user message via
+ * `experimental.chat.messages.transform`. Stored history and the TUI
+ * are not modified (issue #553). Breadcrumb text is pulled exclusively
  * from the project's workflow.md [workflow-state:STATUS] tag blocks —
  * workflow.md is the single source of truth. There are no fallback
  * tables in this plugin: when workflow.md is missing or a tag is
  * absent, the breadcrumb degrades to a generic
  * "Refer to workflow.md for current step." line so users see (and fix)
  * the broken state instead of the plugin silently masking it.
- *
- * Unlike session-start, this plugin does NOT dedupe — the breadcrumb
- * should surface on every turn so long conversations don't drift.
  *
  * Silently skips when:
  *   - No .trellis/ directory
@@ -25,6 +23,12 @@
 
 import { existsSync, readFileSync } from "fs"
 import { join } from "path"
+import {
+  MESSAGES_TRANSFORM_HOOK,
+  latestUserPromptText,
+  platformInputFromMessages,
+  prependEphemeralText,
+} from "../lib/context-visibility.js"
 import { TrellisContext, debugLog, isTrellisSubagent } from "../lib/trellis-context.js"
 
 // Supports STATUS values with letters, digits, underscores, hyphens
@@ -180,15 +184,15 @@ export default async ({ directory }) => {
   debugLog("workflow-state", "Plugin loaded, directory:", directory)
 
   return {
-      // chat.message fires on every user message. Inject breadcrumb in-place
-      // so it persists in conversation history.
-      "chat.message": async (input, output) => {
+      [MESSAGES_TRANSFORM_HOOK]: async (_input, output) => {
         try {
+          const messages = output?.messages
+          const platformInput = platformInputFromMessages(messages)
           // Skip Trellis sub-agent turns — the per-turn breadcrumb is for the
           // main session only; sub-agent context comes from the parent's
           // tool.execute.before injection.
-          if (isTrellisSubagent(input)) {
-            debugLog("workflow-state", "Skipping trellis subagent turn:", input?.agent)
+          if (isTrellisSubagent(platformInput)) {
+            debugLog("workflow-state", "Skipping trellis subagent turn:", platformInput?.agent)
             return
           }
           if (process.env.TRELLIS_HOOKS === "0" || process.env.TRELLIS_DISABLE_HOOKS === "1") {
@@ -201,11 +205,7 @@ export default async ({ directory }) => {
             return
           }
 
-          const parts = output?.parts || []
-          const textPartIndex = parts.findIndex(
-            p => p.type === "text" && p.text !== undefined,
-          )
-          const originalText = textPartIndex !== -1 ? (parts[textPartIndex].text || "") : ""
+          const originalText = latestUserPromptText(messages)
 
           // Escape hatch (issue #427): user prompt contains the skip keyword
           // as a standalone word — emit nothing for this turn only.
@@ -215,16 +215,12 @@ export default async ({ directory }) => {
           }
 
           const templates = loadBreadcrumbs(directory)
-          const task = getActiveTask(ctx, input)
+          const task = getActiveTask(ctx, platformInput)
           const breadcrumb = task
             ? buildBreadcrumb(task.id, task.status, templates, task.source)
             : buildBreadcrumb(null, "no_task", templates)
 
-          if (textPartIndex !== -1) {
-            parts[textPartIndex].text = `${breadcrumb}\n\n${originalText}`
-          } else {
-            parts.unshift({ type: "text", text: breadcrumb })
-          }
+          prependEphemeralText(messages, breadcrumb)
           debugLog(
             "workflow-state",
             "Injected breadcrumb for task",
@@ -235,7 +231,7 @@ export default async ({ directory }) => {
         } catch (error) {
           debugLog(
             "workflow-state",
-            "Error in chat.message:",
+            "Error in messages.transform:",
             error instanceof Error ? error.message : String(error),
           )
         }
