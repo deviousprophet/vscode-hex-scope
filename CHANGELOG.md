@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Persisted state (struct definitions, integrity profiles, labels, segment names, struct pins, checks, and endianness) now lives in git-tracked `.hexscope/firmware_profiles/<id>/` JSON files keyed by the document's workspace-relative path, replacing VS Code's private settings storage
+- JSON Schemas for the three `.hexscope` profile files, bound to editors via `jsonValidation` and discoverable by tools and AI assistants through a `$schema` sibling in each file
+- Legacy Memento data is migrated once on first panel open, then hard-deleted from VS Code storage
+
+### Changed
+
+- Firmware annotations are now shared per file across a team instead of stored privately; edits to the profile files on disk apply silently to open panels
+- Profile files use a versioned `{version, data}` envelope; unknown future versions are left untouched instead of being overwritten
+
 ## [2.19.0] - 2026-08-23
 
 ### Changed
