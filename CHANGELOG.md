@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Firmware annotations (struct definitions, integrity profiles, labels, segment names, struct pins, checks, and endianness) are now kept per firmware file in git-tracked `.hexscope/firmware_profiles/<id>/` JSON files, so a team shares them through the repository instead of VS Code's private settings storage
+- JSON Schemas for the `.hexscope` profile files; editors validate the files as they are edited, and tools/AI assistants can read the schema from a `$schema` hint inside each file
+- Existing annotations from VS Code's settings storage are migrated automatically on the first open of a firmware file and then removed from it
+
+### Changed
+
+- Profile files use a versioned format; edits to the files on disk apply to open panels automatically, and a file from a future unsupported version is left untouched rather than rewritten
+
 ## [2.19.0] - 2026-08-23
 
 ### Changed

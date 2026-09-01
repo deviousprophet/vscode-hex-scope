@@ -5,7 +5,7 @@
 - `src/webview/state.ts`: `S`, default values, and state types.
 - `src/webview/appModel.ts`: shared state transitions for init, parsed memory, labels, external-change lock, and edit clearing.
 - `src/webview/webviewMessageModel.ts`: provider-message reducers returning `WebviewInvalidations`.
-- `src/hexEditorSession.ts`: host-side file/session state and VS Code persistence.
+- `src/hexEditorSession.ts`: host-side file/session state and the per-session `.hexscope` profile stores; `src/hexScopeStorage.ts` owns the I/O.
 - Integrity and struct modules own feature-local transient UI state but persist through typed protocol messages.
 - `S.labelDraft` (`LabelDraftPreview | null`) is a host-owned transient grid preview (same category as `S.integrityHighlight`): the Inspector panel reports it via `onLabelDraftChange`; `hexViewer.ts` stores it and `memoryGrid.paintMemoryLabelDraft()` repaints it (also after every slice re-render). It is never persisted.
 
@@ -34,11 +34,26 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 ## Persistence Scope
 
-- Per-file state: labels, struct pins, endian, active integrity check set.
-- Shared/global state: struct definitions and integrity profiles.
-- Persistence adapters: host `hexViewer.ts` struct callbacks (`saveStructs`/`saveStructPins`), `integrityPersistence.ts`, and session message handlers.
-- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use.
-- Struct migration/deduplication belongs in `HexEditorSession` (`migrateStructDefinitions` and legacy merge helpers), not render code.
+- Per-firmware-document state (labels, segment name overrides, struct pins, active integrity check set, endian) lives in the document's `.hexscope/firmware_profiles/<id>/index.json`.
+- Shared/global state (struct definitions, integrity profiles) lives in the same profile dir as `structs.json` / `integrity.json` — one profile per document means shared defs are naturally per-firmware.
+- Host adapter: `src/hexScopeStorage.ts` owns all `.hexscope/` I/O (envelope read/write, per-slot `JsonStore`, profile lookup/creation, watcher). Normalization functions are injected per slot from the owning module.
+- Per-session wiring: `src/hexEditorSession.ts` opens the document's profile slots, applies mutations through `updateStore`, and broadcasts genuine external edits to the webview (silent auto-apply — no prompt dialogs):
+
+  - `index.json` changes → `perFileDataChange` (labels/segmentNames/pins/endian/activeChecks).
+  - `structs.json` changes → `structsExternalChange`; the webview replaces `S.structs` and prunes pins whose `structId` vanished.
+  - `integrity.json` changes → the existing `integrityProfiles` broadcast.
+
+- Repositories are never read from browser feature logic — the webview only consumes typed `ProviderToWebviewMessage` slices.
+- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer (session slot + webview model).
+- Struct migration/deduplication belongs in `src/core/structMigration.ts` (`migrateStructDefinitions`, `normalizeStructDefsValue`, `mergeLegacyStructDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code.
+- Legacy Memento keys (global structs v2/v1 + per-file keys, integrity profiles, per-file labels/names/pins/checks/endian) are migrated once per workspace root by `src/hexScopeMigration.ts` and then hard-deleted.
+
+## On-disk JSON Schema contract
+
+- Three strict JSON Schemas describe the `.hexscope/` on-disk shapes so editors and AI agents can validate/author team state: `schemas/{index,structs,integrity}.schema.json` in the repo (bundled in the VSIX) and seeded into `.hexscope/schemas/` on first profile creation.
+- Every profile file is envelope `{ version: const 1, data, $schema? }`; `$schema` is a **relative path** to the workspace-seeded schema copy (`../../schemas/<name>.schema.json`) so terminal agents resolve the contract from the file itself. `readJson` unwraps the envelope before normalizing, so normalizers never see `$schema`; `writeJson` re-injects the canonical sibling on every profile-file write — self-heal cannot strip it.
+- Editors bind via `contributes.jsonValidation` globs (`.hexscope/firmware_profiles/*/{index,structs,integrity}.json`). Schemas are **strict for authoring** (`required` everywhere, enums for struct types / integrity algorithms / endian, nested `additionalProperties: false`), but the runtime **remains lenient** — normalizers tolerate the extra fields the schema flags, corrupt/unknown-version files load empty + warn once, never overwrite.
+- Drift guard: `ajv` (devDependency, test-only) validates fixtures in `src/test/schemas/schemaValidation.test.ts`, pinned to `DATA_VERSION` and the source enum consts.
 
 ## Update Pattern
 
@@ -70,5 +85,6 @@ When adding state:
 - `src/test/webview/webviewMessageModel.test.ts`
 - `src/test/webview/webview.test.ts` (`initFlatBytes`, defaults, memory rows)
 - `src/test/core/provider-utils.test.ts` (format detection and struct migration)
+- `src/test/extension/hexScopeStorage.test.ts` (storage slots, envelopes, migration, watcher)
 - `src/test/webview/integrityCheckModel.test.ts`
 - `src/test/webview/structPinsModel.test.ts`

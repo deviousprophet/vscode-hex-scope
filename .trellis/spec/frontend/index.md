@@ -42,6 +42,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | [Search Engine](./search-engine.md) | Cancellable/chunked search, modes, match navigation |
 | [Selection, Inspector, and Byte Tools](./selection-inspect-copy.md) | Selection ranges, gap-filtered copy/analyze, Inspector decode, byte tools |
 | [Editing, Save, and External Change](./editing-save-external-change.md) | Transactions, undo, save confirmation, file-change conflicts |
+| [HexScope On-Disk Storage](./hexscope-storage.md) | `.hexscope/` layout, envelope, `JsonStore`, profile lookup/watcher, schemas, Memento migration |
 | [Integrity Checks and Profiles](./integrity-checks.md) | Algorithms, ranges, stored comparison, fixes, profiles |
 | [Struct Definitions, Decode, Pins, and Persistence](./struct-model.md) | Layout, validation, C text, decode, pins, migration |
 | [Struct Instance Display](./struct-instance-display.md) | Struct row rendering, pointers, selection, menus, accessibility |

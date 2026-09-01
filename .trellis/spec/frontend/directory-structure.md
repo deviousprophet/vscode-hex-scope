@@ -14,37 +14,41 @@ No framework component or hook layer exists. Keep browser-only DOM work in `src/
 
 ```text
 src/
-|- extension.ts                 command registration and activation
-|- hexEditorProvider.ts         CustomReadonlyEditorProvider adapter
-|- hexEditorSession.ts          per-provider document/session orchestration
-|- webviewProtocol.ts           typed extension-host <-> webview seam
-|- core/
-|  |- parser/                   IHEX/SREC line parsing and segment construction
-|  |- document.ts               format detection, serialization, checksum repair
-|  |- memory.ts                 indexed byte lookup and memory-row model
-|  |- search.ts                 cancellable/chunked search engine
-|  |- integrity.ts              validation, algorithms, stored-value conversion
-|  |- structCodec.ts           struct layout, parse/export, decode
-|  `- byteTools/               pure copy/analyze/format helpers
-`- webview/
-   |- hexViewer.ts              composition root and DOM effect wiring
-   |- appModel.ts               authoritative UI model transitions
-   |- state.ts                  state shape/defaults only
-   |- webviewMessage*.ts        provider dispatch and typed model updates
-   |- memory/, search/, render/ view-specific modules
-   |- components/               self-contained UI components
-    |  |- searchBar/             searchBar.ts + searchBarRender.ts + searchBar.css
-    |  |- hexView/               hexView.ts + hexViewRender.ts + hexViewPaint.ts + hexView.css
-    |  |- toolbar/               toolbar.ts + toolbar.css
-    |  |- externalChange/        externalChange.ts + externalChange.css
-    |  |- recordView/            recordView.ts + recordView.css
-    |  |- menuController/          menuController.ts + menu.css
-     |  |- sidebar/               sidebar.ts + sidebar.css (shell + shared `.sb-*` primitives; exports SidebarTab; panels injected)
-     |  |  |- inspectorPanel/     inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
-     |  |  |- structPanel/        structPanel.ts + structPinsModel.ts + structPanel.css
-     |  |  |- integrityPanel/     integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityProfiles.ts + integrityHighlight.ts + integrityPanel.css
-     |  |  `- scriptsPanel/       scriptsPanel.ts + scriptsPanel.css (script runner panel)
+├── extension.ts              command registration and activation
+├── hexEditorProvider.ts      CustomReadonlyEditorProvider adapter
+├── hexEditorSession.ts       per-provider document/session orchestration (3 profile stores, watcher)
+├── hexScopeStorage.ts        .hexscope/ firmware-profile I/O + per-slot JsonStore (host adapter, no Memento)
+├── hexScopeMigration.ts      one-time legacy Memento → profile transfer
+├── webviewProtocol.ts        typed extension-host <-> webview seam
+├── core/
+│   ├── parser/               IHEX/SREC line parsing and segment construction
+│   ├── document.ts           format detection, serialization, checksum repair
+│   ├── memory.ts             indexed byte lookup and memory-row model
+│   ├── search.ts             cancellable/chunked search engine
+│   ├── integrity.ts          validation, algorithms, stored-value conversion
+│   ├── structCodec.ts        struct layout, parse/export, decode
+│   ├── structMigration.ts    struct-def migration + dedupe (session, migration, tests)
+│   └── byteTools/            pure copy/analyze/format helpers
+└── webview/
+    ├── hexViewer.ts          composition root and DOM effect wiring
+    ├── appModel.ts           authoritative UI model transitions
+    ├── state.ts              state shape/defaults only
+    ├── webviewMessage*.ts    provider dispatch and typed model updates
+    ├── memory/  search/  render/   view-specific modules
+    └── components/           self-contained UI components
+        ├── searchBar/        searchBar.ts + searchBarRender.ts + searchBar.css
+        ├── hexView/          hexView.ts + hexViewRender.ts + hexViewPaint.ts + hexView.css
+        ├── toolbar/          toolbar.ts + toolbar.css
+        ├── externalChange/   externalChange.ts + externalChange.css
+        ├── recordView/       recordView.ts + recordView.css
+        ├── menuController/   menuController.ts + menu.css
+        └── sidebar/          sidebar.ts + sidebar.css (shell + shared `.sb-*` primitives; exports SidebarTab; panels injected)
+            ├── inspectorPanel/    inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
+            ├── structPanel/       structPanel.ts + structPinsModel.ts + structPanel.css
+            ├── integrityPanel/    integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityProfiles.ts + integrityHighlight.ts + integrityPanel.css
+            └── scriptsPanel/      scriptsPanel.ts + scriptsPanel.css (script runner panel)
 
+schemas/                          JSON Schemas for .hexscope/ on-disk shapes (index/structs/integrity); bundled + jsonValidation globs
 ```
 
 ## Placement Rules

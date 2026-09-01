@@ -80,6 +80,15 @@ export type StructScalarFieldType =
 
 export type StructFieldType = StructScalarFieldType | 'struct';
 
+/** Runtime list mirroring StructFieldType — the JSON-schema enum drift guard. */
+export const STRUCT_FIELD_TYPES: readonly StructFieldType[] = [
+    'void', 'ascii',
+    'uint8', 'uint16', 'uint32', 'uint64',
+    'int8', 'int16', 'int32', 'int64',
+    'float32', 'float64',
+    'pointer', 'struct',
+];
+
 /** A single named child of a BitField container field. */
 export interface BitFieldChild {
     name: string;

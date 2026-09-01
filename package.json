@@ -184,6 +184,20 @@
         }
       ]
     },
+    "jsonValidation": [
+      {
+        "fileMatch": ".hexscope/firmware_profiles/*/index.json",
+        "url": "./schemas/index.schema.json"
+      },
+      {
+        "fileMatch": ".hexscope/firmware_profiles/*/structs.json",
+        "url": "./schemas/structs.schema.json"
+      },
+      {
+        "fileMatch": ".hexscope/firmware_profiles/*/integrity.json",
+        "url": "./schemas/integrity.schema.json"
+      }
+    ],
     "configurationDefaults": {
       "editor.tokenColorCustomizations": {
         "textMateRules": [
@@ -336,18 +350,19 @@
     "benchmark": "node src/test/benchmarks/runBenchmark.ts"
   },
   "devDependencies": {
-    "@types/vscode": "^1.125.0",
     "@types/jsdom": "^28.0.3",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
-    "typescript-eslint": "^8.61.1",
-    "eslint": "^10.5.0",
+    "@types/vscode": "^1.125.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "ajv": "^6.15.0",
     "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
     "jsdom": "^30.0.1",
     "npm-run-all": "^4.1.5",
     "typescript": "^6.0.3",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
+    "typescript-eslint": "^8.61.1"
   },
   "overrides": {
     "diff": "^8.0.4",

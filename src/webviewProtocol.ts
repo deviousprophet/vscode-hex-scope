@@ -7,6 +7,11 @@ export const RECORD_PAGE_SIZE = 512;
 
 export type HexScopeEndian = 'le' | 'be';
 
+/** Single shared endian normalizer (session slot normalizer + webview model). */
+export function endianOrDefault(value: unknown): HexScopeEndian {
+    return value === 'be' ? 'be' : 'le';
+}
+
 /** Pinned-segment name overrides, keyed by segment start address (decimal string). */
 export type SegmentNameOverrides = Record<string, string>;
 
@@ -28,8 +33,10 @@ export type ProviderToWebviewMessage =
     | { type: 'addLabel'; label: SegmentLabel }
     | { type: 'updateLabel'; label: SegmentLabel }
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
-    | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
-    | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
+| { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
+| { type: 'structsExternalChange'; structs: StructDef[] }
+| { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; activeChecks: IntegrityCheckSet }
+| { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';
         generation: number;
