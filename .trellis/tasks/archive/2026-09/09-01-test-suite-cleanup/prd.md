@@ -21,10 +21,10 @@ Near ~1000 unit tests (currently 944 `test()` cases / 40 files). Clean up, optim
 
 ## Acceptance Criteria
 
-- [ ] **Run `npm test` (runs pretest → compile-tests + compile + lint, then vscode-test) → full suite green.**
-- [ ] **`npm run check-types` and `npm run lint` pass.**
-- [ ] Test count after cleanup ≥ 880 (i.e., only genuine redundancy merged; distinct-input variants preserved).
-- [ ] Every test file with `test()` still exercises the same distinct behaviors: enumerate per-file baseline of unique assertion groups in `design.md`; diff shows no distinct behavior removed.
+- [x] **Run `npm test` (runs pretest → compile-tests + compile + lint, then vscode-test) → full suite green.** (913 passing, exit 0)
+- [x] **`npm run check-types` and `npm run lint` pass.**
+- [x] Test count after cleanup ≥ 880 (i.e., only genuine redundancy merged; distinct-input variants preserved). (grep 947→911; mocha 913)
+- [x] Every test file with `test()` still exercises the same distinct behaviors: enumerate per-file baseline of unique assertion groups in `design.md`; diff shows no distinct behavior removed.
 - [ ] Lint rule test (`eslint-rules/require-escaped-html.test.mjs`) passes (part of `npm run lint`).
 - [ ] No production source files modified (all src/ tests + README only). Any incidental src bug found during cleanup is logged in the task `notes`, not fixed here.
 - [ ] `src/test` has zero duplicate test() titles that are semantically identical (shared-title groups allowed only across formats where titles stay legible, e.g. the sample loops).
