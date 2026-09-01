@@ -45,6 +45,12 @@ Both reports must contain zero dead-code issues, clone groups, health findings, 
 - Keep source fixtures representative; do not replace format tests with only synthetic one-line records.
 - Verify review claims against actual trust boundaries and design comments.
 
+## Echo-Test Cleanup Convention
+
+- Folding `test()`s is allowed **only** for same-path/different-input echoes: identical assertion body, only input literal changes. Convert to one table-driven `for` loop (one `test()` per table, one short table-intent comment).
+- A merge must preserve every distinct input and assert variant; never reword a title that names a distinct behavior, never weaken an assertion. Run `npm test` and re-scan `src/test` for counts before finishing.
+- Keep per-format echoes (ihexParser vs srecParser edge cases, ihexSamples vs srecSamples sample loops): cross-format isolation is deliberate — a regression in one format must surface without touching the other. It is a reduce, not a merge, candidate.
+
 ## Anti-patterns
 
 - Snapshot-only tests for complex interactive rows.

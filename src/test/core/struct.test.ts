@@ -203,56 +203,32 @@ suite('decodeField()', () => {
         assert.ok(r.includes('0x42'), `got: ${r}`);
     });
 
-    test('uint16 LE 0x0102 → 258', () => {
-        const r = decodeField([0x02, 0x01], 'uint16', 'le');
-        assert.ok(r.startsWith('258'), `got: ${r}`);
-    });
-
-    test('uint16 BE 0x0102 → 258', () => {
-        const r = decodeField([0x01, 0x02], 'uint16', 'be');
-        assert.ok(r.startsWith('258'), `got: ${r}`);
-    });
-
-    test('uint32 LE 0x00000001 → 1', () => {
-        const r = decodeField([0x01, 0x00, 0x00, 0x00], 'uint32', 'le');
-        assert.ok(r.startsWith('1'), `got: ${r}`);
-    });
-
-    test('uint32 LE 0x08000000 shows correct hex in output', () => {
-        const r = decodeField([0x00, 0x00, 0x00, 0x08], 'uint32', 'le');
-        assert.ok(r.includes('08000000'), `got: ${r}`);
-    });
-
-    test('uint64 LE 0x0000000000000001 → 1', () => {
-        const r = decodeField([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 'uint64', 'le');
-        assert.ok(r.startsWith('1'), `got: ${r}`);
-    });
-
-    test('int8 0xFF → -1', () => {
-        assert.strictEqual(decodeField([0xFF], 'int8', 'le'), '-1');
-    });
-
-    test('int16 LE 0xFFFF → -1', () => {
-        assert.strictEqual(decodeField([0xFF, 0xFF], 'int16', 'le'), '-1');
-    });
-
-    test('int32 LE 0xFFFFFFFF → -1', () => {
-        assert.strictEqual(decodeField([0xFF, 0xFF, 0xFF, 0xFF], 'int32', 'le'), '-1');
-    });
-
-    test('int64 LE 0xFFFFFFFFFFFFFFFF → -1', () => {
-        const r = decodeField([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], 'int64', 'le');
-        assert.strictEqual(r, '-1');
-    });
-
-    test('uint64 BE 0x0000000000000001 → 1', () => {
-        const r = decodeField([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01], 'uint64', 'be');
-        assert.ok(r.startsWith('1'), `got: ${r}`);
-    });
-
-    test('int64 BE 0xFFFFFFFFFFFFFFFF → -1', () => {
-        const r = decodeField([0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF], 'int64', 'be');
-        assert.strictEqual(r, '-1');
+    test('scalar types decode to expected values across endianness', () => {
+        // check: 'exact' | 'prefix' | 'includes'
+        const cases: { bytes: number[]; type: 'uint16' | 'uint32' | 'uint64' | 'int8' | 'int16' | 'int32' | 'int64'; endian: 'le' | 'be'; check: 'exact' | 'prefix' | 'includes'; expect: string }[] = [
+            { bytes: [0x02, 0x01], type: 'uint16', endian: 'le', check: 'prefix', expect: '258' },
+            { bytes: [0x01, 0x02], type: 'uint16', endian: 'be', check: 'prefix', expect: '258' },
+            { bytes: [0x01, 0x00, 0x00, 0x00], type: 'uint32', endian: 'le', check: 'prefix', expect: '1' },
+            { bytes: [0x00, 0x00, 0x00, 0x08], type: 'uint32', endian: 'le', check: 'includes', expect: '08000000' },
+            { bytes: [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], type: 'uint64', endian: 'le', check: 'prefix', expect: '1' },
+            { bytes: [0xFF], type: 'int8', endian: 'le', check: 'exact', expect: '-1' },
+            { bytes: [0xFF, 0xFF], type: 'int16', endian: 'le', check: 'exact', expect: '-1' },
+            { bytes: [0xFF, 0xFF, 0xFF, 0xFF], type: 'int32', endian: 'le', check: 'exact', expect: '-1' },
+            { bytes: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], type: 'int64', endian: 'le', check: 'exact', expect: '-1' },
+            { bytes: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01], type: 'uint64', endian: 'be', check: 'prefix', expect: '1' },
+            { bytes: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], type: 'int64', endian: 'be', check: 'exact', expect: '-1' },
+        ];
+        for (const c of cases) {
+            const label = `${c.type} ${c.endian}`;
+            const r = decodeField(c.bytes, c.type, c.endian);
+            if (c.check === 'exact') {
+                assert.strictEqual(r, c.expect, label);
+            } else if (c.check === 'prefix') {
+                assert.ok(r.startsWith(c.expect), `${label} got: ${r}`);
+            } else {
+                assert.ok(r.includes(c.expect), `${label} got: ${r}`);
+            }
+        }
     });
 
     test('all multi-byte scalar types honor little and big endian byte order', () => {
@@ -276,24 +252,19 @@ suite('decodeField()', () => {
         assert.strictEqual(decodeField([0x12, 0x34, 0x56, 0x78], 'pointer', 'be'), '0x12345678', 'pointer BE');
     });
 
-    test('float32 LE 1.0 (0x3F800000)', () => {
-        // 1.0f LE bytes: 00 00 80 3F
-        const r = decodeField([0x00, 0x00, 0x80, 0x3F], 'float32', 'le');
-        assert.strictEqual(parseFloat(r), 1);
-    });
-
-    test('float64 LE 1.0', () => {
-        // 1.0 double LE bytes: 00 00 00 00 00 00 F0 3F
-        const r = decodeField([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F], 'float64', 'le');
-        assert.strictEqual(parseFloat(r), 1);
+    test('float32 and float64 decode 1.0 (LE)', () => {
+        for (const [type, bytes] of [
+            ['float32', [0x00, 0x00, 0x80, 0x3F]],
+            ['float64', [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F]],
+        ] as ['float32' | 'float64', number[]][]) {
+            const r = decodeField(bytes, type, 'le');
+            assert.strictEqual(parseFloat(r), 1, type);
+        }
     });
 
     test('returns "??" when a byte is missing (value -1)', () => {
         assert.strictEqual(decodeField([-1], 'uint8', 'le'), '??');
-    });
-
-    test('returns "??" for partial uint32 (only 2 bytes provided)', () => {
-        assert.strictEqual(decodeField([0x01, 0x02], 'uint32', 'le'), '??');
+        assert.strictEqual(decodeField([0x01, 0x02], 'uint32', 'le'), '??', 'partial bytes');
     });
 });
 
@@ -353,22 +324,16 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[0].decoded, '??');
     });
 
-    test('shared big-endian setting applies to scalar fields', () => {
+    test('shared byte-order setting applies to scalar fields', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'a', type: 'uint16', count: 1 },
         ]};
-        setBytesInSegment(0, [0x01, 0x00]);
-        const rows = decodeStruct(def, 0, getByte, 'be');
-        assert.ok(rows[0].decoded.startsWith('256'), rows[0].decoded);
-    });
-
-    test('shared little-endian setting applies to scalar fields', () => {
-        const def: StructDef = { id: 'x', name: 'S', fields: [
-            { name: 'a', type: 'uint16', count: 1 },
-        ]};
-        setBytesInSegment(0, [0x00, 0x01]);
-        const rows = decodeStruct(def, 0, getByte, 'le');
-        assert.ok(rows[0].decoded.startsWith('256'), rows[0].decoded);
+        // 01 00 (BE) and 00 01 (LE) both decode to 256
+        for (const [endian, bytes] of [['be', [0x01, 0x00]], ['le', [0x00, 0x01]]] as ['le' | 'be', number[]][]) {
+            setBytesInSegment(0, bytes);
+            const rows = decodeStruct(def, 0, getByte, endian);
+            assert.ok(rows[0].decoded.startsWith('256'), rows[0].decoded);
+        }
     });
 
     test('pointer modifier consumes fixed 32-bit storage and carries scalar target metadata', () => {
@@ -462,20 +427,15 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[4].decoded, '0x12345678');
     });
 
-    test('byte offsets accumulate correctly (packed)', () => {
-        const def: StructDef = { id: 'x', name: 'S', packed: true, fields: layoutFields() };
-        const rows = decodeStruct(def, 0, getByte, 'le');
-        assert.strictEqual(rows[0].byteOffset, 0);
-        assert.strictEqual(rows[1].byteOffset, 1);
-        assert.strictEqual(rows[2].byteOffset, 5);
-    });
-
-    test('byte offsets with alignment (not packed)', () => {
-        const def: StructDef = { id: 'x', name: 'S', fields: layoutFields() };
-        const rows = decodeStruct(def, 0, getByte, 'le');
-        assert.strictEqual(rows[0].byteOffset, 0);
-        assert.strictEqual(rows[1].byteOffset, 4);
-        assert.strictEqual(rows[2].byteOffset, 8);
+    test('byte offsets accumulate for packed and aligned layouts', () => {
+        for (const [packed, expected] of [
+            [true, [0, 1, 5]],
+            [false, [0, 4, 8]],
+        ] as [boolean, number[]][]) {
+            const def: StructDef = { id: 'x', name: 'S', fields: layoutFields(), ...(packed ? { packed: true } : {}) };
+            const rows = decodeStruct(def, 0, getByte, 'le');
+            assert.deepStrictEqual(rows.map(r => r.byteOffset), expected, packed ? 'packed' : 'aligned');
+        }
     });
 
     test('decodes bit fields MSB-first by default as unsigned values', () => {
@@ -723,39 +683,19 @@ suite('parseStructText()', () => {
         assert.strictEqual(errors.length, 0);
     });
 
-    test('float maps to float32', () => {
-        const { fields } = parseStructText('float temp;');
-        assert.strictEqual(fields[0].type, 'float32');
-    });
-
-    test('double maps to float64', () => {
-        const { fields } = parseStructText('double val;');
-        assert.strictEqual(fields[0].type, 'float64');
-    });
-
-    test('uint64_t maps to uint64', () => {
-        const { fields } = parseStructText('uint64_t big;');
-        assert.strictEqual(fields[0].type, 'uint64');
-    });
-
-    test('unsigned char maps to uint8', () => {
-        const { fields } = parseStructText('unsigned char flag;');
-        assert.strictEqual(fields[0].type, 'uint8');
-    });
-
-    test('unsigned int maps to uint32', () => {
-        const { fields } = parseStructText('unsigned int count;');
-        assert.strictEqual(fields[0].type, 'uint32');
-    });
-
-    test('int maps to int32', () => {
-        const { fields } = parseStructText('int value;');
-        assert.strictEqual(fields[0].type, 'int32');
-    });
-
-    test('short maps to int16', () => {
-        const { fields } = parseStructText('short val;');
-        assert.strictEqual(fields[0].type, 'int16');
+    test('C type keywords map to their struct field types', () => {
+        for (const [cType, fieldType] of [
+            ['float', 'float32'],
+            ['double', 'float64'],
+            ['uint64_t', 'uint64'],
+            ['unsigned char', 'uint8'],
+            ['unsigned int', 'uint32'],
+            ['int', 'int32'],
+            ['short', 'int16'],
+        ] as [string, 'float32' | 'float64' | 'uint64' | 'uint8' | 'uint32' | 'int32' | 'int16'][]) {
+            const { fields } = parseStructText(`${cType} value;`);
+            assert.strictEqual(fields[0].type, fieldType, cType);
+        }
     });
 
     test('const qualifier is stripped', () => {
@@ -877,14 +817,11 @@ suite('fieldsToText()', () => {
         assert.strictEqual(fieldsToText(f), 'uint32_t reg;');
     });
 
-    test('float32 maps to float keyword', () => {
-        const f: StructField[] = [{ name: 'temp', type: 'float32', count: 1 }];
-        assert.ok(fieldsToText(f).startsWith('float '));
-    });
-
-    test('float64 maps to double keyword', () => {
-        const f: StructField[] = [{ name: 'val', type: 'float64', count: 1 }];
-        assert.ok(fieldsToText(f).startsWith('double '));
+    test('float32/float64 fields emit float/double keywords', () => {
+        for (const [type, keyword] of [['float32', 'float'], ['float64', 'double']] as ['float32' | 'float64', string][]) {
+            const f: StructField[] = [{ name: 'val', type, count: 1 }];
+            assert.ok(fieldsToText(f).startsWith(`${keyword} `), keyword);
+        }
     });
 
     test('bit field emits :N suffix', () => {

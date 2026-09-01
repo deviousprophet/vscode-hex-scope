@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/09-01-test-suite-cleanup/prd.md", "reason": "Requirements + acceptance criteria for test cleanup and README rewrite."}
+{"file": ".trellis/tasks/09-01-test-suite-cleanup/implement.md", "reason": "Execution checklist, baseline counts, rollback points, validation commands."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Rules for identifying duplicated patterns vs. legit repetition in the test suite - apply when merging echo tests."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend layer conventions so test edits match the layer the tests cover."}

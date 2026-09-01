@@ -18,36 +18,16 @@ import type { StructDef } from '../../core/types';
 suite('detectFormatFromParts()', () => {
 
     // Extension-based detection
-    test('".srec" extension → srec', () => {
-        assert.strictEqual(detectFormatFromParts('srec', ''), 'srec');
+    test('known SREC extensions map to srec', () => {
+        for (const ext of ['srec', 'mot', 's19', 's28', 's37']) {
+            assert.strictEqual(detectFormatFromParts(ext, ''), 'srec', ext);
+        }
     });
 
-    test('".mot" extension → srec', () => {
-        assert.strictEqual(detectFormatFromParts('mot', ''), 'srec');
-    });
-
-    test('".s19" extension → srec', () => {
-        assert.strictEqual(detectFormatFromParts('s19', ''), 'srec');
-    });
-
-    test('".s28" extension → srec', () => {
-        assert.strictEqual(detectFormatFromParts('s28', ''), 'srec');
-    });
-
-    test('".s37" extension → srec', () => {
-        assert.strictEqual(detectFormatFromParts('s37', ''), 'srec');
-    });
-
-    test('".hex" extension → ihex', () => {
-        assert.strictEqual(detectFormatFromParts('hex', ':020000040800F2\n'), 'ihex');
-    });
-
-    test('".ihx" extension → ihex', () => {
-        assert.strictEqual(detectFormatFromParts('ihx', ':020000040800F2\n'), 'ihex');
-    });
-
-    test('".ihex" extension → ihex', () => {
-        assert.strictEqual(detectFormatFromParts('ihex', ':020000040800F2\n'), 'ihex');
+    test('known Intel HEX extensions map to ihex', () => {
+        for (const ext of ['hex', 'ihx', 'ihex']) {
+            assert.strictEqual(detectFormatFromParts(ext, ':020000040800F2\n'), 'ihex', ext);
+        }
     });
 
     test('unknown extension with IHEX content → ihex', () => {
@@ -55,16 +35,14 @@ suite('detectFormatFromParts()', () => {
     });
 
     // Content-sniff fallback
-    test('content starting with "S0" → srec (sniff)', () => {
-        assert.strictEqual(detectFormatFromParts('hex', 'S00600004844521B\n'), 'srec');
-    });
-
-    test('content starting with "S1" → srec (sniff)', () => {
-        assert.strictEqual(detectFormatFromParts('txt', 'S1070100112233444D\n'), 'srec');
-    });
-
-    test('content starting with "S9" → srec (sniff)', () => {
-        assert.strictEqual(detectFormatFromParts('', 'S9030000FC\n'), 'srec');
+    test('content sniff: leading S0/S1/S9 records → srec', () => {
+        for (const [ext, content] of [
+            ['hex', 'S00600004844521B\n'],
+            ['txt', 'S1070100112233444D\n'],
+            ['', 'S9030000FC\n'],
+        ] as [string, string][]) {
+            assert.strictEqual(detectFormatFromParts(ext, content), 'srec', ext);
+        }
     });
 
     test('content sniff is case-insensitive', () => {
@@ -142,28 +120,18 @@ suite('buildSRecDataRecord()', () => {
         return { chkOk: chk === expected, data };
     }
 
-    test('builds a valid S1 record (2-byte address)', () => {
-        const rec = buildSRecDataRecord(1, 0x0010, [0xCA, 0xFE, 0xBA, 0xBE]);
-        assert.ok(rec.startsWith('S1'), `expected S1, got ${rec.slice(0, 2)}`);
-        const { chkOk, data } = parseChk(rec, 2);
-        assert.ok(chkOk, 'checksum invalid');
-        assert.deepStrictEqual(data, [0xCA, 0xFE, 0xBA, 0xBE]);
-    });
-
-    test('builds a valid S2 record (3-byte address)', () => {
-        const rec = buildSRecDataRecord(2, 0xAB1234, [0x01, 0x02]);
-        assert.ok(rec.startsWith('S2'));
-        const { chkOk, data } = parseChk(rec, 3);
-        assert.ok(chkOk, 'checksum invalid');
-        assert.deepStrictEqual(data, [0x01, 0x02]);
-    });
-
-    test('builds a valid S3 record (4-byte address)', () => {
-        const rec = buildSRecDataRecord(3, 0x08000000, [0xDE, 0xAD, 0xBE, 0xEF]);
-        assert.ok(rec.startsWith('S3'));
-        const { chkOk, data } = parseChk(rec, 4);
-        assert.ok(chkOk, 'checksum invalid');
-        assert.deepStrictEqual(data, [0xDE, 0xAD, 0xBE, 0xEF]);
+    test('builds valid S1/S2/S3 data records with the matching address size', () => {
+        for (const [type, addr, data, asz] of [
+            [1, 0x0010, [0xCA, 0xFE, 0xBA, 0xBE], 2],
+            [2, 0xAB1234, [0x01, 0x02], 3],
+            [3, 0x08000000, [0xDE, 0xAD, 0xBE, 0xEF], 4],
+        ] as [number, number, number[], number][]) {
+            const rec = buildSRecDataRecord(type, addr, data);
+            assert.ok(rec.startsWith(`S${type}`), `expected S${type}, got ${rec.slice(0, 2)}`);
+            const { chkOk, data: parsed } = parseChk(rec, asz);
+            assert.ok(chkOk, 'checksum invalid');
+            assert.deepStrictEqual(parsed, data);
+        }
     });
 
     test('round-trips through parseSRec for S1', () => {
@@ -307,19 +275,11 @@ suite('serializeSRec()', () => {
         assert.strictEqual(reparsed.malformedLines, 0);
     });
 
-    test('preserves LF line endings', () => {
-        const result = makeParseResult();
-        const edits = new Map<number, number>([[0x0001, 0x99]]);
-        const out = serializeSRec(RAW_SREC, result, edits);
-        assert.ok(!out.includes('\r\n'), 'should not contain CRLF when input uses LF');
-    });
-
-    test('preserves CRLF line endings', () => {
+    test('preserves LF and CRLF line endings', () => {
         const crlf = RAW_SREC.replace(/\n/g, '\r\n');
-        const result = parseSRec(crlf);
         const edits = new Map<number, number>([[0x0001, 0x99]]);
-        const out = serializeSRec(crlf, result, edits);
-        assert.ok(out.includes('\r\n'), 'should preserve CRLF when input uses CRLF');
+        assert.ok(!serializeSRec(RAW_SREC, makeParseResult(), edits).includes('\r\n'), 'should not contain CRLF when input uses LF');
+        assert.ok(serializeSRec(crlf, parseSRec(crlf), edits).includes('\r\n'), 'should preserve CRLF when input uses CRLF');
     });
 
     test('async serializer yields while preserving S-Record output', async () => {
@@ -390,18 +350,11 @@ suite('repairChecksums()', () => {
         assert.strictEqual(repairChecksums(raw, result), raw);
     });
 
-    test('preserves LF line endings for IHEX', () => {
-        const raw = ':10000000DEADBEEFCAFEBABE0102030405060708FF\n:00000001FF';
-        const result = parseIntelHex(raw);
-        const repaired = repairChecksums(raw, result);
-        assert.ok(!repaired.includes('\r\n'), 'should not introduce CRLF');
-    });
-
-    test('preserves CRLF line endings for IHEX', () => {
-        const raw = ':10000000DEADBEEFCAFEBABE0102030405060708FF\r\n:00000001FF';
-        const result = parseIntelHex(raw);
-        const repaired = repairChecksums(raw, result);
-        assert.ok(repaired.includes('\r\n'), 'should preserve CRLF');
+    test('preserves LF and CRLF line endings for IHEX', () => {
+        const lf = ':10000000DEADBEEFCAFEBABE0102030405060708FF\n:00000001FF';
+        const crlf = ':10000000DEADBEEFCAFEBABE0102030405060708FF\r\n:00000001FF';
+        assert.ok(!repairChecksums(lf, parseIntelHex(lf)).includes('\r\n'), 'should not introduce CRLF');
+        assert.ok(repairChecksums(crlf, parseIntelHex(crlf)).includes('\r\n'), 'should preserve CRLF');
     });
 
     // ── Motorola SREC ─────────────────────────────────────────────────────────

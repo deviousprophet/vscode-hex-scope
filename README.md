@@ -9,6 +9,14 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 
 ![Demo](https://raw.githubusercontent.com/deviousprophet/vscode-hex-scope/main/images/demo.gif)
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick usage](#quick-usage)
+- [Supported file types](#supported-file-types)
+- [Documentation](#documentation)
+- [Issues](#issues)
+
 ## Features
 
 ### View
@@ -53,9 +61,18 @@ TypeScript or JavaScript scripts in `.hexscope/scripts/` read/write hex data (wr
 | Views | Toolbar: **Memory** or **Records** |
 | Search | `Ctrl+F`/`Cmd+F` — byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
 | Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums |
+| Save & checksums | **Save** rewrites records and recomputes record checksums |
+| Quick Repair | Right-click broken file → **Quick Repair Checksums** |
 | Struct Overlay | Define C structs in the sidebar, pin them at addresses, decode live memory |
 | Integrity | Configure checks in the sidebar, compare stored CRC values, reuse saved profiles |
 | Scripts | Open the Scripts sidebar tab, pick a script from `.hexscope/scripts/`, run it |
+
+## Documentation
+
+- [Scripting guide](docs/SCRIPTING.md) — scripts, API reference, and examples
+- [Storage layout](docs/HEXSCOPE_STORAGE.md) — `.hexscope/` profiles and stored data
+- [Changelog](CHANGELOG.md)
+- [License](LICENSE)
 
 ## Issues
 
