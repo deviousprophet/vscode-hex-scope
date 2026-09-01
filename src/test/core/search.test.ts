@@ -17,19 +17,11 @@ function runSearch(mode: string, raw: string, segments: { startAddress: number; 
 }
 
 suite('SearchEngine address search', () => {
-    test('short address "1A0" matches padded address 0x000001A0', async () => {
-        const matches = await runSearch('addr', '1A0', [segWithMarkerAt(417, 0x1A0)]);
-        assert.deepStrictEqual(matches, [0x1A0]);
-    });
-
-    test('"0x1A0" with prefix matches 0x000001A0', async () => {
-        const matches = await runSearch('addr', '0x1A0', [segWithMarkerAt(417, 0x1A0)]);
-        assert.deepStrictEqual(matches, [0x1A0]);
-    });
-
-    test('full padded "000001A0" finds address 0x1A0 (backward compat)', async () => {
-        const matches = await runSearch('addr', '000001A0', [segWithMarkerAt(417, 0x1A0)]);
-        assert.deepStrictEqual(matches, [0x1A0]);
+    test('address queries match their canonical form', async () => {
+        for (const query of ['1A0', '0x1A0', '000001A0']) {
+            const matches = await runSearch('addr', query, [segWithMarkerAt(417, 0x1A0)]);
+            assert.deepStrictEqual(matches, [0x1A0], query);
+        }
     });
 
     test('address "FFFFFFFF" matches max 32-bit address', async () => {
@@ -53,13 +45,10 @@ suite('SearchEngine address search', () => {
     });
 
     test('overflow: >8 hex chars returns empty (no silent wrap)', async () => {
-        const matches = await runSearch('addr', '100000000', [{ startAddress: 0, data: new Uint8Array(10) }]);
-        assert.deepStrictEqual(matches, []);
-    });
-
-    test('overflow: 0x-prefixed >8 hex chars returns empty', async () => {
-        const matches = await runSearch('addr', '0x100000000', [{ startAddress: 0, data: new Uint8Array(10) }]);
-        assert.deepStrictEqual(matches, []);
+        for (const query of ['100000000', '0x100000000']) {
+            const matches = await runSearch('addr', query, [{ startAddress: 0, data: new Uint8Array(10) }]);
+            assert.deepStrictEqual(matches, [], query);
+        }
     });
 
     test('canonicalizeQuery normalizes address inputs', () => {

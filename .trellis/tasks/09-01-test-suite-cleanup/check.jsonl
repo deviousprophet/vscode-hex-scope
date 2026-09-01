@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/09-01-test-suite-cleanup/prd.md", "reason": "Acceptance criteria the check sub-agent must verify against."}
+{"file": ".trellis/tasks/09-01-test-suite-cleanup/design.md", "reason": "Boundaries and per-phase strategy the implementation must match."}
+{"file": ".trellis/tasks/09-01-test-suite-cleanup/implement.md", "reason": "Baseline counts + expected deltas so check can confirm no distinct behavior was removed."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend conventions relevant to webview panel tests modified during cleanup."}
