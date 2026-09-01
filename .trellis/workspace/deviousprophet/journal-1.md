@@ -1040,3 +1040,23 @@ fallow-fix: addressed split-high-impact refactoring target. Extracted menuRender
 ### Status
 
 [OK] **Completed**
+
+## Session 46: Theme-adaptive ihex/srec syntax highlighting
+
+**Date**: 2026-09-01
+**Task**: Theme-adaptive ihex/srec syntax highlighting (drop tokenColorCustomizations)
+**Branch**: `fix/theme-adaptive-ihex-color`
+
+### Summary
+
+Fixed VS Code package.json schema error (202:26 "Incorrect type. Expected object.") by removing `contributes.configurationDefaults` / `editor.tokenColorCustomizations` (configDefaultsSchema whitelists only app/machine-scoped defaults; window-scoped tokenColorCustomizations rejected). Remapped both grammars' capture scopes to hex-fmt-style standard TextMate scopes (`keyword.operator` start code, `constant.numeric` byte-count + extended value, `variable.parameter` address, `entity.name.type` record type, `markup.bold` checksum, `invalid.illegal` malformed; data unscoped) so colors follow the active theme (light-safe). package.json block spliced byte-safe; regexes untouched; ihex eof-record checksum-capture5 fix caught by grep. CHANGELOG folded into tagged [2.20.0] Changed (2 bullets, user-requested split). Gates: lint/check-types green, 913 tests pass. Trellis check agent PASS (6/6). Commit b06db6e.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b06db6e` | fix(highlighting): theme-adaptive hex/srec colors, drop invalid token defaults |
+
+### Status
+
+[OK] **Completed** (PR pending)

@@ -11,6 +11,8 @@
 ### Changed
 
 - Profile files use a versioned format; edits to the files on disk apply to open panels automatically, and a file from a future unsupported version is left untouched rather than rewritten
+- Intel HEX and Motorola SREC syntax highlighting now follows the active color theme — `.hex` and `.srec` files render correctly on dark, light, and high-contrast themes instead of the previous hard-coded colors
+- Highlighting scopes were renamed to standard TextMate scopes (`keyword.operator`, `constant.numeric`, `variable.parameter`, `entity.name.type`, `markup.bold`) so the colors complement the active theme
 
 ## [2.19.0] - 2026-08-23
 
