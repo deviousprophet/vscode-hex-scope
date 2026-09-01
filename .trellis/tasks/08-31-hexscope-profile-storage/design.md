@@ -144,7 +144,7 @@ pattern `additionalProperties: false` strict required fields: `version` const 1,
 .hexscope/firmware_profiles/<id>/index.json  <- "$schema": "../../schemas/index.schema.json"
 ```
 
-- `writeJson`/`JsonStore.flush` inject `$schema` (relative posix path from the profile file to `../schemas/<name>.schema.json`) into the **envelope level** (`{ version, data, $schema }`), never into `data`.
+- `writeJson`/`JsonStore.flush` **always re-injects the canonical `$schema`** (`../../schemas/<name>.schema.json`, relative posix path from the profile file) into the **envelope level** (`{ version, data, $schema }`), never into `data`. The canonical value is written unconditionally on every profile-file write — there is **no round-trip preservation** of any user-authored different `$schema` value: a non-canonical sibling in the file is replaced on the next write (self-heal included).
 - All normalizers (`normalizeIndexFile`, structs, integrity) must **carry `$schema` through** so self-heal write-back preserves it (the changed-compare already compares `JSON.stringify(value, raw)`; if `$schema` is part of `value`, it is never stripped).
 - Seeding: on first profile creation (`createProfile`), write the three schema files into `.hexscope/schemas/` if absent (`writeIfMissing`-style; self-write-marked so the watcher ignores). Seed matches the schema the extension ships (schema-version drift deferred until a real bump).
 - Repo+VSIX copy is the source of truth authors; workspace copy is a cache. The ajv drift-guard test anchors the repo copy to the TS types.

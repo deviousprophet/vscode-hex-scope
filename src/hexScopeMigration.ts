@@ -4,6 +4,7 @@
 // (writeIfMissing — committed profile files are preserved), then
 // hard-deletes every touched key. Idempotent; no user prompt.
 
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityProfiles } from './core/integrity';
 import { mergeLegacyStructDefs, migrateStructDefinitions, normalizeStructDefsValue } from './core/structMigration';
@@ -15,6 +16,7 @@ import {
     normalizeIndexFile,
     perFileRelativePath,
     profileJsonUri,
+    resolveHexScopeRoot,
     seedSchemaCopies,
     withEnvelope,
     writeIfMissing,
@@ -33,6 +35,7 @@ const PER_FILE_ENDIAN_PREFIX = 'hexScope.endian.';
 export interface MementoLike {
     get<T>(key: string, defaultValue?: T): T | undefined;
     update(key: string, value: unknown): Thenable<void>;
+    keys(): readonly string[];
 }
 
 export interface MigrationContext {
@@ -41,6 +44,7 @@ export interface MigrationContext {
 }
 
 const migratedRoots = new Set<string>();
+const sweptRoots = new Set<string>();
 
 export async function migrateLegacyData(root: string, uri: vscode.Uri, context: MigrationContext): Promise<void> {
     if (migratedRoots.has(root)) { return; }
@@ -57,6 +61,7 @@ export async function migrateLegacyData(root: string, uri: vscode.Uri, context: 
         console.error(`HexScope: legacy data migration failed for ${root}:`, error);
     } finally {
         await deleteLegacyKeys(uriStr, context);
+        await sweepLegacyPerFileKeys(root, context);
         migratedRoots.add(root);
     }
 }
@@ -131,6 +136,40 @@ async function deleteLegacyKeys(uriStr: string, context: MigrationContext): Prom
         await context.globalState.update(key, undefined);
         await context.workspaceState.update(key, undefined);
     }
+}
+
+/**
+ * Root sweep: delete per-file Memento keys for EVERY document under this
+ * root, not just the open uri — so a first-panel-open migration leaves no
+ * legacy per-file keys behind for sibling docs. Runs once per root.
+ */
+async function sweepLegacyPerFileKeys(root: string, context: MigrationContext): Promise<void> {
+    if (sweptRoots.has(root)) { return; }
+    sweptRoots.add(root);
+    for (const key of context.workspaceState.keys()) {
+        if (legacyKeyBelongsToRoot(perFileUriFromKey(key), root)) {
+            await context.workspaceState.update(key, undefined);
+        }
+    }
+}
+
+/** Does this legacy per-file key's document belong to the given hexScope root? */
+function legacyKeyBelongsToRoot(parsedUri: vscode.Uri | null, root: string): boolean {
+    if (parsedUri === null) { return false; }
+    if (resolveHexScopeRoot(parsedUri) === root) { return true; }
+    // Strict under-root containment: dirname fallback for single-file-open
+    // roots and docs nested under the root tree.
+    return parsedUri.fsPath.startsWith(root + path.sep);
+}
+
+/** Parse the embedded workspace uri out of a per-file key; null for non-per-file keys. */
+function perFileUriFromKey(key: string): vscode.Uri | null {
+    // Checks/endian keys carry a trailing `.v1` (match deleteLegacyKeys/readLegacyKeys);
+    // all other per-file keys embed the uri verbatim.
+    const match = /^hexScope\.(?:integrityChecks|endian)\.(.+)\.v1$/.exec(key)
+        ?? /^hexScope\.(?:structs|labels|segmentNames|structPins|integrityChecks|endian)\.(.+)$/.exec(key);
+    if (!match) { return null; }
+    try { return vscode.Uri.parse(match[1]); } catch { return null; }
 }
 
 function hasLegacyData(values: LegacyValues): boolean {

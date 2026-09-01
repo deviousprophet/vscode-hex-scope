@@ -32,7 +32,7 @@ import type { LabelDraftPreview, SerializedParseResult, SerializedRecord, Struct
 import type { SidebarTab } from './components/sidebar/sidebar';
 import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
-import { RECORD_PAGE_SIZE } from '../webviewProtocol';
+import { RECORD_PAGE_SIZE, type HexScopeEndian } from '../webviewProtocol';
 import {
     calcRowOffset,
     calcScrollLayout,
@@ -985,13 +985,18 @@ function applyExternalChangeErrorUpdate(update: WebviewModelUpdate): void {
     );
 }
 
-/** External endian slice: re-drive every endian consumer (same as setFileEndian). */
-function applyEndianChanged(): void {
+/** Re-drive every endian consumer (sidebar toggle + inspector/struct/integrity panels). */
+function writeEndianToConsumers(endian: HexScopeEndian): void {
     const settings = document.getElementById('sidebar-common-settings');
     if (settings) { renderEndianToggle(settings); }
-    inspectorPanel.setEndian(S.endian);
-    structPanel.setEndian(S.endian);
+    inspectorPanel.setEndian(endian);
+    structPanel.setEndian(endian);
     integrityPanel.notifyEndianChanged();
+}
+
+/** External endian slice: re-drive every endian consumer (same as setFileEndian). */
+function applyEndianChanged(): void {
+    writeEndianToConsumers(S.endian);
 }
 
 function applyInvalidations(invalidations: WebviewInvalidations): void {
@@ -1116,12 +1121,8 @@ function renderEndianToggle(root: HTMLElement): void {
 function setFileEndian(endian: 'le' | 'be'): void {
     if (S.endian === endian) { return; }
     S.endian = endian;
-    const settings = document.getElementById('sidebar-common-settings');
-    if (settings) { renderEndianToggle(settings); }
+    writeEndianToConsumers(endian);
     postProviderMessage({ type: 'saveEndian', endian });
-    inspectorPanel.setEndian(S.endian);
-    structPanel.setEndian(S.endian);
-    integrityPanel.notifyEndianChanged();
 }
 
 function setShowAscii(value: boolean): void {

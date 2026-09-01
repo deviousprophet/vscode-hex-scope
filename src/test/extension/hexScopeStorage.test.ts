@@ -423,6 +423,28 @@ suite('hexScopeMigration — one-time legacy Memento transfer', () => {
         assert.deepStrictEqual(workspaceState.keys(), [], 'every workspace key hard-deleted');
     });
 
+    test('root sweep deletes per-file keys for sibling documents under the same root', async () => {
+        const first = vscode.Uri.file(path.join(testRoot, 'firmware', 'boot.hex'));
+        const sibling = vscode.Uri.file(path.join(testRoot, 'firmware', 'other.hex'));
+        const globalState = new FakeMemento();
+        const workspaceState = new FakeMemento();
+        workspaceState.update(`hexScope.labels.${first.toString()}`, [{ id: 'l1', name: 'L1', startAddress: 0, length: 1, color: '#000' }]);
+        workspaceState.update(`hexScope.structs.${first.toString()}`, [{ id: 's1', name: 'S1', fields: [] }]);
+        workspaceState.update(`hexScope.labels.${sibling.toString()}`, [{ id: 'l2', name: 'L2', startAddress: 4, length: 1, color: '#111' }]);
+        workspaceState.update(`hexScope.endian.${sibling.toString()}.v1`, 'be');
+        workspaceState.update(`hexScope.integrityChecks.${sibling.toString()}.v1`, { schemaVersion: 1, checks: [] });
+
+        await migrateLegacyData(testRoot, first, { globalState, workspaceState });
+
+        const dir = await findProfile(testRoot, 'firmware/boot.hex');
+        assert.ok(dir, 'first profile created + seeded');
+        const index = await readJsonValue(indexUriFor(dir!)) as { version: number; data: IndexFileData };
+        assert.strictEqual(index.data.labels.length, 1, 'first document labels migrated');
+        const structs = await readJsonValue(structsUriFor(dir!)) as { data: unknown[] };
+        assert.strictEqual(structs.data.length, 1, 'first document structs migrated');
+        assert.deepStrictEqual(workspaceState.keys(), [], 'per-file keys for BOTH documents hard-deleted');
+    });
+
     test('existing committed profile files are preserved; rerun is a no-op', async () => {
         const dir = await createProfile(testRoot, 'firmware/boot.hex');
         const committed = [{ id: 'committed', name: 'Committed', fields: [] }];
