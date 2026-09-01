@@ -1,0 +1,5 @@
+{"file": "package.json", "reason": "Verify contributes.configurationDefaults and all tokenColorCustomizations/textMateRules/scope strings are gone; file remains valid JSON."}
+{"file": "syntaxes/intel-hex.tmLanguage.json", "reason": "Verify every capture name matches design.md mapping; no meta.ihex.* / punctuation.ihex.* remain; regexes unchanged; valid JSON."}
+{"file": "syntaxes/srec.tmLanguage.json", "reason": "Verify every capture name matches design.md mapping; no meta.srec.* / punctuation.srec.* remain; regexes unchanged; valid JSON."}
+{"file": "CHANGELOG.md", "reason": "Confirm Unreleased section documents the theme-color switch + scope remap."}
+{"file": "prd.md", "reason": "Acceptance criteria source for the trellis-check gate (lint, check-types, npm test)."}

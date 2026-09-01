@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/index.md", "reason": "Phase 3 spec-update pass: check whether any spec documents the syntax-highlight contribution (languages/grammars/configurationDefaults) so it can be reconciled to the theme-adaptive scopes."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Search for a document-formats / directory-structure spec listing grammar files or the languages contribution that this change touches."}
+{"file": "README.md", "reason": "Verify README does not promise hard-coded token colors (grep says it does not; 81 lines, no mention)."}
+{"file": ".trellis/tasks/archive/2026-08/08-02-grammar-refactor/*", "reason": "If an archived task documents the original per-field scope design decisions, reuse rationale and avoid contradicting recorded decisions."}
