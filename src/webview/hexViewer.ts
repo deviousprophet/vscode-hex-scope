@@ -23,7 +23,7 @@ import {
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
 import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from './editSelection';
-import { currentSelectionRange, mappedSelectionRange, selectedBytes } from './memory/selection';
+import { currentSelectionRange, mappedSelectionRange, selectedBytes, type SelectionRange } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
 import { StructPanel } from './components/sidebar/structPanel/structPanel';
@@ -557,12 +557,20 @@ function isMappedByte(a: number): boolean {
     return getByte(a) !== undefined;
 }
 
+/** True when the launcher preconditions hold for opening an edit session. */
+function isSelectionEditAllowed(): boolean {
+    return S.editMode && !S.lockedDueToExternalChange;
+}
+
+function hasEditableRange(range: SelectionRange | null): range is SelectionRange {
+    return range !== null && selectedBytes().length >= 2;
+}
+
 /** Menu launcher: requires edit mode + unlocked + a mapped range >= 2 bytes. */
 function beginSelectedBytesSession(): void {
-    if (!S.editMode || S.lockedDueToExternalChange) { return; }
-    if (selEditSession) { return; }
+    if (!isSelectionEditAllowed() || selEditSession) { return; }
     const range = currentSelectionRange();
-    if (!range || selectedBytes().length < 2) { return; }
+    if (!hasEditableRange(range)) { return; }
     selEditSession = { start: range.start, cursor: range.start, undo: new Map(), end: range.end };
     toolbar.setSectionEdit(true, selectedBytes().length);
     paintMemorySelEdit({ start: range.start, end: range.end });
@@ -623,17 +631,14 @@ function handleSessionNibble(char: string): void {
     advanceSelectedBytesSession();
 }
 
+function handleSessionCharColumn(e: KeyboardEvent): boolean {
+    const addr = selEditSession!.cursor;
+    return applyAsciiColumnKey(e, addr, value => sessionStageByte(addr, value), advanceSelectedBytesSession);
+}
+
 function handleSessionKeypress(e: KeyboardEvent): void {
     if (e.key === 'Escape') { commitSelectedBytesSession(); return; }
-    if (S.lastClickColumn === 'char') {
-        if (e.key.length !== 1) { return; }
-        const code = e.key.charCodeAt(0);
-        if (!isPrintableCharCode(code)) { return; }
-        e.preventDefault();
-        sessionStageByte(selEditSession!.cursor, code);
-        advanceSelectedBytesSession();
-        return;
-    }
+    if (handleSessionCharColumn(e)) { return; }
     if (!HEX_CHAR_RE.test(e.key)) { return; }
     e.preventDefault();
     handleSessionNibble(e.key.toUpperCase());
@@ -709,9 +714,14 @@ function isModifierKey(e: KeyboardEvent): boolean {
     return e.ctrlKey || e.metaKey;
 }
 
+function isEditKeystrokeAllowed(e: KeyboardEvent): boolean {
+    if (isEditBlocked()) { return false; }
+    if (isModifierKey(e)) { return false; }
+    return true;
+}
+
 function onEditKeydown(e: KeyboardEvent): void {
-    if (isEditBlocked()) {return;}
-    if (isModifierKey(e)) { return; }
+    if (!isEditKeystrokeAllowed(e)) { return; }
     if (selEditSession) { handleSessionKeypress(e); return; }
     if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
     processEditKeypress(e, S.selStart!);
@@ -721,14 +731,19 @@ function isPrintableCharCode(code: number): boolean {
     return code >= 0x20 && code <= 0x7E;
 }
 
-function handleCharColumnEdit(e: KeyboardEvent, addr: number): boolean {
+/** ASCII/decoded-column key: printable char replaces the byte immediately. */
+function applyAsciiColumnKey(e: KeyboardEvent, addr: number, stage: (value: number) => void, advance: () => void): boolean {
     if (S.lastClickColumn !== 'char' || e.key.length !== 1) { return false; }
     const code = e.key.charCodeAt(0);
     if (!isPrintableCharCode(code)) { return false; }
     e.preventDefault();
-    applyTypedEdit(addr, code);
-    advanceSel(addr);
+    stage(code);
+    advance();
     return true;
+}
+
+function handleCharColumnEdit(e: KeyboardEvent, addr: number): boolean {
+    return applyAsciiColumnKey(e, addr, value => applyTypedEdit(addr, value), () => advanceSel(addr));
 }
 
 function processEditKeypress(e: KeyboardEvent, addr: number): void {
@@ -1692,11 +1707,16 @@ function redoLastEdit(): void {
 // ── Copy helpers ──────────────────────────────────────────────────
 // ── Context menu ──────────────────────────────────────────────────
 
+const CONTEXT_ACTIONS: Record<string, () => void> = {
+    'go-address': goToContextAddress,
+    'select-all': selectAllMappedBytes,
+    'select-segment': selectSegmentAtSelection,
+    'edit-selected': beginSelectedBytesSession,
+};
+
 function handleCtxCommand(cmd: string): void {
-    if (cmd === 'go-address') { goToContextAddress(); return; }
-    if (cmd === 'select-all') { selectAllMappedBytes(); return; }
-    if (cmd === 'select-segment') { selectSegmentAtSelection(); return; }
-    if (cmd === 'edit-selected') { beginSelectedBytesSession(); return; }
+    const action = CONTEXT_ACTIONS[cmd];
+    if (action) { action(); return; }
     applyContextCommandResult(contextCommandResult(cmd, selectedBytes(), S.editMode));
 }
 
