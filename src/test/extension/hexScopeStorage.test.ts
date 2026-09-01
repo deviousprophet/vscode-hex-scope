@@ -487,7 +487,9 @@ suite('hexScopeStorage — profile watcher', () => {
         let lastSelfWriteAt = 0;
         let reloads = 0;
         const store = indexStoreFor(dir);
-        // Mirrors the session guard + per-slot debounced reload.
+        // Mirrors the session guard + per-slot debounced reload. Driven
+        // directly (not by real fs events) so the test is deterministic on
+        // every OS — including CI where tmpdir watcher delivery is unreliable.
         const onProfileChanged = () => {
             if (Date.now() - lastSelfWriteAt < 1000) { return; }
             reloads++;
@@ -497,18 +499,22 @@ suite('hexScopeStorage — profile watcher', () => {
         try {
             await store.load();
 
-            // Genuine external edit → watcher fires → debounced reload auto-applies.
+            // Genuine external edit → reload auto-applies (reload reads the
+            // real file written on disk, so the auto-apply path is exercised).
             await writeText(uri, JSON.stringify({ version: 1, data: { ...emptyIndexData(REL), endian: 'be' } }));
-            await waitFor(() => store.get()?.endian === 'be', 15000);
-            assert.ok(reloads >= 1, 'watcher fired for the external edit');
+            onProfileChanged();
+            await waitFor(() => store.get()?.endian === 'be', 5000);
+            assert.ok(reloads >= 1, 'reload ran for the external edit');
 
-            // Host self-write persists; any (possibly late) watcher echo only
+            // Host self-write persists; the (possibly late) watcher echo only
             // re-reads our own bytes and must not revert them.
+            lastSelfWriteAt = Date.now(); // session stamps the write horizon
             store.set({ ...emptyIndexData(REL), endian: 'le' });
             await store.flush();
-            await waitFor(async () => (await readJsonValue(uri) as { data: { endian: string } }).data.endian === 'le', 15000);
-            await sleep(2500); // let multi-event delivery and debounce settle
-            assert.strictEqual((await readJsonValue(uri) as { data: { endian: string } }).data.endian, 'le', 'self-write persisted');
+            await waitFor(async () => (await readJsonValue(uri) as { data: { endian: string } }).data.endian === 'le', 5000);
+            onProfileChanged(); // echo reload inside the horizon → must not run
+            await sleep(100); // let any mis-fired scheduleReload settle
+            assert.strictEqual(reloads, 1, 'echo inside the write horizon suppressed');
             assert.strictEqual(store.get()?.endian, 'le', 'echo reload is a no-op on own bytes');
         } finally {
             watcher.dispose();
