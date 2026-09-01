@@ -1060,3 +1060,29 @@ Fixed VS Code package.json schema error (202:26 "Incorrect type. Expected object
 ### Status
 
 [OK] **Completed** (PR pending)
+
+
+## Session 47: Allow editing multiple selected hex values
+<!-- trellis-session: v=2 fp=8694b88e26bd7be3 -->
+
+**Date**: 2026-09-02
+**Task**: Allow editing multiple selected hex values
+**Branch**: `feat/editing-multi-selected-values`
+
+### Summary
+
+Context-menu 'Edit selected bytes' session: typing confined to selection, staged live into S.edits, one grouped undo at exit, Cancel/document-load reverts. Sibling SELECTION chip + sel-edit range tint. Menu gated to edit mode and grouped with Patch/Fill. Fallow-clean, 922 passing.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `75e2cc4` | refactor(editing): reduce session/edit key handler complexity (fallow) |
+| `b2d6b0d` | feat(editing): show sibling SELECTION chip during selection-edit session |
+| `0d54dae` | refactor(editing): gate Edit selected bytes to edit mode, group with Patch/Fill |
+| `e49e812` | fix(editing): stage selection-edit bytes live and tint the active range |
+| `09f16fc` | feat(editing): confine typed edits to a multi-byte selection via context menu |
+
+### Status
+
+[OK] **Completed**

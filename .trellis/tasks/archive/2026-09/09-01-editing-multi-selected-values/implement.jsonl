@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Direct-typing key-filter + advance contract; this task changes both (session-gated range typing, commit-at-exit transaction rule, Escape deviation)."}
+{"file": ".trellis/spec/frontend/components/component-menu-controller.md", "reason": "Context-menu command registration + enable/disable rules; new 'Edit selected bytes' item lives here."}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Hex grid selection paint + nibble-edit preview affordance reused for the active session affordance."}

@@ -18,6 +18,7 @@ import {
 } from '../../webview/render/virtualScroll';
 import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
 import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
+import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
 
@@ -1587,6 +1588,82 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
         assert.strictEqual(walkMappedAddress(0x1012, 'up'), 0x1002, 'same column mapped above');
         assert.strictEqual(walkMappedAddress(0x100B, 'down'), 0x1010, 'column 0B unmapped below — falls back to row start');
+    });
+});
+
+suite('editSelection session walk', () => {
+    test('advanceWithinRange walks mapped bytes inside the range', () => {
+        const isMapped = (a: number) => a !== 0x1002;
+        assert.strictEqual(advanceWithinRange(0x1000, 0x1004, isMapped), 0x1001);
+        assert.strictEqual(advanceWithinRange(0x1001, 0x1004, isMapped), 0x1003, 'skips unmapped 0x1002');
+        assert.strictEqual(advanceWithinRange(0x1003, 0x1004, isMapped), 0x1004);
+    });
+
+    test('advanceWithinRange returns null at/past the range end', () => {
+        const isMapped = (a: number) => true;
+        assert.strictEqual(advanceWithinRange(0x1004, 0x1004, isMapped), null, 'no byte after the last selected');
+        assert.strictEqual(advanceWithinRange(0x1004, 0x0FFF, isMapped), null, 'end before current');
+    });
+});
+
+suite('selection-edit session staging', () => {
+    setup(() => {
+        resetState();
+        S.parseResult = {
+            records: [],
+            segments: [{ startAddress: 0x1000, data: [0xDE, 0xAD, 0xBE, 0xEF] }],
+            totalDataBytes: 4, checksumErrors: 0, malformedLines: 0, format: 'ihex',
+        };
+        initFlatBytes();
+    });
+
+    test('typed session byte is visible live (regression: reverted to original)', () => {
+        const undo = new Map<number, number>();
+        const changed = stageSessionByte(undo, 0x1001, 0x42);
+        assert.strictEqual(changed, true);
+        assert.strictEqual(S.edits.get(0x1001), 0x42, 'byte must be in S.edits during the session');
+        assert.strictEqual(getByte(0x1001), 0x42, 'grid read (getByte) shows the typed value at once');
+        assert.strictEqual(S.parseResult!.segments[0].data[1], 0xAD, 'original untouched');
+    });
+
+    test('first prior value recorded once per address (range-end re-edit)', () => {
+        const undo = new Map<number, number>();
+        stageSessionByte(undo, 0x1001, 0x42);
+        stageSessionByte(undo, 0x1001, 0xEF);
+        assert.strictEqual(undo.size, 1);
+        assert.deepStrictEqual(Array.from(undo.entries()), [[0x1001, 0xAD]], 'snapshot keeps the FIRST prior');
+        assert.strictEqual(getByte(0x1001), 0xEF, 'live value is the last write');
+    });
+
+    test('flushSessionUndo commits the whole session as ONE undo transaction', () => {
+        const undo = new Map<number, number>();
+        stageSessionByte(undo, 0x1001, 0x42);
+        stageSessionByte(undo, 0x1002, 0xFF);
+        assert.strictEqual(S.undoStack.length, 0, 'no per-byte undo entries while typing');
+        flushSessionUndo(undo);
+        assert.strictEqual(S.undoStack.length, 1, 'one transaction for the session');
+        assert.deepStrictEqual(S.undoStack[0], [[0x1001, 0xAD], [0x1002, 0xBE]]);
+        undoLastEditTransaction();
+        assert.strictEqual(S.undoStack.length, 0);
+        assert.strictEqual(getByte(0x1001), 0xAD, 'undo reverts the whole session');
+        assert.strictEqual(getByte(0x1002), 0xBE);
+    });
+
+    test('discardSessionUndo reverts staged bytes with no undo entry', () => {
+        const undo = new Map<number, number>();
+        stageSessionByte(undo, 0x1001, 0x42);
+        discardSessionUndo(undo);
+        assert.strictEqual(S.edits.size, 0, 'staged bytes reverted');
+        assert.strictEqual(getByte(0x1001), 0xAD);
+        assert.strictEqual(S.undoStack.length, 0);
+    });
+
+    test('stageSessionByte skips an unchanged value', () => {
+        const undo = new Map<number, number>();
+        const changed = stageSessionByte(undo, 0x1001, 0xAD);
+        assert.strictEqual(changed, false);
+        assert.strictEqual(undo.size, 0);
+        assert.strictEqual(S.edits.size, 0);
     });
 });
 

@@ -16,6 +16,7 @@ export interface MenuState {
     len: number;
     bytes: number[];
     editMode: boolean;
+    locked: boolean;
     endian: 'le' | 'be';
     /** Precomputed go-address target + mapped flag. null = not applicable (len !== 4). */
     goAddress: { address: number; valid: boolean } | null;
@@ -62,6 +63,16 @@ function interactionRows(state: MenuState): string {
     return goAddressRow(state) +
         menuItem('select-all', 'Select all') +
         menuItem('select-segment', 'Select segment');
+}
+
+/** "Edit selected bytes" session launcher, inside the edit-only Patch/Fill group. */
+function editSelectedRow(state: MenuState): string {
+    if (state.bytes.length < 2) { return ''; }
+    const disabled = state.locked ? ' menu-disabled' : '';
+    const aria = state.locked ? ' aria-disabled="true" title="File is locked"' : '';
+    return `<div class="menu-item${disabled}" data-cmd="edit-selected" role="menuitem" tabindex="-1"${aria}>` +
+        `<span class="menu-label">Edit selected bytes</span>` +
+        `</div>`;
 }
 
 function buildFillMenu(len: number): string {
@@ -125,7 +136,11 @@ function buildMultiByteBody(state: MenuState): string {
         menuSubmenu('Analyze', 'analyze', buildAnalyzeMenu(bytes)) +
         MENU_SEP +
         interactionRows(state) +
-        (editMode ? MENU_SEP + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(len)) : '');
+        // Edit actions group — visible only in edit mode; shares the group
+        // with Patch / Fill.
+        (editMode
+            ? MENU_SEP + editSelectedRow(state) + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(len))
+            : '');
 }
 
 function buildSingleByteBody(state: MenuState): string {

@@ -44,6 +44,15 @@
     background: rgba(229,168,0,.12); border: 1px solid rgba(229,168,0,.35);
 }
 
+/* Selection-edit session chip (sibling of EDITING pill, never replaces it) */
+.tb-seledit-chip {
+    font-size: 10px; font-family: var(--font-ui); font-weight: 700;
+    color: var(--high-color); letter-spacing: .04em; white-space: nowrap;
+    padding: 1px 7px; border-radius: 10px;
+    background: rgba(79,195,247,.12); border: 1px solid rgba(79,195,247,.45);
+}
+.tb-seledit-chip[hidden] { display: none; }
+
 /* Dirty count inside the group */
 #edit-dirty-count {
     font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);

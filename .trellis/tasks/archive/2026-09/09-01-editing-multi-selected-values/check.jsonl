@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Verify session commit still ships bytes through stageIntegrityEditTransaction and matches the save/dirty contract; spec itself updated after change."}
+{"file": ".trellis/spec/frontend/components/component-menu-controller.md", "reason": "Check menu item visibility/enable wiring matches MenuController enable/disable contract."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Quality bar for the new unit + integration tests."}

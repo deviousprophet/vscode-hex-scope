@@ -71,8 +71,9 @@ export function renderToolbarHtml(searchBarHtml: string, s: ToolbarRenderState):
             <div class="tb-sep"></div>
             <button id="btn-ascii-toggle" class="${activeClass(mem && s.ascii)} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column"${hiddenAttr(mem)}>ASCII</button>
             <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode"${hiddenAttr(mem && !s.editMode)}>&#11041; Edit</button>
-            <div id="edit-mode-group" style="display:${groupDisplay(mem && s.editMode)}">
+<div id="edit-mode-group" style="display:${groupDisplay(mem && s.editMode)}">
                 <span class="tb-editing-pill" title="Underlined bytes are edited">&#9679; EDITING</span>
+                <span id="tb-seledit-chip" class="tb-seledit-chip" title="Editing confined to the selected range" hidden>SELECTION</span>
                 <span id="edit-dirty-count">${dirtyEditText(s.dirtyCount)}</span>
                 <span id="edit-status" role="status"></span>
                 <button id="btn-save" class="tb-save-btn" title="Save edits to file"${disabledAttr(s.dirtyCount === 0)}>&#128190; Save</button>
@@ -152,6 +153,14 @@ export class Toolbar {
         if (span) { span.textContent = dirtyEditText(count); }
         const save = document.getElementById('btn-save') as HTMLButtonElement | null;
         if (save) { save.disabled = count === 0; }
+    }
+
+    /** Selection-edit session chip: separate badge; static count (selected mapped bytes). */
+    setSectionEdit(active: boolean, count = 0): void {
+        const chip = document.getElementById('tb-seledit-chip');
+        if (!chip) { return; }
+        chip.hidden = !active;
+        chip.textContent = active ? `SELECTION \u00b7 ${count} B` : 'SELECTION';
     }
 
     /** Transient edit-mode status message (e.g. a truncated paste); auto-clears. */

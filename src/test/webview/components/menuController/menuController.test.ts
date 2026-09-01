@@ -37,6 +37,7 @@ function baseState(partial: Partial<MenuState> = {}): MenuState {
         len: 4,
         bytes: [0xDE, 0xAD, 0xBE, 0xEF],
         editMode: false,
+        locked: false,
         endian: 'le',
         goAddress: { address: 0xEFBEADDE, valid: true },
         ...partial,
@@ -91,7 +92,28 @@ suite('webview MenuController component (hex menu)', () => {
         assert.ok(html.includes('data-cmd="go-address"'));
         assert.ok(html.includes('data-cmd="select-all"'));
         assert.ok(html.includes('data-cmd="select-segment"'));
+        assert.ok(!html.includes('data-cmd="edit-selected"'), 'edit-selected hidden outside edit mode');
         assert.ok(!html.includes('data-sub="fill"'), 'patch hidden outside edit mode');
+    });
+
+    test('edit-selected is in the edit-only Patch/Fill group and gated to multi-byte', () => {
+        const multi = renderMenuHtml(baseState({ editMode: true }));
+        assert.ok(multi.includes('class="menu-item" data-cmd="edit-selected"'), 'enabled in edit mode');
+        assert.ok(!multi.includes('menu-disabled" data-cmd="edit-selected"'));
+        assert.ok(multi.includes('data-sub="fill"'));
+        const fillIdx = multi.indexOf('data-sub="fill"');
+        const editIdx = multi.indexOf('data-cmd="edit-selected"');
+        assert.ok(editIdx !== -1 && fillIdx !== -1 && editIdx < fillIdx, 'edit-selected precedes Patch / Fill in the same edit group');
+        assert.ok(!multi.includes('data-cmd="edit-selected" data-cmd="select-all"'), 'not merged into interaction rows');
+        const single = renderMenuHtml(baseState({ len: 1, bytes: [0x42], goAddress: null }));
+        assert.ok(!single.includes('data-cmd="edit-selected"'), 'single-byte selection hides the row');
+        const outside = renderMenuHtml(baseState());
+        assert.ok(!outside.includes('data-cmd="edit-selected"'), 'hidden entirely when edit mode is off');
+        const locked = renderMenuHtml(baseState({ editMode: true, locked: true }));
+        assert.ok(locked.includes('class="menu-item menu-disabled" data-cmd="edit-selected"'), 'disabled while file locked');
+        assert.ok(locked.includes('title="File is locked"'), 'lock tooltip');
+        const gap = renderMenuHtml(baseState({ editMode: true, len: 2, bytes: [0xDE], goAddress: null }));
+        assert.ok(!gap.includes('data-cmd="edit-selected"'), 'range with only 1 mapped byte hides the row');
     });
 
     test('copy-as submenu holds remaining formats, not the direct ones', () => {

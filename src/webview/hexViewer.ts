@@ -15,13 +15,15 @@ import {
     paintClearStructHighlight,
     paintMemoryLabelDraft,
     paintMemoryMatchHighlights,
+    paintMemorySelEdit,
     paintMemorySelection,
     paintStructHighlight,
     scrollTo,
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
-import { currentSelectionRange, mappedSelectionRange, selectedBytes } from './memory/selection';
+import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from './editSelection';
+import { currentSelectionRange, mappedSelectionRange, selectedBytes, type SelectionRange } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
 import { StructPanel } from './components/sidebar/structPanel/structPanel';
@@ -176,6 +178,7 @@ function applyStructState(structs: StructDef[], pins: StructPin[]): void {
 
 /** Struct row/range selection → hex selection + jump + inspector sync (moved from struct module). */
 function selectStructRangeHost(start: number, count: number): void {
+    commitSelectedBytesSession();
     S.selStart = start;
     S.selEnd = start + count - 1;
     rerender.jumpTo(start);
@@ -462,17 +465,34 @@ function recordLayoutSpacers(
 let nibbleBuffer: string | null = null;
 let nibbleBufferAddr: number | null = null;
 
+// ── Selection-edit session (context-menu "Edit selected bytes") ───
+// Typing is staged into `S.edits` LIVE (grid shows typed values at once);
+// the session's `undo` snapshot is flushed as ONE transaction on exit.
+let selEditSession: {
+    start: number;
+    cursor: number;
+    undo: Map<number, number>;
+    end: number;
+} | null = null;
+
 // ── Search bar component ──────────────────────────────────────────
 // Component owns search markup/UI state; host owns execution + feedback.
 const searchBar = new SearchBar(
     {
         onSearch: (query, mode, endianness, trigger) => {
+            commitSelectedBytesSession();
             S.searchMode = mode;
             S.searchEndianness = endianness;
             runSearch(query, mode, endianness, trigger);
         },
-        onPrev: () => prevMatch(),
-        onNext: () => nextMatch(),
+        onPrev: () => {
+            commitSelectedBytesSession();
+            prevMatch();
+        },
+        onNext: () => {
+            commitSelectedBytesSession();
+            nextMatch();
+        },
         onClear: () => clearSearch(),
         onQueryChanged: (query, mode, endianness) => invalidateSearchIfDiverged(query, mode, endianness),
     },
@@ -514,6 +534,7 @@ function saveEdits(): void {
 }
 
 function cancelEdits(): void {
+    discardSelectedBytesSession();
     clearNibbleBuffer();
     clearEditState('discard');
     toolbar.setEditMode(false);
@@ -530,10 +551,107 @@ function clearNibbleBuffer(): void {
     }
 }
 
+// ── Selection-edit session ─────────────────────────────────────────
+
+function isMappedByte(a: number): boolean {
+    return getByte(a) !== undefined;
+}
+
+/** True when the launcher preconditions hold for opening an edit session. */
+function isSelectionEditAllowed(): boolean {
+    return S.editMode && !S.lockedDueToExternalChange;
+}
+
+function hasEditableRange(range: SelectionRange | null): range is SelectionRange {
+    return range !== null && selectedBytes().length >= 2;
+}
+
+/** Menu launcher: requires edit mode + unlocked + a mapped range >= 2 bytes. */
+function beginSelectedBytesSession(): void {
+    if (!isSelectionEditAllowed() || selEditSession) { return; }
+    const range = currentSelectionRange();
+    if (!hasEditableRange(range)) { return; }
+    selEditSession = { start: range.start, cursor: range.start, undo: new Map(), end: range.end };
+    toolbar.setSectionEdit(true, selectedBytes().length);
+    paintMemorySelEdit({ start: range.start, end: range.end });
+}
+
+/** Exit path: group the session's staged bytes into one undo transaction. */
+function commitSelectedBytesSession(): void {
+    if (!selEditSession) { return; }
+    clearNibbleBuffer();
+    const undo = selEditSession.undo;
+    selEditSession = null;
+    toolbar.setSectionEdit(false);
+    paintMemorySelEdit(null);
+    if (undo.size > 0) {
+        flushSessionUndo(undo);
+        refreshAfterLocalEdit();
+    }
+}
+
+/** Abort path (Cancel / new document): revert staged bytes, no undo entry. */
+function discardSelectedBytesSession(): void {
+    if (!selEditSession) { return; }
+    clearNibbleBuffer();
+    discardSessionUndo(selEditSession.undo);
+    selEditSession = null;
+    toolbar.setSectionEdit(false);
+    paintMemorySelEdit(null);
+    refreshAfterLocalEdit();
+}
+
+function advanceSelectedBytesSession(): void {
+    const s = selEditSession!;
+    s.cursor = advanceWithinRange(s.cursor, s.end, isMappedByte) ?? s.cursor;
+}
+
+/** Stage a full typed byte live into `S.edits` (grid redraws it at once). */
+function sessionStageByte(addr: number, value: number): void {
+    if (!selEditSession || !isMappedByte(addr)) { return; }
+    if (stageSessionByte(selEditSession.undo, addr, value)) {
+        refreshAfterLocalEdit();
+    }
+}
+
+/** First nibble preview + second-nibble commit scoped to the session cursor. */
+function handleSessionNibble(char: string): void {
+    const s = selEditSession!;
+    if (nibbleBuffer === null || nibbleBufferAddr !== s.cursor) {
+        nibbleBuffer = char;
+        nibbleBufferAddr = s.cursor;
+        paintCell(s.cursor, `${char}\u00b7`);
+        return;
+    }
+    const value = parseInt(nibbleBuffer + char, 16);
+    nibbleBuffer = null;
+    nibbleBufferAddr = null;
+    paintCell(s.cursor, null);
+    sessionStageByte(s.cursor, value);
+    advanceSelectedBytesSession();
+}
+
+function handleSessionCharColumn(e: KeyboardEvent): boolean {
+    const addr = selEditSession!.cursor;
+    return applyAsciiColumnKey(e, addr, value => sessionStageByte(addr, value), advanceSelectedBytesSession);
+}
+
+function handleSessionKeypress(e: KeyboardEvent): void {
+    if (e.key === 'Escape') { commitSelectedBytesSession(); return; }
+    if (handleSessionCharColumn(e)) { return; }
+    if (!HEX_CHAR_RE.test(e.key)) { return; }
+    e.preventDefault();
+    handleSessionNibble(e.key.toUpperCase());
+}
+
 /** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
 export function refreshAfterLocalEdit(): void {
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
+    // Full rerender wipes paint-based classes; re-apply the session tint.
+    if (selEditSession) {
+        paintMemorySelEdit({ start: selEditSession.start, end: selEditSession.end });
+    }
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
@@ -596,9 +714,15 @@ function isModifierKey(e: KeyboardEvent): boolean {
     return e.ctrlKey || e.metaKey;
 }
 
+function isEditKeystrokeAllowed(e: KeyboardEvent): boolean {
+    if (isEditBlocked()) { return false; }
+    if (isModifierKey(e)) { return false; }
+    return true;
+}
+
 function onEditKeydown(e: KeyboardEvent): void {
-    if (isEditBlocked()) {return;}
-    if (isModifierKey(e)) { return; }
+    if (!isEditKeystrokeAllowed(e)) { return; }
+    if (selEditSession) { handleSessionKeypress(e); return; }
     if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
     processEditKeypress(e, S.selStart!);
 }
@@ -607,14 +731,19 @@ function isPrintableCharCode(code: number): boolean {
     return code >= 0x20 && code <= 0x7E;
 }
 
-function handleCharColumnEdit(e: KeyboardEvent, addr: number): boolean {
+/** ASCII/decoded-column key: printable char replaces the byte immediately. */
+function applyAsciiColumnKey(e: KeyboardEvent, addr: number, stage: (value: number) => void, advance: () => void): boolean {
     if (S.lastClickColumn !== 'char' || e.key.length !== 1) { return false; }
     const code = e.key.charCodeAt(0);
     if (!isPrintableCharCode(code)) { return false; }
     e.preventDefault();
-    applyTypedEdit(addr, code);
-    advanceSel(addr);
+    stage(code);
+    advance();
     return true;
+}
+
+function handleCharColumnEdit(e: KeyboardEvent, addr: number): boolean {
+    return applyAsciiColumnKey(e, addr, value => applyTypedEdit(addr, value), () => advanceSel(addr));
 }
 
 function processEditKeypress(e: KeyboardEvent, addr: number): void {
@@ -790,6 +919,7 @@ document.addEventListener('keydown', onGridSelectionKeydown);
 document.addEventListener('keydown', onSaveShortcut);
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
+    discardSelectedBytesSession();
     resetRecordPages(msg.generation);
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
@@ -1212,6 +1342,7 @@ function renderStatsBar(): void {
 // ── Memory view ───────────────────────────────────────────────────
 
 function updateByteSelection(start: number, end: number, keepGridAnchor = false): void {
+    commitSelectedBytesSession();
     clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
@@ -1531,6 +1662,7 @@ function renderCurrentView(v: ViewName): void {
 }
 
 function switchView(v: ViewName): void {
+    if (v !== 'memory') { commitSelectedBytesSession(); }
     S.currentView = v;
     toolbar.setView(v);
     updateViewVisibility(v);
@@ -1575,10 +1707,16 @@ function redoLastEdit(): void {
 // ── Copy helpers ──────────────────────────────────────────────────
 // ── Context menu ──────────────────────────────────────────────────
 
+const CONTEXT_ACTIONS: Record<string, () => void> = {
+    'go-address': goToContextAddress,
+    'select-all': selectAllMappedBytes,
+    'select-segment': selectSegmentAtSelection,
+    'edit-selected': beginSelectedBytesSession,
+};
+
 function handleCtxCommand(cmd: string): void {
-    if (cmd === 'go-address') { goToContextAddress(); return; }
-    if (cmd === 'select-all') { selectAllMappedBytes(); return; }
-    if (cmd === 'select-segment') { selectSegmentAtSelection(); return; }
+    const action = CONTEXT_ACTIONS[cmd];
+    if (action) { action(); return; }
     applyContextCommandResult(contextCommandResult(cmd, selectedBytes(), S.editMode));
 }
 
@@ -1597,6 +1735,7 @@ function ctxMenuState(): MenuState {
         len,
         bytes: selectedBytes(),
         editMode: S.editMode,
+        locked: S.lockedDueToExternalChange,
         endian: S.endian,
         goAddress: computeGoAddress(len),
     };

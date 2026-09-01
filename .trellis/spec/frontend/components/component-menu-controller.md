@@ -50,6 +50,7 @@ export interface MenuState {
     len: number;
     bytes: number[];
     editMode: boolean;
+    locked: boolean;             // external-change lock (edit-selected menu row disabled when true)
     endian: 'le' | 'be';
     goAddress: { address: number; valid: boolean } | null;   // null = len !== 4
 }
@@ -136,7 +137,10 @@ static popovers are shown with `show(x, y, { el, anchor })` and keep their own
   Go-address/select-all/select-segment are commands the host executes; the
   fill custom input lives in the controller (`.menu-fill-input` +
   `.menu-fill-apply`), Enter applies `fill-0x??`, invalid → `.menu-fill-invalid`.
-  Input-keypresses never bubble to host shortcuts.
+  Input-keypresses never bubble to host shortcuts. The multi-byte body also
+  carries the `edit-selected` row (rendered when `bytes.length >= 2`; disabled
+  unless `editMode && !locked`) — the host starts the selection-edit session on
+  emit.
 - Struct field menu: `showFieldMenu` (structPanel.ts) renders per-field html
   (value-type/pointer disambiguators, struct value kinds) into the shared
   container with its own `emit`; right-click/copy/pointer commands unchanged.
