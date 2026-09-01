@@ -21,6 +21,7 @@ import {
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
+import { advanceWithinRange, dedupeEditsLastWriteWins } from './editSelection';
 import { currentSelectionRange, mappedSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
@@ -176,6 +177,7 @@ function applyStructState(structs: StructDef[], pins: StructPin[]): void {
 
 /** Struct row/range selection → hex selection + jump + inspector sync (moved from struct module). */
 function selectStructRangeHost(start: number, count: number): void {
+    commitSelectedBytesSession();
     S.selStart = start;
     S.selEnd = start + count - 1;
     rerender.jumpTo(start);
@@ -462,17 +464,33 @@ function recordLayoutSpacers(
 let nibbleBuffer: string | null = null;
 let nibbleBufferAddr: number | null = null;
 
+// ── Selection-edit session (context-menu "Edit selected bytes") ───
+// Typing is confined to the selected range; staged bytes flush as ONE
+// undo transaction on exit (Escape or any selection change).
+let selEditSession: {
+    cursor: number;
+    buffer: Array<[number, number]>;
+    end: number;
+} | null = null;
+
 // ── Search bar component ──────────────────────────────────────────
 // Component owns search markup/UI state; host owns execution + feedback.
 const searchBar = new SearchBar(
     {
         onSearch: (query, mode, endianness, trigger) => {
+            commitSelectedBytesSession();
             S.searchMode = mode;
             S.searchEndianness = endianness;
             runSearch(query, mode, endianness, trigger);
         },
-        onPrev: () => prevMatch(),
-        onNext: () => nextMatch(),
+        onPrev: () => {
+            commitSelectedBytesSession();
+            prevMatch();
+        },
+        onNext: () => {
+            commitSelectedBytesSession();
+            nextMatch();
+        },
         onClear: () => clearSearch(),
         onQueryChanged: (query, mode, endianness) => invalidateSearchIfDiverged(query, mode, endianness),
     },
@@ -514,6 +532,7 @@ function saveEdits(): void {
 }
 
 function cancelEdits(): void {
+    discardSelectedBytesSession();
     clearNibbleBuffer();
     clearEditState('discard');
     toolbar.setEditMode(false);
@@ -528,6 +547,85 @@ function clearNibbleBuffer(): void {
         paintCell(nibbleBufferAddr, null);
         nibbleBufferAddr = null;
     }
+}
+
+// ── Selection-edit session ─────────────────────────────────────────
+
+function isMappedByte(a: number): boolean {
+    return getByte(a) !== undefined;
+}
+
+/** Menu launcher: requires edit mode + unlocked + a mapped range >= 2 bytes. */
+function beginSelectedBytesSession(): void {
+    if (!S.editMode || S.lockedDueToExternalChange) { return; }
+    if (selEditSession) { return; }
+    const range = currentSelectionRange();
+    if (!range || selectedBytes().length < 2) { return; }
+    selEditSession = { cursor: range.start, buffer: [], end: range.end };
+    toolbar.setSectionEdit(true, selectedBytes().length);
+}
+
+/** Exit path: flush typed bytes as one undo transaction, keep selection. */
+function commitSelectedBytesSession(): void {
+    if (!selEditSession) { return; }
+    clearNibbleBuffer();
+    const edits = dedupeEditsLastWriteWins(selEditSession.buffer);
+    selEditSession = null;
+    toolbar.setSectionEdit(false);
+    if (edits.length > 0) {
+        stageIntegrityEditTransaction(edits);
+        refreshAfterLocalEdit();
+    }
+}
+
+/** Abort path (new document): drop staged bytes without flushing. */
+function discardSelectedBytesSession(): void {
+    clearNibbleBuffer();
+    selEditSession = null;
+    toolbar.setSectionEdit(false);
+}
+
+function advanceSelectedBytesSession(): void {
+    const s = selEditSession!;
+    s.cursor = advanceWithinRange(s.cursor, s.end, isMappedByte) ?? s.cursor;
+}
+
+function stageSelectedBytesEdit(addr: number, value: number): void {
+    if (!selEditSession || !isMappedByte(addr)) { return; }
+    selEditSession.buffer.push([addr, value]);
+}
+
+/** First nibble preview + second-nibble commit scoped to the session cursor. */
+function handleSessionNibble(char: string): void {
+    const s = selEditSession!;
+    if (nibbleBuffer === null || nibbleBufferAddr !== s.cursor) {
+        nibbleBuffer = char;
+        nibbleBufferAddr = s.cursor;
+        paintCell(s.cursor, `${char}\u00b7`);
+        return;
+    }
+    const value = parseInt(nibbleBuffer + char, 16);
+    nibbleBuffer = null;
+    nibbleBufferAddr = null;
+    paintCell(s.cursor, null);
+    stageSelectedBytesEdit(s.cursor, value);
+    advanceSelectedBytesSession();
+}
+
+function handleSessionKeypress(e: KeyboardEvent): void {
+    if (e.key === 'Escape') { commitSelectedBytesSession(); return; }
+    if (S.lastClickColumn === 'char') {
+        if (e.key.length !== 1) { return; }
+        const code = e.key.charCodeAt(0);
+        if (!isPrintableCharCode(code)) { return; }
+        e.preventDefault();
+        stageSelectedBytesEdit(selEditSession!.cursor, code);
+        advanceSelectedBytesSession();
+        return;
+    }
+    if (!HEX_CHAR_RE.test(e.key)) { return; }
+    e.preventDefault();
+    handleSessionNibble(e.key.toUpperCase());
 }
 
 /** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
@@ -599,6 +697,7 @@ function isModifierKey(e: KeyboardEvent): boolean {
 function onEditKeydown(e: KeyboardEvent): void {
     if (isEditBlocked()) {return;}
     if (isModifierKey(e)) { return; }
+    if (selEditSession) { handleSessionKeypress(e); return; }
     if (!isSingleByteSelected()) { clearNibbleBuffer(); return; }
     processEditKeypress(e, S.selStart!);
 }
@@ -790,6 +889,7 @@ document.addEventListener('keydown', onGridSelectionKeydown);
 document.addEventListener('keydown', onSaveShortcut);
 
 function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
+    discardSelectedBytesSession();
     resetRecordPages(msg.generation);
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
@@ -1212,6 +1312,7 @@ function renderStatsBar(): void {
 // ── Memory view ───────────────────────────────────────────────────
 
 function updateByteSelection(start: number, end: number, keepGridAnchor = false): void {
+    commitSelectedBytesSession();
     clearNibbleBuffer();
     S.selStart = start;
     S.selEnd   = end;
@@ -1531,6 +1632,7 @@ function renderCurrentView(v: ViewName): void {
 }
 
 function switchView(v: ViewName): void {
+    if (v !== 'memory') { commitSelectedBytesSession(); }
     S.currentView = v;
     toolbar.setView(v);
     updateViewVisibility(v);
@@ -1579,6 +1681,7 @@ function handleCtxCommand(cmd: string): void {
     if (cmd === 'go-address') { goToContextAddress(); return; }
     if (cmd === 'select-all') { selectAllMappedBytes(); return; }
     if (cmd === 'select-segment') { selectSegmentAtSelection(); return; }
+    if (cmd === 'edit-selected') { beginSelectedBytesSession(); return; }
     applyContextCommandResult(contextCommandResult(cmd, selectedBytes(), S.editMode));
 }
 
@@ -1597,6 +1700,7 @@ function ctxMenuState(): MenuState {
         len,
         bytes: selectedBytes(),
         editMode: S.editMode,
+        locked: S.lockedDueToExternalChange,
         endian: S.endian,
         goAddress: computeGoAddress(len),
     };

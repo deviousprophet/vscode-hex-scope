@@ -47,6 +47,7 @@ export class Toolbar {
     setEditMode(on: boolean): void;                  // Edit hidden / EDITING group shown
     setAscii(on: boolean): void;                     // ASCII button active class
     setDirty(count: number): void;                   // #edit-dirty-count text + Save disabled (count===0)
+    setSectionEdit(active: boolean, count?: number): void;  // EDITING pill text: "editing selection (N bytes)" while active
 setStatus(message: string): void;                // transient #edit-status message; auto-clears after 3s
 }
 ```
@@ -70,7 +71,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 - `.tb-sep`.
 - `#btn-ascii-toggle` (`.tb-ascii-btn`) active only in memory view + ascii on.
 - `#btn-edit-mode` (`.tb-edit-btn`) visible when memory && !editMode.
-- `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0.
+- `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0. While a selection-edit session runs, `setSectionEdit(true, count)` swaps the pill text to "● EDITING SELECTION (N B)"; `setSectionEdit(false)` restores "● EDITING".
 - `#load-progress` (`role="status"`, `hidden`) — host-owned load-progress indicator rendered in the toolbar; toggled by host, not a component state.
 - SearchBar output embedded as the trailing slot.
 

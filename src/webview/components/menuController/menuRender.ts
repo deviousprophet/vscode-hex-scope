@@ -16,6 +16,7 @@ export interface MenuState {
     len: number;
     bytes: number[];
     editMode: boolean;
+    locked: boolean;
     endian: 'le' | 'be';
     /** Precomputed go-address target + mapped flag. null = not applicable (len !== 4). */
     goAddress: { address: number; valid: boolean } | null;
@@ -62,6 +63,18 @@ function interactionRows(state: MenuState): string {
     return goAddressRow(state) +
         menuItem('select-all', 'Select all') +
         menuItem('select-segment', 'Select segment');
+}
+
+/** "Edit selected bytes" session launcher; only meaningful for >= 2 mapped bytes. */
+function editSelectedRow(state: MenuState): string {
+    if (state.bytes.length < 2) { return ''; }
+    const canEdit = state.editMode && !state.locked;
+    const disabled = canEdit ? '' : ' menu-disabled';
+    const title = state.locked ? 'File is locked' : 'Enter edit mode first';
+    const aria = canEdit ? '' : ` aria-disabled="true" title="${title}"`;
+    return `<div class="menu-item${disabled}" data-cmd="edit-selected" role="menuitem" tabindex="-1"${aria}>` +
+        `<span class="menu-label">Edit selected bytes</span>` +
+        `</div>`;
 }
 
 function buildFillMenu(len: number): string {
@@ -117,6 +130,7 @@ function buildAnalyzeMenu(bytes: number[]): string {
 
 function buildMultiByteBody(state: MenuState): string {
     const { bytes, len, editMode } = state;
+    const editRow = editSelectedRow(state);
     return menuItem('copy-hex', 'Copy Hex', menuPreview(formatCopyCommand('hex', bytes))) +
         menuItem('copy-ascii', 'Copy ASCII', menuPreview(formatCopyCommand('ascii', bytes))) +
         menuItem('copy-c-array', 'Copy C Array', menuPreview(`{${bytes.map(formatHexArrayByte).join(', ')}}`)) +
@@ -125,6 +139,7 @@ function buildMultiByteBody(state: MenuState): string {
         menuSubmenu('Analyze', 'analyze', buildAnalyzeMenu(bytes)) +
         MENU_SEP +
         interactionRows(state) +
+        (editRow ? (editMode ? '' : MENU_SEP) + editRow : '') +
         (editMode ? MENU_SEP + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(len)) : '');
 }
 

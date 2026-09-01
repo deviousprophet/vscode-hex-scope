@@ -154,6 +154,15 @@ export class Toolbar {
         if (save) { save.disabled = count === 0; }
     }
 
+    /** Selection-edit session pill text (count = selected mapped bytes). */
+    setSectionEdit(active: boolean, count = 0): void {
+        const pill = document.querySelector('.tb-editing-pill') as HTMLElement | null;
+        if (!pill) { return; }
+        pill.textContent = active
+            ? `\u25CF EDITING SELECTION${count > 0 ? ` (${count} B)` : ''}`
+            : '\u25CF EDITING';
+    }
+
     /** Transient edit-mode status message (e.g. a truncated paste); auto-clears. */
     setStatus(message: string): void {
         const el = document.getElementById('edit-status');

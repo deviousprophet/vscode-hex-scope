@@ -18,6 +18,7 @@ import {
 } from '../../webview/render/virtualScroll';
 import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
 import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
+import { advanceWithinRange, dedupeEditsLastWriteWins } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
 
@@ -1587,6 +1588,30 @@ suite('grid keyboard navigation (walkMappedAddress)', () => {
         const { walkMappedAddress } = await import('../../webview/hexViewer.js');
         assert.strictEqual(walkMappedAddress(0x1012, 'up'), 0x1002, 'same column mapped above');
         assert.strictEqual(walkMappedAddress(0x100B, 'down'), 0x1010, 'column 0B unmapped below — falls back to row start');
+    });
+});
+
+suite('editSelection session walk', () => {
+    test('advanceWithinRange walks mapped bytes inside the range', () => {
+        const isMapped = (a: number) => a !== 0x1002;
+        assert.strictEqual(advanceWithinRange(0x1000, 0x1004, isMapped), 0x1001);
+        assert.strictEqual(advanceWithinRange(0x1001, 0x1004, isMapped), 0x1003, 'skips unmapped 0x1002');
+        assert.strictEqual(advanceWithinRange(0x1003, 0x1004, isMapped), 0x1004);
+    });
+
+    test('advanceWithinRange returns null at/past the range end', () => {
+        const isMapped = (a: number) => true;
+        assert.strictEqual(advanceWithinRange(0x1004, 0x1004, isMapped), null, 'no byte after the last selected');
+        assert.strictEqual(advanceWithinRange(0x1004, 0x0FFF, isMapped), null, 'end before current');
+    });
+
+    test('dedupeEditsLastWriteWins keeps only the last write per address', () => {
+        assert.deepStrictEqual(
+            dedupeEditsLastWriteWins([[0x10, 0xAB], [0x11, 0xCD], [0x10, 0xEF]]),
+            [[0x10, 0xEF], [0x11, 0xCD]],
+            're-typed address collapses to its final value so one undo restores pre-session bytes',
+        );
+        assert.deepStrictEqual(dedupeEditsLastWriteWins([]), [], 'empty in, empty out');
     });
 });
 

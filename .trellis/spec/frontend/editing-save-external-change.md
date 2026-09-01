@@ -32,6 +32,11 @@ function applyTypedEdit(addr: number, value: number): void;
 function advanceSel(addr: number): void;
 function onEditKeydown(e: KeyboardEvent): void;
 
+// Selection-edit session (context-menu "Edit selected bytes")
+function beginSelectedBytesSession(): void;             // menu launcher
+function commitSelectedBytesSession(): void;            // exit flush (one txn)
+function advanceWithinRange(addr: number, end: number, isMapped: (a: number) => boolean): number | null;
+
 type WebviewToProviderMessage =
     | { type: 'saveEdits'; edits: Array<[number, number]> }
     | { type: 'reloadAccepted' }
@@ -54,11 +59,14 @@ type WebviewToProviderMessage =
 - External file changes lock editing. With no local edits, offer reload; with local edits, show conflict choice. Parse-error changes use error UI and optional checksum repair.
 - Direct-typing (keyboard-based single-byte editing) uses a capture-phase `keydown` listener on `document`. Enters the same transaction path as fills (`S.edits`, `S.undoStack`).
 - Nibble buffer is module-level state in `hexViewer.ts`. First hex keypress stores the nibble and updates cell text in-place. Second hex keypress combines into a full byte and applies the edit.
-- Key filtering: only fires when `S.editMode && !S.lockedDueToExternalChange && singleByteSelected() && activeElement not inside #search-box` (the menu controller intercepts nav/escape keys capture-phase; grid shortcuts no longer check the menu by id).
+- Key filtering: fires when `S.editMode && !S.lockedDueToExternalChange && activeElement not inside #search-box`. Multi-byte-range typing is inert unless a selection-edit session is active; single-byte selection keeps the legacy `singleByteSelected()` walk (`advanceSel`). The menu controller intercepts nav/escape keys capture-phase; grid shortcuts no longer check the menu by id.
 - `clearNibbleBuffer` is wired into `onByteDown`, `updateByteSelection`, `undoLastEdit`, and Escape handler to prevent stale buffer leaks.
 - `advanceSel` uses segment-based scan: checks if `addr+1` is in the same segment, otherwise finds the next segment's start address.
 - Partial nibble on click-away (Q3-A) is silently discarded — no edit is applied.
-- Decoded-text (char-cell) editing: when `S.lastClickColumn === 'char'` and a printable ASCII key is pressed in edit mode, the byte is replaced directly with the char code via `applyTypedEdit()`. Skips the nibble buffer.
+- Decoded-text (char-cell) editing: when `S.lastClickColumn === 'char'` and a printable ASCII key is pressed in edit mode, the byte is replaced directly with the char code via `applyTypedEdit()`. Skips the nibble buffer. Inside a selection-edit session the same rule stages via the session cursor instead.
+- Selection-edit session: hex context-menu `edit-selected` (rendered for ≥2 mapped selected bytes within a multi-byte menu; disabled with tooltip when Edit Mode is off or the file is locked) calls `beginSelectedBytesSession` — requires edit mode + not externally locked. While active, typing targets `selEditSession.cursor` (starts at selection start), walks mapped bytes inside the range via `advanceWithinRange`, and leaves the selection highlighted; a typed byte lands on each successive selected byte and typing cannot modify anything outside the range (re-edits the last byte at the range end). Gaps/unmapped bytes inside the range are skipped.
+- Session exit: Escape or any selection-modifying input (`updateByteSelection`, grid arrows, click-outside, struct selection, search-result navigation) — also record-view switch and edit discard. `commitSelectedBytesSession` flushes all typed bytes as **one** `stageIntegrityEditTransaction` (same-address re-edits collapse to the last write, so undo restores pre-session values), keeps the selection, and restores the toolbar pill; a partially-typed nibble is discarded silently. A new document discards the session without flushing (`handleInitMessage`); toolbar Discard also discards without flushing (`cancelEdits`).
+- Session feedback: `setSectionEdit(active, count)` swaps the toolbar EDITING pill text to "editing selection (N bytes)" while active and restores it on commit.
 - Paste (`onCopyPasteKeydown`, Ctrl+V / Cmd+V) reads clipboard via `navigator.clipboard.readText()`, applies hex-first parsing via `parsePasteText()` (fallback to raw ASCII), then enters through `stageIntegrityEditTransaction()` for undo support. Aborts if `isEditBlocked()` or no selection. Clears nibble buffer before paste.
 - Copy (`onCopyPasteKeydown`, Ctrl+C / Cmd+C) formats selected bytes via `formatCopyCommand()` using `'hex'` or `'ascii'` format depending on `S.lastClickColumn`.
 - `S.lastClickColumn` is set on `mousedown` on hex/char cells, cleared on new file load (`applyInitialState`).
