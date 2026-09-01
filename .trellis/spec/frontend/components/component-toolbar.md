@@ -47,7 +47,7 @@ export class Toolbar {
     setEditMode(on: boolean): void;                  // Edit hidden / EDITING group shown
     setAscii(on: boolean): void;                     // ASCII button active class
     setDirty(count: number): void;                   // #edit-dirty-count text + Save disabled (count===0)
-    setSectionEdit(active: boolean, count?: number): void;  // EDITING pill text: "editing selection (N bytes)" while active
+setSectionEdit(active: boolean, count?: number): void;  // sibling SELECTION chip (static mapped count); never alters the EDITING pill
 setStatus(message: string): void;                // transient #edit-status message; auto-clears after 3s
 }
 ```
@@ -71,7 +71,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 - `.tb-sep`.
 - `#btn-ascii-toggle` (`.tb-ascii-btn`) active only in memory view + ascii on.
 - `#btn-edit-mode` (`.tb-edit-btn`) visible when memory && !editMode.
-- `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0. While a selection-edit session runs, `setSectionEdit(true, count)` swaps the pill text to "● EDITING SELECTION (N B)"; `setSectionEdit(false)` restores "● EDITING".
+- `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `.tb-seledit-chip` `#tb-seledit-chip`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0. Group is a content-width flex row (`#toolbar` scrolls on overflow) — Save/Cancel sit in flow after the status slot; the selection-edit chip appears/disappears at the front so Save/Cancel reflow slightly on session open/close (accepted; no right-pinning). While a selection-edit session runs, `setSectionEdit(true, count)` shows `#tb-seledit-chip` with the **static** activation count as "SELECTION · N B" and leaves the EDITING pill untouched; `setSectionEdit(false)` hides the chip again.
 - `#load-progress` (`role="status"`, `hidden`) — host-owned load-progress indicator rendered in the toolbar; toggled by host, not a component state.
 - SearchBar output embedded as the trailing slot.
 

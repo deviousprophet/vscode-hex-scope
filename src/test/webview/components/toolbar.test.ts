@@ -82,6 +82,7 @@ suite('webview Toolbar component', () => {
         assert.ok(doc.getElementById('btn-edit-mode')?.classList.contains('tb-edit-btn'));
         assert.ok(doc.getElementById('edit-mode-group'));
         assert.ok(doc.querySelector('#edit-mode-group .tb-editing-pill'));
+        assert.ok(doc.getElementById('tb-seledit-chip')?.classList.contains('tb-seledit-chip'));
         assert.ok(doc.querySelector('.view-tabs'));
         assert.ok(doc.querySelector('.tb-sep'));
         assert.ok(doc.getElementById('btn-save')?.classList.contains('tb-save-btn'));
@@ -203,6 +204,21 @@ suite('webview Toolbar component', () => {
         bar.setDirty(0);
         assert.strictEqual((dom.window.document.getElementById('edit-dirty-count') as HTMLElement).textContent, '');
         assert.ok(saveDisabled(dom));
+    });
+
+    test('setSectionEdit toggles a sibling SELECTION chip, leaving the EDITING pill unchanged', () => {
+        const { dom, bar } = createHarness();
+        bar.setEditMode(true);
+        const pill = dom.window.document.querySelector('.tb-editing-pill') as HTMLElement;
+        const chip = dom.window.document.getElementById('tb-seledit-chip') as HTMLElement;
+        assert.ok(chip.hidden, 'chip hidden by default');
+        assert.strictEqual(pill.textContent, '\u25CF EDITING');
+        bar.setSectionEdit(true, 4);
+        assert.ok(!chip.hidden, 'chip visible while session active');
+        assert.strictEqual(chip.textContent, 'SELECTION \u00b7 4 B');
+        assert.strictEqual(pill.textContent, '\u25CF EDITING', 'EDITING pill is untouched');
+        bar.setSectionEdit(false);
+        assert.ok(chip.hidden, 'chip hidden again on session exit');
     });
 
     test('setStatus shows a transient message and clears it', async function () {
