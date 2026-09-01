@@ -162,6 +162,20 @@ export class HexView {
         });
     }
 
+    /**
+     * Host-invoked selection-edit session tint: every mapped cell in `range`
+     * gets `.sel-edit` so the active range reads as "these bytes are being
+     * edited", distinct from plain selection. null clears (root-scoped).
+     */
+    paintSelEdit(range: HexViewRange | null): void {
+        const root = this.rootEl();
+        if (!root) { return; }
+        root.querySelectorAll<HTMLElement>('[data-addr]').forEach(el => {
+            const addr = cellAddress(el);
+            el.classList.toggle('sel-edit', addr !== null && !!range && addr >= range.start && addr <= range.end);
+        });
+    }
+
     // ── Element lookup (scoped, survives host full re-renders) ────
 
     private rootEl(): HTMLElement | null {

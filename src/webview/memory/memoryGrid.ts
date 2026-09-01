@@ -134,6 +134,11 @@ export function paintStructHighlight(addrs: readonly number[], cls: string): voi
     hexView?.paintStructHighlight(addrs, cls);
 }
 
+/** Selection-edit session range tint (panel via HexView paint seam). */
+export function paintMemorySelEdit(range: HexViewRange | null): void {
+    hexView?.paintSelEdit(range);
+}
+
 /** Struct-field clear: remove `cls` from all grid cells (class-wide parity). */
 export function paintClearStructHighlight(cls: string): void {
     hexView?.paintClearStructHighlight(cls);

@@ -15,13 +15,14 @@ import {
     paintClearStructHighlight,
     paintMemoryLabelDraft,
     paintMemoryMatchHighlights,
+    paintMemorySelEdit,
     paintMemorySelection,
     paintStructHighlight,
     scrollTo,
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
 import { buildMemRows, getByte } from './memory/memoryData';
-import { advanceWithinRange, dedupeEditsLastWriteWins } from './editSelection';
+import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from './editSelection';
 import { currentSelectionRange, mappedSelectionRange, selectedBytes } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
@@ -465,11 +466,12 @@ let nibbleBuffer: string | null = null;
 let nibbleBufferAddr: number | null = null;
 
 // ── Selection-edit session (context-menu "Edit selected bytes") ───
-// Typing is confined to the selected range; staged bytes flush as ONE
-// undo transaction on exit (Escape or any selection change).
+// Typing is staged into `S.edits` LIVE (grid shows typed values at once);
+// the session's `undo` snapshot is flushed as ONE transaction on exit.
 let selEditSession: {
+    start: number;
     cursor: number;
-    buffer: Array<[number, number]>;
+    undo: Map<number, number>;
     end: number;
 } | null = null;
 
@@ -561,28 +563,34 @@ function beginSelectedBytesSession(): void {
     if (selEditSession) { return; }
     const range = currentSelectionRange();
     if (!range || selectedBytes().length < 2) { return; }
-    selEditSession = { cursor: range.start, buffer: [], end: range.end };
+    selEditSession = { start: range.start, cursor: range.start, undo: new Map(), end: range.end };
     toolbar.setSectionEdit(true, selectedBytes().length);
+    paintMemorySelEdit({ start: range.start, end: range.end });
 }
 
-/** Exit path: flush typed bytes as one undo transaction, keep selection. */
+/** Exit path: group the session's staged bytes into one undo transaction. */
 function commitSelectedBytesSession(): void {
     if (!selEditSession) { return; }
     clearNibbleBuffer();
-    const edits = dedupeEditsLastWriteWins(selEditSession.buffer);
+    const undo = selEditSession.undo;
     selEditSession = null;
     toolbar.setSectionEdit(false);
-    if (edits.length > 0) {
-        stageIntegrityEditTransaction(edits);
+    paintMemorySelEdit(null);
+    if (undo.size > 0) {
+        flushSessionUndo(undo);
         refreshAfterLocalEdit();
     }
 }
 
-/** Abort path (new document): drop staged bytes without flushing. */
+/** Abort path (Cancel / new document): revert staged bytes, no undo entry. */
 function discardSelectedBytesSession(): void {
+    if (!selEditSession) { return; }
     clearNibbleBuffer();
+    discardSessionUndo(selEditSession.undo);
     selEditSession = null;
     toolbar.setSectionEdit(false);
+    paintMemorySelEdit(null);
+    refreshAfterLocalEdit();
 }
 
 function advanceSelectedBytesSession(): void {
@@ -590,9 +598,12 @@ function advanceSelectedBytesSession(): void {
     s.cursor = advanceWithinRange(s.cursor, s.end, isMappedByte) ?? s.cursor;
 }
 
-function stageSelectedBytesEdit(addr: number, value: number): void {
+/** Stage a full typed byte live into `S.edits` (grid redraws it at once). */
+function sessionStageByte(addr: number, value: number): void {
     if (!selEditSession || !isMappedByte(addr)) { return; }
-    selEditSession.buffer.push([addr, value]);
+    if (stageSessionByte(selEditSession.undo, addr, value)) {
+        refreshAfterLocalEdit();
+    }
 }
 
 /** First nibble preview + second-nibble commit scoped to the session cursor. */
@@ -608,7 +619,7 @@ function handleSessionNibble(char: string): void {
     nibbleBuffer = null;
     nibbleBufferAddr = null;
     paintCell(s.cursor, null);
-    stageSelectedBytesEdit(s.cursor, value);
+    sessionStageByte(s.cursor, value);
     advanceSelectedBytesSession();
 }
 
@@ -619,7 +630,7 @@ function handleSessionKeypress(e: KeyboardEvent): void {
         const code = e.key.charCodeAt(0);
         if (!isPrintableCharCode(code)) { return; }
         e.preventDefault();
-        stageSelectedBytesEdit(selEditSession!.cursor, code);
+        sessionStageByte(selEditSession!.cursor, code);
         advanceSelectedBytesSession();
         return;
     }
@@ -632,6 +643,10 @@ function handleSessionKeypress(e: KeyboardEvent): void {
 export function refreshAfterLocalEdit(): void {
     toolbar.setDirty(S.edits.size);
     if (S.currentView === 'memory') { memRerender(); }
+    // Full rerender wipes paint-based classes; re-apply the session tint.
+    if (selEditSession) {
+        paintMemorySelEdit({ start: selEditSession.start, end: selEditSession.end });
+    }
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     structPanel.render();
     integrityPanel.notifyBytesChanged();
