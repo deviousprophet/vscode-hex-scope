@@ -834,8 +834,7 @@ function decodeStructRecursive(
 
     // First explicit value up the chain wins — this struct's override beats whatever
     // the enclosing struct/field/global passed down as effective.
-    const structEndian = def.endian ?? effectiveEndian;
-    const structAllocation = def.allocation ?? effectiveAllocation;
+    const { endian: structEndian, allocation: structAllocation } = resolveEndianAllocation(def, effectiveEndian, effectiveAllocation);
 
     for (const field of def.fields) {
         offset = decodeStructField(ctx, def, field, offset, structEndian, structAllocation);
@@ -860,8 +859,7 @@ function decodeStructField(
     field = normalizeStructField(field);
     const align = def.packed ? 1 : fieldAlignWithDefs(field, ctx.map, ctx.depth);
     const elemSize = fieldSizeWithDefs(field, ctx.map, ctx.depth);
-    const fieldEndian = field.endian ?? structEndian;
-    const fieldAllocation = field.allocation ?? structAllocation;
+    const { endian: fieldEndian, allocation: fieldAllocation } = resolveEndianAllocation(field, structEndian, structAllocation);
     if (isBitFieldContainer(field)) {
         return decodeBitFieldContainer(ctx, field, offset, align, fieldEndian, fieldAllocation);
     }
@@ -871,6 +869,19 @@ function decodeStructField(
         return decodeAsciiField(ctx, field, alignedOffset, elemSize, fieldEndian, fieldAllocation);
     }
     return decodeFieldElements(ctx, field, alignedOffset, elemSize, fieldEndian, fieldAllocation);
+}
+
+/**
+ * Resolve one concern (byte order / bit allocation) independently: the first
+ * explicit value up the chain wins. Applies to both StructDef and StructField
+ * (field beats struct beats nested parents beats global).
+ */
+function resolveEndianAllocation(
+    item: { endian?: 'le' | 'be'; allocation?: BitFieldAllocation },
+    inheritedEndian: 'le' | 'be',
+    inheritedAllocation: BitFieldAllocation,
+): { endian: 'le' | 'be'; allocation: BitFieldAllocation } {
+    return { endian: item.endian ?? inheritedEndian, allocation: item.allocation ?? inheritedAllocation };
 }
 
 export function decodeStruct(

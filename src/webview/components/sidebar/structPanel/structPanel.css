@@ -62,6 +62,13 @@
 }
 .se-struct-default-sel {
     flex: 1; min-width: 0;
+}
+
+/* Shared select control: appearance, caret, spacing — struct-default, type, endian, alloc */
+.se-struct-default-sel,
+.sfe-type-sel,
+.sfe-endian-sel,
+.sfe-alloc-sel {
     appearance: none;
     background-color: var(--input-bg);
     background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
@@ -71,7 +78,10 @@
     font-size: 10px; padding: 1px 12px 1px 4px; outline: none; width: 100%;
     box-sizing: border-box;
 }
-.se-struct-default-sel:focus { border-color: var(--focus-bdr); }
+.se-struct-default-sel:focus,
+.sfe-type-sel:focus,
+.sfe-endian-sel:focus,
+.sfe-alloc-sel:focus { border-color: var(--focus-bdr); }
 
 .se-field-hdr {
     display: grid;
@@ -96,19 +106,7 @@
 
 .sfe-type-sel,
 .sfe-endian-sel,
-.sfe-alloc-sel {
-    appearance: none;
-    background-color: var(--input-bg);
-    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
-    background-repeat: no-repeat; background-position: right 3px center; background-size: 7px 4px;
-    border: 1px solid var(--input-bdr);
-    border-radius: 2px; color: var(--input-fg); font-family: var(--font-ui);
-    font-size: 10px; padding: 1px 12px 1px 4px; outline: none; width: 100%;
-    box-sizing: border-box;
-}
-.sfe-type-sel:focus,
-.sfe-endian-sel:focus,
-.sfe-alloc-sel:focus { border-color: var(--focus-bdr); }
+.sfe-alloc-sel { width: 100%; }
 
 /* Empty cell kept so plain/pointer/nested rows stay grid-aligned with bit-field rows */
 .sfe-alloc-placeholder { display: block; }
