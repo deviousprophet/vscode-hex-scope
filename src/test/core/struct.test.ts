@@ -520,6 +520,168 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[1].fieldName, 'nodes[1].v');
         assert.strictEqual(rows[2].fieldName, 'nodes[2].v');
     });
+
+    // ── per-field / per-struct endian + allocation overrides ──
+
+    test('field endian beats struct endian beats global', () => {
+        const def: StructDef = {
+            id: 'x', name: 'EndianChain', packed: true, endian: 'be',
+            fields: [
+                { name: 'inherited', type: 'uint16', count: 1 },
+                { name: 'overridden', type: 'uint16', count: 1, endian: 'le' },
+            ],
+        };
+        // global is little-endian; struct declares BE; field2 declares LE.
+        setBytesInSegment(0, [0x12, 0x34, 0x56, 0x78]);
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);      // 0x1234 BE
+        assert.ok(rows[1].decoded.startsWith('30806'), rows[1].decoded);     // 0x7856 LE
+        assert.strictEqual(rows[0].endian, 'be');
+        assert.strictEqual(rows[1].endian, 'le');
+    });
+
+    test('nested struct inherits containing struct override unless it declares its own', () => {
+        const child: StructDef = {
+            id: 'child', name: 'Child',
+            fields: [{ name: 'w', type: 'uint16', count: 1 }],
+        };
+        const childLe: StructDef = {
+            id: 'childLe', name: 'ChildLe', endian: 'le',
+            fields: [{ name: 'w', type: 'uint16', count: 1 }],
+        };
+        const parent: StructDef = {
+            id: 'parent', name: 'Parent', packed: true, endian: 'be',
+            fields: [
+                { name: 'inherit', type: 'struct', refStructId: 'child', count: 1 },
+                { name: 'own', type: 'struct', refStructId: 'childLe', count: 1 },
+                { name: 'fieldBeats', type: 'struct', refStructId: 'child', count: 1, endian: 'le' },
+            ],
+        };
+        S.structs = [child, childLe, parent];
+        // inherit BE: 0x1234. own LE: 0x1234. fieldBeats LE: 0x1234.
+        setBytesInSegment(0, [0x12, 0x34, 0x34, 0x12, 0x34, 0x12]);
+        const rows = decodeStruct(parent, 0, getByte, 'le', 'msb', S.structs);
+        assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);
+        assert.ok(rows[1].decoded.startsWith('4660'), rows[1].decoded);
+        assert.ok(rows[2].decoded.startsWith('4660'), rows[2].decoded);
+        assert.strictEqual(rows[0].endian, 'be');      // struct-level BE inherited into nested
+        assert.strictEqual(rows[1].endian, 'le');      // nested struct declared its own
+        assert.strictEqual(rows[2].endian, 'le');      // field endian beats containing struct
+    });
+
+    test('pointer fields always decode with the global overlay endian', () => {
+        const def: StructDef = {
+            id: 'x', name: 'Ptr', packed: true, endian: 'be',
+            fields: [
+                { name: 'p', type: 'void', isPointer: true, count: 1, endian: 'be' },
+            ],
+        };
+        setBytesInSegment(0, [0x78, 0x56, 0x34, 0x12]);
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.strictEqual(rows[0].decoded, '0x12345678');
+        assert.strictEqual(rows[0].endian, 'le');      // resolved = global, no override badge
+    });
+
+    test('bit-field unit read uses effective endian; child packing uses effective allocation', () => {
+        const def: StructDef = {
+            id: 'x', name: 'Bits', packed: true,
+            fields: [{
+                name: 'ctl', type: 'uint16', count: 1, endian: 'be', allocation: 'lsb',
+                bitFields: [
+                    { name: 'a', bitWidth: 4 },
+                    { name: 'b', bitWidth: 12 },
+                ],
+            }],
+        };
+        // global LE/MSB would give a=3, b=1042; effective BE/LSB gives a=4, b=291.
+        setBytesInSegment(0, [0x12, 0x34]);
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.strictEqual(rows[0].bitValueUnsigned, '4');
+        assert.strictEqual(rows[1].bitValueUnsigned, '291');
+        assert.strictEqual(rows[0].endian, 'be');
+        assert.strictEqual(rows[0].allocation, 'lsb');
+    });
+
+    test('field allocation beats struct allocation beats global', () => {
+        const def: StructDef = {
+            id: 'x', name: 'AllocChain', packed: true, allocation: 'msb',
+            fields: [{
+                name: 'ctl', type: 'uint16', count: 1, allocation: 'lsb',
+                bitFields: [
+                    { name: 'a', bitWidth: 4 },
+                    { name: 'b', bitWidth: 12 },
+                ],
+            }],
+        };
+        // LE unit 0x3412; field LSB beats struct MSB/global MSB → a=2, b=833.
+        setBytesInSegment(0, [0x12, 0x34]);
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.strictEqual(rows[0].bitValueUnsigned, '2');
+        assert.strictEqual(rows[1].bitValueUnsigned, '833');
+        assert.strictEqual(rows[0].allocation, 'lsb');
+    });
+
+    test('overrides never change offsets, sizes, or alignment', () => {
+        const base: StructDef = { id: 'x', name: 'S', fields: layoutFields() };
+        const overridden: StructDef = {
+            id: 'x', name: 'S', endian: 'be', allocation: 'lsb', fields: [
+                { name: 'a', type: 'uint8', count: 1, endian: 'be' },
+                { name: 'b', type: 'uint32', count: 1, allocation: 'lsb' },
+                { name: 'c', type: 'uint16', count: 1 },
+            ],
+        };
+        const packed: StructDef = { id: 'x', name: 'S', packed: true, fields: layoutFields() };
+        const packedOverridden: StructDef = { ...overridden, packed: true };
+        assert.strictEqual(structByteSize(overridden), structByteSize(base));
+        assert.strictEqual(structByteSize(packedOverridden), structByteSize(packed));
+
+        setBytesInSegment(0, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
+        const baseRows = decodeStruct(base, 0, getByte, 'le');
+        const overrideRows = decodeStruct(overridden, 0, getByte, 'le');
+        assert.deepStrictEqual(overrideRows.map(r => r.byteOffset), baseRows.map(r => r.byteOffset));
+    });
+
+    test('known mixed-endian struct decodes byte-correctly (LE global, BE nested struct, MSB children)', () => {
+        const beCfg: StructDef = {
+            id: 'beCfg', name: 'BeCfg', endian: 'be', allocation: 'msb',
+            fields: [
+                { name: 'rate', type: 'uint16', count: 1 },
+                {
+                    name: 'ctl', type: 'uint8', count: 1,
+                    bitFields: [
+                        { name: 'mode', bitWidth: 3 },
+                        { name: 'level', bitWidth: 5 },
+                    ],
+                },
+            ],
+        };
+        const outer: StructDef = {
+            id: 'outer', name: 'Outer', packed: true,
+            fields: [
+                { name: 'hdr', type: 'uint16', count: 1 },
+                { name: 'base', type: 'void', isPointer: true, count: 1 },
+                { name: 'cfg', type: 'struct', refStructId: 'beCfg', count: 1 },
+            ],
+        };
+        S.structs = [beCfg, outer];
+        setBytesInSegment(0, [
+            0x34, 0x12,             // hdr: LE 0x1234
+            0x78, 0x56, 0x34, 0x12, // base: pointer (global LE) 0x12345678
+            0x12, 0x34,             // cfg.rate: BE 0x1234
+            0xB1,                   // cfg.ctl: MSB children a=5, b=17
+        ]);
+        const rows = decodeStruct(outer, 0, getByte, 'le', 'msb', S.structs);
+        assert.strictEqual(rows.length, 5);
+        assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);   // hdr LE
+        assert.strictEqual(rows[1].decoded, '0x12345678');                // pointer global LE
+        assert.ok(rows[2].decoded.startsWith('4660'), rows[2].decoded);   // cfg.rate BE
+        assert.strictEqual(rows[3].bitValueUnsigned, '5');                // cfg.ctl.mode MSB
+        assert.strictEqual(rows[4].bitValueUnsigned, '17');               // cfg.ctl.level MSB
+        assert.strictEqual(rows[0].endian, 'le');
+        assert.strictEqual(rows[2].endian, 'be');
+        assert.strictEqual(rows[2].allocation, 'msb');
+        assert.strictEqual(rows[3].allocation, 'msb');
+    });
 });
 
 suite('resolveStructFieldByPath()', () => {
@@ -637,6 +799,34 @@ suite('validateStructs()', () => {
         };
         const errs = validateStructs([bad]);
         assert.ok(errs.some(e => e.includes('children total 10 bits exceeds 8-bit container')), errs.join(' | '));
+    });
+
+    test('rejects invalid endian on struct and field', () => {
+        const errs = validateStructs([
+            { id: 'a', name: 'A', endian: 'xx' as never, fields: [] },
+            { id: 'b', name: 'B', fields: [{ name: 'w', type: 'uint16', count: 1, endian: 'no' as never }] },
+        ]);
+        assert.ok(errs.some(e => e.includes('Struct "A": invalid endian "xx"')), errs.join(' | '));
+        assert.ok(errs.some(e => e.includes('Struct "B": field "w" invalid endian "no"')), errs.join(' | '));
+    });
+
+    test('rejects invalid allocation on struct and field', () => {
+        const errs = validateStructs([
+            { id: 'a', name: 'A', allocation: 'sideways' as never, fields: [] },
+            { id: 'b', name: 'B', fields: [{ name: 'w', type: 'uint16', count: 1, allocation: 'up' as never }] },
+        ]);
+        assert.ok(errs.some(e => e.includes('Struct "A": invalid allocation "sideways"')), errs.join(' | '));
+        assert.ok(errs.some(e => e.includes('Struct "B": field "w" invalid allocation "up"')), errs.join(' | '));
+    });
+
+    test('accepts absent and valid endian/allocation overrides', () => {
+        const defs: StructDef[] = [
+            { id: 'a', name: 'A', endian: 'le', allocation: 'lsb', fields: [
+                { name: 'w', type: 'uint16', count: 1, endian: 'be' },
+                { name: 'bits', type: 'uint8', count: 1, allocation: 'msb', bitFields: [{ name: 'x', bitWidth: 2 }] },
+            ] },
+        ];
+        assert.deepStrictEqual(validateStructs(defs), []);
     });
 });
 

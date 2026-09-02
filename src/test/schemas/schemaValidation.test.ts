@@ -73,6 +73,20 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
     });
 
+    test('structs.json accepts endian/allocation overrides on structs and fields', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        const data = [
+            {
+                id: 's1', name: 'Config', endian: 'be', allocation: 'msb',
+                fields: [
+                    { name: 'word', type: 'uint16', count: 1, endian: 'le' },
+                    { name: 'flags', type: 'uint8', count: 1, allocation: 'lsb', bitFields: [{ name: 'enabled', bitWidth: 1 }] },
+                ],
+            },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+    });
+
     test('integrity.json accepts a full IntegrityProfile[]', () => {
         const { schema } = loadSchema('integrity.schema.json');
         const data = [{
@@ -104,6 +118,18 @@ suite('hexScope schemas — negative cases', () => {
         const { schema } = loadSchema('structs.schema.json');
         const data = [{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint7', count: 1 }] }];
         assert.notDeepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+    });
+
+    test('invalid endian/allocation enums fail structs.json', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, structsEnvelope([{ id: 's1', name: 'S1', endian: 'big', fields: [] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, structsEnvelope([{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, allocation: 'sideways' }] }])),
+            [],
+        );
     });
 
     test('missing required field fails index.json', () => {

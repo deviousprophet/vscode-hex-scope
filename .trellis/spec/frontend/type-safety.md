@@ -17,6 +17,8 @@ External/persisted values start as `unknown`, are normalized once, then become t
 - struct-definition migration helpers in `HexEditorSession`
 - `isCopyCommand` and `isAnalyzeCommand` for command strings
 
+`StructDef`/`StructField` carry optional `endian?: 'le' | 'be'` and `allocation?: 'lsb' | 'msb'` overrides. Absent = inherit (field beats struct beats nested parents beats global overlay); validation rejects any other value (`validateStructs` + structs JSON schema enums). Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched — that key is a first-class override again, not stripped. Loaded defs stay lenient: normalization preserves the keys, pointers always resolve to the global overlay endian for value decode.
+
 Use discriminated result unions for expected validation failures:
 
 ```typescript

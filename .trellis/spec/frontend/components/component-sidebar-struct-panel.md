@@ -17,7 +17,7 @@ src/webview/hexViewer.ts   host wiring (panel descriptor, applyStructs/applyPins
 src/test/webview/components/sidebar/structPanel/structPanel.test.ts   (mocha + jsdom)
 ```
 
-Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is unchanged (pure, shared).
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is pure and shared; mixed-endian overrides extend it with per-field/per-struct `endian`/`allocation` resolution (threaded effective values, pointer-global exception, `DecodedField.endian`/`allocation` resolved indicators) — the panel consumes the resolved row values for badges and passes the same effective values into bit-unit binary rendering.
 
 ## Contract
 
@@ -61,6 +61,7 @@ class StructPanel {
 - Hex-view selection clears stale struct selection and syncs add/edit-form address inputs (`setSelection`); the `S.sidebarTab === 'struct'` guard is replaced by `setTabActive`.
 - Row/header click selects the corresponding byte range → `onSelectRange`; hover highlights hex rows via callback.
 - Field-value context menus: sticky `View as` per row identity, `Copy as`, pointer jump/create — all report-only.
+- Per-field/per-struct endian (`LE`/`BE`) + allocation (`LSB`/`MSB`) overrides: struct editor shows tri-state selects (`Auto`/`LE`/`BE` endian + `Auto`/`LSB`/`MSB` allocation; `Auto` = inherited). Controls keep a neutral background regardless of selection — no tint on explicit selections; the `Auto` option's `title` shows the inherited source (e.g. `Auto — inherits BE`). Struct-level `Endian`/`Alloc` gather into a grid-aligned `.se-struct-default-row` sharing the field grid columns: the Packed toggle sits in the Type column (shortened `packed` label, full `__attribute__((packed))` in `title`), a "struct default" label fills the Name column, and `#se-endian` / `#se-alloc` sit in the Endian/Alloc columns; per-field editor column headers read `Endian`/`Alloc`. The field-level `Alloc` select renders **only on bit-field container rows** (unsigned scalar with named `bitFields`, non-pointer); plain scalar, pointer, and struct-typed rows emit an empty placeholder cell so the grid stays aligned — a nested struct's bitfield allocation is overridden on the nested `StructDef`'s own struct-level Alloc, not on the referencing field. Field-level `Endian` selects render on every row. Decoded rows + bit-unit parent headers render an explicit-override chip when the effective value differs from the global overlay; bit-unit chips appear only on the parent value row — bit child rows and pointer rows never chip (pointers always use the global overlay endian). Value cells render with the row's resolved endian/allocation, not the global overlay. Long nested-struct names in the type select truncate with the full name in `title`.
 
 ## Validation & Error Matrix
 

@@ -46,6 +46,18 @@
         },
         "packed": {
           "type": "boolean"
+        },
+        "endian": {
+          "enum": [
+            "le",
+            "be"
+          ]
+        },
+        "allocation": {
+          "enum": [
+            "lsb",
+            "msb"
+          ]
         }
       },
       "additionalProperties": false
@@ -81,6 +93,18 @@
         },
         "bitFieldsCollapsed": {
           "type": "boolean"
+        },
+        "endian": {
+          "enum": [
+            "le",
+            "be"
+          ]
+        },
+        "allocation": {
+          "enum": [
+            "lsb",
+            "msb"
+          ]
         }
       },
       "additionalProperties": false

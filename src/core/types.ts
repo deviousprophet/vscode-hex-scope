@@ -109,6 +109,13 @@ export interface StructField {
     count: number;
     /** Whether the bit-field detail editor is collapsed. Only applies to BitField containers. */
     bitFieldsCollapsed?: boolean;
+    /** Explicit byte order for this field's multi-byte value / bit-field unit.
+     *  Absent = inherit (field beats struct beats nested parents beats global overlay).
+     *  Ignored for pointer values (always decode with the global overlay endian). */
+    endian?: 'le' | 'be';
+    /** Explicit bit allocation for this field's bit-field container unit.
+     *  Absent = inherit. Only meaningful on bit-field container / struct fields. */
+    allocation?: 'lsb' | 'msb';
 }
 
 export interface StructDef {
@@ -118,6 +125,12 @@ export interface StructDef {
     /** When true: no padding between fields (GCC __attribute__((packed))).
      *  When false/absent: fields are naturally aligned (default). */
     packed?: boolean;
+    /** Explicit byte order inherited by all fields (unless a field overrides).
+     *  Absent = inherit from nested parents / global overlay. */
+    endian?: 'le' | 'be';
+    /** Explicit bit allocation inherited by bit-field containers (unless a field overrides).
+     *  Absent = inherit from nested parents / global overlay. */
+    allocation?: 'lsb' | 'msb';
 }
 
 /** A saved struct overlay instance: one struct definition applied to one address with a user label. */
