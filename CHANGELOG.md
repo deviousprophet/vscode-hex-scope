@@ -4,6 +4,7 @@
 
 ### Added
 - "Edit selected bytes" context-menu option opens a session that confines typing to the selected range, applying edits live with a single undo, while a `SELECTION` chip and range tint make the active editing range visible
+- Per-field and per-structure byte-order (`LE`/`BE`) and bit-allocation (`LSB`/`MSB`) overrides for struct definitions, with tri-state `Auto` (inherit) controls in the struct editor and explicit-override chips on decoded rows
 
 ## [2.20.0] - 2026-09-01
 
