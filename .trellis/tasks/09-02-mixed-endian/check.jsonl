@@ -1,0 +1,2 @@
+﻿{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Amend the unchanged-structCodec statement; document new controls + badge rules."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Boundary normalization rules for the new optional keys + discriminated unions if relevant."}

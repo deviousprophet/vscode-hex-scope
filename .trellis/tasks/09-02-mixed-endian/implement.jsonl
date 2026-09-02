@@ -1,0 +1,4 @@
+﻿{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Struct panel component contract — endian/allocation controls, decoded-row badges, pointer global-only; the 'structCodec unchanged' claim gets amended here."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend spec index — this task extends the struct-panel component scope."}
+{"file": "schemas/structs.schema.json", "reason": "Struct def/field schema — add optional endian + allocation enums."}
+{"file": "schemas/index.schema.json", "reason": "Profile schema root tolerates extra keys; verify envelope tolerates new struct keys (forward compat)."}

@@ -1,27 +1,20 @@
-// ── Struct-definition migration and normalization ─────────────────
-// Single owner for struct-def migration/deduplication. Runtime-neutral,
-// so both the extension host (session + migration) and tests share it.
+/**
+ * Struct-definition migration and normalization. Single owner for struct-def
+ * migration/deduplication. Runtime-neutral, so both the extension host
+ * (session + migration) and tests share it.
+ *
+ * NOTE: legacy struct fields may carry a per-field `endian` annotation
+ * (pre-global-endian era). That key is a first-class per-field override
+ * again, so migration passes it through untouched — annotated fields
+ * decode with their declared byte order, and new saves round-trip.
+ */
 
 import type { StructDef } from './types';
 
 type StructDefIdentity = { id: string; name: string };
 
 export function migrateStructDefinitions(value: unknown): unknown {
-    if (!Array.isArray(value)) { return value; }
-    return value.map(item => {
-        if (item === null || typeof item !== 'object') { return item; }
-        const def = item as { fields?: unknown };
-        if (!Array.isArray(def.fields)) { return item; }
-        return {
-            ...def,
-            fields: def.fields.map(field => {
-                if (field === null || typeof field !== 'object') { return field; }
-                const clean = { ...field } as Record<string, unknown>;
-                delete clean.endian;
-                return clean;
-            }),
-        };
-    });
+    return value;
 }
 
 export type StructDefsNormalization = { defs: StructDef[]; changed: boolean };

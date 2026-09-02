@@ -49,10 +49,33 @@
     font-family: var(--font-ui); font-weight: 600;
 }
 
-/* Field header + rows (Ptr column removed — pointer declared via field context menu) */
+/* Struct-default row: grid-aligned so Endian/Alloc share the field grid columns */
+.se-struct-default-row {
+    display: grid;
+    grid-template-columns: 96px 1fr 58px 52px 40px 72px 30px 18px;
+    gap: 3px; align-items: center; padding: 1px 0;
+    margin-top: 3px;
+}
+.se-struct-default-lbl {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 10px; font-weight: 600; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.se-struct-default-sel {
+    flex: 1; min-width: 0;
+    appearance: none;
+    background-color: var(--input-bg);
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
+    background-repeat: no-repeat; background-position: right 3px center; background-size: 7px 4px;
+    border: 1px solid var(--input-bdr);
+    border-radius: 2px; color: var(--input-fg); font-family: var(--font-ui);
+    font-size: 10px; padding: 1px 12px 1px 4px; outline: none; width: 100%;
+    box-sizing: border-box;
+}
+.se-struct-default-sel:focus { border-color: var(--focus-bdr); }
+
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
+    grid-template-columns: 96px 1fr 58px 52px 40px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -62,7 +85,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 64px 1fr 40px 72px 30px 18px;
+    grid-template-columns: 96px 1fr 58px 52px 40px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 .struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
@@ -71,13 +94,24 @@
     width: 100%;
 }
 
-.sfe-type-sel {
-    background: var(--input-bg); border: 1px solid var(--input-bdr);
+.sfe-type-sel,
+.sfe-endian-sel,
+.sfe-alloc-sel {
+    appearance: none;
+    background-color: var(--input-bg);
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
+    background-repeat: no-repeat; background-position: right 3px center; background-size: 7px 4px;
+    border: 1px solid var(--input-bdr);
     border-radius: 2px; color: var(--input-fg); font-family: var(--font-ui);
-    font-size: 10px; padding: 1px 2px; outline: none; width: 100%;
+    font-size: 10px; padding: 1px 12px 1px 4px; outline: none; width: 100%;
     box-sizing: border-box;
 }
-.sfe-type-sel:focus { border-color: var(--focus-bdr); }
+.sfe-type-sel:focus,
+.sfe-endian-sel:focus,
+.sfe-alloc-sel:focus { border-color: var(--focus-bdr); }
+
+/* Empty cell kept so plain/pointer/nested rows stay grid-aligned with bit-field rows */
+.sfe-alloc-placeholder { display: block; }
 
 /* Array cell */
 .sfe-arr-cell {
@@ -342,9 +376,9 @@
     max-height: 180px; overflow-y: auto;
 }
 
-/* Packed toggle button in struct editor */
+/* Packed toggle button in struct editor (Type column of the struct-default row) */
 .se-packed-btn {
-    display: inline-block; align-self: start; margin: 2px 0 4px;
+    display: inline-block; justify-self: start; align-self: center; margin: 0;
     padding: 2px 7px; border-radius: 3px;
     font-size: 10px; font-family: var(--font-editor);
     color: var(--addr-fg); background: transparent;
@@ -423,6 +457,19 @@
     border-bottom: 1px dotted rgba(255,255,255,.2);
     margin-bottom: 2px; align-self: flex-end;
 }
+/* Explicit-override badges (per-field/struct endian + allocation) */
+.si-chip {
+    flex-shrink: 0;
+    font-family: var(--font-ui);
+    font-size: 9px; font-weight: 700;
+    border-radius: 7px; padding: 0 5px;
+    line-height: 13px;
+    letter-spacing: .02em;
+    align-self: center;
+    user-select: none;
+}
+.si-chip-endian { background: rgba(79,195,247,.16); color: var(--high-color); }
+.si-chip-alloc  { background: rgba(255,193,7,.14);  color: var(--warn); }
 .si-f-pri { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; flex-shrink: 0; }
 .si-f-val { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; flex-shrink: 0; }
 .si-f-val[data-val-type="hex"]   { color: var(--val-hex-color); }

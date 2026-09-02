@@ -47,6 +47,8 @@ export interface StructCallbacks {
 }
 
 const MAX_INLINE_POINTER_HOPS = 2;
+/** Max chars for a `struct <name>` option label before truncating (full name in `title`). */
+const TYPE_OPTION_MAX_CHARS = 28;
 
 type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
@@ -590,6 +592,8 @@ private applyBitHighlightsInPlace(sec: HTMLElement): void {
 private renderBinaryFromBitRows(
     rows: DecodedField[],
     selectedRange?: { startBit: number; endBit: number } | null,
+    endian?: 'le' | 'be',
+    alloc?: BitFieldAllocation,
 ): string {
     const usedWidth = rows.reduce((sum, r) => sum + Math.max(0, r.bitWidth ?? 0), 0);
     const first = rows[0];
@@ -598,50 +602,52 @@ private renderBinaryFromBitRows(
     }
     const rawParts = this.byteHexParts(first.bytesHex);
     if (this.hasBitRowData(first, rawParts)) {
-        return this.renderKnownBitRowBits(rawParts, usedWidth, selectedRange);
+        return this.renderKnownBitRowBits(rawParts, usedWidth, selectedRange, endian ?? first.endian, alloc ?? first.allocation);
     }
-    return this.renderUnknownBitRowBits(usedWidth, selectedRange);
+    return this.renderUnknownBitRowBits(usedWidth, selectedRange, alloc ?? first.allocation);
 }
 
 private hasBitRowData(first: DecodedField, rawParts: string[]): boolean {
     return first.hasData && !this.hasMissingByte(rawParts);
 }
 
-private renderKnownBitRowBits(rawParts: string[], usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null): string {
-    const bits = this.slicedBitRowBits(rawParts, usedWidth);
+private renderKnownBitRowBits(rawParts: string[], usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
+    const bits = this.slicedBitRowBits(rawParts, usedWidth, endian, alloc);
     const spans = [...bits].map((bit, displayIdx) => {
-        const bitIdx = this.displayBitIndex(displayIdx, usedWidth);
+        const bitIdx = this.displayBitIndex(displayIdx, usedWidth, alloc);
         return this.renderBitSpan(bit, bitIdx, this.isBitSelected(bitIdx, selectedRange));
     });
     return this.renderBinarySpanLines(spans);
 }
 
-private slicedBitRowBits(rawParts: string[], usedWidth: number): string {
+private slicedBitRowBits(rawParts: string[], usedWidth: number, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
     const raw = this.bytesFromHexParts(rawParts);
-    const value = this.bytesToValue(raw, this._endian);
+    const value = this.bytesToValue(raw, endian ?? this._endian);
     const unitBits = raw.length * 8;
     const mask = (1n << BigInt(usedWidth)) - 1n;
-    const slicedValue = this._bitFieldAllocation === 'lsb'
+    const slicedValue = (alloc ?? this._bitFieldAllocation) === 'lsb'
         ? value & mask
         : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
     return slicedValue.toString(2).padStart(usedWidth, '0');
 }
 
-private renderUnknownBitRowBits(usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null): string {
+private renderUnknownBitRowBits(usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null, alloc?: BitFieldAllocation): string {
     const spans = Array.from({ length: usedWidth }, (_, displayIdx) => {
-        const bitIdx = this.displayBitIndex(displayIdx, usedWidth);
+        const bitIdx = this.displayBitIndex(displayIdx, usedWidth, alloc);
         return this.renderUnknownBitSpan(bitIdx, this.isBitSelected(bitIdx, selectedRange));
     });
     return this.renderBinarySpanLines(spans);
 }
 
-private displayBitIndex(displayIdx: number, usedWidth: number): number {
-    return this._bitFieldAllocation === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
+private displayBitIndex(displayIdx: number, usedWidth: number, alloc?: BitFieldAllocation): number {
+    return (alloc ?? this._bitFieldAllocation) === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
 }
 
 private renderBinaryStorageUnit(
     r: DecodedField,
     selectedRange?: { startBit: number; endBit: number } | null,
+    endian?: 'le' | 'be',
+    alloc?: BitFieldAllocation,
 ): string {
     const rawParts = this.byteHexParts(r.bytesHex);
     if (this.hasMissingByte(rawParts)) {
@@ -649,7 +655,7 @@ private renderBinaryStorageUnit(
         const bitCount = byteCount * 8;
         const spans = Array.from({ length: bitCount }, (_, displayIdx) => {
             const numericBitIdx = bitCount - displayIdx - 1;
-            const bitIdx = this._bitFieldAllocation === 'lsb' ? numericBitIdx : displayIdx;
+            const bitIdx = (alloc ?? this._bitFieldAllocation) === 'lsb' ? numericBitIdx : displayIdx;
             return this.renderUnknownBitSpan(bitIdx, this.isBitSelected(bitIdx, selectedRange));
         });
         return this.renderBinarySpanLines(spans);
@@ -657,10 +663,10 @@ private renderBinaryStorageUnit(
 
     const bytes = this.bytesFromHexParts(rawParts);
     const bitCount = bytes.length * 8;
-    const bits = this.binaryBitsForValue(bytes, this._endian);
+    const bits = this.binaryBitsForValue(bytes, endian ?? this._endian);
     const spans = [...bits].map((bit, displayIdx) => {
         const numericBitIdx = bitCount - displayIdx - 1;
-        const storageBitIdx = this._bitFieldAllocation === 'lsb' ? numericBitIdx : displayIdx;
+        const storageBitIdx = (alloc ?? this._bitFieldAllocation) === 'lsb' ? numericBitIdx : displayIdx;
         return this.renderBitSpan(bit, storageBitIdx, this.isBitSelected(storageBitIdx, selectedRange));
     });
 
@@ -684,7 +690,14 @@ private structOptionHtml(f: StructField, d: StructDef): string {
     f = normalizeStructField(f);
     const val = `struct:${d.id}`;
     const selected = f.type === 'struct' && f.refStructId === d.id;
-    return `<option value="${esc(val)}"${selected ? ' selected' : ''}>struct ${esc(d.name)}</option>`;
+    const full = `struct ${d.name}`;
+    // Truncate very long nested-struct names in the type select; the full
+    // name stays available via the option's title tooltip.
+    const label = full.length > TYPE_OPTION_MAX_CHARS
+        ? `${full.slice(0, TYPE_OPTION_MAX_CHARS)}\u2026`
+        : full;
+    const titleAttr = label !== full ? ` title="${esc(full)}"` : '';
+    return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
 private isBitContainerField(f: StructField): boolean {
@@ -762,6 +775,30 @@ private fieldMoveButtonsHtml(i: number, total: number): string {
     );
 }
 
+private overrideSelectHtml(
+    value: 'le' | 'be' | 'lsb' | 'msb' | undefined,
+    kind: 'endian' | 'allocation',
+    cls: string,
+    id?: string,
+    inherited?: string,
+): string {
+    const labels = kind === 'endian'
+        ? [['', 'Auto'], ['le', 'LE'], ['be', 'BE']] as const
+        : [['', 'Auto'], ['lsb', 'LSB'], ['msb', 'MSB']] as const;
+    // Auto = inherit: the Auto option's title (and the select's when Auto is
+    // selected) shows the effective inherited source, e.g. "Auto — inherits BE".
+    const autoTitle = value === undefined && inherited ? `Auto \u2014 inherits ${inherited}` : undefined;
+    const options = labels.map(([val, label]) => {
+        const titleAttr = val === '' && autoTitle ? ` title="${esc(autoTitle)}"` : '';
+        return `<option value="${val}"${value === val ? ' selected' : ''}${titleAttr}>${label}</option>`;
+    }).join('');
+    const idAttr = id ? ` id="${id}"` : '';
+    const title = autoTitle ?? (kind === 'endian'
+        ? 'Byte order for this field (first explicit value up the chain wins)'
+        : 'Bit allocation for this field (first explicit value up the chain wins)');
+    return `<select class="${cls}"${idAttr} title="${title}" aria-label="${title}">${options}</select>`;
+}
+
 private fieldRowHtml(
     f: StructField,
     i: number,
@@ -773,12 +810,18 @@ private fieldRowHtml(
     const isBitContainer = this.isBitContainerField(f);
     const delCell = this.deleteFieldCellHtml(isOnly);
     const childrenHtml = this.bitChildrenHtml(f, isBitContainer);
+    const inheritedEndian = (this._editingType?.draft.endian ?? this._endian).toUpperCase();
+    const inheritedAlloc = (this._editingType?.draft.allocation ?? this._bitFieldAllocation).toUpperCase();
 
     return (
         `<div class="struct-field-row${isBitContainer ? ' has-bit-children' : ''}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
+        this.overrideSelectHtml(f.endian, 'endian', 'sfe-endian-sel', undefined, inheritedEndian) +
+        (isBitContainer
+            ? this.overrideSelectHtml(f.allocation, 'allocation', 'sfe-alloc-sel', undefined, inheritedAlloc)
+            : `<span class="sfe-alloc-placeholder"></span>`) +
         this.fieldBitToggleHtml(f, isBitContainer) +
         this.fieldArrayCellHtml(f) +
         this.fieldMoveButtonsHtml(i, total) +
@@ -958,9 +1001,14 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<div class="se-form">` +
         `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="TypeName" spellcheck="false" autocomplete="off">` +
+        `<div class="se-struct-default-row">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
-               `title="Toggle packed struct">__attribute__((packed))</button>` +
-         `<div class="se-field-hdr"><span>Type</span><span>Name</span><span>Bits</span><span>[ ]</span><span></span><span></span></div>` +
+               `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
+        `<span class="se-struct-default-lbl">struct default</span>` +
+        this.overrideSelectHtml(draft.endian, 'endian', 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
+        this.overrideSelectHtml(draft.allocation, 'allocation', 'se-struct-default-sel', 'se-alloc', this._bitFieldAllocation.toUpperCase()) +
+        `</div>` +
+        `<div class="se-field-hdr"><span>Type</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Bits</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
@@ -977,6 +1025,8 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
 private syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
     draft.name   = this.sanitizeCIdent((sec.querySelector<HTMLInputElement>('#se-name'))?.value.trim() ?? '');
     draft.packed = sec.querySelector('#se-packed')?.classList.contains('active') ?? false;
+    draft.endian = this.readEndianOverride((sec.querySelector<HTMLSelectElement>('#se-endian'))?.value);
+    draft.allocation = this.readAllocationOverride((sec.querySelector<HTMLSelectElement>('#se-alloc'))?.value);
     const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
     draft.fields = Array.from(rows).map(row => {
         return this.readEditorFieldRow(row);
@@ -992,9 +1042,19 @@ private readEditorFieldRow(row: HTMLElement): StructField {
         refStructId: typeInfo.refStructId,
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
+        endian: this.readEndianOverride((row.querySelector('.sfe-endian-sel') as HTMLSelectElement | null)?.value),
+        allocation: this.readAllocationOverride((row.querySelector('.sfe-alloc-sel') as HTMLSelectElement | null)?.value),
     };
     this.applyEditorBitFields(result, this.readEditorBitFields(row, typeInfo.isUnsigned, childrenContainer), childrenContainer);
     return result;
+}
+
+private readEndianOverride(value: string | undefined): 'le' | 'be' | undefined {
+    return value === 'le' || value === 'be' ? value : undefined;
+}
+
+private readAllocationOverride(value: string | undefined): 'lsb' | 'msb' | undefined {
+    return value === 'lsb' || value === 'msb' ? value : undefined;
 }
 
 private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isUnsigned: boolean; isPointer: boolean } {
@@ -1264,6 +1324,21 @@ private wireEditorInSec(sec: HTMLElement): void {
         });
     });
 
+    // ── Endian / allocation override selects (field + struct level) ──
+    // Struct-level changes re-render so per-field "Auto" tooltips
+    // reflect the new effective source; field-level just refresh the preview.
+    sec.querySelectorAll<HTMLSelectElement>('#se-endian, #se-alloc').forEach(sel => {
+        sel.addEventListener('change', () => {
+            this.syncEditorDraft(sec, draft);
+            this.render();
+        });
+    });
+    sec.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel, .sfe-alloc-sel').forEach(sel => {
+        sel.addEventListener('change', () => {
+            refreshEditorPreview(sec, draft);
+        });
+    });
+
     // ── Bit-field child name/width input live refresh ───────────
     sec.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name, .sfe-bf-child-width').forEach(inp => {
         inp.addEventListener('input', () => {
@@ -1316,6 +1391,8 @@ private editorDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
         id: draft.id,
         name: this.readEditorStructName(sec, draft.id),
         packed: draft.packed ?? false,
+        endian: draft.endian,
+        allocation: draft.allocation,
         fields: draft.fields.map((field, idx) => this.withSavedFieldName(field, idx, draft.fields)),
     };
 }
@@ -1771,7 +1848,10 @@ private getValForType(r: DecodedField, valType: ColType): string {
     if (this.isBitFieldRow(r)) { return this.renderBitFieldValue(r, valType); }
 
     const bytes = this.fieldBytes(r);
-    const endian = this._endian;
+    // Resolved per-row effective endian (field → struct → global), already
+    // threaded by the decoder; pointer rows carry the global endian in core,
+    // so the pointer-always-global rule holds here too.
+    const endian = r.endian ?? this._endian;
     const dv = this.dataViewForBytes(bytes);
     return this.renderScalarValue(r, valType, bytes, dv, endian);
 }
@@ -2053,7 +2133,7 @@ private copyPointerRowText(r: DecodedField): string {
 
 private copyNonAsciiFieldValue(r: DecodedField, valType: ColType): string {
     const bytes = this.fieldBytes(r);
-    const endian = this._endian;
+    const endian = r.endian ?? this._endian;
     const le = endian === 'le';
     const special = this.copySpecialFieldValue(r, valType, bytes, endian, le);
     if (special !== null) { return special; }
@@ -2299,6 +2379,7 @@ private mkFieldRow(r: DecodedField, bs: number, bc: number, ctx: StructRenderCon
         `<span class="si-toggle-pad" aria-hidden="true"></span>` +
         `<span class="si-f-body">` +
         `<span class="si-f-name">${esc(displayName ?? this.leafName(r.fieldName))}</span>` +
+        (this.isBitFieldRow(r) ? '' : this.overrideBadgeHtml(r)) +
         `<span class="si-f-lead"></span>` +
         `<span class="si-f-val si-f-pri${this.pointerValueClass(ptr)}" data-val-type="${t}" data-bs="${bs}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
         `</span>` +
@@ -2308,6 +2389,21 @@ private mkFieldRow(r: DecodedField, bs: number, bc: number, ctx: StructRenderCon
 
 private fieldRowClasses(hasData: boolean, pointer: boolean): string {
     return `${hasData ? '' : ' si-no-data'}${pointer ? ' si-ptr-field' : ''}`;
+}
+
+/** Explicit-override badge chips for a decoded row: shown when the row's
+ *  effective endian/allocation differs from the global overlay values
+ *  (i.e. an explicit override is in effect somewhere up the chain). */
+private overrideBadgeHtml(r: DecodedField | undefined): string {
+    if (!r) { return ''; }
+    let html = '';
+    if (r.endian !== undefined && r.endian !== this._endian) {
+        html += `<span class="si-chip si-chip-endian">${r.endian.toUpperCase()}</span>`;
+    }
+    if (r.allocation !== undefined && r.allocation !== this._bitFieldAllocation) {
+        html += `<span class="si-chip si-chip-alloc">${r.allocation.toUpperCase()}</span>`;
+    }
+    return html;
 }
 
 private pointerValueClass(pointer: boolean): string {
@@ -2351,7 +2447,7 @@ private groupSummaryLabel(rows: DecodedField[], fallback: string): string {
     const raw = this.completeByteValues(first.bytesHex);
     if (!raw) { return '??'; }
 
-    const value = this.bytesToValue(raw, this._endian);
+    const value = this.bytesToValue(raw, first.endian ?? this._endian);
     const hex = value.toString(16).toUpperCase().padStart(raw.length * 2, '0');
     return `0x${hex} (${value.toString(10)})`;
 }
@@ -2375,10 +2471,12 @@ private buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
     const rawParts = this.byteHexParts(first.bytesHex);
     if (this.canDecodeBitUnit(usedWidth, rawParts, first.hasData)) {
         const raw = this.bytesFromHexParts(rawParts);
-        const value = this.bytesToValue(raw, this._endian);
+        const endian = first.endian ?? this._endian;
+        const allocation = first.allocation ?? this._bitFieldAllocation;
+        const value = this.bytesToValue(raw, endian);
         const unitBits = raw.length * 8;
         const mask = (1n << BigInt(usedWidth)) - 1n;
-        const sliced = this._bitFieldAllocation === 'lsb'
+        const sliced = allocation === 'lsb'
             ? value & mask
             : (value >> BigInt(Math.max(0, unitBits - usedWidth))) & mask;
         slicedValue = sliced.toString(10);
@@ -2394,6 +2492,8 @@ private buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null {
         bitWidth: usedWidth,
         bitStorageByteSize: first.bitStorageByteSize,
         bitValueUnsigned: slicedValue,
+        endian: first.endian,
+        allocation: first.allocation,
     };
 }
 
@@ -2446,8 +2546,10 @@ private bitUnitHeaderValueHtml(
     valueType: ColType,
     activeRange: { startBit: number; endBit: number } | null,
 ): string {
-    if (valueType === 'bin') { return this.renderBinaryStorageUnit(agg, activeRange); }
-    if (valueType === 'bin-sliced') { return this.renderBinaryFromBitRows(rows, activeRange); }
+    // The agg/rows carry the container's resolved (possibly overridden) endian
+    // + allocation; pass them down so the binary rendering matches the decode.
+    if (valueType === 'bin') { return this.renderBinaryStorageUnit(agg, activeRange, agg.endian, agg.allocation); }
+    if (valueType === 'bin-sliced') { return this.renderBinaryFromBitRows(rows, activeRange, agg.endian, agg.allocation); }
     return this.getValForType(agg, valueType);
 }
 
@@ -2535,6 +2637,7 @@ private firstBitUnitFieldName(rows: DecodedField[]): string {
             this.collapsibleIconHtml(buttonClass, isOpen) +
             `<span class="si-f-body">` +
             `<span class="si-f-name">${esc(headerName)}</span>` +
+            this.overrideBadgeHtml(agg) +
             `<span class="si-f-lead"></span>` +
             `<span class="si-f-val si-f-pri${ptrClass}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
             `</span>` +
@@ -2970,6 +3073,8 @@ private nestedStructHeaderHtml(ctx: StructRenderContext, ng: NestedFieldGroup, i
         this.groupHeaderName(ng.baseRel),
         info.summaryLabel,
         ctx.hideOffsets,
+        false,
+        this.overrideBadgeHtml(ng.rows[0]),
     );
 }
 
@@ -3059,6 +3164,7 @@ private structFieldHeaderHtml(ctx: StructRenderContext, g: FieldGroup, info: Str
         info.summaryLabel,
         ctx.hideOffsets,
         true,
+        this.overrideBadgeHtml(g.rows[0]),
     );
 }
 
@@ -3084,6 +3190,7 @@ private compositeGroupHtml(key: string, isOpen: boolean, headerHtml: string, bod
         summaryLabel: string,
         hideOffset = false,
         includeTitle = false,
+        badgeHtml = '',
     ): string {
         const title = includeTitle ? ` title="${esc(summaryLabel)}"` : '';
         return (
@@ -3093,6 +3200,7 @@ private compositeGroupHtml(key: string, isOpen: boolean, headerHtml: string, bod
             this.collapsibleIconHtml('si-arr-exp-btn', isOpen) +
             `<span class="si-f-body">` +
             `<span class="si-f-name">${esc(name)}</span>` +
+            badgeHtml +
             `<span class="si-f-lead"></span>` +
             `<span class="si-arr-addr"${title}>${esc(summaryLabel)}</span>` +
             `</span>` +
@@ -3136,7 +3244,7 @@ private renderStructPointerArrayRows(
     return this.compositeGroupHtml(
         key,
         isOpen,
-        this.compositeHeaderHtml(isOpen, byteStart, info.byteCount, first.byteOffset, this.groupHeaderName(baseName), info.summary, ctx.hideOffsets, true),
+        this.compositeHeaderHtml(isOpen, byteStart, info.byteCount, first.byteOffset, this.groupHeaderName(baseName), info.summary, ctx.hideOffsets, true, this.overrideBadgeHtml(first)),
         bodyHtml,
     );
 }

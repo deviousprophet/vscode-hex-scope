@@ -941,7 +941,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
     });
 
-    test('clicking non-array bit-field parent selects its storage unit size, not child sum (#179)', async () => {
+    test('clicking non-array bit-field parent selects its storage unit size, not child sum', async () => {
         const def: StructDef = {
             id: 'bit_parent_size',
             name: 'BitParentSize',
@@ -2281,5 +2281,251 @@ suite('StructPanel deep-render harness', () => {
         const attach = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]');
         assert.ok(!attach, 'attach pointer should be hidden for bit-field containers');
         assert.ok(document.querySelector<HTMLElement>('.si-field-menu .menu-item.menu-disabled')?.textContent?.includes('Attach pointer'), 'disabled item should explain bit-field conflict');
+    });
+
+    // ── per-field / per-struct endian + allocation overrides ──
+
+    const overrideChange = (dom: JSDOM, sel: HTMLSelectElement): void => {
+        sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    };
+
+    test('editor override selects render with Auto option + inherited-source tooltip', async () => {
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const endianSel = document.getElementById('se-endian') as HTMLSelectElement | null;
+        const allocSel = document.getElementById('se-alloc') as HTMLSelectElement | null;
+        assert.ok(endianSel && allocSel, 'struct-level override selects should render');
+        assert.ok(
+            endianSel!.closest('.se-struct-default-row') && allocSel!.closest('.se-struct-default-row'),
+            'struct-level selects live in the grid-aligned struct-default row',
+        );
+        assert.strictEqual(endianSel!.value, '', 'struct endian defaults to inherited');
+        assert.strictEqual(allocSel!.value, '', 'struct allocation defaults to inherited');
+        assert.ok(endianSel!.options[0] && endianSel!.options[2], 'struct endian tri-state Auto/LE/BE should render');
+        assert.strictEqual(endianSel!.options[0].textContent, 'Auto', 'struct endian Auto option label');
+        assert.strictEqual(endianSel!.options[1].textContent, 'LE', 'struct endian LE option label');
+        assert.strictEqual(endianSel!.options[2].textContent, 'BE', 'struct endian BE option label');
+        assert.strictEqual(endianSel!.options[0].title, 'Auto — inherits LE', 'struct endian Auto tooltip shows global source');
+        assert.strictEqual(allocSel!.options[0].title, 'Auto — inherits MSB', 'struct allocation Auto tooltip shows global source');
+        assert.ok(!endianSel!.classList.contains('is-explicit'), 'inherited struct endian is not tinted');
+
+        // Plain scalar row: field endian select renders, allocation select does not.
+        const plainRow = document.querySelector<HTMLElement>('.struct-field-row')!;
+        const fieldEndian = plainRow.querySelector<HTMLSelectElement>('.sfe-endian-sel');
+        assert.ok(fieldEndian, 'plain scalar row keeps the field endian select');
+        assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain scalar row renders no field allocation select');
+        assert.ok(plainRow.querySelector('.sfe-alloc-placeholder'), 'plain scalar row keeps an empty alloc cell for grid alignment');
+        assert.strictEqual(fieldEndian!.options[0].textContent, 'Auto', 'field endian Auto option label');
+        assert.strictEqual(fieldEndian!.options[0].title, 'Auto — inherits LE', 'field endian Auto tooltip shows global when struct has none');
+
+        // Bit-field container row: allocation select renders with the tri-state options.
+        click(dom, plainRow.querySelector<HTMLElement>('.sfe-bit-btn'));
+        const bitRow = document.querySelector<HTMLElement>('.struct-field-row')!;
+        const fieldAlloc = bitRow.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+        assert.ok(fieldAlloc, 'bit-field container row renders the field allocation select');
+        assert.strictEqual(fieldAlloc!.options[2].textContent, 'MSB', 'field allocation MSB option label');
+    });
+
+    test('editor override selects save per-struct and per-field overrides', async () => {
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const structEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        const structAlloc = document.getElementById('se-alloc') as HTMLSelectElement;
+        structEndian.value = 'be';
+        structAlloc.value = 'msb';
+        overrideChange(dom, structEndian);
+        overrideChange(dom, structAlloc);
+        // Struct-level change re-renders the editor — re-query the fresh selects.
+        const freshEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        const freshAlloc = document.getElementById('se-alloc') as HTMLSelectElement;
+        assert.ok(!freshEndian.classList.contains('is-explicit'), 'explicit struct endian does not tint the select');
+        assert.ok(!freshAlloc.classList.contains('is-explicit'), 'explicit struct allocation does not tint the select');
+        // Field endian select shows the struct-level effective source.
+        const fieldEndian = document.querySelector<HTMLSelectElement>('.sfe-endian-sel')!;
+        assert.strictEqual(fieldEndian.options[0].title, 'Auto — inherits BE', 'field endian Auto tooltip shows struct override');
+        // The allocation select only renders on bit-field containers — make field 0 one.
+        click(dom, document.querySelector<HTMLElement>('.sfe-bit-btn'));
+        const freshFieldEndian = document.querySelector<HTMLSelectElement>('.sfe-endian-sel')!;
+        const fieldAlloc = document.querySelector<HTMLSelectElement>('.sfe-alloc-sel')!;
+        assert.ok(fieldAlloc, 'bit-field container row renders the field allocation select');
+        assert.strictEqual(fieldAlloc.options[0].title, 'Auto — inherits MSB', 'field allocation Auto tooltip shows struct override');
+        freshFieldEndian.value = 'le';
+        fieldAlloc.value = 'lsb';
+        overrideChange(dom, freshFieldEndian);
+        overrideChange(dom, fieldAlloc);
+        assert.ok(!freshFieldEndian.classList.contains('is-explicit'), 'explicit field endian does not tint the select');
+        assert.ok(!fieldAlloc.classList.contains('is-explicit'), 'explicit field allocation does not tint the select');
+        (document.getElementById('se-name') as HTMLInputElement).value = 'Mixed';
+        click(dom, document.getElementById('se-save'));
+        const saved = S.structs.find(d => d.name === 'Mixed');
+        assert.ok(saved, 'saved type should exist');
+        assert.strictEqual(saved!.endian, 'be');
+        assert.strictEqual(saved!.allocation, 'msb');
+        assert.strictEqual(saved!.fields[0].endian, 'le');
+        assert.strictEqual(saved!.fields[0].allocation, 'lsb');
+    });
+
+    test('struct-default row is grid-aligned; field Alloc select only on bit-field containers', async () => {
+        const inner: StructDef = {
+            id: 'inner',
+            name: 'Inner',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const outer: StructDef = {
+            id: 'outer',
+            name: 'Outer',
+            fields: [
+                { name: 'plain', type: 'uint16', count: 1 },
+                { name: 'p', type: 'void', isPointer: true, count: 1 },
+                { name: 'nested', type: 'struct', refStructId: 'inner', count: 1 },
+                {
+                    name: 'ctl', type: 'uint16', count: 1,
+                    bitFields: [
+                        { name: 'a', bitWidth: 4 },
+                        { name: 'b', bitWidth: 12 },
+                    ],
+                },
+            ],
+        };
+        S.structs = [inner, outer];
+        await createMountedPanel();
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
+
+        // Struct-default row: one grid row sharing the field grid; packed/endian/alloc slots.
+        const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
+        assert.ok(defaultRow, 'struct-default row should render');
+        assert.ok(defaultRow!.querySelector('#se-packed'), 'packed toggle sits in the Type column of the struct-default row');
+        assert.strictEqual(
+            defaultRow!.querySelector('.se-struct-default-lbl')?.textContent,
+            'struct default',
+            'struct-default label sits in the Name column',
+        );
+        assert.ok(defaultRow!.querySelector('#se-endian'), 'struct endian select sits in the Endian column');
+        assert.ok(defaultRow!.querySelector('#se-alloc'), 'struct allocation select sits in the Alloc column');
+        assert.strictEqual(document.querySelector('.se-override-row'), null, 'legacy flex override strip removed');
+
+        // Field rows: allocation select renders only on bit-field container rows; other rows keep an empty cell.
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
+        const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
+        assert.ok(rowByName('plain').querySelector('.sfe-alloc-placeholder'), 'plain scalar row keeps an empty alloc cell');
+        assert.strictEqual(rowByName('plain').querySelector('.sfe-alloc-sel'), null, 'plain scalar row has no allocation select');
+        assert.strictEqual(rowByName('p').querySelector('.sfe-alloc-sel'), null, 'pointer row has no allocation select');
+        assert.strictEqual(rowByName('nested').querySelector('.sfe-alloc-sel'), null, 'nested-struct row has no allocation select (the nested StructDef owns bitfield allocation)');
+        assert.ok(rowByName('ctl').querySelector('.sfe-alloc-sel'), 'bit-field container row renders the allocation select');
+    });
+
+    test('decoded rows badge explicit endian/allocation overrides', async () => {
+        const beStruct: StructDef = {
+            id: 'be',
+            name: 'BeStruct',
+            packed: true,
+            endian: 'be',
+            allocation: 'lsb',
+            fields: [
+                { name: 'word', type: 'uint16', count: 1 },
+                { name: 'p', type: 'void', isPointer: true, count: 1 },
+                {
+                    name: 'ctl', type: 'uint16', count: 1,
+                    bitFields: [
+                        { name: 'a', bitWidth: 4 },
+                        { name: 'b', bitWidth: 12 },
+                    ],
+                },
+            ],
+        };
+        S.structs = [beStruct];
+        S.structPins = [{ id: 'pin1', structId: 'be', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x12, 0x34, 0x78, 0x56, 0x34, 0x12, 0x12, 0x34]);
+        await createMountedPanel();
+        click(dom, document.querySelector('.si-expand-btn'));
+
+        const leafs = Array.from(document.querySelectorAll<HTMLElement>('.si-field'));
+        const wordRow = leafs.find(el => el.querySelector('.si-f-name')?.textContent === 'word');
+        assert.ok(wordRow, 'word row should render');
+        assert.strictEqual(wordRow!.querySelector('.si-chip-endian')?.textContent, 'BE', 'scalar row badges struct endian override');
+
+        const pointerRow = leafs.find(el => el.classList.contains('si-ptr-field'));
+        assert.ok(pointerRow, 'pointer row should render');
+        assert.strictEqual(pointerRow!.querySelector('.si-chip'), null, 'pointer rows never badge (global endian only)');
+        assert.match(elementText(pointerRow!.querySelector('.si-f-val')!), /0x12345678/, 'pointer value decodes with global endian');
+
+        const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
+        assert.ok(bitHdr, 'bit unit header should render');
+        assert.strictEqual(bitHdr!.querySelector('.si-chip-endian')?.textContent, 'BE', 'bit unit header badges effective endian');
+        assert.strictEqual(bitHdr!.querySelector('.si-chip-alloc')?.textContent, 'LSB', 'bit unit header badges effective allocation (vs global MSB)');
+
+        const bitChild = leafs.find(el => el.dataset.bitStart !== undefined);
+        assert.ok(bitChild, 'bit child row should render');
+        assert.strictEqual(bitChild!.querySelector('.si-chip'), null, 'bit children never chip — chip lives on the bit unit parent header only');
+    });
+
+    test('no override badges when everything inherits global', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x34, 0x12]);
+        await createMountedPanel();
+        click(dom, document.querySelector('.si-expand-btn'));
+        assert.strictEqual(document.querySelector('.si-chip'), null, 'no override badges when all rows inherit global');
+    });
+
+    test('override endian changes rendered values, not just chips (REGRESSION)', async () => {
+        const beStruct: StructDef = {
+            id: 'be2',
+            name: 'BeStruct2',
+            packed: true,
+            endian: 'be',
+            allocation: 'lsb',
+            fields: [
+                { name: 'word', type: 'uint16', count: 1 },
+                {
+                    name: 'ctl', type: 'uint16', count: 1,
+                    bitFields: [
+                        { name: 'a', bitWidth: 4 },
+                        { name: 'b', bitWidth: 12 },
+                    ],
+                },
+            ],
+        };
+        S.structs = [beStruct];
+        S.structPins = [{ id: 'pin2', structId: 'be2', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x12, 0x34, 0x78, 0x56, 0x12, 0x34]);
+        await createMountedPanel();
+        click(dom, document.querySelector('.si-expand-btn'));
+
+        // word = [0x12,0x34]; global LE -> 0x3412, struct override BE -> 0x1234.
+        const leafs = Array.from(document.querySelectorAll<HTMLElement>('.si-field'));
+        const wordRow = leafs.find(el => el.querySelector('.si-f-name')?.textContent === 'word');
+        assert.ok(wordRow, 'word row should render');
+        assert.match(
+            elementText(wordRow!.querySelector('.si-f-val')!),
+            /0x1234/,
+            'scalar value cell must render with the effective BE override, not global LE',
+        );
+
+        // ctl = [0x78,0x56]; global LE -> 0x5678, struct override BE -> 0x7856.
+        const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
+        assert.ok(bitHdr, 'bit unit header should render');
+        bitHdr!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
+        const hexItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-hex"]');
+        assert.ok(hexItem, 'header hex menu item should render');
+        hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const hdrVal = elementText(document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val')!);
+        assert.match(hdrVal, /0x7856/, 'bit-unit header overall value must render with the effective BE override');
+    });
+
+    test('invalid editor bit-field width shows inline error and does not save', async () => {
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const typeSel = document.querySelector<HTMLSelectElement>('.sfe-type-sel')!;
+        typeSel.value = 'uint8';
+        overrideChange(dom, typeSel);
+        const bitBtn = document.querySelector<HTMLElement>('.sfe-bit-btn');
+        click(dom, bitBtn);
+        const widthInp = document.querySelector<HTMLInputElement>('.sfe-bf-child-width')!;
+        widthInp.value = '9';
+        (document.getElementById('se-name') as HTMLInputElement).value = 'Bad';
+        click(dom, document.getElementById('se-save'));
+        assert.ok(document.querySelector('.se-error'), 'inline error should render on invalid save');
+        assert.strictEqual(S.structs.length, 0, 'invalid struct must not be saved');
     });
 });

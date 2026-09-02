@@ -68,7 +68,7 @@ suite('detectFormatFromParts()', () => {
 });
 
 suite('migrateStructDefinitions()', () => {
-    test('writes old definitions in the shared-byte-order shape', () => {
+    test('passes through definitions, preserving per-field endian overrides', () => {
         const stored = [{
             id: 'saved',
             name: 'Saved',
@@ -81,7 +81,7 @@ suite('migrateStructDefinitions()', () => {
         const migrated = migrateStructDefinitions(stored) as StructDef[];
 
         assert.deepStrictEqual(migrated[0].fields, [
-            { name: 'word', type: 'uint16', count: 1 },
+            { name: 'word', type: 'uint16', count: 1, endian: 'be' },
             { name: 'data', type: 'uint8', count: 4 },
         ]);
     });

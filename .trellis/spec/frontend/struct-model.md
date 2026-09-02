@@ -16,8 +16,10 @@ interface StructField {
     refStructId?: string;
     bitFields?: BitFieldChild[];
     count: number;
+    endian?: 'le' | 'be';        // override; absent = inherit
+    allocation?: 'lsb' | 'msb';  // override; absent = inherit (bit-field units)
 }
-interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; }
+interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; endian?: 'le' | 'be'; allocation?: 'lsb' | 'msb'; }
 interface StructPin { id: string; structId: string; addr: number; name: string; pointerSources?: StructPointerSource[]; }
 
 function validateStructs(defs: StructDef[], maxDepth = 32): string[];
@@ -32,11 +34,13 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 
 - Struct definitions are global/shared; pins are per file/address.
 - Field `count` is at least one. `isPointer` changes storage to pointer-width/address semantics while `type`/`refStructId` describe target.
-- `normalizeStructField` handles legacy shapes before layout/decode.
+- `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped).
+- `decodeStruct` resolves both concerns per field as `field.<x> ?? containing-struct.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats struct beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
+- Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched (first-class override again, not stripped); absent keys = inherit = prior behavior.
 - Natural layout aligns fields and total size unless `packed` is true. Nested definitions participate in size/alignment.
 - Validation rejects missing names, invalid counts/types/references, illegal bitfield bases/widths, cycles, and nesting beyond `MAX_NESTED_DEPTH`.
 - Bitfields use unsigned integer storage, declaration-order allocation, and cannot be arrays in imported C text.
-- `decodeStruct` returns flattened typed rows with byte/bit metadata, data availability, pointer target metadata, and decoded values using shared endian.
+- `decodeStruct` returns flattened typed rows with byte/bit metadata, data availability, pointer target metadata, resolved `endian`/`allocation`, and decoded values.
 - Missing bytes produce `hasData: false`; never decode them as zero.
 - Text parser accepts supported fixed-width/common C scalar aliases, arrays, pointers, bit widths, qualifiers/comments, and typedef/struct wrappers. Unknown pointer targets degrade to `void*`; unknown non-pointer types error.
 - `fieldsToText` and `parseStructText` round-trip supported fields; `structToC` emits padding comments/fields that explain aligned vs packed layout.
@@ -51,6 +55,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 | Recursive/cyclic nesting or depth > 32 | Validation error. |
 | Invalid count / duplicate or empty names | Validation error. |
 | Bit width exceeds/overflows unsigned storage | Validation error. |
+| `endian` / `allocation` value outside `'le'/'be'` / `'lsb'/'msb'` | Validation error (field or def); schema enum. |
 | Bitfield array in C text | Parse error. |
 | Unknown pointer target | Normalize as `void*`. |
 | Unknown direct field type | Parse error. |
@@ -69,7 +74,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 
 ### 6. Tests Required
 
-- `src/test/core/structPanel.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, bitfields, pointers, path resolution, parser/text/C export round-trips.
+- `src/test/core/struct.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, per-field/per-struct endian+allocation overrides (precedence, nested inherit, pointer-global, bitfield unit/child), bitfields, pointers, path resolution, parser/text/C export round-trips.
 - `src/test/webview/structPinsModel.test.ts`: full address parsing, injected IDs, uniqueness, immutable edit/remove, dependent removal, pointer reuse/source dedupe.
 - `src/test/webview/structPanel.test.ts` plus `struct-instance-display.md`: visible rendering/action matrix.
 - `src/test/core/provider-utils.test.ts`: legacy/global definition migration.

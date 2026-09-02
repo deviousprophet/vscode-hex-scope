@@ -289,7 +289,9 @@ suite('hexScopeStorage — JsonStore slots', () => {
         }));
         const store = structsStoreFor(testRoot);
         const value = await store.load();
-        assert.strictEqual('endian' in value[0].fields[0], false, 'legacy endian field removed');
+        // Per-field endian is a first-class override — migration passes
+        // it through untouched and normalization keeps it.
+        assert.strictEqual(value[0].fields[0].endian, 'be', 'legacy endian annotation preserved');
     });
 });
 

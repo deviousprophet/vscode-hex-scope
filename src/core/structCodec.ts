@@ -190,6 +190,7 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
     const errors: string[] = [];
 
     for (const d of defs) {
+        validateEndianAllocationOverrides(d, errors);
         for (const f of d.fields) {
             validateStructReference(d, f, byId, errors);
 
@@ -203,6 +204,31 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
 
     defs.forEach(d => validateNestedStructGraph(d.id, 1, [d.id], byId, maxDepth, errors));
     return [...new Set(errors)];
+}
+
+const ENDIAN_VALUES = new Set(['le', 'be']);
+const ALLOCATION_VALUES = new Set(['lsb', 'msb']);
+
+function validateEndianAllocationOverrides(def: StructDef, errors: string[]): void {
+    const structCtx = `Struct "${def.name}"`;
+    checkOverrideValue(def.endian, ENDIAN_VALUES, errors, v => `${structCtx}: invalid endian "${v}" (expected "le" or "be").`);
+    checkOverrideValue(def.allocation, ALLOCATION_VALUES, errors, v => `${structCtx}: invalid allocation "${v}" (expected "lsb" or "msb").`);
+    for (const f of def.fields) {
+        const fieldCtx = `${structCtx}: field "${f.name}"`;
+        checkOverrideValue(f.endian, ENDIAN_VALUES, errors, v => `${fieldCtx} invalid endian "${v}" (expected "le" or "be").`);
+        checkOverrideValue(f.allocation, ALLOCATION_VALUES, errors, v => `${fieldCtx} invalid allocation "${v}" (expected "lsb" or "msb").`);
+    }
+}
+
+function checkOverrideValue(
+    value: string | undefined,
+    allowed: ReadonlySet<string>,
+    errors: string[],
+    message: (got: string) => string,
+): void {
+    if (value !== undefined && !allowed.has(value)) {
+        errors.push(message(value));
+    }
 }
 
 function validateStructReference(
@@ -334,6 +360,10 @@ export interface DecodedField {
     bitOffset?: number;
     bitStorageByteSize?: number;
     bitValueUnsigned?: string;
+    /** Resolved effective byte order for this row (field beats struct beats nested parents beats global). */
+    endian?: 'le' | 'be';
+    /** Resolved effective bit allocation for this row (only meaningful for bit-field rows/units). */
+    allocation?: BitFieldAllocation;
 }
 
 export interface ResolvedStructFieldPath {
@@ -458,6 +488,8 @@ interface DecodeContext {
     baseAddr: number;
     getByte: (addr: number) => number | undefined;
     bitFieldAllocation: BitFieldAllocation;
+    /** True global overlay endian — pointers always decode with this (never overridden). */
+    globalEndian: 'le' | 'be';
     map: Map<string, StructDef>;
     rows: DecodedField[];
     depth: number;
@@ -517,6 +549,7 @@ function decodeBitFieldContainer(
     offset: number,
     align: number,
     endian: 'le' | 'be',
+    allocation: BitFieldAllocation,
 ): number {
     const unitBytes = fieldByteSize(field.type as UnsignedScalarType);
     const unitBits = unitBytes * 8;
@@ -525,7 +558,7 @@ function decodeBitFieldContainer(
     for (let idx = 0; idx < field.count; idx++) {
         const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + alignedOffset + idx * unitBytes;
-        decodeBitFieldChildren(ctx, field, fieldPath, idx, absOffset, unitBytes, unitBits, endian);
+        decodeBitFieldChildren(ctx, field, fieldPath, idx, absOffset, unitBytes, unitBits, endian, allocation);
     }
 
     return alignedOffset + unitBytes * field.count;
@@ -540,6 +573,7 @@ function decodeBitFieldChildren(
     unitBytes: number,
     unitBits: number,
     endian: 'le' | 'be',
+    allocation: BitFieldAllocation,
 ): void {
     const unit = readBitFieldUnit(ctx, absOffset, unitBytes, endian);
     let bitPos = 0;
@@ -547,7 +581,7 @@ function decodeBitFieldChildren(
     for (const child of field.bitFields!) {
         const width = child.bitWidth;
         if (width > 0) {
-            ctx.rows.push(bitFieldChildRow(ctx, field, child, fieldPath, arrayIdx, absOffset, unitBytes, unitBits, bitPos, unit));
+            ctx.rows.push(bitFieldChildRow(ctx, field, child, fieldPath, arrayIdx, absOffset, unitBytes, unitBits, bitPos, unit, endian, allocation));
         }
         bitPos += width;
     }
@@ -578,9 +612,11 @@ function bitFieldChildRow(
     unitBits: number,
     bitPos: number,
     unit: { hasData: boolean; bytesHex: string; value: bigint },
+    endian: 'le' | 'be',
+    allocation: BitFieldAllocation,
 ): DecodedField {
     const unsignedValue = unit.hasData
-        ? extractBitFieldValue(unit.value, unitBits, bitPos, child.bitWidth, ctx.bitFieldAllocation)
+        ? extractBitFieldValue(unit.value, unitBits, bitPos, child.bitWidth, allocation)
         : 0n;
     const valueText = bitFieldDecodedText(unit.hasData, unsignedValue, child.bitWidth);
     return {
@@ -596,6 +632,8 @@ function bitFieldChildRow(
         bitOffset: bitPos,
         bitStorageByteSize: unitBytes,
         bitValueUnsigned: bitFieldUnsignedText(unit.hasData, unsignedValue),
+        endian,
+        allocation,
     };
 }
 
@@ -613,6 +651,7 @@ function decodeAsciiField(
     offset: number,
     elemSize: number,
     endian: 'le' | 'be',
+    allocation: BitFieldAllocation,
 ): number {
     const absOffset = ctx.baseOffset + offset;
     const normalized = normalizeStructField(field);
@@ -620,7 +659,7 @@ function decodeAsciiField(
     const raw = readFieldBytes(ctx, absOffset, totalBytes);
     const hasData = raw.every(v => v >= 0);
     if (normalized.isPointer) {
-        decodePointerElements(ctx, normalized, offset, endian);
+        decodePointerElements(ctx, normalized, offset, ctx.globalEndian);
         return offset + totalBytes;
     }
     ctx.rows.push({
@@ -631,6 +670,8 @@ function decodeAsciiField(
         bytesHex: bytesToHex(raw),
         decoded: hasData ? decodeAsciiBytes(raw) : '??',
         hasData,
+        endian,
+        allocation,
     });
     return offset + totalBytes;
 }
@@ -682,6 +723,7 @@ function decodePointerElements(
             bytesHex: bytesToHex(raw),
             decoded: hasData ? decodeField(raw, 'pointer', endian) : '??',
             hasData,
+            endian,
         });
     }
 }
@@ -694,6 +736,7 @@ function decodeScalarFieldElement(
     absOffset: number,
     elemSize: number,
     endian: 'le' | 'be',
+    allocation: BitFieldAllocation,
 ): void {
     field = normalizeStructField(field);
     if (field.type === 'struct') { return; }
@@ -707,6 +750,8 @@ function decodeScalarFieldElement(
         bytesHex: bytesToHex(raw),
         decoded: hasData ? decodeField(raw, field.type, endian) : '??',
         hasData,
+        endian,
+        allocation,
     });
 }
 
@@ -715,7 +760,8 @@ function decodeNestedStructField(
     field: StructField,
     fieldPath: string,
     absOffset: number,
-    endian: 'le' | 'be',
+    inheritedEndian: 'le' | 'be',
+    inheritedAllocation: BitFieldAllocation,
 ): void {
     field = normalizeStructField(field);
     const child = referencedStruct(field, ctx.map);
@@ -724,13 +770,15 @@ function decodeNestedStructField(
         child,
         ctx.baseAddr,
         ctx.getByte,
-        endian,
+        ctx.globalEndian,
         ctx.bitFieldAllocation,
         ctx.map,
         ctx.rows,
         ctx.depth + 1,
         fieldPath,
         absOffset,
+        inheritedEndian,
+        inheritedAllocation,
     );
 }
 
@@ -740,10 +788,11 @@ function decodeFieldElements(
     offset: number,
     elemSize: number,
     endian: 'le' | 'be',
+    allocation: BitFieldAllocation,
 ): number {
     field = normalizeStructField(field);
     if (field.isPointer) {
-        decodePointerElements(ctx, field, offset, endian);
+        decodePointerElements(ctx, field, offset, ctx.globalEndian);
         return offset + POINTER_BYTE_SIZE * field.count;
     }
     let nextOffset = offset;
@@ -751,9 +800,9 @@ function decodeFieldElements(
         const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + nextOffset;
         if (field.type === 'struct') {
-            decodeNestedStructField(ctx, field, fieldPath, absOffset, endian);
+            decodeNestedStructField(ctx, field, fieldPath, absOffset, endian, allocation);
         } else {
-            decodeScalarFieldElement(ctx, field, fieldPath, idx, absOffset, elemSize, endian);
+            decodeScalarFieldElement(ctx, field, fieldPath, idx, absOffset, elemSize, endian, allocation);
         }
         nextOffset += elemSize;
     }
@@ -777,12 +826,19 @@ function decodeStructRecursive(
     depth: number,
     pathPrefix: string,
     baseOffset: number,
+    effectiveEndian: 'le' | 'be',
+    effectiveAllocation: BitFieldAllocation,
 ): number {
     let offset = 0;
-    const ctx: DecodeContext = { baseAddr, getByte, bitFieldAllocation, map, rows, depth, pathPrefix, baseOffset };
+    const ctx: DecodeContext = { baseAddr, getByte, bitFieldAllocation, globalEndian, map, rows, depth, pathPrefix, baseOffset };
+
+    // First explicit value up the chain wins — this struct's override beats whatever
+    // the enclosing struct/field/global passed down as effective.
+    const structEndian = def.endian ?? effectiveEndian;
+    const structAllocation = def.allocation ?? effectiveAllocation;
 
     for (const field of def.fields) {
-        offset = decodeStructField(ctx, def, field, offset, globalEndian);
+        offset = decodeStructField(ctx, def, field, offset, structEndian, structAllocation);
     }
 
     if (!def.packed) {
@@ -798,20 +854,23 @@ function decodeStructField(
     def: StructDef,
     field: StructField,
     offset: number,
-    globalEndian: 'le' | 'be',
+    structEndian: 'le' | 'be',
+    structAllocation: BitFieldAllocation,
 ): number {
     field = normalizeStructField(field);
     const align = def.packed ? 1 : fieldAlignWithDefs(field, ctx.map, ctx.depth);
     const elemSize = fieldSizeWithDefs(field, ctx.map, ctx.depth);
+    const fieldEndian = field.endian ?? structEndian;
+    const fieldAllocation = field.allocation ?? structAllocation;
     if (isBitFieldContainer(field)) {
-        return decodeBitFieldContainer(ctx, field, offset, align, globalEndian);
+        return decodeBitFieldContainer(ctx, field, offset, align, fieldEndian, fieldAllocation);
     }
 
     const alignedOffset = alignUp(offset, align);
     if (field.type === 'ascii') {
-        return decodeAsciiField(ctx, field, alignedOffset, elemSize, globalEndian);
+        return decodeAsciiField(ctx, field, alignedOffset, elemSize, fieldEndian, fieldAllocation);
     }
-    return decodeFieldElements(ctx, field, alignedOffset, elemSize, globalEndian);
+    return decodeFieldElements(ctx, field, alignedOffset, elemSize, fieldEndian, fieldAllocation);
 }
 
 export function decodeStruct(
@@ -824,7 +883,7 @@ export function decodeStruct(
 ): DecodedField[] {
     const rows: DecodedField[] = [];
     const map = defsMap(defs, def);
-    decodeStructRecursive(def, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0);
+    decodeStructRecursive(def, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0, globalEndian, bitFieldAllocation);
     return rows;
 }
 
