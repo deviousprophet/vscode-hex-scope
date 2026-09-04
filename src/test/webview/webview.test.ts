@@ -16,7 +16,8 @@ import {
     physicalToLogicalScroll,
     type VirtualScrollState,
 } from '../../webview/render/virtualScroll';
-import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from '../../webview/editTransactions';
+import { undoLastEditTransaction, redoLastEditTransaction } from '../../webview/editTransactions';
+import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction } from '../../webview/editStaging';
 import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
 import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';

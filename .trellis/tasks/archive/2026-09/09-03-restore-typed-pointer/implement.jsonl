@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Struct panel ownership, render/wiring rules, pointer behaviours, editor grid contract"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "isPointer field contract, decode plumbing, editor save pipeline"}

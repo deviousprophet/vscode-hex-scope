@@ -824,7 +824,7 @@ private fieldBitToggleHtml(f: StructField, isBitContainer: boolean): string {
     return `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details" aria-label="Toggle bit-field details"${this.disabledAttr(!isUnsigned || f.isPointer === true)}>:N</button>`;
 }
 
-/** Pointer declaration is exposed via the per-field context menu (see wireEditorInSec). */
+/** Pointer declaration is exposed via the per-field `*` button and context menu (see wireEditorInSec). */
 
 private fieldMoveButtonsHtml(i: number, total: number): string {
     return (
@@ -880,6 +880,14 @@ private overrideHelpTitle(kind: 'endian' | 'allocation'): string {
         : 'Bit allocation for this field (first explicit value up the chain wins)';
 }
 
+private fieldIsPointerActive(f: StructField): boolean {
+    return f.isPointer === true || f.type === 'void';
+}
+
+private fieldRowClassAttr(isBitContainer: boolean): string {
+    return isBitContainer ? ' has-bit-children' : '';
+}
+
 private fieldRowHtml(
     f: StructField,
     i: number,
@@ -895,8 +903,10 @@ private fieldRowHtml(
     const inheritedAlloc = this.editorInheritedAlloc();
 
     return (
-        `<div class="struct-field-row${isBitContainer ? ' has-bit-children' : ''}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
+        `<div class="struct-field-row${this.fieldRowClassAttr(isBitContainer)}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
+        `<button class="sfe-ptr-btn${this.activeClassAttr(this.fieldIsPointerActive(f))}" ` +
+               `title="Toggle pointer field" aria-label="Toggle pointer field"${this.disabledAttr(isBitContainer)}>*</button>` +
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
         this.overrideSelectHtml(f.endian, 'endian', 'sfe-endian-sel', undefined, inheritedEndian) +
@@ -1085,11 +1095,12 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<div class="se-struct-default-row">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
+        `<span class="se-struct-default-ptr"></span>` +
         `<span class="se-struct-default-lbl">struct default</span>` +
         this.overrideSelectHtml(draft.endian, 'endian', 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
         this.overrideSelectHtml(draft.allocation, 'allocation', 'se-struct-default-sel', 'se-alloc', this._bitFieldAllocation.toUpperCase()) +
         `</div>` +
-        `<div class="se-field-hdr"><span>Type</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Bits</span><span>[ ]</span><span></span><span></span></div>` +
+        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Bits</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
@@ -1308,7 +1319,7 @@ private wireEditorInSec(sec: HTMLElement): void {
         });
     });
 
-    // ── Per-field pointer context menu (replaces the removed sfe-ptr-btn row) ──
+    // ── Per-field pointer context menu (secondary path alongside the * row button) ──
     sec.querySelectorAll<HTMLElement>('.struct-field-row').forEach(row => {
         row.tabIndex = 0;
         row.addEventListener('contextmenu', ev => {
@@ -1319,6 +1330,16 @@ private wireEditorInSec(sec: HTMLElement): void {
                 ev.preventDefault();
                 this.showEditorFieldPointerMenu(sec, draft, row, ev);
             }
+        });
+    });
+
+    // ── Per-field pointer toggle button (*) ─────────────────────
+    sec.querySelectorAll<HTMLElement>('.sfe-ptr-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            if (!row) { return; }
+            const want = !(row.dataset.ptr === '1');
+            this.toggleFieldPointer(sec, draft, row, want);
         });
     });
 
@@ -1557,7 +1578,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
         return (ev.key === 'Enter' || ev.key === ' ') && ev.target === row;
     }
 
-    /** Pointer declaration lives on the row dataset (set by the per-field context menu). */
+    /** Pointer declaration lives on the row dataset (set by the * row button or context menu). */
     private editorRowIsPointer(row: HTMLElement): boolean {
     return row.dataset.ptr === '1' || (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value === 'void';
 }
@@ -1606,7 +1627,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
         }
     }
 
-    /** Per-field pointer context menu (right-click / Shift+F10 / focus+Enter) — replaces the old row button. */
+    /** Per-field pointer context menu (right-click / Shift+F10 / focus+Enter) — secondary path alongside the * row button. */
     private showEditorFieldPointerMenu(sec: HTMLElement, draft: StructDef, row: HTMLElement, ev: Event): void {
         this.syncEditorDraft(sec, draft);
         const field = draft.fields[parseInt(row.dataset.idx!)];

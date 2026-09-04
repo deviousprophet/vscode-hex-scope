@@ -15,7 +15,8 @@ import {
     type IntegrityCheckSet,
     type IntegrityProfile,
 } from './core/integrity';
-import { migrateStructDefinitions, normalizeStructDefsValue } from './core/structMigration';
+import { migrateStructDefinitions } from './core/structMigration';
+import { normalizeStructDefsValue } from './core/structNormalization';
 import {
     messageType,
     RECORD_PAGE_SIZE,

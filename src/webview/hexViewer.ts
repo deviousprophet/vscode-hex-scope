@@ -46,7 +46,8 @@ import {
     type VirtualScrollState,
 } from './render/virtualScroll';
 import { renderStats } from './statsBar';
-import { fillSelectionTransaction, redoLastEditTransaction, stageIntegrityEdit, stageIntegrityEditTransaction, undoLastEditTransaction } from './editTransactions';
+import { undoLastEditTransaction, redoLastEditTransaction } from './editTransactions';
+import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction } from './editStaging';
 import { ExternalChange } from './components/externalChange/externalChange';
 import { updateExternalChangeLockState } from './lock';
 

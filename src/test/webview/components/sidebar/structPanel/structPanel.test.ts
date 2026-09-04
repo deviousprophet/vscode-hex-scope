@@ -2234,15 +2234,19 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(document.querySelector('.sd-row'));
     });
 
-    test('editor field rows expose pointer via context menu, not a row button', async () => {
+    test('editor field rows expose pointer via visible toggle button and context menu', async () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         click(dom, document.getElementById('sm-add-btn'));
         let row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row, 'editor field row should render');
-        assert.strictEqual(row!.querySelector('.sfe-ptr-btn'), null, 'no pointer row button in editor grid');
+        const ptrBtn = row!.querySelector<HTMLElement>('.sfe-ptr-btn');
+        assert.ok(ptrBtn, 'every field row renders the visible pointer toggle button');
+        assert.ok(!ptrBtn!.classList.contains('active'), 'field pointer button starts inactive');
+        assert.strictEqual((ptrBtn as HTMLButtonElement).disabled, false, 'scalar field pointer button is enabled');
 
+        // Context menu path still works alongside the visible button.
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const attach = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]');
         assert.ok(attach, 'attach pointer item should render');
@@ -2251,6 +2255,7 @@ suite('StructPanel deep-render harness', () => {
         // Re-query the row after each render (re-render replaces the editor rows).
         row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row, 'editor field row should re-render');
+        assert.ok(row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'attaching via context menu activates the row button');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const clear = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-off"]');
         assert.ok(clear, 'clear pointer item should render once attached');
@@ -2258,6 +2263,7 @@ suite('StructPanel deep-render harness', () => {
 
         // Attach again, then save and verify the draft is saved as a pointer field.
         row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(!row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clearing via context menu deactivates the row button');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         click(dom, document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]'));
         (document.getElementById('se-name') as HTMLInputElement).value = 'PtrType';
@@ -2265,6 +2271,150 @@ suite('StructPanel deep-render harness', () => {
         const saved = S.structs.find(d => d.name === 'PtrType');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.fields[0].isPointer, true, 'saved field should be a pointer');
+    });
+
+    test('pointer row button toggles field pointer on click and persists on save', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
+
+        let row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(row, 'editor field row should render');
+        // Click ON: button activates and the pointer flag lands in the saved struct.
+        click(dom, row!.querySelector<HTMLElement>('.sfe-ptr-btn'));
+        row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clicking * activates the pointer button');
+        assert.strictEqual(row!.dataset.ptr, '1', 'clicking * marks the row as pointer');
+        click(dom, document.getElementById('se-save'));
+        const savedOn = S.structs.find(d => d.name === 'BtnPtr');
+        assert.ok(savedOn, 'saved type should exist');
+        assert.strictEqual(savedOn!.fields[0].isPointer, true, 'saved field should be a pointer after button click');
+
+        // Re-open the editor: button renders active from persisted state.
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="' + savedOn!.id + '"]'));
+        row = document.querySelector<HTMLElement>('.struct-field-row');
+        const btnOn = row!.querySelector<HTMLElement>('.sfe-ptr-btn');
+        assert.ok(btnOn!.classList.contains('active'), 'persisted pointer field re-opens with active button');
+        assert.strictEqual(row!.dataset.ptr, '1', 'persisted pointer field re-opens with row marked pointer');
+
+        // Click OFF: button deactivates and the flag clears on save.
+        click(dom, btnOn);
+        row = document.querySelector<HTMLElement>('.struct-field-row');
+        assert.ok(!row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clicking active * deactivates the pointer button');
+        assert.strictEqual(row!.dataset.ptr, '', 'clicking active * clears the row pointer mark');
+        (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
+        click(dom, document.getElementById('se-save'));
+        const savedOff = S.structs.find(d => d.name === 'BtnPtr');
+        assert.ok(savedOff, 'saved type should still exist');
+        assert.strictEqual(savedOff!.fields[0].isPointer, undefined, 'saved field should no longer be a pointer after second click');
+    });
+
+    test('pointer button is disabled for bit-field container fields and stays active for void fields', async () => {
+        const voidBitDef: StructDef = {
+            id: 'vbd',
+            name: 'VoidBit',
+            fields: [
+                { name: 'raw', type: 'void', count: 1 },
+                { name: 'ctl', type: 'uint16', count: 1 },
+            ],
+        };
+        S.structs = [voidBitDef];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="vbd"]'));
+
+        let rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
+        const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
+        // void-typed field renders pointer active (void is always a pointer).
+        const voidBtn = rowByName('raw').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
+        assert.ok(voidBtn, 'void field row renders a pointer button');
+        assert.ok(voidBtn!.classList.contains('active'), 'void-typed field renders pointer button active');
+        assert.strictEqual(voidBtn!.disabled, false, 'void field pointer button is enabled');
+
+        // Bit-field container rows render the button disabled.
+        click(dom, rowByName('ctl').querySelector<HTMLElement>('.sfe-bit-btn'));
+        rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
+        const ctlBtn = rowByName('ctl').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
+        assert.ok(ctlBtn, 'bit-field container row renders a pointer button');
+        assert.strictEqual(ctlBtn!.disabled, true, 'bit-field container rows show the * button disabled');
+        assert.ok(!ctlBtn!.classList.contains('active'), 'bit-field container pointer button is not active');
+    });
+
+    test('editor grid shares 9 columns: Ptr header maps the pointer button cell', async () => {
+        const inner: StructDef = {
+            id: 'inner',
+            name: 'Inner',
+            fields: [{ name: 'tag', type: 'uint8', count: 1 }],
+        };
+        const outer: StructDef = {
+            id: 'outer',
+            name: 'Outer',
+            fields: [
+                { name: 'plain', type: 'uint16', count: 1 },
+                { name: 'p', type: 'void', isPointer: true, count: 1 },
+                { name: 'nested', type: 'struct', refStructId: 'inner', count: 1 },
+                {
+                    name: 'ctl', type: 'uint16', count: 1,
+                    bitFields: [
+                        { name: 'a', bitWidth: 4 },
+                        { name: 'b', bitWidth: 12 },
+                    ],
+                },
+            ],
+        };
+        S.structs = [inner, outer];
+        await createMountedPanel();
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
+
+        // Inject the real stylesheet so computed grid templates reflect the shared columns.
+        const css = fs.readFileSync(
+            path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'structPanel', 'structPanel.css'),
+            'utf8',
+        );
+        const styleEl = document.createElement('style');
+        styleEl.textContent = css;
+        document.head.appendChild(styleEl);
+
+        const TEMPLATE = '96px 26px 1fr 58px 52px 40px 72px 30px 18px';
+
+        // Header: Ptr column sits right after Type.
+        const header = document.querySelector<HTMLElement>('.se-field-hdr');
+        assert.ok(header, 'field header should render');
+        assert.deepStrictEqual(
+            Array.from(header!.querySelectorAll<HTMLElement>(':scope > span')).map(s => s.textContent),
+            ['Type', 'Ptr', 'Name', 'Endian', 'Alloc', 'Bits', '[ ]', '', ''],
+            'header columns Type Ptr Name Endian Alloc Bits [ ] move del',
+        );
+        assert.strictEqual(
+            dom.window.getComputedStyle(header!).getPropertyValue('grid-template-columns'),
+            TEMPLATE,
+            'field header uses the 9-column shared grid',
+        );
+
+        // Struct-default row shares the same 9-column grid.
+        const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
+        assert.ok(defaultRow, 'struct-default row should render');
+        assert.strictEqual(
+            dom.window.getComputedStyle(defaultRow!).getPropertyValue('grid-template-columns'),
+            TEMPLATE,
+            'struct-default row shares the 9-column grid',
+        );
+
+        // Every field row: 9-column grid, second cell is the pointer button.
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
+        assert.strictEqual(rows.length, 4, 'all four field rows render');
+        for (const row of rows) {
+            assert.strictEqual(
+                dom.window.getComputedStyle(row).getPropertyValue('grid-template-columns'),
+                TEMPLATE,
+                'field row uses the 9-column grid',
+            );
+            const btn = row.querySelector<HTMLElement>('.sfe-ptr-btn');
+            assert.ok(btn, 'every field row renders the pointer toggle button');
+            assert.strictEqual(Array.from(row.children).indexOf(btn!), 1, 'pointer button occupies the second (Ptr) cell');
+        }
     });
 
     test('pointer attach is disabled for bit-field container fields', async () => {
