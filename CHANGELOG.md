@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Restored a visible per-field pointer (`*`) toggle in the Struct Overlay definition editor, so fields can be declared as pointers directly from their row instead of only through the hidden context menu; the dedicated `Ptr` column and the right-click `Attach pointer`/`Clear pointer` actions both remain available
 - "Edit selected bytes" context-menu option opens a session that confines typing to the selected range, applying edits live with a single undo, while a `SELECTION` chip and range tint make the active editing range visible
 - Per-field and per-structure byte-order (`LE`/`BE`) and bit-allocation (`LSB`/`MSB`) overrides for struct definitions, with tri-state `Auto` (inherit) controls in the struct editor and explicit-override chips on decoded rows
 
