@@ -23,14 +23,16 @@ Always run fallow via `npx fallow ...`. Never install fallow globally (`npm i -g
 npx fallow --format json --quiet 2>/dev/null || true
 ```
 
-Parse JSON output with `node -e` or a proper JSON parser — do NOT `cat` or `Get-Content` the file, because the JSON line is truncated at 2000 chars when printed to terminal. The `health.findings` section lives at the end and is the first part lost.
+Parse JSON output with `node -e` or a proper JSON parser — do NOT `cat` or `Get-Content` the file, because the JSON line is truncated at 2000 chars when printed to terminal. The `health` section lives at the end and is the first part lost.
 
 Extract all:
-- `check.total_issues` — dead code
-- `health.findings` — complexity (separate from `total_issues`)
-- `health.refactoring_targets` — structural suggestions (informational only)
+- `check.total_issues` — dead code (also `check.summary.*` for per-type breakdown)
+- `health.findings` — complexity, keyed by `name` + `line` + `cyclomatic` per finding
+- `health.targets` — structural "split high-impact file" suggestions (informational only); this is a separate array and NOT `health.refactoring_targets` (that key does not exist in the JSON)
 - `dupes.stats.clone_groups` — code duplication
 - fallow exit code
+
+Verify the schema with `node -e "const j=require('./fallow.json'); console.log(Object.keys(j.health))"` — expected keys include `findings`, `summary`, `vital_signs`, `file_scores`, `hotspots`, `targets`.
 
 ### 2. Exit if green
 
@@ -38,22 +40,24 @@ Extract all:
 
 Green requires ALL of:
 - `check.total_issues === 0` (dead code)
-- `health.findings.length === 0` (complexity — ALL severities, including `moderate`)
+- `health.findings.length === 0` (complexity — ALL severities, including `moderate`; each finding carries `name`/`line`/`cyclomatic`/`severity`)
 - `dupes.stats.clone_groups === 0` (duplication)
 - fallow exit code `0`
 
-`health.refactoring_targets` are NOT part of green — they are informational suggestions that don't affect exit code or finding counts. Do not block green on them.
+`health.targets` are NOT part of green — they are informational suggestions that don't affect exit code or finding counts. Do not block green on them.
 
 ### 3. Report refactoring targets (informational only)
 
-`health.refactoring_targets` are structural suggestions based on churn and coupling, not violations. They never block green.
+`health.targets` are structural "split high-impact file" suggestions based on churn and coupling (each target has `path`, `recommendation`, `category: "split_high_impact"`, `effort`, `confidence`, and `evidence.direct_callers`), not violations. They never block green.
 
 For each target:
 1. Check if the target file is in-scope for the current task (modified by the diff or directly related)
 2. If in-scope: evaluate and apply the recommended refactoring
 3. If out-of-scope: report it for awareness, do not refactor
 
-If a recommendation is clearly wrong (false positive), explain why and skip it regardless of scope.
+If a recommendation is clearly wrong (false positive), explain why and skip it regardless of scope. Note: `split_high_impact` targets are driven by complexity density + fan-in + churn, not size alone — a small single-concern file can be flagged; apply judgment rather than splitting for its own sake.
+
+Dead-code findings live under `check.<category>[]` (e.g. `check.unused_exports`) — read the file, verify the finding (the JSON gives `path`, `export_name`, `line`), then remove the unused code or drop the export keyword.
 
 ### 3. Fix dead-code findings (if any)
 
@@ -65,7 +69,7 @@ If a recommendation is clearly wrong (false positive), explain why and skip it r
 
 ### 4. Fix complexity findings
 
-For each `health.findings[]` with `severity !== "none"`:
+For each `health.findings[]` with `severity !== "none"` (identify via `name` + `line` + `severity`):
 
 **Goal:** reduce cyclomatic complexity so CRAP score drops below threshold (30.0) at zero coverage. This requires cyclomatic ≤4 for each function.
 
