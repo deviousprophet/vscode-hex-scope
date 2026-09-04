@@ -52,7 +52,7 @@
 /* Struct-default row: grid-aligned so Endian/Alloc share the field grid columns */
 .se-struct-default-row {
     display: grid;
-    grid-template-columns: 96px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
     margin-top: 3px;
 }
@@ -85,7 +85,7 @@
 
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 96px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -95,7 +95,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 96px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 .struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
@@ -107,6 +107,21 @@
 .sfe-type-sel,
 .sfe-endian-sel,
 .sfe-alloc-sel { width: 100%; }
+
+/* Pointer toggle button (*): fills its grid cell between Type and Name */
+.sfe-ptr-btn {
+    width: 100%; text-align: center;
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 11px; cursor: pointer; padding: 0; line-height: 1.4;
+    white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
+}
+.sfe-ptr-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
+.sfe-ptr-btn.active                      { border-style: solid; border-color: var(--high-color);
+                                           color: var(--high-color); background: rgba(79,195,247,.1); }
+.sfe-ptr-btn.active:hover                { border-color: var(--err); color: var(--err);
+                                           background: rgba(255,80,80,.08); }
+.sfe-ptr-btn:disabled                    { opacity: .35; cursor: not-allowed; }
 
 /* Empty cell kept so plain/pointer/nested rows stay grid-aligned with bit-field rows */
 .sfe-alloc-placeholder { display: block; }
