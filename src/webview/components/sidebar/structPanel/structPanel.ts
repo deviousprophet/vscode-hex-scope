@@ -880,6 +880,14 @@ private overrideHelpTitle(kind: 'endian' | 'allocation'): string {
         : 'Bit allocation for this field (first explicit value up the chain wins)';
 }
 
+private fieldIsPointerActive(f: StructField): boolean {
+    return f.isPointer === true || f.type === 'void';
+}
+
+private fieldRowClassAttr(isBitContainer: boolean): string {
+    return isBitContainer ? ' has-bit-children' : '';
+}
+
 private fieldRowHtml(
     f: StructField,
     i: number,
@@ -895,9 +903,9 @@ private fieldRowHtml(
     const inheritedAlloc = this.editorInheritedAlloc();
 
     return (
-        `<div class="struct-field-row${isBitContainer ? ' has-bit-children' : ''}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
+        `<div class="struct-field-row${this.fieldRowClassAttr(isBitContainer)}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
-        `<button class="sfe-ptr-btn${this.activeClassAttr(f.isPointer === true || f.type === 'void')}" ` +
+        `<button class="sfe-ptr-btn${this.activeClassAttr(this.fieldIsPointerActive(f))}" ` +
                `title="Toggle pointer field" aria-label="Toggle pointer field"${this.disabledAttr(isBitContainer)}>*</button>` +
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +

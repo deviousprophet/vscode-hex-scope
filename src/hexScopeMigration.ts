@@ -7,7 +7,8 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityProfiles } from './core/integrity';
-import { mergeLegacyStructDefs, migrateStructDefinitions, normalizeStructDefsValue } from './core/structMigration';
+import { mergeLegacyStructDefs, migrateStructDefinitions } from './core/structMigration';
+import { normalizeStructDefsValue } from './core/structNormalization';
 import type { StructDef } from './core/types';
 import {
     createProfileDir,

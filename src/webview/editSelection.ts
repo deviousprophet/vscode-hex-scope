@@ -6,7 +6,8 @@
 // semantics: a range-end re-edit must not overwrite the snapshot).
 
 import { S } from './state';
-import { restoreEditedBytes, stageIntegrityEdit } from './editTransactions';
+import { restoreEditedBytes } from './editByteState';
+import { stageIntegrityEdit } from './editStaging';
 
 /** Next mapped address strictly after `addr`, still `<= end`; null when none. */
 export function advanceWithinRange(addr: number, end: number, isMapped: (a: number) => boolean): number | null {
