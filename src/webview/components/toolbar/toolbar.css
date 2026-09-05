@@ -83,3 +83,22 @@
 .tb-save-btn:disabled { opacity: .35; cursor: default; }
 
 .tb-cancel-btn:hover { color: #f48771; border-color: #f48771; background: rgba(244,135,113,.08); }
+
+/* Profile dropdown + shared-profile hint (three-tier selection) */
+.profile-picker {
+    display: flex; align-items: center; gap: 6px; margin-left: auto;
+    flex-shrink: 0; white-space: nowrap;
+}
+.profile-label {
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
+    letter-spacing: .03em; text-transform: uppercase; opacity: .85;
+}
+.profile-select {
+    max-width: 180px; font-size: 11px; font-family: var(--font-ui);
+    background: var(--btn-bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px;
+}
+.profile-shared-hint {
+    font-size: 10px; color: var(--warn); font-family: var(--font-ui);
+    white-space: nowrap; opacity: .9;
+}

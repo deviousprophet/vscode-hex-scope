@@ -26,6 +26,8 @@ export type ProviderToWebviewMessage =
         structPins: StructPin[];
         endian: HexScopeEndian;
         integrityProfiles: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet };
+        /** Current bound profile display state. */
+        profile: { profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number };
     }
     | { type: 'loadProgress'; generation: number; stage: 'read' | 'parse' | 'build' | 'transfer'; completed: number; total?: number }
     | { type: 'recordPage'; generation: number; start: number; records: SerializedRecord[] }
@@ -36,6 +38,7 @@ export type ProviderToWebviewMessage =
 | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
 | { type: 'structsExternalChange'; structs: StructDef[] }
 | { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; activeChecks: IntegrityCheckSet }
+| { type: 'profilesState'; profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number }
 | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';
@@ -53,7 +56,8 @@ export type ProviderToWebviewMessage =
     | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[]; fingerprint: string }> }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number; pendingWrites?: Array<[number, number]> }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
-    | { type: 'activateScriptsTab' };
+    | { type: 'activateScriptsTab' }
+    | { type: 'activateProfilePicker' };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -65,6 +69,8 @@ export type WebviewToProviderMessage =
     | { type: 'saveStructPins'; pins: StructPin[] }
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }
     | { type: 'saveEndian'; endian: HexScopeEndian }
+    | { type: 'selectProfile'; profileId: string | null }
+    | { type: 'newProfile'; name: string }
     | { type: 'createIntegrityProfile'; profile: IntegrityProfile }
     | { type: 'updateIntegrityProfile'; profile: IntegrityProfile }
     | { type: 'renameIntegrityProfile'; id: string; name: string }

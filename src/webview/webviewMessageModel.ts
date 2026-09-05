@@ -48,6 +48,7 @@ export type WebviewModelUpdate = {
     integrityProfiles?: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet } | IntegrityProfile[];
     integrityProfileError?: string;
     activeChecks?: IntegrityCheckSet;
+    profileState?: { profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number };
     removeExternalChangeBanners?: boolean;
     removeExternalChangeErrorBanner?: boolean;
     externalChange?: { incoming: IncomingFile; hasUnsavedEdits: boolean };
@@ -65,6 +66,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     loadProgress: applyPassiveMessage,
     recordPage: applyPassiveMessage,
     integrityProfiles: applyIntegrityProfilesMessage,
+    profilesState: applyProfilesStateMessage,
     loadError: applyLoadErrorMessage,
     addLabel: applyAddLabelMessage,
     updateLabel: applyUpdateLabelMessage,
@@ -79,6 +81,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     scriptResult: applyPassiveMessage,
     scriptOutput: applyPassiveMessage,
     activateScriptsTab: applyPassiveMessage,
+    activateProfilePicker: applyPassiveMessage,
 };
 
 function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }
@@ -92,8 +95,18 @@ function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate
     applyInitialState(msg);
     return {
         integrityProfiles: msg.integrityProfiles,
+        profileState: msg.profile,
         invalidations: { fullRender: true },
     };
+}
+
+function applyProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): WebviewModelUpdate {
+    S.profileState = {
+        profiles: Array.isArray(msg.profiles) ? msg.profiles : [],
+        current: msg.current,
+        boundFileCount: typeof msg.boundFileCount === 'number' ? msg.boundFileCount : 0,
+    };
+    return { invalidations: {} };
 }
 
 function applyIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): WebviewModelUpdate {

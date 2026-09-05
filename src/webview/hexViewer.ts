@@ -844,15 +844,18 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
     integrityProfiles: handleIntegrityProfilesMessage,
+    profilesState: handleProfilesStateMessage,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
     scriptOutput: handleScriptOutputMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
+    activateProfilePicker: handleActivateProfilePickerMessage,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
     applyIntegrityProfileUpdate,
     applyActiveChecksUpdate,
+    applyProfileStateUpdate,
     applyLoadErrorUpdate,
     applyCopyCommandUpdate,
     applyExternalBannerUpdate,
@@ -965,6 +968,18 @@ function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void 
 
 function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handleProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): void {
+    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+}
+
+function handleActivateProfilePickerMessage(_msg: WebviewMessageByType<'activateProfilePicker'>): void {
+    const select = document.getElementById('profile-select') as HTMLSelectElement | null;
+    if (select) {
+        select.focus();
+        select.showPicker?.();
+    }
 }
 
 function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
@@ -1080,6 +1095,11 @@ function applyActiveChecksUpdate(update: WebviewModelUpdate): void {
     }
 }
 
+/** Three-tier profile state: refresh the toolbar dropdown + shared hint in place. */
+function applyProfileStateUpdate(update: WebviewModelUpdate): void {
+    if (update.profileState) { renderProfileDropdown(); }
+}
+
 function applyLoadErrorUpdate(update: WebviewModelUpdate): void {
     if ('loadErrorMessage' in update) { renderLoadError(update.loadErrorMessage ?? ''); }
 }
@@ -1190,12 +1210,13 @@ function preventClickWhenLocked(e: Event): void {
 // ── Main render ───────────────────────────────────────────────────
 
 function render(): void {
+    const mem = S.currentView === 'memory';
     document.getElementById('app')!.innerHTML = `
         ${toolbar.toHtml(searchBar.toHtml())}
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
-                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}" tabindex="0" aria-label="Hex editor grid">
+                <div id="memory-view" class="${visibleClass(mem)}" tabindex="0" aria-label="Hex editor grid">
                     <div id="mem-header"></div>
                     <div id="mem-scroll"><div id="mem-rows"></div></div>
                 </div>
@@ -1203,9 +1224,50 @@ function render(): void {
             </div>
             ${sidebar.toHtml()}
         </div>`;
+    document.getElementById('toolbar')?.insertAdjacentHTML('beforeend', '<div id="profile-picker" class="profile-picker"></div>');
 
     invalidateGridRender();
     setupRenderedUi();
+}
+
+/** Toolbar profile dropdown (always rendered) + shared-profile hint. */
+function renderProfileDropdown(): void {
+    const host = document.getElementById('profile-picker');
+    if (!host) { return; }
+    const { profiles, current, boundFileCount } = S.profileState;
+    const currentNameHtml = esc(profiles.find(p => p.id === current)?.name ?? 'No Profile');
+    const countHtml = esc(String(boundFileCount));
+    const options = [
+        '<option value="" data-kind="none">No Profile</option>',
+        '<option value="__sep__" disabled>────────</option>',
+        ...profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`),
+        '<option value="__sep2__" disabled>────</option>',
+        '<option value="__new__">+ New Profile…</option>',
+    ];
+    const optionsHtml = options.join('');
+    host.innerHTML = `
+        <label class="profile-label" for="profile-select" title="Select the annotation profile bound to this file">Profile</label>
+        <select id="profile-select" class="profile-select" aria-label="Profile">
+            ${optionsHtml}
+        </select>
+        ${boundFileCount > 1
+            ? `<span class="profile-shared-hint" title="This profile is bound to ${countHtml} files">Editing shared profile '${currentNameHtml}' (used by ${countHtml} files)</span>`
+            : ''}`;
+    const select = host.querySelector('#profile-select') as HTMLSelectElement;
+    select.value = current ?? '';
+    if (select.value === '__sep__' || select.value === '__sep2__') { select.value = ''; }
+    select.addEventListener('change', () => {
+        const v = select.value;
+        if (v === '__new__') {
+            const name = window.prompt('New profile name');
+            if (name && name.trim()) { postProviderMessage({ type: 'newProfile', name: name.trim() }); }
+            select.value = current ?? '';
+        } else if (v === '__sep__' || v === '__sep2__') {
+            select.value = current ?? '';
+        } else {
+            postProviderMessage({ type: 'selectProfile', profileId: v === '' ? null : v });
+        }
+    });
 }
 
 function setupRenderedUi(): void {
@@ -1221,6 +1283,7 @@ function setupRenderedUi(): void {
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
     toolbar.setDirty(S.edits.size);
+    renderProfileDropdown();
     setupRerenderCallbacks();
     initSearch(() => switchView('memory'), {
         setCount: (count, current) => searchBar.setCount(count, current),

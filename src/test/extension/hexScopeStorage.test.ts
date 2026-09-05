@@ -1,5 +1,7 @@
-// ── .hexscope firmware-profile storage tests (extension host) ──────
+// ── .hexscope three-tier storage tests (extension host) ───────────
 // Runs under vscode-test where vscode.workspace.fs + real FS watchers work.
+// Covers the struct pool, profile registry, binding table, JsonStore slots,
+// deferred lazy-dir materialization, and the legacy migrations.
 
 import * as assert from 'assert';
 import * as os from 'node:os';
@@ -10,19 +12,23 @@ import {
     DATA_VERSION,
     JsonStore,
     attachProfileWatcher,
-    createProfile,
-    emptyIndexData,
-    findProfile,
-    hexScopeProfilesDir,
+    bindingsJsonUri,
+    createProfileRegistryEntry,
+    emptyProfileRecord,
+    hexScopeProfilesRegistryDir,
     hexScopeSchemasDir,
-    normalizeIndexFile,
+    normalizeBindings,
+    normalizeProfileRecord,
     perFileRelativePath,
+    profileRegistryJsonUri,
     readJson,
+    seedSchemaCopies,
+    structPoolJsonUri,
     unwrapEnvelope,
     withEnvelope,
     writeIfMissing,
     writeJson,
-    type IndexFileData,
+    type ProfileRecord,
 } from '../../hexScopeStorage';
 import type { MementoLike } from '../../hexScopeMigration';
 import { migrateLegacyData } from '../../hexScopeMigration';
@@ -62,41 +68,33 @@ async function readJsonValue(uri: vscode.Uri): Promise<unknown> {
     return JSON.parse(await readText(uri));
 }
 
-function indexUriFor(dir: string): vscode.Uri {
-    return vscode.Uri.file(path.join(dir, 'index.json'));
+function profileUriFor(root: string, id: string): vscode.Uri {
+    return profileRegistryJsonUri(vscode.Uri.file(path.join(hexScopeProfilesRegistryDir(root), id)).fsPath);
 }
 
-function structsUriFor(dir: string): vscode.Uri {
-    return vscode.Uri.file(path.join(dir, 'structs.json'));
-}
-
-function integrityUriFor(dir: string): vscode.Uri {
-    return vscode.Uri.file(path.join(dir, 'integrity.json'));
-}
-
-function indexStoreFor(root: string): JsonStore<IndexFileData> {
-    return new JsonStore<IndexFileData>({
-        uri: indexUriFor(root),
-        normalizer: raw => normalizeIndexFile(raw, emptyIndexData(REL)),
-        empty: () => emptyIndexData(REL),
+function profileStoreFor(root: string, id: string): JsonStore<ProfileRecord> {
+    return new JsonStore<ProfileRecord>({
+        uri: profileUriFor(root, id),
+        normalizer: raw => normalizeProfileRecord(raw, emptyProfileRecord(id, id)),
+        empty: () => emptyProfileRecord(id, id),
         debounceMs: FAST,
     });
 }
 
-function structsStoreFor(root: string): JsonStore<StructDef[]> {
+function poolStoreFor(root: string): JsonStore<StructDef[]> {
     return new JsonStore<StructDef[]>({
-        uri: structsUriFor(root),
+        uri: structPoolJsonUri(root),
         normalizer: structsNormalizer,
         empty: () => [],
         debounceMs: FAST,
     });
 }
 
-function lazyIndexStore(root: string, lazyDir: () => Promise<string | null>): JsonStore<IndexFileData> {
-    return new JsonStore<IndexFileData>({
-        uri: indexUriFor(root),
-        normalizer: raw => normalizeIndexFile(raw, emptyIndexData(REL)),
-        empty: () => emptyIndexData(REL),
+function lazyProfileStore(root: string, id: string, lazyDir: () => Promise<string | null>): JsonStore<ProfileRecord> {
+    return new JsonStore<ProfileRecord>({
+        uri: profileUriFor(root, id),
+        normalizer: raw => normalizeProfileRecord(raw, emptyProfileRecord(id, id)),
+        empty: () => emptyProfileRecord(id, id),
         debounceMs: FAST,
         lazyDir,
     });
@@ -108,6 +106,12 @@ function structsNormalizer(raw: unknown): { value: StructDef[]; changed: boolean
 }
 
 const REL = 'firmware/boot.hex';
+const REL_WIN = REL.split('/').join(path.sep);
+const MIGRATION_MARKER_KEY = 'hexScope.migration.v3';
+
+function onlyMigrationMarkerRemains(memento: MementoLike): boolean {
+    return memento.keys().every(key => key === MIGRATION_MARKER_KEY);
+}
 
 suite('hexScopeStorage — version envelope', () => {
     test('withEnvelope wraps with the current version', () => {
@@ -140,34 +144,34 @@ suite('hexScopeStorage — readJson/writeJson', () => {
     teardown(removeTestRoot);
 
     test('missing file reads as missing', async () => {
-        const read = await readJson(indexUriFor(testRoot));
+        const read = await readJson(structPoolJsonUri(testRoot));
         assert.strictEqual(read.status, 'missing');
     });
 
     test('valid enveloped file reads unwrapped data', async () => {
-        const uri = indexUriFor(testRoot);
-        await writeText(uri, JSON.stringify({ version: 1, data: { relPath: REL } }));
+        const uri = structPoolJsonUri(testRoot);
+        await writeText(uri, JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
         const read = await readJson(uri);
         assert.strictEqual(read.status, 'ok');
-        assert.deepStrictEqual(read.status === 'ok' ? read.value : null, { relPath: REL });
+        assert.deepStrictEqual(read.status === 'ok' ? read.value : null, [{ id: 's1', name: 'S1', fields: [] }]);
     });
 
     test('invalid JSON reads as corrupt', async () => {
-        const uri = indexUriFor(testRoot);
+        const uri = bindingsJsonUri(testRoot);
         await writeText(uri, '{ not json');
         const read = await readJson(uri);
         assert.strictEqual(read.status, 'corrupt');
     });
 
     test('unknown envelope version reads as corrupt (never treated as ok)', async () => {
-        const uri = indexUriFor(testRoot);
+        const uri = structPoolJsonUri(testRoot);
         await writeText(uri, JSON.stringify({ version: 99, data: [] }));
         const read = await readJson(uri);
         assert.strictEqual(read.status, 'corrupt');
     });
 
     test('writeJson creates parent dirs and pretty-prints', async () => {
-        const uri = vscode.Uri.file(path.join(testRoot, 'a', 'b', 'index.json'));
+        const uri = vscode.Uri.file(path.join(testRoot, 'a', 'b', 'profile.json'));
         await writeJson(uri, { version: 1, data: { x: 1 } });
         const text = await readText(uri);
         assert.ok(text.includes('\n'), 'pretty-printed JSON');
@@ -175,16 +179,20 @@ suite('hexScopeStorage — readJson/writeJson', () => {
     });
 
     test('writeIfMissing keeps an existing committed file', async () => {
-        const uri = indexUriFor(testRoot);
-        await writeJson(uri, { version: 1, data: { committed: true } });
-        await writeIfMissing(uri, { version: 1, data: { replaced: true } });
-        assert.deepStrictEqual(await readJsonValue(uri), { version: 1, data: { committed: true } });
+        const uri = structPoolJsonUri(testRoot);
+        await writeJson(uri, { version: 1, data: [{ committed: true }] });
+        await writeIfMissing(uri, { version: 1, data: [{ replaced: true }] });
+        const value = await readJsonValue(uri) as { data: unknown[]; $schema?: string };
+        assert.deepStrictEqual(value.data, [{ committed: true }]);
+        assert.strictEqual(value.$schema, 'schemas/structs.schema.json');
     });
 
     test('writeIfMissing writes when missing', async () => {
-        const uri = indexUriFor(testRoot);
-        await writeIfMissing(uri, { version: 1, data: { seeded: true } });
-        assert.deepStrictEqual(await readJsonValue(uri), { version: 1, data: { seeded: true } });
+        const uri = structPoolJsonUri(testRoot);
+        await writeIfMissing(uri, { version: 1, data: [{ seeded: true }] });
+        const value = await readJsonValue(uri) as { data: unknown[]; $schema?: string };
+        assert.deepStrictEqual(value.data, [{ seeded: true }]);
+        assert.strictEqual(value.$schema, 'schemas/structs.schema.json');
     });
 });
 
@@ -192,26 +200,28 @@ suite('hexScopeStorage — JsonStore slots', () => {
     setup(makeTestRoot);
     teardown(removeTestRoot);
 
+    const ID = 'profile_1';
+
     test('missing file loads the empty default and writes nothing', async () => {
-        const store = indexStoreFor(testRoot);
+        const store = profileStoreFor(testRoot, ID);
         const value = await store.load();
         assert.strictEqual(value.labels.length, 0);
-        assert.strictEqual((await readJson(indexUriFor(testRoot))).status, 'missing', 'no file created');
+        assert.strictEqual((await readJson(profileUriFor(testRoot, ID))).status, 'missing', 'no file created');
     });
 
     test('corrupt file loads empty, warns once, and is never overwritten', async () => {
-        const uri = indexUriFor(testRoot);
+        const uri = profileUriFor(testRoot, ID);
         await writeText(uri, '{{{ corrupt');
-        const store = indexStoreFor(testRoot);
+        const store = profileStoreFor(testRoot, ID);
         const value = await store.load();
         assert.strictEqual(value.labels.length, 0);
         assert.strictEqual(await readText(uri), '{{{ corrupt', 'corrupt file untouched');
     });
 
     test('unknown-version file loads empty, warns, and is untouched', async () => {
-        const uri = indexUriFor(testRoot);
+        const uri = profileUriFor(testRoot, ID);
         await writeText(uri, JSON.stringify({ version: 99, data: { labels: [] } }));
-        const store = indexStoreFor(testRoot);
+        const store = profileStoreFor(testRoot, ID);
         const value = await store.load();
         assert.strictEqual(value.labels.length, 0);
         const after = await readJsonValue(uri);
@@ -219,90 +229,71 @@ suite('hexScopeStorage — JsonStore slots', () => {
     });
 
     test('self-heal rewrites only when parse-ok and normalized output differs', async () => {
-        const uri = indexUriFor(testRoot);
-        await writeText(uri, JSON.stringify({ version: 1, data: { relPath: REL, labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' } }));
-        const store = indexStoreFor(testRoot);
+        const uri = profileUriFor(testRoot, ID);
+        await writeText(uri, JSON.stringify({
+            version: 1,
+            data: { id: ID, name: ID, labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' },
+        }));
+        const store = profileStoreFor(testRoot, ID);
         await store.load();
         const healed = await readJsonValue(uri) as { version: number; data: { activeChecks: { checks: unknown[] } } };
         assert.strictEqual(healed.version, 1);
         assert.deepStrictEqual(healed.data.activeChecks, { schemaVersion: 1, checks: [] }, 'normalized back');
     });
 
-    test('no write when file is already normalized', async () => {
-        const uri = indexUriFor(testRoot);
-        const normalized = emptyIndexData(REL);
-        await writeText(uri, JSON.stringify({ version: 1, data: normalized }));
-        const store = indexStoreFor(testRoot);
-        await store.load();
-        assert.deepStrictEqual(await readJsonValue(uri), { version: 1, data: normalized }, 'untouched');
-    });
-
     test('set() debounces a single write of the enveloped value', async () => {
-        const store = indexStoreFor(testRoot);
+        const store = profileStoreFor(testRoot, ID);
         await store.load();
-        store.set({ ...emptyIndexData(REL), labels: [{ id: 'a', name: 'A', startAddress: 0, length: 1, color: '#000' }] });
-        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        store.set({ ...emptyProfileRecord(ID, ID), labels: [{ id: 'a', name: 'A', startAddress: 0, length: 1, color: '#000' }] });
+        store.set({ ...emptyProfileRecord(ID, ID), endian: 'be' });
         await sleep(60);
-        const value = await readJsonValue(indexUriFor(testRoot)) as { version: number; data: { endian: string; labels: unknown[] } };
+        const value = await readJsonValue(profileUriFor(testRoot, ID)) as { version: number; data: { endian: string; labels: unknown[] } };
         assert.strictEqual(value.version, 1);
         assert.strictEqual(value.data.endian, 'be', 'last set wins');
         assert.deepStrictEqual(value.data.labels, [], 'single debounced write');
     });
 
     test('flush writes immediately', async () => {
-        const store = structsStoreFor(testRoot);
+        const store = poolStoreFor(testRoot);
         await store.load();
         store.set([{ id: 's1', name: 'S1', fields: [] }]);
         await store.flush();
-        const value = await readJsonValue(structsUriFor(testRoot)) as { version: number; data: unknown[] };
+        const value = await readJsonValue(structPoolJsonUri(testRoot)) as { version: number; data: unknown[] };
         assert.strictEqual(value.version, 1);
         assert.deepStrictEqual(value.data, [{ id: 's1', name: 'S1', fields: [] }]);
     });
 
     test('dispose flushes a pending write', async () => {
-        const store = indexStoreFor(testRoot);
+        const store = profileStoreFor(testRoot, ID);
         await store.load();
-        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        store.set({ ...emptyProfileRecord(ID, ID), endian: 'be' });
         store.dispose();
         await sleep(60);
-        const value = await readJsonValue(indexUriFor(testRoot)) as { data: { endian: string } };
+        const value = await readJsonValue(profileUriFor(testRoot, ID)) as { data: { endian: string } };
         assert.strictEqual(value.data.endian, 'be');
     });
 
     test('slots are independent (one write never touches the other file)', async () => {
-        const index = indexStoreFor(testRoot);
-        const structs = structsStoreFor(testRoot);
-        await index.load();
-        await structs.load();
-        structs.set([{ id: 's1', name: 'S1', fields: [] }]);
-        await structs.flush();
-        assert.strictEqual((await readJson(indexUriFor(testRoot))).status, 'missing', 'index untouched');
-        const value = await readJsonValue(structsUriFor(testRoot)) as { data: unknown[] };
+        const profile = profileStoreFor(testRoot, ID);
+        const pool = poolStoreFor(testRoot);
+        await profile.load();
+        await pool.load();
+        pool.set([{ id: 's1', name: 'S1', fields: [] }]);
+        await pool.flush();
+        assert.strictEqual((await readJson(profileUriFor(testRoot, ID))).status, 'missing', 'profile untouched');
+        const value = await readJsonValue(structPoolJsonUri(testRoot)) as { data: unknown[] };
         assert.strictEqual(value.data.length, 1);
     });
 
     test('unversioned bare array is accepted and upgraded (dedupe triggers self-heal)', async () => {
-        const uri = structsUriFor(testRoot);
+        const uri = structPoolJsonUri(testRoot);
         await writeText(uri, '[{"id":"s1","name":"S1","fields":[]},{"id":"s1","name":"S1","fields":[]}]');
-        const store = structsStoreFor(testRoot);
+        const store = poolStoreFor(testRoot);
         const value = await store.load();
         assert.strictEqual(value.length, 1, 'duplicate dropped on normalize');
         const healed = await readJsonValue(uri) as { version: number; data: unknown[] };
         assert.strictEqual(healed.version, 1, 'upgraded to envelope');
         assert.strictEqual(healed.data.length, 1);
-    });
-
-    test('structs slot chain: migrate + normalize returns normalized defs', async () => {
-        const uri = structsUriFor(testRoot);
-        await writeText(uri, JSON.stringify({
-            version: 1,
-            data: [{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, endian: 'be' }] }],
-        }));
-        const store = structsStoreFor(testRoot);
-        const value = await store.load();
-        // Per-field endian is a first-class override — migration passes
-        // it through untouched and normalization keeps it.
-        assert.strictEqual(value[0].fields[0].endian, 'be', 'legacy endian annotation preserved');
     });
 });
 
@@ -310,131 +301,120 @@ suite('hexScopeStorage — deferred (lazyDir) JsonStore', () => {
     setup(makeTestRoot);
     teardown(removeTestRoot);
 
+    const ID = 'profile_1';
+
     test('reads return the in-memory empty default and create nothing on disk', async () => {
-        const store = lazyIndexStore(testRoot, () => createProfile(testRoot, REL));
+        const store = lazyProfileStore(testRoot, ID, () => createProfileRegistryEntry(testRoot, ID, 'Boot'));
         const value = await store.load();
         assert.strictEqual(value.labels.length, 0);
-        assert.strictEqual(await findProfile(testRoot, REL), null, 'no profile dir from a read-only open');
-        assert.strictEqual((await readJson(indexUriFor(testRoot))).status, 'missing', 'no index.json anywhere');
+        assert.strictEqual((await readJson(profileUriFor(testRoot, ID))).status, 'missing', 'no registry file from a read-only open');
     });
 
-    test('first write materializes the profile dir and lands the slot in it', async () => {
-        const store = lazyIndexStore(testRoot, () => createProfile(testRoot, REL));
+    test('first write materializes the registry entry and lands the slot in it', async () => {
+        const store = lazyProfileStore(testRoot, ID, () => createProfileRegistryEntry(testRoot, ID, 'Boot'));
         await store.load();
-        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        store.set({ ...emptyProfileRecord(ID, ID), endian: 'be' });
         await store.flush();
-        const dir = await findProfile(testRoot, REL);
-        assert.ok(dir, 'profile materialized on first write');
-        const value = await readJsonValue(indexUriFor(dir!)) as { data: { endian: string } };
-        assert.strictEqual(value.data.endian, 'be', 'slot written into the materialized dir');
+        const value = await readJsonValue(profileUriFor(testRoot, ID)) as { data: { endian: string } };
+        assert.strictEqual(value.data.endian, 'be', 'slot written into the materialized registry entry');
     });
 
     test('null dir resolver stays in-memory (no disk) for non-explicit writes', async () => {
-        const store = lazyIndexStore(testRoot, () => Promise.resolve(null));
+        const store = lazyProfileStore(testRoot, ID, () => Promise.resolve(null));
         await store.load();
-        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        store.set({ ...emptyProfileRecord(ID, ID), endian: 'be' });
         await store.flush();
         store.dispose();
         await sleep(60);
-        assert.strictEqual(await findProfile(testRoot, REL), null, 'no .hexscope seeded out-of-workspace');
-        assert.strictEqual((await readJson(indexUriFor(testRoot))).status, 'missing');
+        assert.strictEqual((await readJson(profileUriFor(testRoot, ID))).status, 'missing', 'no registry file seeded out-of-workspace');
     });
 
     test('a later explicit write materializes after non-explicit ones stayed in-memory', async () => {
         let explicit = false;
-        const store = lazyIndexStore(testRoot, () => explicit ? createProfile(testRoot, REL) : Promise.resolve(null));
+        const store = lazyProfileStore(testRoot, ID, () => explicit ? createProfileRegistryEntry(testRoot, ID, 'Boot') : Promise.resolve(null));
         await store.load();
-        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        store.set({ ...emptyProfileRecord(ID, ID), endian: 'be' });
         await store.flush();
-        assert.strictEqual(await findProfile(testRoot, REL), null, 'non-explicit write stayed in-memory');
+        assert.strictEqual((await readJson(profileUriFor(testRoot, ID))).status, 'missing', 'non-explicit write stayed in-memory');
 
         explicit = true;
-        store.set({ ...emptyIndexData(REL), endian: 'le' });
+        store.set({ ...emptyProfileRecord(ID, ID), endian: 'le' });
         await store.flush();
-        const dir = await findProfile(testRoot, REL);
-        assert.ok(dir, 'explicit write materialized the profile');
-        const value = await readJsonValue(indexUriFor(dir!)) as { data: { endian: string } };
+        const value = await readJsonValue(profileUriFor(testRoot, ID)) as { data: { endian: string } };
         assert.strictEqual(value.data.endian, 'le', 'latest in-memory value written');
     });
 });
 
-suite('hexScopeStorage — profile lookup / creation', () => {
+suite('hexScopeStorage — profile registry + bindings', () => {
     setup(makeTestRoot);
     teardown(removeTestRoot);
 
-    test('createProfile seeds an ordinal profiles_1 dir with index.json relPath', async () => {
-        const dir = await createProfile(testRoot, REL);
-        assert.ok(dir.endsWith('profiles_1'), `dir name ordinal: ${dir}`);
-        const raw = await readJson(indexUriFor(dir));
+    test('createProfileRegistryEntry seeds an ordinal profile_1 dir', async () => {
+        const dir = await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        assert.ok(dir.endsWith('profile_1'), `dir name ordinal: ${dir}`);
+        const raw = await readJson(profileUriFor(testRoot, 'profile_1'));
         assert.strictEqual(raw.status, 'ok');
-        const data = raw.status === 'ok' ? raw.value as { relPath: string } : null;
-        assert.strictEqual(data?.relPath, REL);
+        const data = raw.status === 'ok' ? raw.value as ProfileRecord : null;
+        assert.strictEqual(data?.id, 'profile_1');
+        assert.strictEqual(data?.name, 'Boot');
     });
 
-    test('second profile gets the next ordinal (profiles_2)', async () => {
-        await createProfile(testRoot, 'a.hex');
-        const dir2 = await createProfile(testRoot, REL);
-        assert.ok(dir2.endsWith('profiles_2'));
+    test('normalizeBindings filters malformed entries and rewrites clean', async () => {
+        const raw = [
+            { fileKey: REL, profileId: 'profile_1' },
+            { fileKey: '' as string, profileId: 'x' },
+            { fileKey: 'a.hex', profileId: '' },
+            'junk',
+        ];
+        const { value, changed } = normalizeBindings(raw);
+        assert.deepStrictEqual(value, [{ fileKey: REL, profileId: 'profile_1' }]);
+        assert.strictEqual(changed, true);
     });
 
-    test('findProfile resolves by relPath and survives a dir rename', async () => {
-        const dir = await createProfile(testRoot, REL);
-        const renamed = path.join(hexScopeProfilesDir(testRoot), 'renamed_profile');
-        await vscode.workspace.fs.rename(vscode.Uri.file(dir), vscode.Uri.file(renamed));
-        const found = await findProfile(testRoot, REL);
-        assert.strictEqual(found, renamed);
-    });
-
-    test('findProfile returns null on miss', async () => {
-        await createProfile(testRoot, 'other.hex');
-        assert.strictEqual(await findProfile(testRoot, REL), null);
-    });
-
-    test('seeds no ignore rules anywhere in the profile tree', async () => {
-        await createProfile(testRoot, REL);
+    test('seeds exactly the three-tier schema copies, no ignore rules', async () => {
+        await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
         const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
-        assert.deepStrictEqual(entries.map(([name]) => name).sort(), ['firmware_profiles', 'schemas']);
-        const profiles = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeProfilesDir(testRoot)));
-        assert.deepStrictEqual(profiles.map(([name]) => name), ['profiles_1']);
+        assert.deepStrictEqual(entries.map(([name]) => name).sort(), ['profiles', 'schemas']);
         const schemas = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeSchemasDir(testRoot)));
-        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['index.schema.json', 'integrity.schema.json', 'structs.schema.json']);
+        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['bindings.schema.json', 'profile.schema.json', 'structs.schema.json']);
     });
 
-    test('profile files carry a $schema sibling; non-profile writes do not', async () => {
-        const dir = await createProfile(testRoot, REL);
-        const index = await readJsonValue(indexUriFor(dir)) as { data: unknown; $schema?: string };
-        assert.strictEqual(index.$schema, '../../schemas/index.schema.json');
-        const outside = vscode.Uri.file(path.join(testRoot, 'plain.json'));
-        await writeJson(outside, { version: 1, data: { x: 1 } });
-        assert.deepStrictEqual(await readJsonValue(outside), { version: 1, data: { x: 1 } });
+    test('registry files carry a $schema sibling; root pool/bindings reference schemas/', async () => {
+        const dir = await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        const profile = await readJsonValue(profileRegistryJsonUri(dir)) as { data: unknown; $schema?: string };
+        assert.strictEqual(profile.$schema, '../../schemas/profile.schema.json');
+        await seedSchemaCopies(testRoot);
+        await writeJson(bindingsJsonUri(testRoot), withEnvelope([{ fileKey: REL, profileId: 'profile_1' }]));
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { $schema?: string };
+        assert.strictEqual(bindings.$schema, 'schemas/bindings.schema.json');
     });
 
-    test('self-heal preserve the $schema sibling on profile files', async () => {
-        const dir = await createProfile(testRoot, REL);
-        const uri = indexUriFor(dir);
+    test('self-heal preserves the $schema sibling on registry files', async () => {
+        const dir = await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        const uri = profileRegistryJsonUri(dir);
         await writeText(uri, JSON.stringify({
-            $schema: '../../schemas/index.schema.json',
+            $schema: '../../schemas/profile.schema.json',
             version: 1,
-            data: { relPath: REL, labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' },
+            data: { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' },
         }));
-        const store = indexStoreFor(dir);
+        const store = profileStoreFor(testRoot, 'profile_1');
         await store.load();
         const healed = await readJsonValue(uri) as { data: { activeChecks: unknown }; $schema?: string };
         assert.deepStrictEqual(healed.data.activeChecks, { schemaVersion: 1, checks: [] }, 'self-heal applied');
-        assert.strictEqual(healed.$schema, '../../schemas/index.schema.json', 'sibling preserved through self-heal');
+        assert.strictEqual(healed.$schema, '../../schemas/profile.schema.json', 'sibling preserved through self-heal');
     });
 
     test('perFileRelativePath uses posix separators', () => {
-        assert.strictEqual(perFileRelativePath(testRoot, vscode.Uri.file(path.join(testRoot, 'firmware', 'boot.hex'))), 'firmware/boot.hex');
+        assert.strictEqual(perFileRelativePath(testRoot, vscode.Uri.file(path.join(testRoot, 'firmware', 'boot.hex'))), REL);
         assert.strictEqual(perFileRelativePath(testRoot, vscode.Uri.file(path.join(testRoot, 'boot.hex'))), 'boot.hex');
     });
 });
 
-suite('hexScopeMigration — one-time legacy Memento transfer', () => {
+suite('hexScopeMigration — one-time legacy transfer', () => {
     setup(makeTestRoot);
     teardown(removeTestRoot);
 
-    const uri = () => vscode.Uri.file(path.join(testRoot, 'firmware', 'boot.hex'));
+    const uri = () => vscode.Uri.file(path.join(testRoot, ...REL_WIN.split(path.sep)));
 
     class FakeMemento implements MementoLike {
         private data = new Map<string, unknown>();
@@ -448,7 +428,7 @@ suite('hexScopeMigration — one-time legacy Memento transfer', () => {
         keys(): string[] { return Array.from(this.data.keys()); }
     }
 
-    test('seeds the open profile and hard-deletes every legacy key', async () => {
+    test('Memento era: seeds registry profile + binding + pool; hard-deletes every key', async () => {
         const globalState = new FakeMemento();
         const workspaceState = new FakeMemento();
         globalState.update('hexScope.structs.global.v2', [{ id: 's1', name: 'S1', fields: [] }]);
@@ -468,24 +448,29 @@ suite('hexScopeMigration — one-time legacy Memento transfer', () => {
 
         await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
 
-        const dir = await findProfile(testRoot, 'firmware/boot.hex');
-        assert.ok(dir, 'profile created');
-        const index = await readJsonValue(indexUriFor(dir!)) as { version: number; data: IndexFileData };
-        assert.strictEqual(index.version, 1);
-        assert.strictEqual(index.data.relPath, 'firmware/boot.hex');
-        assert.strictEqual(index.data.labels.length, 1, 'labels migrated');
-        assert.deepStrictEqual(index.data.segmentNames, { '0': 'Boot' });
-        assert.strictEqual(index.data.pins.length, 1, 'pins migrated');
-        assert.deepStrictEqual(index.data.activeChecks, { schemaVersion: 1, checks: [] });
-        assert.strictEqual(index.data.endian, 'be');
+        // Open doc bound to a seeded profile
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> };
+        assert.strictEqual(bindings.data.length, 1, 'a binding exists');
+        const boundProfileId = bindings.data[0].profileId;
+        const profile = await readJsonValue(profileUriFor(testRoot, boundProfileId)) as { version: number; data: ProfileRecord };
+        assert.strictEqual(profile.version, 1);
+        assert.strictEqual(profile.data.labels.length, 1, 'labels migrated');
+        assert.deepStrictEqual(profile.data.segmentNames, { '0': 'Boot' });
+        assert.strictEqual(profile.data.pins.length, 1, 'pins migrated');
+        assert.deepStrictEqual(profile.data.activeChecks, { schemaVersion: 1, checks: [] });
+        assert.strictEqual(profile.data.endian, 'be');
 
-        const structs = await readJsonValue(structsUriFor(dir!)) as { data: { id: string }[] };
-        assert.deepStrictEqual(structs.data.map(s => s.id).sort(), ['legacy', 's1']);
-        const profiles = await readJsonValue(integrityUriFor(dir!)) as { data: { id: string }[] };
-        assert.strictEqual(profiles.data[0].id, 'p1');
+        // Global integrity template → unbound registry profile
+        const registryDir = vscode.Uri.file(hexScopeProfilesRegistryDir(testRoot));
+        const dirs = (await vscode.workspace.fs.readDirectory(registryDir)).filter(([, t]) => t === vscode.FileType.Directory);
+        assert.strictEqual(dirs.length, 2, 'open-doc profile + P1 template profile');
 
-        assert.deepStrictEqual(globalState.keys(), [], 'every global key hard-deleted');
-        assert.deepStrictEqual(workspaceState.keys(), [], 'every workspace key hard-deleted');
+        // Structs → workspace pool (v2 supersedes v1; per-file merged, deduped)
+        const pool = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
+        assert.deepStrictEqual(pool.data.map(s => s.id).sort(), ['legacy', 's1']);
+
+        assert.ok(onlyMigrationMarkerRemains(globalState), 'every global legacy key hard-deleted (marker aside)');
+        assert.ok(onlyMigrationMarkerRemains(workspaceState), 'every workspace legacy key hard-deleted (marker aside)');
     });
 
     test('root sweep deletes per-file keys for sibling documents under the same root', async () => {
@@ -501,41 +486,104 @@ suite('hexScopeMigration — one-time legacy Memento transfer', () => {
 
         await migrateLegacyData(testRoot, first, { globalState, workspaceState });
 
-        const dir = await findProfile(testRoot, 'firmware/boot.hex');
-        assert.ok(dir, 'first profile created + seeded');
-        const index = await readJsonValue(indexUriFor(dir!)) as { version: number; data: IndexFileData };
-        assert.strictEqual(index.data.labels.length, 1, 'first document labels migrated');
-        const structs = await readJsonValue(structsUriFor(dir!)) as { data: unknown[] };
-        assert.strictEqual(structs.data.length, 1, 'first document structs migrated');
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> };
+        assert.strictEqual(bindings.data.length, 1, 'first document bound');
+        const pool = await readJsonValue(structPoolJsonUri(testRoot)) as { data: unknown[] };
+        assert.strictEqual(pool.data.length, 1, 'first document structs migrated to pool');
         assert.deepStrictEqual(workspaceState.keys(), [], 'per-file keys for BOTH documents hard-deleted');
     });
 
-    test('existing committed profile files are preserved; rerun is a no-op', async () => {
-        const dir = await createProfile(testRoot, 'firmware/boot.hex');
-        const committed = [{ id: 'committed', name: 'Committed', fields: [] }];
-        await writeText(structsUriFor(dir), JSON.stringify({ version: 1, data: committed }));
+    test('tree era: firmware_profiles tree converts to pool + registry profiles + bindings', async () => {
+        // Build a legacy firmware_profiles/<n> tree the old way.
+        const legacyContainer = vscode.Uri.file(path.join(testRoot, '.hexscope', 'firmware_profiles'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(legacyContainer.fsPath, 'profiles_1')));
+        const dir = path.join(legacyContainer.fsPath, 'profiles_1');
+        await writeText(vscode.Uri.file(path.join(dir, 'index.json')), JSON.stringify({
+            version: 1,
+            data: {
+                relPath: REL,
+                labels: [{ id: 'l1', name: 'L1', startAddress: 0, length: 1, color: '#000' }],
+                segmentNames: { '0': 'Boot' },
+                pins: [],
+                activeChecks: { schemaVersion: 1, checks: [] },
+                endian: 'be',
+            },
+        }));
+        await writeText(vscode.Uri.file(path.join(dir, 'structs.json')), JSON.stringify({
+            version: 1,
+            data: [{ id: 's1', name: 'S1', fields: [] }],
+        }));
+        await writeText(vscode.Uri.file(path.join(dir, 'integrity.json')), JSON.stringify({
+            version: 1,
+            data: [{ schemaVersion: 1, id: 'p1', name: 'P1', checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0, endAddress: 3, autoFixStoredValue: false }] }],
+        }));
 
         const globalState = new FakeMemento();
         const workspaceState = new FakeMemento();
         globalState.update('hexScope.structs.global.v2', [{ id: 's1', name: 'S1', fields: [] }]);
-
+        globalState.update('hexScope.structs.global.v1', [{ id: 'old', name: 'Old', fields: [] }]);
         await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
-        const after = await readJsonValue(structsUriFor(dir)) as { data: unknown[] };
-        assert.deepStrictEqual(after.data, committed, 'committed copy kept');
-        assert.deepStrictEqual(globalState.keys(), []);
-        assert.deepStrictEqual(workspaceState.keys(), []);
 
-        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
-        const again = await readJsonValue(structsUriFor(dir)) as { data: unknown[] };
-        assert.deepStrictEqual(again.data, committed, 'rerun no-op');
+        // Pool got the struct (v2 supersedes v1; tree struct deduped against Memento)
+        const pool = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
+        assert.deepStrictEqual(pool.data.map(s => s.id).sort(), ['s1'], 'tree structs + Memento v2 merged');
+
+        // Binding created for the file; registry has the file profile.
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> };
+        assert.strictEqual(bindings.data[0].fileKey, REL);
+        const profile = await readJsonValue(profileUriFor(testRoot, bindings.data[0].profileId)) as { data: ProfileRecord };
+        assert.strictEqual(profile.data.labels.length, 1);
+        assert.strictEqual(profile.data.endian, 'be');
+        assert.deepStrictEqual(profile.data.activeChecks.checks.map(c => c.algorithm), ['crc16-ccitt-false'], 'empty index activeChecks folds the first integrity template in');
+
+        // Legacy tree stays in place (revert safety).
+        assert.strictEqual((await readJson(vscode.Uri.file(path.join(dir, 'index.json')))).status, 'ok', 'legacy tree untouched');
+
+        // Legacy tree stays in place (revert safety).
+        assert.strictEqual((await readJson(vscode.Uri.file(path.join(dir, 'index.json')))).status, 'ok', 'legacy tree untouched');
     });
 
-    test('no legacy data → no profile seeded, no crash', async () => {
+    test('tree era: no activeChecks folds the first integrity template in; rerun is a no-op', async () => {
+        const legacyContainer = vscode.Uri.file(path.join(testRoot, '.hexscope', 'firmware_profiles'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(legacyContainer.fsPath, 'profiles_1')));
+        const dir = path.join(legacyContainer.fsPath, 'profiles_1');
+        await writeText(vscode.Uri.file(path.join(dir, 'index.json')), JSON.stringify({
+            version: 1,
+            data: { relPath: REL, labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' },
+        }));
+        await writeText(vscode.Uri.file(path.join(dir, 'structs.json')), JSON.stringify({ version: 1, data: [] }));
+        await writeText(vscode.Uri.file(path.join(dir, 'integrity.json')), JSON.stringify({
+            version: 1,
+            data: [
+                { schemaVersion: 1, id: 'p1', name: 'P1', checks: [{ algorithm: 'md5', startAddress: 0, endAddress: 3, autoFixStoredValue: false }] },
+                { schemaVersion: 1, id: 'p2', name: 'P2', checks: [{ algorithm: 'sha-1', startAddress: 0, endAddress: 3, autoFixStoredValue: false }] },
+            ],
+        }));
+
         const globalState = new FakeMemento();
         const workspaceState = new FakeMemento();
         await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
-        assert.strictEqual(await findProfile(testRoot, 'firmware/boot.hex'), null, 'no dir created without legacy data');
-        assert.deepStrictEqual(globalState.keys(), []);
+
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> };
+        const profile = await readJsonValue(profileUriFor(testRoot, bindings.data[0].profileId)) as { data: ProfileRecord };
+        assert.deepStrictEqual(profile.data.activeChecks.checks.map(c => c.algorithm), ['md5'], 'first template folded in');
+
+        const registryDir = vscode.Uri.file(hexScopeProfilesRegistryDir(testRoot));
+        const dirs = (await vscode.workspace.fs.readDirectory(registryDir)).filter(([, t]) => t === vscode.FileType.Directory);
+        assert.strictEqual(dirs.length, 2, 'file profile + P2 unbound template profile');
+
+        // Rerun is a no-op (no new profiles/bindings).
+        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
+        const bindingsAfter = await readJsonValue(bindingsJsonUri(testRoot)) as { data: unknown[] };
+        assert.strictEqual(bindingsAfter.data.length, 1, 'rerun no-op');
+    });
+
+    test('no legacy data → nothing seeded, no crash', async () => {
+        const globalState = new FakeMemento();
+        const workspaceState = new FakeMemento();
+        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
+        assert.strictEqual((await readJson(bindingsJsonUri(testRoot))).status, 'missing', 'no bindings created');
+        assert.ok(onlyMigrationMarkerRemains(globalState), 'no legacy keys (marker aside)');
         assert.deepStrictEqual(workspaceState.keys(), []);
     });
 });
@@ -546,12 +594,12 @@ suite('hexScopeStorage — profile watcher', () => {
 
     test('external edit auto-applies; a self-write never reverts our own bytes', async function () {
         this.timeout(30000);
-        const dir = await createProfile(testRoot, REL);
-        const uri = indexUriFor(dir);
+        const dir = await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        const uri = profileRegistryJsonUri(dir);
 
         let lastSelfWriteAt = 0;
         let reloads = 0;
-        const store = indexStoreFor(dir);
+        const store = profileStoreFor(testRoot, 'profile_1');
         // Mirrors the session guard + per-slot debounced reload. Driven
         // directly (not by real fs events) so the test is deterministic on
         // every OS — including CI where tmpdir watcher delivery is unreliable.
@@ -566,7 +614,7 @@ suite('hexScopeStorage — profile watcher', () => {
 
             // Genuine external edit → reload auto-applies (reload reads the
             // real file written on disk, so the auto-apply path is exercised).
-            await writeText(uri, JSON.stringify({ version: 1, data: { ...emptyIndexData(REL), endian: 'be' } }));
+            await writeText(uri, JSON.stringify({ version: 1, data: { ...emptyProfileRecord('profile_1', 'Boot'), endian: 'be' } }));
             onProfileChanged();
             await waitFor(() => store.get()?.endian === 'be', 5000);
             assert.ok(reloads >= 1, 'reload ran for the external edit');
@@ -574,7 +622,7 @@ suite('hexScopeStorage — profile watcher', () => {
             // Host self-write persists; the (possibly late) watcher echo only
             // re-reads our own bytes and must not revert them.
             lastSelfWriteAt = Date.now(); // session stamps the write horizon
-            store.set({ ...emptyIndexData(REL), endian: 'le' });
+            store.set({ ...emptyProfileRecord('profile_1', 'Boot'), endian: 'le' });
             await store.flush();
             await waitFor(async () => (await readJsonValue(uri) as { data: { endian: string } }).data.endian === 'le', 5000);
             onProfileChanged(); // echo reload inside the horizon → must not run

@@ -45,4 +45,10 @@ export const S = {
     sidebarTab:     'inspector' as SidebarTab,  // active sidebar tab
     lockedDueToExternalChange: false as boolean,  // view is locked pending external change action
     lastClickColumn: null as 'hex' | 'char' | null,  // last memory view cell click column
+    /** Three-tier profile registry state (names + current binding + share count). */
+    profileState: {
+        profiles: [] as Array<{ id: string; name: string }>,
+        current: null as string | null,
+        boundFileCount: 0 as number,
+    },
 };

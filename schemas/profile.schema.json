@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "hexscope-index.schema.json",
-  "title": "Hex Scope firmware profile index",
-  "description": "Per-firmware profile state: relPath identity plus labels, segment names, struct pins, active integrity checks, and endian. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "$id": "hexscope-profile.schema.json",
+  "title": "Hex Scope named profile",
+  "description": "One named annotation bundle in the three-tier profile registry: pins, active integrity checks, endian, segment names, labels. Not file-owned. Envelope root tolerates extra keys; nested payload objects are strict.",
   "type": "object",
   "required": [
     "version",
@@ -13,7 +13,7 @@
       "const": 1
     },
     "data": {
-      "$ref": "#/definitions/indexFileData"
+      "$ref": "#/definitions/profileRecord"
     },
     "$schema": {
       "type": "string"
@@ -21,31 +21,23 @@
   },
   "additionalProperties": true,
   "definitions": {
-    "indexFileData": {
+    "profileRecord": {
       "type": "object",
       "required": [
-        "relPath",
-        "labels",
-        "segmentNames",
+        "id",
+        "name",
         "pins",
         "activeChecks",
-        "endian"
+        "endian",
+        "segmentNames",
+        "labels"
       ],
       "properties": {
-        "relPath": {
+        "id": {
           "type": "string"
         },
-        "labels": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/segmentLabel"
-          }
-        },
-        "segmentNames": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "name": {
+          "type": "string"
         },
         "pins": {
           "type": "array",
@@ -61,6 +53,18 @@
             "le",
             "be"
           ]
+        },
+        "segmentNames": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/segmentLabel"
+          }
         }
       },
       "additionalProperties": false

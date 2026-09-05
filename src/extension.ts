@@ -1,6 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 import * as vscode from 'vscode';
 import { HexEditorProvider } from './hexEditorProvider';
+import { HexEditorSession } from './hexEditorSession';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
@@ -70,6 +71,25 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('hexScope.runScript', () => {
             HexEditorProvider.postToActive({ type: 'activateScriptsTab' });
         })
+    );
+
+    // Profile registry CRUD + select (three-tier profile system)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.selectProfile', () => {
+            void HexEditorSession.selectProfileCommand();
+        }),
+        vscode.commands.registerCommand('hexScope.newProfile', () => {
+            void HexEditorSession.newProfileCommand();
+        }),
+        vscode.commands.registerCommand('hexScope.duplicateProfile', () => {
+            void HexEditorSession.duplicateProfileCommand();
+        }),
+        vscode.commands.registerCommand('hexScope.renameProfile', () => {
+            void HexEditorSession.renameProfileCommand();
+        }),
+        vscode.commands.registerCommand('hexScope.deleteProfile', () => {
+            void HexEditorSession.deleteProfileCommand();
+        }),
     );
 
     // Copy commands — delegate to the active webview

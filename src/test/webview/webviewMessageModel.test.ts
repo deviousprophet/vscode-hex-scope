@@ -67,6 +67,7 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'be',
             integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            profile: { profiles: [], current: null, boundFileCount: 0 },
         });
 
         assert.strictEqual(S.parseResult?.totalDataBytes, parseResult.totalDataBytes);
@@ -117,6 +118,7 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'le',
             integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            profile: { profiles: [], current: null, boundFileCount: 0 },
         });
         S.editMode = true;
         S.edits.set(0x1001, 0xAA);
@@ -172,12 +174,14 @@ suite('applyProviderMessageToModel()', () => {
             type: 'init',
             generation: 1,
             parseResult: parseResultForTest(),
-            labels: [],
+labels: [],
             structs: [],
             structPins: [],
             endian: 'le',
             integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            profile: { profiles: [], current: null, boundFileCount: 0 },
         });
+
         const labels = [labelForTest({ id: 'x', name: 'X' })];
         const segmentNames = { '0': 'Boot' };
         const pins = [{ id: 'pin', structId: 's', addr: 0, name: 'P' }];
@@ -227,6 +231,8 @@ function noOpHandlers(): ProviderMessageHandlers {
         externalChangeError: () => {},
         repairComplete: () => {},
         integrityProfiles: () => {},
+        profilesState: () => {},
+        activateProfilePicker: () => {},
         scriptInfo: () => {},
         scriptResult: () => {},
         scriptOutput: () => {},

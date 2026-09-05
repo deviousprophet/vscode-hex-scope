@@ -1,7 +1,14 @@
-// ── .hexscope firmware-profile storage (host adapter) ─────────────
+// ── .hexscope three-tier storage (host adapter) ───────────────────
 // Single owner of .hexscope/ I/O. No Memento access here; normalizers
 // are passed in per slot. src/core must not import vscode — this file
 // sits at the top level exactly because it is a host adapter.
+//
+// Three-tier layout:
+//   .hexscope/structs.json          — workspace-wide StructDef[] pool
+//   .hexscope/profiles/<id>.json    — named profile: pins, activeChecks, endian, segmentNames, labels
+//   .hexscope/bindings.json         — fileKey → profileId table
+//   .hexscope/schemas/              — seeded schema copies
+//   .hexscope/scripts/              — script runner (unchanged)
 
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
@@ -14,20 +21,71 @@ import { endianOrDefault, type HexScopeEndian, type SegmentNameOverrides } from 
 export const DATA_VERSION = 1;
 
 const DEFAULT_DEBOUNCE_MS = 400;
-const PROFILE_CONTAINER = '.hexscope/firmware_profiles';
 const SCHEMA_DIR = '.hexscope/schemas';
+const PROFILES_REGISTRY_DIR = '.hexscope/profiles';
+const BINDINGS_FILE = 'bindings.json';
+const STRUCT_POOL_FILE = 'structs.json';
 
-export type ProfileJsonName = 'index.json' | 'structs.json' | 'integrity.json';
+/** File names within the new per-profile registry dir. */
+export type ProfileJsonName = 'profile.json';
 export type JsonRead = { status: 'ok'; value: unknown } | { status: 'missing' } | { status: 'corrupt' };
 export type NormalizedValue<T> = { value: T; changed: boolean };
 
-// The three bundled JSON Schemas; a workspace copy is seeded into .hexscope/schemas/
-// and each profile file carries the matching $schema sibling for AI-agent discovery.
-const SCHEMA_FILES: ReadonlyArray<{ file: ProfileJsonName; schema: string }> = [
-    { file: 'index.json', schema: 'index.schema.json' },
+// Bundled schemas seeded into .hexscope/schemas/; profile files carry
+// a $schema sibling pointing here for AI-agent discovery.
+const SCHEMA_FILES: ReadonlyArray<{ file: ProfileJsonName | 'structs.json' | 'bindings.json'; schema: string }> = [
+    { file: 'profile.json', schema: 'profile.schema.json' },
     { file: 'structs.json', schema: 'structs.schema.json' },
-    { file: 'integrity.json', schema: 'integrity.schema.json' },
+    { file: 'bindings.json', schema: 'bindings.schema.json' },
 ];
+
+// ── Three-tier domain types ──────────────────────────────────────
+
+/** A named annotation bundle (pins/checks/endian/labels/segmentNames). Not file-owned. */
+export interface ProfileRecord {
+    id: string;
+    name: string;
+    pins: StructPin[];
+    activeChecks: IntegrityCheckSet;
+    endian: HexScopeEndian;
+    segmentNames: SegmentNameOverrides;
+    labels: SegmentLabel[];
+}
+
+/** One entry per file that has a bound profile. */
+export interface Binding {
+    fileKey: string;   // workspace-relative posix path
+    profileId: string;
+}
+
+/** Root path helpers. */
+export function hexScopeRootDir(root: string): string {
+    return path.join(root, '.hexscope');
+}
+
+export function hexScopeProfilesRegistryDir(root: string): string {
+    return path.join(root, PROFILES_REGISTRY_DIR);
+}
+
+export function hexScopeSchemasDir(root: string): string {
+    return path.join(root, SCHEMA_DIR);
+}
+
+export function profileRegistryJsonUri(dir: string): vscode.Uri {
+    return vscode.Uri.file(path.join(dir, 'profile.json'));
+}
+
+export function bindingsJsonUri(root: string): vscode.Uri {
+    return vscode.Uri.file(path.join(root, '.hexscope', BINDINGS_FILE));
+}
+
+export function structPoolJsonUri(root: string): vscode.Uri {
+    return vscode.Uri.file(path.join(root, '.hexscope', STRUCT_POOL_FILE));
+}
+
+export function emptyProfileRecord(id: string, name: string): ProfileRecord {
+    return { id, name, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', segmentNames: {}, labels: [] };
+}
 
 // ── Version envelope ──────────────────────────────────────────────
 
@@ -84,7 +142,7 @@ function dataToRead(data: unknown | null): JsonRead {
 
 export async function writeJson(uri: vscode.Uri, value: unknown): Promise<void> {
     await ensureParentDir(uri);
-    const schemaRef = profileSchemaRef(uri);
+    const schemaRef = resolveProfileSchemaRef(uri);
     const payload = schemaRef ? withSchemaSibling(value, schemaRef) : value;
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(payload, null, 2)));
 }
@@ -139,88 +197,40 @@ export function perFileRelativePath(root: string, uri: vscode.Uri): string {
     return path.relative(root, uri.fsPath).split(path.sep).join('/');
 }
 
-export function hexScopeProfilesDir(root: string): string {
-    return path.join(root, PROFILE_CONTAINER);
-}
-
-export function hexScopeSchemasDir(root: string): string {
-    return path.join(root, SCHEMA_DIR);
-}
-
-/** Relative posix path from a profile file to its .hexscope/schemas copy, or null outside a profile dir. */
-function profileSchemaRef(uri: vscode.Uri): string | null {
-    const parts = uri.fsPath.split(path.sep);
-    const file = SCHEMA_FILES.find(entry => entry.file === parts[parts.length - 1]);
-    return isProfileFile(parts) && file ? `../../schemas/${file.schema}` : null;
-}
-
-function isProfileFile(parts: string[]): boolean {
-    const hs = parts.indexOf('.hexscope');
-    return hs >= 0 && parts[hs + 1] === 'firmware_profiles' && parts[hs + 2] !== undefined;
-}
-
-function profileDir(root: string, id: string): string {
-    return path.join(hexScopeProfilesDir(root), id);
-}
-
-export function profileJsonUri(dir: string, name: ProfileJsonName): vscode.Uri {
-    return vscode.Uri.file(path.join(dir, name));
-}
-
-// ── Profile lookup / creation ─────────────────────────────────────
-
-/** Scan profiles dir; relPath in index.json is the source of truth (dir name is cosmetic). */
-export async function findProfile(root: string, relPath: string): Promise<string | null> {
-    for (const [name, type] of await listProfiles(root)) {
-        if (type !== vscode.FileType.Directory) { continue; }
-        if (await profileHasRelPath(root, name, relPath)) { return profileDir(root, name); }
-    }
-    return null;
-}
-
-async function listProfiles(root: string): Promise<[string, vscode.FileType][]> {
-    const container = vscode.Uri.file(hexScopeProfilesDir(root));
+/** Resolve a profile dir under the registry, or null. */
+export async function resolveProfileDir(root: string, profileId: string): Promise<string | null> {
+    const dir = path.join(hexScopeProfilesRegistryDir(root), profileId);
     try {
-        return await vscode.workspace.fs.readDirectory(container);
+        await vscode.workspace.fs.stat(vscode.Uri.file(dir));
+        return dir;
     } catch {
-        return [];
+        return null;
     }
 }
 
-async function profileHasRelPath(root: string, name: string, relPath: string): Promise<boolean> {
-    const index = await readJson(profileJsonUri(profileDir(root, name), 'index.json'));
-    if (index.status !== 'ok') { return false; }
-    return indexDataRelPath(index.value) === relPath;
-}
-
-function indexDataRelPath(value: unknown): string | null {
-    if (value === null || typeof value !== 'object') { return null; }
-    const relPath = (value as { relPath?: unknown }).relPath;
-    return typeof relPath === 'string' ? relPath : null;
-}
-
-/** Create just the (ordinal-named) profile directory; no index write. Migration uses this. */
-export async function createProfileDir(root: string): Promise<string> {
-    const container = vscode.Uri.file(hexScopeProfilesDir(root));
-    await vscode.workspace.fs.createDirectory(container);
-    const entries = await vscode.workspace.fs.readDirectory(container);
+/** Next ordinal id for a new profile dir. */
+export async function nextProfileOrdinal(root: string): Promise<number> {
+    const container = vscode.Uri.file(hexScopeProfilesRegistryDir(root));
+    let entries: [string, vscode.FileType][] = [];
+    try { entries = await vscode.workspace.fs.readDirectory(container); } catch { /* no dir yet */ }
     const used = new Set(entries.filter(([, type]) => type === vscode.FileType.Directory).map(([name]) => name));
     let id = 1;
-    while (used.has(`profiles_${id}`)) { id++; }
-    const dir = profileDir(root, `profiles_${id}`);
+    while (used.has(`profile_${id}`)) { id++; }
+    return id;
+}
+
+/** Create a new profile dir + seed profile.json. Returns the created dir. */
+export async function createProfileRegistryEntry(root: string, id: string, name: string): Promise<string> {
+    const container = vscode.Uri.file(hexScopeProfilesRegistryDir(root));
+    await vscode.workspace.fs.createDirectory(container);
+    const dir = path.join(container.fsPath, id);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
-    return dir;
-}
-
-/** Create a profile dir and seed index.json with the relPath + empty defaults. */
-export async function createProfile(root: string, relPath: string): Promise<string> {
-    const dir = await createProfileDir(root);
     await seedSchemaCopies(root);
-    await writeJson(profileJsonUri(dir, 'index.json'), withEnvelope(emptyIndexData(relPath)));
+    await writeJson(profileRegistryJsonUri(dir), withEnvelope(emptyProfileRecord(id, name)));
     return dir;
 }
 
-/** Seed .hexscope/schemas with the bundled schema copies (writeIfMissing; watcher ignores this dir). */
+/** Seed .hexscope/schemas with the bundled schema copies (writeIfMissing). */
 export async function seedSchemaCopies(root: string): Promise<void> {
     const dir = vscode.Uri.file(hexScopeSchemasDir(root));
     for (const { schema } of SCHEMA_FILES) {
@@ -228,6 +238,27 @@ export async function seedSchemaCopies(root: string): Promise<void> {
         if (content === undefined) { continue; }
         await writeIfMissing(vscode.Uri.file(path.join(dir.fsPath, schema)), content);
     }
+}
+
+/** Relative $schema path from a profile file to .hexscope/schemas/, or null. */
+function resolveProfileSchemaRef(uri: vscode.Uri): string | null {
+    const parts = uri.fsPath.split(path.sep);
+    const file = parts[parts.length - 1];
+    const match = SCHEMA_FILES.find(entry => entry.file === file);
+    if (!match) { return null; }
+    // .hexscope/profiles/<id>/profile.json → ../../schemas/<name>.schema.json
+    // .hexscope/structs.json → schemas/<name>.schema.json
+    // .hexscope/bindings.json → schemas/<name>.schema.json
+    const hs = parts.indexOf('.hexscope');
+    if (hs < 0) { return null; }
+    const afterHs = parts.slice(hs + 1);
+    if (afterHs[0] === 'profiles' && afterHs.length >= 3) {
+        return `../../schemas/${match.schema}`;
+    }
+    if ((afterHs[0] === STRUCT_POOL_FILE || afterHs[0] === BINDINGS_FILE) && afterHs.length === 1) {
+        return `schemas/${match.schema}`;
+    }
+    return null;
 }
 
 /** Read a bundled schema from the extension's own install dir (out/ or dist/ → ../schemas). */
@@ -239,26 +270,14 @@ function bundledSchema(name: string): unknown {
     }
 }
 
-// ── Index file shape ──────────────────────────────────────────────
+// ── Profile record normalization ─────────────────────────────────
 
-export interface IndexFileData {
-    relPath: string;
-    labels: SegmentLabel[];
-    segmentNames: SegmentNameOverrides;
-    pins: StructPin[];
-    activeChecks: IntegrityCheckSet;
-    endian: HexScopeEndian;
-}
-
-export function emptyIndexData(relPath: string): IndexFileData {
-    return { relPath, labels: [], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' };
-}
-
-export function normalizeIndexFile(raw: unknown, fallback: IndexFileData): NormalizedValue<IndexFileData> {
+export function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): NormalizedValue<ProfileRecord> {
     const candidate = plainObject(raw);
     if (!candidate) { return { value: fallback, changed: false }; }
-    const value: IndexFileData = {
-        relPath: relPathOr(candidate, fallback),
+    const value: ProfileRecord = {
+        id: typeof candidate.id === 'string' ? candidate.id : fallback.id,
+        name: typeof candidate.name === 'string' ? candidate.name : fallback.name,
         labels: arrayOrEmpty(candidate.labels, []) as SegmentLabel[],
         segmentNames: plainStringRecord(candidate.segmentNames),
         pins: arrayOrEmpty(candidate.pins, []) as StructPin[],
@@ -266,10 +285,6 @@ export function normalizeIndexFile(raw: unknown, fallback: IndexFileData): Norma
         endian: endianOrDefault(candidate.endian),
     };
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
-}
-
-function relPathOr(candidate: Record<string, unknown>, fallback: IndexFileData): string {
-    return typeof candidate.relPath === 'string' ? candidate.relPath : fallback.relPath;
 }
 
 function arrayOrEmpty(value: unknown, empty: unknown[]): unknown[] {
@@ -326,7 +341,7 @@ export class JsonStore<T> {
 
     constructor(private readonly options: JsonStoreOptions<T>) {}
 
-    /** Profile slot file name; derived from the initial uri basename so the
+    /** Slot file name; derived from the initial uri basename so the
      *  same slot name survives lazy-dir materialization. */
     private name(): ProfileJsonName {
         return path.basename(this.options.uri.fsPath) as ProfileJsonName;
@@ -349,14 +364,14 @@ export class JsonStore<T> {
     }
 
     private readUri(): vscode.Uri {
-        return this.resolvedDir !== null ? profileJsonUri(this.resolvedDir, this.name()) : this.options.uri;
+        return this.resolvedDir !== null ? profileRegistryJsonUri(this.resolvedDir) : this.options.uri;
     }
 
     /** Uri to write; null when deferred and the dir resolver declined (stay in-memory). */
     private async writeUri(): Promise<vscode.Uri | null> {
         if (!this.options.lazyDir) { return this.options.uri; }
         const dir = await this.profileDir();
-        return dir === null ? null : profileJsonUri(dir, this.name());
+        return dir === null ? null : profileRegistryJsonUri(dir);
     }
 
     async load(force = false): Promise<T> {
@@ -473,15 +488,19 @@ export interface ProfileWatcherOptions {
 }
 
 /**
- * Watch profile files (index/structs/integrity.json under any profile dir)
- * plus the appearance of profile dirs themselves, so an external
- * firmware_profiles restructure is picked up. The session owns the
- * self-write horizon and the debounced per-slot reload.
+ * Watch the three-tier storage (struct pool, profile registry, bindings)
+ * plus the appearance of profile dirs, so an external restructure is
+ * picked up. The session owns the self-write horizon and the debounced
+ * per-slot reload.
  */
 export function attachProfileWatcher(options: ProfileWatcherOptions): vscode.Disposable {
     const watchers = [
-        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `${PROFILE_CONTAINER}/*/*.json`)),
-        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `${PROFILE_CONTAINER}/*`)),
+        // registry profile files + dirs
+        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `${PROFILES_REGISTRY_DIR}/*/profile.json`)),
+        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `${PROFILES_REGISTRY_DIR}/*`)),
+        // struct pool + bindings table
+        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `.hexscope/${STRUCT_POOL_FILE}`)),
+        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `.hexscope/${BINDINGS_FILE}`)),
     ];
     const notify = () => options.onProfileChanged();
     for (const watcher of watchers) {
@@ -490,4 +509,24 @@ export function attachProfileWatcher(options: ProfileWatcherOptions): vscode.Dis
         watcher.onDidDelete(notify);
     }
     return { dispose: () => { for (const watcher of watchers) { watcher.dispose(); } } };
+}
+
+// ── Binding table helpers ─────────────────────────────────────────
+
+export function normalizeBindings(raw: unknown): NormalizedValue<Binding[]> {
+    if (!Array.isArray(raw)) { return { value: [], changed: false }; }
+    const value: Binding[] = [];
+    for (const entry of raw) {
+        const o = plainObject(entry);
+        if (!o) { continue; }
+        const fileKey = typeof o.fileKey === 'string' ? o.fileKey : '';
+        const profileId = typeof o.profileId === 'string' ? o.profileId : '';
+        if (fileKey.length > 0 && profileId.length > 0) { value.push({ fileKey, profileId }); }
+    }
+    return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
+}
+
+/** Next ordinal profile id under the registry (profile_<n>). */
+export function nextProfileId(root: string): Promise<number> {
+    return nextProfileOrdinal(root);
 }

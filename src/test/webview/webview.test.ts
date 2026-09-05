@@ -631,6 +631,7 @@ suite('Record View rendering', () => {
             window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
                 type: 'init', parseResult: S.parseResult, labels: [], structs: [], structPins: [], endian: 'le',
                 integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+                profile: { profiles: [], current: null, boundFileCount: 0 },
             } }));
             assert.strictEqual(document.querySelectorAll('#sidebar-common-settings').length, 1);
             assert.ok(document.getElementById('sidebar-btn-le')!.classList.contains('active'));

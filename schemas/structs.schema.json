@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "hexscope-structs.schema.json",
-  "title": "Hex Scope struct definitions",
-  "description": "StructDef[] persisted per firmware profile. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "title": "Hex Scope struct pool",
+  "description": "Workspace-wide StructDef[] in the three-tier profile system. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
   "type": "object",
   "required": [
     "version",
