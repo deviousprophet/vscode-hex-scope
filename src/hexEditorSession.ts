@@ -33,6 +33,7 @@ import {
     profileJsonUri,
     resolveHexScopeRoot,
     type IndexFileData,
+    type ProfileJsonName,
     JsonStore,
 } from './hexScopeStorage';
 import { migrateLegacyData } from './hexScopeMigration';
@@ -396,6 +397,35 @@ export class HexEditorSession {
         let profileReloadTimer: ReturnType<typeof setTimeout> | undefined;
         let perFileOp: Promise<unknown> = Promise.resolve();
 
+        // ── Deferred profile materialization ──────────────────────────
+        // A profile dir is created only on first write (never on open).
+        // Out-of-workspace files stay in-memory until an explicit
+        // save/profile action flips the flag.
+        const hasWorkspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri) !== undefined;
+        let explicitProfileWrite = false;
+        let profileDirCreated: string | null = null;
+        let creatingProfile: Promise<string | null> | null = null;
+
+        const resolveDir = (): Promise<string | null> => {
+            if (profileDirCreated !== null) { return Promise.resolve(profileDirCreated); }
+            if (creatingProfile === null) {
+                creatingProfile = (async () => {
+                    try {
+                        if (!hasWorkspaceFolder && !explicitProfileWrite) { return null; }
+                        const dir = await createProfile(root, relPath);
+                        profileDirCreated = dir;
+                        profileDirPath = dir;
+                        // Only watch once a dir exists (no dir → no watch).
+                        resources.add(attachProfileWatcher({ root, onProfileChanged }));
+                        return dir;
+                    } finally {
+                        creatingProfile = null;
+                    }
+                })();
+            }
+            return creatingProfile;
+        };
+
         /** Serialize index-slot read-modify-write ops so concurrent messages cannot lose updates. */
         const enqueuePerFileOp = <T>(op: () => Promise<T>): Promise<T> => {
             const next = perFileOp.then(op, op);
@@ -410,11 +440,16 @@ export class HexEditorSession {
                 profileReady = (async () => {
                     await migrationDone;
                     if (disposed) { return; }
-                    let dir = await findProfile(root, relPath);
-                    if (!dir) { dir = await createProfile(root, relPath); }
+                    const dir = await findProfile(root, relPath);
                     profileDirPath = dir;
-                    buildProfileStores(dir);
-                    resources.add(attachProfileWatcher({ root, onProfileChanged }));
+                    if (dir !== null) {
+                        buildProfileStores(dir);
+                        resources.add(attachProfileWatcher({ root, onProfileChanged }));
+                    } else {
+                        // Deferred: stores resolve their dir lazily on the first
+                        // write; no createProfile on a read-only open.
+                        buildProfileStores(null);
+                    }
                 })().catch(error => {
                     profileReady = null;
                     throw error;
@@ -423,7 +458,7 @@ export class HexEditorSession {
             return profileReady;
         };
 
-        const buildProfileStores = (dir: string): void => {
+        const buildProfileStores = (dir: string | null): void => {
             const normalizeStructs = (raw: unknown): { value: StructDef[]; changed: boolean } => {
                 const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
                 return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
@@ -432,23 +467,32 @@ export class HexEditorSession {
                 const profiles = normalizeIntegrityProfiles(raw);
                 return { value: profiles, changed: JSON.stringify(raw) !== JSON.stringify(profiles) };
             };
+            const slotUri = (name: ProfileJsonName): vscode.Uri =>
+                dir !== null ? profileJsonUri(dir, name) : profileJsonUri('', name);
+            // Deferred stores derive their slot file from the uri basename, so a
+            // placeholder dir is fine — reads short-circuit and writes resolve
+            // the real dir through resolveDir before touching disk.
+            const deferred = dir === null ? { lazyDir: resolveDir } : {};
 
             indexStore = new JsonStore<IndexFileData>({
-                uri: profileJsonUri(dir, 'index.json'),
+                uri: slotUri('index.json'),
+                ...deferred,
                 normalizer: raw => normalizeIndexFile(raw, emptyIndexData(relPath)),
                 empty: () => emptyIndexData(relPath),
                 onSelfWrite: markSelfWrite,
                 onReload: () => void broadcastPerFileData(),
             });
             structsStore = new JsonStore<StructDef[]>({
-                uri: profileJsonUri(dir, 'structs.json'),
+                uri: slotUri('structs.json'),
+                ...deferred,
                 normalizer: normalizeStructs,
                 empty: () => [],
                 onSelfWrite: markSelfWrite,
                 onReload: () => void broadcastStructs(),
             });
             integrityStore = new JsonStore<IntegrityProfile[]>({
-                uri: profileJsonUri(dir, 'integrity.json'),
+                uri: slotUri('integrity.json'),
+                ...deferred,
                 normalizer: normalizeProfiles,
                 empty: () => [],
                 onSelfWrite: markSelfWrite,
@@ -498,8 +542,12 @@ export class HexEditorSession {
         };
 
         const saveIntegrityProfiles = async (next: IntegrityProfile[]): Promise<void> => {
-            const { integrity } = await openStores();
-            integrity.set(next);
+            // Explicit profile actions materialize even out-of-workspace.
+            await enqueuePerFileOp(async () => {
+                explicitProfileWrite = true;
+                const { integrity } = await openStores();
+                integrity.set(next);
+            });
             await broadcastIntegrityProfiles();
         };
 
@@ -692,8 +740,10 @@ export class HexEditorSession {
                 });
             },
             saveStructs: async msg => {
-                const { structs } = await openStores();
-                structs.set(normalizeStructDefsValue(migrateStructDefinitions(msg.structs)).defs);
+                await enqueuePerFileOp(async () => {
+                    const { structs } = await openStores();
+                    structs.set(normalizeStructDefsValue(migrateStructDefinitions(msg.structs)).defs);
+                });
             },
             saveStructPins: async msg => {
                 await enqueuePerFileOp(async () => {

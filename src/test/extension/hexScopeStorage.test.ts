@@ -92,6 +92,16 @@ function structsStoreFor(root: string): JsonStore<StructDef[]> {
     });
 }
 
+function lazyIndexStore(root: string, lazyDir: () => Promise<string | null>): JsonStore<IndexFileData> {
+    return new JsonStore<IndexFileData>({
+        uri: indexUriFor(root),
+        normalizer: raw => normalizeIndexFile(raw, emptyIndexData(REL)),
+        empty: () => emptyIndexData(REL),
+        debounceMs: FAST,
+        lazyDir,
+    });
+}
+
 function structsNormalizer(raw: unknown): { value: StructDef[]; changed: boolean } {
     const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
     return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
@@ -293,6 +303,58 @@ suite('hexScopeStorage — JsonStore slots', () => {
         // Per-field endian is a first-class override — migration passes
         // it through untouched and normalization keeps it.
         assert.strictEqual(value[0].fields[0].endian, 'be', 'legacy endian annotation preserved');
+    });
+});
+
+suite('hexScopeStorage — deferred (lazyDir) JsonStore', () => {
+    setup(makeTestRoot);
+    teardown(removeTestRoot);
+
+    test('reads return the in-memory empty default and create nothing on disk', async () => {
+        const store = lazyIndexStore(testRoot, () => createProfile(testRoot, REL));
+        const value = await store.load();
+        assert.strictEqual(value.labels.length, 0);
+        assert.strictEqual(await findProfile(testRoot, REL), null, 'no profile dir from a read-only open');
+        assert.strictEqual((await readJson(indexUriFor(testRoot))).status, 'missing', 'no index.json anywhere');
+    });
+
+    test('first write materializes the profile dir and lands the slot in it', async () => {
+        const store = lazyIndexStore(testRoot, () => createProfile(testRoot, REL));
+        await store.load();
+        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        await store.flush();
+        const dir = await findProfile(testRoot, REL);
+        assert.ok(dir, 'profile materialized on first write');
+        const value = await readJsonValue(indexUriFor(dir!)) as { data: { endian: string } };
+        assert.strictEqual(value.data.endian, 'be', 'slot written into the materialized dir');
+    });
+
+    test('null dir resolver stays in-memory (no disk) for non-explicit writes', async () => {
+        const store = lazyIndexStore(testRoot, () => Promise.resolve(null));
+        await store.load();
+        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        await store.flush();
+        store.dispose();
+        await sleep(60);
+        assert.strictEqual(await findProfile(testRoot, REL), null, 'no .hexscope seeded out-of-workspace');
+        assert.strictEqual((await readJson(indexUriFor(testRoot))).status, 'missing');
+    });
+
+    test('a later explicit write materializes after non-explicit ones stayed in-memory', async () => {
+        let explicit = false;
+        const store = lazyIndexStore(testRoot, () => explicit ? createProfile(testRoot, REL) : Promise.resolve(null));
+        await store.load();
+        store.set({ ...emptyIndexData(REL), endian: 'be' });
+        await store.flush();
+        assert.strictEqual(await findProfile(testRoot, REL), null, 'non-explicit write stayed in-memory');
+
+        explicit = true;
+        store.set({ ...emptyIndexData(REL), endian: 'le' });
+        await store.flush();
+        const dir = await findProfile(testRoot, REL);
+        assert.ok(dir, 'explicit write materialized the profile');
+        const value = await readJsonValue(indexUriFor(dir!)) as { data: { endian: string } };
+        assert.strictEqual(value.data.endian, 'le', 'latest in-memory value written');
     });
 });
 

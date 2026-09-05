@@ -8,7 +8,7 @@ Applies to edit mode, `appModel`, `editTransactions`, edit controls, `HexEditorS
 
 ### 1a. Intentional deviation: `.hexscope/` profile files are silent auto-apply
 
-External edits to `.hexscope/firmware_profiles/*/{index,structs,integrity}.json` do **not** follow the hex-file external-change contract below. They are hosted silently: the profile watcher (`attachProfileWatcher`) → per-slot debounced reload (`JsonStore.scheduleReload`) → re-read + re-normalize → re-broadcast to the webview (`structsExternalChange` / `perFileDataChange` / `integrityProfiles`). No prompt, no lock, no conflict dialog, no repair/discard UI anywhere; the self-write horizon ignores host-issued writes so save/self-heal never re-triggers the watcher.
+External edits to `.hexscope/firmware_profiles/*/{index,structs,integrity}.json` do **not** follow the hex-file external-change contract below. They are hosted silently: the profile watcher (`attachProfileWatcher`) → per-slot debounced reload (`JsonStore.scheduleReload`) → re-read + re-normalize → re-broadcast to the webview (`structsExternalChange` / `perFileDataChange` / `integrityProfiles`). No prompt, no lock, no conflict dialog, no repair/discard UI anywhere; the self-write horizon ignores host-issued writes so save/self-heal never re-triggers the watcher. The watcher is attached only once a profile dir exists — an out-of-workspace open with no profile stays unwatched (no `.hexscope/` sibling is seeded on open), so no false external-change events can originate from a bare open.
 
 The rest of this spec — the lock/conflict/repair/discard contract — is **unchanged** and applies **only to the firmware document** (the hex/srec file itself).
 

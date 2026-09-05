@@ -25,11 +25,12 @@ function perFileRelativePath(root, uri): string;      // posix, e.g. "firmware/b
 function hexScopeProfilesDir(root): string;           // <root>/.hexscope/firmware_profiles
 function hexScopeSchemasDir(root): string;            // <root>/.hexscope/schemas
 async function findProfile(root, relPath): Promise<string | null>;
-async function createProfile(root, relPath): Promise<string>;         // ordinal next id + seeds index.json
+async function createProfile(root, relPath): Promise<string>;         // ordinal next id + seeds index.json; called on first write, never on open
 export async function seedSchemaCopies(root): Promise<void>;          // writeIfMissing the 3 bundled schemas
 
 class JsonStore<T> {
-    constructor(options: { uri; normalizer(raw)->{value,changed}; empty()->T; debounceMs?; onSelfWrite?; onReload? });
+    constructor(options: { uri; normalizer(raw)->{value,changed}; empty()->T; debounceMs?; onSelfWrite?; onReload?;
+                           lazyDir?: () => Promise<string | null> });  // deferred mode: reads return empty() in memory, first write resolves dir; null = stay in-memory
     async load(force?): Promise<T>;    get(): T | null;    set(next: T): void;
     async flush(): Promise<void>;      scheduleReload(ms?): void;    async reload(): Promise<T>;
     dispose(flushPending?: boolean): void;
@@ -61,7 +62,7 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 - **`$schema`**: on any profile write `writeJson` injects `"../../schemas/<name>.schema.json"` (keeps an existing string sibling if present). Normalizers never see it (`readJson` unwraps first) so self-heal cannot strip it.
 - **Load semantics** (`JsonStore.load`): missing → `empty()`; corrupt/unknown-version → warn once + `empty()`; parse-ok → normalize; self-heal write-back BLA only when `changed` (parse-ok AND normalized differs).
 - **Write cadence**: per-slot debounce (default 400 ms), last-write-wins within a slot, slots independent; `flush()` (panel close / `save*` handlers via `updateStore`) writes immediately; `dispose()` clears timers and flushes pending by default (`dispose(false)` used on profile re-key). Host writes call `onSelfWrite` (session stamps `lastSelfWriteAt`).
-- **Profile creation**: `findProfile` misses → `createProfile`/`createProfileDir` picks the lowest unused `profiles_<n>`, seeds `.hexscope/schemas/`, writes `index.json.relPath`. Migration uses `createProfileDir` + `writeIfMissing`.
+- **Profile creation is deferred**: `findProfile` miss → session builds the three slot stores in **deferred mode** (`lazyDir` set, shared single-flight `createProfile` resolver) with a null directory: reads return in-memory `empty()` defaults, no directory, no `index.json`, no schemas seed, and **no profile watcher** (nothing to watch). The first `set()` on any slot resolves the dir (`createProfile`/`createProfileDir` → lowest unused `profiles_<n>`, seeds `.hexscope/schemas/`, writes `index.json.relPath`) and the watcher attaches only then. All slots share one resolved dir; the store-level resolver is single-flight and a `null` result keeps the write in-memory (retried on the next write, enabling a later explicit action to materialize). Migration's seeding calls `createProfileDir` + `writeIfMissing` directly.
 - **Watcher**: `attachProfileWatcher` watches `${PROFILE_CONTAINER}/*/*.json` + `${PROFILE_CONTAINER}/*` (create/change/delete) under the root; `.hexscope/schemas/` is NOT watched. Session debounces (`onProfileChanged` → per-slot `scheduleReload`) and guards self-writes via the 1 s self-write horizon. External edits auto-apply silently (see editing-save-external-change.md §1a).
 - **Webview fan-out** on external change: `index.json` → `perFileDataChange`; `structs.json` → `structsExternalChange` (webview prunes pins with vanished `structId`); `integrity.json` → existing `integrityProfiles` broadcast.
 - **Migration** (once per root, first panel open, before first `postInit`): read `globalState` structs v2/v1 + `integrityProfiles.global.v1` + per-file `workspaceState` keys (labels/segmentNames/structPins/integrityChecks/endian/structs) **under the root**; normalize; seed the open document's profile via `writeIfMissing`; hard-delete every touched key incl. legacy variants; sweep-delete remaining per-file keys of sibling documents under the same root. Idempotent; no prompt; failures never block opening.
@@ -72,6 +73,8 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 | Condition | Required behavior |
 |---|---|
 | File missing | `empty()` default; no file created by a bare `load()` |
+| No profile dir on open (deferred) | In-memory `empty()` reads, zero fs access, no watcher; never `createProfile` on a read path |
+| First `set()` in deferred mode | Resolve dir once (`createProfile`); `null` resolver = stay in-memory (out-of-workspace non-explicit write), retried on next write |
 | Corrupt JSON / unknown `version` | empty default + `console.warn` once per store instance; original file untouched/never overwritten |
 | Parse OK, normalized differs | Self-heal write-back (satisfies `$schema` + envelope) |
 | Parse OK, normalized equal | No write |
@@ -84,17 +87,16 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 
 ### 5. Good / Base / Bad Cases
 
-- Good: two documents under one root open → first seeds its profile, sweep deletes both docs' legacy per-file keys (`workspaceState.keys()` empty after).
+- Good: two documents under one root open → nothing is written by the opens themselves (legacy-data migration aside, which still seeds + sweep-deletes only when legacy Memento keys exist); first per-file edit creates exactly one `profiles_<n>` for the edited document.
 - Good: user renames `profiles_1` → any name → reopening still resolves via `relPath` match; committed `.hexscope` survives.
-- Good: external `git pull` edits `structs.json` while panel open → silent `structsExternalChange`, mid-edit draft clobbered (accepted — per-file scope).
-- Base: panel opens a never-seen document → new `profiles_<n>` dir + seeded `index.json`.
+- Base: panel opens a never-seen document then closes with no edits → zero files/directories created (no `firmware_profiles/`, no `schemas/`, no `.hexscope/` sibling when out-of-workspace); the same open + any per-file edit (labels/pins/structs/checks/endian) → `profiles_<n>` dir + seeded `index.json`. Out-of-workspace writes stay in-memory until an explicit profile action (e.g. integrity profile CRUD).
 - Bad: writing `.hexscope/` state to `globalState`/`workspaceState` (migration is the sole Memento consumer).
 - Bad: importing `vscode` from `src/core/` to read `.hexscope/` — storage I/O stays in the host adapter.
 - Bad: treating an unknown-version file as OK and writing back over it.
 
 ### 6. Tests Required
 
-- `src/test/extension/hexScopeStorage.test.ts` (extension host): envelope matrix (missing/corrupt/unknown-version/self-heal/debounce/flush/dispose), ordinal create/lookup/rename-survival, watcher conflict (external auto-applies; self-write persists), migration pipeline incl. root-sweep multi-doc deletion, no gitignore seeding.
+- `src/test/extension/hexScopeStorage.test.ts` (extension host): envelope matrix (missing/corrupt/unknown-version/self-heal/debounce/flush/dispose), ordinal create/lookup/rename-survival, deferred `lazyDir` store (read-only open creates nothing; first write materializes dir + slots; `null` resolver stays in-memory; later explicit write materializes), watcher conflict (external auto-applies; self-write persists), migration pipeline incl. root-sweep multi-doc deletion, no gitignore seeding.
 - `src/test/schemas/schemaValidation.test.ts` (node): ajv strict-pass + negatives (wrong version/endian/type-enum/required/non-array data) + drift guard (`version` const === `DATA_VERSION`, enums === source consts).
 - Webview `src/test/webview/webviewMessageModel.test.ts`: `structsExternalChange` (replace + pin-prune) and `perFileDataChange` slices (`endianOrDefault` single home).
 - Gate: `npm run compile` (check-types + lint + esbuild) and `npm run test` green; `npx fallow` 4-axis green; grep gates (no `globalState`/`workspaceState` outside migration; no `.gitignore`/`local/` in `src/`).

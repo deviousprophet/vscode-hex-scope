@@ -301,6 +301,11 @@ export interface JsonStoreOptions<T> {
     debounceMs?: number;
     onSelfWrite?: () => void;
     onReload?: (value: T) => void;
+    /** Deferred profile dir: when set the store starts in-memory (reads return
+     *  `empty()`, no fs access) and materializes on first write. `null` from
+     *  the resolver keeps the write in-memory (no disk) — used for
+     *  out-of-workspace files until an explicit save/profile action. */
+    lazyDir?: () => Promise<string | null>;
 }
 
 /**
@@ -316,12 +321,52 @@ export class JsonStore<T> {
     private pendingWrite = false;
     private warned = false;
     private disposed = false;
+    private resolvedDir: string | null = null;
+    private resolvingDir: Promise<string | null> | null = null;
 
     constructor(private readonly options: JsonStoreOptions<T>) {}
 
+    /** Profile slot file name; derived from the initial uri basename so the
+     *  same slot name survives lazy-dir materialization. */
+    private name(): ProfileJsonName {
+        return path.basename(this.options.uri.fsPath) as ProfileJsonName;
+    }
+
+    /** Resolve the lazy dir once; null stays deferred (retried on next write
+     *  so an explicit save can materialize later). Single-flight per store. */
+    private async profileDir(): Promise<string | null> {
+        if (!this.options.lazyDir) { return null; }
+        if (this.resolvedDir !== null) { return this.resolvedDir; }
+        if (this.resolvingDir === null) {
+            this.resolvingDir = this.options.lazyDir().then(dir => {
+                this.resolvedDir = dir;
+                return dir;
+            }).finally(() => {
+                this.resolvingDir = null;
+            });
+        }
+        return this.resolvingDir;
+    }
+
+    private readUri(): vscode.Uri {
+        return this.resolvedDir !== null ? profileJsonUri(this.resolvedDir, this.name()) : this.options.uri;
+    }
+
+    /** Uri to write; null when deferred and the dir resolver declined (stay in-memory). */
+    private async writeUri(): Promise<vscode.Uri | null> {
+        if (!this.options.lazyDir) { return this.options.uri; }
+        const dir = await this.profileDir();
+        return dir === null ? null : profileJsonUri(dir, this.name());
+    }
+
     async load(force = false): Promise<T> {
         if (!force && this.cache !== null) { return this.cache; }
-        const read = await readJson(this.options.uri);
+        if (this.options.lazyDir && this.resolvedDir === null) {
+            // Deferred mode: no directory exists yet, so no fs access.
+            this.cache = this.options.empty();
+            return this.cache;
+        }
+        const read = await readJson(this.readUri());
         this.cache = read.status === 'ok' ? await this.applyOk(read.value) : this.applyFallback(read.status);
         return this.cache;
     }
@@ -396,14 +441,18 @@ export class JsonStore<T> {
         if (this.cache === null) { return; }
         this.pendingWrite = false;
         this.options.onSelfWrite?.();
-        await writeJson(this.options.uri, withEnvelope(this.cache));
+        const uri = await this.writeUri();
+        if (uri === null) { return; }
+        await writeJson(uri, withEnvelope(this.cache));
     }
 
     private async writeNow(): Promise<void> {
         if (this.disposed || this.cache === null) { return; }
         this.pendingWrite = false;
         this.options.onSelfWrite?.();
-        await writeJson(this.options.uri, withEnvelope(this.cache));
+        const uri = await this.writeUri();
+        if (uri === null) { return; }
+        await writeJson(uri, withEnvelope(this.cache));
     }
 
     private warnCorrupt(): void {
