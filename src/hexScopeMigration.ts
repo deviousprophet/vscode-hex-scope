@@ -11,7 +11,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityProfiles } from './core/integrity';
-import { migrateStructDefinitions } from './core/structMigration';
+import { migrateStructDefinitions, mergeLegacyStructDefs } from './core/structMigration';
 import { normalizeStructDefsValue } from './core/structNormalization';
 import type { StructDef } from './core/types';
 import {
@@ -77,6 +77,16 @@ async function ensureMigrationComplete(root: string, relPath: string, uri: vscod
     if (!hasLegacy) {
         // Memento-era data (pre-tree): seed the open document's profile.
         await seedOpenDocFromMemento(root, relPath, uri, context);
+        await markMigrated(root, context);
+        return;
+    }
+    // The legacy tree is left in place after conversion (revert safety), so
+    // the guard is a converted marker — bindings.json existing — not the tree
+    // itself. Without it, every extension-host restart would re-run the tree
+    // migration and accumulate duplicate profiles (nextOrdinal always picks a
+    // fresh id), silently re-binding the file to an empty profile.
+    const bindingsTableExists = (await readJson(bindingsJsonUri(root))).status !== 'missing';
+    if (bindingsTableExists) {
         await markMigrated(root, context);
         return;
     }
@@ -226,28 +236,14 @@ async function readBindings(root: string): Promise<BindingVal[]> {
     return normalizeBindings(read.value).value;
 }
 
-/** Merge legacy struct defs into the pool, deduped by id/name. */
+/** Merge legacy struct defs into the pool, deduped via structMigration. */
 async function mergeIntoPool(root: string, legacy: StructDef[]): Promise<void> {
     const poolUri = structPoolJsonUri(root);
     const existing = await readStructPool(root);
-    const merged = dedupeStructPool(existing, legacy);
-    if (merged.length !== existing.length) {
-        await writeJson(poolUri, withEnvelope(merged));
+    const merged = mergeLegacyStructDefs(existing, legacy);
+    if (merged.changed) {
+        await writeJson(poolUri, withEnvelope(merged.defs));
     }
-}
-
-function dedupeStructPool(existing: StructDef[], incoming: StructDef[]): StructDef[] {
-    const seenIds = new Set(existing.map(s => s.id));
-    const seenNames = new Set(existing.map(s => s.name.toLowerCase()));
-    const merged = [...existing];
-    for (const s of incoming) {
-        if (seenIds.has(s.id)) { continue; }
-        if (seenNames.has(s.name.toLowerCase())) { continue; }
-        seenIds.add(s.id);
-        seenNames.add(s.name.toLowerCase());
-        merged.push(s);
-    }
-    return merged;
 }
 
 async function readStructPool(root: string): Promise<StructDef[]> {

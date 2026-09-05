@@ -560,10 +560,7 @@ export class HexEditorSession {
         };
 
         const migrationDone = migrateLegacyData(root, document.uri, this._context);
-        if (!bindingLifecycleRoots.has(root)) {
-            bindingLifecycleRoots.add(root);
-            resources.add(attachBindingFileLifecycle(root));
-        }
+        ensureBindingLifecycle(root);
 
         const openProfileStores = (): Promise<void> => {
             if (!profileReady) {
@@ -728,6 +725,7 @@ export class HexEditorSession {
             const allProfiles = await listProfiles(root);
             const bound = profileId;
             const boundCount = bound ? (await bindingsUsing(root, bound)).length : 0;
+            const integrityFromRegistry = await registryAsIntegrityProfiles(root);
 
             const msg: ProviderToWebviewMessage = {
                 type: 'init',
@@ -738,7 +736,7 @@ export class HexEditorSession {
                 structs: structDefs,
                 structPins: profileData.pins,
                 endian: profileData.endian,
-                integrityProfiles: { profiles: [], activeChecks: profileData.activeChecks },
+                integrityProfiles: { profiles: integrityFromRegistry, activeChecks: profileData.activeChecks },
                 profile: { profiles: allProfiles, current: bound, boundFileCount: boundCount },
             };
 
@@ -906,8 +904,11 @@ export class HexEditorSession {
                         const bound = await boundProfileId(root, relPath);
                         if (bound !== target) {
                             const current = profileStore?.get();
-                            if (current && profileId === bound) {
-                                // Flush current edits into the old profile before switching.
+                            // Flush current edits into the old profile before switching —
+                            // only when actually bound (an unbound file's pending edits
+                            // are in-memory-only; flushing would materialize a new
+                            // auto-named profile instead of the picked target).
+                            if (current && profileId === bound && bound !== null) {
                                 await profileStore?.flush();
                             }
                             await bindFile(root, relPath, target);
@@ -1189,8 +1190,15 @@ function messageString(value: unknown): string {
 /** In-memory workspace struct pool cache shared across sessions. */
 let workspaceStructPool: StructDef[] = [];
 
-/** Roots that already attached the binding rename/delete lifecycle. */
-const bindingLifecycleRoots = new Set<string>();
+/** Roots that attached the binding rename/delete lifecycle. Kept for the
+ *  whole extension-host lifetime (not per panel), so the workspace-level
+ *  rename/delete handlers survive every panel closing and reopening. */
+const bindingLifecycles = new Map<string, vscode.Disposable>();
+export function ensureBindingLifecycle(root: string): void {
+    if (!bindingLifecycles.has(root)) {
+        bindingLifecycles.set(root, attachBindingFileLifecycle(root));
+    }
+}
 
 /** Create a new registry profile + bind the given file to it. Returns profile id. */
 export async function createBoundProfile(root: string, relPath: string): Promise<string> {

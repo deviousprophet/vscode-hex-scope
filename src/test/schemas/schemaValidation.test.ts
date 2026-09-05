@@ -27,7 +27,6 @@ function errorsFor(schema: object, data: unknown): string[] {
     return check(data) ? [] : (check.errors ?? []).map(error => error.message ?? 'invalid');
 }
 
-const indexEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/index.schema.json' });
 const structsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/structs.schema.json' });
 const profileEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/profile.schema.json' });
 const bindingsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/bindings.schema.json' });

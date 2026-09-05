@@ -578,6 +578,40 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.strictEqual(bindingsAfter.data.length, 1, 'rerun no-op');
     });
 
+    test('tree era: already-converted root (bindings.json present) is a no-op across process restarts', async () => {
+        // Simulates a second extension-host session: the legacy tree still
+        // exists (deliberately kept for revert safety) while a previous run
+        // already wrote the three-tier bindings table. Migration must not
+        // re-convert — otherwise every restart would accumulate duplicate
+        // profiles and silently re-bind the file to an empty profile.
+        const legacyContainer = vscode.Uri.file(path.join(testRoot, '.hexscope', 'firmware_profiles'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(legacyContainer.fsPath, 'profiles_1')));
+        const dir = path.join(legacyContainer.fsPath, 'profiles_1');
+        await writeText(vscode.Uri.file(path.join(dir, 'index.json')), JSON.stringify({
+            version: 1,
+            data: { relPath: REL, labels: [], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' },
+        }));
+        await writeText(vscode.Uri.file(path.join(dir, 'structs.json')), JSON.stringify({ version: 1, data: [] }));
+        await writeText(vscode.Uri.file(path.join(dir, 'integrity.json')), JSON.stringify({ version: 1, data: [] }));
+
+        // Prior process state: registry profile + binding + migrated pool exist.
+        await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        await writeText(bindingsJsonUri(testRoot), JSON.stringify({ version: 1, data: [{ fileKey: REL, profileId: 'profile_1' }] }));
+        await writeText(structPoolJsonUri(testRoot), JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
+
+        const before = (await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeProfilesRegistryDir(testRoot)))).map(([n]) => n);
+        const globalState = new FakeMemento();
+        const workspaceState = new FakeMemento();
+        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
+
+        const after = (await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeProfilesRegistryDir(testRoot)))).map(([n]) => n);
+        assert.deepStrictEqual(after, before, 'no duplicate profiles created on re-run');
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> };
+        assert.deepStrictEqual(bindings.data, [{ fileKey: REL, profileId: 'profile_1' }], 'binding untouched');
+        const pool = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
+        assert.deepStrictEqual(pool.data.map(s => s.id), ['s1'], 'pool left untouched');
+    });
+
     test('no legacy data → nothing seeded, no crash', async () => {
         const globalState = new FakeMemento();
         const workspaceState = new FakeMemento();
