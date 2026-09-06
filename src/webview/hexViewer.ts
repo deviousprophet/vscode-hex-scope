@@ -61,7 +61,8 @@ import {
 } from './appModel';
 import { IntegrityPanel, type IntegrityHighlight } from './components/sidebar/integrityPanel/integrityPanel';
 import { ScriptsPanel } from './components/sidebar/scriptsPanel/scriptsPanel';
-import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
+import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import { profilePicker } from './profilePicker';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
     applyProviderMessageToModel,
@@ -839,12 +840,12 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChange: handleExternalChangeMessage,
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
-    profilesState: handleProfilesStateMessage,
+    profilesState: profilePicker.handleProfilesState,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
     scriptOutput: handleScriptOutputMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
-    activateProfilePicker: handleActivateProfilePickerMessage,
+    activateProfilePicker: profilePicker.handleActivatePicker,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
@@ -960,30 +961,6 @@ function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void 
     acceptRecordPage(msg.generation, msg.start, msg.records);
 }
 
-function handleProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): void {
-    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
-    const cur = S.profileState.current;
-    // One transient toast when the user switches to a shared profile (never
-    // on open, never repeated for the same profile).
-    if (cur !== null && cur !== lastProfileCurrent && S.profileState.boundFileCount > 1) {
-        const name = profileNameFor(S.profileState.profiles, cur);
-        showToast(`Shared profile "${name}" used by ${S.profileState.boundFileCount} files`);
-    }
-    lastProfileCurrent = cur;
-}
-
-/** Last bound profile id seen by the webview; seeds the switch-detection
- *  for the shared-profile toast (open never toasts). */
-let lastProfileCurrent: string | null = null;
-
-function handleActivateProfilePickerMessage(_msg: WebviewMessageByType<'activateProfilePicker'>): void {
-    const select = document.getElementById('profile-select') as HTMLSelectElement | null;
-    if (select) {
-        select.focus();
-        select.showPicker?.();
-    }
-}
-
 function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
@@ -1092,7 +1069,7 @@ function applyActiveChecksUpdate(update: WebviewModelUpdate): void {
 
 /** Three-tier profile state: refresh the toolbar dropdown + shared hint in place. */
 function applyProfileStateUpdate(update: WebviewModelUpdate): void {
-    if (update.profileState) { renderProfileDropdown(); }
+    if (update.profileState) { profilePicker.render(); }
 }
 
 function applyLoadErrorUpdate(update: WebviewModelUpdate): void {
@@ -1225,117 +1202,6 @@ function render(): void {
     setupRenderedUi();
 }
 
-/** Toolbar profile dropdown (always rendered) + actions menu. */
-function renderProfileDropdown(): void {
-    const host = document.getElementById('profile-picker');
-    if (!host) { return; }
-    const { profiles, current, boundFileCount } = S.profileState;
-    const currentName = profileNameFor(profiles, current);
-    const optionsHtml = profileDropdownOptions(profiles, current).join('');
-    const bound = current !== null;
-    const title = profileSelectTitle(currentName, bound, boundFileCount);
-    host.innerHTML = `
-        <label class="profile-label" for="profile-select" title="Select the annotation profile bound to this file">Profile</label>
-        <select id="profile-select" class="profile-select" aria-label="Profile" title="${esc(title)}">
-            ${optionsHtml}
-        </select>
-        <button id="profile-actions-btn" class="sb-btn sb-btn-secondary" type="button"
-            title="Profile actions" aria-label="Profile actions" aria-haspopup="menu" aria-expanded="false">⋮</button>`;
-    const select = host.querySelector('#profile-select') as HTMLSelectElement;
-    select.value = current ?? '';
-    if (isSeparatorValue(select.value)) { select.value = ''; }
-    select.addEventListener('change', () => onProfileSelect(select, current));
-    wireProfileActions();
-}
-
-/** Select tooltip: shared-profile state surfaces here (R9 — persistent hint removed). */
-function profileSelectTitle(currentName: string, bound: boolean, boundFileCount: number): string {
-    if (!bound) { return 'No profile bound to this file'; }
-    return boundFileCount > 1 ? `${currentName} · shared by ${boundFileCount} files` : currentName;
-}
-
-/** Profile actions menu rows (shared menu presentation); disabled when no profile is bound. */
-function profileActionsHtml(bound: boolean): string {
-    const dis = bound ? '' : ' menu-disabled';
-    const row = (cmd: string, label: string) =>
-        `<div class="menu-item${dis}" data-cmd="${cmd}" role="menuitem" tabindex="-1"><span class="menu-label">${label}</span></div>`;
-    return `<div class="menu-header">Profile actions</div>
-        ${row('saveProfile', 'Save')}
-        ${row('duplicateProfile', 'Save as…')}
-        ${row('renameProfile', 'Rename')}
-        ${row('deleteProfile', 'Delete')}`;
-}
-
-/** Wire the ⋮ toggle to the shared menu component (internal #menu, positioned at
- *  the button). The toggle stops propagation so the opening click is not seen by
- *  the controller's document-level dismissal listener. */
-function wireProfileActions(): void {
-    const btn = document.getElementById('profile-actions-btn') as HTMLButtonElement | null;
-    if (!btn) { return; }
-    btn.addEventListener('click', event => {
-        event.stopPropagation();
-        const r = btn.getBoundingClientRect();
-        menuController.show(r.left, r.bottom + 4, {
-            innerHTML: profileActionsHtml(S.profileState.current !== null),
-            emit: handleProfileAction,
-        });
-    });
-}
-
-/** Menu command → provider message (the controller closes the menu). */
-const PROFILE_ACTION_MESSAGES: Record<string, WebviewToProviderMessage> = {
-    saveProfile: { type: 'saveProfile' },
-    duplicateProfile: { type: 'duplicateProfile' },
-    renameProfile: { type: 'renameProfile' },
-    deleteProfile: { type: 'deleteProfile' },
-};
-
-function handleProfileAction(cmd: string): void {
-    const msg = PROFILE_ACTION_MESSAGES[cmd];
-    if (msg) { postProviderMessage(msg); }
-}
-
-function profileNameFor(profiles: Array<{ id: string; name: string }>, current: string | null): string {
-    return profiles.find(p => p.id === current)?.name ?? 'No Profile';
-}
-
-function profileDropdownOptions(profiles: Array<{ id: string; name: string }>, current: string | null): string[] {
-    const noProfileAttr = current === null ? ' disabled' : '';
-    return [
-        `<option value="" data-kind="none"${noProfileAttr}>No Profile</option>`,
-        '<option value="__sep__" disabled>────────</option>',
-        ...profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`),
-        '<option value="__sep2__" disabled>────</option>',
-        '<option value="__new__">+ New Profile…</option>',
-    ];
-}
-
-function isSeparatorValue(value: string): boolean {
-    return value === '__sep__' || value === '__sep2__';
-}
-
-function onProfileSelect(select: HTMLSelectElement, current: string | null): void {
-    const v = select.value;
-    if (v === '__new__') { handleNewProfile(select, current); return; }
-    if (isSeparatorValue(v)) { resetSelectToCurrent(select, current); return; }
-    postProviderMessage({ type: 'selectProfile', profileId: selectionProfileId(v) });
-}
-
-function handleNewProfile(select: HTMLSelectElement, current: string | null): void {
-    // VS Code webviews block window.prompt; the name is asked host-side via
-    // vscode.window.showInputBox (hexEditorSession newProfile handler).
-    postProviderMessage({ type: 'newProfile', name: null });
-    resetSelectToCurrent(select, current);
-}
-
-function resetSelectToCurrent(select: HTMLSelectElement, current: string | null): void {
-    select.value = current ?? '';
-}
-
-function selectionProfileId(value: string): string | null {
-    return value === '' ? null : value;
-}
-
 function setupRenderedUi(): void {
     setupLockInterception();
     sidebar.mount();
@@ -1349,8 +1215,8 @@ function setupRenderedUi(): void {
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
     toolbar.setDirty(S.edits.size);
-    renderProfileDropdown();
-    lastProfileCurrent = S.profileState.current;
+    profilePicker.render();
+    profilePicker.seed();
     setupRerenderCallbacks();
     initSearch(() => switchView('memory'), {
         setCount: (count, current) => searchBar.setCount(count, current),

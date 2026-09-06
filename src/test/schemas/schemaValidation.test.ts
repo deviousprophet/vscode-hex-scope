@@ -70,6 +70,20 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
+    test('profiles.json accepts the deprecated pre-rename `pins` key on a record', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        // The schema keeps structPins required for new files but declares the
+        // legacy `pins` property as deprecated (additionalProperties: false
+        // would otherwise reject it); the runtime normalizer reads pins via
+        // `structPins ?? pins` and self-heals on the next write.
+        const data = [{
+            id: 'profile_1', name: 'Legacy', labels: [], segmentNames: {},
+            structPins: [], pins: [{ id: 'p1', structId: 's1', addr: 0, name: 'Pin A' }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le',
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
     test('bindings.json accepts a full Binding[]', () => {
         const { schema } = loadSchema('bindings.schema.json');
         const data = [

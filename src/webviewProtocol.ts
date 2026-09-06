@@ -15,6 +15,12 @@ export function endianOrDefault(value: unknown): HexScopeEndian {
 /** Pinned-segment name overrides, keyed by segment start address (decimal string). */
 export type SegmentNameOverrides = Record<string, string>;
 
+/** One registry profile as carried in webview payloads (no contents). */
+export interface ProfileSummary {
+    id: string;
+    name: string;
+}
+
 export type ProviderToWebviewMessage =
     | {
         type: 'init';
@@ -27,7 +33,7 @@ export type ProviderToWebviewMessage =
         endian: HexScopeEndian;
         activeChecks: IntegrityCheckSet;
         /** Current bound profile display state. */
-        profile: { profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number };
+        profile: { profiles: ProfileSummary[]; current: string | null; boundFileCount: number };
     }
     | { type: 'loadProgress'; generation: number; stage: 'read' | 'parse' | 'build' | 'transfer'; completed: number; total?: number }
     | { type: 'recordPage'; generation: number; start: number; records: SerializedRecord[] }
@@ -38,7 +44,7 @@ export type ProviderToWebviewMessage =
 | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
 | { type: 'structsExternalChange'; structs: StructDef[] }
 | { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; activeChecks: IntegrityCheckSet }
-| { type: 'profilesState'; profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number }
+| { type: 'profilesState'; profiles: ProfileSummary[]; current: string | null; boundFileCount: number }
 | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';

@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
+import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
 import type { SegmentLabel, StructPin } from './core/types';
 import { endianOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
@@ -375,24 +376,8 @@ function isAddable(rec: ProfileRecord, seenIds: Set<string>, seenNames: Set<stri
     return rec.id !== '' && !seenIds.has(rec.id) && !seenNames.has(rec.name.toLowerCase());
 }
 
-function arrayOrEmpty(value: unknown, empty: unknown[]): unknown[] {
-    return Array.isArray(value) ? value : empty;
-}
-
 function checkSetOrDefault(value: unknown): IntegrityCheckSet {
     return normalizeIntegrityCheckSet(value) ?? { schemaVersion: 1, checks: [] };
-}
-
-function plainObject(value: unknown): Record<string, unknown> | null {
-    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function plainStringRecord(value: unknown): Record<string, string> {
-    const raw = plainObject(value);
-    if (!raw) { return {}; }
-    const out: Record<string, string> = {};
-    for (const [key, entry] of Object.entries(raw)) { if (typeof entry === 'string') { out[key] = entry; } }
-    return out;
 }
 
 // ── Per-file store slot ───────────────────────────────────────────
@@ -627,10 +612,6 @@ function bindingFromEntry(entry: unknown): Binding | null {
         fileKey: stringOrEmpty(o.fileKey),
         profileId: stringOrEmpty(o.profileId),
     };
-}
-
-function stringOrEmpty(value: unknown): string {
-    return typeof value === 'string' ? value : '';
 }
 
 function isBinding(b: Binding | null): b is Binding {

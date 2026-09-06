@@ -44,6 +44,7 @@ import {
     boundProfileId,
     collectStructDeletionUsage,
     createBoundProfile,
+    deleteRegistryProfile,
     loadWorkspaceStructs,
     pruneBindings,
     stripDeletedStructPins,
@@ -506,6 +507,32 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         assert.strictEqual(await boundProfileId(testRoot, REL), null, 'unbound file reverts to No Profile');
         assert.strictEqual(await boundProfileId(testRoot, 'firmware/app.hex'), 'profile_1');
         assert.strictEqual((await readJson(profilesJsonUri(testRoot))).status, 'ok', 'profile untouched');
+    });
+
+    test('deleteRegistryProfile removes the record and clears every binding to it', async () => {
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_2', 'App'));
+        const firstFile = path.join(testRoot, ...REL_WIN.split(path.sep));
+        const secondFile = path.join(testRoot, 'firmware', 'app.hex');
+        const thirdFile = path.join(testRoot, 'firmware', 'other.hex');
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(firstFile)));
+        await writeText(vscode.Uri.file(firstFile), ':00000001FF\n');
+        await writeText(vscode.Uri.file(secondFile), ':00000001FF\n');
+        await writeText(vscode.Uri.file(thirdFile), ':00000001FF\n');
+        await bindFile(testRoot, REL, 'profile_1');
+        await bindFile(testRoot, 'firmware/app.hex', 'profile_1');
+        await bindFile(testRoot, 'firmware/other.hex', 'profile_2'); // unrelated profile binding
+        assert.deepStrictEqual(await bindingsUsing(testRoot, 'profile_1'), [{ fileKey: REL }, { fileKey: 'firmware/app.hex' }]);
+
+        await deleteRegistryProfile(testRoot, 'profile_1');
+
+        assert.strictEqual(await readProfileRecord(testRoot, 'profile_1'), null, 'profile record gone');
+        assert.strictEqual((await readProfileRecord(testRoot, 'profile_2'))?.name, 'App', 'unrelated profile kept');
+        assert.deepStrictEqual(await bindingsUsing(testRoot, 'profile_1'), [], 'bindings to the deleted profile cleared');
+        assert.deepStrictEqual(await bindingsUsing(testRoot, 'profile_2'), [{ fileKey: 'firmware/other.hex' }], 'unrelated binding untouched');
+        assert.strictEqual(await boundProfileId(testRoot, REL), null, 'bound file reverts to No Profile');
+        assert.strictEqual(await boundProfileId(testRoot, 'firmware/app.hex'), null);
+        assert.strictEqual(await boundProfileId(testRoot, 'firmware/other.hex'), 'profile_2');
     });
 
     test('pruneBindings drops entries whose file no longer exists on disk', async () => {

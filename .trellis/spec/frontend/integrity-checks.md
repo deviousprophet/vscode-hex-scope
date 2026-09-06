@@ -44,7 +44,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 - Checks use pending edited bytes through the shared reader.
 - Auto fix stages expected stored bytes through the edit transaction seam; suppression prevents an immediate recalculation loop from reapplying the same mismatch.
 - Fix all merges edits first and fails atomically on conflicting overlapping byte values.
-- Per-file active checks persist as `IntegrityCheckSet` inside the bound file profile (`activeChecks` in `.hexscope/profiles/<id>/profile.json`); the standalone `IntegrityProfile[]` template registry is retired from the UI — legacy templates still migrate into registry profiles (see hexscope-storage.md).
+- Per-file active checks persist as `IntegrityCheckSet` inside the bound file profile (`activeChecks` in `.hexscope/profiles.json`); the standalone `IntegrityProfile[]` template registry is retired from the UI — legacy templates still migrate into registry profiles (see hexscope-storage.md).
 - Profile normalization (legacy templates only) drops malformed entries and case-insensitive duplicate names.
 - Selected/hovered check highlights calculation range plus optional stored range with match/mismatch/unverified status.
 

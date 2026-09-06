@@ -13,6 +13,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityProfiles } from './core/integrity';
+import { arrayField, arrayOrEmpty, plainObject, plainStringRecord, stringField } from './core/fromUnknown';
 import { migrateStructDefinitions, mergeLegacyStructDefs } from './core/structMigration';
 import { normalizeStructDefsValue } from './core/structNormalization';
 import type { StructDef } from './core/types';
@@ -421,25 +422,6 @@ function hasLegacyData(values: LegacyValues): boolean {
     return Object.values(values).some(value => value !== undefined);
 }
 
-function arrayOrEmpty(value: unknown): unknown[] {
-    return Array.isArray(value) ? value : [];
-}
-
-function plainStringRecord(value: unknown): Record<string, string> {
-    if (!isRecordObject(value)) { return {}; }
-    return stringEntriesOnly(value);
-}
-
-function isRecordObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function stringEntriesOnly(value: Record<string, unknown>): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const [key, entry] of Object.entries(value)) { if (typeof entry === 'string') { out[key] = entry; } }
-    return out;
-}
-
 function normalizeChecks(value: unknown): IntegrityCheckVal {
     const o = checksObject(value);
     if (!o) { return { schemaVersion: 1, checks: [] }; }
@@ -452,7 +434,7 @@ function checksObject(value: unknown): Record<string, unknown> | null {
 }
 
 function normalizeIndexPayload(raw: unknown): ProfileIndexData | null {
-    const o = plainRecord(raw);
+    const o = plainObject(raw);
     if (!o) { return null; }
     return {
         relPath: stringField(o, 'relPath'),
@@ -462,20 +444,6 @@ function normalizeIndexPayload(raw: unknown): ProfileIndexData | null {
         activeChecks: normalizeChecks(o.activeChecks),
         endian: o.endian === 'be' ? 'be' : 'le',
     };
-}
-
-function plainRecord(raw: unknown): Record<string, unknown> | null {
-    if (raw === null || typeof raw !== 'object') { return null; }
-    if (Array.isArray(raw)) { return null; }
-    return raw as Record<string, unknown>;
-}
-
-function stringField(o: Record<string, unknown>, key: string): string {
-    return typeof o[key] === 'string' ? o[key] as string : '';
-}
-
-function arrayField(o: Record<string, unknown>, key: string): unknown[] {
-    return Array.isArray(o[key]) ? o[key] as unknown[] : [];
 }
 
 interface LegacyValues {

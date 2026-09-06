@@ -17,6 +17,7 @@ import { normalizeStructDefsValue } from './core/structNormalization';
 import {
     messageType,
     RECORD_PAGE_SIZE,
+    type ProfileSummary,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
@@ -1385,7 +1386,7 @@ async function askProfileName(prompted: string, initial = ''): Promise<string | 
 }
 
 /** List registry profiles as { id, name }. */
-async function listProfiles(root: string): Promise<Array<{ id: string; name: string }>> {
+async function listProfiles(root: string): Promise<ProfileSummary[]> {
     const records = await collectProfileRecords(root);
     return records.map(rec => ({ id: rec.id, name: rec.name })).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -1397,8 +1398,9 @@ export async function bindingsUsing(root: string, profileId: string): Promise<Ar
     return normalizeBindings(read.value).value.filter(b => b.profileId === profileId).map(b => ({ fileKey: b.fileKey }));
 }
 
-/** Delete a registry profile + its bindings (bound files revert to "No Profile"). */
-async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
+/** Delete a registry profile + its bindings (bound files revert to "No Profile").
+ *  Exported as a test seam for the binding-clear contract. */
+export async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
     await removeProfileRecord(root, profileId);
     const bindingsUri = bindingsJsonUri(root);
     const read = await readJson(bindingsUri);

@@ -49,6 +49,14 @@
             "$ref": "#/definitions/structPin"
           }
         },
+        "pins": {
+          "deprecated": true,
+          "description": "Pre-rename alias for structPins. Accepted for strict authoring of files still carrying the old key; the runtime normalizer reads structPins ?? pins. New files must use structPins.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/structPin"
+          }
+        },
         "activeChecks": {
           "$ref": "#/definitions/integrityCheckSet"
         },

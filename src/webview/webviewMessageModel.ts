@@ -1,6 +1,6 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from '../core/integrity';
-import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import type { ProviderToWebviewMessage, ProfileSummary } from '../webviewProtocol';
 import type { SegmentLabel, StructPin } from '../core/types';
 import { endianOrDefault } from '../webviewProtocol';
 import { S } from './state';
@@ -46,7 +46,7 @@ export type WebviewModelUpdate = {
     loadErrorMessage?: string;
     copyCommand?: CopyCommand;
     activeChecks?: IntegrityCheckSet;
-    profileState?: { profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number };
+    profileState?: { profiles: ProfileSummary[]; current: string | null; boundFileCount: number };
     removeExternalChangeBanners?: boolean;
     removeExternalChangeErrorBanner?: boolean;
     externalChange?: { incoming: IncomingFile; hasUnsavedEdits: boolean };
@@ -89,7 +89,7 @@ export function applyProviderMessageToModel(msg: WebviewMessage): WebviewModelUp
 }
 
 type WebviewProfileState = {
-    profiles: Array<{ id: string; name: string }>;
+    profiles: ProfileSummary[];
     current: string | null;
     boundFileCount: number;
 };
