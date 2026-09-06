@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Session + watcher wiring for out-of-workspace external-change verification"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Silent auto-apply contract for genuine external edits"}

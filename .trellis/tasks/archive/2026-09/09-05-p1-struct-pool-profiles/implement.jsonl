@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend/layer coding standards for storage, session, migration, webview toolbar/editors changes"}
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Owning storage feature spec: envelope, JsonStore, profile lookup/watcher, migration (will be updated for three-tier layout)"}

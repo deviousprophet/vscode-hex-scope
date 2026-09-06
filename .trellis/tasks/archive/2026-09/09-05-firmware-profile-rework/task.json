@@ -1,0 +1,30 @@
+{
+  "id": "firmware-profile-rework",
+  "name": "firmware-profile-rework",
+  "title": "Firmware profile rework: eager creation, sharing, reuse, rename resilience (#212)",
+  "description": "Parent task. Source: GitHub issue #212 + firmware_profile.md. Owns cross-child acceptance criteria and final integration review. Children: P0 eager profile creation, P1 struct pool+profile registry+bindings, P2 external-change glitch.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "opencode",
+  "assignee": "opencode",
+  "createdAt": "2026-09-05",
+  "completedAt": "2026-09-06",
+  "branch": "feat/firmware-profile-improve",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-05-p0-eager-profile",
+    "09-05-p1-struct-pool-profiles",
+    "09-05-p2-external-change"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
