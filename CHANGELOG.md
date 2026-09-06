@@ -5,9 +5,18 @@
 ### Added
 - "Edit selected bytes" context-menu option opens a session that confines typing to the selected range, applying edits live with a single undo, while a `SELECTION` chip and range tint make the active editing range visible
 - Per-field and per-structure byte-order (`LE`/`BE`) and bit-allocation (`LSB`/`MSB`) overrides for struct definitions, with tri-state `Auto` (inherit) controls in the struct editor and explicit-override chips on decoded rows
+- Struct type definitions are stored once per workspace in `.hexscope/structs.json` and shared by every firmware file and profile
+- Named, reusable firmware profiles (`.hexscope/profiles/<id>/profile.json`) selectable from a toolbar **Select Profile** dropdown, with New/Duplicate/Rename/Delete Profile commands usable independently of any open file; editing a profile shared by several files shows a bound-file-count hint
+- A file-to-profile binding table (`.hexscope/bindings.json`) lets multiple firmware files share one profile; renames and moves inside VS Code re-point the binding automatically, and a rename VS Code never saw is recovered with one reselect
+
+### Changed
+- Opening a firmware file no longer writes anything to disk — no `.hexscope` profile, schemas, or binding — until an edit or an explicit profile selection, so plain opens and out-of-workspace analyses leave the filesystem untouched
+- Profile storage moved from per-file `firmware_profiles/<id>` directories to a workspace struct pool, a profile registry, and a binding table; existing profile trees and settings-storage annotations are migrated automatically on the first open
+- Integrity check templates now live inside each profile's active checks instead of a separate `integrity.json` registry
 
 ### Fixed
 - Restored the visible per-field pointer (`*`) toggle in the Struct Overlay definition editor, so fields can be declared as pointers directly from their row instead of only through the hidden context menu; the dedicated `Ptr` column and the right-click `Attach pointer`/`Clear pointer` actions both remain available
+- Intermittent "File changed externally. Reloading..." false positives when opening firmware files outside a workspace no longer occur
 
 ## [2.20.0] - 2026-09-01
 
