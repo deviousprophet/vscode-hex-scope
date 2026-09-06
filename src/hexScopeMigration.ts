@@ -83,15 +83,10 @@ async function ensureMigrationComplete(root: string, relPath: string, uri: vscod
         return;
     }
     // The legacy tree is left in place after conversion (revert safety), so
-    // the guard is a converted marker — bindings.json existing — not the tree
-    // itself. Without it, every extension-host restart would re-run the tree
-    // migration and accumulate duplicate profiles (nextOrdinal always picks a
-    // fresh id), silently re-binding the file to an empty profile.
-    const bindingsTableExists = (await readJson(bindingsJsonUri(root))).status !== 'missing';
-    if (bindingsTableExists) {
-        await markMigrated(root, context);
-        return;
-    }
+    // completion is tracked per converted dir via a `.converted` marker file —
+    // never by the mere existence of bindings.json, which a pre-existing
+    // binding from an unrelated file could otherwise use to permanently
+    // suppress conversion of a remaining legacy tree (silent data loss).
     await migrateLegacyTree(root, uri, context);
     await markMigrated(root, context);
 }
@@ -127,8 +122,13 @@ async function migrateLegacyTree(root: string, uri: vscode.Uri, context: Migrati
     }
 }
 
-/** Convert one legacy firmware_profiles/<n> dir: pool + profile + binding. */
+/** Convert one legacy firmware_profiles/<n> dir: pool + profile + binding.
+ *  Idempotent per dir via a `.converted` marker (left in place with the tree
+ *  for revert safety). */
 async function migrateLegacyEntry(root: string, name: string, dir: string): Promise<void> {
+    const markerUri = vscode.Uri.file(path.join(dir, '.converted'));
+    if (await fileExists(markerUri)) { return; }
+
     const indexRaw = await readJson(vscode.Uri.file(path.join(dir, 'index.json')));
     if (indexRaw.status !== 'ok') { return; }
     const index = normalizeIndexPayload(indexRaw.value);
@@ -153,6 +153,21 @@ async function migrateLegacyEntry(root: string, name: string, dir: string): Prom
     const extras = extraTemplates(index, legacyProfiles);
     if (extras.length > 0) {
         await migrateIntegrityTemplates(root, undefined, extras);
+    }
+
+    // Mark this dir converted (before index jiggles could reorder); the tree
+    // itself stays on disk for revert safety.
+    try {
+        await vscode.workspace.fs.writeFile(markerUri, new Uint8Array());
+    } catch { /* marker write failures never block migration */ }
+}
+
+async function fileExists(uri: vscode.Uri): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+    } catch {
+        return false;
     }
 }
 

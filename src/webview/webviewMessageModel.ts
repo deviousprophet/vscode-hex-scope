@@ -90,9 +90,18 @@ export function applyProviderMessageToModel(msg: WebviewMessage): WebviewModelUp
 
 function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate {
     applyInitialState(msg);
+    // Normalize + assign profileState (dropdown hydration) and return the
+    // update field so applyProfileStateUpdate re-renders — mirroring
+    // applyProfilesStateMessage. A fresh open sends only `init`.
+    const profileState = {
+        profiles: Array.isArray(msg.profile?.profiles) ? msg.profile.profiles : [],
+        current: msg.profile?.current ?? null,
+        boundFileCount: typeof msg.profile?.boundFileCount === 'number' ? msg.profile.boundFileCount : 0,
+    };
+    S.profileState = profileState;
     return {
         activeChecks: msg.activeChecks,
-        profileState: msg.profile,
+        profileState,
         invalidations: { fullRender: true },
     };
 }

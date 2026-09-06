@@ -509,13 +509,18 @@ export class HexEditorSession {
         let profileReady: Promise<void> | null = null;
         let profileReloadTimer: ReturnType<typeof setTimeout> | undefined;
         let perFileOp: Promise<unknown> = Promise.resolve();
+        /** Set when a struct-deletion decline reverts the webview; the
+         *  immediately-following saveStructPins (webview posts it right after
+         *  saveStructs) then no-ops so the decline is a true no-write. */
+        let structDeletionDeclined = false;
 
         // ── Deferred profile materialization ──────────────────────────
         // Nothing is written on open. An unbound file's first mutation
-        // creates a new profile + binding; out-of-workspace files stay
-        // in-memory until an explicit profile action flips the flag.
+        // creates a new profile + binding. Out-of-workspace files stay
+        // in-memory; explicit actions (newProfile/selectProfile) write
+        // directly and rebuild bound stores via buildProfileStores(pid), so
+        // they never depend on this deferred resolver.
         const hasWorkspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri) !== undefined;
-        let explicitProfileWrite = false;
         let profileDirCreated: string | null = null;
         let creatingProfile: Promise<string | null> | null = null;
 
@@ -525,7 +530,10 @@ export class HexEditorSession {
             if (creatingProfile === null) {
                 creatingProfile = (async () => {
                     try {
-                        if (!hasWorkspaceFolder && !explicitProfileWrite) { return null; }
+                        // Non-explicit out-of-workspace writes stay in-memory so
+                        // no .hexscope/ sibling is seeded. Explicit profile
+                        // actions bypass this entirely (they rebuild bound stores).
+                        if (!hasWorkspaceFolder) { return null; }
                         const id = await createBoundProfile(root, relPath);
                         profileDirCreated = id;
                         profileId = id;
@@ -596,7 +604,7 @@ export class HexEditorSession {
             structPoolStore = new JsonStore<StructDef[]>({
                 uri: structPoolJsonUri(root),
                 normalizer: normalizeStructs,
-                empty: () => [...workspaceStructPool],
+                empty: () => [...(workspaceStructPoolCache.get(root) ?? [])],
                 onSelfWrite: markSelfWrite,
                 onReload: () => void broadcastStructs(),
             });
@@ -680,7 +688,7 @@ export class HexEditorSession {
             postProgress('transfer', 1, 1);
             const { profile, structs } = await openStores();
             const profileData = await profile.load();
-            const structDefs = await loadWorkspaceStructs(profileStore!, structs);
+            const structDefs = await loadWorkspaceStructs(root, profileStore!, structs);
 
             const allProfiles = await listProfiles(root);
             const bound = profileId;
@@ -852,11 +860,46 @@ export class HexEditorSession {
             saveStructs: async msg => {
                 await enqueuePerFileOp(async () => {
                     const { structs } = await openStores();
-                    structs.set(normalizeStructDefsValue(migrateStructDefinitions(msg.structs)).defs);
+                    const previous = structs.get() ?? [];
+                    const incoming = normalizeStructDefsValue(migrateStructDefinitions(msg.structs)).defs;
+                    const result = await applyStructDeletion(
+                        root,
+                        structs,
+                        incoming,
+                        usage => confirmStructDeletion(usage),
+                    );
+                    if (result === 'declined') {
+                        // Revert the webview (it had stripped the pins locally +
+                        // optimistically dropped the type). The queued
+                        // saveStructPins is skipped via structDeletionDeclined
+                        // so no disk write leaks through.
+                        structDeletionDeclined = true;
+                        void postToWebview(webviewPanel.webview, { type: 'structsExternalChange', structs: previous });
+                        const bound = profileId;
+                        if (bound) {
+                            const rec = await readProfileRecord(root, bound);
+                            if (rec) {
+                                void postToWebview(webviewPanel.webview, {
+                                    type: 'perFileDataChange',
+                                    labels: rec.labels,
+                                    segmentNames: rec.segmentNames,
+                                    pins: rec.pins,
+                                    endian: rec.endian,
+                                    activeChecks: rec.activeChecks,
+                                });
+                            }
+                        }
+                    }
                 });
             },
             saveStructPins: async msg => {
                 await enqueuePerFileOp(async () => {
+                    if (structDeletionDeclined) {
+                        // A struct-deletion decline reverted the webview already;
+                        // this strips nothing. Clear the latch and bail.
+                        structDeletionDeclined = false;
+                        return;
+                    }
                     const { profile } = await openStores();
                     await updateStore(profile, current => ({ ...current, pins: msg.pins }));
                 });
@@ -1089,8 +1132,11 @@ function shouldFlushBeforeSwitch(current: ProfileRecord | null | undefined, boun
 
 // ── Three-tier registry/binding helpers ───────────────────────────
 
-/** In-memory workspace struct pool cache shared across sessions. */
-let workspaceStructPool: StructDef[] = [];
+/** Per-root in-memory workspace struct pool cache (one root's defs must not
+ *  leak as another root's empty default). Fallback only: reads still hit the
+ *  JsonStore; this mirrors the last-loaded pool for deferred/empty sessions.
+ *  Exported as a test seam for two-roots-independent-fallback coverage. */
+export const workspaceStructPoolCache = new Map<string, StructDef[]>();
 
 /** Roots that attached the binding rename/delete lifecycle. Kept for the
  *  whole extension-host lifetime (not per panel), so the workspace-level
@@ -1245,16 +1291,100 @@ async function deleteRegistryProfile(root: string, profileId: string): Promise<v
     }
 }
 
-/** Load workspace struct pool (from store cache or disk); empty default when absent. */
-async function loadWorkspaceStructs(
+/** Load workspace struct pool (from store cache or disk); empty default when absent.
+ *  The per-root fallback cache is written here (keyed by root, never shared
+ *  across roots). Exported as a test seam for per-root-fallback coverage. */
+export async function loadWorkspaceStructs(
+    root: string,
     profileStore: JsonStore<ProfileRecord>,
     structs: JsonStore<StructDef[]>,
 ): Promise<StructDef[]> {
     // Warm the bound profile load so listeners are consistent.
     await profileStore.load();
     const defs = await structs.load();
-    workspaceStructPool = defs;
+    workspaceStructPoolCache.set(root, defs);
     return defs;
+}
+
+/** Confirm dialog for deleting struct types that other profiles pin to.
+ *  Naming pin count + affected profile count (modal, explicit "Delete"). */
+async function confirmStructDeletion(usage: { pins: number; profileIds: string[] }): Promise<boolean> {
+    const typeNoun = usage.pins === 1 ? 'type' : 'types';
+    const profileNoun = usage.profileIds.length === 1 ? 'profile' : 'profiles';
+    const confirm = await vscode.window.showWarningMessage(
+        `${usage.pins} pin${usage.pins === 1 ? '' : 's'} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted. Delete anyway?`,
+        { modal: true },
+        'Delete',
+    );
+    return confirm === 'Delete';
+}
+
+/** Scan every registry profile for pins whose structId is in deletedIds.
+ *  Returns the total pin count + the affected profile ids. Pins of the
+ *  current bound profile are still on disk at this point (the webview posts
+ *  saveStructs before saveStructPins, both serialized via enqueuePerFileOp),
+ *  so they count — matching "1+ pins reference it anywhere". */
+export async function collectStructDeletionUsage(
+    root: string,
+    deletedIds: string[],
+): Promise<{ pins: number; profileIds: string[] }> {
+    if (deletedIds.length === 0) { return { pins: 0, profileIds: [] }; }
+    const target = new Set(deletedIds);
+    let pins = 0;
+    const profileIds: string[] = [];
+    for (const rec of await listProfileRecords(root)) {
+        const count = rec.pins.filter(pin => target.has(pin.structId)).length;
+        if (count > 0) {
+            pins += count;
+            profileIds.push(rec.id);
+        }
+    }
+    return { pins, profileIds };
+}
+
+/** Rewrite every affected registry profile with its pins filtered to drop
+ *  any pin referencing the deleted struct ids (the bound profile included —
+ *  idempotent with the webview's later saveStructPins). */
+export async function stripDeletedStructPins(root: string, deletedIds: string[]): Promise<void> {
+    const target = new Set(deletedIds);
+    for (const rec of await listProfileRecords(root)) {
+        const stripped = rec.pins.filter(pin => !target.has(pin.structId));
+        if (stripped.length === rec.pins.length) { continue; }
+        const dir = await resolveProfileDir(root, rec.id);
+        if (!dir) { continue; }
+        await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...rec, pins: stripped }));
+    }
+}
+
+/** Guard struct-pool writes against deleting types that pins reference.
+ *  - No deletion → plain edit writes straight through ('applied').
+ *  - Deletion with no referencing pins → pool writes through ('applied').
+ *  - Deletion with referencing pins → confirm(usage); declined = no writes,
+ *    confirmed = strip pins from every affected profile + write the pool.
+ *  Returns 'applied' only when the pool was written (or needed no confirm);
+ *  'declined' leaves disk untouched (the caller reverts the webview). */
+export async function applyStructDeletion(
+    root: string,
+    poolStore: JsonStore<StructDef[]>,
+    incomingStructs: StructDef[],
+    confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
+): Promise<'applied' | 'declined'> {
+    const previous = poolStore.get() ?? [];
+    const incomingIds = new Set(incomingStructs.map(def => def.id));
+    const deletedIds = previous.filter(def => !incomingIds.has(def.id)).map(def => def.id);
+    if (deletedIds.length === 0) {
+        poolStore.set(incomingStructs);
+        return 'applied';
+    }
+    const usage = await collectStructDeletionUsage(root, deletedIds);
+    if (usage.pins === 0) {
+        poolStore.set(incomingStructs);
+        return 'applied';
+    }
+    if (!(await confirm(usage))) { return 'declined'; }
+    await stripDeletedStructPins(root, deletedIds);
+    poolStore.set(incomingStructs);
+    return 'applied';
 }
 
 /** Rewrite bindings on workspace rename (silent); remove on delete. */

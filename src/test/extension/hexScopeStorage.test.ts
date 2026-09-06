@@ -22,6 +22,7 @@ import {
     perFileRelativePath,
     profileRegistryJsonUri,
     readJson,
+    readProfileRecord,
     resolveHexScopeRoot,
     seedSchemaCopies,
     structPoolJsonUri,
@@ -31,7 +32,19 @@ import {
     writeJson,
     type ProfileRecord,
 } from '../../hexScopeStorage';
-import { bindFile, bindingsUsing, boundProfileId, createBoundProfile, pruneBindings, unbindFile } from '../../hexEditorSession';
+import {
+    applyStructDeletion,
+    bindFile,
+    bindingsUsing,
+    boundProfileId,
+    collectStructDeletionUsage,
+    createBoundProfile,
+    loadWorkspaceStructs,
+    pruneBindings,
+    stripDeletedStructPins,
+    unbindFile,
+    workspaceStructPoolCache,
+} from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
 import { migrateLegacyData } from '../../hexScopeMigration';
 import { migrateStructDefinitions } from '../../core/structMigration';
@@ -634,10 +647,49 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.strictEqual(bindingsAfter.data.length, 1, 'rerun no-op');
     });
 
-    test('tree era: already-converted root (bindings.json present) is a no-op across process restarts', async () => {
+    test('tree era: pre-existing bindings.json never suppresses conversion of an unconverted legacy dir', async () => {
+        // Regression (#3): the old guard treated bindings.json existing as
+        // "migration done". A binding written for an unrelated file (or a
+        // partially-migrated root) must NOT permanently disable conversion of
+        // a remaining legacy tree — that would silently drop its data.
+        const legacyContainer = vscode.Uri.file(path.join(testRoot, '.hexscope', 'firmware_profiles'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(legacyContainer.fsPath, 'profiles_1')));
+        const dir = path.join(legacyContainer.fsPath, 'profiles_1');
+        await writeText(vscode.Uri.file(path.join(dir, 'index.json')), JSON.stringify({
+            version: 1,
+            data: { relPath: REL, labels: [{ id: 'l1', name: 'L1', startAddress: 0, length: 1, color: '#000' }], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'be' },
+        }));
+        await writeText(vscode.Uri.file(path.join(dir, 'structs.json')), JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
+        await writeText(vscode.Uri.file(path.join(dir, 'integrity.json')), JSON.stringify({ version: 1, data: [] }));
+
+        // Pre-existing bindings.json from an UNRELATED file (file exists on
+        // disk so it is not pruned away) — the exact broken ordering.
+        const otherFile = vscode.Uri.file(path.join(testRoot, 'other', 'app.hex'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(otherFile.fsPath)));
+        await writeText(otherFile, ':00000001FF\n');
+        await writeText(bindingsJsonUri(testRoot), JSON.stringify({ version: 1, data: [{ fileKey: 'other/app.hex', profileId: 'profile_1' }] }));
+        await createProfileRegistryEntry(testRoot, 'profile_1', 'Other App');
+
+        const globalState = new FakeMemento();
+        const workspaceState = new FakeMemento();
+        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
+
+        const bindings = await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> };
+        const relBinding = bindings.data.find(b => b.fileKey === REL);
+        assert.ok(relBinding, 'legacy dir converted despite pre-existing bindings.json');
+        assert.strictEqual(relBinding!.profileId, 'profile_2', 'legacy conversion got a fresh ordinal, not the unrelated profile');
+        const profile = await readJsonValue(profileUriFor(testRoot, relBinding!.profileId)) as { data: ProfileRecord };
+        assert.strictEqual(profile.data.labels.length, 1, 'legacy labels migrated');
+        assert.strictEqual(profile.data.endian, 'be');
+        const pool = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
+        assert.deepStrictEqual(pool.data.map(s => s.id), ['s1'], 'legacy structs merged into pool');
+        assert.strictEqual(bindings.data.find(b => b.fileKey === 'other/app.hex')?.profileId, 'profile_1', 'pre-existing binding untouched');
+    });
+
+    test('tree era: already-converted root (.converted markers present) is a no-op across process restarts', async () => {
         // Simulates a second extension-host session: the legacy tree still
-        // exists (deliberately kept for revert safety) while a previous run
-        // already wrote the three-tier bindings table. Migration must not
+        // exists (deliberately kept for revert safety) but a previous run has
+        // written the per-dir `.converted` marker. Migration must not
         // re-convert — otherwise every restart would accumulate duplicate
         // profiles and silently re-bind the file to an empty profile.
         const legacyContainer = vscode.Uri.file(path.join(testRoot, '.hexscope', 'firmware_profiles'));
@@ -649,6 +701,8 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         }));
         await writeText(vscode.Uri.file(path.join(dir, 'structs.json')), JSON.stringify({ version: 1, data: [] }));
         await writeText(vscode.Uri.file(path.join(dir, 'integrity.json')), JSON.stringify({ version: 1, data: [] }));
+        // The conversion-complete marker from the previous process run.
+        await writeText(vscode.Uri.file(path.join(dir, '.converted')), '');
 
         // Prior process state: registry profile + binding + migrated pool exist.
         await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
@@ -675,6 +729,161 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.strictEqual((await readJson(bindingsJsonUri(testRoot))).status, 'missing', 'no bindings created');
         assert.ok(onlyMigrationMarkerRemains(globalState), 'no legacy keys (marker aside)');
         assert.deepStrictEqual(workspaceState.keys(), []);
+    });
+});
+
+suite('hexScopeSession — struct-storage helpers', () => {
+    setup(makeTestRoot);
+    teardown(removeTestRoot);
+
+    function structDef(id: string): StructDef {
+        return { id, name: id.toUpperCase(), fields: [] };
+    }
+
+    function pin(id: string, structId: string): { id: string; structId: string; addr: number; name: string } {
+        return { id, structId, addr: 0, name: id.toUpperCase() };
+    }
+
+    test('collectStructDeletionUsage scans every profile, not just the bound one', async () => {
+        const dirA = await createProfileRegistryEntry(testRoot, 'profile_1', 'A');
+        await writeJson(profileRegistryJsonUri(dirA), withEnvelope({
+            ...emptyProfileRecord('profile_1', 'A'),
+            pins: [pin('a1', 's_gone'), pin('a2', 's_kept')],
+        }));
+        const dirB = await createProfileRegistryEntry(testRoot, 'profile_2', 'B');
+        await writeJson(profileRegistryJsonUri(dirB), withEnvelope({
+            ...emptyProfileRecord('profile_2', 'B'),
+            pins: [pin('b1', 's_gone')],
+        }));
+        const dirC = await createProfileRegistryEntry(testRoot, 'profile_3', 'C'); // no referencing pins
+        await writeJson(profileRegistryJsonUri(dirC), withEnvelope({
+            ...emptyProfileRecord('profile_3', 'C'),
+            pins: [pin('c1', 's_unrelated')],
+        }));
+
+        const usage = await collectStructDeletionUsage(testRoot, ['s_gone']);
+        assert.strictEqual(usage.pins, 2);
+        assert.deepStrictEqual([...usage.profileIds].sort(), ['profile_1', 'profile_2']);
+    });
+
+    test('stripDeletedStructPins removes orphaned pins from every affected profile only', async () => {
+        const dirA = await createProfileRegistryEntry(testRoot, 'profile_1', 'A');
+        const pinsA = [pin('a1', 's_gone'), pin('a2', 's_kept')];
+        await writeJson(profileRegistryJsonUri(dirA), withEnvelope({ ...emptyProfileRecord('profile_1', 'A'), pins: pinsA }));
+        const dirB = await createProfileRegistryEntry(testRoot, 'profile_2', 'B');
+        const pinsB = [pin('b1', 's_kept')];
+        await writeJson(profileRegistryJsonUri(dirB), withEnvelope({ ...emptyProfileRecord('profile_2', 'B'), pins: pinsB }));
+
+        await stripDeletedStructPins(testRoot, ['s_gone']);
+
+        const recA = await readProfileRecord(testRoot, 'profile_1');
+        assert.deepStrictEqual(recA?.pins.map(p => p.id), ['a2'], 'profile A orphaned pin stripped, kept pin retained');
+        const recB = await readProfileRecord(testRoot, 'profile_2');
+        assert.deepStrictEqual(recB?.pins.map(p => p.id), ['b1'], 'profile B untouched');
+    });
+
+    test('applyStructDeletion: plain edit / no referencing pins write straight through; confirmed cascade strips across profiles; declined writes nothing', async () => {
+        const s = (defs: StructDef[]) => new JsonStore<StructDef[]>({
+            uri: structPoolJsonUri(testRoot),
+            normalizer: structsNormalizer,
+            empty: () => [],
+            debounceMs: FAST,
+        });
+
+        // Seed pool + two profiles with pins referencing Header (and one unrelated).
+        const seedPool = s([structDef('Header'), structDef('Pkt')]);
+        await seedPool.load();
+        seedPool.set([structDef('Header'), structDef('Pkt')]);
+        await seedPool.flush();
+        seedPool.dispose();
+        const dirA = await createProfileRegistryEntry(testRoot, 'profile_1', 'A');
+        await writeJson(profileRegistryJsonUri(dirA), withEnvelope({ ...emptyProfileRecord('profile_1', 'A'), pins: [pin('a1', 'Header')] }));
+        const dirB = await createProfileRegistryEntry(testRoot, 'profile_2', 'B');
+        await writeJson(profileRegistryJsonUri(dirB), withEnvelope({ ...emptyProfileRecord('profile_2', 'B'), pins: [pin('b1', 'Header'), pin('b2', 'Pkt')] }));
+
+        // Plain edit (no deletion) → applied, pool updated, no confirm.
+        let confirmCalls = 0;
+        const plainPool = s([structDef('Header'), structDef('Pkt')]);
+        await plainPool.load();
+        const r1 = await applyStructDeletion(testRoot, plainPool, [structDef('Header'), structDef('Pkt'), structDef('Crc')], async () => { confirmCalls++; return true; });
+        assert.strictEqual(r1, 'applied');
+        assert.strictEqual(confirmCalls, 0, 'no confirm for a non-delete edit');
+        await plainPool.flush();
+        plainPool.dispose();
+
+        // Deletion with referencing pins → confirmed → pool updated + all
+        // affected-profile pins stripped.
+        const freshPool = s([structDef('Header'), structDef('Pkt'), structDef('Crc')]);
+        await freshPool.load();
+        const seenUsage: Array<{ pins: number; profileIds: string[] }> = [];
+        const r2 = await applyStructDeletion(testRoot, freshPool, [structDef('Pkt'), structDef('Crc')], async (usage) => {
+            seenUsage.push(usage);
+            return true;
+        });
+        assert.strictEqual(r2, 'applied');
+        // Only Header is deleted; profile_1 pins 1×Header, profile_2 pins 1×Header.
+        assert.deepStrictEqual(seenUsage, [{ pins: 2, profileIds: ['profile_1', 'profile_2'] }]);
+        await freshPool.flush();
+        const poolAfter = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
+        assert.deepStrictEqual(poolAfter.data.map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool entry removed on confirm');
+        freshPool.dispose();
+        const recA = await readProfileRecord(testRoot, 'profile_1');
+        assert.deepStrictEqual(recA?.pins, [], 'profile A orphaned pin stripped');
+        const recB = await readProfileRecord(testRoot, 'profile_2');
+        assert.deepStrictEqual(recB?.pins.map(p => p.id), ['b2'], 'profile B orphaned pin stripped, unrelated kept');
+
+        // Declined deletion → no writes at all, nothing stripped.
+        const dirC = await createProfileRegistryEntry(testRoot, 'profile_3', 'C');
+        await writeJson(profileRegistryJsonUri(dirC), withEnvelope({ ...emptyProfileRecord('profile_3', 'C'), pins: [pin('c1', 'Pkt')] }));
+        const declPool = s([structDef('Pkt'), structDef('Crc')]);
+        await declPool.load();
+        const r3 = await applyStructDeletion(testRoot, declPool, [structDef('Crc')], async () => false);
+        assert.strictEqual(r3, 'declined');
+        const poolBeforeDecline = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
+        assert.deepStrictEqual(poolBeforeDecline.data.map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool untouched on decline');
+        const recC = await readProfileRecord(testRoot, 'profile_3');
+        assert.deepStrictEqual(recC?.pins.map(p => p.id), ['c1'], 'affected profile pins untouched on decline');
+        declPool.dispose();
+    });
+
+    test('per-root struct-pool fallback is independent (two roots never share an empty default)', async () => {
+        // Clear any cross-test residue so the assertion starts from a clean map.
+        for (const key of Array.from(workspaceStructPoolCache.keys())) {
+            if (!key.startsWith(testRoot)) { workspaceStructPoolCache.delete(key); }
+        }
+
+        // Root A: bound profile store + pool store with defs on disk.
+        const rootA = testRoot;
+        const idA = 'profile_1';
+        await createProfileRegistryEntry(rootA, idA, 'A');
+        const poolUriA = structPoolJsonUri(rootA);
+        await writeJson(poolUriA, withEnvelope([structDef('s_a1'), structDef('s_a2')]));
+        const profileA = profileStoreFor(rootA, idA);
+        const poolA = poolStoreFor(rootA);
+        const defsA = await loadWorkspaceStructs(rootA, profileA, poolA);
+        assert.deepStrictEqual(defsA.map(s => s.id), ['s_a1', 's_a2']);
+        profileA.dispose();
+        poolA.dispose();
+
+        // Root B: fresh fallback (no pool on disk) must NOT see root A's defs.
+        const rootB = path.join(testRoot, 'root-b');
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(rootB));
+        const idB = 'profile_1';
+        await createProfileRegistryEntry(rootB, idB, 'B');
+        const profileB = profileStoreFor(rootB, idB);
+        const poolB = new JsonStore<StructDef[]>({
+            uri: structPoolJsonUri(rootB),
+            normalizer: structsNormalizer,
+            empty: () => [...(workspaceStructPoolCache.get(rootB) ?? [])],
+            debounceMs: FAST,
+        });
+        const defsB = await loadWorkspaceStructs(rootB, profileB, poolB);
+        assert.deepStrictEqual(defsB, [], 'root B empty default does not leak root A defs');
+        profileB.dispose();
+        poolB.dispose();
+
+        // Root A's cached defs are still intact.
+        assert.deepStrictEqual((workspaceStructPoolCache.get(rootA) ?? []).map(s => s.id), ['s_a1', 's_a2']);
     });
 });
 
@@ -731,7 +940,9 @@ suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothin
         // Mirrors resolveCustomEditor (hexEditorSession.ts):
         // migration seeds nothing with no legacy data; the binding lookup is a
         // pure read (no bindings.json → null); the deferred profile store's dir
-        // resolver declines because !hasWorkspaceFolder && !explicitProfileWrite.
+        // resolver declines because !hasWorkspaceFolder (non-explicit write —
+        // explicit newProfile/selectProfile actions bypass the resolver and
+        // rebuild bound stores directly).
         assert.strictEqual(await boundProfileId(root, rel), null, 'no bindings.json → unbound');
 
         let explicit = false;

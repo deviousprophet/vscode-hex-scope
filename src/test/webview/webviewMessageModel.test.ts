@@ -77,6 +77,35 @@ suite('applyProviderMessageToModel()', () => {
         assert.deepStrictEqual(update.activeChecks, { schemaVersion: 1, checks: [] });
     });
 
+    test('init hydrates S.profileState so the fresh-open dropdown is populated', () => {
+        // Regression (#1): a fresh open sends only `init`; applyInitMessage must
+        // assign S.profileState (like applyProfilesStateMessage does) and return
+        // the profileState update field so the toolbar re-renders. Without it the
+        // dropdown reads the module default and shows "No Profile" + no options.
+        const update = applyProviderMessageToModel({
+            type: 'init',
+            generation: 1,
+            parseResult: parseResultForTest(),
+            labels: [],
+            structs: [],
+            structPins: [],
+            endian: 'le',
+            activeChecks: { schemaVersion: 1, checks: [] },
+            profile: { profiles: [{ id: 'p1', name: 'Bootloader v3' }], current: 'p1', boundFileCount: 2 },
+        });
+
+        assert.deepStrictEqual(S.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+        assert.deepStrictEqual(update.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        }, 'profileState returned so applyProfileStateUpdate re-renders');
+    });
+
     test('label messages rebuild memory and invalidate labels plus memory', () => {
         const label = labelForTest({ id: 'a', name: 'A' });
         const update = applyProviderMessageToModel({ type: 'addLabel', label });
