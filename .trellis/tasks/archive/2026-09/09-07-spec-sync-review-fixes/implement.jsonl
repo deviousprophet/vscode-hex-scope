@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Storage contract — stale spec sections already synced (Part A); D6 schema behavior + typed profile actions here for implementation accurate guidance"}
+{"file": ".trellis/spec/frontend/components/component-toolbar.md", "reason": "Profile-picker module extraction to describe (D1); currently designates hexViewer as owner"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "ProfileState/ProfileSummary typing + profilesState message flow (D2)"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "structPins field + schema tolerance (D6) correctness"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Boundary normalization — fromUnknown utils (D3) conforms to core-neutral rule"}

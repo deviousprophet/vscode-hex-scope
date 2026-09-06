@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify single-file registry + deprecated pins schema + delete-binding semantics (D6/D7)"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify ProfileSummary reuse + profilesState flow after extraction (D1/D2/D4)"}
+{"file": ".trellis/spec/frontend/components/component-toolbar.md", "reason": "Verify picker module architecture matches the toolbar spec"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify fromUnknown boundary normalization placement (D3)"}
