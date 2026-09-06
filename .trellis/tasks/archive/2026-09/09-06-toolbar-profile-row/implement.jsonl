@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/components/component-toolbar.md", "reason": "Toolbar chrome contract - row 1 must stay identical; profile row is additive (R1-R6)"}
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Storage contract - single-file profiles.json registry + dir-tree migration (R10)"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "New profile-action messages (R7-R8) + registry ownership (R10)"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Struct deletion remains registry-array based after the storage rework"}

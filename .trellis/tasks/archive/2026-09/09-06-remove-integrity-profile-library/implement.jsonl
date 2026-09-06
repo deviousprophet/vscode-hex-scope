@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/integrity-checks.md", "reason": "Owning integrity feature spec — must drop the retired panel profile-library contract"}
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Storage spec — remove 'Integrity panel re-backed by registry' wording; checks live in profile activeChecks"}
