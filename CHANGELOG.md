@@ -18,7 +18,6 @@
 
 ### Fixed
 - Restored the visible per-field pointer (`*`) toggle in the Struct Overlay definition editor, so fields can be declared as pointers directly from their row instead of only through the hidden context menu; the dedicated `Ptr` column and the right-click `Attach pointer`/`Clear pointer` actions both remain available
-- Native dropdown lists and selects follow the active theme's colors instead of a fixed light popup
 
 ## [2.20.0] - 2026-09-01
 
