@@ -109,16 +109,3 @@
     border: 1px solid var(--input-bdr); border-radius: 3px; padding: 0 4px;
 }
 .profile-select:focus { border-color: var(--focus-bdr); }
-.profile-actions-btn {
-    height: 22px; line-height: 1; padding: 0 6px;
-    font-size: 13px; flex-shrink: 0;
-}
-/* Static popover anchored under the ⋮ (menuController reveals/covers via hidden) */
-.profile-actions-menu {
-    position: absolute; top: calc(100% + 4px); right: 0;
-    z-index: 9999; min-width: 170px;
-    background: var(--panel-bg); border: 1px solid var(--border);
-    border-radius: 4px; box-shadow: 0 6px 24px rgba(0, 0, 0, .55);
-    padding: 3px 0;
-}
-.profile-actions-menu[hidden] { display: none; }

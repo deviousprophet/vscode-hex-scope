@@ -29,6 +29,10 @@
 .menu-item:focus-visible { background: var(--hover-bg); outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
 /* hex-grid menu: keyboard-selection highlight only after keyboard use; mouse-open rows show hover, not focus */
 #menu:not(.menu-kb) .menu-item:focus-visible { background: transparent; outline: none; }
+/* shared disabled state (unbound profile actions, unmapped go-address, etc.) */
+.menu-item.menu-disabled,
+.menu-item.menu-disabled:hover,
+.menu-item.menu-disabled:focus-visible { background: transparent; outline: none; opacity: .4; cursor: default; }
 .menu-label { flex: 1 1 auto; }
 
 /* result/preview hint — right-aligned, monospace, muted */

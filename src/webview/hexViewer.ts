@@ -1239,11 +1239,8 @@ function renderProfileDropdown(): void {
         <select id="profile-select" class="profile-select" aria-label="Profile" title="${esc(title)}">
             ${optionsHtml}
         </select>
-        <button id="profile-actions-btn" class="sb-btn sb-btn-secondary profile-actions-btn" type="button"
-            title="Profile actions" aria-label="Profile actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
-        <div id="profile-actions-menu" class="profile-actions-menu" role="menu" hidden>
-            ${profileActionsHtml(bound)}
-        </div>`;
+        <button id="profile-actions-btn" class="sb-btn sb-btn-secondary" type="button"
+            title="Profile actions" aria-label="Profile actions" aria-haspopup="menu" aria-expanded="false">⋮</button>`;
     const select = host.querySelector('#profile-select') as HTMLSelectElement;
     select.value = current ?? '';
     if (isSeparatorValue(select.value)) { select.value = ''; }
@@ -1257,28 +1254,31 @@ function profileSelectTitle(currentName: string, bound: boolean, boundFileCount:
     return boundFileCount > 1 ? `${currentName} · shared by ${boundFileCount} files` : currentName;
 }
 
-/** Profile actions menu rows; disabled when no profile is bound. */
+/** Profile actions menu rows (shared menu presentation); disabled when no profile is bound. */
 function profileActionsHtml(bound: boolean): string {
     const dis = bound ? '' : ' menu-disabled';
-    return `
-        <button class="menu-item${dis}" data-cmd="saveProfile" type="button">Save</button>
-        <button class="menu-item${dis}" data-cmd="duplicateProfile" type="button">Save as…</button>
-        <button class="menu-item${dis}" data-cmd="renameProfile" type="button">Rename</button>
-        <button class="menu-item${dis}" data-cmd="deleteProfile" type="button">Delete</button>`;
+    const row = (cmd: string, label: string) =>
+        `<div class="menu-item${dis}" data-cmd="${cmd}" role="menuitem" tabindex="-1"><span class="menu-label">${label}</span></div>`;
+    return `<div class="menu-header">Profile actions</div>
+        ${row('saveProfile', 'Save')}
+        ${row('duplicateProfile', 'Save as…')}
+        ${row('renameProfile', 'Rename')}
+        ${row('deleteProfile', 'Delete')}`;
 }
 
-/** Wire the ⋮ toggle + attach the popover (idempotent within a re-render).
- *  The toggle stops propagation so the opening click is not seen by the
- *  controller's document-level dismissal listener. */
+/** Wire the ⋮ toggle to the shared menu component (internal #menu, positioned at
+ *  the button). The toggle stops propagation so the opening click is not seen by
+ *  the controller's document-level dismissal listener. */
 function wireProfileActions(): void {
     const btn = document.getElementById('profile-actions-btn') as HTMLButtonElement | null;
-    const menu = document.getElementById('profile-actions-menu') as HTMLElement | null;
-    if (!btn || !menu) { return; }
-    menuController.attach(menu, { emit: handleProfileAction });
+    if (!btn) { return; }
     btn.addEventListener('click', event => {
         event.stopPropagation();
-        if (btn.getAttribute('aria-expanded') === 'true') { menuController.close(menu); return; }
-        menuController.show(0, 0, { el: menu, anchor: btn, focusFirst: '.menu-item:not(.menu-disabled)' });
+        const r = btn.getBoundingClientRect();
+        menuController.show(r.left, r.bottom + 4, {
+            innerHTML: profileActionsHtml(S.profileState.current !== null),
+            emit: handleProfileAction,
+        });
     });
 }
 
