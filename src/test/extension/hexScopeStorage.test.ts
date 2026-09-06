@@ -31,7 +31,7 @@ import {
     writeJson,
     type ProfileRecord,
 } from '../../hexScopeStorage';
-import { boundProfileId, createBoundProfile } from '../../hexEditorSession';
+import { bindFile, bindingsUsing, boundProfileId, createBoundProfile, pruneBindings, unbindFile } from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
 import { migrateLegacyData } from '../../hexScopeMigration';
 import { migrateStructDefinitions } from '../../core/structMigration';
@@ -409,6 +409,60 @@ suite('hexScopeStorage — profile registry + bindings', () => {
     test('perFileRelativePath uses posix separators', () => {
         assert.strictEqual(perFileRelativePath(testRoot, vscode.Uri.file(path.join(testRoot, 'firmware', 'boot.hex'))), REL);
         assert.strictEqual(perFileRelativePath(testRoot, vscode.Uri.file(path.join(testRoot, 'boot.hex'))), 'boot.hex');
+    });
+
+    test('two files can share one profile (2 entries → 1 ProfileRecord)', async () => {
+        await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        const firstFile = path.join(testRoot, ...REL_WIN.split(path.sep));
+        const secondFile = path.join(testRoot, 'firmware', 'app.hex');
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(firstFile)));
+        await writeText(vscode.Uri.file(firstFile), ':00000001FF\n');
+        await writeText(vscode.Uri.file(secondFile), ':00000001FF\n');
+
+        await bindFile(testRoot, REL, 'profile_1');
+        await bindFile(testRoot, 'firmware/app.hex', 'profile_1');
+
+        const bindings = (await readJsonValue(bindingsJsonUri(testRoot)) as { data: Array<{ fileKey: string; profileId: string }> }).data;
+        assert.strictEqual(bindings.length, 2, 'one entry per file');
+        assert.ok(bindings.every(b => b.profileId === 'profile_1'), 'both files point at the shared profile');
+        assert.deepStrictEqual(await bindingsUsing(testRoot, 'profile_1'), [
+            { fileKey: REL },
+            { fileKey: 'firmware/app.hex' },
+        ], 'share count for the "used by N files" hint');
+        assert.strictEqual(await boundProfileId(testRoot, REL), 'profile_1');
+        assert.strictEqual(await boundProfileId(testRoot, 'firmware/app.hex'), 'profile_1');
+
+        // Unbinding one file leaves the other + the profile intact.
+        await unbindFile(testRoot, REL);
+        assert.strictEqual(await boundProfileId(testRoot, REL), null, 'unbound file reverts to No Profile');
+        assert.strictEqual(await boundProfileId(testRoot, 'firmware/app.hex'), 'profile_1');
+        assert.strictEqual((await readJson(profileUriFor(testRoot, 'profile_1'))).status, 'ok', 'profile untouched');
+    });
+
+    test('pruneBindings drops entries whose file no longer exists on disk', async () => {
+        await createProfileRegistryEntry(testRoot, 'profile_1', 'Boot');
+        const staysUri = vscode.Uri.file(path.join(testRoot, 'firmware', 'stays.hex'));
+        const goneUri = vscode.Uri.file(path.join(testRoot, 'firmware', 'gone.hex'));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(staysUri.fsPath)));
+        await writeText(staysUri, ':00000001FF\n');
+        await writeText(goneUri, ':00000001FF\n');
+
+        await bindFile(testRoot, 'firmware/stays.hex', 'profile_1');
+        await bindFile(testRoot, 'firmware/gone.hex', 'profile_1');
+        assert.strictEqual(await boundProfileId(testRoot, 'firmware/gone.hex'), 'profile_1');
+
+        // Entry whose file does not exist on disk (CLI mv/rm VS Code never saw).
+        const pruned = await pruneBindings(testRoot, [
+            { fileKey: 'firmware/never.hex', profileId: 'profile_1' },
+            { fileKey: 'firmware/stays.hex', profileId: 'profile_1' },
+        ]);
+        assert.deepStrictEqual(pruned, [{ fileKey: 'firmware/stays.hex', profileId: 'profile_1' }], 'dead entry dropped');
+
+        // Every bindings write prunes first, so a CLI-deleted bound file is
+        // cleaned up on the next write → "No Profile" → one-click re-pick.
+        await vscode.workspace.fs.delete(goneUri);
+        await bindFile(testRoot, 'firmware/stays.hex', 'profile_1');
+        assert.strictEqual(await boundProfileId(testRoot, 'firmware/gone.hex'), null, 'pruned on next write; re-pick from dropdown');
     });
 });
 

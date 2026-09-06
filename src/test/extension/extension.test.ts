@@ -28,6 +28,11 @@ suite('HexScope Extension', () => {
             'hexScope.copyAsCArray',
             'hexScope.copyAsAscii',
             'hexScope.copyRawRecord',
+            'hexScope.selectProfile',
+            'hexScope.newProfile',
+            'hexScope.duplicateProfile',
+            'hexScope.renameProfile',
+            'hexScope.deleteProfile',
         ];
 
         for (const cmd of expected) {
