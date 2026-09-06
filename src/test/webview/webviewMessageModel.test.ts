@@ -206,6 +206,28 @@ labels: [],
         assert.strictEqual(update.invalidations.endianChanged, true);
     });
 
+    test('profilesState update returns the profileState field so the dropdown re-renders', () => {
+        const update = applyProviderMessageToModel({
+            type: 'profilesState',
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+
+        assert.deepStrictEqual(S.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+        // Regression: without `profileState` in the update, the toolbar select is
+        // never re-rendered and a freshly created profile cannot be selected.
+        assert.deepStrictEqual(update.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+    });
+
     test('endianOrDefault is the shared single normalizer (defaults to le)', () => {
         assert.strictEqual(endianOrDefault('be'), 'be');
         assert.strictEqual(endianOrDefault('le'), 'le');

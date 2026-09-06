@@ -101,12 +101,16 @@ function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate
 }
 
 function applyProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): WebviewModelUpdate {
-    S.profileState = {
+    const profileState = {
         profiles: Array.isArray(msg.profiles) ? msg.profiles : [],
         current: msg.current,
         boundFileCount: typeof msg.boundFileCount === 'number' ? msg.boundFileCount : 0,
     };
-    return { invalidations: {} };
+    S.profileState = profileState;
+    // Returning the `profileState` update field is what triggers the dropdown
+    // re-render effect; without it the toolbar select keeps its stale options
+    // (newly created profiles never appear and can't be selected).
+    return { profileState, invalidations: {} };
 }
 
 function applyIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): WebviewModelUpdate {
