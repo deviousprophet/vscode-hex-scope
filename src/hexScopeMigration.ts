@@ -228,7 +228,7 @@ async function ensureProfileLegacy(
         activeChecks: (index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles)) as ProfileRecord['activeChecks'],
         labels: index.labels as ProfileRecord['labels'],
         segmentNames: index.segmentNames,
-        pins: index.pins as ProfileRecord['pins'],
+        structPins: index.pins as ProfileRecord['structPins'],
         endian: index.endian,
     });
     return profileId;
@@ -303,7 +303,7 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
         ...emptyProfileRecord(profileId, name),
         labels: arrayOrEmpty(legacy.labels) as ProfileRecord['labels'],
         segmentNames: plainStringRecord(legacy.segmentNames),
-        pins: arrayOrEmpty(legacy.pins) as ProfileRecord['pins'],
+        structPins: arrayOrEmpty(legacy.pins) as ProfileRecord['structPins'],
         activeChecks: normalizeChecks(legacy.checks) as ProfileRecord['activeChecks'],
         endian: legacy.endian === 'be' ? 'be' : 'le',
     };

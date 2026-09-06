@@ -688,7 +688,7 @@ export class HexEditorSession {
                 type: 'perFileDataChange',
                 labels: p.labels,
                 segmentNames: p.segmentNames,
-                pins: p.pins,
+                pins: p.structPins,
                 endian: p.endian,
                 activeChecks: p.activeChecks,
             });
@@ -763,7 +763,7 @@ export class HexEditorSession {
                 labels: profileData.labels,
                 segmentNames: profileData.segmentNames,
                 structs: structDefs,
-                structPins: profileData.pins,
+                structPins: profileData.structPins,
                 endian: profileData.endian,
                 activeChecks: profileData.activeChecks,
                 profile: { profiles: allProfiles, current: bound, boundFileCount: boundCount },
@@ -942,7 +942,7 @@ export class HexEditorSession {
                         structDeletionDeclined = false;
                         return;
                     }
-                    await withBoundProfile(current => ({ ...current, pins: msg.pins }));
+                    await withBoundProfile(current => ({ ...current, structPins: msg.pins }));
                 });
             },
             saveIntegrityChecks: async msg => {
@@ -1444,7 +1444,7 @@ export async function collectStructDeletionUsage(
     let pins = 0;
     const profileIds: string[] = [];
     for (const rec of await collectProfileRecords(root)) {
-        const count = rec.pins.filter(pin => target.has(pin.structId)).length;
+        const count = rec.structPins.filter(pin => target.has(pin.structId)).length;
         if (count > 0) {
             pins += count;
             profileIds.push(rec.id);
@@ -1460,8 +1460,8 @@ export async function stripDeletedStructPins(root: string, deletedIds: string[])
     const target = new Set(deletedIds);
     const records = await collectProfileRecords(root);
     const next = records.map(rec => {
-        const stripped = rec.pins.filter(pin => !target.has(pin.structId));
-        return stripped.length === rec.pins.length ? rec : { ...rec, pins: stripped };
+const stripped = rec.structPins.filter(pin => !target.has(pin.structId));
+return stripped.length === rec.structPins.length ? rec : { ...rec, structPins: stripped };
     });
     if (next.some((rec, i) => rec !== records[i])) {
         await writeJson(profilesJsonUri(root), withEnvelope(normalizeProfilesRegistry(next).value));
@@ -1528,7 +1528,7 @@ async function revertDeclinedStructDeletion(
         type: 'perFileDataChange',
         labels: rec.labels,
         segmentNames: rec.segmentNames,
-        pins: rec.pins,
+        pins: rec.structPins,
         endian: rec.endian,
         activeChecks: rec.activeChecks,
     });

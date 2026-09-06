@@ -40,7 +40,7 @@ suite('hexScope schemas — positive fixtures', () => {
                 name: 'Boot',
                 labels: [{ id: 'l1', name: 'Boot', startAddress: 0, length: 256, color: '#ff0000', hidden: true }],
                 segmentNames: { '0': 'Boot' },
-                pins: [{
+                structPins: [{
                     id: 'p1',
                     structId: 's1',
                     addr: 0,
@@ -56,7 +56,7 @@ suite('hexScope schemas — positive fixtures', () => {
                 },
                 endian: 'be',
             },
-            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' },
+            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' },
         ];
         assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
@@ -65,7 +65,7 @@ suite('hexScope schemas — positive fixtures', () => {
         const { schema } = loadSchema('profiles.schema.json');
         // JSON Schema uniqueItems compares item equality; id/name uniqueness
         // beyond exact duplicates is enforced at runtime by normalizeProfilesRegistry.
-        const record = { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' };
+        const record = { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' };
         const data = [record, { ...record, labels: [] }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
@@ -112,7 +112,7 @@ suite('hexScope schemas — positive fixtures', () => {
     test('integrity checks nested in a profile accept full configs', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{
-            id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, pins: [], endian: 'le',
+            id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, structPins: [], endian: 'le',
             activeChecks: {
                 schemaVersion: 1,
                 checks: [
@@ -135,7 +135,7 @@ suite('hexScope schemas — negative cases', () => {
 
     test('bad endian fails profiles.json', () => {
         const { schema } = loadSchema('profiles.schema.json');
-        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'big' }];
+        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'big' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 

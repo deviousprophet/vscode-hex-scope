@@ -11,7 +11,7 @@ to `.hexscope/` data.
 ```text
 .hexscope/
 ├── structs.json          # workspace-wide StructDef[] pool (shared by all files)
-├── profiles.json         # whole profile registry: [{ id, name, pins, activeChecks, endian, segmentNames, labels }]
+├── profiles.json         # whole profile registry: [{ id, name, structPins, activeChecks, endian, segmentNames, labels }]
 ├── bindings.json         # [{ fileKey, profileId }] — file's only file-specific artifact
 ├── schemas/              # seeded copies of the JSON Schemas (editor + agent contract)
 └── scripts/              # unchanged (script runner panes)
@@ -102,7 +102,7 @@ One-time, per workspace root, on first panel open (before the first
    every `structs.json` is merged into the workspace `structs.json` pool
    (deduped by struct id/name via `structMigration`); every `index.json`
    (+ `integrity.json` template) becomes one registry profile + one binding,
-   preserving labels/pins/endian/activeChecks/segmentNames. The legacy trees are
+   preserving labels/structPins/endian/activeChecks/segmentNames. The legacy trees are
    left in place so a reverted release still finds committed legacy data;
    Memento markers + per-dir `.converted` markers make the migration idempotent.
 

@@ -254,7 +254,7 @@ suite('hexScopeStorage — JsonStore slots', () => {
             version: 1,
             data: [{
                 id: 'profile_1', name: 'Boot',
-                labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le',
+                labels: [], segmentNames: {}, structPins: [], activeChecks: null, endian: 'le',
             }],
         }));
         const store = registryStoreFor(testRoot);
@@ -466,7 +466,7 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         await writeText(uri, JSON.stringify({
             $schema: 'schemas/profiles.schema.json',
             version: 1,
-            data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, pins: [], activeChecks: null, endian: 'le' }],
+            data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: null, endian: 'le' }],
         }));
         const store = registryStoreFor(testRoot);
         await store.load();
@@ -636,7 +636,7 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.ok(profile, 'bound profile exists in the single-file registry');
         assert.strictEqual(profile!.labels.length, 1, 'labels migrated');
         assert.deepStrictEqual(profile!.segmentNames, { '0': 'Boot' });
-        assert.strictEqual(profile!.pins.length, 1, 'pins migrated');
+        assert.strictEqual(profile!.structPins.length, 1, 'pins migrated');
         assert.deepStrictEqual(profile!.activeChecks, { schemaVersion: 1, checks: [] });
         assert.strictEqual(profile!.endian, 'be');
 
@@ -876,8 +876,8 @@ suite('hexScopeSession — struct-storage helpers', () => {
         return { id, structId, addr: 0, name: id.toUpperCase() };
     }
 
-    function seedProfile(id: string, name: string, pins: Array<{ id: string; structId: string; addr: number; name: string }>): Promise<void> {
-        return writeProfileRecord(testRoot, { ...emptyProfileRecord(id, name), pins });
+    function seedProfile(id: string, name: string, structPins: Array<{ id: string; structId: string; addr: number; name: string }>): Promise<void> {
+        return writeProfileRecord(testRoot, { ...emptyProfileRecord(id, name), structPins });
     }
 
     test('collectStructDeletionUsage scans every profile, not just the bound one', async () => {
@@ -897,9 +897,9 @@ suite('hexScopeSession — struct-storage helpers', () => {
         await stripDeletedStructPins(testRoot, ['s_gone']);
 
         const recA = await readProfileRecord(testRoot, 'profile_1');
-        assert.deepStrictEqual(recA?.pins.map(p => p.id), ['a2'], 'profile A orphaned pin stripped, kept pin retained');
+        assert.deepStrictEqual(recA?.structPins.map(p => p.id), ['a2'], 'profile A orphaned pin stripped, kept pin retained');
         const recB = await readProfileRecord(testRoot, 'profile_2');
-        assert.deepStrictEqual(recB?.pins.map(p => p.id), ['b1'], 'profile B untouched');
+        assert.deepStrictEqual(recB?.structPins.map(p => p.id), ['b1'], 'profile B untouched');
     });
 
     test('applyStructDeletion: plain edit / no referencing pins write straight through; confirmed cascade strips across profiles; declined writes nothing', async () => {
@@ -946,9 +946,9 @@ suite('hexScopeSession — struct-storage helpers', () => {
         assert.deepStrictEqual(poolAfter.data.map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool entry removed on confirm');
         freshPool.dispose();
         const recA = await readProfileRecord(testRoot, 'profile_1');
-        assert.deepStrictEqual(recA?.pins, [], 'profile A orphaned pin stripped');
+        assert.deepStrictEqual(recA?.structPins, [], 'profile A orphaned pin stripped');
         const recB = await readProfileRecord(testRoot, 'profile_2');
-        assert.deepStrictEqual(recB?.pins.map(p => p.id), ['b2'], 'profile B orphaned pin stripped, unrelated kept');
+        assert.deepStrictEqual(recB?.structPins.map(p => p.id), ['b2'], 'profile B orphaned pin stripped, unrelated kept');
 
         // Declined deletion → no writes at all, nothing stripped.
         await seedProfile('profile_3', 'C', [pin('c1', 'Pkt')]);
@@ -959,7 +959,7 @@ suite('hexScopeSession — struct-storage helpers', () => {
         const poolBeforeDecline = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
         assert.deepStrictEqual(poolBeforeDecline.data.map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool untouched on decline');
         const recC = await readProfileRecord(testRoot, 'profile_3');
-        assert.deepStrictEqual(recC?.pins.map(p => p.id), ['c1'], 'affected profile pins untouched on decline');
+        assert.deepStrictEqual(recC?.structPins.map(p => p.id), ['c1'], 'affected profile pins untouched on decline');
         declPool.dispose();
     });
 

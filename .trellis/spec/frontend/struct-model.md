@@ -46,7 +46,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 - `fieldsToText` and `parseStructText` round-trip supported fields; `structToC` emits padding comments/fields that explain aligned vs packed layout.
 - Pin address input is full hexadecimal. Pin create/edit/remove functions are immutable and IDs are injected.
 - Pointer-created pins reuse an existing target pin when identity matches, add source metadata once, and otherwise create a unique name.
-- Deleting a struct type is safe across the shared workspace pool: the host scans `pins[]` in **every** registry profile (not just the open file's bound profile); when any pin references the type, a modal confirm names the pin count + affected-profile count, and on confirm the pool entry **and** the orphaned pins are removed from every affected profile. A declined delete writes nothing (webview is reverted).
+- Deleting a struct type is safe across the shared workspace pool: the host scans `structPins[]` in **every** registry profile (not just the open file's bound profile); when any pin references the type, a modal confirm names the pin count + affected-profile count, and on confirm the pool entry **and** the orphaned pins are removed from every affected profile. A declined delete writes nothing (webview is reverted).
 
 ### 4. Validation & Error Matrix
 

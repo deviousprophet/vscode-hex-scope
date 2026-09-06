@@ -38,7 +38,7 @@ async function renameProfileRecord(root, profileId, name): Promise<void>;
 async function migrateLegacyProfileDirs(root): Promise<void>;               // merge .hexscope/profiles/<id>/profile.json dirs into the array (dedupe, order-preserving)
 export async function seedSchemaCopies(root): Promise<void>;                // writeIfMissing the 3 bundled schemas
 
-interface ProfileRecord { id; name; pins: StructPin[]; activeChecks: IntegrityCheckSet;
+interface ProfileRecord { id; name; structPins: StructPin[]; activeChecks: IntegrityCheckSet;
                           endian: 'le'|'be'; segmentNames: SegmentNameOverrides; labels: SegmentLabel[]; }
 interface Binding { fileKey: string /* workspace-relative posix */; profileId: string; }
 function emptyProfileRecord(id, name): ProfileRecord;

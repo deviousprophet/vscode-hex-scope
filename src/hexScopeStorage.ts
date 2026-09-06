@@ -41,11 +41,11 @@ const SCHEMA_FILES: ReadonlyArray<{ file: ProfileJsonName | 'structs.json' | 'bi
 
 // ── Three-tier domain types ──────────────────────────────────────
 
-/** A named annotation bundle (pins/checks/endian/labels/segmentNames). Not file-owned. */
+/** A named annotation bundle (structPins/checks/endian/labels/segmentNames). Not file-owned. */
 export interface ProfileRecord {
     id: string;
     name: string;
-    pins: StructPin[];
+    structPins: StructPin[];
     activeChecks: IntegrityCheckSet;
     endian: HexScopeEndian;
     segmentNames: SegmentNameOverrides;
@@ -76,7 +76,7 @@ export function structPoolJsonUri(root: string): vscode.Uri {
 }
 
 export function emptyProfileRecord(id: string, name: string): ProfileRecord {
-    return { id, name, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', segmentNames: {}, labels: [] };
+    return { id, name, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', segmentNames: {}, labels: [] };
 }
 
 // ── Version envelope ──────────────────────────────────────────────
@@ -338,11 +338,16 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
         name: typeof candidate.name === 'string' ? candidate.name : fallback.name,
         labels: arrayOrEmpty(candidate.labels, []) as SegmentLabel[],
         segmentNames: plainStringRecord(candidate.segmentNames),
-        pins: arrayOrEmpty(candidate.pins, []) as StructPin[],
+        structPins: candidateStructPins(candidate),
         activeChecks: checkSetOrDefault(candidate.activeChecks),
         endian: endianOrDefault(candidate.endian),
     };
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
+}
+
+/** Read the structPins field; tolerate the pre-rename `pins` key on existing files. */
+function candidateStructPins(candidate: Record<string, unknown>): StructPin[] {
+    return arrayOrEmpty(candidate.structPins ?? candidate.pins, []) as StructPin[];
 }
 
 /** Normalize the whole registry array: drop malformed records, dedupe by
