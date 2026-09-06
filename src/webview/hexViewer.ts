@@ -1237,7 +1237,7 @@ function renderProfileDropdown(): void {
     const { profiles, current, boundFileCount } = S.profileState;
     const currentNameHtml = esc(profileNameFor(profiles, current));
     const countHtml = esc(String(boundFileCount));
-    const optionsHtml = profileDropdownOptions(profiles).join('');
+    const optionsHtml = profileDropdownOptions(profiles, current).join('');
     host.innerHTML = `
         <label class="profile-label" for="profile-select" title="Select the annotation profile bound to this file">Profile</label>
         <select id="profile-select" class="profile-select" aria-label="Profile">
@@ -1254,9 +1254,10 @@ function profileNameFor(profiles: Array<{ id: string; name: string }>, current: 
     return profiles.find(p => p.id === current)?.name ?? 'No Profile';
 }
 
-function profileDropdownOptions(profiles: Array<{ id: string; name: string }>): string[] {
+function profileDropdownOptions(profiles: Array<{ id: string; name: string }>, current: string | null): string[] {
+    const noProfileAttr = current === null ? ' disabled' : '';
     return [
-        '<option value="" data-kind="none">No Profile</option>',
+        `<option value="" data-kind="none"${noProfileAttr}>No Profile</option>`,
         '<option value="__sep__" disabled>────────</option>',
         ...profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`),
         '<option value="__sep2__" disabled>────</option>',
@@ -1281,8 +1282,9 @@ function onProfileSelect(select: HTMLSelectElement, current: string | null): voi
 }
 
 function handleNewProfile(select: HTMLSelectElement, current: string | null): void {
-    const name = window.prompt('New profile name');
-    if (isNonEmpty(name)) { postProviderMessage({ type: 'newProfile', name: name.trim() }); }
+    // VS Code webviews block window.prompt; the name is asked host-side via
+    // vscode.window.showInputBox (hexEditorSession newProfile handler).
+    postProviderMessage({ type: 'newProfile', name: null });
     resetSelectToCurrent(select, current);
 }
 
@@ -1292,10 +1294,6 @@ function resetSelectToCurrent(select: HTMLSelectElement, current: string | null)
 
 function selectionProfileId(value: string): string | null {
     return value === '' ? null : value;
-}
-
-function isNonEmpty(value: string | null): value is string {
-    return value !== null && value.trim().length > 0;
 }
 
 function setupRenderedUi(): void {

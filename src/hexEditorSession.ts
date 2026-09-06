@@ -921,13 +921,15 @@ export class HexEditorSession {
                 void broadcastProfilesState();
             },
             newProfile: async msg => {
-                const name = typeof msg.name === 'string' ? msg.name.trim() : '';
+                const name = await askProfileName(typeof msg.name === 'string' ? msg.name.trim() : '');
                 if (!name) { return; }
-                const pid = await createProfileFromName(root, name);
-                await bindFile(root, relPath, pid);
-                profileId = pid;
-                buildProfileStores(pid);
-                await profileStore?.load(true);
+                await enqueuePerFileOp(async () => {
+                    const pid = await createProfileFromName(root, name);
+                    await bindFile(root, relPath, pid);
+                    profileId = pid;
+                    buildProfileStores(pid);
+                    await profileStore?.load(true);
+                });
                 broadcastPerFileData();
                 void broadcastProfilesState();
             },
@@ -1305,6 +1307,19 @@ export async function pruneBindings(root: string, bindings: ReadonlyArray<{ file
         }
     }
     return out;
+}
+
+/** Resolve a new profile name: payload name, else a host input box (webviews block window.prompt). */
+async function askProfileName(prompted: string): Promise<string | null> {
+    if (prompted) { return prompted; }
+    const input = await vscode.window.showInputBox({
+        prompt: 'New profile name',
+        placeHolder: 'e.g. Bootloader v3',
+        validateInput: value => value && value.trim() ? undefined : 'Profile name is required.',
+    });
+    if (input === undefined) { return null; }
+    const name = input.trim();
+    return name ? name : null;
 }
 
 /** List registry profiles as { id, name }. */

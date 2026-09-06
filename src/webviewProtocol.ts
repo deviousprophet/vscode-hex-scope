@@ -70,7 +70,7 @@ export type WebviewToProviderMessage =
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }
     | { type: 'saveEndian'; endian: HexScopeEndian }
     | { type: 'selectProfile'; profileId: string | null }
-    | { type: 'newProfile'; name: string }
+    | { type: 'newProfile'; name: string | null }
     | { type: 'createIntegrityProfile'; profile: IntegrityProfile }
     | { type: 'updateIntegrityProfile'; profile: IntegrityProfile }
     | { type: 'renameIntegrityProfile'; id: string; name: string }
