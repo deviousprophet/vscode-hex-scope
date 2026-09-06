@@ -29,17 +29,20 @@ import {
     createProfileRegistryEntry,
     emptyProfileRecord,
     hexScopeProfilesRegistryDir,
+    listProfileRecords,
     nextProfileOrdinal,
     normalizeBindings,
     normalizeProfileRecord,
     perFileRelativePath,
     profileRegistryJsonUri,
     readJson,
+    readProfileRecord,
     resolveHexScopeRoot,
     resolveProfileDir,
     structPoolJsonUri,
     withEnvelope,
     writeJson,
+    type Binding,
     type ProfileRecord,
     JsonStore,
 } from './hexScopeStorage';
@@ -347,83 +350,76 @@ export class HexEditorSession {
 
     /** Deep-copy an existing profile into a new one. */
     public static async duplicateProfileCommand(): Promise<void> {
-        const root = HexEditorSession.activeRoot();
-        if (!root) { return; }
-        const current = await listProfiles(root);
-        if (current.length === 0) {
-            await vscode.window.showInformationMessage('HexScope: no profiles to duplicate.');
-            return;
-        }
-        const picked = await vscode.window.showQuickPick(
-            current.map(p => ({ label: p.name, id: p.id })),
-            { title: 'Duplicate Profile', placeHolder: 'Pick the profile to copy' },
-        );
-        if (!picked) { return; }
-        const src = await readRegistryProfile(root, picked.id);
+        const ctx = await HexEditorSession.pickProfileForAction({
+            title: 'Duplicate Profile',
+            placeHolder: 'Pick the profile to copy',
+            emptyMessage: 'HexScope: no profiles to duplicate.',
+        });
+        if (!ctx) { return; }
+        const { root, pick } = ctx;
+        const src = await readProfileRecord(root, pick.id);
         if (!src) { return; }
         const newName = await vscode.window.showInputBox({
             title: 'Duplicate Profile',
             prompt: 'Name for the copy',
             value: `${src.name} Copy`,
         });
-        if (!newName || !newName.trim()) { return; }
-        const id = await createProfileFromName(root, newName.trim());
-        const dir = await resolveProfileDir(root, id);
-        if (dir) {
-            await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...src, id, name: newName.trim() }));
-        }
+        const trimmed = trimOrNull(newName);
+        if (!trimmed) { return; }
+        const id = await createProfileFromName(root, trimmed);
+        await writeProfileCopy(root, src, id, trimmed);
         await HexEditorSession.refreshActiveProfileState();
     }
 
     /** Rename a registry profile. */
     public static async renameProfileCommand(): Promise<void> {
-        const root = HexEditorSession.activeRoot();
-        if (!root) { return; }
-        const current = await listProfiles(root);
-        const picked = await vscode.window.showQuickPick(
-            current.map(p => ({ label: p.name, id: p.id })),
-            { title: 'Rename Profile', placeHolder: 'Pick the profile to rename' },
-        );
-        if (!picked) { return; }
-        const rec = await readRegistryProfile(root, picked.id);
+        const ctx = await HexEditorSession.pickProfileForAction({
+            title: 'Rename Profile',
+            placeHolder: 'Pick the profile to rename',
+            emptyMessage: '',
+        });
+        if (!ctx) { return; }
+        const { root, pick } = ctx;
+        const rec = await readProfileRecord(root, pick.id);
         const newName = await vscode.window.showInputBox({
             title: 'Rename Profile',
             prompt: 'New name',
-            value: rec?.name ?? picked.label,
+            value: renameDefaultValue(rec, pick.label),
         });
-        if (!newName || !newName.trim()) { return; }
-        const dir = await resolveProfileDir(root, picked.id);
-        if (dir) {
-            await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...(rec ?? emptyProfileRecord(picked.id, picked.label)), name: newName.trim() }));
-        }
+        const trimmed = trimOrNull(newName);
+        if (!trimmed) { return; }
+        await writeProfileName(root, pick.id, rec, pick.label, trimmed);
         await HexEditorSession.refreshActiveProfileState();
     }
 
     /** Delete a registry profile (bindings to it are cleared; files revert to "No Profile"). */
     public static async deleteProfileCommand(): Promise<void> {
-        const root = HexEditorSession.activeRoot();
-        if (!root) { return; }
-        const current = await listProfiles(root);
-        if (current.length === 0) {
-            await vscode.window.showInformationMessage('HexScope: no profiles to delete.');
-            return;
-        }
-        const picked = await vscode.window.showQuickPick(
-            current.map(p => ({ label: p.name, id: p.id })),
-            { title: 'Delete Profile', placeHolder: 'Pick the profile to delete' },
-        );
-        if (!picked) { return; }
-        const bound = await bindingsUsing(root, picked.id);
-        if (bound.length > 0) {
-            const confirm = await vscode.window.showWarningMessage(
-                `Profile “${picked.label}” is bound to ${bound.length} file${bound.length === 1 ? '' : 's'}. Delete it anyway?`,
-                { modal: true },
-                'Delete',
-            );
-            if (confirm !== 'Delete') { return; }
-        }
-        await deleteRegistryProfile(root, picked.id);
+        const ctx = await HexEditorSession.pickProfileForAction({
+            title: 'Delete Profile',
+            placeHolder: 'Pick the profile to delete',
+            emptyMessage: 'HexScope: no profiles to delete.',
+        });
+        if (!ctx) { return; }
+        const { root, pick } = ctx;
+        const bound = await bindingsUsing(root, pick.id);
+        if (!(await confirmDeleteBoundProfile(pick, bound.length))) { return; }
+        await deleteRegistryProfile(root, pick.id);
         await HexEditorSession.refreshActiveProfileState();
+    }
+
+    /** Pick an action profile from the registry; null when cancelled or empty. */
+    private static async pickProfileForAction(
+        options: { title: string; placeHolder: string; emptyMessage: string },
+    ): Promise<{ root: string; pick: { id: string; label: string } } | null> {
+        const root = HexEditorSession.activeRoot();
+        if (!root) { return null; }
+        const current = await listProfiles(root);
+        if (current.length === 0) { return notifyEmptyProfileList(options.emptyMessage); }
+        const pick = await vscode.window.showQuickPick(
+            current.map(p => ({ label: p.name, id: p.id })),
+            { title: options.title, placeHolder: options.placeHolder },
+        );
+        return pick ? { root, pick } : null;
     }
 
     constructor(
@@ -831,6 +827,31 @@ export class HexEditorSession {
 
         type WebviewMessageHandler = (msg: any) => Promise<void>;
 
+        /** Apply a dropdown selection: write binding (or unbind) and re-key the profile slot. */
+        const applyProfileSelection = async (target: string | null): Promise<void> => {
+            if (target === null) {
+                await unbindFile(root, relPath);
+                profileId = null;
+                buildProfileStores(null);
+            } else {
+                const bound = await boundProfileId(root, relPath);
+                if (bound !== target) {
+                    const current = profileStore?.get();
+                    // Flush current edits into the old profile before switching —
+                    // only when actually bound (an unbound file's pending edits
+                    // are in-memory-only; flushing would materialize a new
+                    // auto-named profile instead of the picked target).
+                    if (shouldFlushBeforeSwitch(current, bound, profileId)) {
+                        await profileStore?.flush();
+                    }
+                    await bindFile(root, relPath, target);
+                    profileId = target;
+                    buildProfileStores(target);
+                }
+            }
+            await profileStore?.load(true);
+        };
+
         const currentFileName = () => document.uri.fsPath.split(/[\/\\]/).pop();
         const writeRawAndReparse = async (nextRaw: string): Promise<{ result: CompactParseResult; generation: number }> => {
             await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(nextRaw));
@@ -895,29 +916,7 @@ export class HexEditorSession {
             selectProfile: async msg => {
                 // Immediate apply: write binding, refresh overlays + display.
                 const target = typeof msg.profileId === 'string' ? msg.profileId : null;
-                await enqueuePerFileOp(async () => {
-                    if (target === null) {
-                        await unbindFile(root, relPath);
-                        profileId = null;
-                        buildProfileStores(null);
-                    } else {
-                        const bound = await boundProfileId(root, relPath);
-                        if (bound !== target) {
-                            const current = profileStore?.get();
-                            // Flush current edits into the old profile before switching —
-                            // only when actually bound (an unbound file's pending edits
-                            // are in-memory-only; flushing would materialize a new
-                            // auto-named profile instead of the picked target).
-                            if (current && profileId === bound && bound !== null) {
-                                await profileStore?.flush();
-                            }
-                            await bindFile(root, relPath, target);
-                            profileId = target;
-                            buildProfileStores(target);
-                        }
-                    }
-                    await profileStore?.load(true);
-                });
+                await enqueuePerFileOp(() => applyProfileSelection(target));
                 broadcastPerFileData();
                 void broadcastProfilesState();
             },
@@ -1162,6 +1161,11 @@ function sameProfileName(left: string, right: string): boolean {
     return left.toLocaleLowerCase() === right.toLocaleLowerCase();
 }
 
+/** Flush the bound profile before switching only when it is genuinely bound. */
+function shouldFlushBeforeSwitch(current: ProfileRecord | null | undefined, bound: string | null, profileId: string | null): boolean {
+    return !!current && profileId === bound && bound !== null;
+}
+
 function renameIntegrityProfiles(
     profiles: IntegrityProfile[],
     rawId: unknown,
@@ -1194,7 +1198,7 @@ let workspaceStructPool: StructDef[] = [];
  *  whole extension-host lifetime (not per panel), so the workspace-level
  *  rename/delete handlers survive every panel closing and reopening. */
 const bindingLifecycles = new Map<string, vscode.Disposable>();
-export function ensureBindingLifecycle(root: string): void {
+function ensureBindingLifecycle(root: string): void {
     if (!bindingLifecycles.has(root)) {
         bindingLifecycles.set(root, attachBindingFileLifecycle(root));
     }
@@ -1207,16 +1211,54 @@ export async function createBoundProfile(root: string, relPath: string): Promise
     return id;
 }
 
-export function profileNameFromRel(relPath: string): string {
+function profileNameFromRel(relPath: string): string {
     return path.basename(relPath, path.extname(relPath)) || 'Firmware';
 }
 
 /** Create a blank registry profile with the given name. Returns the new id. */
-export async function createProfileFromName(root: string, name: string): Promise<string> {
+async function createProfileFromName(root: string, name: string): Promise<string> {
     const ordinal = await nextProfileOrdinal(root);
     const id = `profile_${ordinal}`;
     await createProfileRegistryEntry(root, id, name);
     return id;
+}
+
+function trimOrNull(value: string | undefined): string | null {
+    return value && value.trim() ? value.trim() : null;
+}
+
+function renameDefaultValue(rec: ProfileRecord | null, label: string): string {
+    return rec?.name ?? label;
+}
+
+async function notifyEmptyProfileList(message: string): Promise<null> {
+    if (message) { await vscode.window.showInformationMessage(message); }
+    return null;
+}
+
+/** Write the duplicated profile record (id + name swapped, rest copied). */
+async function writeProfileCopy(root: string, source: ProfileRecord, id: string, name: string): Promise<void> {
+    const dir = await resolveProfileDir(root, id);
+    if (!dir) { return; }
+    await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...source, id, name }));
+}
+
+/** Write a renamed profile record (label is the id fallback for the name). */
+async function writeProfileName(root: string, profileId: string, rec: ProfileRecord | null, label: string, name: string): Promise<void> {
+    const dir = await resolveProfileDir(root, profileId);
+    if (!dir) { return; }
+    await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...(rec ?? emptyProfileRecord(profileId, label)), name }));
+}
+
+/** Confirm deleting a profile that is bound to files; true when safe or confirmed. */
+async function confirmDeleteBoundProfile(pick: { id: string; label: string }, boundCount: number): Promise<boolean> {
+    if (boundCount === 0) { return true; }
+    const confirm = await vscode.window.showWarningMessage(
+        `Profile “${pick.label}” is bound to ${boundCount} file${boundCount === 1 ? '' : 's'}. Delete it anyway?`,
+        { modal: true },
+        'Delete',
+    );
+    return confirm === 'Delete';
 }
 
 /** Resolve the bound profile id for a file, or null. Prunes dead bindings on read. */
@@ -1266,21 +1308,9 @@ export async function pruneBindings(root: string, bindings: ReadonlyArray<{ file
 }
 
 /** List registry profiles as { id, name }. */
-export async function listProfiles(root: string): Promise<Array<{ id: string; name: string }>> {
-    const container = vscode.Uri.file(hexScopeProfilesRegistryDir(root));
-    let entries: [string, vscode.FileType][] = [];
-    try { entries = await vscode.workspace.fs.readDirectory(container); } catch { return []; }
-    const out: Array<{ id: string; name: string }> = [];
-    for (const [name, type] of entries) {
-        if (type !== vscode.FileType.Directory) { continue; }
-        const dir = await resolveProfileDir(root, name);
-        if (!dir) { continue; }
-        const read = await readJson(profileRegistryJsonUri(dir));
-        if (read.status !== 'ok') { continue; }
-        const rec = normalizeProfileRecord(read.value, emptyProfileRecord(name, name)).value;
-        out.push({ id: rec.id || name, name: rec.name });
-    }
-    return out.sort((a, b) => a.name.localeCompare(b.name));
+async function listProfiles(root: string): Promise<Array<{ id: string; name: string }>> {
+    const records = await listProfileRecords(root);
+    return records.map(rec => ({ id: rec.id, name: rec.name })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Count bindings pointing at a profile. */
@@ -1290,17 +1320,8 @@ export async function bindingsUsing(root: string, profileId: string): Promise<Ar
     return normalizeBindings(read.value).value.filter(b => b.profileId === profileId).map(b => ({ fileKey: b.fileKey }));
 }
 
-/** Read a registry profile record; null when missing. */
-export async function readRegistryProfile(root: string, profileId: string): Promise<ProfileRecord | null> {
-    const dir = await resolveProfileDir(root, profileId);
-    if (!dir) { return null; }
-    const read = await readJson(profileRegistryJsonUri(dir));
-    if (read.status !== 'ok') { return null; }
-    return normalizeProfileRecord(read.value, emptyProfileRecord(profileId, profileId)).value;
-}
-
 /** Sync the registry to a webview IntegrityProfile[] list (create/update/delete). */
-export async function syncRegistryToIntegrityProfiles(root: string, next: IntegrityProfile[]): Promise<void> {
+async function syncRegistryToIntegrityProfiles(root: string, next: IntegrityProfile[]): Promise<void> {
     const current = await registryAsIntegrityProfiles(root);
     const currentIds = new Set(current.map(p => p.id));
     const nextIds = new Set(next.map(p => p.id));
@@ -1313,41 +1334,40 @@ export async function syncRegistryToIntegrityProfiles(root: string, next: Integr
 }
 
 /** List registry profiles as IntegrityProfile[] (webview library shape). */
-export async function registryAsIntegrityProfiles(root: string): Promise<IntegrityProfile[]> {
+async function registryAsIntegrityProfiles(root: string): Promise<IntegrityProfile[]> {
     const list = await listProfiles(root);
-    const out: IntegrityProfile[] = [];
-    for (const { id } of list) {
-        const rec = await readRegistryProfile(root, id);
-        out.push({ schemaVersion: 1, id, name: rec?.name ?? id, checks: rec?.activeChecks.checks ?? [] });
-    }
-    return out;
+    return Promise.all(list.map(async ({ id }) => {
+        const rec = await readProfileRecord(root, id);
+        return { schemaVersion: 1, id, name: rec?.name ?? id, checks: rec?.activeChecks.checks ?? [] };
+    }));
 }
 
 /** Upsert a profile's name + activeChecks (preserving pins/labels/endian/segmentNames). */
-export async function upsertRegistryProfile(root: string, profileId: string, name: string, checks: IntegrityCheckSet['checks']): Promise<void> {
-    const existing = await readRegistryProfile(root, profileId);
+async function upsertRegistryProfile(root: string, profileId: string, name: string, checks: IntegrityCheckSet['checks']): Promise<void> {
     const dir = await resolveProfileDir(root, profileId);
     if (dir) {
-        await writeJson(profileRegistryJsonUri(dir), withEnvelope({
-            ...(existing ?? emptyProfileRecord(profileId, name)),
-            name,
-            activeChecks: { schemaVersion: 1, checks },
-        }));
+        const rec = await readProfileRecord(root, profileId);
+        await writeProfileRecordWithChecks(root, dir, profileId, name, checks, rec);
         return;
     }
     await createProfileRegistryEntry(root, profileId, name);
     const newDir = await resolveProfileDir(root, profileId);
     if (newDir) {
-        const rec = await readRegistryProfile(root, profileId);
-        await writeJson(profileRegistryJsonUri(newDir), withEnvelope({
-            ...(rec ?? emptyProfileRecord(profileId, name)),
-            activeChecks: { schemaVersion: 1, checks },
-        }));
+        const rec = await readProfileRecord(root, profileId);
+        await writeProfileRecordWithChecks(root, newDir, profileId, name, checks, rec);
     }
 }
 
+async function writeProfileRecordWithChecks(root: string, dir: string, profileId: string, name: string, checks: IntegrityCheckSet['checks'], rec: ProfileRecord | null): Promise<void> {
+    await writeJson(profileRegistryJsonUri(dir), withEnvelope({
+        ...(rec ?? emptyProfileRecord(profileId, name)),
+        name,
+        activeChecks: { schemaVersion: 1, checks },
+    }));
+}
+
 /** Delete a registry profile + its bindings (bound files revert to "No Profile"). */
-export async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
+async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
     const dir = await resolveProfileDir(root, profileId);
     if (dir) {
         await vscode.workspace.fs.delete(vscode.Uri.file(dir), { recursive: true });
@@ -1361,7 +1381,7 @@ export async function deleteRegistryProfile(root: string, profileId: string): Pr
 }
 
 /** Load workspace struct pool (from store cache or disk); empty default when absent. */
-export async function loadWorkspaceStructs(
+async function loadWorkspaceStructs(
     profileStore: JsonStore<ProfileRecord>,
     structs: JsonStore<StructDef[]>,
 ): Promise<StructDef[]> {
@@ -1373,32 +1393,35 @@ export async function loadWorkspaceStructs(
 }
 
 /** Rewrite bindings on workspace rename (silent); remove on delete. */
-export function attachBindingFileLifecycle(root: string): vscode.Disposable {
+function attachBindingFileLifecycle(root: string): vscode.Disposable {
     const rename = vscode.workspace.onDidRenameFiles(async event => {
-        const relToRoot = (uri: vscode.Uri) => perFileRelativePath(root, uri);
-        const read = await readJson(bindingsJsonUri(root));
-        if (read.status !== 'ok') { return; }
-        const bindings = normalizeBindings(read.value).value;
+        const bindings = await readBindingsTable(root);
+        if (!bindings) { return; }
         let changed = false;
         const next = bindings.map(b => {
-            const match = event.files.find(f => relToRoot(f.oldUri) === b.fileKey);
-            if (match) { changed = true; return { ...b, fileKey: relToRoot(match.newUri) }; }
+            const match = event.files.find(f => perFileRelativePath(root, f.oldUri) === b.fileKey);
+            if (match) { changed = true; return { ...b, fileKey: perFileRelativePath(root, match.newUri) }; }
             return b;
         });
         if (changed) { await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next))); }
     });
     const del = vscode.workspace.onDidDeleteFiles(async event => {
-        const relToRoot = (uri: vscode.Uri) => perFileRelativePath(root, uri);
-        const read = await readJson(bindingsJsonUri(root));
-        if (read.status !== 'ok') { return; }
-        const bindings = normalizeBindings(read.value).value;
-        const deleted = new Set(event.files.map(f => relToRoot(f)));
+        const bindings = await readBindingsTable(root);
+        if (!bindings) { return; }
+        const deleted = new Set(event.files.map(f => perFileRelativePath(root, f)));
         const next = bindings.filter(b => !deleted.has(b.fileKey));
         if (next.length !== bindings.length) {
             await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next)));
         }
     });
     return new vscode.Disposable(() => { rename.dispose(); del.dispose(); });
+}
+
+/** Read + normalize the bindings table; null when missing/corrupt. */
+async function readBindingsTable(root: string): Promise<Binding[] | null> {
+    const read = await readJson(bindingsJsonUri(root));
+    if (read.status !== 'ok') { return null; }
+    return normalizeBindings(read.value).value;
 }
 
 function serializeParseResult(result: CompactParseResult, format: HexScopeFormat): WireParseResult {

@@ -18,12 +18,14 @@ import {
     bindingsJsonUri,
     createProfileRegistryEntry,
     emptyProfileRecord,
-    hexScopeProfilesRegistryDir,
+    listProfileRecords,
+    nextProfileOrdinal,
     normalizeBindings,
-    normalizeProfileRecord,
     perFileRelativePath,
     profileRegistryJsonUri,
+    readDirectorySafe,
     readJson,
+    readProfileRecord,
     resolveHexScopeRoot,
     resolveProfileDir,
     structPoolJsonUri,
@@ -118,44 +120,54 @@ async function migrateLegacyTree(root: string, uri: vscode.Uri, context: Migrati
     await migrateIntegrityTemplates(root, mementoLegacy.globalProfiles, []);
 
     const legacyContainer = vscode.Uri.file(path.join(root, '.hexscope', 'firmware_profiles'));
-    let entries: [string, vscode.FileType][] = [];
-    try { entries = await vscode.workspace.fs.readDirectory(legacyContainer); } catch { return; }
-
+    const entries = await readDirectorySafe(legacyContainer);
     for (const [name, type] of entries) {
         if (type !== vscode.FileType.Directory) { continue; }
-        const dir = path.join(legacyContainer.fsPath, name);
-
-        const indexRaw = await readJson(vscode.Uri.file(path.join(dir, 'index.json')));
-        if (indexRaw.status !== 'ok') { continue; }
-        const index = normalizeIndexPayload(indexRaw.value);
-        if (!index) { continue; }
-
-        // (a) merge structs.json into workspace pool
-        const structsRaw = await readJson(vscode.Uri.file(path.join(dir, 'structs.json')));
-        const legacyStructs = structsRaw.status === 'ok'
-            ? normalizeStructDefsValue(migrateStructDefinitions(structsRaw.value)).defs
-            : [];
-        await mergeIntoPool(root, legacyStructs);
-
-        // (b) integrity.json template registry → activeChecks seeds.
-        const integrityRaw = await readJson(vscode.Uri.file(path.join(dir, 'integrity.json')));
-        const legacyProfiles = integrityRaw.status === 'ok' ? normalizeIntegrityProfiles(integrityRaw.value) : [];
-
-        // Build one registry profile from the legacy index data (and preserve
-        // the legacy integrity template registry by folding its first profile's
-        // checks into activeChecks when the index had none).
-        const profileId = await ensureProfileLegacy(root, index, legacyProfiles, name);
-
-        // Binding: fileKey → profileId.
-        await bindFile(root, index.relPath, profileId);
-
-        // Remaining integrity templates become unbound registry profiles so no
-        // preset checks are lost (the dropdown can re-select them).
-        const extras = index.activeChecks.checks.length > 0 ? legacyProfiles : legacyProfiles.slice(1);
-        if (extras.length > 0) {
-            await migrateIntegrityTemplates(root, undefined, extras);
-        }
+        await migrateLegacyEntry(root, name, path.join(legacyContainer.fsPath, name));
     }
+}
+
+/** Convert one legacy firmware_profiles/<n> dir: pool + profile + binding. */
+async function migrateLegacyEntry(root: string, name: string, dir: string): Promise<void> {
+    const indexRaw = await readJson(vscode.Uri.file(path.join(dir, 'index.json')));
+    if (indexRaw.status !== 'ok') { return; }
+    const index = normalizeIndexPayload(indexRaw.value);
+    if (!index) { return; }
+
+    // (a) merge structs.json into workspace pool
+    await mergeIntoPool(root, await readLegacyStructs(dir));
+
+    // (b) integrity.json template registry → activeChecks seeds.
+    const legacyProfiles = await readLegacyIntegrityProfiles(dir);
+
+    // Build one registry profile from the legacy index data (and preserve
+    // the legacy integrity template registry by folding its first profile's
+    // checks into activeChecks when the index had none).
+    const profileId = await ensureProfileLegacy(root, index, legacyProfiles, name);
+
+    // Binding: fileKey → profileId.
+    await bindFile(root, index.relPath, profileId);
+
+    // Remaining integrity templates become unbound registry profiles so no
+    // preset checks are lost (the dropdown can re-select them).
+    const extras = extraTemplates(index, legacyProfiles);
+    if (extras.length > 0) {
+        await migrateIntegrityTemplates(root, undefined, extras);
+    }
+}
+
+async function readLegacyStructs(dir: string): Promise<StructDef[]> {
+    const raw = await readJson(vscode.Uri.file(path.join(dir, 'structs.json')));
+    return raw.status === 'ok' ? normalizeStructDefsValue(migrateStructDefinitions(raw.value)).defs : [];
+}
+
+async function readLegacyIntegrityProfiles(dir: string): Promise<IntegrityProfileVal[]> {
+    const raw = await readJson(vscode.Uri.file(path.join(dir, 'integrity.json')));
+    return raw.status === 'ok' ? normalizeIntegrityProfiles(raw.value) : [];
+}
+
+function extraTemplates(index: ProfileIndexData, legacyProfiles: IntegrityProfileVal[]): IntegrityProfileVal[] {
+    return index.activeChecks.checks.length > 0 ? legacyProfiles : legacyProfiles.slice(1);
 }
 
 /** Create/merge one registry profile for a legacy index dir. Returns profileId. */
@@ -165,26 +177,65 @@ async function ensureProfileLegacy(
     legacyProfiles: IntegrityProfileVal[],
     sourceDirName: string,
 ): Promise<string> {
-    const profileId = `profile_${await nextOrdinal(root)}`;
+    const profileId = `profile_${await nextProfileOrdinal(root)}`;
     const name = profileNameFromIndex(index, sourceDirName);
-    let dir = await resolveProfileDir(root, profileId);
-    let created = false;
-    if (!dir) {
-        dir = await createProfileRegistryEntry(root, profileId, name);
-        created = true;
-    }
-    const existing = await readProfileRecord(root, profileId);
-    const activeChecks = index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles);
-    const merged: unknown = {
+    const { dir, created } = await ensureProfileDir(root, profileId, name);
+    const existing = await readProfileRecord(root, profileId, '');
+    const fresh: ProfileRecordVal = {
         ...emptyProfileRecord(profileId, name),
-        activeChecks: created || !existing?.activeChecks?.checks?.length ? activeChecks : existing.activeChecks,
-        labels: created || !existing?.labels?.length ? index.labels : existing.labels,
-        segmentNames: created || !existing?.segmentNames ? index.segmentNames : existing.segmentNames,
-        pins: created || !existing?.pins?.length ? index.pins : existing.pins,
-        endian: created || !existing?.endian ? index.endian : existing.endian,
+        activeChecks: index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles),
+        labels: index.labels,
+        segmentNames: index.segmentNames,
+        pins: index.pins,
+        endian: index.endian,
     };
+    const merged = created || existing === null ? fresh : mergeWithExisting(existing, fresh);
     await writeJson(profileRegistryJsonUri(dir), withEnvelope(merged));
     return profileId;
+}
+
+async function ensureProfileDir(root: string, id: string, name: string): Promise<{ dir: string; created: boolean }> {
+    const existing = await resolveProfileDir(root, id);
+    if (existing) { return { dir: existing, created: false }; }
+    const dir = await createProfileRegistryEntry(root, id, name);
+    return { dir, created: true };
+}
+
+/** Merge fresh (index-derived) values into an existing profile field-by-field,
+ *  keeping the existing value only when it actually has data. */
+function mergeWithExisting(existing: ProfileRecordVal, fresh: ProfileRecordVal): ProfileRecordVal {
+    return {
+        ...fresh,
+        activeChecks: mergeField(existingChecks(existing), fresh.activeChecks),
+        labels: mergeField(existingLabels(existing), fresh.labels),
+        segmentNames: mergeField(existingSegmentNames(existing), fresh.segmentNames),
+        pins: mergeField(existingPins(existing), fresh.pins),
+        endian: mergeField(existingEndian(existing), fresh.endian),
+    };
+}
+
+function mergeField<T>(existing: T | undefined, fallback: T): T {
+    return existing === undefined ? fallback : existing;
+}
+
+function existingChecks(e: ProfileRecordVal): IntegrityCheckVal | undefined {
+    return e.activeChecks?.checks?.length ? e.activeChecks : undefined;
+}
+
+function existingLabels(e: ProfileRecordVal): unknown[] | undefined {
+    return e.labels?.length ? e.labels : undefined;
+}
+
+function existingSegmentNames(e: ProfileRecordVal): Record<string, string> | undefined {
+    return e.segmentNames ? e.segmentNames : undefined;
+}
+
+function existingPins(e: ProfileRecordVal): unknown[] | undefined {
+    return e.pins?.length ? e.pins : undefined;
+}
+
+function existingEndian(e: ProfileRecordVal): 'le' | 'be' | undefined {
+    return e.endian ? e.endian : undefined;
 }
 
 /** Opportunistic activeChecks from a legacy integrity profile template. */
@@ -204,30 +255,12 @@ async function bindFile(root: string, fileKey: string, profileId: string): Promi
     await writeJson(bindingsUri, withEnvelope(normalizeBindings(next).value));
 }
 
-async function nextOrdinal(root: string): Promise<number> {
-    const container = vscode.Uri.file(hexScopeProfilesRegistryDir(root));
-    let entries: [string, vscode.FileType][] = [];
-    try { entries = await vscode.workspace.fs.readDirectory(container); } catch { /* none */ }
-    const used = new Set(entries.filter(([, t]) => t === vscode.FileType.Directory).map(([n]) => n));
-    let id = 1;
-    while (used.has(`profile_${id}`)) { id++; }
-    return id;
-}
-
 function profileNameFromIndex(index: ProfileIndexData, sourceDirName: string): string {
     return index.relPath ? path.basename(index.relPath, path.extname(index.relPath)) : sourceDirName;
 }
 
 function profileNameFromRel(relPath: string): string {
     return path.basename(relPath, path.extname(relPath)) || 'Firmware';
-}
-
-async function readProfileRecord(root: string, profileId: string): Promise<ProfileRecordVal | null> {
-    const dir = await resolveProfileDir(root, profileId);
-    if (!dir) { return null; }
-    const read = await readJson(profileRegistryJsonUri(dir));
-    if (read.status !== 'ok') { return null; }
-    return normalizeProfileRecord(read.value, emptyProfileRecord(profileId, '')).value;
 }
 
 async function readBindings(root: string): Promise<BindingVal[]> {
@@ -267,7 +300,7 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
     // dropdown can re-select them; the open doc gets its own profile below).
     await migrateIntegrityTemplates(root, legacy.globalProfiles, []);
 
-    const profileId = `profile_${await nextOrdinal(root)}`;
+    const profileId = `profile_${await nextProfileOrdinal(root)}`;
     const name = profileNameFromRel(relPath);
     const dir = await createProfileRegistryEntry(root, profileId, name);
 
@@ -287,17 +320,23 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
 
 /** Merge Memento era struct sources (global v2/v1 + per-file) deduped. */
 function legacyStructDefs(v2: unknown, v1: unknown, perFile: unknown): StructDef[] {
-    const globalSource = v2 === undefined ? migrateStructDefinitions(v1 ?? []) : v2;
-    const { defs: globalArr } = normalizeStructDefsValue(globalSource);
-    const { defs: legacyArr } = normalizeStructDefsValue(migrateStructDefinitions(perFile ?? []));
+    const globalArr = v2 === undefined ? legacySourceDefs(v1) : normalizeStructDefsValue(v2).defs;
+    const legacyArr = legacySourceDefs(perFile);
+    return dedupeStructDefs([...globalArr, ...legacyArr]);
+}
+
+function legacySourceDefs(source: unknown): StructDef[] {
+    return normalizeStructDefsValue(migrateStructDefinitions(source ?? [])).defs;
+}
+
+function dedupeStructDefs(defs: StructDef[]): StructDef[] {
     const byId = new Map<string, StructDef>();
     const seenNames = new Set<string>();
-    const push = (s: StructDef) => {
-        if (byId.has(s.id) || seenNames.has(s.name.toLowerCase())) { return; }
+    for (const s of defs) {
+        if (byId.has(s.id) || seenNames.has(s.name.toLowerCase())) { continue; }
         byId.set(s.id, s);
         seenNames.add(s.name.toLowerCase());
-    };
-    for (const s of [...globalArr, ...legacyArr]) { push(s); }
+    }
     return Array.from(byId.values());
 }
 
@@ -307,7 +346,7 @@ async function migrateIntegrityTemplates(root: string, raw: unknown, extra: Inte
     for (const t of templates) {
         const existing = await listProfileNames(root);
         if (existing.has(t.name.toLowerCase())) { continue; }
-        const id = `profile_${await nextOrdinal(root)}`;
+        const id = `profile_${await nextProfileOrdinal(root)}`;
         await createProfileRegistryEntry(root, id, t.name);
         const dir = await resolveProfileDir(root, id);
         if (dir) {
@@ -320,32 +359,23 @@ async function migrateIntegrityTemplates(root: string, raw: unknown, extra: Inte
 }
 
 async function listProfileNames(root: string): Promise<Set<string>> {
-    const container = vscode.Uri.file(hexScopeProfilesRegistryDir(root));
-    let entries: [string, vscode.FileType][] = [];
-    try { entries = await vscode.workspace.fs.readDirectory(container); } catch { /* none */ }
-    const names = new Set<string>();
-    for (const [name, type] of entries) {
-        if (type !== vscode.FileType.Directory) { continue; }
-        const dir = await resolveProfileDir(root, name);
-        if (!dir) { continue; }
-        const read = await readJson(profileRegistryJsonUri(dir));
-        if (read.status !== 'ok') { continue; }
-        const rec = normalizeProfileRecord(read.value, emptyProfileRecord(name, name)).value;
-        names.add(rec.name.toLowerCase());
-    }
-    return names;
+    const records = await listProfileRecords(root);
+    return new Set(records.map(rec => rec.name.toLowerCase()));
 }
 
 function normalizeIntegrityProfilesSafe(raw: unknown): IntegrityProfileVal[] {
     if (!Array.isArray(raw)) { return []; }
-    const out: IntegrityProfileVal[] = [];
-    for (const item of raw) {
-        if (item === null || typeof item !== 'object') { continue; }
-        const o = item as Record<string, unknown>;
-        if (typeof o.id !== 'string' || typeof o.name !== 'string') { continue; }
-        out.push({ id: o.id, name: o.name, checks: Array.isArray(o.checks) ? o.checks : [] });
-    }
-    return out;
+    return raw.filter(isIntegrityProfileObject).map(toIntegrityProfileValue);
+}
+
+function isIntegrityProfileObject(item: unknown): item is Record<string, unknown> {
+    if (item === null || typeof item !== 'object') { return false; }
+    const o = item as Record<string, unknown>;
+    return typeof o.id === 'string' && typeof o.name === 'string';
+}
+
+function toIntegrityProfileValue(o: Record<string, unknown>): IntegrityProfileVal {
+    return { id: o.id as string, name: o.name as string, checks: Array.isArray(o.checks) ? o.checks : [] };
 }
 
 function readLegacyKeys(uriStr: string, context: MigrationContext): LegacyValues {
@@ -405,31 +435,56 @@ function arrayOrEmpty(value: unknown): unknown[] {
 }
 
 function plainStringRecord(value: unknown): Record<string, string> {
+    if (!isRecordObject(value)) { return {}; }
+    return stringEntriesOnly(value);
+}
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringEntriesOnly(value: Record<string, unknown>): Record<string, string> {
     const out: Record<string, string> = {};
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        for (const [k, v] of Object.entries(value as Record<string, unknown>)) { if (typeof v === 'string') { out[k] = v; } }
-    }
+    for (const [key, entry] of Object.entries(value)) { if (typeof entry === 'string') { out[key] = entry; } }
     return out;
 }
 
 function normalizeChecks(value: unknown): IntegrityCheckVal {
-    if (value === null || typeof value !== 'object') { return { schemaVersion: 1, checks: [] }; }
-    const o = value as Record<string, unknown>;
-    return { schemaVersion: o.schemaVersion === 1 ? 1 : 1, checks: Array.isArray(o.checks) ? o.checks : [] };
+    const o = checksObject(value);
+    if (!o) { return { schemaVersion: 1, checks: [] }; }
+    return { schemaVersion: 1, checks: Array.isArray(o.checks) ? o.checks : [] };
+}
+
+function checksObject(value: unknown): Record<string, unknown> | null {
+    if (value === null || typeof value !== 'object') { return null; }
+    return value as Record<string, unknown>;
 }
 
 function normalizeIndexPayload(raw: unknown): ProfileIndexData | null {
-    if (raw === null || typeof raw !== 'object') { return null; }
-    const o = raw as Record<string, unknown>;
-    if (Array.isArray(o)) { return null; }
+    const o = plainRecord(raw);
+    if (!o) { return null; }
     return {
-        relPath: typeof o.relPath === 'string' ? o.relPath : '',
-        labels: Array.isArray(o.labels) ? o.labels : [],
+        relPath: stringField(o, 'relPath'),
+        labels: arrayField(o, 'labels'),
         segmentNames: plainStringRecord(o.segmentNames),
-        pins: Array.isArray(o.pins) ? o.pins : [],
+        pins: arrayField(o, 'pins'),
         activeChecks: normalizeChecks(o.activeChecks),
         endian: o.endian === 'be' ? 'be' : 'le',
     };
+}
+
+function plainRecord(raw: unknown): Record<string, unknown> | null {
+    if (raw === null || typeof raw !== 'object') { return null; }
+    if (Array.isArray(raw)) { return null; }
+    return raw as Record<string, unknown>;
+}
+
+function stringField(o: Record<string, unknown>, key: string): string {
+    return typeof o[key] === 'string' ? o[key] as string : '';
+}
+
+function arrayField(o: Record<string, unknown>, key: string): unknown[] {
+    return Array.isArray(o[key]) ? o[key] as unknown[] : [];
 }
 
 interface LegacyValues {

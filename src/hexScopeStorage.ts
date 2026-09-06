@@ -27,7 +27,7 @@ const BINDINGS_FILE = 'bindings.json';
 const STRUCT_POOL_FILE = 'structs.json';
 
 /** File names within the new per-profile registry dir. */
-export type ProfileJsonName = 'profile.json';
+type ProfileJsonName = 'profile.json';
 export type JsonRead = { status: 'ok'; value: unknown } | { status: 'missing' } | { status: 'corrupt' };
 export type NormalizedValue<T> = { value: T; changed: boolean };
 
@@ -59,10 +59,6 @@ export interface Binding {
 }
 
 /** Root path helpers. */
-export function hexScopeRootDir(root: string): string {
-    return path.join(root, '.hexscope');
-}
-
 export function hexScopeProfilesRegistryDir(root: string): string {
     return path.join(root, PROFILES_REGISTRY_DIR);
 }
@@ -208,15 +204,62 @@ export async function resolveProfileDir(root: string, profileId: string): Promis
     }
 }
 
+/** Read a directory; [] when it does not exist (shared by session + migration). */
+export async function readDirectorySafe(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+    try {
+        return await vscode.workspace.fs.readDirectory(uri);
+    } catch {
+        return [];
+    }
+}
+
 /** Next ordinal id for a new profile dir. */
 export async function nextProfileOrdinal(root: string): Promise<number> {
-    const container = vscode.Uri.file(hexScopeProfilesRegistryDir(root));
-    let entries: [string, vscode.FileType][] = [];
-    try { entries = await vscode.workspace.fs.readDirectory(container); } catch { /* no dir yet */ }
+    const entries = await readDirectorySafe(vscode.Uri.file(hexScopeProfilesRegistryDir(root)));
     const used = new Set(entries.filter(([, type]) => type === vscode.FileType.Directory).map(([name]) => name));
     let id = 1;
     while (used.has(`profile_${id}`)) { id++; }
     return id;
+}
+
+/** Every registry profile dir → its normalized ProfileRecord (shared by the
+ *  session dropdown and the legacy migration). The dir name is the id
+ *  fallback when a record's own id is missing, and the name fallback. */
+export async function listProfileRecords(root: string): Promise<ProfileRecord[]> {
+    const entries = await readDirectorySafe(vscode.Uri.file(hexScopeProfilesRegistryDir(root)));
+    return collectProfileRecords(entries, root);
+}
+
+async function collectProfileRecords(entries: [string, vscode.FileType][], root: string): Promise<ProfileRecord[]> {
+    const out: ProfileRecord[] = [];
+    for (const [dirName, type] of entries) {
+        if (type !== vscode.FileType.Directory) { continue; }
+        const rec = await readRegistryRecordFromDir(root, dirName);
+        if (rec) { out.push(rec); }
+    }
+    return out;
+}
+
+async function readRegistryRecordFromDir(root: string, dirName: string): Promise<ProfileRecord | null> {
+    const dir = await resolveProfileDir(root, dirName);
+    if (!dir) { return null; }
+    const read = await readJson(profileRegistryJsonUri(dir));
+    if (read.status !== 'ok') { return null; }
+    return fixProfileId(normalizeProfileRecord(read.value, emptyProfileRecord(dirName, dirName)).value, dirName);
+}
+
+function fixProfileId(rec: ProfileRecord, dirName: string): ProfileRecord {
+    if (rec.id === '') { return { ...rec, id: dirName }; }
+    return rec;
+}
+
+/** Read one registry profile record; null when missing. */
+export async function readProfileRecord(root: string, profileId: string, fallbackName = profileId): Promise<ProfileRecord | null> {
+    const dir = await resolveProfileDir(root, profileId);
+    if (!dir) { return null; }
+    const read = await readJson(profileRegistryJsonUri(dir));
+    if (read.status !== 'ok') { return null; }
+    return normalizeProfileRecord(read.value, emptyProfileRecord(profileId, fallbackName)).value;
 }
 
 /** Create a new profile dir + seed profile.json. Returns the created dir. */
@@ -242,23 +285,30 @@ export async function seedSchemaCopies(root: string): Promise<void> {
 
 /** Relative $schema path from a profile file to .hexscope/schemas/, or null. */
 function resolveProfileSchemaRef(uri: vscode.Uri): string | null {
-    const parts = uri.fsPath.split(path.sep);
-    const file = parts[parts.length - 1];
+    const file = path.basename(uri.fsPath);
     const match = SCHEMA_FILES.find(entry => entry.file === file);
     if (!match) { return null; }
     // .hexscope/profiles/<id>/profile.json → ../../schemas/<name>.schema.json
     // .hexscope/structs.json → schemas/<name>.schema.json
     // .hexscope/bindings.json → schemas/<name>.schema.json
+    return schemaRefForParts(uri.fsPath.split(path.sep), match.schema);
+}
+
+function schemaRefForParts(parts: string[], schema: string): string | null {
     const hs = parts.indexOf('.hexscope');
     if (hs < 0) { return null; }
     const afterHs = parts.slice(hs + 1);
-    if (afterHs[0] === 'profiles' && afterHs.length >= 3) {
-        return `../../schemas/${match.schema}`;
-    }
-    if ((afterHs[0] === STRUCT_POOL_FILE || afterHs[0] === BINDINGS_FILE) && afterHs.length === 1) {
-        return `schemas/${match.schema}`;
-    }
+    if (isProfileSchemaPath(afterHs)) { return `../../schemas/${schema}`; }
+    if (isTopLevelSchemaPath(afterHs)) { return `schemas/${schema}`; }
     return null;
+}
+
+function isProfileSchemaPath(afterHs: string[]): boolean {
+    return afterHs[0] === 'profiles' && afterHs.length >= 3;
+}
+
+function isTopLevelSchemaPath(afterHs: string[]): boolean {
+    return (afterHs[0] === STRUCT_POOL_FILE || afterHs[0] === BINDINGS_FILE) && afterHs.length === 1;
 }
 
 /** Read a bundled schema from the extension's own install dir (out/ or dist/ → ../schemas). */
@@ -375,15 +425,27 @@ export class JsonStore<T> {
     }
 
     async load(force = false): Promise<T> {
-        if (!force && this.cache !== null) { return this.cache; }
-        if (this.options.lazyDir && this.resolvedDir === null) {
+        if (this.hasCached(force)) { return this.cache as T; }
+        if (this.isDeferred()) {
             // Deferred mode: no directory exists yet, so no fs access.
             this.cache = this.options.empty();
             return this.cache;
         }
         const read = await readJson(this.readUri());
-        this.cache = read.status === 'ok' ? await this.applyOk(read.value) : this.applyFallback(read.status);
+        this.cache = await this.applyRead(read);
         return this.cache;
+    }
+
+    private hasCached(force: boolean): boolean {
+        return !force && this.cache !== null;
+    }
+
+    private isDeferred(): boolean {
+        return !!this.options.lazyDir && this.resolvedDir === null;
+    }
+
+    private async applyRead(read: JsonRead): Promise<T> {
+        return read.status === 'ok' ? this.applyOk(read.value) : this.applyFallback(read.status);
     }
 
     private async applyOk(raw: unknown): Promise<T> {
@@ -453,16 +515,20 @@ export class JsonStore<T> {
     }
 
     private async writePendingNow(): Promise<void> {
-        if (this.cache === null) { return; }
-        this.pendingWrite = false;
-        this.options.onSelfWrite?.();
-        const uri = await this.writeUri();
-        if (uri === null) { return; }
-        await writeJson(uri, withEnvelope(this.cache));
+        await this.commitWrite();
     }
 
     private async writeNow(): Promise<void> {
-        if (this.disposed || this.cache === null) { return; }
+        if (this.writable()) { await this.commitWrite(); }
+    }
+
+    private writable(): boolean {
+        return !this.disposed && this.cache !== null;
+    }
+
+    /** Shared write tail: envelope + self-write stamp + debounced-dir resolve. */
+    private async commitWrite(): Promise<void> {
+        if (this.cache === null) { return; }
         this.pendingWrite = false;
         this.options.onSelfWrite?.();
         const uri = await this.writeUri();
@@ -515,18 +581,24 @@ export function attachProfileWatcher(options: ProfileWatcherOptions): vscode.Dis
 
 export function normalizeBindings(raw: unknown): NormalizedValue<Binding[]> {
     if (!Array.isArray(raw)) { return { value: [], changed: false }; }
-    const value: Binding[] = [];
-    for (const entry of raw) {
-        const o = plainObject(entry);
-        if (!o) { continue; }
-        const fileKey = typeof o.fileKey === 'string' ? o.fileKey : '';
-        const profileId = typeof o.profileId === 'string' ? o.profileId : '';
-        if (fileKey.length > 0 && profileId.length > 0) { value.push({ fileKey, profileId }); }
-    }
+    const value: Binding[] = raw.map(bindingFromEntry).filter((b): b is Binding => isBinding(b));
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
 }
 
-/** Next ordinal profile id under the registry (profile_<n>). */
-export function nextProfileId(root: string): Promise<number> {
-    return nextProfileOrdinal(root);
+function bindingFromEntry(entry: unknown): Binding | null {
+    const o = plainObject(entry);
+    if (!o) { return null; }
+    return {
+        fileKey: stringOrEmpty(o.fileKey),
+        profileId: stringOrEmpty(o.profileId),
+    };
 }
+
+function stringOrEmpty(value: unknown): string {
+    return typeof value === 'string' ? value : '';
+}
+
+function isBinding(b: Binding | null): b is Binding {
+    return b !== null && b.fileKey.length > 0 && b.profileId.length > 0;
+}
+

@@ -1235,39 +1235,67 @@ function renderProfileDropdown(): void {
     const host = document.getElementById('profile-picker');
     if (!host) { return; }
     const { profiles, current, boundFileCount } = S.profileState;
-    const currentNameHtml = esc(profiles.find(p => p.id === current)?.name ?? 'No Profile');
+    const currentNameHtml = esc(profileNameFor(profiles, current));
     const countHtml = esc(String(boundFileCount));
-    const options = [
+    const optionsHtml = profileDropdownOptions(profiles).join('');
+    host.innerHTML = `
+        <label class="profile-label" for="profile-select" title="Select the annotation profile bound to this file">Profile</label>
+        <select id="profile-select" class="profile-select" aria-label="Profile">
+            ${optionsHtml}
+        </select>
+        ${sharedProfileHintHtml(boundFileCount, currentNameHtml, countHtml)}`;
+    const select = host.querySelector('#profile-select') as HTMLSelectElement;
+    select.value = current ?? '';
+    if (isSeparatorValue(select.value)) { select.value = ''; }
+    select.addEventListener('change', () => onProfileSelect(select, current));
+}
+
+function profileNameFor(profiles: Array<{ id: string; name: string }>, current: string | null): string {
+    return profiles.find(p => p.id === current)?.name ?? 'No Profile';
+}
+
+function profileDropdownOptions(profiles: Array<{ id: string; name: string }>): string[] {
+    return [
         '<option value="" data-kind="none">No Profile</option>',
         '<option value="__sep__" disabled>────────</option>',
         ...profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`),
         '<option value="__sep2__" disabled>────</option>',
         '<option value="__new__">+ New Profile…</option>',
     ];
-    const optionsHtml = options.join('');
-    host.innerHTML = `
-        <label class="profile-label" for="profile-select" title="Select the annotation profile bound to this file">Profile</label>
-        <select id="profile-select" class="profile-select" aria-label="Profile">
-            ${optionsHtml}
-        </select>
-        ${boundFileCount > 1
-            ? `<span class="profile-shared-hint" title="This profile is bound to ${countHtml} files">Editing shared profile '${currentNameHtml}' (used by ${countHtml} files)</span>`
-            : ''}`;
-    const select = host.querySelector('#profile-select') as HTMLSelectElement;
+}
+
+function sharedProfileHintHtml(boundFileCount: number, currentNameHtml: string, countHtml: string): string {
+    if (boundFileCount <= 1) { return ''; }
+    return `<span class="profile-shared-hint" title="This profile is bound to ${countHtml} files">Editing shared profile '${currentNameHtml}' (used by ${countHtml} files)</span>`;
+}
+
+function isSeparatorValue(value: string): boolean {
+    return value === '__sep__' || value === '__sep2__';
+}
+
+function onProfileSelect(select: HTMLSelectElement, current: string | null): void {
+    const v = select.value;
+    if (v === '__new__') { handleNewProfile(select, current); return; }
+    if (isSeparatorValue(v)) { resetSelectToCurrent(select, current); return; }
+    postProviderMessage({ type: 'selectProfile', profileId: selectionProfileId(v) });
+}
+
+function handleNewProfile(select: HTMLSelectElement, current: string | null): void {
+    const name = window.prompt('New profile name');
+    if (isNonEmpty(name)) { postProviderMessage({ type: 'newProfile', name: name.trim() }); }
+    resetSelectToCurrent(select, current);
+}
+
+function resetSelectToCurrent(select: HTMLSelectElement, current: string | null): void {
     select.value = current ?? '';
-    if (select.value === '__sep__' || select.value === '__sep2__') { select.value = ''; }
-    select.addEventListener('change', () => {
-        const v = select.value;
-        if (v === '__new__') {
-            const name = window.prompt('New profile name');
-            if (name && name.trim()) { postProviderMessage({ type: 'newProfile', name: name.trim() }); }
-            select.value = current ?? '';
-        } else if (v === '__sep__' || v === '__sep2__') {
-            select.value = current ?? '';
-        } else {
-            postProviderMessage({ type: 'selectProfile', profileId: v === '' ? null : v });
-        }
-    });
+}
+
+function selectionProfileId(value: string): string | null {
+    return value === '' ? null : value;
+}
+
+function isNonEmpty(value: string | null): value is string {
+    return value !== null && value.trim().length > 0;
 }
 
 function setupRenderedUi(): void {
