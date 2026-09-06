@@ -104,7 +104,7 @@
     letter-spacing: .03em; text-transform: uppercase; opacity: .85;
 }
 .profile-select {
-    max-width: 360px; height: 22px; font-size: 11px; font-family: var(--font-ui);
+    min-width: 220px; max-width: 360px; height: 22px; font-size: 11px; font-family: var(--font-ui);
     background: var(--input-bg); color: var(--input-fg);
     border: 1px solid var(--input-bdr); border-radius: 3px; padding: 0 4px;
 }
