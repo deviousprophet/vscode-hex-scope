@@ -1,6 +1,6 @@
 import type { CopyCommand } from './core/byteTools/copyCommand';
 import type { HexScopeFormat } from './core/document';
-import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
+import type { IntegrityCheckSet } from './core/integrity';
 import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 
 export const RECORD_PAGE_SIZE = 512;
@@ -25,7 +25,7 @@ export type ProviderToWebviewMessage =
         structs: StructDef[];
         structPins: StructPin[];
         endian: HexScopeEndian;
-        integrityProfiles: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet };
+        activeChecks: IntegrityCheckSet;
         /** Current bound profile display state. */
         profile: { profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number };
     }
@@ -52,7 +52,6 @@ export type ProviderToWebviewMessage =
         canQuickRepair: boolean;
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
-    | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
     | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[]; fingerprint: string }> }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number; pendingWrites?: Array<[number, number]> }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
@@ -71,10 +70,6 @@ export type WebviewToProviderMessage =
     | { type: 'saveEndian'; endian: HexScopeEndian }
     | { type: 'selectProfile'; profileId: string | null }
     | { type: 'newProfile'; name: string | null }
-    | { type: 'createIntegrityProfile'; profile: IntegrityProfile }
-    | { type: 'updateIntegrityProfile'; profile: IntegrityProfile }
-    | { type: 'renameIntegrityProfile'; id: string; name: string }
-    | { type: 'deleteIntegrityProfile'; id: string }
     | { type: 'updateLabelVisibility'; id: string; hidden: boolean }
     | { type: 'reorderLabel'; id: string; dir: number }
     | { type: 'saveEdits'; edits: Array<[number, number]> }

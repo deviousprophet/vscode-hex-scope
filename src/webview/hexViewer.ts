@@ -194,10 +194,10 @@ function pushStructState(): void {
 }
 
 // ── Integrity panel component ────────────────────────────────────
-// Self-contained Integrity panel (checks + profiles). Data flows via
-// setters; byte reads / selection / endian are pulled via callbacks;
-// mutations, persistence, and highlights report via callbacks. Edit
-// staging and highlight application stay host-owned.
+// Self-contained Integrity panel (checks). Data flows via setters;
+// byte reads / selection / endian are pulled via callbacks; mutations,
+// persistence, and highlights report via callbacks. Edit staging and
+// highlight application stay host-owned.
 
 const integrityPanel = new IntegrityPanel({
     readByte: getByte,
@@ -208,10 +208,6 @@ const integrityPanel = new IntegrityPanel({
     onHighlightChange: applyIntegrityHighlight,
     onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
     onPersistChecks: state => postProviderMessage({ type: 'saveIntegrityChecks', state }),
-    onCreateProfile: profile => postProviderMessage({ type: 'createIntegrityProfile', profile }),
-    onUpdateProfile: profile => postProviderMessage({ type: 'updateIntegrityProfile', profile }),
-    onRenameProfile: (id, name) => postProviderMessage({ type: 'renameIntegrityProfile', id, name }),
-    onDeleteProfile: id => postProviderMessage({ type: 'deleteIntegrityProfile', id }),
 });
 
 /** Integrity check range/stored-field highlight (was S.integrityHighlight + rerender.memory in the module). */
@@ -843,7 +839,6 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChange: handleExternalChangeMessage,
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
-    integrityProfiles: handleIntegrityProfilesMessage,
     profilesState: handleProfilesStateMessage,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
@@ -853,7 +848,6 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
-    applyIntegrityProfileUpdate,
     applyActiveChecksUpdate,
     applyProfileStateUpdate,
     applyLoadErrorUpdate,
@@ -964,10 +958,6 @@ function renderActiveLoadProgress(label: string): void {
 
 function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void {
     acceptRecordPage(msg.generation, msg.start, msg.records);
-}
-
-function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): void {
-    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
 function handleProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): void {
@@ -1082,13 +1072,6 @@ function applyWebviewModelUpdate(update: WebviewModelUpdate): void {
     applyInvalidations(update.invalidations);
 }
 
-function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
-    if (update.integrityProfiles) {
-        integrityPanel.setProfiles(update.integrityProfiles, update.integrityProfileError ?? '');
-    }
-}
-
-/** External per-file activeChecks slice replaces the panel's check set (silent auto-apply). */
 function applyActiveChecksUpdate(update: WebviewModelUpdate): void {
     if (update.activeChecks) {
         integrityPanel.setChecks(update.activeChecks);

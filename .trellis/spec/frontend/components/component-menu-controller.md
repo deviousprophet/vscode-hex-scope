@@ -18,9 +18,8 @@ messages, never executes commands — it reports via **per-show `emit`**.
 
 Boundary rule: the controller is headless — it never renders content of its
 own. Callers supply `innerHTML` per `show()` (hex, struct) or `attach()` a
-pre-authored static popover (integrity). Integration-specific classes
-(`integrity-profile-menu-*`, `si-field-menu`) stay caller-owned and are NOT
-renamed.
+pre-authored static popover (struct field menu). Integration-specific classes
+(`si-field-menu`) stay caller-owned and are NOT renamed.
 
 ## Layout
 
@@ -34,7 +33,6 @@ src/webview/components/menuController/
     menu.css            renamed from contextMenu.css; `ctx-*` → `menu-*`
 src/webview/hexViewer.ts                hex grid show/emit wiring
 src/webview/components/sidebar/structPanel/structPanel.ts   struct field menu
-src/webview/components/sidebar/integrityPanel/integrityProfiles.ts  integrity ⋮
 src/test/webview/components/menuController/menuController.test.ts   (mocha + jsdom)
 ```
 

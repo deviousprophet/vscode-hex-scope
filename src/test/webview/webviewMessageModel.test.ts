@@ -66,7 +66,7 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'be',
-            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
 
@@ -74,7 +74,7 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(S.labels.length, 1);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(update.invalidations.fullRender, true);
-        assert.ok(update.integrityProfiles);
+        assert.deepStrictEqual(update.activeChecks, { schemaVersion: 1, checks: [] });
     });
 
     test('label messages rebuild memory and invalidate labels plus memory', () => {
@@ -117,7 +117,7 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'le',
-            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
         S.editMode = true;
@@ -178,7 +178,7 @@ labels: [],
             structs: [],
             structPins: [],
             endian: 'le',
-            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
 
@@ -252,7 +252,6 @@ function noOpHandlers(): ProviderMessageHandlers {
         externalChange: () => {},
         externalChangeError: () => {},
         repairComplete: () => {},
-        integrityProfiles: () => {},
         profilesState: () => {},
         activateProfilePicker: () => {},
         scriptInfo: () => {},

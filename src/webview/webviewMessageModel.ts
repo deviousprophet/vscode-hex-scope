@@ -1,5 +1,5 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
-import { normalizeIntegrityCheckSet, type IntegrityCheckSet, type IntegrityProfile } from '../core/integrity';
+import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from '../core/integrity';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
 import type { SegmentLabel, StructPin } from '../core/types';
 import { endianOrDefault } from '../webviewProtocol';
@@ -45,8 +45,6 @@ export type WebviewModelUpdate = {
     invalidations: WebviewInvalidations;
     loadErrorMessage?: string;
     copyCommand?: CopyCommand;
-    integrityProfiles?: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet } | IntegrityProfile[];
-    integrityProfileError?: string;
     activeChecks?: IntegrityCheckSet;
     profileState?: { profiles: Array<{ id: string; name: string }>; current: string | null; boundFileCount: number };
     removeExternalChangeBanners?: boolean;
@@ -65,7 +63,6 @@ const MODEL_APPLIERS: ModelAppliers = {
     init: applyInitMessage,
     loadProgress: applyPassiveMessage,
     recordPage: applyPassiveMessage,
-    integrityProfiles: applyIntegrityProfilesMessage,
     profilesState: applyProfilesStateMessage,
     loadError: applyLoadErrorMessage,
     addLabel: applyAddLabelMessage,
@@ -94,7 +91,7 @@ export function applyProviderMessageToModel(msg: WebviewMessage): WebviewModelUp
 function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate {
     applyInitialState(msg);
     return {
-        integrityProfiles: msg.integrityProfiles,
+        activeChecks: msg.activeChecks,
         profileState: msg.profile,
         invalidations: { fullRender: true },
     };
@@ -111,14 +108,6 @@ function applyProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): 
     // re-render effect; without it the toolbar select keeps its stale options
     // (newly created profiles never appear and can't be selected).
     return { profileState, invalidations: {} };
-}
-
-function applyIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): WebviewModelUpdate {
-    return {
-        integrityProfiles: msg.profiles,
-        integrityProfileError: typeof msg.error === 'string' ? msg.error : '',
-        invalidations: {},
-    };
 }
 
 function applyLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): WebviewModelUpdate {

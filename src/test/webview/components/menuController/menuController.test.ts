@@ -748,9 +748,9 @@ suite('webview MenuController cross-menu invariants', () => {
     test('keyboard nav skips disabled items in an attached popover and wraps', () => {
         const dom = installDom(
             '<button id="btn">open</button><div id="pop" hidden>' +
-            '<button class="integrity-profile-menu-item" role="menuitem" disabled>No</button>' +
-            '<button class="integrity-profile-menu-item" role="menuitem" id="a">A</button>' +
-            '<button class="integrity-profile-menu-item" role="menuitem">B</button>' +
+            '<button class="menu-pop-item" role="menuitem" disabled>No</button>' +
+            '<button class="menu-pop-item" role="menuitem" id="a">A</button>' +
+            '<button class="menu-pop-item" role="menuitem">B</button>' +
             '</div>',
         );
         currentDom = dom;
@@ -758,12 +758,12 @@ suite('webview MenuController cross-menu invariants', () => {
         menuController.attach(pop);
         menuController.show(0, 0, {
             el: pop,
-            focusFirst: '.integrity-profile-menu-item:not(:disabled)',
+            focusFirst: '.menu-pop-item:not(:disabled)',
         });
         const first = pop.querySelector<HTMLButtonElement>('#a')!;
         assert.strictEqual(document.activeElement, first, 'first enabled item focused on open');
 dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
-        const second = pop.querySelectorAll<HTMLButtonElement>('.integrity-profile-menu-item:not(:disabled)')[1];
+        const second = pop.querySelectorAll<HTMLButtonElement>('.menu-pop-item:not(:disabled)')[1];
         assert.strictEqual(document.activeElement, second, 'ArrowDown skips the disabled item');
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown' }));
         assert.strictEqual(document.activeElement, first, 'ArrowDown wraps inside the popover');

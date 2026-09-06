@@ -11,9 +11,6 @@ import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseRes
 import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import {
     normalizeIntegrityCheckSet,
-    normalizeIntegrityProfiles,
-    type IntegrityCheckSet,
-    type IntegrityProfile,
 } from './core/integrity';
 import { migrateStructDefinitions } from './core/structMigration';
 import { normalizeStructDefsValue } from './core/structNormalization';
@@ -126,10 +123,6 @@ async function updateStore<T>(store: JsonStore<T>, update: (current: T) => T): P
 
 /** Debounce for profile-dir restructure scans (external rename/create). */
 const PROFILE_CHANGE_DEBOUNCE_MS = 400;
-
-function postToPanel(panel: vscode.WebviewPanel, msg: ProviderToWebviewMessage): void {
-    void postToWebview(panel.webview, msg);
-}
 
 async function postToWebview(webview: vscode.Webview, msg: ProviderToWebviewMessage): Promise<boolean> {
     return webview.postMessage(msg);
@@ -649,35 +642,6 @@ export class HexEditorSession {
             });
         };
 
-        const broadcastIntegrityProfiles = async (error = ''): Promise<void> => {
-            // Webview integrity library is a view over the three-tier profile
-            // registry (activeChecks + name per profile).
-            const current = await loadIntegrityProfiles();
-            for (const panel of this._panels) {
-                postToPanel(panel, { type: 'integrityProfiles', profiles: current, error });
-            }
-        };
-
-        const sendIntegrityProfileError = async (error: string): Promise<void> => {
-            const current = await loadIntegrityProfiles();
-            await postToWebview(webviewPanel.webview, { type: 'integrityProfiles', profiles: current, error });
-        };
-
-        const saveIntegrityProfiles = async (next: IntegrityProfile[]): Promise<void> => {
-            // Explicit profile actions materialize even out-of-workspace.
-            await enqueuePerFileOp(async () => {
-                explicitProfileWrite = true;
-                await syncRegistryToIntegrityProfiles(root, next);
-            });
-            await broadcastIntegrityProfiles();
-        };
-
-        const loadIntegrityProfiles = async (): Promise<IntegrityProfile[]> => {
-            const { profile } = await openStores();
-            await profile.load();
-            return await registryAsIntegrityProfiles(root);
-        };
-
         const loadCurrentIndex = async (): Promise<ProfileRecord> => {
             const { profile } = await openStores();
             return profile.get() ?? profile.load();
@@ -721,7 +685,6 @@ export class HexEditorSession {
             const allProfiles = await listProfiles(root);
             const bound = profileId;
             const boundCount = bound ? (await bindingsUsing(root, bound)).length : 0;
-            const integrityFromRegistry = await registryAsIntegrityProfiles(root);
 
             const msg: ProviderToWebviewMessage = {
                 type: 'init',
@@ -732,7 +695,7 @@ export class HexEditorSession {
                 structs: structDefs,
                 structPins: profileData.pins,
                 endian: profileData.endian,
-                integrityProfiles: { profiles: integrityFromRegistry, activeChecks: profileData.activeChecks },
+                activeChecks: profileData.activeChecks,
                 profile: { profiles: allProfiles, current: bound, boundFileCount: boundCount },
             };
 
@@ -933,45 +896,6 @@ export class HexEditorSession {
                 broadcastPerFileData();
                 void broadcastProfilesState();
             },
-            createIntegrityProfile: async msg => {
-                const profile = normalizeIntegrityProfiles([msg.profile])[0];
-                if (!profile) { await sendIntegrityProfileError('Profile is invalid.'); return; }
-                const current = await loadIntegrityProfiles();
-                if (current.some(item => item.id === profile.id || sameProfileName(item.name, profile.name))) {
-                    await sendIntegrityProfileError(`A profile named “${profile.name}” already exists.`);
-                    return;
-                }
-                await saveIntegrityProfiles([...current, profile]);
-            },
-            updateIntegrityProfile: async msg => {
-                const profile = normalizeIntegrityProfiles([msg.profile])[0];
-                if (!profile) { await sendIntegrityProfileError('Profile is invalid.'); return; }
-                const current = await loadIntegrityProfiles();
-                if (!current.some(item => item.id === profile.id)) {
-                    await sendIntegrityProfileError('Profile no longer exists.');
-                    return;
-                }
-                if (current.some(item => item.id !== profile.id && sameProfileName(item.name, profile.name))) {
-                    await sendIntegrityProfileError(`A profile named “${profile.name}” already exists.`);
-                    return;
-                }
-                await saveIntegrityProfiles(current.map(item => item.id === profile.id ? profile : item));
-            },
-            renameIntegrityProfile: async msg => {
-                const current = await loadIntegrityProfiles();
-                const renamed = renameIntegrityProfiles(current, msg.id, msg.name);
-                if (!renamed.ok) { await sendIntegrityProfileError(renamed.error); return; }
-                await saveIntegrityProfiles(renamed.value);
-            },
-            deleteIntegrityProfile: async msg => {
-                const id = typeof msg.id === 'string' ? msg.id : '';
-                const current = await loadIntegrityProfiles();
-                if (!current.some(item => item.id === id)) {
-                    await sendIntegrityProfileError('Profile no longer exists.');
-                    return;
-                }
-                await saveIntegrityProfiles(current.filter(item => item.id !== id));
-            },
             updateLabelVisibility: async msg => {
                 await enqueuePerFileOp(async () => {
                     const { profile } = await openStores();
@@ -1159,36 +1083,8 @@ ${cssLinks}
     }
 }
 
-function sameProfileName(left: string, right: string): boolean {
-    return left.toLocaleLowerCase() === right.toLocaleLowerCase();
-}
-
-/** Flush the bound profile before switching only when it is genuinely bound. */
 function shouldFlushBeforeSwitch(current: ProfileRecord | null | undefined, bound: string | null, profileId: string | null): boolean {
     return !!current && profileId === bound && bound !== null;
-}
-
-function renameIntegrityProfiles(
-    profiles: IntegrityProfile[],
-    rawId: unknown,
-    rawName: unknown,
-): { ok: true; value: IntegrityProfile[] } | { ok: false; error: string } {
-    const id = messageString(rawId);
-    const name = messageString(rawName).trim();
-    if (!validProfileRename(id, name)) { return { ok: false, error: 'Profile name is invalid.' }; }
-    if (!profiles.some(item => item.id === id)) { return { ok: false, error: 'Profile no longer exists.' }; }
-    if (profiles.some(item => item.id !== id && sameProfileName(item.name, name))) {
-        return { ok: false, error: `A profile named “${name}” already exists.` };
-    }
-    return { ok: true, value: profiles.map(item => item.id === id ? { ...item, name } : item) };
-}
-
-function validProfileRename(id: string, name: string): boolean {
-    return id.length > 0 && name.length > 0;
-}
-
-function messageString(value: unknown): string {
-    return typeof value === 'string' ? value : '';
 }
 
 // ── Three-tier registry/binding helpers ───────────────────────────
@@ -1333,52 +1229,6 @@ export async function bindingsUsing(root: string, profileId: string): Promise<Ar
     const read = await readJson(bindingsJsonUri(root));
     if (read.status !== 'ok') { return []; }
     return normalizeBindings(read.value).value.filter(b => b.profileId === profileId).map(b => ({ fileKey: b.fileKey }));
-}
-
-/** Sync the registry to a webview IntegrityProfile[] list (create/update/delete). */
-async function syncRegistryToIntegrityProfiles(root: string, next: IntegrityProfile[]): Promise<void> {
-    const current = await registryAsIntegrityProfiles(root);
-    const currentIds = new Set(current.map(p => p.id));
-    const nextIds = new Set(next.map(p => p.id));
-    for (const id of currentIds) {
-        if (!nextIds.has(id)) { await deleteRegistryProfile(root, id); }
-    }
-    for (const p of next) {
-        await upsertRegistryProfile(root, p.id, p.name, p.checks);
-    }
-}
-
-/** List registry profiles as IntegrityProfile[] (webview library shape). */
-async function registryAsIntegrityProfiles(root: string): Promise<IntegrityProfile[]> {
-    const list = await listProfiles(root);
-    return Promise.all(list.map(async ({ id }) => {
-        const rec = await readProfileRecord(root, id);
-        return { schemaVersion: 1, id, name: rec?.name ?? id, checks: rec?.activeChecks.checks ?? [] };
-    }));
-}
-
-/** Upsert a profile's name + activeChecks (preserving pins/labels/endian/segmentNames). */
-async function upsertRegistryProfile(root: string, profileId: string, name: string, checks: IntegrityCheckSet['checks']): Promise<void> {
-    const dir = await resolveProfileDir(root, profileId);
-    if (dir) {
-        const rec = await readProfileRecord(root, profileId);
-        await writeProfileRecordWithChecks(root, dir, profileId, name, checks, rec);
-        return;
-    }
-    await createProfileRegistryEntry(root, profileId, name);
-    const newDir = await resolveProfileDir(root, profileId);
-    if (newDir) {
-        const rec = await readProfileRecord(root, profileId);
-        await writeProfileRecordWithChecks(root, newDir, profileId, name, checks, rec);
-    }
-}
-
-async function writeProfileRecordWithChecks(root: string, dir: string, profileId: string, name: string, checks: IntegrityCheckSet['checks'], rec: ProfileRecord | null): Promise<void> {
-    await writeJson(profileRegistryJsonUri(dir), withEnvelope({
-        ...(rec ?? emptyProfileRecord(profileId, name)),
-        name,
-        activeChecks: { schemaVersion: 1, checks },
-    }));
 }
 
 /** Delete a registry profile + its bindings (bound files revert to "No Profile"). */

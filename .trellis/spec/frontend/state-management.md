@@ -39,9 +39,9 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 - Host adapter: `src/hexScopeStorage.ts` owns all `.hexscope/` I/O (envelope read/write, per-slot `JsonStore`, profile lookup/creation, watcher). Normalization functions are injected per slot from the owning module.
 - Per-session wiring: `src/hexEditorSession.ts` opens the document's profile slots, applies mutations through `updateStore`, and broadcasts genuine external edits to the webview (silent auto-apply — no prompt dialogs):
 
-  - `index.json` changes → `perFileDataChange` (labels/segmentNames/pins/endian/activeChecks).
-  - `structs.json` changes → `structsExternalChange`; the webview replaces `S.structs` and prunes pins whose `structId` vanished.
-  - `integrity.json` changes → the existing `integrityProfiles` broadcast.
+  - `profiles/<id>/profile.json` changes → `perFileDataChange` (labels/segmentNames/pins/endian/activeChecks).
+  - `.hexscope/structs.json` (workspace pool) changes → `structsExternalChange`; the webview replaces `S.structs` and prunes pins whose `structId` vanished.
+  - Registry/binding changes → `profilesState` refresh (toolbar dropdown).
 
 - Repositories are never read from browser feature logic — the webview only consumes typed `ProviderToWebviewMessage` slices.
 - Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer (session slot + webview model).
