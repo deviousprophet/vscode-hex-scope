@@ -1013,6 +1013,10 @@ export class HexEditorSession {
                     const name = await askProfileName('', rec.name ?? '');
                     if (!name) { return; }
                     await writeProfileName(root, profileId, rec, rec.name, name);
+                    // Resync the cache: a direct registry write leaves the
+                    // debounced store stale, so the next edit-flush would
+                    // revert the rename.
+                    await registryStore?.load(true);
                     void broadcastProfilesState();
                 });
             },
@@ -1023,6 +1027,10 @@ export class HexEditorSession {
                     const pick = { id: profileId, label: rec.name || profileId };
                     const bound = await bindingsUsing(root, profileId);
                     if (!(await confirmDeleteBoundProfile(pick, bound.length))) { return; }
+                    // Drain any pending debounced registry writes BEFORE the
+                    // direct removal, so a stale-cache timer cannot fire after
+                    // the delete and write the profile back into profiles.json.
+                    await registryStore?.flush();
                     await deleteRegistryProfile(root, profileId);
                     profileId = null;
                     boundProfileCache = null;
