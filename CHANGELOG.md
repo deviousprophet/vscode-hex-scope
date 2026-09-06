@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- "Edit selected bytes" context-menu option opens a session that confines typing to the selected range, applying edits live with a single undo, while a `SELECTION` chip and range tint make the active editing range visible
+- Per-field and per-structure byte-order (`LE`/`BE`) and bit-allocation (`LSB`/`MSB`) overrides for struct definitions, with tri-state `Auto` (inherit) controls in the struct editor and explicit-override chips on decoded rows
 - Named, reusable firmware profiles selectable from a **Select Profile** dropdown on a dedicated second toolbar row (memory view), with a profile menu for **Save as… / Rename / Delete** plus profile commands — no manual `profile.json` editing
 - A file-to-profile binding table (`.hexscope/bindings.json`) lets multiple firmware files share one profile; renames and moves inside VS Code re-point the binding automatically, and a rename VS Code never saw is recovered with one reselect
 - Profile storage uses a single `.hexscope/profiles.json` registry; existing per-directory layouts migrate automatically on the first open
@@ -15,6 +17,7 @@
 - Deleting a struct type now confirms and strips orphaned pins from every profile that uses it, not just the open file
 
 ### Fixed
+- Restored the visible per-field pointer (`*`) toggle in the Struct Overlay definition editor, so fields can be declared as pointers directly from their row instead of only through the hidden context menu; the dedicated `Ptr` column and the right-click `Attach pointer`/`Clear pointer` actions both remain available
 - Native dropdown lists and selects follow the active theme's colors instead of a fixed light popup
 
 ## [2.20.0] - 2026-09-01
