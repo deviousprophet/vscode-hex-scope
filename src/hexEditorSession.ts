@@ -538,7 +538,6 @@ export class HexEditorSession {
                         profileDirCreated = id;
                         profileId = id;
                         await registryStore?.load(true);
-                        resources.add(attachProfileWatcher({ root, onProfileChanged }));
                         return id;
                     } finally {
                         creatingProfile = null;
@@ -593,10 +592,14 @@ export class HexEditorSession {
                     if (disposed) { return; }
                     ensureRootStores();
                     await registryStore!.load();
+                    // Watch the three-tier storage for every session (bound or
+                    // not) so external registry edits refresh the open dropdown.
+                    // Out-of-workspace (no .hexscope/ yet) stays inert — the
+                    // RelativePattern simply never matches until files exist.
+                    resources.add(attachProfileWatcher({ root, onProfileChanged }));
                     const bound = await boundProfileId(root, relPath);
                     if (bound) {
                         profileId = bound;
-                        resources.add(attachProfileWatcher({ root, onProfileChanged }));
                     }
                 })().catch(error => {
                     profileReady = null;
