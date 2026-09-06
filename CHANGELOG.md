@@ -3,24 +3,22 @@
 ## [Unreleased]
 
 ### Added
-- "Edit selected bytes" context-menu option opens a session that confines typing to the selected range, applying edits live with a single undo, while a `SELECTION` chip and range tint make the active editing range visible
-- Per-field and per-structure byte-order (`LE`/`BE`) and bit-allocation (`LSB`/`MSB`) overrides for struct definitions, with tri-state `Auto` (inherit) controls in the struct editor and explicit-override chips on decoded rows
-- Named, reusable firmware profiles selectable from a toolbar **Select Profile** dropdown, with New/Duplicate/Rename/Delete Profile commands alongside a profile-row **Save / Save as… / Rename / Delete** menu — all usable without editing `profile.json`; out-of-workspace files can Save an explicit profile too
+- Named, reusable firmware profiles selectable from a **Select Profile** dropdown on a dedicated second toolbar row (memory view), with a profile menu for **Save as… / Rename / Delete** plus profile commands — no manual `profile.json` editing
 - A file-to-profile binding table (`.hexscope/bindings.json`) lets multiple firmware files share one profile; renames and moves inside VS Code re-point the binding automatically, and a rename VS Code never saw is recovered with one reselect
+- Profile storage uses a single `.hexscope/profiles.json` registry; existing per-directory layouts migrate automatically on the first open
+- Out-of-workspace files can explicitly **Save** a profile, persisting annotations without a workspace
 
 ### Changed
-- Opening a firmware file no longer writes anything to disk — no `.hexscope` profile, schemas, or binding — until an edit or an explicit profile action, so plain opens and out-of-workspace analyses leave the filesystem untouched
-- Profile storage uses a single `.hexscope/profiles.json` registry instead of per-file `firmware_profiles/<id>` directories and the per-dir `profiles/<id>` registry; existing layouts migrate automatically on the first open
+- Opening a firmware file no longer writes anything to disk — no `.hexscope` profile, schemas, or binding — until an edit or an explicit profile action
 - The Integrity panel's own profile selector is removed — checks belong to the bound file profile, and the profile row plus profile commands are the single profile system
-- The profile picker moved to a dedicated second toolbar row shown only in the memory view; editing a profile shared by several files is surfaced by a tooltip and a one-time switch notice instead of a persistent banner
-- Deleting a struct type now confirms and strips orphaned pins across every profile that uses it, not just the open file
+- Editing a profile shared by several files is surfaced by a tooltip and a one-time switch notice instead of a persistent banner
+- Deleting a struct type now confirms and strips orphaned pins from every profile that uses it, not just the open file
 
 ### Fixed
-- Restored the visible per-field pointer (`*`) toggle in the Struct Overlay definition editor, so fields can be declared as pointers directly from their row instead of only through the hidden context menu; the dedicated `Ptr` column and the right-click `Attach pointer`/`Clear pointer` actions both remain available
-- Intermittent "File changed externally. Reloading..." false positives when opening firmware files outside a workspace no longer occur
-- Native dropdown lists and selects follow the active theme's colors instead of a fixed light popup; the profile select matches the search select styling
-- Creating a profile no longer silently fails in the webview (name prompt runs host-side), and the dropdown refreshes so a new profile can be selected
+- Native dropdown lists and selects follow the active theme's colors; the profile select matches the search select styling
+- Creating a profile no longer silently fails and the dropdown refreshes so a new profile can be selected
 - Reopening a file no longer shows a stale "No Profile" dropdown — the bound profile and full list load on open
+- Deleting a profile no longer gets silently undone, and externally removed `.hexscope` files are no longer resurrected on the next edit
 
 ## [2.20.0] - 2026-09-01
 
