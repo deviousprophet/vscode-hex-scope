@@ -1086,8 +1086,7 @@ suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothin
         // newProfile/selectProfile actions / Save bypass the resolver).
         assert.strictEqual(await boundProfileId(root, rel), null, 'no bindings.json → unbound');
 
-        let explicit = false;
-        const resolver = () => explicit ? createBoundProfile(root, rel) : Promise.resolve(null);
+        const resolver = () => Promise.resolve(null); // deferred: no .hexscope/ sibling ever seeded on a bare open
         const registry = lazyRegistryStore(root, resolver);
         const pool = poolStoreFor(root);
 
@@ -1103,15 +1102,10 @@ suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothin
         assert.strictEqual((await readJson(structPoolJsonUri(root))).status, 'missing', 'no struct pool');
         await assertNoHexScopeSibling(outRoot);
 
-        // Tooth: a later explicit profile action (materializePending / Save)
-        // creates the sibling dir + binding + registry entry — the guard is
-        // scoped to bare open.
-        explicit = true;
-        const store = lazyRegistryStore(root, resolver);
-        await store.load();
-        store.set([{ ...emptyProfileRecord('profile_1', 'profile_1'), endian: 'be' }]);
-        await store.flush();
-        store.dispose();
+        // Tooth: a later explicit profile action (New Profile / Save) creates the
+        // sibling dir + binding + registry entry — the guard is scoped to bare
+        // open.
+        await createBoundProfile(root, rel);
         await sleep(60);
 
         const bindings = await readJson(bindingsJsonUri(root));
@@ -1120,6 +1114,7 @@ suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothin
             const data = bindings.value as Array<{ fileKey: string; profileId: string }>;
             assert.deepStrictEqual(data, [{ fileKey: rel, profileId: 'profile_1' }]);
         }
+        assert.strictEqual((await readJson(profilesJsonUri(root))).status, 'ok', 'explicit action writes the registry');
         await vscode.workspace.fs.stat(vscode.Uri.file(path.join(outRoot, '.hexscope'))); // no throw → exists
     });
 });

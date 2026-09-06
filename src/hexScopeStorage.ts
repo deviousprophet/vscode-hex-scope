@@ -437,14 +437,18 @@ export class JsonStore<T> {
     }
 
     private readUri(): vscode.Uri {
-        return this.resolvedDir !== null ? vscode.Uri.file(path.join(this.resolvedDir, this.name())) : this.options.uri;
+        return this.resolvedDir !== null ? vscode.Uri.file(path.resolve(this.resolvedDir, this.name())) : this.options.uri;
     }
 
     /** Uri to write; null when deferred and the dir resolver declined (stay in-memory). */
     private async writeUri(): Promise<vscode.Uri | null> {
         if (!this.options.lazyDir) { return this.options.uri; }
         const dir = await this.lazyDir();
-        return dir === null ? null : vscode.Uri.file(path.join(dir, this.name()));
+        // Resolve to an absolute path: a bare relative resolver result (e.g. a
+        // profile id) must never collapse to a filesystem-root Uri (Uri.file
+        // interprets an unqualified path as absolute, so path.join('profile_1', …)
+        // becomes file:///profile_1/… on POSIX → EACCES mkdir '/profile_1').
+        return dir === null ? null : vscode.Uri.file(path.resolve(dir, this.name()));
     }
 
     async load(force = false): Promise<T> {
