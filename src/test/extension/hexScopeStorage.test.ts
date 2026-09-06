@@ -22,6 +22,7 @@ import {
     perFileRelativePath,
     profileRegistryJsonUri,
     readJson,
+    resolveHexScopeRoot,
     seedSchemaCopies,
     structPoolJsonUri,
     unwrapEnvelope,
@@ -30,6 +31,7 @@ import {
     writeJson,
     type ProfileRecord,
 } from '../../hexScopeStorage';
+import { boundProfileId, createBoundProfile } from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
 import { migrateLegacyData } from '../../hexScopeMigration';
 import { migrateStructDefinitions } from '../../core/structMigration';
@@ -619,6 +621,99 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.strictEqual((await readJson(bindingsJsonUri(testRoot))).status, 'missing', 'no bindings created');
         assert.ok(onlyMigrationMarkerRemains(globalState), 'no legacy keys (marker aside)');
         assert.deepStrictEqual(workspaceState.keys(), []);
+    });
+});
+
+suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothing', () => {
+    // Regression guard for issue #212-req-#7: "File changed externally. Reloading..."
+    // false-positives on out-of-workspace HEX files. The suspected trigger was
+    // sibling .hexscope/ schema-seed writes inside the file's directory being
+    // misattributed to the neighboring hex file by VS Code's watcher. P0/P1 fixed
+    // the trigger structurally: a bare open (no edits, no profile action) now never
+    // creates .hexscope/ at all, and the profile watcher attaches only once a
+    // profile dir exists. This suite asserts the composition an out-of-workspace
+    // open performs: dirname root resolution + read-only lookups + deferred stores
+    // that stay in-memory → zero .hexscope/ sibling on disk, and that the guard
+    // only lifts after an explicit profile action (tooth check).
+    let outRoot: string;
+    let outRootUri: vscode.Uri;
+
+    setup(async () => {
+        // Sibling of the test workspace folder (which lives under os.tmpdir()),
+        // so getWorkspaceFolder() is undefined — exactly an out-of-workspace open.
+        outRoot = path.join(os.tmpdir(), `hexscope-outws-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+        outRootUri = vscode.Uri.file(outRoot);
+        await vscode.workspace.fs.createDirectory(outRootUri);
+    });
+
+    teardown(async () => {
+        try { await vscode.workspace.fs.delete(outRootUri, { recursive: true }); } catch { /* already gone */ }
+    });
+
+    async function assertNoHexScopeSibling(dir: string): Promise<void> {
+        let exists = true;
+        try { await vscode.workspace.fs.stat(vscode.Uri.file(path.join(dir, '.hexscope'))); } catch { exists = false; }
+        assert.ok(!exists, `no .hexscope/ sibling created under ${dir}`);
+    }
+
+    test('resolveHexScopeRoot falls back to the document dir outside a workspace', () => {
+        const file = vscode.Uri.file(path.join(outRoot, 'boot.hex'));
+        assert.strictEqual(vscode.workspace.getWorkspaceFolder(file), undefined, 'sibling of the test workspace is out-of-workspace');
+        // Compare against dirname(file.fsPath): Uri normalizes the drive letter
+        // case (C:\ vs c:\), so the expected value must share the Uri's casing.
+        assert.strictEqual(resolveHexScopeRoot(file), path.dirname(file.fsPath), 'dirname fallback (single-file open)');
+        assert.strictEqual(perFileRelativePath(path.dirname(file.fsPath), file), 'boot.hex');
+    });
+
+    test('bare out-of-workspace open performs zero .hexscope/ writes; explicit profile action flips it on', async () => {
+        const file = vscode.Uri.file(path.join(outRoot, 'boot.hex'));
+        // The bound file must exist on disk: bindings are pruned on write when
+        // their fileKey no longer resolves, so a phantom file would be dropped
+        // immediately (production behavior, not a P2 defect).
+        await vscode.workspace.fs.writeFile(file, new TextEncoder().encode(':00000001FF\n'));
+        const root = resolveHexScopeRoot(file);
+        const rel = perFileRelativePath(root, file);
+
+        // Mirrors resolveCustomEditor (hexEditorSession.ts):
+        // migration seeds nothing with no legacy data; the binding lookup is a
+        // pure read (no bindings.json → null); the deferred profile store's dir
+        // resolver declines because !hasWorkspaceFolder && !explicitProfileWrite.
+        assert.strictEqual(await boundProfileId(root, rel), null, 'no bindings.json → unbound');
+
+        let explicit = false;
+        const resolver = () => explicit ? createBoundProfile(root, rel) : Promise.resolve(null);
+        const profile = lazyProfileStore(root, 'profile_1', resolver);
+        const pool = poolStoreFor(root);
+
+        await profile.load();   // deferred mode: empty default, no fs access
+        await pool.load();      // structs.json missing: empty default, no write
+        profile.set({ ...emptyProfileRecord('profile_1', 'profile_1'), endian: 'be' }); // in-memory edit
+        await profile.flush();  // resolver declined → stays in-memory
+        profile.dispose();
+        pool.dispose();
+        await sleep(60);
+
+        assert.strictEqual((await readJson(bindingsJsonUri(root))).status, 'missing', 'no bindings.json');
+        assert.strictEqual((await readJson(structPoolJsonUri(root))).status, 'missing', 'no struct pool');
+        await assertNoHexScopeSibling(outRoot);
+
+        // Tooth: a later explicit profile action (materializePending) creates the
+        // sibling dir + binding + registry entry — the guard is scoped to bare open.
+        explicit = true;
+        const store = lazyProfileStore(root, 'profile_1', resolver);
+        await store.load();
+        store.set({ ...emptyProfileRecord('profile_1', 'profile_1'), endian: 'be' });
+        await store.flush();
+        store.dispose();
+        await sleep(60);
+
+        const bindings = await readJson(bindingsJsonUri(root));
+        assert.strictEqual(bindings.status, 'ok', 'explicit action binds the file');
+        if (bindings.status === 'ok') {
+            const data = bindings.value as Array<{ fileKey: string; profileId: string }>;
+            assert.deepStrictEqual(data, [{ fileKey: rel, profileId: 'profile_1' }]);
+        }
+        await vscode.workspace.fs.stat(vscode.Uri.file(path.join(outRoot, '.hexscope'))); // no throw → exists
     });
 });
 
