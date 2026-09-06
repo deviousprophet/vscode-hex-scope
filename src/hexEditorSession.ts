@@ -23,22 +23,21 @@ import {
 import {
     attachProfileWatcher,
     bindingsJsonUri,
-    createProfileRegistryEntry,
+    collectProfileRecords,
     emptyProfileRecord,
-    hexScopeProfilesRegistryDir,
-    listProfileRecords,
     nextProfileOrdinal,
     normalizeBindings,
-    normalizeProfileRecord,
+    normalizeProfilesRegistry,
     perFileRelativePath,
-    profileRegistryJsonUri,
+    profilesJsonUri,
     readJson,
     readProfileRecord,
+    removeProfileRecord,
     resolveHexScopeRoot,
-    resolveProfileDir,
     structPoolJsonUri,
     withEnvelope,
     writeJson,
+    writeProfileRecord,
     type Binding,
     type ProfileRecord,
     JsonStore,
@@ -116,12 +115,7 @@ async function writePlanToFile(uri: vscode.Uri, plan: SplicePlan): Promise<void>
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(plan.newRaw));
 }
 
-/** Read-modify-write through a profile store slot. */
-async function updateStore<T>(store: JsonStore<T>, update: (current: T) => T): Promise<void> {
-    store.set(update(store.get() ?? await store.load()));
-}
-
-/** Debounce for profile-dir restructure scans (external rename/create). */
+/** Debounce for profile-registry restructure scans (external rename/create). */
 const PROFILE_CHANGE_DEBOUNCE_MS = 400;
 
 async function postToWebview(webview: vscode.Webview, msg: ProviderToWebviewMessage): Promise<boolean> {
@@ -461,7 +455,7 @@ export class HexEditorSession {
             pendingExternalReload = null;
             clearTimeout(reloadTimer);
             clearTimeout(profileReloadTimer);
-            for (const store of [profileStore, structPoolStore]) { store?.dispose(); }
+            for (const store of [registryStore, structPoolStore]) { store?.dispose(); }
             this._panels.delete(webviewPanel);
             if (HexEditorSession._activePanel === webviewPanel) {
                 HexEditorSession._activePanel = undefined;
@@ -503,9 +497,13 @@ export class HexEditorSession {
         const root = resolveHexScopeRoot(document.uri);
         const relPath = perFileRelativePath(root, document.uri);
 
-        let profileStore: JsonStore<ProfileRecord> | null = null;
+        let registryStore: JsonStore<ProfileRecord[]> | null = null;
         let structPoolStore: JsonStore<StructDef[]> | null = null;
         let profileId: string | null = null;
+        /** In-memory bound record for an unbound file's staged edits
+         *  (out-of-workspace non-explicit writes stay in-memory; explicit
+         *  Save materializes + persists them via forceMaterializeOnSave). */
+        let boundProfileCache: ProfileRecord | null = null;
         let profileReady: Promise<void> | null = null;
         let profileReloadTimer: ReturnType<typeof setTimeout> | undefined;
         let perFileOp: Promise<unknown> = Promise.resolve();
@@ -515,30 +513,31 @@ export class HexEditorSession {
         let structDeletionDeclined = false;
 
         // ── Deferred profile materialization ──────────────────────────
-        // Nothing is written on open. An unbound file's first mutation
+        // Nothing is written on open: .hexscope/profiles.json is only written
+        // on a registry mutation (create/rename/dup/delete via the store) or
+        // an explicit profile action. An unbound file's first mutation
         // creates a new profile + binding. Out-of-workspace files stay
-        // in-memory; explicit actions (newProfile/selectProfile) write
-        // directly and rebuild bound stores via buildProfileStores(pid), so
-        // they never depend on this deferred resolver.
+        // in-memory (boundProfileCache); explicit actions (newProfile /
+        // selectProfile / saveProfile) write directly.
         const hasWorkspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri) !== undefined;
+        let forceMaterializeOnSave = false;
         let profileDirCreated: string | null = null;
         let creatingProfile: Promise<string | null> | null = null;
 
-        /** Materialize a profile dir + binding on first write. Returns the profile id. */
+        /** Materialize a profile + binding on first write. Returns the profile id. */
         const materializePending = (): Promise<string | null> => {
             if (profileDirCreated !== null) { return Promise.resolve(profileDirCreated); }
             if (creatingProfile === null) {
                 creatingProfile = (async () => {
                     try {
                         // Non-explicit out-of-workspace writes stay in-memory so
-                        // no .hexscope/ sibling is seeded. Explicit profile
-                        // actions bypass this entirely (they rebuild bound stores).
-                        if (!hasWorkspaceFolder) { return null; }
+                        // no .hexscope/ sibling is seeded. Only the explicit
+                        // saveProfile path sets forceMaterializeOnSave.
+                        if (!hasWorkspaceFolder && !forceMaterializeOnSave) { return null; }
                         const id = await createBoundProfile(root, relPath);
                         profileDirCreated = id;
                         profileId = id;
-                        if (profileStore) { profileStore = null; }
-                        buildProfileStores(id);
+                        await registryStore?.load(true);
                         resources.add(attachProfileWatcher({ root, onProfileChanged }));
                         return id;
                     } finally {
@@ -559,20 +558,45 @@ export class HexEditorSession {
         const migrationDone = migrateLegacyData(root, document.uri, this._context);
         ensureBindingLifecycle(root);
 
+        /** Create root-level stores once (registry array + struct pool). Idempotent. */
+        const ensureRootStores = (): void => {
+            const normalizeStructs = (raw: unknown): { value: StructDef[]; changed: boolean } => {
+                const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
+                return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
+            };
+            if (!registryStore) {
+                // single-file profile registry (.hexscope/profiles.json)
+                registryStore = new JsonStore<ProfileRecord[]>({
+                    uri: profilesJsonUri(root),
+                    normalizer: normalizeProfilesRegistry,
+                    empty: () => [],
+                    onSelfWrite: markSelfWrite,
+                    onReload: () => { void broadcastPerFileData(); void broadcastProfilesState(); },
+                });
+            }
+            if (!structPoolStore) {
+                // workspace-wide struct pool (.hexscope/structs.json)
+                structPoolStore = new JsonStore<StructDef[]>({
+                    uri: structPoolJsonUri(root),
+                    normalizer: normalizeStructs,
+                    empty: () => [...(workspaceStructPoolCache.get(root) ?? [])],
+                    onSelfWrite: markSelfWrite,
+                    onReload: () => void broadcastStructs(),
+                });
+            }
+        };
+
         const openProfileStores = (): Promise<void> => {
             if (!profileReady) {
                 profileReady = (async () => {
                     await migrationDone;
                     if (disposed) { return; }
+                    ensureRootStores();
+                    await registryStore!.load();
                     const bound = await boundProfileId(root, relPath);
                     if (bound) {
                         profileId = bound;
-                        buildProfileStores(bound);
                         resources.add(attachProfileWatcher({ root, onProfileChanged }));
-                    } else {
-                        // Deferred: store resolves its dir lazily on the first
-                        // write; no createProfile on a read-only open.
-                        buildProfileStores(null);
                     }
                 })().catch(error => {
                     profileReady = null;
@@ -582,45 +606,72 @@ export class HexEditorSession {
             return profileReady;
         };
 
-        const buildProfileStores = (pid: string | null): void => {
-            const normalizeStructs = (raw: unknown): { value: StructDef[]; changed: boolean } => {
-                const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
-                return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
-            };
-            // bound profile slot (profiles/<id>/profile.json)
-            const profileUri = (id: string | null): vscode.Uri =>
-                id !== null ? profileRegistryJsonUri(path.join(hexScopeProfilesRegistryDir(root), id)) : profileRegistryJsonUri('');
-            const deferred = pid === null ? { lazyDir: materializePending } : {};
-
-            profileStore = new JsonStore<ProfileRecord>({
-                uri: profileUri(pid),
-                ...deferred,
-                normalizer: raw => normalizeProfileRecord(raw, emptyProfileRecord(pid ?? 'pending', pid ?? 'No Profile')),
-                empty: () => emptyProfileRecord(pid ?? 'pending', pid ?? 'No Profile'),
-                onSelfWrite: markSelfWrite,
-                onReload: () => void broadcastPerFileData(),
-            });
-            // workspace-wide struct pool (.hexscope/structs.json)
-            structPoolStore = new JsonStore<StructDef[]>({
-                uri: structPoolJsonUri(root),
-                normalizer: normalizeStructs,
-                empty: () => [...(workspaceStructPoolCache.get(root) ?? [])],
-                onSelfWrite: markSelfWrite,
-                onReload: () => void broadcastStructs(),
-            });
-        };
-
         const openStores = async (): Promise<{
-            profile: JsonStore<ProfileRecord>;
+            registry: JsonStore<ProfileRecord[]>;
             structs: JsonStore<StructDef[]>;
         }> => {
             await openProfileStores();
-            return { profile: profileStore!, structs: structPoolStore! };
+            return { registry: registryStore!, structs: structPoolStore! };
+        };
+
+        /** The bound record (or the in-memory staged record when unbound). */
+        const readBoundProfile = async (): Promise<ProfileRecord> => {
+            if (profileId !== null) { return boundRecordFromStoreOrDisk(); }
+            return boundProfileCache ?? emptyProfileRecord('', '');
+        };
+
+        /** Bound record: registry cache first, disk fallback, empty default. */
+        const boundRecordFromStoreOrDisk = async (): Promise<ProfileRecord> => {
+            const cached = boundRecord(registryStore?.get() ?? [], profileId!);
+            if (cached) { return cached; }
+            return (await readProfileRecord(root, profileId!)) ?? emptyProfileRecord(profileId!, profileId!);
+        };
+
+        /** Cached bound record for broadcasts; null when nothing to show yet. */
+        const currentBoundRecord = (): ProfileRecord | null => {
+            if (profileId !== null) {
+                return registryStore?.get()?.find(r => r.id === profileId) ?? null;
+            }
+            return boundProfileCache;
+        };
+
+        /** Ensure a profile is bound for writes; materializes or returns false
+         *  (the caller keeps the patch in-memory — out-of-workspace non-explicit). */
+        const ensureProfileBound = async (): Promise<boolean> => {
+            await openProfileStores();
+            if (profileId !== null) { return true; }
+            const id = await materializePending();
+            if (id === null) { return false; }
+            profileId = id;
+            return true;
+        };
+
+        /**
+         * Route a per-file mutation into the bound profile:
+         * - Unbound workspace file → materialize (create + bind) first.
+         * - Unbound out-of-workspace non-explicit → patch the in-memory cache
+         *   (flushed by explicit Save).
+         * - Bound → patch the record inside the registry array via the store
+         *   (debounced write to profiles.json).
+         */
+        const withBoundProfile = async (patch: (rec: ProfileRecord) => ProfileRecord): Promise<void> => {
+            if (!(await ensureProfileBound())) {
+                boundProfileCache = patch(boundProfileCache ?? emptyProfileRecord('', ''));
+                return;
+            }
+            await stageRegistryPatch(patch);
+        };
+
+        /** Patch the bound record inside the registry array via the store (debounced write). */
+        const stageRegistryPatch = async (patch: (rec: ProfileRecord) => ProfileRecord): Promise<void> => {
+            const records = registryStore!.get() ?? [];
+            const base = boundRecord(records, profileId!) ?? emptyProfileRecord(profileId!, profileId!);
+            registryStore!.set(normalizeProfilesRegistry(upsertRecord(records, patch({ ...base, id: profileId! }))).value);
         };
 
         /** Silent auto-apply: genuine external edits to the bound profile re-broadcast to the webview. */
         const broadcastPerFileData = (): void => {
-            const p = profileStore?.get();
+            const p = currentBoundRecord();
             if (!p) { return; }
             void postToWebview(webviewPanel.webview, {
                 type: 'perFileDataChange',
@@ -651,11 +702,11 @@ export class HexEditorSession {
         };
 
         const loadCurrentIndex = async (): Promise<ProfileRecord> => {
-            const { profile } = await openStores();
-            return profile.get() ?? profile.load();
+            await openProfileStores();
+            return readBoundProfile();
         };
 
-        /** External change to the registry: re-key the store, then debounced reload. */
+        /** External change to the registry: re-key the bound state, then debounced reload. */
         const onProfileChanged = (): void => {
             if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
             clearTimeout(profileReloadTimer);
@@ -670,13 +721,13 @@ export class HexEditorSession {
             const bound = await boundProfileId(root, relPath);
             if (bound !== profileId) {
                 profileId = bound;
-                buildProfileStores(bound);
+                if (bound === null) { boundProfileCache = null; }
             }
             scheduleProfileReload();
         };
 
         const scheduleProfileReload = (): void => {
-            profileStore?.scheduleReload(0);
+            registryStore?.scheduleReload(0);
             structPoolStore?.scheduleReload(0);
             void broadcastProfilesState();
         };
@@ -686,9 +737,9 @@ export class HexEditorSession {
             postProgress('transfer', 0);
             const serialized = serializeParseResult(parseResult, format);
             postProgress('transfer', 1, 1);
-            const { profile, structs } = await openStores();
-            const profileData = await profile.load();
-            const structDefs = await loadWorkspaceStructs(root, profileStore!, structs);
+            const { registry, structs } = await openStores();
+            const structDefs = await loadWorkspaceStructs(root, structs);
+            const profileData = await readBoundProfile();
 
             const allProfiles = await listProfiles(root);
             const bound = profileId;
@@ -798,29 +849,28 @@ export class HexEditorSession {
 
         type WebviewMessageHandler = (msg: any) => Promise<void>;
 
-        /** Apply a dropdown selection: write binding (or unbind) and re-key the profile slot. */
+        /** Apply a dropdown selection: write binding (or unbind) and re-key the bound record. */
         const applyProfileSelection = async (target: string | null): Promise<void> => {
             if (target === null) {
                 await unbindFile(root, relPath);
                 profileId = null;
-                buildProfileStores(null);
+                boundProfileCache = null;
             } else {
                 const bound = await boundProfileId(root, relPath);
                 if (bound !== target) {
-                    const current = profileStore?.get();
+                    const current = currentBoundRecord();
                     // Flush current edits into the old profile before switching —
                     // only when actually bound (an unbound file's pending edits
                     // are in-memory-only; flushing would materialize a new
                     // auto-named profile instead of the picked target).
                     if (shouldFlushBeforeSwitch(current, bound, profileId)) {
-                        await profileStore?.flush();
+                        await registryStore?.flush();
                     }
                     await bindFile(root, relPath, target);
                     profileId = target;
-                    buildProfileStores(target);
                 }
             }
-            await profileStore?.load(true);
+            await registryStore?.load(true);
         };
 
         const currentFileName = () => document.uri.fsPath.split(/[\/\\]/).pop();
@@ -849,8 +899,7 @@ export class HexEditorSession {
             },
             saveLabels: async msg => {
                 await enqueuePerFileOp(async () => {
-                    const { profile } = await openStores();
-                    await updateStore(profile, current => ({
+                    await withBoundProfile(current => ({
                         ...current,
                         labels: msg.labels,
                         ...(msg.segmentNames ? { segmentNames: msg.segmentNames } : {}),
@@ -869,26 +918,8 @@ export class HexEditorSession {
                         usage => confirmStructDeletion(usage),
                     );
                     if (result === 'declined') {
-                        // Revert the webview (it had stripped the pins locally +
-                        // optimistically dropped the type). The queued
-                        // saveStructPins is skipped via structDeletionDeclined
-                        // so no disk write leaks through.
                         structDeletionDeclined = true;
-                        void postToWebview(webviewPanel.webview, { type: 'structsExternalChange', structs: previous });
-                        const bound = profileId;
-                        if (bound) {
-                            const rec = await readProfileRecord(root, bound);
-                            if (rec) {
-                                void postToWebview(webviewPanel.webview, {
-                                    type: 'perFileDataChange',
-                                    labels: rec.labels,
-                                    segmentNames: rec.segmentNames,
-                                    pins: rec.pins,
-                                    endian: rec.endian,
-                                    activeChecks: rec.activeChecks,
-                                });
-                            }
-                        }
+                        await revertDeclinedStructDeletion(root, webviewPanel.webview, previous, profileId);
                     }
                 });
             },
@@ -900,23 +931,20 @@ export class HexEditorSession {
                         structDeletionDeclined = false;
                         return;
                     }
-                    const { profile } = await openStores();
-                    await updateStore(profile, current => ({ ...current, pins: msg.pins }));
+                    await withBoundProfile(current => ({ ...current, pins: msg.pins }));
                 });
             },
             saveIntegrityChecks: async msg => {
                 const state = normalizeIntegrityCheckSet(msg.state);
                 if (!state) { return; }
                 await enqueuePerFileOp(async () => {
-                    const { profile } = await openStores();
-                    await updateStore(profile, current => ({ ...current, activeChecks: state }));
+                    await withBoundProfile(current => ({ ...current, activeChecks: state }));
                 });
             },
             saveEndian: async msg => {
                 if (msg.endian !== 'le' && msg.endian !== 'be') { return; }
                 await enqueuePerFileOp(async () => {
-                    const { profile } = await openStores();
-                    await updateStore(profile, current => ({ ...current, endian: msg.endian }));
+                    await withBoundProfile(current => ({ ...current, endian: msg.endian }));
                 });
             },
             selectProfile: async msg => {
@@ -933,16 +961,79 @@ export class HexEditorSession {
                     const pid = await createProfileFromName(root, name);
                     await bindFile(root, relPath, pid);
                     profileId = pid;
-                    buildProfileStores(pid);
-                    await profileStore?.load(true);
+                    boundProfileCache = null;
+                    await registryStore?.load(true);
+                });
+                broadcastPerFileData();
+                void broadcastProfilesState();
+            },
+            saveProfile: async () => {
+                // Explicit flush: materialize an unbound file (out-of-workspace
+                // included), persist any staged in-memory edits, flush pending
+                // registry/pool writes, then refresh the webview.
+                await enqueuePerFileOp(async () => {
+                    forceMaterializeOnSave = true;
+                    try {
+                        if (!profileId) { await materializePending(); }
+                        if (profileId && boundProfileCache) {
+                            await writeProfileRecord(root, { ...boundProfileCache, id: profileId });
+                            boundProfileCache = null;
+                            await registryStore?.load(true);
+                        }
+                        await registryStore?.flush();
+                        await structPoolStore?.flush();
+                        broadcastPerFileData();
+                        void broadcastProfilesState();
+                    } finally {
+                        forceMaterializeOnSave = false;
+                    }
+                });
+            },
+            duplicateProfile: async msg => {
+                // Save as…: copy the bound profile (+ staged cache when unbound)
+                // under a new name and bind the current file to the copy.
+                await enqueuePerFileOp(async () => {
+                    const rec = await readBoundProfile();
+                    const name = await askProfileName('', `${rec.name || 'Profile'} Copy`);
+                    if (!name) { return; }
+                    const pid = await createProfileFromName(root, name);
+                    await writeProfileCopy(root, rec, pid, name);
+                    await bindFile(root, relPath, pid);
+                    profileId = pid;
+                    boundProfileCache = null;
+                    await registryStore?.load(true);
+                });
+                broadcastPerFileData();
+                void broadcastProfilesState();
+            },
+            renameProfile: async () => {
+                await enqueuePerFileOp(async () => {
+                    if (!profileId) { return; }
+                    const rec = await readBoundProfile();
+                    const name = await askProfileName('', rec.name ?? '');
+                    if (!name) { return; }
+                    await writeProfileName(root, profileId, rec, rec.name, name);
+                    void broadcastProfilesState();
+                });
+            },
+            deleteProfile: async () => {
+                await enqueuePerFileOp(async () => {
+                    if (!profileId) { return; }
+                    const rec = await readBoundProfile();
+                    const pick = { id: profileId, label: rec.name || profileId };
+                    const bound = await bindingsUsing(root, profileId);
+                    if (!(await confirmDeleteBoundProfile(pick, bound.length))) { return; }
+                    await deleteRegistryProfile(root, profileId);
+                    profileId = null;
+                    boundProfileCache = null;
+                    await registryStore?.load(true);
                 });
                 broadcastPerFileData();
                 void broadcastProfilesState();
             },
             updateLabelVisibility: async msg => {
                 await enqueuePerFileOp(async () => {
-                    const { profile } = await openStores();
-                    await updateStore(profile, current => ({
+                    await withBoundProfile(current => ({
                         ...current,
                         labels: current.labels.map(l =>
                             l.id === msg.id ? { ...l, hidden: msg.hidden as boolean } : l
@@ -952,8 +1043,7 @@ export class HexEditorSession {
             },
             reorderLabel: async msg => {
                 await enqueuePerFileOp(async () => {
-                    const { profile } = await openStores();
-                    await updateStore(profile, current => {
+                    await withBoundProfile(current => {
                         const idx = current.labels.findIndex(l => l.id === msg.id);
                         if (idx < 0) { return current; }
                         const next = [...current.labels];
@@ -1130,6 +1220,17 @@ function shouldFlushBeforeSwitch(current: ProfileRecord | null | undefined, boun
     return !!current && profileId === bound && bound !== null;
 }
 
+/** Registry-array record for a profile id; null when absent. */
+function boundRecord(records: ProfileRecord[], profileId: string): ProfileRecord | null {
+    return records.find(r => r.id === profileId) ?? null;
+}
+
+/** Insert or replace one record in the registry array (order preserved). */
+function upsertRecord(records: ProfileRecord[], next: ProfileRecord): ProfileRecord[] {
+    const idx = records.findIndex(r => r.id === next.id);
+    return idx >= 0 ? records.map(r => (r.id === next.id ? next : r)) : [...records, next];
+}
+
 // ── Three-tier registry/binding helpers ───────────────────────────
 
 /** Per-root in-memory workspace struct pool cache (one root's defs must not
@@ -1163,7 +1264,7 @@ function profileNameFromRel(relPath: string): string {
 async function createProfileFromName(root: string, name: string): Promise<string> {
     const ordinal = await nextProfileOrdinal(root);
     const id = `profile_${ordinal}`;
-    await createProfileRegistryEntry(root, id, name);
+    await writeProfileRecord(root, emptyProfileRecord(id, name));
     return id;
 }
 
@@ -1182,16 +1283,12 @@ async function notifyEmptyProfileList(message: string): Promise<null> {
 
 /** Write the duplicated profile record (id + name swapped, rest copied). */
 async function writeProfileCopy(root: string, source: ProfileRecord, id: string, name: string): Promise<void> {
-    const dir = await resolveProfileDir(root, id);
-    if (!dir) { return; }
-    await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...source, id, name }));
+    await writeProfileRecord(root, { ...source, id, name });
 }
 
 /** Write a renamed profile record (label is the id fallback for the name). */
 async function writeProfileName(root: string, profileId: string, rec: ProfileRecord | null, label: string, name: string): Promise<void> {
-    const dir = await resolveProfileDir(root, profileId);
-    if (!dir) { return; }
-    await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...(rec ?? emptyProfileRecord(profileId, label)), name }));
+    await writeProfileRecord(root, { ...(rec ?? emptyProfileRecord(profileId, label)), name });
 }
 
 /** Confirm deleting a profile that is bound to files; true when safe or confirmed. */
@@ -1252,11 +1349,12 @@ export async function pruneBindings(root: string, bindings: ReadonlyArray<{ file
 }
 
 /** Resolve a new profile name: payload name, else a host input box (webviews block window.prompt). */
-async function askProfileName(prompted: string): Promise<string | null> {
+async function askProfileName(prompted: string, initial = ''): Promise<string | null> {
     if (prompted) { return prompted; }
     const input = await vscode.window.showInputBox({
         prompt: 'New profile name',
         placeHolder: 'e.g. Bootloader v3',
+        value: initial,
         validateInput: value => value && value.trim() ? undefined : 'Profile name is required.',
     });
     if (input === undefined) { return null; }
@@ -1266,7 +1364,7 @@ async function askProfileName(prompted: string): Promise<string | null> {
 
 /** List registry profiles as { id, name }. */
 async function listProfiles(root: string): Promise<Array<{ id: string; name: string }>> {
-    const records = await listProfileRecords(root);
+    const records = await collectProfileRecords(root);
     return records.map(rec => ({ id: rec.id, name: rec.name })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -1279,10 +1377,7 @@ export async function bindingsUsing(root: string, profileId: string): Promise<Ar
 
 /** Delete a registry profile + its bindings (bound files revert to "No Profile"). */
 async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
-    const dir = await resolveProfileDir(root, profileId);
-    if (dir) {
-        await vscode.workspace.fs.delete(vscode.Uri.file(dir), { recursive: true });
-    }
+    await removeProfileRecord(root, profileId);
     const bindingsUri = bindingsJsonUri(root);
     const read = await readJson(bindingsUri);
     if (read.status === 'ok') {
@@ -1296,11 +1391,8 @@ async function deleteRegistryProfile(root: string, profileId: string): Promise<v
  *  across roots). Exported as a test seam for per-root-fallback coverage. */
 export async function loadWorkspaceStructs(
     root: string,
-    profileStore: JsonStore<ProfileRecord>,
     structs: JsonStore<StructDef[]>,
 ): Promise<StructDef[]> {
-    // Warm the bound profile load so listeners are consistent.
-    await profileStore.load();
     const defs = await structs.load();
     workspaceStructPoolCache.set(root, defs);
     return defs;
@@ -1332,7 +1424,7 @@ export async function collectStructDeletionUsage(
     const target = new Set(deletedIds);
     let pins = 0;
     const profileIds: string[] = [];
-    for (const rec of await listProfileRecords(root)) {
+    for (const rec of await collectProfileRecords(root)) {
         const count = rec.pins.filter(pin => target.has(pin.structId)).length;
         if (count > 0) {
             pins += count;
@@ -1347,12 +1439,13 @@ export async function collectStructDeletionUsage(
  *  idempotent with the webview's later saveStructPins). */
 export async function stripDeletedStructPins(root: string, deletedIds: string[]): Promise<void> {
     const target = new Set(deletedIds);
-    for (const rec of await listProfileRecords(root)) {
+    const records = await collectProfileRecords(root);
+    const next = records.map(rec => {
         const stripped = rec.pins.filter(pin => !target.has(pin.structId));
-        if (stripped.length === rec.pins.length) { continue; }
-        const dir = await resolveProfileDir(root, rec.id);
-        if (!dir) { continue; }
-        await writeJson(profileRegistryJsonUri(dir), withEnvelope({ ...rec, pins: stripped }));
+        return stripped.length === rec.pins.length ? rec : { ...rec, pins: stripped };
+    });
+    if (next.some((rec, i) => rec !== records[i])) {
+        await writeJson(profilesJsonUri(root), withEnvelope(normalizeProfilesRegistry(next).value));
     }
 }
 
@@ -1369,13 +1462,21 @@ export async function applyStructDeletion(
     incomingStructs: StructDef[],
     confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
-    const previous = poolStore.get() ?? [];
-    const incomingIds = new Set(incomingStructs.map(def => def.id));
-    const deletedIds = previous.filter(def => !incomingIds.has(def.id)).map(def => def.id);
+    const deletedIds = deletedStructIds(poolStore.get() ?? [], incomingStructs);
     if (deletedIds.length === 0) {
         poolStore.set(incomingStructs);
         return 'applied';
     }
+    return applyStructDeletionWithUsage(root, poolStore, incomingStructs, deletedIds, confirm);
+}
+
+async function applyStructDeletionWithUsage(
+    root: string,
+    poolStore: JsonStore<StructDef[]>,
+    incomingStructs: StructDef[],
+    deletedIds: string[],
+    confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
+): Promise<'applied' | 'declined'> {
     const usage = await collectStructDeletionUsage(root, deletedIds);
     if (usage.pins === 0) {
         poolStore.set(incomingStructs);
@@ -1385,6 +1486,33 @@ export async function applyStructDeletion(
     await stripDeletedStructPins(root, deletedIds);
     poolStore.set(incomingStructs);
     return 'applied';
+}
+
+/** Struct ids present in `previous` but absent from the incoming pool. */
+function deletedStructIds(previous: StructDef[], incoming: StructDef[]): string[] {
+    const incomingIds = new Set(incoming.map(def => def.id));
+    return previous.filter(def => !incomingIds.has(def.id)).map(def => def.id);
+}
+
+/** Revert the webview after a declined struct deletion (no disk writes). */
+async function revertDeclinedStructDeletion(
+    root: string,
+    webview: vscode.Webview,
+    previous: StructDef[],
+    boundProfileId: string | null,
+): Promise<void> {
+    void postToWebview(webview, { type: 'structsExternalChange', structs: previous });
+    if (!boundProfileId) { return; }
+    const rec = await readProfileRecord(root, boundProfileId);
+    if (!rec) { return; }
+    void postToWebview(webview, {
+        type: 'perFileDataChange',
+        labels: rec.labels,
+        segmentNames: rec.segmentNames,
+        pins: rec.pins,
+        endian: rec.endian,
+        activeChecks: rec.activeChecks,
+    });
 }
 
 /** Rewrite bindings on workspace rename (silent); remove on delete. */

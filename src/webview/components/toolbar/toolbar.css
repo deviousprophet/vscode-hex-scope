@@ -84,10 +84,20 @@
 
 .tb-cancel-btn:hover { color: #f48771; border-color: #f48771; background: rgba(244,135,113,.08); }
 
-/* Profile dropdown + shared-profile hint (three-tier selection) */
+/* Second toolbar row — profile picker */
+.profile-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px; height: 31px; min-height: 31px;
+    flex-shrink: 0;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+/* Profile dropdown + actions menu (three-tier selection) */
 .profile-picker {
-    display: flex; align-items: center; gap: 6px; margin-left: auto;
+    display: flex; align-items: center; gap: 6px;
     flex-shrink: 0; white-space: nowrap;
+    position: relative;
 }
 .profile-label {
     font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
@@ -99,7 +109,16 @@
     border: 1px solid var(--input-bdr); border-radius: 3px; padding: 0 4px;
 }
 .profile-select:focus { border-color: var(--focus-bdr); }
-.profile-shared-hint {
-    font-size: 10px; color: var(--warn); font-family: var(--font-ui);
-    white-space: nowrap; opacity: .9;
+.profile-actions-btn {
+    height: 22px; line-height: 1; padding: 0 6px;
+    font-size: 13px; flex-shrink: 0;
 }
+/* Static popover anchored under the ⋮ (menuController reveals/covers via hidden) */
+.profile-actions-menu {
+    position: absolute; top: calc(100% + 4px); right: 0;
+    z-index: 9999; min-width: 170px;
+    background: var(--panel-bg); border: 1px solid var(--border);
+    border-radius: 4px; box-shadow: 0 6px 24px rgba(0, 0, 0, .55);
+    padding: 3px 0;
+}
+.profile-actions-menu[hidden] { display: none; }

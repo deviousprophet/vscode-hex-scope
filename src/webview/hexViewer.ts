@@ -962,7 +962,19 @@ function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void 
 
 function handleProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    const cur = S.profileState.current;
+    // One transient toast when the user switches to a shared profile (never
+    // on open, never repeated for the same profile).
+    if (cur !== null && cur !== lastProfileCurrent && S.profileState.boundFileCount > 1) {
+        const name = profileNameFor(S.profileState.profiles, cur);
+        showToast(`Shared profile "${name}" used by ${S.profileState.boundFileCount} files`);
+    }
+    lastProfileCurrent = cur;
 }
+
+/** Last bound profile id seen by the webview; seeds the switch-detection
+ *  for the shared-profile toast (open never toasts). */
+let lastProfileCurrent: string | null = null;
 
 function handleActivateProfilePickerMessage(_msg: WebviewMessageByType<'activateProfilePicker'>): void {
     const select = document.getElementById('profile-select') as HTMLSelectElement | null;
@@ -1207,30 +1219,80 @@ function render(): void {
             </div>
             ${sidebar.toHtml()}
         </div>`;
-    document.getElementById('toolbar')?.insertAdjacentHTML('beforeend', '<div id="profile-picker" class="profile-picker"></div>');
+    document.getElementById('toolbar')?.insertAdjacentHTML('afterend', '<div id="profile-bar" class="profile-bar"><div id="profile-picker" class="profile-picker"></div></div>');
 
     invalidateGridRender();
     setupRenderedUi();
 }
 
-/** Toolbar profile dropdown (always rendered) + shared-profile hint. */
+/** Toolbar profile dropdown (always rendered) + actions menu. */
 function renderProfileDropdown(): void {
     const host = document.getElementById('profile-picker');
     if (!host) { return; }
     const { profiles, current, boundFileCount } = S.profileState;
-    const currentNameHtml = esc(profileNameFor(profiles, current));
-    const countHtml = esc(String(boundFileCount));
+    const currentName = profileNameFor(profiles, current);
     const optionsHtml = profileDropdownOptions(profiles, current).join('');
+    const bound = current !== null;
+    const title = profileSelectTitle(currentName, bound, boundFileCount);
     host.innerHTML = `
         <label class="profile-label" for="profile-select" title="Select the annotation profile bound to this file">Profile</label>
-        <select id="profile-select" class="profile-select" aria-label="Profile">
+        <select id="profile-select" class="profile-select" aria-label="Profile" title="${esc(title)}">
             ${optionsHtml}
         </select>
-        ${sharedProfileHintHtml(boundFileCount, currentNameHtml, countHtml)}`;
+        <button id="profile-actions-btn" class="sb-btn sb-btn-secondary profile-actions-btn" type="button"
+            title="Profile actions" aria-label="Profile actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
+        <div id="profile-actions-menu" class="profile-actions-menu" role="menu" hidden>
+            ${profileActionsHtml(bound)}
+        </div>`;
     const select = host.querySelector('#profile-select') as HTMLSelectElement;
     select.value = current ?? '';
     if (isSeparatorValue(select.value)) { select.value = ''; }
     select.addEventListener('change', () => onProfileSelect(select, current));
+    wireProfileActions();
+}
+
+/** Select tooltip: shared-profile state surfaces here (R9 — persistent hint removed). */
+function profileSelectTitle(currentName: string, bound: boolean, boundFileCount: number): string {
+    if (!bound) { return 'No profile bound to this file'; }
+    return boundFileCount > 1 ? `${currentName} · shared by ${boundFileCount} files` : currentName;
+}
+
+/** Profile actions menu rows; disabled when no profile is bound. */
+function profileActionsHtml(bound: boolean): string {
+    const dis = bound ? '' : ' menu-disabled';
+    return `
+        <button class="menu-item${dis}" data-cmd="saveProfile" type="button">Save</button>
+        <button class="menu-item${dis}" data-cmd="duplicateProfile" type="button">Save as…</button>
+        <button class="menu-item${dis}" data-cmd="renameProfile" type="button">Rename</button>
+        <button class="menu-item${dis}" data-cmd="deleteProfile" type="button">Delete</button>`;
+}
+
+/** Wire the ⋮ toggle + attach the popover (idempotent within a re-render).
+ *  The toggle stops propagation so the opening click is not seen by the
+ *  controller's document-level dismissal listener. */
+function wireProfileActions(): void {
+    const btn = document.getElementById('profile-actions-btn') as HTMLButtonElement | null;
+    const menu = document.getElementById('profile-actions-menu') as HTMLElement | null;
+    if (!btn || !menu) { return; }
+    menuController.attach(menu, { emit: handleProfileAction });
+    btn.addEventListener('click', event => {
+        event.stopPropagation();
+        if (btn.getAttribute('aria-expanded') === 'true') { menuController.close(menu); return; }
+        menuController.show(0, 0, { el: menu, anchor: btn, focusFirst: '.menu-item:not(.menu-disabled)' });
+    });
+}
+
+/** Menu command → provider message (the controller closes the menu). */
+const PROFILE_ACTION_MESSAGES: Record<string, WebviewToProviderMessage> = {
+    saveProfile: { type: 'saveProfile' },
+    duplicateProfile: { type: 'duplicateProfile' },
+    renameProfile: { type: 'renameProfile' },
+    deleteProfile: { type: 'deleteProfile' },
+};
+
+function handleProfileAction(cmd: string): void {
+    const msg = PROFILE_ACTION_MESSAGES[cmd];
+    if (msg) { postProviderMessage(msg); }
 }
 
 function profileNameFor(profiles: Array<{ id: string; name: string }>, current: string | null): string {
@@ -1246,11 +1308,6 @@ function profileDropdownOptions(profiles: Array<{ id: string; name: string }>, c
         '<option value="__sep2__" disabled>────</option>',
         '<option value="__new__">+ New Profile…</option>',
     ];
-}
-
-function sharedProfileHintHtml(boundFileCount: number, currentNameHtml: string, countHtml: string): string {
-    if (boundFileCount <= 1) { return ''; }
-    return `<span class="profile-shared-hint" title="This profile is bound to ${countHtml} files">Editing shared profile '${currentNameHtml}' (used by ${countHtml} files)</span>`;
 }
 
 function isSeparatorValue(value: string): boolean {
@@ -1293,6 +1350,7 @@ function setupRenderedUi(): void {
     toolbar.setAscii(getShowAscii());
     toolbar.setDirty(S.edits.size);
     renderProfileDropdown();
+    lastProfileCurrent = S.profileState.current;
     setupRerenderCallbacks();
     initSearch(() => switchView('memory'), {
         setCount: (count, current) => searchBar.setCount(count, current),
@@ -1726,6 +1784,7 @@ function updateViewVisibility(v: ViewName): void {
 function updateMemoryOnlyControls(visible: boolean): void {
     setDisplayById('sidebar', visible);
     setDisplayById('side-tabs', visible);
+    setDisplayById('profile-bar', visible);
     searchBar.setVisible(visible);
 }
 

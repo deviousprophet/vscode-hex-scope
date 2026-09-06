@@ -3,9 +3,11 @@
 // three-tier shape:
 //   (a) merge every firmware_profiles/<n>/structs.json into the workspace
 //       struct pool (.hexscope/structs.json), deduped via structMigration
-//   (b) each index.json + integrity.json pair → one registry profile
-//       (.hexscope/profiles/<id>.json) + one binding (fileKey → profileId)
-// Runs once per root (Memento tariff). The legacy tree is left in place so
+//   (b) each index.json + integrity.json pair → one registry profile in
+//       .hexscope/profiles.json + one binding (fileKey → profileId)
+// Also merges the per-directory profile registry (`.hexscope/profiles/<id>/`)
+// into the single-file `profiles.json` array.
+// Runs once per root (Memento tariff). The legacy trees are left in place so
 // a reverted release still finds committed legacy data; idempotent.
 
 import * as path from 'node:path';
@@ -16,21 +18,20 @@ import { normalizeStructDefsValue } from './core/structNormalization';
 import type { StructDef } from './core/types';
 import {
     bindingsJsonUri,
-    createProfileRegistryEntry,
+    collectProfileRecords,
     emptyProfileRecord,
-    listProfileRecords,
+    migrateLegacyProfileDirs,
     nextProfileOrdinal,
     normalizeBindings,
     perFileRelativePath,
-    profileRegistryJsonUri,
     readDirectorySafe,
     readJson,
-    readProfileRecord,
     resolveHexScopeRoot,
-    resolveProfileDir,
     structPoolJsonUri,
     withEnvelope,
     writeJson,
+    writeProfileRecord,
+    type ProfileRecord,
 } from './hexScopeStorage';
 
 const STRUCTS_V2_KEY = 'hexScope.structs.global.v2';
@@ -43,6 +44,7 @@ const PER_FILE_PINS_PREFIX = 'hexScope.structPins.';
 const PER_FILE_CHECKS_PREFIX = 'hexScope.integrityChecks.';
 const PER_FILE_ENDIAN_PREFIX = 'hexScope.endian.';
 const MIGRATION_MARKER = 'hexScope.migration.v3';
+const PROFILES_ARRAY_MARKER = 'hexScope.profilesArray.v1';
 
 export interface MementoLike {
     get<T>(key: string, defaultValue?: T): T | undefined;
@@ -72,8 +74,13 @@ export async function migrateLegacyData(root: string, uri: vscode.Uri, context: 
     }
 }
 
-/** Once per root: migrate any legacy firmware_profiles trees that still exist. */
+/** Once per root: merge a per-directory registry into profiles.json, then
+ *  migrate any legacy firmware_profiles trees that still exist. */
 async function ensureMigrationComplete(root: string, relPath: string, uri: vscode.Uri, context: MigrationContext): Promise<void> {
+    // Current-release per-dir registry → single-file array (before the
+    // firmware_profiles tree below pushes more records into the array).
+    await migrateProfilesDirToArray(root, context);
+
     const legacyTree = path.join(root, '.hexscope', 'firmware_profiles');
     const hasLegacy = await dirExists(legacyTree);
     if (!hasLegacy) {
@@ -93,6 +100,18 @@ async function ensureMigrationComplete(root: string, relPath: string, uri: vscod
 
 async function markMigrated(root: string, context: MigrationContext): Promise<void> {
     await context.globalState.update(MIGRATION_MARKER, root);
+}
+
+/** One-time merge of `.hexscope/profiles/<id>/profile.json` dirs into the
+ *  single-file registry array. The marker is Memento (restart safe); the dir
+ *  tree is left in place for rollback. No-op when the old tree is absent. */
+async function migrateProfilesDirToArray(root: string, context: MigrationContext): Promise<void> {
+    const marker = PROFILES_ARRAY_MARKER;
+    if (context.globalState.get<string>(marker) === root) { return; }
+    if (await dirExists(path.join(root, '.hexscope', 'profiles'))) {
+        await migrateLegacyProfileDirs(root);
+    }
+    await context.globalState.update(marker, root);
 }
 
 async function dirExists(p: string): Promise<boolean> {
@@ -129,9 +148,7 @@ async function migrateLegacyEntry(root: string, name: string, dir: string): Prom
     const markerUri = vscode.Uri.file(path.join(dir, '.converted'));
     if (await fileExists(markerUri)) { return; }
 
-    const indexRaw = await readJson(vscode.Uri.file(path.join(dir, 'index.json')));
-    if (indexRaw.status !== 'ok') { return; }
-    const index = normalizeIndexPayload(indexRaw.value);
+    const index = await legacyIndexFor(dir);
     if (!index) { return; }
 
     // (a) merge structs.json into workspace pool
@@ -157,9 +174,21 @@ async function migrateLegacyEntry(root: string, name: string, dir: string): Prom
 
     // Mark this dir converted (before index jiggles could reorder); the tree
     // itself stays on disk for revert safety.
+    await markConverted(markerUri);
+}
+
+/** Write a `.converted` marker; marker-write failures never block migration. */
+async function markConverted(markerUri: vscode.Uri): Promise<void> {
     try {
         await vscode.workspace.fs.writeFile(markerUri, new Uint8Array());
-    } catch { /* marker write failures never block migration */ }
+    } catch { /* best effort */ }
+}
+
+/** Read + normalize a legacy index.json; null when missing/corrupt/shape-invalid. */
+async function legacyIndexFor(dir: string): Promise<ProfileIndexData | null> {
+    const indexRaw = await readJson(vscode.Uri.file(path.join(dir, 'index.json')));
+    if (indexRaw.status !== 'ok') { return null; }
+    return normalizeIndexPayload(indexRaw.value);
 }
 
 async function fileExists(uri: vscode.Uri): Promise<boolean> {
@@ -185,7 +214,7 @@ function extraTemplates(index: ProfileIndexData, legacyProfiles: IntegrityProfil
     return index.activeChecks.checks.length > 0 ? legacyProfiles : legacyProfiles.slice(1);
 }
 
-/** Create/merge one registry profile for a legacy index dir. Returns profileId. */
+/** Create one registry profile for a legacy index dir. Returns profileId. */
 async function ensureProfileLegacy(
     root: string,
     index: ProfileIndexData,
@@ -194,63 +223,15 @@ async function ensureProfileLegacy(
 ): Promise<string> {
     const profileId = `profile_${await nextProfileOrdinal(root)}`;
     const name = profileNameFromIndex(index, sourceDirName);
-    const { dir, created } = await ensureProfileDir(root, profileId, name);
-    const existing = await readProfileRecord(root, profileId, '');
-    const fresh: ProfileRecordVal = {
+    await writeProfileRecord(root, {
         ...emptyProfileRecord(profileId, name),
-        activeChecks: index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles),
-        labels: index.labels,
+        activeChecks: (index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles)) as ProfileRecord['activeChecks'],
+        labels: index.labels as ProfileRecord['labels'],
         segmentNames: index.segmentNames,
-        pins: index.pins,
+        pins: index.pins as ProfileRecord['pins'],
         endian: index.endian,
-    };
-    const merged = created || existing === null ? fresh : mergeWithExisting(existing, fresh);
-    await writeJson(profileRegistryJsonUri(dir), withEnvelope(merged));
+    });
     return profileId;
-}
-
-async function ensureProfileDir(root: string, id: string, name: string): Promise<{ dir: string; created: boolean }> {
-    const existing = await resolveProfileDir(root, id);
-    if (existing) { return { dir: existing, created: false }; }
-    const dir = await createProfileRegistryEntry(root, id, name);
-    return { dir, created: true };
-}
-
-/** Merge fresh (index-derived) values into an existing profile field-by-field,
- *  keeping the existing value only when it actually has data. */
-function mergeWithExisting(existing: ProfileRecordVal, fresh: ProfileRecordVal): ProfileRecordVal {
-    return {
-        ...fresh,
-        activeChecks: mergeField(existingChecks(existing), fresh.activeChecks),
-        labels: mergeField(existingLabels(existing), fresh.labels),
-        segmentNames: mergeField(existingSegmentNames(existing), fresh.segmentNames),
-        pins: mergeField(existingPins(existing), fresh.pins),
-        endian: mergeField(existingEndian(existing), fresh.endian),
-    };
-}
-
-function mergeField<T>(existing: T | undefined, fallback: T): T {
-    return existing === undefined ? fallback : existing;
-}
-
-function existingChecks(e: ProfileRecordVal): IntegrityCheckVal | undefined {
-    return e.activeChecks?.checks?.length ? e.activeChecks : undefined;
-}
-
-function existingLabels(e: ProfileRecordVal): unknown[] | undefined {
-    return e.labels?.length ? e.labels : undefined;
-}
-
-function existingSegmentNames(e: ProfileRecordVal): Record<string, string> | undefined {
-    return e.segmentNames ? e.segmentNames : undefined;
-}
-
-function existingPins(e: ProfileRecordVal): unknown[] | undefined {
-    return e.pins?.length ? e.pins : undefined;
-}
-
-function existingEndian(e: ProfileRecordVal): 'le' | 'be' | undefined {
-    return e.endian ? e.endian : undefined;
 }
 
 /** Opportunistic activeChecks from a legacy integrity profile template. */
@@ -317,17 +298,16 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
 
     const profileId = `profile_${await nextProfileOrdinal(root)}`;
     const name = profileNameFromRel(relPath);
-    const dir = await createProfileRegistryEntry(root, profileId, name);
 
-    const seed: unknown = {
+    const seed: ProfileRecord = {
         ...emptyProfileRecord(profileId, name),
-        labels: arrayOrEmpty(legacy.labels),
+        labels: arrayOrEmpty(legacy.labels) as ProfileRecord['labels'],
         segmentNames: plainStringRecord(legacy.segmentNames),
-        pins: arrayOrEmpty(legacy.pins),
-        activeChecks: normalizeChecks(legacy.checks),
+        pins: arrayOrEmpty(legacy.pins) as ProfileRecord['pins'],
+        activeChecks: normalizeChecks(legacy.checks) as ProfileRecord['activeChecks'],
         endian: legacy.endian === 'be' ? 'be' : 'le',
     };
-    await writeJson(profileRegistryJsonUri(dir), withEnvelope(seed));
+    await writeProfileRecord(root, seed);
 
     // Bind the open doc.
     await bindFile(root, relPath, profileId);
@@ -362,19 +342,15 @@ async function migrateIntegrityTemplates(root: string, raw: unknown, extra: Inte
         const existing = await listProfileNames(root);
         if (existing.has(t.name.toLowerCase())) { continue; }
         const id = `profile_${await nextProfileOrdinal(root)}`;
-        await createProfileRegistryEntry(root, id, t.name);
-        const dir = await resolveProfileDir(root, id);
-        if (dir) {
-            await writeJson(profileRegistryJsonUri(dir), withEnvelope({
-                ...emptyProfileRecord(id, t.name),
-                activeChecks: { schemaVersion: 1, checks: t.checks as unknown[] },
-            }));
-        }
+        await writeProfileRecord(root, {
+            ...emptyProfileRecord(id, t.name),
+            activeChecks: { schemaVersion: 1, checks: t.checks as unknown[] } as ProfileRecord['activeChecks'],
+        });
     }
 }
 
 async function listProfileNames(root: string): Promise<Set<string>> {
-    const records = await listProfileRecords(root);
+    const records = await collectProfileRecords(root);
     return new Set(records.map(rec => rec.name.toLowerCase()));
 }
 
@@ -532,16 +508,6 @@ interface IntegrityProfileVal {
     id: string;
     name: string;
     checks: unknown[];
-}
-
-interface ProfileRecordVal {
-    id: string;
-    name: string;
-    pins: unknown[];
-    activeChecks: IntegrityCheckVal;
-    endian: 'le' | 'be';
-    segmentNames: Record<string, string>;
-    labels: unknown[];
 }
 
 interface BindingVal {

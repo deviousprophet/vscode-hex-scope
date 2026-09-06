@@ -215,8 +215,8 @@
         "url": "./schemas/structs.schema.json"
       },
       {
-        "fileMatch": ".hexscope/profiles/*/profile.json",
-        "url": "./schemas/profile.schema.json"
+        "fileMatch": ".hexscope/profiles.json",
+        "url": "./schemas/profiles.schema.json"
       },
       {
         "fileMatch": ".hexscope/bindings.json",

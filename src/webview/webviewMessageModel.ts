@@ -88,16 +88,26 @@ export function applyProviderMessageToModel(msg: WebviewMessage): WebviewModelUp
     return apply(msg);
 }
 
+type WebviewProfileState = {
+    profiles: Array<{ id: string; name: string }>;
+    current: string | null;
+    boundFileCount: number;
+};
+
+function profileStateValue(profiles: unknown, current: unknown, boundFileCount: unknown): WebviewProfileState {
+    return {
+        profiles: Array.isArray(profiles) ? profiles : [],
+        current: typeof current === 'string' ? current : null,
+        boundFileCount: typeof boundFileCount === 'number' ? boundFileCount : 0,
+    };
+}
+
 function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate {
     applyInitialState(msg);
     // Normalize + assign profileState (dropdown hydration) and return the
     // update field so applyProfileStateUpdate re-renders — mirroring
     // applyProfilesStateMessage. A fresh open sends only `init`.
-    const profileState = {
-        profiles: Array.isArray(msg.profile?.profiles) ? msg.profile.profiles : [],
-        current: msg.profile?.current ?? null,
-        boundFileCount: typeof msg.profile?.boundFileCount === 'number' ? msg.profile.boundFileCount : 0,
-    };
+    const profileState = profileStateValue(msg.profile?.profiles, msg.profile?.current, msg.profile?.boundFileCount);
     S.profileState = profileState;
     return {
         activeChecks: msg.activeChecks,
@@ -107,11 +117,7 @@ function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate
 }
 
 function applyProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): WebviewModelUpdate {
-    const profileState = {
-        profiles: Array.isArray(msg.profiles) ? msg.profiles : [],
-        current: msg.current,
-        boundFileCount: typeof msg.boundFileCount === 'number' ? msg.boundFileCount : 0,
-    };
+    const profileState = profileStateValue(msg.profiles, msg.current, msg.boundFileCount);
     S.profileState = profileState;
     // Returning the `profileState` update field is what triggers the dropdown
     // re-render effect; without it the toolbar select keeps its stale options

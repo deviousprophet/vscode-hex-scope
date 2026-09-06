@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "hexscope-profile.schema.json",
-  "title": "Hex Scope named profile",
-  "description": "One named annotation bundle in the three-tier profile registry: pins, active integrity checks, endian, segment names, labels. Not file-owned. Envelope root tolerates extra keys; nested payload objects are strict.",
+  "$id": "hexscope-profiles.schema.json",
+  "title": "Hex Scope profile registry",
+  "description": "The single-file profile registry: one ProfileRecord[] array of named annotation bundles (pins, active integrity checks, endian, segment names, labels). Not file-owned. Envelope root tolerates extra keys; nested payload objects are strict; item ids are unique.",
   "type": "object",
   "required": [
     "version",
@@ -13,7 +13,11 @@
       "const": 1
     },
     "data": {
-      "$ref": "#/definitions/profileRecord"
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/profileRecord"
+      }
     },
     "$schema": {
       "type": "string"

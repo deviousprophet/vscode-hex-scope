@@ -8,7 +8,8 @@
     position: relative;
 }
 
-#app.locked-due-to-external-change #toolbar {
+#app.locked-due-to-external-change #toolbar,
+#app.locked-due-to-external-change #profile-bar {
     opacity: 0.5;
 }
 

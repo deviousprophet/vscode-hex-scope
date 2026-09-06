@@ -70,6 +70,10 @@ export type WebviewToProviderMessage =
     | { type: 'saveEndian'; endian: HexScopeEndian }
     | { type: 'selectProfile'; profileId: string | null }
     | { type: 'newProfile'; name: string | null }
+    | { type: 'saveProfile' }
+    | { type: 'duplicateProfile' }
+    | { type: 'renameProfile' }
+    | { type: 'deleteProfile' }
     | { type: 'updateLabelVisibility'; id: string; hidden: boolean }
     | { type: 'reorderLabel'; id: string; dir: number }
     | { type: 'saveEdits'; edits: Array<[number, number]> }
