@@ -19,6 +19,8 @@
 - Creating a profile no longer silently fails and the dropdown refreshes so a new profile can be selected
 - Reopening a file no longer shows a stale "No Profile" dropdown — the bound profile and full list load on open
 - Deleting a profile no longer gets silently undone, and externally removed `.hexscope` files are no longer resurrected on the next edit
+- Profiles added or edited outside VS Code now appear in the open editor immediately instead of after reopening
+- Profile files written with the legacy `pins` key still load and no longer show a schema validation warning
 
 ## [2.20.0] - 2026-09-01
 
