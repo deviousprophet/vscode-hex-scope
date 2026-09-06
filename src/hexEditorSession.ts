@@ -664,7 +664,18 @@ export class HexEditorSession {
 
         /** Patch the bound record inside the registry array via the store (debounced write). */
         const stageRegistryPatch = async (patch: (rec: ProfileRecord) => ProfileRecord): Promise<void> => {
+            // Force a fresh read from disk so an externally-deleted profiles.json
+            // (or externally-removed profile record) is reflected before we write.
+            // Without this, a stale in-memory cache could resurrect deleted data.
+            await registryStore!.load(true);
             const records = registryStore!.get() ?? [];
+            if (!records.some(r => r.id === profileId)) {
+                // Profile no longer in registry (deleted externally) — abort
+                // mutation to avoid resurrecting from in-memory state.
+                profileId = null;
+                boundProfileCache = null;
+                return;
+            }
             const base = boundRecord(records, profileId!) ?? emptyProfileRecord(profileId!, profileId!);
             registryStore!.set(normalizeProfilesRegistry(upsertRecord(records, patch({ ...base, id: profileId! }))).value);
         };
