@@ -1,14 +1,13 @@
 /** Integrity Overlay — UI layer. Self-contained Integrity sidebar panel.
 Owns the check list (add/edit/delete, algorithm selection, address/stored-value
 inputs, auto-fix toggle), per-check result display (calculated/stored
-comparison, copy), and the profile library (select/create/rename/update/delete,
-save-as, fix-all). Data is pushed via setters; byte reads go through the
-injected readByte accessor; actions report via callbacks. This module never
-imports the S global, never posts provider messages, and never touches the
-render registry. Pure model helpers live in integrityCheckModel.ts; result
-markup in integrityResultRender.ts, calculation scheduling in
-integrityCalculation.ts, the profile library in integrityProfiles.ts, and
-range/stored highlight derivation in integrityHighlight.ts. */
+comparison, copy), and the Fix-all action. Data is pushed via setters; byte
+reads go through the injected readByte accessor; actions report via callbacks.
+This module never imports the S global, never posts provider messages, and
+never touches the render registry. Pure model helpers live in
+integrityCheckModel.ts; result markup in integrityResultRender.ts, calculation
+scheduling in integrityCalculation.ts, and range/stored highlight derivation
+in integrityHighlight.ts. */
 
 import {
     formatIntegrityAddress,
@@ -16,13 +15,11 @@ import {
     isChecksumAlgorithm,
     mergeIntegrityEdits,
     normalizeIntegrityCheckSet,
-    normalizeIntegrityProfiles,
     parseIntegrityAddress,
     validateIntegrityRange,
     type IntegrityAlgorithm,
     type IntegrityCheckConfig,
     type IntegrityCheckSet,
-    type IntegrityProfile,
 } from '../../../../core/integrity';
 import { esc, flashCopied } from '../../../utils';
 import { showToast } from '../../toast';
@@ -30,6 +27,7 @@ import {
     applyIntegrityDraft,
     blankIntegrityDraft,
     clearIntegrityAutoFixSuppression,
+    integrityCheckSetFromStates,
     makeIntegrityCheck,
     type IntegrityCheckState,
     type IntegrityDraft,
@@ -52,13 +50,6 @@ import {
     scheduleIntegrityCalculation,
     type IntegrityCalculationHooks,
 } from './integrityCalculation';
-import {
-    persistChecks,
-    profileLibraryHtml,
-    refreshProfileLibrary,
-    wireProfileControls,
-    type IntegrityProfileHost,
-} from './integrityProfiles';
 import {
     clearHighlight,
     storedValueUpdate,
@@ -99,25 +90,16 @@ export interface IntegrityCallbacks {
     onCopyText?: (text: string, label: string) => void;
     /** Checks persistence → host posts saveIntegrityChecks. */
     onPersistChecks?: (state: IntegrityCheckSet) => void;
-    /** Profile library CRUD → host posts create/update/rename/deleteIntegrityProfile. */
-    onCreateProfile?: (profile: IntegrityProfile) => void;
-    onUpdateProfile?: (profile: IntegrityProfile) => void;
-    onRenameProfile?: (id: string, name: string) => void;
-    onDeleteProfile?: (id: string) => void;
     /** Highlight of a check range/stored field → host sets S.integrityHighlight + rerender.memory(). */
     onHighlightChange?: (highlight: IntegrityHighlight | null) => void;
 }
 
-export class IntegrityPanel implements IntegrityProfileHost {
+export class IntegrityPanel {
     readonly cb: IntegrityCallbacks;
     private _panel: HTMLElement | null = null;
     private sections: SidebarSections | null = null;
     private nextCheckId = 1;
-    profiles: IntegrityProfile[] = [];
-    selectedProfileId = '';
-    profileError = '';
     private actionError = '';
-    profileNameMode: 'create' | 'rename' | null = null;
     addCheckDraft: IntegrityDraft | null = null;
     editingCheckId: number | null = null;
     /** Last-focused address field in the open add/edit form (drives hex-selection refill). */
@@ -155,17 +137,6 @@ export class IntegrityPanel implements IntegrityProfileHost {
         if (!body) { return; }
         body.innerHTML = this.integrityBodyHtml();
         this.wireRenderedIntegrity(body);
-    }
-
-    /** Push profiles + active checks (was setIntegrityProfiles). */
-    setProfiles(value: unknown, error = ''): void {
-        const payload = this.integrityInitPayload(value);
-        this.profiles = normalizeIntegrityProfiles(this.integrityProfileValues(payload, value));
-        this.restoreChecks(payload);
-        this.profileError = error;
-        this.clearMissingSelectedProfile();
-        this.preselectFirstProfile();
-        this.refreshProfilesIfRendered();
     }
 
     /** Push active checks (was setIntegrityChecks). */
@@ -245,38 +216,6 @@ export class IntegrityPanel implements IntegrityProfileHost {
         return draft;
     }
 
-    private integrityProfileValues(payload: ReturnType<typeof this.integrityInitPayload>, fallback: unknown): unknown {
-        return payload ? payload.profiles : fallback;
-    }
-
-    private restoreChecks(payload: ReturnType<typeof this.integrityInitPayload>): void {
-        if (payload) { this.setChecks(payload.activeChecks); }
-    }
-
-    private clearMissingSelectedProfile(): void {
-        if (!this.selectedProfileId) { return; }
-        if (!this.profiles.some(profile => profile.id === this.selectedProfileId)) { this.selectedProfileId = ''; }
-    }
-
-    /** No session selection yet → preselect the first profile (no auto-apply).
-        Enables Rename/Delete/Update on the lone (or first) profile after a
-        reload without applying its checks (Q5-A). */
-    private preselectFirstProfile(): void {
-        if (!this.selectedProfileId && this.profiles.length > 0) {
-            this.selectedProfileId = this.profiles[0].id;
-        }
-    }
-
-    private refreshProfilesIfRendered(): void {
-        if (document.getElementById('s-integrity')) { this.refreshProfileLibrary(); }
-    }
-
-    private integrityInitPayload(value: unknown): { profiles: unknown; activeChecks: unknown } | null {
-        if (value === null || typeof value !== 'object' || Array.isArray(value)) { return null; }
-        const payload = value as { profiles?: unknown; activeChecks?: unknown };
-        return { profiles: payload.profiles, activeChecks: payload.activeChecks };
-    }
-
     private normalizedIntegrityCheckSet(value: unknown): IntegrityCheckSet {
         return normalizeIntegrityCheckSet(value) ?? EMPTY_INTEGRITY_CHECK_SET;
     }
@@ -285,8 +224,10 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this.checks.forEach(check => this.cancelPendingCalculation(check));
     }
 
-    refreshProfileLibrary(): void {
-        refreshProfileLibrary(this);
+    /** Persist the current checks into the bound file profile via saveIntegrityChecks. */
+    private persistChecks(): void {
+        const state = integrityCheckSetFromStates(this.checks);
+        if (state.ok) { this.cb.onPersistChecks?.(state.value); }
     }
 
     // ── Shell render ───────────────────────────────────────────────
@@ -295,14 +236,12 @@ export class IntegrityPanel implements IntegrityProfileHost {
         return `
         <div class="integrity-shell">
             <div class="integrity-hdr-row">
-                <label class="integrity-profile-label" for="integrity-profile-select">Profile</label>
                 <div class="integrity-hdr-actions">
                     <button id="integrity-fix-all" class="sb-btn sb-btn-primary" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
                     <button id="integrity-add-btn" class="sb-btn sb-btn-add"${this.addCheckDisabledAttr()}>＋ Add</button>
                 </div>
             </div>
             <div id="integrity-action-error" class="integrity-error" role="alert">${esc(this.actionError)}</div>
-            ${profileLibraryHtml(this)}
             ${this.addCheckFormHtml()}
             <div id="integrity-check-list">${this.checkCardsHtml()}</div>
         </div>`;
@@ -318,7 +257,6 @@ export class IntegrityPanel implements IntegrityProfileHost {
 
     private wireRenderedIntegrity(panel: HTMLElement): void {
         this.wireHeaderControls();
-        wireProfileControls(this);
         if (this.addCheckDraft) { this.wireCheckForm('add'); }
         this.wireCheckCards(panel);
         this.checks.forEach(check => this.updateCheckCard(check));
@@ -472,7 +410,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this.checks = this.checks.filter(item => item.id !== id);
         if (this.editingCheckId === id) { this.editingCheckId = null; }
         if (this.highlightedCheckId === id) { this.clearHighlightedCheck(); }
-        persistChecks(this);
+        this.persistChecks();
         this.render();
     }
 
@@ -486,7 +424,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         if (!isChecksumAlgorithm(check.algorithm) || !check.storedRaw) { return; }
         this.clearAutoFixSuppression(check);
         check.autoFixStoredValue = enabled;
-        persistChecks(this);
+        this.persistChecks();
         this.fixEnabledMismatch(check, enabled);
     }
 
@@ -614,7 +552,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this.applyDraft(check, draft);
         this.checks.push(check);
         this.addCheckDraft = null;
-        persistChecks(this);
+        this.persistChecks();
         this.render();
         this.scheduleIntegrityCalculation(check);
     }
@@ -626,7 +564,7 @@ export class IntegrityPanel implements IntegrityProfileHost {
         this.applyDraft(check, draft);
         if (!check.storedRaw) { check.autoFixStoredValue = false; }
         this.editingCheckId = null;
-        persistChecks(this);
+        this.persistChecks();
         this.render();
         this.syncHighlight();
         this.scheduleIntegrityCalculation(check);

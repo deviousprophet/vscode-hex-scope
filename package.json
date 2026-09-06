@@ -140,6 +140,31 @@
         "command": "hexScope.runScript",
         "title": "Run Script",
         "category": "HexScope"
+      },
+      {
+        "command": "hexScope.selectProfile",
+        "title": "Select Profile",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.newProfile",
+        "title": "New Profile",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.duplicateProfile",
+        "title": "Duplicate Profile",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.renameProfile",
+        "title": "Rename Profile",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.deleteProfile",
+        "title": "Delete Profile",
+        "category": "HexScope"
       }
     ],
     "menus": {
@@ -186,16 +211,16 @@
     },
     "jsonValidation": [
       {
-        "fileMatch": ".hexscope/firmware_profiles/*/index.json",
-        "url": "./schemas/index.schema.json"
-      },
-      {
-        "fileMatch": ".hexscope/firmware_profiles/*/structs.json",
+        "fileMatch": ".hexscope/structs.json",
         "url": "./schemas/structs.schema.json"
       },
       {
-        "fileMatch": ".hexscope/firmware_profiles/*/integrity.json",
-        "url": "./schemas/integrity.schema.json"
+        "fileMatch": ".hexscope/profiles.json",
+        "url": "./schemas/profiles.schema.json"
+      },
+      {
+        "fileMatch": ".hexscope/bindings.json",
+        "url": "./schemas/bindings.schema.json"
       }
     ]
   },

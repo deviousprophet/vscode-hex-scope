@@ -3,6 +3,7 @@
 
 import type { SerializedParseResult, SegmentLabel, LabelDraftPreview, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
+import type { ProfileSummary } from '../webviewProtocol';
 import type { SidebarTab } from './components/sidebar/sidebar';
 
 export const BPR = 16; // bytes per memory row
@@ -45,4 +46,10 @@ export const S = {
     sidebarTab:     'inspector' as SidebarTab,  // active sidebar tab
     lockedDueToExternalChange: false as boolean,  // view is locked pending external change action
     lastClickColumn: null as 'hex' | 'char' | null,  // last memory view cell click column
+    /** Three-tier profile registry state (names + current binding + share count). */
+    profileState: {
+        profiles: [] as ProfileSummary[],
+        current: null as string | null,
+        boundFileCount: 0 as number,
+    },
 };

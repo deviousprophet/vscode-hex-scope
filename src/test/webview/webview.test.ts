@@ -630,7 +630,8 @@ suite('Record View rendering', () => {
             document.body.innerHTML = '<div id="app"></div>';
             window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
                 type: 'init', parseResult: S.parseResult, labels: [], structs: [], structPins: [], endian: 'le',
-                integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+                activeChecks: { schemaVersion: 1, checks: [] },
+                profile: { profiles: [], current: null, boundFileCount: 0 },
             } }));
             assert.strictEqual(document.querySelectorAll('#sidebar-common-settings').length, 1);
             assert.ok(document.getElementById('sidebar-btn-le')!.classList.contains('active'));
@@ -698,7 +699,6 @@ function setDraftValue(form: HTMLElement, control: string, value: string): void 
 function assertEmptyIntegrityChecks(): void {
     assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
     assert.strictEqual(document.querySelector('.integrity-empty')!.textContent, 'No integrity checks configured.');
-    assert.ok((document.getElementById('integrity-profile-save') as HTMLButtonElement).disabled);
 }
 
 suite('Integrity Checks sidebar', () => {
@@ -722,7 +722,7 @@ suite('Integrity Checks sidebar', () => {
 
     teardown(() => cleanupWebviewDom(dom));
 
-    test('uses shared sb-card cards, byte order, edit forms, and profiles', async function () {
+    test('uses shared sb-card cards, byte order, edit forms, and check persistence', async function () {
         this.timeout(5_000);
         const api = await import('../../webview/vscodeApi.js');
         const originalPostMessage = api.vscode.postMessage;
@@ -745,10 +745,6 @@ suite('Integrity Checks sidebar', () => {
                 onHighlightChange: highlight => { S.integrityHighlight = highlight; },
                 onCopyText: (text, label) => api.vscode.postMessage({ type: 'copyText', text, label }),
                 onPersistChecks: state => api.vscode.postMessage({ type: 'saveIntegrityChecks', state }),
-                onCreateProfile: profile => api.vscode.postMessage({ type: 'createIntegrityProfile', profile }),
-                onUpdateProfile: profile => api.vscode.postMessage({ type: 'updateIntegrityProfile', profile }),
-                onRenameProfile: (id, name) => api.vscode.postMessage({ type: 'renameIntegrityProfile', id, name }),
-                onDeleteProfile: id => api.vscode.postMessage({ type: 'deleteIntegrityProfile', id }),
             });
             panel.setTabActive(true);
             panel.mount(document.getElementById('s-integrity')!);
@@ -819,9 +815,6 @@ suite('Integrity Checks sidebar', () => {
 
             integrityCard().querySelector<HTMLElement>('.act-btn-edit')!.click();
             const editForm = integrityForm('edit-1');
-            setDraftValue(editForm, 'start', 'ABCD');
-            panel.setProfiles([]);
-            assert.strictEqual((integrityForm('edit-1').querySelector('[data-draft-control="start"]') as HTMLInputElement).value, 'ABCD');
             setDraftValue(editForm, 'start', '1001');
             setDraftValue(editForm, 'end', 'not-hex');
             editForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
@@ -872,20 +865,15 @@ suite('Integrity Checks sidebar', () => {
             S.edits.clear();
             S.endian = 'le';
             panel.notifyEndianChanged();
-            panel.setProfiles([{
+            panel.setChecks({
                 schemaVersion: 1,
-                id: 'stm32-profile',
-                name: 'STM32 Layout',
                 checks: [
                     { algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false },
                     { algorithm: 'crc16-ccitt-false', startAddress: 0x1002, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false },
                 ],
-            }]);
-            const profileSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-            profileSelect.value = 'stm32-profile';
-            profileSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-            const applyConfirm = document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement | null;
-            if (applyConfirm) { applyConfirm.click(); }
+            });
+            panel.render();
+            panel.checks.forEach(check => panel.scheduleIntegrityCalculation(check));
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
             assert.strictEqual(S.endian, 'le', 'applying a profile does not change shared endian');
             assert.strictEqual(integrityCard(1).querySelector('[data-check-status]')!.textContent, '…');
@@ -965,35 +953,9 @@ suite('Integrity Checks sidebar', () => {
             assert.strictEqual(integrityCard(1).querySelector('.integrity-value-hdr span')!.textContent, 'Calculated');
             assert.strictEqual(integrityCard(1).querySelectorAll('.integrity-value-hdr span')[1].textContent, 'Stored (BE)');
 
-            document.getElementById('integrity-profile-update')!.click();
-            const updatedProfile = (posted.at(-1) as { type: string; profile: { checks: Array<{ autoFixStoredValue: boolean }> } }).profile;
-            assert.strictEqual(updatedProfile.checks[1].autoFixStoredValue, true);
-            document.getElementById('integrity-profile-rename')!.click();
-            const renameInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
-            assert.strictEqual(renameInput.value, 'STM32 Layout');
-            renameInput.value = 'Renamed Layout';
-            document.getElementById('integrity-profile-name-save')!.click();
-            assert.deepStrictEqual(posted.at(-1), {
-                type: 'renameIntegrityProfile', id: 'stm32-profile', name: 'Renamed Layout',
-            });
-            document.getElementById('integrity-profile-delete')!.click();
-            assert.ok(document.querySelector('#del-confirm-pop'), 'delete waits for the inline confirm');
-            (document.querySelector('#del-confirm-pop .dcp-yes') as HTMLElement).click();
-            await new Promise(resolve => setTimeout(resolve, 0));
-            assert.deepStrictEqual(posted.at(-1), { type: 'deleteIntegrityProfile', id: 'stm32-profile' });
-            document.getElementById('integrity-profile-save')!.click();
-            const saveInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
-            saveInput.value = 'New Layout';
-            saveInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-            const created = posted.at(-1) as { type: string; profile: { name: string; checks: unknown[] } };
-            assert.strictEqual(created.type, 'createIntegrityProfile');
-            assert.strictEqual(created.profile.name, 'New Layout');
-            assert.strictEqual(created.profile.checks.length, 2);
-
             integrityCard().querySelector<HTMLElement>('.act-btn-del')!.click();
             integrityCard().querySelector<HTMLElement>('.act-btn-del')!.click();
             assertEmptyIntegrityChecks();
-            assert.ok((document.getElementById('integrity-profile-update') as HTMLButtonElement).disabled);
 
             panel.setChecks({
                 schemaVersion: 1,

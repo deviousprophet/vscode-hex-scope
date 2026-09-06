@@ -27,34 +27,70 @@ function errorsFor(schema: object, data: unknown): string[] {
     return check(data) ? [] : (check.errors ?? []).map(error => error.message ?? 'invalid');
 }
 
-const indexEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/index.schema.json' });
 const structsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/structs.schema.json' });
-const integrityEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/integrity.schema.json' });
+const profileEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/profiles.schema.json' });
+const bindingsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/bindings.schema.json' });
 
 suite('hexScope schemas — positive fixtures', () => {
-    test('index.json accepts a full IndexFileData', () => {
-        const { schema } = loadSchema('index.schema.json');
-        const data = {
-            relPath: 'firmware/boot.hex',
-            labels: [{ id: 'l1', name: 'Boot', startAddress: 0, length: 256, color: '#ff0000', hidden: true }],
-            segmentNames: { '0': 'Boot' },
-            pins: [{
-                id: 'p1',
-                structId: 's1',
-                addr: 0,
-                name: 'Pin A',
-                pointerSources: [{
-                    sourcePinId: 'p0', sourcePinName: 'Target', sourceStructId: 's2',
-                    sourceFieldPath: 'ptr', pointerStorageAddress: 4, targetAddress: 0x1000,
+    test('profiles.json accepts a full ProfileRecord[] (with unique ids)', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [
+            {
+                id: 'profile_1',
+                name: 'Boot',
+                labels: [{ id: 'l1', name: 'Boot', startAddress: 0, length: 256, color: '#ff0000', hidden: true }],
+                segmentNames: { '0': 'Boot' },
+                structPins: [{
+                    id: 'p1',
+                    structId: 's1',
+                    addr: 0,
+                    name: 'Pin A',
+                    pointerSources: [{
+                        sourcePinId: 'p0', sourcePinName: 'Target', sourceStructId: 's2',
+                        sourceFieldPath: 'ptr', pointerStorageAddress: 4, targetAddress: 0x1000,
+                    }],
                 }],
-            }],
-            activeChecks: {
-                schemaVersion: 1,
-                checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0, endAddress: 255, storedAddress: 260, autoFixStoredValue: true, name: 'CRC' }],
+                activeChecks: {
+                    schemaVersion: 1,
+                    checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0, endAddress: 255, storedAddress: 260, autoFixStoredValue: true, name: 'CRC' }],
+                },
+                endian: 'be',
             },
-            endian: 'be',
-        };
-        assert.deepStrictEqual(errorsFor(schema, indexEnvelope(data)), []);
+            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('profiles.json rejects duplicate (deep-equal) items via uniqueItems', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        // JSON Schema uniqueItems compares item equality; id/name uniqueness
+        // beyond exact duplicates is enforced at runtime by normalizeProfilesRegistry.
+        const record = { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le' };
+        const data = [record, { ...record, labels: [] }];
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts the deprecated pre-rename `pins` key on a record', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        // The schema keeps structPins required for new files but declares the
+        // legacy `pins` property as deprecated (additionalProperties: false
+        // would otherwise reject it); the runtime normalizer reads pins via
+        // `structPins ?? pins` and self-heals on the next write.
+        const data = [{
+            id: 'profile_1', name: 'Legacy', labels: [], segmentNames: {},
+            structPins: [], pins: [{ id: 'p1', structId: 's1', addr: 0, name: 'Pin A' }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le',
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('bindings.json accepts a full Binding[]', () => {
+        const { schema } = loadSchema('bindings.schema.json');
+        const data = [
+            { fileKey: 'firmware/boot.hex', profileId: 'profile_1' },
+            { fileKey: 'firmware/app.hex', profileId: 'profile_2' },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, bindingsEnvelope(data)), []);
     });
 
     test('structs.json accepts a full StructDef[]', () => {
@@ -87,31 +123,34 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
     });
 
-    test('integrity.json accepts a full IntegrityProfile[]', () => {
-        const { schema } = loadSchema('integrity.schema.json');
+    test('integrity checks nested in a profile accept full configs', () => {
+        const { schema } = loadSchema('profiles.schema.json');
         const data = [{
-            schemaVersion: 1, id: 'p1', name: 'Firmware',
-            checks: [
-                { algorithm: 'sha-256', startAddress: 0, endAddress: 1023, autoFixStoredValue: false },
-                { algorithm: 'crc32-iso-hdlc', startAddress: 0, endAddress: 1023, storedAddress: 1024, autoFixStoredValue: true, name: 'App CRC' },
-            ],
+            id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, structPins: [], endian: 'le',
+            activeChecks: {
+                schemaVersion: 1,
+                checks: [
+                    { algorithm: 'sha-256', startAddress: 0, endAddress: 1023, autoFixStoredValue: false },
+                    { algorithm: 'crc32-iso-hdlc', startAddress: 0, endAddress: 1023, storedAddress: 1024, autoFixStoredValue: true, name: 'App CRC' },
+                ],
+            },
         }];
-        assert.deepStrictEqual(errorsFor(schema, integrityEnvelope(data)), []);
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 });
 
 suite('hexScope schemas — negative cases', () => {
     test('wrong envelope version is refused everywhere', () => {
-        for (const name of ['index.schema.json', 'structs.schema.json', 'integrity.schema.json']) {
+        for (const name of ['profiles.schema.json', 'structs.schema.json', 'bindings.schema.json']) {
             const { schema } = loadSchema(name);
             assert.notDeepStrictEqual(errorsFor(schema, { version: 2, data: [] }), [], `${name} rejects version 2`);
         }
     });
 
-    test('bad endian fails index.json', () => {
-        const { schema } = loadSchema('index.schema.json');
-        const data = { relPath: 'a.hex', labels: [], segmentNames: {}, pins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'big' };
-        assert.notDeepStrictEqual(errorsFor(schema, indexEnvelope(data)), []);
+    test('bad endian fails profiles.json', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'big' }];
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
     test('unknown type enum fails structs.json', () => {
@@ -132,23 +171,27 @@ suite('hexScope schemas — negative cases', () => {
         );
     });
 
-    test('missing required field fails index.json', () => {
-        const { schema } = loadSchema('index.schema.json');
-        const data = { relPath: 'a.hex' }; // labels/segmentNames/pins/activeChecks/endian missing
-        assert.notDeepStrictEqual(errorsFor(schema, indexEnvelope(data)), []);
+    test('missing required field fails profiles.json and bindings.json', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{ id: 'profile_1' }]; // name/pins/activeChecks/endian/segmentNames/labels missing
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+        const bindings = loadSchema('bindings.schema.json');
+        assert.notDeepStrictEqual(errorsFor(bindings.schema, bindingsEnvelope([{ fileKey: 'a.hex' }])), []);
     });
 
-    test('data not an array fails structs.json and integrity.json', () => {
+    test('data not an array fails structs.json + bindings.json + profiles.json', () => {
         const structs = loadSchema('structs.schema.json');
         assert.notDeepStrictEqual(errorsFor(structs.schema, structsEnvelope({ id: 's1' })), []);
-        const integrity = loadSchema('integrity.schema.json');
-        assert.notDeepStrictEqual(errorsFor(integrity.schema, integrityEnvelope({ schemaVersion: 1 })), []);
+        const bindings = loadSchema('bindings.schema.json');
+        assert.notDeepStrictEqual(errorsFor(bindings.schema, bindingsEnvelope({ fileKey: 'a.hex' })), []);
+        const profile = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(profile.schema, profileEnvelope({ id: 'x' })), []);
     });
 });
 
 suite('hexScope schemas — drift guard against TS types', () => {
     test('every schema pins version to DATA_VERSION', () => {
-        for (const name of ['index.schema.json', 'structs.schema.json', 'integrity.schema.json']) {
+        for (const name of ['profiles.schema.json', 'structs.schema.json', 'bindings.schema.json']) {
             const { schema } = loadSchema(name);
             const envelope = schema as { properties?: { version?: { const?: unknown } } };
             assert.strictEqual(envelope.properties?.version?.const, DATA_VERSION, `${name} version const`);
@@ -157,10 +200,8 @@ suite('hexScope schemas — drift guard against TS types', () => {
 
     test('integrityAlgorithm enums match INTEGRITY_ALGORITHMS', () => {
         const expected = Array.from(INTEGRITY_ALGORITHMS);
-        const index = loadSchema('index.schema.json');
-        const integrity = loadSchema('integrity.schema.json');
-        assert.deepStrictEqual((index.defs.integrityAlgorithm as { enum: unknown[] }).enum, expected);
-        assert.deepStrictEqual((integrity.defs.integrityAlgorithm as { enum: unknown[] }).enum, expected);
+        const profile = loadSchema('profiles.schema.json');
+        assert.deepStrictEqual((profile.defs.integrityAlgorithm as { enum: unknown[] }).enum, expected);
     });
 
     test('structFieldType enum matches STRUCT_FIELD_TYPES', () => {

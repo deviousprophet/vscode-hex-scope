@@ -1,6 +1,6 @@
 import type { CopyCommand } from './core/byteTools/copyCommand';
 import type { HexScopeFormat } from './core/document';
-import type { IntegrityCheckSet, IntegrityProfile } from './core/integrity';
+import type { IntegrityCheckSet } from './core/integrity';
 import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 
 export const RECORD_PAGE_SIZE = 512;
@@ -15,6 +15,12 @@ export function endianOrDefault(value: unknown): HexScopeEndian {
 /** Pinned-segment name overrides, keyed by segment start address (decimal string). */
 export type SegmentNameOverrides = Record<string, string>;
 
+/** One registry profile as carried in webview payloads (no contents). */
+export interface ProfileSummary {
+    id: string;
+    name: string;
+}
+
 export type ProviderToWebviewMessage =
     | {
         type: 'init';
@@ -25,7 +31,9 @@ export type ProviderToWebviewMessage =
         structs: StructDef[];
         structPins: StructPin[];
         endian: HexScopeEndian;
-        integrityProfiles: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet };
+        activeChecks: IntegrityCheckSet;
+        /** Current bound profile display state. */
+        profile: { profiles: ProfileSummary[]; current: string | null; boundFileCount: number };
     }
     | { type: 'loadProgress'; generation: number; stage: 'read' | 'parse' | 'build' | 'transfer'; completed: number; total?: number }
     | { type: 'recordPage'; generation: number; start: number; records: SerializedRecord[] }
@@ -36,6 +44,7 @@ export type ProviderToWebviewMessage =
 | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
 | { type: 'structsExternalChange'; structs: StructDef[] }
 | { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; activeChecks: IntegrityCheckSet }
+| { type: 'profilesState'; profiles: ProfileSummary[]; current: string | null; boundFileCount: number }
 | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
         type: 'externalChangeError';
@@ -49,11 +58,11 @@ export type ProviderToWebviewMessage =
         canQuickRepair: boolean;
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
-    | { type: 'integrityProfiles'; profiles: IntegrityProfile[]; error: string }
     | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; capabilities: string[]; fingerprint: string }> }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel'; pendingWriteCount: number; pendingWrites?: Array<[number, number]> }
     | { type: 'scriptOutput'; scriptPath: string; text: string }
-    | { type: 'activateScriptsTab' };
+    | { type: 'activateScriptsTab' }
+    | { type: 'activateProfilePicker' };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -65,10 +74,12 @@ export type WebviewToProviderMessage =
     | { type: 'saveStructPins'; pins: StructPin[] }
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }
     | { type: 'saveEndian'; endian: HexScopeEndian }
-    | { type: 'createIntegrityProfile'; profile: IntegrityProfile }
-    | { type: 'updateIntegrityProfile'; profile: IntegrityProfile }
-    | { type: 'renameIntegrityProfile'; id: string; name: string }
-    | { type: 'deleteIntegrityProfile'; id: string }
+    | { type: 'selectProfile'; profileId: string | null }
+    | { type: 'newProfile'; name: string | null }
+    | { type: 'saveProfile' }
+    | { type: 'duplicateProfile' }
+    | { type: 'renameProfile' }
+    | { type: 'deleteProfile' }
     | { type: 'updateLabelVisibility'; id: string; hidden: boolean }
     | { type: 'reorderLabel'; id: string; dir: number }
     | { type: 'saveEdits'; edits: Array<[number, number]> }

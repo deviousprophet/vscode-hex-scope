@@ -83,3 +83,29 @@
 .tb-save-btn:disabled { opacity: .35; cursor: default; }
 
 .tb-cancel-btn:hover { color: #f48771; border-color: #f48771; background: rgba(244,135,113,.08); }
+
+/* Second toolbar row — profile picker */
+.profile-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px; height: 31px; min-height: 31px;
+    flex-shrink: 0;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+/* Profile dropdown + actions menu (three-tier selection) */
+.profile-picker {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0; white-space: nowrap;
+    position: relative;
+}
+.profile-label {
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
+    letter-spacing: .03em; text-transform: uppercase; opacity: .85;
+}
+.profile-select {
+    min-width: 220px; max-width: 360px; height: 22px; font-size: 11px; font-family: var(--font-ui);
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px; padding: 0 4px;
+}
+.profile-select:focus { border-color: var(--focus-bdr); }

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify migration-marker + pool ownership changes against storage contract"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Verify struct deletion cascade + registry scan behavior"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify S.profileState init + message flow consistency"}

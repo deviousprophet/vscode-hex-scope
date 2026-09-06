@@ -21,11 +21,12 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'externalChange',
     'externalChangeError',
     'repairComplete',
-    'integrityProfiles',
+    'profilesState',
     'scriptInfo',
     'scriptResult',
     'scriptOutput',
     'activateScriptsTab',
+    'activateProfilePicker',
 ];
 
 const PROVIDER_MESSAGE_TYPE_SET = new Set<string>(PROVIDER_MESSAGE_TYPES);

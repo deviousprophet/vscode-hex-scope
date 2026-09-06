@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "hexscope-index.schema.json",
-  "title": "Hex Scope firmware profile index",
-  "description": "Per-firmware profile state: relPath identity plus labels, segment names, struct pins, active integrity checks, and endian. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "$id": "hexscope-profiles.schema.json",
+  "title": "Hex Scope profile registry",
+  "description": "The single-file profile registry: one ProfileRecord[] array of named annotation bundles (structPins, active integrity checks, endian, segment names, labels). Not file-owned. Envelope root tolerates extra keys; nested payload objects are strict; item ids are unique.",
   "type": "object",
   "required": [
     "version",
@@ -13,7 +13,11 @@
       "const": 1
     },
     "data": {
-      "$ref": "#/definitions/indexFileData"
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/profileRecord"
+      }
     },
     "$schema": {
       "type": "string"
@@ -21,33 +25,33 @@
   },
   "additionalProperties": true,
   "definitions": {
-    "indexFileData": {
+    "profileRecord": {
       "type": "object",
       "required": [
-        "relPath",
-        "labels",
-        "segmentNames",
-        "pins",
+        "id",
+        "name",
+        "structPins",
         "activeChecks",
-        "endian"
+        "endian",
+        "segmentNames",
+        "labels"
       ],
       "properties": {
-        "relPath": {
+        "id": {
           "type": "string"
         },
-        "labels": {
+        "name": {
+          "type": "string"
+        },
+        "structPins": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/segmentLabel"
-          }
-        },
-        "segmentNames": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
+            "$ref": "#/definitions/structPin"
           }
         },
         "pins": {
+          "deprecated": true,
+          "description": "Pre-rename alias for structPins. Accepted for strict authoring of files still carrying the old key; the runtime normalizer reads structPins ?? pins. New files must use structPins.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/structPin"
@@ -61,6 +65,18 @@
             "le",
             "be"
           ]
+        },
+        "segmentNames": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/segmentLabel"
+          }
         }
       },
       "additionalProperties": false

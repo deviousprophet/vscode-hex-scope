@@ -58,6 +58,17 @@
     --sidebar-w:   360px;
 }
 
+/* Native form controls (selects, checkboxes, scrollbars) follow the active
+   VS Code theme: the popup list of a <select> is drawn by the OS/Chromium and
+   keyed off the element's resolved color-scheme. Without this, dropdowns
+   render with the browser's light palette on a dark webview. */
+body.vscode-dark,
+body.vscode-high-contrast,
+body[data-vscode-theme-kind='vscode-dark'],
+body[data-vscode-theme-kind='vscode-high-contrast'] { color-scheme: dark; }
+body.vscode-light,
+body[data-vscode-theme-kind='vscode-light'] { color-scheme: light; }
+
 html, body {
     height: 100%; overflow: hidden;
     background: var(--bg); color: var(--fg);

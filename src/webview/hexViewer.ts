@@ -61,7 +61,8 @@ import {
 } from './appModel';
 import { IntegrityPanel, type IntegrityHighlight } from './components/sidebar/integrityPanel/integrityPanel';
 import { ScriptsPanel } from './components/sidebar/scriptsPanel/scriptsPanel';
-import type { ProviderToWebviewMessage, WebviewToProviderMessage } from '../webviewProtocol';
+import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import { profilePicker } from './profilePicker';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
     applyProviderMessageToModel,
@@ -194,10 +195,10 @@ function pushStructState(): void {
 }
 
 // ── Integrity panel component ────────────────────────────────────
-// Self-contained Integrity panel (checks + profiles). Data flows via
-// setters; byte reads / selection / endian are pulled via callbacks;
-// mutations, persistence, and highlights report via callbacks. Edit
-// staging and highlight application stay host-owned.
+// Self-contained Integrity panel (checks). Data flows via setters;
+// byte reads / selection / endian are pulled via callbacks; mutations,
+// persistence, and highlights report via callbacks. Edit staging and
+// highlight application stay host-owned.
 
 const integrityPanel = new IntegrityPanel({
     readByte: getByte,
@@ -208,10 +209,6 @@ const integrityPanel = new IntegrityPanel({
     onHighlightChange: applyIntegrityHighlight,
     onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
     onPersistChecks: state => postProviderMessage({ type: 'saveIntegrityChecks', state }),
-    onCreateProfile: profile => postProviderMessage({ type: 'createIntegrityProfile', profile }),
-    onUpdateProfile: profile => postProviderMessage({ type: 'updateIntegrityProfile', profile }),
-    onRenameProfile: (id, name) => postProviderMessage({ type: 'renameIntegrityProfile', id, name }),
-    onDeleteProfile: id => postProviderMessage({ type: 'deleteIntegrityProfile', id }),
 });
 
 /** Integrity check range/stored-field highlight (was S.integrityHighlight + rerender.memory in the module). */
@@ -843,16 +840,17 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     externalChange: handleExternalChangeMessage,
     externalChangeError: handleExternalChangeErrorMessage,
     repairComplete: handleRepairCompleteMessage,
-    integrityProfiles: handleIntegrityProfilesMessage,
+    profilesState: profilePicker.handleProfilesState,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
     scriptOutput: handleScriptOutputMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
+    activateProfilePicker: profilePicker.handleActivatePicker,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
-    applyIntegrityProfileUpdate,
     applyActiveChecksUpdate,
+    applyProfileStateUpdate,
     applyLoadErrorUpdate,
     applyCopyCommandUpdate,
     applyExternalBannerUpdate,
@@ -963,10 +961,6 @@ function handleRecordPageMessage(msg: WebviewMessageByType<'recordPage'>): void 
     acceptRecordPage(msg.generation, msg.start, msg.records);
 }
 
-function handleIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): void {
-    applyWebviewModelUpdate(applyProviderMessageToModel(msg));
-}
-
 function handleLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
@@ -1067,17 +1061,15 @@ function applyWebviewModelUpdate(update: WebviewModelUpdate): void {
     applyInvalidations(update.invalidations);
 }
 
-function applyIntegrityProfileUpdate(update: WebviewModelUpdate): void {
-    if (update.integrityProfiles) {
-        integrityPanel.setProfiles(update.integrityProfiles, update.integrityProfileError ?? '');
-    }
-}
-
-/** External per-file activeChecks slice replaces the panel's check set (silent auto-apply). */
 function applyActiveChecksUpdate(update: WebviewModelUpdate): void {
     if (update.activeChecks) {
         integrityPanel.setChecks(update.activeChecks);
     }
+}
+
+/** Three-tier profile state: refresh the toolbar dropdown + shared hint in place. */
+function applyProfileStateUpdate(update: WebviewModelUpdate): void {
+    if (update.profileState) { profilePicker.render(); }
 }
 
 function applyLoadErrorUpdate(update: WebviewModelUpdate): void {
@@ -1190,12 +1182,13 @@ function preventClickWhenLocked(e: Event): void {
 // ── Main render ───────────────────────────────────────────────────
 
 function render(): void {
+    const mem = S.currentView === 'memory';
     document.getElementById('app')!.innerHTML = `
         ${toolbar.toHtml(searchBar.toHtml())}
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
-                <div id="memory-view" class="${visibleClass(S.currentView === 'memory')}" tabindex="0" aria-label="Hex editor grid">
+                <div id="memory-view" class="${visibleClass(mem)}" tabindex="0" aria-label="Hex editor grid">
                     <div id="mem-header"></div>
                     <div id="mem-scroll"><div id="mem-rows"></div></div>
                 </div>
@@ -1203,6 +1196,7 @@ function render(): void {
             </div>
             ${sidebar.toHtml()}
         </div>`;
+    document.getElementById('toolbar')?.insertAdjacentHTML('afterend', '<div id="profile-bar" class="profile-bar"><div id="profile-picker" class="profile-picker"></div></div>');
 
     invalidateGridRender();
     setupRenderedUi();
@@ -1221,6 +1215,8 @@ function setupRenderedUi(): void {
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
     toolbar.setDirty(S.edits.size);
+    profilePicker.render();
+    profilePicker.seed();
     setupRerenderCallbacks();
     initSearch(() => switchView('memory'), {
         setCount: (count, current) => searchBar.setCount(count, current),
@@ -1654,6 +1650,7 @@ function updateViewVisibility(v: ViewName): void {
 function updateMemoryOnlyControls(visible: boolean): void {
     setDisplayById('sidebar', visible);
     setDisplayById('side-tabs', visible);
+    setDisplayById('profile-bar', visible);
     searchBar.setVisible(visible);
 }
 

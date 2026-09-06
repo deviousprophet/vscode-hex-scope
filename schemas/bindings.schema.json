@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hexscope-bindings.schema.json",
+  "title": "Hex Scope binding table",
+  "description": "Per-file bindings in the three-tier profile system: fileKey (workspace-relative posix path) → profileId. Envelope root tolerates extra keys; entries are strict.",
+  "type": "object",
+  "required": [
+    "version",
+    "data"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/binding"
+      }
+    },
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "binding": {
+      "type": "object",
+      "required": [
+        "fileKey",
+        "profileId"
+      ],
+      "properties": {
+        "fileKey": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

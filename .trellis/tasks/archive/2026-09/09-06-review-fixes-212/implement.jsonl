@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Storage contract — migration marker + per-root pool ownership changes"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Struct pool — cross-profile deletion cascade requirement"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "S.profileState init hydration + provider-message flow"}

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify profiles.json single-file registry + migration behavior"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify saveProfile/duplicate/rename/delete message flow"}
+{"file": ".trellis/spec/frontend/components/component-toolbar.md", "reason": "Verify second row + shared-hint rework against component contract"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "CSS placement for the profile menu + hint changes"}

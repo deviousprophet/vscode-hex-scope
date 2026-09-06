@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Standards to verify storage/session/webview changes against"}
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Storage spec contract for three-tier layout verification"}

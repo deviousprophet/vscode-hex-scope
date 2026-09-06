@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to `src/core/integrity.ts`, integrity model/sidebar/persistence, protocol profile/check messages, Memory highlights, and edit transactions.
+Applies to `src/core/integrity.ts`, integrity model/sidebar/persistence, protocol check messages, Memory highlights, and edit transactions.
 
 ### 2. Signatures
 
@@ -21,6 +21,8 @@ interface IntegrityCheckConfig {
     autoFixStoredValue: boolean;
 }
 
+// Retained only for legacy-migration normalization (hexScopeMigration.ts);
+// the webview Integrity panel shows checks, never IntegrityProfile templates.
 interface IntegrityProfile { schemaVersion: 1; id: string; name: string; checks: IntegrityCheckConfig[]; }
 interface IntegrityCheckSet { schemaVersion: 1; checks: IntegrityCheckConfig[]; }
 
@@ -42,8 +44,8 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 - Checks use pending edited bytes through the shared reader.
 - Auto fix stages expected stored bytes through the edit transaction seam; suppression prevents an immediate recalculation loop from reapplying the same mismatch.
 - Fix all merges edits first and fails atomically on conflicting overlapping byte values.
-- Per-file active checks persist as `IntegrityCheckSet`; reusable profiles are global and schema-versioned.
-- Profile normalization drops malformed entries and case-insensitive duplicate names.
+- Per-file active checks persist as `IntegrityCheckSet` inside the bound file profile (`activeChecks` in `.hexscope/profiles.json`); the standalone `IntegrityProfile[]` template registry is retired from the UI — legacy templates still migrate into registry profiles (see hexscope-storage.md).
+- Profile normalization (legacy templates only) drops malformed entries and case-insensitive duplicate names.
 - Selected/hovered check highlights calculation range plus optional stored range with match/mismatch/unverified status.
 
 ### 4. Validation & Error Matrix
@@ -64,7 +66,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 
 - Base: SHA-256 over one mapped inclusive range shows digest and byte count, no stored controls.
 - Good: CRC stored field overlaps range; bytes are excluded, expected value converted to selected byte order, mismatch is highlighted, fix is undoable.
-- Good: profile round-trip preserves only normalized schema-v1 config.
+- Good: profile round-trip preserves `activeChecks` as normalized schema-v1 config inside the bound profile.
 - Bad: calculate across a gap by skipping missing bytes.
 - Bad: partially apply Fix all before discovering an overlap conflict.
 
@@ -72,7 +74,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 
 - `src/test/core/integrity.test.ts`: canonical `123456789` vectors, range parsing, missing bytes, overlap exclusion, byte order, stored reads, normalization, merge conflicts.
 - `src/test/webview/integrityCheckModel.test.ts`: draft/config round-trip, hash stripping, indexed validation errors, result/suppression reset.
-- `src/test/webview/webview.test.ts`: cards, shared byte order, forms, profiles, highlights/actions.
+- `src/test/webview/webview.test.ts`: cards, shared byte order, forms, highlights/actions.
 - Add async token/stale-result and end-to-end edit-transaction assertions for calculation changes.
 
 ### 7. Wrong vs Correct

@@ -5,11 +5,11 @@
     min-width: 0;
 }
 
-/* Body controls row (Profile label + Fix all/Add) under the framework section header */
+/* Body controls row (Fix all / Add) under the framework section header */
 .integrity-hdr-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 8px;
     margin-bottom: 8px;
 }
@@ -18,79 +18,9 @@
     align-items: center;
     gap: 6px;
 }
-/* Profiles: selector row (select + Save as… + ⋮ menu) under the header row. */
-.integrity-profiles {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    margin-bottom: 8px;
-}
-
-.integrity-profiles > .sb-select { width: 100%; min-width: 0; }
-
-.integrity-profile-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-}
-
-.integrity-profile-row .sb-select { flex: 1; min-width: 0; }
-
-/* Header "Profile" field label (rides the hdr-row, aligns with the buttons). */
-.integrity-profile-label {
-    font-family: var(--font-ui);
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--addr-fg);
-    white-space: nowrap;
-}
-
-.integrity-profile-empty { margin-top: 2px; }
 
 /* Header Add rides the compact primitives size — matches Fix all height. */
 .integrity-hdr-row .sb-btn-add { padding: 2px 8px; }
-
-/* ── Profile ⋮ menu (replaces the 4-button admin cluster) ───────── */
-.integrity-profile-menu {
-    position: relative;
-}
-
-.integrity-profile-menu-pop {
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0,0,0,.35);
-    display: flex;
-    flex-direction: column;
-    min-width: 132px;
-    padding: 3px;
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    z-index: 30;
-}
-
-.integrity-profile-menu-pop[hidden] { display: none; }
-
-.integrity-profile-menu-item {
-    background: transparent;
-    border: 0;
-    color: var(--fg);
-    cursor: pointer;
-    font-family: var(--font-ui);
-    font-size: 11px;
-    padding: 5px 8px;
-    text-align: left;
-}
-
-.integrity-profile-menu-item:hover,
-.integrity-profile-menu-item:focus-visible { background: rgba(255,255,255,.08); }
-
-.integrity-profile-menu-item:disabled {
-    cursor: not-allowed;
-    opacity: .35;
-}
 
 #integrity-fix-all:disabled {
     cursor: not-allowed;
@@ -107,27 +37,6 @@
     font-size: 10px;
     line-height: 1.35;
     overflow-wrap: anywhere;
-}
-
-#integrity-profile-error {
-    grid-column: 1 / -1;
-    min-height: 0;
-}
-
-#integrity-profile-error:empty { display: none; }
-
-.integrity-profile-name-form {
-    display: grid;
-    gap: 4px;
-    grid-column: 1 / -1;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-}
-
-.integrity-profile-name-form .sb-input { min-width: 0; }
-
-.integrity-profile-name-form .sb-btn {
-    font-size: 10px;
-    padding: 2px 7px;
 }
 
 .integrity-empty { padding: 10px 4px; }

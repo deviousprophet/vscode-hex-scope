@@ -21,10 +21,6 @@ type Cb = {
     highlights: Array<IntegrityHighlight | null>;
     copies: Array<{ text: string; label: string }>;
     persisted: unknown[];
-    created: unknown[];
-    updated: unknown[];
-    renamed: Array<{ id: string; name: string }>;
-    deleted: string[];
     staged: Array<Array<[number, number]>>;
 };
 
@@ -50,7 +46,7 @@ function installDom(): Harness {
     (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame =
         () => 0;
 
-    const cb: Cb = { highlights: [], copies: [], persisted: [], created: [], updated: [], renamed: [], deleted: [], staged: [] };
+    const cb: Cb = { highlights: [], copies: [], persisted: [], staged: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const endian: { value: 'le' | 'be' } = { value: 'le' };
     const panel = new IntegrityPanel({
@@ -64,10 +60,6 @@ function installDom(): Harness {
         onHighlightChange: highlight => cb.highlights.push(highlight),
         onCopyText: (text, label) => cb.copies.push({ text, label }),
         onPersistChecks: state => cb.persisted.push(state),
-        onCreateProfile: profile => cb.created.push(profile),
-        onUpdateProfile: profile => cb.updated.push(profile),
-        onRenameProfile: (id, name) => cb.renamed.push({ id, name }),
-        onDeleteProfile: id => cb.deleted.push(id),
     });
     panel.setTabActive(true);
     panel.mount(document.getElementById('host')!);
@@ -128,10 +120,9 @@ suite('IntegrityPanel mount + render', () => {
 
     teardown(cleanupDom);
 
-    test('mount creates #s-integrity and renders profiles header + empty state', () => {
+    test('mount creates #s-integrity and renders the empty state', () => {
         assert.ok(document.getElementById('s-integrity'));
         assert.strictEqual(document.querySelector('.integrity-empty')?.textContent, 'No integrity checks configured.');
-        assert.ok((document.getElementById('integrity-profile-save') as HTMLButtonElement).disabled);
         assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
         assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
     });
@@ -280,42 +271,6 @@ suite('IntegrityPanel checks', () => {
         panel.notifySelectionChanged();
         assert.strictEqual(startEl.value, '00004000', 'deselect keeps prior fill');
     });
-
-    test('no profiles renders a disabled select; header shows the Profile label', () => {
-        panel.setProfiles([]);
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        assert.strictEqual(select.disabled, true, 'no profiles → select disabled');
-        assert.strictEqual(select.querySelectorAll('option').length, 0);
-        const label = document.querySelector<HTMLElement>('.integrity-profile-label');
-        assert.ok(label, 'Profile header label present');
-        assert.strictEqual(label!.textContent, 'Profile');
-        assert.strictEqual(document.getElementById('integrity-profile-apply'), null, 'Apply menu item removed');
-        assert.match(document.querySelector<HTMLElement>('.integrity-profile-empty')!.textContent!, /Save as/);
-        const saveBtn = document.getElementById('integrity-profile-save') as HTMLButtonElement;
-        assert.ok(saveBtn, 'Save as… visible next to the ⋮ menu');
-    });
-
-    test('cancelling the apply confirm reverts the dropdown to the prior profile', () => {
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        const profile = (end: number) => ({
-            schemaVersion: 1,
-            id: `p${end}`,
-            name: `Profile ${end}`,
-            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: end, autoFixStoredValue: false }],
-        });
-        panel.setProfiles([profile(0x1001), profile(0x1003)]);
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        assert.strictEqual(select.value, 'p4097', 'preselect-first picks the first profile');
-        panel.checks = [panel.newCheck({ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false })];
-        panel.render();
-        const liveSelect = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        liveSelect.value = 'p4099';
-        liveSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        assert.ok(document.querySelector('#del-confirm-pop .dcp-no'), 'confirm shown for conflicting apply');
-        click(dom, document.querySelector('#del-confirm-pop .dcp-no'));
-        assert.strictEqual(liveSelect.value, 'p4097', 'dropdown reverted on cancel');
-        assert.strictEqual(cb.persisted.length, 0, 'cancel never persists');
-    });
 });
 
 suite('IntegrityPanel results + auto fix', () => {
@@ -453,7 +408,7 @@ suite('IntegrityPanel results + auto fix', () => {
     });
 });
 
-suite('IntegrityPanel highlight + profiles', () => {
+suite('IntegrityPanel highlight + activation', () => {
     let harness: Harness;
     let dom: JSDOM;
     let panel: IntegrityPanel;
@@ -491,135 +446,6 @@ suite('IntegrityPanel highlight + profiles', () => {
         assert.strictEqual(cb.highlights.at(-1), null);
     });
 
-    test('setProfiles renders selector; selecting a profile auto-applies and persists', async function () {
-        this.timeout(5_000);
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        panel.setProfiles([{
-            schemaVersion: 1,
-            id: 'p1',
-            name: 'STM32 Layout',
-            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
-        }]);
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        assert.strictEqual(select.querySelectorAll('option').length, 1, 'no placeholder option');
-        assert.strictEqual((select.querySelector('option:last-child') as HTMLOptionElement).textContent, 'STM32 Layout');
-        select.value = 'p1';
-        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1, 'select change auto-applies');
-        assert.strictEqual(integrityCard().querySelector('.integrity-card-title')!.textContent, 'CRC16/CCITT-FALSE');
-        assert.strictEqual((cb.persisted.at(-1) as { checks: unknown[] }).checks.length, 1);
-        assert.strictEqual(select.disabled, false);
-    });
-
-    test('profile CRUD reports onCreate/onUpdate/onRename/onDeleteProfile', async () => {
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        click(dom, document.getElementById('integrity-add-btn'));
-        let form = integrityForm('add');
-        setDraftValue(form, 'start', '1000');
-        setDraftValue(form, 'end', '1001');
-        click(dom, form.querySelector('[data-form-action="save"]'));
-        panel.setProfiles([{
-            schemaVersion: 1,
-            id: 'p1',
-            name: 'STM32 Layout',
-            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
-        }]);
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        select.value = 'p1';
-        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-        click(dom, document.getElementById('integrity-profile-update'));
-        assert.strictEqual(cb.updated.length, 1);
-        assert.strictEqual((cb.updated[0] as { id: string }).id, 'p1');
-
-        click(dom, document.getElementById('integrity-profile-rename'));
-        const nameInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
-        nameInput.value = 'Renamed';
-        click(dom, document.getElementById('integrity-profile-name-save'));
-        assert.deepStrictEqual(cb.renamed.at(-1), { id: 'p1', name: 'Renamed' });
-
-        click(dom, document.getElementById('integrity-profile-delete'));
-        assert.strictEqual(cb.deleted.length, 0, 'delete waits for the inline confirm');
-        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
-        assert.ok(confirmYes, 'confirm popover shown');
-        click(dom, confirmYes as HTMLElement);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        assert.deepStrictEqual(cb.deleted, ['p1']);
-    });
-
-    test('apply with an open check draft asks for confirmation before replacing checks', async () => {
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        panel.setProfiles([{
-            schemaVersion: 1,
-            id: 'p1',
-            name: 'STM32 Layout',
-            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
-        }]);
-        click(dom, document.getElementById('integrity-add-btn')); // opens the add-check form (unsaved draft)
-
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        select.value = 'p1';
-        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
-        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
-        assert.ok(confirmYes, 'apply confirm popover shown');
-        click(dom, confirmYes as HTMLElement);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        assert.ok(cb.persisted.length >= 1, 'persisted after confirming apply');
-        assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
-    });
-
-    test('apply over configured checks asks for confirmation when they differ from the profile', async function () {
-        this.timeout(5_000);
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        const check = panel.newCheck({ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false });
-        panel.checks = [check];
-        panel.setProfiles([{
-            schemaVersion: 1,
-            id: 'p1',
-            name: 'STM32 Layout',
-            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
-        }]);
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        select.value = 'p1';
-        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-        select.value = 'p1';
-        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        assert.strictEqual(cb.persisted.length, 0, 'no persist before the apply confirm');
-        const confirmYes = document.querySelector('#del-confirm-pop .dcp-yes');
-        assert.ok(confirmYes, 'apply confirm popover shown when current checks differ from the profile');
-        click(dom, confirmYes as HTMLElement);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        assert.ok(cb.persisted.length >= 1, 'persisted after confirming apply');
-        const persisted = cb.persisted.at(-1) as { checks: Array<{ endAddress: number }> } | undefined;
-        assert.ok(persisted, 'apply persisted checks');
-        assert.strictEqual(persisted!.checks[0].endAddress, 0x1001, 'profile checks win after confirm');
-    });
-
-    test('save-as reports onCreateProfile with normalized checks; empty-name rejected inline', () => {
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        click(dom, document.getElementById('integrity-add-btn'));
-        const form = integrityForm('add');
-        setDraftValue(form, 'start', '1000');
-        setDraftValue(form, 'end', '1002');
-        click(dom, form.querySelector('[data-form-action="save"]'));
-
-        click(dom, document.getElementById('integrity-profile-save'));
-        const nameInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
-        nameInput.value = '   ';
-        click(dom, document.getElementById('integrity-profile-name-save'));
-        assert.strictEqual(cb.created.length, 0);
-        assert.match(document.getElementById('integrity-profile-error')!.textContent!, /required/);
-
-        nameInput.value = 'New Layout';
-        click(dom, document.getElementById('integrity-profile-name-save'));
-        assert.strictEqual(cb.created.length, 1);
-        const created = cb.created[0] as { name: string; checks: unknown[] };
-        assert.strictEqual(created.name, 'New Layout');
-        assert.strictEqual(created.checks.length, 1);
-    });
-
     test('mismatch shows on the mismatching card, not a header badge', async function () {
         this.timeout(5_000);
         S.edits.clear(); // Fix all in earlier tests stages edits; this test needs raw bytes.
@@ -642,35 +468,6 @@ suite('IntegrityPanel highlight + profiles', () => {
         const statuses = [...document.querySelectorAll<HTMLElement>('.integrity-card-status')];
         assert.strictEqual(statuses.length, 2);
         assert.ok(statuses.some(s => s.getAttribute('aria-label') === 'Mismatch'));
-    });
-
-    test('profile menu opens from ⋮; Escape closes; rename runs through the menu', async () => {
-        setBytesInSegment(0x1000, [1, 2, 3, 4]);
-        panel.setProfiles([{
-            schemaVersion: 1,
-            id: 'p1',
-            name: 'STM32 Layout',
-            checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }],
-        }]);
-        const select = document.getElementById('integrity-profile-select') as HTMLSelectElement;
-        select.value = 'p1';
-        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        const menuBtn = document.getElementById('integrity-profile-menu-btn') as HTMLButtonElement;
-        const pop = document.getElementById('integrity-profile-menu-pop') as HTMLElement;
-        assert.ok(pop.hidden, 'menu closed by default');
-        click(dom, menuBtn);
-        assert.ok(!pop.hidden, 'menu opens on ⋮ click');
-        assert.strictEqual(menuBtn.getAttribute('aria-expanded'), 'true');
-        click(dom, menuBtn);
-        assert.ok(pop.hidden, 'menu closes on second ⋮ click');
-        click(dom, menuBtn);
-        click(dom, document.getElementById('integrity-profile-rename'));
-        assert.ok(pop.hidden, 'menu closes after item action');
-        const nameInput = document.getElementById('integrity-profile-name') as HTMLInputElement;
-        assert.strictEqual(nameInput.value, 'STM32 Layout', 'rename form prefilled via menu');
-        nameInput.value = 'Renamed';
-        click(dom, document.getElementById('integrity-profile-name-save'));
-        assert.deepStrictEqual(cb.renamed.at(-1), { id: 'p1', name: 'Renamed' });
     });
 
     test('setTabActive lazy-init: notify is a no-op until first activation', () => {

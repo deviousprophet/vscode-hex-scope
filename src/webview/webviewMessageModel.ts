@@ -1,6 +1,6 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
-import { normalizeIntegrityCheckSet, type IntegrityCheckSet, type IntegrityProfile } from '../core/integrity';
-import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from '../core/integrity';
+import type { ProviderToWebviewMessage, ProfileSummary } from '../webviewProtocol';
 import type { SegmentLabel, StructPin } from '../core/types';
 import { endianOrDefault } from '../webviewProtocol';
 import { S } from './state';
@@ -45,9 +45,8 @@ export type WebviewModelUpdate = {
     invalidations: WebviewInvalidations;
     loadErrorMessage?: string;
     copyCommand?: CopyCommand;
-    integrityProfiles?: { profiles: IntegrityProfile[]; activeChecks: IntegrityCheckSet } | IntegrityProfile[];
-    integrityProfileError?: string;
     activeChecks?: IntegrityCheckSet;
+    profileState?: { profiles: ProfileSummary[]; current: string | null; boundFileCount: number };
     removeExternalChangeBanners?: boolean;
     removeExternalChangeErrorBanner?: boolean;
     externalChange?: { incoming: IncomingFile; hasUnsavedEdits: boolean };
@@ -64,7 +63,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     init: applyInitMessage,
     loadProgress: applyPassiveMessage,
     recordPage: applyPassiveMessage,
-    integrityProfiles: applyIntegrityProfilesMessage,
+    profilesState: applyProfilesStateMessage,
     loadError: applyLoadErrorMessage,
     addLabel: applyAddLabelMessage,
     updateLabel: applyUpdateLabelMessage,
@@ -79,6 +78,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     scriptResult: applyPassiveMessage,
     scriptOutput: applyPassiveMessage,
     activateScriptsTab: applyPassiveMessage,
+    activateProfilePicker: applyPassiveMessage,
 };
 
 function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }
@@ -88,20 +88,41 @@ export function applyProviderMessageToModel(msg: WebviewMessage): WebviewModelUp
     return apply(msg);
 }
 
+type WebviewProfileState = {
+    profiles: ProfileSummary[];
+    current: string | null;
+    boundFileCount: number;
+};
+
+function profileStateValue(profiles: unknown, current: unknown, boundFileCount: unknown): WebviewProfileState {
+    return {
+        profiles: Array.isArray(profiles) ? profiles : [],
+        current: typeof current === 'string' ? current : null,
+        boundFileCount: typeof boundFileCount === 'number' ? boundFileCount : 0,
+    };
+}
+
 function applyInitMessage(msg: WebviewMessageByType<'init'>): WebviewModelUpdate {
     applyInitialState(msg);
+    // Normalize + assign profileState (dropdown hydration) and return the
+    // update field so applyProfileStateUpdate re-renders — mirroring
+    // applyProfilesStateMessage. A fresh open sends only `init`.
+    const profileState = profileStateValue(msg.profile?.profiles, msg.profile?.current, msg.profile?.boundFileCount);
+    S.profileState = profileState;
     return {
-        integrityProfiles: msg.integrityProfiles,
+        activeChecks: msg.activeChecks,
+        profileState,
         invalidations: { fullRender: true },
     };
 }
 
-function applyIntegrityProfilesMessage(msg: WebviewMessageByType<'integrityProfiles'>): WebviewModelUpdate {
-    return {
-        integrityProfiles: msg.profiles,
-        integrityProfileError: typeof msg.error === 'string' ? msg.error : '',
-        invalidations: {},
-    };
+function applyProfilesStateMessage(msg: WebviewMessageByType<'profilesState'>): WebviewModelUpdate {
+    const profileState = profileStateValue(msg.profiles, msg.current, msg.boundFileCount);
+    S.profileState = profileState;
+    // Returning the `profileState` update field is what triggers the dropdown
+    // re-render effect; without it the toolbar select keeps its stale options
+    // (newly created profiles never appear and can't be selected).
+    return { profileState, invalidations: {} };
 }
 
 function applyLoadErrorMessage(msg: WebviewMessageByType<'loadError'>): WebviewModelUpdate {

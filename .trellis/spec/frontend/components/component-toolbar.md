@@ -74,20 +74,26 @@ setStatus(message: string): void;                // transient #edit-status messa
 - `#edit-mode-group` (EDITING pill `.tb-editing-pill`, `.tb-seledit-chip` `#tb-seledit-chip`, `#edit-dirty-count`, `#edit-status` transient status, `#btn-save` `.tb-save-btn`, `#btn-cancel` `.tb-cancel-btn`) visible when memory && editMode; Save disabled when dirtyCount===0. Group is a content-width flex row (`#toolbar` scrolls on overflow) — Save/Cancel sit in flow after the status slot; the selection-edit chip appears/disappears at the front so Save/Cancel reflow slightly on session open/close (accepted; no right-pinning). While a selection-edit session runs, `setSectionEdit(true, count)` shows `#tb-seledit-chip` with the **static** activation count as "SELECTION · N B" and leaves the EDITING pill untouched; `setSectionEdit(false)` hides the chip again.
 - `#load-progress` (`role="status"`, `hidden`) — host-owned load-progress indicator rendered in the toolbar; toggled by host, not a component state.
 - SearchBar output embedded as the trailing slot.
+- **Profile picker is a host-side module (not a Toolbar slot):** `src/webview/profilePicker.ts` owns the dropdown + actions menu — `profilePicker.render()` writes the `#profile-picker` innerHTML, `seed()` initializes the toast baseline, `handleProfilesState` and `handleActivatePicker` are the delegated provider handlers. The `#profile-bar` second row is inserted after `#toolbar` (`insertAdjacentHTML('afterend', ...)` in `hexViewer.ts` `render()`), matching the toolbar chrome (`--toolbar-bg` + bottom border, ~31px, `overflow-x: auto`). `#toolbar` itself never contains profile markup.
+- **Profile actions menu (R7):** `profilePicker.render()` renders the `#profile-select` dropdown plus a `⋮` button (`#profile-actions-btn`, `.sb-btn sb-btn-secondary`). The menu uses the **shared menu component** exactly like the hex-grid context menu: clicking the button calls `menuController.show(x, y, { innerHTML: profileActionsHtml(bound), emit: handleProfileAction })` with `x,y` from the button's bounding rect, so `positionMenu` renders the standard `#menu` panel (menu.css presentation — `.menu-item[data-cmd][role=menuitem]` rows + `.menu-header` + `.menu-label`). Items Save / Save as… / Rename / Delete carry `menu-disabled` when `S.profileState.current === null` (shared `.menu-item.menu-disabled` muted style in menu.css). `handleProfileAction` uses the typed `PROFILE_ACTION_MESSAGES: Record<ProfileAction, WebviewToProviderMessage>` map guarded by `isProfileAction(cmd)` before mapping the command to the `saveProfile`/`duplicateProfile`/`renameProfile`/`deleteProfile` provider messages. The profile bar is memory-view-only (`updateMemoryOnlyControls` toggles it with the search bar).
+- **Shared-profile surfacing (R9):** the persistent `.profile-shared-hint` span is gone. The select carries a `title` tooltip — bound profile name, or `"NAME · shared by N files"` when `boundFileCount > 1`, or "No profile bound to this file" when unbound. A **transient toast** fires only when the user switches to a shared profile: `profilePicker.handleProfilesState` compares `S.profileState.current` against a module `lastProfileCurrent` (seeded by `profilePicker.seed()` right after the initial render, so opening never toasts) and toasts when `cur !== lastProfileCurrent && cur !== null && boundFileCount > 1`. `handleProfilesState` destructures `S.profileState` once into locals.
 
 ## Validation & Error Matrix
 
 | Condition | Behaviour |
 |---|---|
-| Record view | ASCII + edit buttons/groups hidden; search hidden (via SearchBar.setVisible); tabs active. |
+| Record view | ASCII + edit buttons/groups hidden; profile bar hidden; search hidden (via SearchBar.setVisible); tabs active. |
 | Memory re-entry with ascii on | ASCII button shown AND `active` (re-applied by `applyMemoryGating`). |
 | Edit mode on | Edit hidden, EDITING group shown, Save/Cancel visible. |
 | dirtyCount 0 | `#edit-dirty-count` empty, Save disabled. |
 | dirtyCount N | "N unsaved byte(s)" text, Save enabled. |
+| Unbound file | Profile actions ⋮ items disabled (`menu-disabled`). |
+| Switch to a shared profile | Select `title` tooltip shows "· shared by N files"; one toast on the switch, never on open, never repeated. |
+| ⋮ opened then click outside / Escape | Popover closes (menuController); `aria-expanded` restored to false. |
 
 ## Tests Required
 
-`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount. Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate).
+`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount. Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
 
 ## Anti-patterns
 

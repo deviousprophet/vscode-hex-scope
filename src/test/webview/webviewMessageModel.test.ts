@@ -66,14 +66,44 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'be',
-            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            activeChecks: { schemaVersion: 1, checks: [] },
+            profile: { profiles: [], current: null, boundFileCount: 0 },
         });
 
         assert.strictEqual(S.parseResult?.totalDataBytes, parseResult.totalDataBytes);
         assert.strictEqual(S.labels.length, 1);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(update.invalidations.fullRender, true);
-        assert.ok(update.integrityProfiles);
+        assert.deepStrictEqual(update.activeChecks, { schemaVersion: 1, checks: [] });
+    });
+
+    test('init hydrates S.profileState so the fresh-open dropdown is populated', () => {
+        // Regression (#1): a fresh open sends only `init`; applyInitMessage must
+        // assign S.profileState (like applyProfilesStateMessage does) and return
+        // the profileState update field so the toolbar re-renders. Without it the
+        // dropdown reads the module default and shows "No Profile" + no options.
+        const update = applyProviderMessageToModel({
+            type: 'init',
+            generation: 1,
+            parseResult: parseResultForTest(),
+            labels: [],
+            structs: [],
+            structPins: [],
+            endian: 'le',
+            activeChecks: { schemaVersion: 1, checks: [] },
+            profile: { profiles: [{ id: 'p1', name: 'Bootloader v3' }], current: 'p1', boundFileCount: 2 },
+        });
+
+        assert.deepStrictEqual(S.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+        assert.deepStrictEqual(update.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        }, 'profileState returned so applyProfileStateUpdate re-renders');
     });
 
     test('label messages rebuild memory and invalidate labels plus memory', () => {
@@ -116,7 +146,8 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'le',
-            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            activeChecks: { schemaVersion: 1, checks: [] },
+            profile: { profiles: [], current: null, boundFileCount: 0 },
         });
         S.editMode = true;
         S.edits.set(0x1001, 0xAA);
@@ -172,12 +203,14 @@ suite('applyProviderMessageToModel()', () => {
             type: 'init',
             generation: 1,
             parseResult: parseResultForTest(),
-            labels: [],
+labels: [],
             structs: [],
             structPins: [],
             endian: 'le',
-            integrityProfiles: { profiles: [], activeChecks: { schemaVersion: 1, checks: [] } },
+            activeChecks: { schemaVersion: 1, checks: [] },
+            profile: { profiles: [], current: null, boundFileCount: 0 },
         });
+
         const labels = [labelForTest({ id: 'x', name: 'X' })];
         const segmentNames = { '0': 'Boot' };
         const pins = [{ id: 'pin', structId: 's', addr: 0, name: 'P' }];
@@ -200,6 +233,28 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(update.invalidations.labelsAndMemory, true);
         assert.strictEqual(update.invalidations.structPins, true);
         assert.strictEqual(update.invalidations.endianChanged, true);
+    });
+
+    test('profilesState update returns the profileState field so the dropdown re-renders', () => {
+        const update = applyProviderMessageToModel({
+            type: 'profilesState',
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+
+        assert.deepStrictEqual(S.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
+        // Regression: without `profileState` in the update, the toolbar select is
+        // never re-rendered and a freshly created profile cannot be selected.
+        assert.deepStrictEqual(update.profileState, {
+            profiles: [{ id: 'p1', name: 'Bootloader v3' }],
+            current: 'p1',
+            boundFileCount: 2,
+        });
     });
 
     test('endianOrDefault is the shared single normalizer (defaults to le)', () => {
@@ -226,7 +281,8 @@ function noOpHandlers(): ProviderMessageHandlers {
         externalChange: () => {},
         externalChangeError: () => {},
         repairComplete: () => {},
-        integrityProfiles: () => {},
+        profilesState: () => {},
+        activateProfilePicker: () => {},
         scriptInfo: () => {},
         scriptResult: () => {},
         scriptOutput: () => {},
