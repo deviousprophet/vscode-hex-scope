@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.21.0] - 2026-09-07
 
 ### Added
 - "Edit selected bytes" context-menu option opens a session that confines typing to the selected range, applying edits live with a single undo, while a `SELECTION` chip and range tint make the active editing range visible
