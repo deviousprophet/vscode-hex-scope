@@ -191,6 +191,7 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
 
     for (const d of defs) {
         validateEndianAllocationOverrides(d, errors);
+        validateDuplicateFieldNames(d, errors);
         for (const f of d.fields) {
             validateStructReference(d, f, byId, errors);
 
@@ -228,6 +229,17 @@ function checkOverrideValue(
 ): void {
     if (value !== undefined && !allowed.has(value)) {
         errors.push(message(value));
+    }
+}
+
+function validateDuplicateFieldNames(def: StructDef, errors: string[]): void {
+    const seen = new Set<string>();
+    for (const f of def.fields) {
+        if (seen.has(f.name)) {
+            errors.push(`Struct "${def.name}": duplicate field name "${f.name}".`);
+        } else {
+            seen.add(f.name);
+        }
     }
 }
 
