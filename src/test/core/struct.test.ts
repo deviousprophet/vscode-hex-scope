@@ -828,6 +828,34 @@ suite('validateStructs()', () => {
         ];
         assert.deepStrictEqual(validateStructs(defs), []);
     });
+
+    test('reports duplicate field names within one struct', () => {
+        const errs = validateStructs([
+            { id: 'dup', name: 'Dup', fields: [
+                { name: 'buf', type: 'uint8', count: 8 },
+                { name: 'buf', type: 'uint8', count: 4 },
+            ] },
+        ]);
+        assert.ok(errs.some(e => e.includes('Struct "Dup": duplicate field name "buf".')), errs.join(' | '));
+    });
+
+    test('allows same field name across different struct defs', () => {
+        const defs: StructDef[] = [
+            { id: 'a', name: 'A', fields: [{ name: 'data', type: 'uint8', count: 1 }] },
+            { id: 'b', name: 'B', fields: [{ name: 'data', type: 'uint8', count: 1 }] },
+        ];
+        assert.deepStrictEqual(validateStructs(defs), []);
+    });
+
+    test('allows same field name under different nested structs', () => {
+        const left: StructDef = { id: 'left', name: 'Left', fields: [{ name: 'x', type: 'uint8', count: 1 }] };
+        const right: StructDef = { id: 'right', name: 'Right', fields: [{ name: 'x', type: 'uint8', count: 1 }] };
+        const outer: StructDef = { id: 'outer', name: 'Outer', fields: [
+            { name: 'a', type: 'struct', refStructId: 'left', count: 1 },
+            { name: 'b', type: 'struct', refStructId: 'right', count: 1 },
+        ] };
+        assert.deepStrictEqual(validateStructs([outer, left, right]), []);
+    });
 });
 
 // ── allStructs ────────────────────────────────────────────────────

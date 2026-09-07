@@ -191,7 +191,13 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
 
     for (const d of defs) {
         validateEndianAllocationOverrides(d, errors);
+        const seenFieldNames = new Set<string>();
         for (const f of d.fields) {
+            if (seenFieldNames.has(f.name)) {
+                errors.push(`Struct "${d.name}": duplicate field name "${f.name}".`);
+            } else {
+                seenFieldNames.add(f.name);
+            }
             validateStructReference(d, f, byId, errors);
 
             // ── New bitFields container validation ──────────────────────────────

@@ -38,7 +38,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 - `decodeStruct` resolves both concerns per field as `field.<x> ?? containing-struct.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats struct beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
 - Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched (first-class override again, not stripped); absent keys = inherit = prior behavior.
 - Natural layout aligns fields and total size unless `packed` is true. Nested definitions participate in size/alignment.
-- Validation rejects missing names, invalid counts/types/references, illegal bitfield bases/widths, cycles, and nesting beyond `MAX_NESTED_DEPTH`.
+- Validation rejects missing names, duplicate field names (same struct, same level), invalid counts/types/references, illegal bitfield bases/widths, cycles, and nesting beyond `MAX_NESTED_DEPTH`.
 - Bitfields use unsigned integer storage, declaration-order allocation, and cannot be arrays in imported C text.
 - `decodeStruct` returns flattened typed rows with byte/bit metadata, data availability, pointer target metadata, resolved `endian`/`allocation`, and decoded values.
 - Missing bytes produce `hasData: false`; never decode them as zero.
@@ -101,3 +101,15 @@ if (errors.length === 0) {
 ```
 
 Codec is the deep layout/decode module; UI consumes its contract.
+
+### Design Decision: duplicate field names rejected at validation
+
+**Context**: decode walks `def.fields` by offset/index (`decodeStructRecursive`, `src/core/structCodec.ts`) so duplicates decoded correctly, but the display layer re-resolves each row-group's declaration by **name** — `groupRowsByBase` → `describeStructGroup` → `resolveStructFieldByPath` → `findStructField` (first name match, `structPanel.ts`). Two same-named fields in one struct therefore corrupted every duplicate group's header (type/size/count from the *first* declaration) while bytes/expanded rows stayed correct.
+
+**Options considered**:
+1. Renderer disambiguation (could fix pre-saved defs, keep duplicates legal; more display surface).
+2. Reject duplicates in `validateStructs` (matches C semantics, minimal surface).
+
+**Decision**: Option 2. Same-struct same-level field names are a validation error (`Struct "<name>": duplicate field name "<name>".`). Nested reuse (same name under different parents) and cross-def reuse remain valid because those groups resolve through full dotted-path keys. Pre-saved defs with duplicates keep current behavior until re-saved (then blocked) — accepted.
+
+**Extensibility**: any future def writer must route through `validateStructs`; the editor save path (`structPanel.ts:1497`) already gates on its errors.
