@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Duplicate field names inside a struct definition are now rejected with an inline validation error, fixing group headers that showed the first declaration's size for same-named fields while their bytes decoded correctly
+
 ## [2.21.0] - 2026-09-07
 
 ### Added
