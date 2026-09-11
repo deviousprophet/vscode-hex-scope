@@ -2596,8 +2596,9 @@ suite('StructPanel deep-render harness', () => {
 
         const pointerRow = leafs.find(el => el.classList.contains('si-ptr-field'));
         assert.ok(pointerRow, 'pointer row should render');
-        assert.strictEqual(pointerRow!.querySelector('.si-chip'), null, 'pointer rows never badge (global endian only)');
-        assert.match(elementText(pointerRow!.querySelector('.si-f-val')!), /0x12345678/, 'pointer value decodes with global endian');
+        // Pointer header rows render via structPointerHeaderBodyHtml, which does
+        // not include overrideBadgeHtml — badges live on scalar/bit-unit rows.
+        assert.match(elementText(pointerRow!.querySelector('.si-f-val')!), /0x78563412/, 'pointer value decodes with the inherited struct endian');
 
         const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
         assert.ok(bitHdr, 'bit unit header should render');
@@ -2677,5 +2678,59 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.getElementById('se-save'));
         assert.ok(document.querySelector('.se-error'), 'inline error should render on invalid save');
         assert.strictEqual(S.structs.length, 0, 'invalid struct must not be saved');
+    });
+
+    test('editing existing struct preserves predefined endian and allocation', async () => {
+        const preset: StructDef = {
+            id: 'preset', name: 'Preset', packed: true, endian: 'be', allocation: 'msb',
+            fields: [{ name: 'w', type: 'uint16', count: 1 }],
+        };
+        S.structs = [preset];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="preset"]'));
+        const seEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        const seAlloc = document.getElementById('se-alloc') as HTMLSelectElement;
+        assert.ok(seEndian && seAlloc, 'struct default selects render in editor');
+        assert.strictEqual(seEndian.value, 'be', 'predefined struct endian shows in editor');
+        assert.strictEqual(seAlloc.value, 'msb', 'predefined struct allocation shows in editor');
+        click(dom, document.getElementById('se-save'));
+        const saved = S.structs.find(d => d.id === 'preset');
+        assert.ok(saved, 'saved type should exist');
+        assert.strictEqual(saved!.endian, 'be', 'struct endian persists after save');
+        assert.strictEqual(saved!.allocation, 'msb', 'struct allocation persists after save');
+    });
+
+    test('Add Field and Add bit mutate rows in place without replacing the editor container', async () => {
+        S.structs = [];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const fieldsEl = document.getElementById('se-fields');
+        const formEl = document.getElementById('si-types-body');
+        const nameInp = document.getElementById('se-name');
+        const packedBtn = document.getElementById('se-packed');
+        assert.ok(fieldsEl && formEl && nameInp && packedBtn, 'editor renders');
+
+        // The section body (#si-types-body, .sb-body) is the scroll container:
+        // it is never replaced, so its scroll position survives every mutation
+        // (no jump to the top).
+        formEl!.scrollTop = 120;
+
+        click(dom, document.getElementById('se-add'));
+        assert.strictEqual(document.getElementById('se-fields'), fieldsEl, 'Add Field does not replace #se-fields');
+        assert.strictEqual(document.getElementById('si-types-body'), formEl, 'Add Field does not replace the scroll container');
+        assert.strictEqual(document.getElementById('se-name'), nameInp, 'Add Field does not replace the name input');
+        assert.strictEqual(document.getElementById('se-packed'), packedBtn, 'Add Field does not replace the packed toggle');
+        assert.strictEqual(formEl!.scrollTop, 120, 'Add Field keeps the scroll position');
+
+        const bitBtn = document.querySelector<HTMLElement>('.sfe-bit-btn');
+        assert.ok(bitBtn, 'field row first field offers bit toggle');
+        click(dom, bitBtn);
+        assert.strictEqual(document.getElementById('se-fields'), fieldsEl, 'Add bit does not replace #se-fields');
+        assert.strictEqual(document.getElementById('si-types-body'), formEl, 'Add bit does not replace the scroll container');
+        assert.strictEqual(formEl!.scrollTop, 120, 'Add bit keeps the scroll position');
+        assert.ok(document.querySelector('.sfe-bf-child-row'), 'bit child row appended in place');
+        assert.ok(document.querySelector('.se-preview'), 'preview stays mounted after incremental edits');
     });
 });
