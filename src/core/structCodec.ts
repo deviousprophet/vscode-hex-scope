@@ -671,7 +671,7 @@ function decodeAsciiField(
     const raw = readFieldBytes(ctx, absOffset, totalBytes);
     const hasData = raw.every(v => v >= 0);
     if (normalized.isPointer) {
-        decodePointerElements(ctx, normalized, offset, ctx.globalEndian);
+        decodePointerElements(ctx, normalized, offset, endian);
         return offset + totalBytes;
     }
     ctx.rows.push({
@@ -804,7 +804,7 @@ function decodeFieldElements(
 ): number {
     field = normalizeStructField(field);
     if (field.isPointer) {
-        decodePointerElements(ctx, field, offset, ctx.globalEndian);
+        decodePointerElements(ctx, field, offset, endian);
         return offset + POINTER_BYTE_SIZE * field.count;
     }
     let nextOffset = offset;
