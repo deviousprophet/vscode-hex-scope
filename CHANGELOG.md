@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Pointer fields now decode with the inherited struct endianness instead of the global overlay
+- Editing a struct type preserves its predefined endianness and bit allocation instead of reverting to `Auto`
+- Adding, moving, or deleting fields or bit fields no longer scrolls the type editor back to the top
+- The `New Type` editor fills the sidebar pane, leaving no blank space under the form
+
 ## [2.21.1] - 2026-09-08
 
 ### Fixed
