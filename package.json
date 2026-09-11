@@ -259,6 +259,6 @@
     "serialize-javascript": "^7.0.6"
   },
   "allowScripts": {
-    "esbuild@0.28.1": true
+    "esbuild@0.28.2": true
   }
 }
