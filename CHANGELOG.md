@@ -13,6 +13,8 @@
 - Bit-field values shown in binary no longer shift (jump) on hover; the hover underline is a solid line that takes no layout space
 - Bit-field headers with multi-line binary values (`u32`/`u64`) align the `>` chevron, field name, byte-order chip, and dotted leader on the value's last line
 - Removed the horizontal tree stub on expandable struct headers
+- Struct array element counts are no longer capped at `256`; any positive count saves exactly as entered
+- Shrinking a bit-field child's width re-enables `+ Add bit` immediately, without saving and reopening the editor
 
 ## [2.21.1] - 2026-09-08
 
