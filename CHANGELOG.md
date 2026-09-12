@@ -10,6 +10,9 @@
 - Editing a struct type preserves its predefined endianness and bit allocation instead of reverting to `Auto`
 - Adding, moving, or deleting fields and bit fields no longer scrolls the type editor back to the top
 - The `New Type` editor fills the sidebar pane when the form is short, and the whole form scrolls with the section body when it grows past the pane height
+- Bit-field values shown in binary no longer shift (jump) on hover; the hover underline is a solid line that takes no layout space
+- Bit-field headers with multi-line binary values (`u32`/`u64`) align the `>` chevron, field name, byte-order chip, and dotted leader on the value's last line
+- Removed the horizontal tree stub on expandable struct headers
 
 ## [2.21.1] - 2026-09-08
 
