@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.22.0] - 2026-09-12
 
 ### Added
 - The struct type editor now switches between an `Edit` form and a `Preview` tab; the C preview flows in the section body with no fixed height or inner scroll, wrapping long lines
