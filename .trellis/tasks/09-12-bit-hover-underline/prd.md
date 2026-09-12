@@ -34,7 +34,7 @@ Two CSS-only fixes in the struct bit-field binary view, same area `structPanel.c
 - [ ] `structPanel.css` `.si-bit.hov` uses `box-shadow` (solid 1px line) and has no `border-bottom`.
 - [ ] `.si-bit.sel.hov` rule deleted.
 - [ ] `.si-bin-wrap` stays `display: inline-block`.
-- [ ] `.si-arr-grp-hdr.si-bitunit-hdr, .si-arr-el-hdr.si-bitunit-hdr` use `align-items: flex-end`; `.si-bitunit-hdr .si-chip` uses `align-self: flex-end`; `.si-bitunit-hdr .si-f-lead` baselines and has no bottom margin.
+- [ ] `.si-arr-grp-hdr.si-bitunit-hdr, .si-arr-el-hdr.si-bitunit-hdr` use `align-items: flex-end`; `.si-bitunit-hdr .si-chip` uses `align-self: flex-end`; `.si-bitunit-hdr .si-f-lead` is baseline-aligned, zero-height, with no bottom margin.
 - [ ] Manual (extension host): hover bits on a u32 bit-field bin view — no vertical jump; the solid underline appears under hovered bits.
 - [ ] Manual: u32/u64 bit-field parent shown in binary — `>` chevron, field name, endian chip, dotted leader all sit on the binary value's **last** line; the dotted leader is on the same baseline as the name/bit text (no drop below it).
 - [ ] Manual: u8/u16 bit-field parent (single line) — header cluster alignment effectively unchanged.
