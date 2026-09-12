@@ -80,6 +80,11 @@ class StructPanel {
 
 `src/test/webview/components/sidebar/structPanel/structPanel.test.ts`: mount (both tracks + empty states), `setData` renders instance cards + decoded rows + expansion persistence, `setEndian` re-decode, `setBitFieldAllocation` re-render + LSB/MSB toggle, row click → `onSelectRange`, pointer follow/create → `onSelectRange` + `onPinsChange`, editor save → `onStructsChange`, C preview, delete cascade → `onStateChange`, add/edit/delete pin → `onPinsChange`, `setSelection` → add-form address, plus the deep-render suite (array headers, offsets, pointers, bit-field grouping, copy formats, byte order), Edit/Preview tab switching (draft preserved across views), scroll-preserving incremental edits. `structPinsModel.test.ts` (import re-point) + `webview.test.ts` struct suites pass unchanged (parity gate).
 
+## Common Mistakes
+
+- **Stale derived bit-editor state after a text-edit.** The `+ Add bit` button's disabled state derives from the container's remaining bits (sum of child `bitWidth` vs `typeByteSize * 8`). Editing a child's width in place calls `syncEditorDraft` + `refreshEditorPreview`, but `refreshEditorPreview` only re-renders `#se-preview` — it never rebuilds the row-set, so any control whose state is computed during `refreshFieldRows`/`bitChildrenHtml` stays stale. Width edits must therefore call `refreshBitChildAddButton(draft, row)` (updates the button's `disabled`/`title` in place without losing input focus). Example regression scenario: u8 container with children 3+5 (container full, button disabled) → shrink the first child to 1 (total 6) → button must enable immediately, without save/reopen.
+- **Re-capping array counts.** Array element count is intentionally unlimited (see `struct-model.md`). The count input keeps only a non-digit strip; do not add `maxlength`, `slice(0, N)`, or `Math.min` back to `fieldArrayCellHtml` / the `.sfe-count-inp` handler / `readEditorArrayCount`.
+
 ## Anti-patterns
 
 - `StructPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, or `rerender`.
