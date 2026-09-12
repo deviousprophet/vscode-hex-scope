@@ -59,6 +59,16 @@
     display: flex; flex-direction: column; gap: 5px;
 }
 
+/* Edit/Preview views: only one visible at a time; the section body remains the
+   sole scroll container (no inner scroll in either view). */
+.se-view { min-height: 0; }
+.se-view[data-se-view="edit"] {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.se-view[hidden] { display: none; }
+
 .se-name-inp {
     width: 100%;
     font-family: var(--font-ui); font-weight: 600;
@@ -421,13 +431,18 @@
     border-color: #569cd6; background: rgba(86,156,214,.12);
 }
 
-/* Live C preview inside the struct editor */
+/* Live C preview inside the struct editor. No fixed height and no inner
+   scroll: the preview flows in the section body and scrolls with it; long
+   lines wrap to the pane width. */
 .se-preview {
     border: 1px solid var(--border); border-radius: 3px;
     background: rgba(0,0,0,.18); overflow: hidden;
     margin-top: 2px;
 }
-.se-preview .si-c-preview { max-height: 160px; overflow-y: auto; }
+.se-preview .si-c-preview {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
 
 /* Expanded field rows */
 .si-fields {

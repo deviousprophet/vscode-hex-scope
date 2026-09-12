@@ -1088,6 +1088,8 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
     const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
     return (
         `<div class="si-editor-wrap">` +
+        this.editorTabsHtml() +
+        `<div class="se-view" data-se-view="edit">` +
         `<div class="se-form">` +
         `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="TypeName" spellcheck="false" autocomplete="off">` +
@@ -1107,10 +1109,37 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
         `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
+        `</div>` +
+        `</div>` +
+        `<div class="se-view" data-se-view="preview" hidden>` +
         `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
+}
+
+/** Edit/Preview tab bar that toggles which editor view is visible (markdown raw/preview style). */
+private editorTabsHtml(): string {
+    return (
+        `<div class="se-tabs compact-tabs" role="tablist" aria-label="Struct editor views">` +
+        `<button type="button" class="se-tab active" role="tab" aria-selected="true" data-se-view="edit">Edit</button>` +
+        `<button type="button" class="se-tab" role="tab" aria-selected="false" data-se-view="preview">Preview</button>` +
+        `</div>`
+    );
+}
+
+private tabNavKey(key: string): boolean {
+    return key === 'ArrowLeft' || key === 'ArrowRight';
+}
+
+private tabActivateKey(key: string): boolean {
+    return key === 'Enter' || key === ' ';
+}
+
+private nextTabIndex(list: HTMLButtonElement[], btn: HTMLButtonElement, key: string): number {
+    const idx = list.indexOf(btn);
+    if (key === 'ArrowRight') { return (idx + 1) % list.length; }
+    return (idx + list.length - 1) % list.length;
 }
 
 private editorInheritedEndian(): string {
@@ -1536,6 +1565,35 @@ private wireEditorInSec(sec: HTMLElement): void {
     // incremental #se-fields rebuild). The struct-level controls below are
     // mounted once and kept across those rebuilds.
     this.wireFieldRows(sec.querySelector<HTMLElement>('#se-fields')!, sec, draft);
+
+    // Edit/Preview tab switch: attribute-only toggling (no re-render), so the
+    // draft and the section-body scroll keep their state when switching views.
+    const tabButtons = sec.querySelectorAll<HTMLButtonElement>('.se-tab');
+    const setEditorView = (view: string): void => {
+        tabButtons.forEach(btn => {
+            const on = btn.dataset.seView === view;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-selected', String(on));
+        });
+        sec.querySelectorAll<HTMLElement>('.se-view').forEach(pane => {
+            pane.hidden = pane.dataset.seView !== view;
+        });
+    };
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => { setEditorView(btn.dataset.seView!); });
+        btn.addEventListener('keydown', ev => {
+            if (this.tabNavKey(ev.key)) {
+                ev.preventDefault();
+                const list = Array.from(tabButtons);
+                const next = list[this.nextTabIndex(list, btn, ev.key)]!;
+                next.focus();
+                setEditorView(next.dataset.seView!);
+            } else if (this.tabActivateKey(ev.key)) {
+                ev.preventDefault();
+                setEditorView(btn.dataset.seView!);
+            }
+        });
+    });
 
     sec.querySelector('#se-add')!.addEventListener('click', () => {
         this.syncEditorDraft(sec, draft);

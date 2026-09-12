@@ -2733,4 +2733,42 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(document.querySelector('.sfe-bf-child-row'), 'bit child row appended in place');
         assert.ok(document.querySelector('.se-preview'), 'preview stays mounted after incremental edits');
     });
+
+    test('editor Edit/Preview tabs swap views without losing draft state', async () => {
+        S.structs = [];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+
+        // Opens on Edit by default.
+        const editView = document.querySelector<HTMLElement>('.se-view[data-se-view="edit"]');
+        const previewView = document.querySelector<HTMLElement>('.se-view[data-se-view="preview"]');
+        assert.ok(editView && previewView, 'editor renders both views');
+        assert.ok(previewView!.hidden, 'preview view is hidden until switched');
+        assert.strictEqual(
+            document.querySelector<HTMLButtonElement>('.se-tab.active')?.dataset.seView,
+            'edit',
+            'Edit tab is active on open',
+        );
+
+        // Edit a field then switch to Preview: form hides, draft is preserved.
+        const nameInp = document.getElementById('se-name') as HTMLInputElement;
+        nameInp!.value = 'Widget';
+        click(dom, document.querySelector<HTMLElement>('.se-tab[data-se-view="preview"]'));
+        assert.ok(!previewView!.hidden, 'preview view is visible after switching');
+        assert.ok(editView!.hidden, 'edit view is hidden in preview mode');
+        assert.strictEqual(
+            document.querySelector<HTMLButtonElement>('.se-tab.active')?.dataset.seView,
+            'preview',
+            'Preview tab is active after switching',
+        );
+
+        // Switch back: the form returns with the draft intact, no re-render.
+        const previewNode = document.getElementById('se-preview')!;
+        click(dom, document.querySelector<HTMLElement>('.se-tab[data-se-view="edit"]'));
+        assert.ok(!editView!.hidden, 'edit view is visible after switching back');
+        assert.ok(previewView!.hidden, 'preview view is hidden again');
+        assert.strictEqual((document.getElementById('se-name') as HTMLInputElement).value, 'Widget', 'draft name preserved across tab switch');
+        assert.strictEqual(document.getElementById('se-preview'), previewNode, 'preview node is not re-rendered by tab switching');
+    });
 });
