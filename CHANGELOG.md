@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- The struct type editor now switches between an `Edit` form and a `Preview` tab (markdown-style); the C preview flows in the section body with no fixed height or inner scroll, wrapping long lines
+- The struct type editor now switches between an `Edit` form and a `Preview` tab; the C preview flows in the section body with no fixed height or inner scroll, wrapping long lines
 
 ### Fixed
 - Pointer fields now decode with the inherited struct endianness instead of the global overlay
