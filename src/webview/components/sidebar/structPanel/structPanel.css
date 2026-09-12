@@ -13,8 +13,9 @@
 /* Spacing now comes from the primitives (sidebar.css): .sb-btn 2px 8px,
    .sb-btn-add 5px 8px. Only non-spacing adaptations stay here. */
 .sa-row .sb-select { flex: 1; min-width: 0; }
-.se-form > .sb-btn-add { width: 100%; }
-.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px 4px; }
+/* Add Field: compact, centered in the form, not full-width. */
+.se-form > .sb-btn-add { align-self: center; width: auto; padding: 3px 12px; }
+.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px auto; align-self: center; }
 #si-add-btn { flex-shrink: 0; }
 #sm-close-btn { flex-shrink: 0; }
 
@@ -69,9 +70,18 @@
 }
 .se-view[hidden] { display: none; }
 
+/* Edit/Preview tabs: inline shrink-to-fit toggle, not a full-width segmented bar. */
+.se-tabs { align-self: flex-start; }
+.se-tabs .se-tab { flex: 0 0 auto; }
+
 .se-name-inp {
     width: 100%;
     font-family: var(--font-ui); font-weight: 600;
+}
+
+.se-name-lbl {
+    font-size: 10px; font-weight: 600;
+    color: var(--addr-fg); font-family: var(--font-ui);
 }
 
 /* Struct-default row: grid-aligned so Endian/Alloc share the field grid columns */

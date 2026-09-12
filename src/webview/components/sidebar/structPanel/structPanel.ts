@@ -1091,8 +1091,9 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
         this.editorTabsHtml() +
         `<div class="se-view" data-se-view="edit">` +
         `<div class="se-form">` +
+        `<label class="se-name-lbl" for="se-name">Type name</label>` +
         `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
-               `maxlength="64" placeholder="TypeName" spellcheck="false" autocomplete="off">` +
+               `maxlength="64" placeholder="MyStruct" spellcheck="false" autocomplete="off">` +
         `<div class="se-struct-default-row">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
