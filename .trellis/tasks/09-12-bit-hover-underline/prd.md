@@ -20,7 +20,7 @@ Two CSS-only fixes in the struct bit-field binary view, same area `structPanel.c
 ### Fix 2 — field name drops on multi-line binary value
 
 - `.si-bin-wrap` is `display: inline-block`; CSS gives an inline-block the baseline of its **last** in-flow line. `.si-f-body` uses `align-items: baseline`, so a wrapped (multi-line) bin value anchors the name and dotted leader to the value's **last** line. Desired: the whole header cluster — `>` chevron, field name, `(LE)`/allocation chips, dotted leader — sits together on that last binary line.
-- Keep `.si-bin-wrap` as `display: inline-block` (last-line baseline). Add bitunit-header scoping so the chevron and chips join the baseline cluster: `.si-arr-grp-hdr.si-bitunit-hdr, .si-arr-el-hdr.si-bitunit-hdr { align-items: flex-end }` and `.si-bitunit-hdr .si-chip { align-self: flex-end }`.
+- Keep `.si-bin-wrap` as `display: inline-block` (last-line baseline). Add bitunit-header scoping so the chevron and chips join the baseline cluster: `.si-arr-grp-hdr.si-bitunit-hdr, .si-arr-el-hdr.si-bitunit-hdr { align-items: flex-end }`, `.si-bitunit-hdr .si-chip { align-self: flex-end }`, and `.si-bitunit-hdr .si-f-lead { align-self: baseline; margin-bottom: 0 }` (dotted leader shares the text baseline; its default `flex-end` + `2px` drift lower than the anchored text on wrapped rows).
 - Forced 16-bit `<br>` line breaks and soft-wrap (`white-space: normal`) unchanged; copy is text-based (`copyBitFieldValue`), highlight runs on `.si-bit` spans (DOM selectors unchanged).
 
 ## Constraints
@@ -34,9 +34,9 @@ Two CSS-only fixes in the struct bit-field binary view, same area `structPanel.c
 - [ ] `structPanel.css` `.si-bit.hov` uses `box-shadow` (solid 1px line) and has no `border-bottom`.
 - [ ] `.si-bit.sel.hov` rule deleted.
 - [ ] `.si-bin-wrap` stays `display: inline-block`.
-- [ ] `.si-arr-grp-hdr.si-bitunit-hdr, .si-arr-el-hdr.si-bitunit-hdr` use `align-items: flex-end`; `.si-bitunit-hdr .si-chip` uses `align-self: flex-end`.
+- [ ] `.si-arr-grp-hdr.si-bitunit-hdr, .si-arr-el-hdr.si-bitunit-hdr` use `align-items: flex-end`; `.si-bitunit-hdr .si-chip` uses `align-self: flex-end`; `.si-bitunit-hdr .si-f-lead` baselines and has no bottom margin.
 - [ ] Manual (extension host): hover bits on a u32 bit-field bin view — no vertical jump; the solid underline appears under hovered bits.
-- [ ] Manual: u32/u64 bit-field parent shown in binary — `>` chevron, field name, endian chip, dotted leader all sit on the binary value's **last** line, aligned together.
+- [ ] Manual: u32/u64 bit-field parent shown in binary — `>` chevron, field name, endian chip, dotted leader all sit on the binary value's **last** line; the dotted leader is on the same baseline as the name/bit text (no drop below it).
 - [ ] Manual: u8/u16 bit-field parent (single line) — header cluster alignment effectively unchanged.
 - [ ] Manual: selection + hover on the same bit — background and shadow coexist, no shift.
 - [ ] Lint + full test suite green (`npm run lint`, `npm test`).
