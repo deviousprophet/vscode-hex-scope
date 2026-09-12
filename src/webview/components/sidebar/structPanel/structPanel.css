@@ -674,24 +674,6 @@
     margin-left: calc(var(--si-level, 0) * var(--si-indent-step));
 }
 
-.si-arr-grp-hdr::before,
-.si-arr-el-hdr::before {
-    content: '';
-    position: absolute;
-    left: calc(var(--si-toggle-x) + (var(--si-level, 0) * var(--si-indent-step)));
-    top: 50%;
-    width: 10px;
-    border-top: 1px solid rgba(255,255,255,.18);
-    transform: translateY(-50%);
-    pointer-events: none;
-}
-.si-arr-grp-hdr.si-bitunit-hdr.si-bitunit-wide::before,
-.si-arr-el-hdr.si-bitunit-hdr.si-bitunit-wide::before {
-    top: auto;
-    bottom: 9px;
-    transform: none;
-}
-
 .si-arr-grp-body::before,
 .si-arr-el-body::before {
     left: calc(var(--si-toggle-x) + ((var(--si-level, 1) - 1) * var(--si-indent-step)));
