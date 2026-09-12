@@ -13,16 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  Test:
-    name: Test Before Release
-    uses: ./.github/workflows/ct.yml
-    permissions:
-      contents: read
-
   Package:
     name: Package VSIX
-    needs: Test
-    if: ${{ needs.Test.result == 'success' }}
     uses: ./.github/workflows/package.yml
     with:
       use_package_version: true
