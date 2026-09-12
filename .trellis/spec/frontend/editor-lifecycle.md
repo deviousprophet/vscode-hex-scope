@@ -27,7 +27,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 
 - Extension activation registers the custom editor and all contributed commands from `package.json`.
 - Provider uses `retainContextWhenHidden: true` and does not support multiple editors per document.
-- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, structs, pins, endian, and integrity profiles/checks.
+- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, structs, pins, endian, bit-field allocation, and integrity profiles/checks.
 - `HexEditorSession` owns file I/O, parsing, watchers, VS Code persistence, clipboard, and host-side profile/definition migration.
 - `hexViewer.ts` owns browser composition. It dispatches known provider messages, applies model transitions, then DOM invalidations/effects.
 - Unknown/malformed provider message types return `false` and cause no handler execution.

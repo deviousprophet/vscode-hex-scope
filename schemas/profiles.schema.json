@@ -33,6 +33,7 @@
         "structPins",
         "activeChecks",
         "endian",
+        "bitAllocation",
         "segmentNames",
         "labels"
       ],
@@ -64,6 +65,12 @@
           "enum": [
             "le",
             "be"
+          ]
+        },
+        "bitAllocation": {
+          "enum": [
+            "lsb",
+            "msb"
           ]
         },
         "segmentNames": {

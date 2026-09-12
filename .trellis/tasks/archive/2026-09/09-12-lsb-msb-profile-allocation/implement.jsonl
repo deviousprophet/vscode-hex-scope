@@ -1,0 +1,5 @@
+{"file": "src/webviewProtocol.ts", "reason": "endianOrDefault + message shapes to mirror"}
+{"file": "src/hexScopeStorage.ts", "reason": "ProfileRecord + empties + normalizer"}
+{"file": "src/hexEditorSession.ts", "reason": "postInit/broadcastPerFileData/saveEndian handler"}
+{"file": "src/webview/hexViewer.ts", "reason": "writeEndianToConsumers + invalidation wiring"}
+{"file": "schemas/profiles.schema.json", "reason": "profileRecord additions"}

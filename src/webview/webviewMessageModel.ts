@@ -2,7 +2,7 @@ import type { CopyCommand } from '../core/byteTools/copyCommand';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from '../core/integrity';
 import type { ProviderToWebviewMessage, ProfileSummary } from '../webviewProtocol';
 import type { SegmentLabel, StructPin } from '../core/types';
-import { endianOrDefault } from '../webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault } from '../webviewProtocol';
 import { S } from './state';
 import {
     addLabel,
@@ -32,6 +32,7 @@ export type WebviewInvalidations = {
     currentDataView?: boolean;
     integrityBytesChanged?: boolean;
     endianChanged?: boolean;
+    bitFieldAllocationChanged?: boolean;
 };
 
 export type ExternalChangeErrorDetails = {
@@ -161,6 +162,7 @@ function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataCha
     S.segmentNames = recordOrEmpty(msg.segmentNames);
     S.structPins = pinArrayOrEmpty(msg.pins);
     S.endian = endianOrDefault(msg.endian);
+    S.bitFieldAllocation = bitAllocationOrDefault(msg.bitAllocation);
     const activeChecks = normalizeIntegrityCheckSet(msg.activeChecks);
     return {
         activeChecks: activeChecks ?? undefined,
@@ -170,6 +172,7 @@ function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataCha
             currentDataView: true,
             integrityBytesChanged: true,
             endianChanged: true,
+            bitFieldAllocationChanged: true,
         },
     };
 }

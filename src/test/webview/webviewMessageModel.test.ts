@@ -6,7 +6,7 @@ import type { SegmentLabel, WireParseResult } from '../../core/types';
 import { dispatchProviderMessage } from '../../webview/webviewMessageDispatcher';
 import { S } from '../../webview/state';
 import { applyProviderMessageToModel } from '../../webview/webviewMessageModel';
-import { endianOrDefault } from '../../webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault } from '../../webviewProtocol';
 
 function resetState(): void {
     S.parseResult = null;
@@ -21,6 +21,7 @@ function resetState(): void {
     S.structPins = [];
     S.lockedDueToExternalChange = false;
     S.endian = 'le';
+    S.bitFieldAllocation = 'msb';
 }
 
 suite('webview message dispatcher', () => {
@@ -66,6 +67,7 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'be',
+            bitAllocation: 'msb',
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -73,6 +75,7 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(S.parseResult?.totalDataBytes, parseResult.totalDataBytes);
         assert.strictEqual(S.labels.length, 1);
         assert.strictEqual(S.endian, 'be');
+        assert.strictEqual(S.bitFieldAllocation, 'msb');
         assert.strictEqual(update.invalidations.fullRender, true);
         assert.deepStrictEqual(update.activeChecks, { schemaVersion: 1, checks: [] });
     });
@@ -90,6 +93,7 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'le',
+            bitAllocation: 'msb',
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [{ id: 'p1', name: 'Bootloader v3' }], current: 'p1', boundFileCount: 2 },
         });
@@ -146,6 +150,7 @@ suite('applyProviderMessageToModel()', () => {
             structs: [],
             structPins: [],
             endian: 'le',
+            bitAllocation: 'msb',
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -198,7 +203,7 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(update.invalidations.structPins, true);
     });
 
-    test('perFileDataChange replaces labels, segment names, pins, endian, and active checks', () => {
+    test('perFileDataChange replaces labels, segment names, pins, endian, allocation, and active checks', () => {
         applyProviderMessageToModel({
             type: 'init',
             generation: 1,
@@ -207,6 +212,7 @@ labels: [],
             structs: [],
             structPins: [],
             endian: 'le',
+            bitAllocation: 'msb',
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -222,6 +228,7 @@ labels: [],
             segmentNames,
             pins,
             endian: 'be',
+            bitAllocation: 'lsb',
             activeChecks,
         });
 
@@ -229,10 +236,12 @@ labels: [],
         assert.deepStrictEqual(S.segmentNames, segmentNames);
         assert.deepStrictEqual(S.structPins, pins);
         assert.strictEqual(S.endian, 'be');
+        assert.strictEqual(S.bitFieldAllocation, 'lsb');
         assert.deepStrictEqual(update.activeChecks, activeChecks);
         assert.strictEqual(update.invalidations.labelsAndMemory, true);
         assert.strictEqual(update.invalidations.structPins, true);
         assert.strictEqual(update.invalidations.endianChanged, true);
+        assert.strictEqual(update.invalidations.bitFieldAllocationChanged, true);
     });
 
     test('profilesState update returns the profileState field so the dropdown re-renders', () => {
@@ -263,6 +272,13 @@ labels: [],
         assert.strictEqual(endianOrDefault(undefined), 'le');
         assert.strictEqual(endianOrDefault('bogus'), 'le');
         assert.strictEqual(endianOrDefault(42), 'le');
+    });
+
+    test('bitAllocationOrDefault is the shared single normalizer (defaults to msb)', () => {
+        assert.strictEqual(bitAllocationOrDefault('lsb'), 'lsb');
+        assert.strictEqual(bitAllocationOrDefault('msb'), 'msb');
+        assert.strictEqual(bitAllocationOrDefault('bogus'), 'msb');
+        assert.strictEqual(bitAllocationOrDefault(undefined), 'msb');
     });
 });
 

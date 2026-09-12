@@ -30,7 +30,7 @@ import { StructPanel } from './components/sidebar/structPanel/structPanel';
 import { clearSearch, initSearch, invalidateSearchIfDiverged, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/searchBar/searchBar';
 import { Toolbar } from './components/toolbar/toolbar';
-import type { LabelDraftPreview, SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
+import type { BitFieldAllocation, LabelDraftPreview, SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
 import type { SidebarTab } from './components/sidebar/sidebar';
 import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
@@ -157,6 +157,10 @@ const structPanel = new StructPanel({
     },
     onClearHighlightHex: cls => {
         paintClearStructHighlight(cls);
+    },
+    onBitAllocationChange: (bitAllocation): void => {
+        S.bitFieldAllocation = bitAllocation;
+        postProviderMessage({ type: 'saveBitAllocation', bitAllocation });
     },
 });
 
@@ -1122,6 +1126,16 @@ function applyEndianChanged(): void {
     writeEndianToConsumers(S.endian);
 }
 
+/** Re-drive every bit-field allocation consumer. */
+function writeBitAllocationToConsumers(bitAllocation: BitFieldAllocation): void {
+    structPanel.setBitFieldAllocation(bitAllocation);
+}
+
+/** External bit-field allocation slice. */
+function applyBitFieldAllocationChanged(): void {
+    writeBitAllocationToConsumers(S.bitFieldAllocation);
+}
+
 function applyInvalidations(invalidations: WebviewInvalidations): void {
     if (invalidations.fullRender) {
         render();
@@ -1142,6 +1156,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
         ['endianChanged', applyEndianChanged],
+        ['bitFieldAllocationChanged', applyBitFieldAllocationChanged],
     ];
     for (const [key, effect] of effects) {
         if (invalidations[key]) { effect(); }

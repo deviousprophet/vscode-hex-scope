@@ -1,0 +1,3 @@
+{"file": "src/hexScopeStorage.ts", "reason": "bitAllocation normalize round-trip"}
+{"file": "src/webview/webviewMessageModel.ts", "reason": "perFileDataChange bitAllocation applied"}
+{"file": "schemas/profiles.schema.json", "reason": "bitAllocation enum added"}

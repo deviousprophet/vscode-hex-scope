@@ -15,8 +15,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
-import type { SegmentLabel, StructPin } from './core/types';
-import { endianOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
+import type { BitFieldAllocation, SegmentLabel, StructPin } from './core/types';
+import { bitAllocationOrDefault, endianOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
 /** Current schema version of every profile file. A future/unknown version is refused on read. */
 export const DATA_VERSION = 1;
@@ -49,6 +49,8 @@ export interface ProfileRecord {
     structPins: StructPin[];
     activeChecks: IntegrityCheckSet;
     endian: HexScopeEndian;
+    /** Global bit-field allocation (LSB-first / MSB-first) for this profile's struct decode. */
+    bitAllocation: BitFieldAllocation;
     segmentNames: SegmentNameOverrides;
     labels: SegmentLabel[];
 }
@@ -77,7 +79,7 @@ export function structPoolJsonUri(root: string): vscode.Uri {
 }
 
 export function emptyProfileRecord(id: string, name: string): ProfileRecord {
-    return { id, name, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', segmentNames: {}, labels: [] };
+    return { id, name, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', segmentNames: {}, labels: [] };
 }
 
 // ── Version envelope ──────────────────────────────────────────────
@@ -342,6 +344,7 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
         structPins: candidateStructPins(candidate),
         activeChecks: checkSetOrDefault(candidate.activeChecks),
         endian: endianOrDefault(candidate.endian),
+        bitAllocation: bitAllocationOrDefault(candidate.bitAllocation),
     };
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
 }
