@@ -685,6 +685,12 @@
     transform: translateY(-50%);
     pointer-events: none;
 }
+.si-arr-grp-hdr.si-bitunit-hdr.si-bitunit-wide::before,
+.si-arr-el-hdr.si-bitunit-hdr.si-bitunit-wide::before {
+    top: auto;
+    bottom: 2px;
+    transform: none;
+}
 
 .si-arr-grp-body::before,
 .si-arr-el-body::before {

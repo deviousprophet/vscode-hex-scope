@@ -1681,6 +1681,7 @@ suite('StructPanel deep-render harness', () => {
 
         const parentValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"]');
         assert.ok(parentValue, 'wide bit-field parent should render full binary by default');
+        assert.ok(parentValue!.closest('.si-bitunit-hdr')?.classList.contains('si-bitunit-wide'), 'u32 bitunit header should carry the wide marker class');
         assert.strictEqual(parentValue!.querySelectorAll('br').length, 1, 'uint32 bit-field parent binary should wrap after 16 bits');
         assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '01111000010101100011010000010010', 'wide bit-field parent binary should follow shared byte order');
 

@@ -2922,12 +2922,13 @@ private firstBitUnitFieldName(rows: DecodedField[]): string {
         const ptrClass = this.bitUnitPointerClass(agg);
         const valHtml = this.bitUnitHeaderDisplayValue(rows, agg, t, start);
         const byteCount = this.bitUnitByteCount(agg, cnt);
+        const wideBitUnit = byteCount > 2 ? ' si-bitunit-wide' : '';
         const abbrev = this.fieldTypeAbbrev(agg, byteCount);
         const fullTypeLabel = this.fieldFullTypeLabel(agg, byteCount);
         const offsetLabel = this.fieldOffsetLabel(agg);
 
         return (
-            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
+`<div class="${headerClass} si-bitunit-hdr si-field${wideBitUnit}" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
             this.bitUnitOffsetHtml(offsetLabel, hideOffset) +
             this.typeCellHtml(abbrev, fullTypeLabel) +
             this.collapsibleIconHtml(buttonClass, isOpen) +
