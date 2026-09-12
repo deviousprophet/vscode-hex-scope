@@ -403,6 +403,27 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         assert.deepStrictEqual(value.map(r => r.id), ['profile_1']);
     });
 
+    test('profiles default bit-field allocation to msb and normalize bad values', () => {
+        assert.strictEqual(emptyProfileRecord('x', 'X').bitAllocation, 'msb', 'empty record defaults to msb');
+        const raw = [
+            { ...emptyProfileRecord('profile_1', 'Boot') },
+            { ...emptyProfileRecord('profile_2', 'App'), bitAllocation: 'lsb' },
+            { ...emptyProfileRecord('profile_3', 'Cfg'), bitAllocation: 'sideways' as never },
+        ];
+        const { value } = normalizeProfilesRegistry(raw);
+        assert.strictEqual(value[0].bitAllocation, 'msb', 'absent bitAllocation normalizes to msb');
+        assert.strictEqual(value[1].bitAllocation, 'lsb');
+        assert.strictEqual(value[2].bitAllocation, 'msb', 'invalid bitAllocation normalizes to msb');
+    });
+
+    test('writeProfileRecord persists bitAllocation and round-trips through the registry', async () => {
+        await writeProfileRecord(testRoot, { ...emptyProfileRecord('profile_1', 'Boot'), bitAllocation: 'lsb' });
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs[0].bitAllocation, 'lsb');
+        const onDisk = await readJsonValue(profilesJsonUri(testRoot));
+        assert.strictEqual((onDisk as { data: Array<{ bitAllocation: string }> }).data[0].bitAllocation, 'lsb');
+    });
+
     test('writeProfileRecord upserts; removeProfileRecord deletes; renameProfileRecord renames', async () => {
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_2', 'App'));

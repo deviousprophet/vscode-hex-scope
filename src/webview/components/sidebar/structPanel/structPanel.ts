@@ -44,6 +44,8 @@ export interface StructCallbacks {
     onHighlightHex?: (addrs: number[], cls: string) => void;
     /** Hex-row highlight: remove class everywhere (moved clearArrSep / struct-h clear). */
     onClearHighlightHex?: (cls: string) => void;
+    /** Global bit-field allocation toggle (MSB/LSB in bit-layout detail) → host persists. */
+    onBitAllocationChange?: (bitAllocation: BitFieldAllocation) => void;
 }
 
 const MAX_INLINE_POINTER_HOPS = 2;
@@ -2054,12 +2056,14 @@ private wireBitLayoutTabs(sec: HTMLElement): void {
         sec.querySelector('#sa-btn-bit-lsb')?.classList.add('active');
         sec.querySelector('#sa-btn-bit-msb')?.classList.remove('active');
         if (this._expanded.size > 0) { this.render(); }
+        this.cb.onBitAllocationChange?.(this._bitFieldAllocation);
     });
     sec.querySelector('#sa-btn-bit-msb')?.addEventListener('click', () => {
         this._bitFieldAllocation = 'msb';
         sec.querySelector('#sa-btn-bit-msb')?.classList.add('active');
         sec.querySelector('#sa-btn-bit-lsb')?.classList.remove('active');
         if (this._expanded.size > 0) { this.render(); }
+        this.cb.onBitAllocationChange?.(this._bitFieldAllocation);
     });
 }
 

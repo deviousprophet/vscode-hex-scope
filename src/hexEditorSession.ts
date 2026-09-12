@@ -694,6 +694,7 @@ export class HexEditorSession {
                 segmentNames: p.segmentNames,
                 pins: p.structPins,
                 endian: p.endian,
+                bitAllocation: p.bitAllocation,
                 activeChecks: p.activeChecks,
             });
         };
@@ -769,6 +770,7 @@ export class HexEditorSession {
                 structs: structDefs,
                 structPins: profileData.structPins,
                 endian: profileData.endian,
+                bitAllocation: profileData.bitAllocation,
                 activeChecks: profileData.activeChecks,
                 profile: { profiles: allProfiles, current: bound, boundFileCount: boundCount },
             };
@@ -960,6 +962,12 @@ export class HexEditorSession {
                 if (msg.endian !== 'le' && msg.endian !== 'be') { return; }
                 await enqueuePerFileOp(async () => {
                     await withBoundProfile(current => ({ ...current, endian: msg.endian }));
+                });
+            },
+            saveBitAllocation: async msg => {
+                if (msg.bitAllocation !== 'lsb' && msg.bitAllocation !== 'msb') { return; }
+                await enqueuePerFileOp(async () => {
+                    await withBoundProfile(current => ({ ...current, bitAllocation: msg.bitAllocation }));
                 });
             },
             selectProfile: async msg => {
@@ -1535,6 +1543,7 @@ async function revertDeclinedStructDeletion(
         segmentNames: rec.segmentNames,
         pins: rec.structPins,
         endian: rec.endian,
+        bitAllocation: rec.bitAllocation,
         activeChecks: rec.activeChecks,
     });
 }

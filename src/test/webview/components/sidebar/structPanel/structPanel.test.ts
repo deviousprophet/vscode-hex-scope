@@ -1039,6 +1039,52 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(restored, ['101', '1 0001'], 'host push should restore MSB-first allocation');
     });
 
+    test('bit-layout allocation toggle reports persistent changes to the host', async () => {
+        const def: StructDef = {
+            id: 'bit_alloc_report',
+            name: 'BitAllocReport',
+            fields: [
+                {
+                    name: 'field0',
+                    type: 'uint8',
+                    count: 1,
+                    bitFields: [
+                        { name: 'a', bitWidth: 3 },
+                        { name: 'b', bitWidth: 5 },
+                    ],
+                },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_bit_alloc_report', structId: 'bit_alloc_report', addr: 0x600, name: 'inst' }];
+        S.bitFieldAllocation = 'msb';
+
+        const { StructPanel } = await import('../../../../../webview/components/sidebar/structPanel/structPanel.js');
+        const reported: string[] = [];
+        const panel = new StructPanel({
+            readByte: getByte,
+            onStateChange: (structs, pins) => { S.structs = structs; S.structPins = pins; },
+            onBitAllocationChange: alloc => { reported.push(alloc); },
+        });
+        panel.setData(S.structs, S.structPins);
+        panel.setEndian(S.endian);
+        panel.setBitFieldAllocation(S.bitFieldAllocation);
+        panel.setTabActive(true);
+        panel.mount(document.getElementById('s-struct-pins')!);
+
+        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        assert.ok(expandCard, 'expand button should render');
+        expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        assert.ok(expandBits, 'bit-field parent should be expandable');
+        expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        document.getElementById('sa-btn-bit-lsb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        document.getElementById('sa-btn-bit-msb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        assert.deepStrictEqual(reported, ['lsb', 'msb'], 'toggle reports each explicit allocation for persistence');
+    });
+
     test('renders scalar values using shared byte order', async () => {
         const fields: StructDef['fields'] = [
             { name: 'u16', type: 'uint16', count: 1 },

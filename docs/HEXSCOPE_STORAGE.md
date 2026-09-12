@@ -3,7 +3,7 @@
 Workspace-rooted `.hexscope/` tree holding struct definitions workspace-wide,
 a single-file profile registry, and a per-file binding table. The whole tree is
 git-tracked — no `.gitignore` seeding, no local/private split. Pins, active
-checks, and endian are shared team state by design. No trust gating applies
+checks, endian, and bit-field allocation are shared team state by design. No trust gating applies
 to `.hexscope/` data.
 
 ## Layout
@@ -11,7 +11,7 @@ to `.hexscope/` data.
 ```text
 .hexscope/
 ├── structs.json          # workspace-wide StructDef[] pool (shared by all files)
-├── profiles.json         # whole profile registry: [{ id, name, structPins, activeChecks, endian, segmentNames, labels }]
+├── profiles.json         # whole profile registry: [{ id, name, structPins, activeChecks, endian, bitAllocation, segmentNames, labels }]
 ├── bindings.json         # [{ fileKey, profileId }] — file's only file-specific artifact
 ├── schemas/              # seeded copies of the JSON Schemas (editor + agent contract)
 └── scripts/              # unchanged (script runner panes)
@@ -69,7 +69,7 @@ table. Genuine external edits are re-read, re-normalized, and re-broadcast to
 the open webview — no confirmation prompts anywhere:
 
 - bound `profiles.json` record → `perFileDataChange`
-  (labels/segmentNames/pins/endian/activeChecks)
+  (labels/segmentNames/pins/endian/bitAllocation/activeChecks)
 - `structs.json` → `structsExternalChange` (webview replaces structs and prunes
   pins whose `structId` vanished)
 - profile registry + bindings → profile dropdown refresh (`profilesState`)

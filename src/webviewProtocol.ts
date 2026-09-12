@@ -1,7 +1,7 @@
 import type { CopyCommand } from './core/byteTools/copyCommand';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet } from './core/integrity';
-import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
+import type { BitFieldAllocation, SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
 
 export const RECORD_PAGE_SIZE = 512;
 
@@ -10,6 +10,11 @@ export type HexScopeEndian = 'le' | 'be';
 /** Single shared endian normalizer (session slot normalizer + webview model). */
 export function endianOrDefault(value: unknown): HexScopeEndian {
     return value === 'be' ? 'be' : 'le';
+}
+
+/** Single shared bit-field allocation normalizer (session slot normalizer + webview model). */
+export function bitAllocationOrDefault(value: unknown): BitFieldAllocation {
+    return value === 'lsb' ? 'lsb' : 'msb';
 }
 
 /** Pinned-segment name overrides, keyed by segment start address (decimal string). */
@@ -31,6 +36,7 @@ export type ProviderToWebviewMessage =
         structs: StructDef[];
         structPins: StructPin[];
         endian: HexScopeEndian;
+        bitAllocation: BitFieldAllocation;
         activeChecks: IntegrityCheckSet;
         /** Current bound profile display state. */
         profile: { profiles: ProfileSummary[]; current: string | null; boundFileCount: number };
@@ -43,7 +49,7 @@ export type ProviderToWebviewMessage =
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
 | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
 | { type: 'structsExternalChange'; structs: StructDef[] }
-| { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; activeChecks: IntegrityCheckSet }
+| { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; bitAllocation: BitFieldAllocation; activeChecks: IntegrityCheckSet }
 | { type: 'profilesState'; profiles: ProfileSummary[]; current: string | null; boundFileCount: number }
 | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
@@ -74,6 +80,7 @@ export type WebviewToProviderMessage =
     | { type: 'saveStructPins'; pins: StructPin[] }
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }
     | { type: 'saveEndian'; endian: HexScopeEndian }
+    | { type: 'saveBitAllocation'; bitAllocation: BitFieldAllocation }
     | { type: 'selectProfile'; profileId: string | null }
     | { type: 'newProfile'; name: string | null }
     | { type: 'saveProfile' }
