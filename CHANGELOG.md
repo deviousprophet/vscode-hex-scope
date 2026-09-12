@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- The struct type editor now switches between an `Edit` form and a `Preview` tab; the C preview flows in the section body with no fixed height or inner scroll, wrapping long lines
+
+### Fixed
+- Pointer fields now decode with the inherited struct endianness instead of the global overlay
+- Editing a struct type preserves its predefined endianness and bit allocation instead of reverting to `Auto`
+- Adding, moving, or deleting fields and bit fields no longer scrolls the type editor back to the top
+- The `New Type` editor fills the sidebar pane when the form is short, and the whole form scrolls with the section body when it grows past the pane height
+
 ## [2.21.1] - 2026-09-08
 
 ### Fixed

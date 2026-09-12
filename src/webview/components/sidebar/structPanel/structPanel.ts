@@ -1084,14 +1084,16 @@ private hydrateStructPreviews(root: HTMLElement): void {
 }
 
 private editorHtml(draft: StructDef, existing: StructDef | null): string {
-    const n = draft.fields.length;
-    const fieldRows = draft.fields.map((f, i) => this.fieldRowHtml(f, i, n === 1, n, draft.id)).join('');
+    const fieldRows = this.fieldRowsHtml(draft);
     const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
     return (
         `<div class="si-editor-wrap">` +
+        this.editorTabsHtml() +
+        `<div class="se-view" data-se-view="edit">` +
         `<div class="se-form">` +
+        `<label class="se-name-lbl" for="se-name">Type name</label>` +
         `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
-               `maxlength="64" placeholder="TypeName" spellcheck="false" autocomplete="off">` +
+               `maxlength="64" placeholder="MyStruct" spellcheck="false" autocomplete="off">` +
         `<div class="se-struct-default-row">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
@@ -1108,10 +1110,37 @@ private editorHtml(draft: StructDef, existing: StructDef | null): string {
         `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
         `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
+        `</div>` +
+        `</div>` +
+        `<div class="se-view" data-se-view="preview" hidden>` +
         `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
+}
+
+/** Edit/Preview tab bar that toggles which editor view is visible (markdown raw/preview style). */
+private editorTabsHtml(): string {
+    return (
+        `<div class="se-tabs compact-tabs" role="tablist" aria-label="Struct editor views">` +
+        `<button type="button" class="se-tab active" role="tab" aria-selected="true" data-se-view="edit">Edit</button>` +
+        `<button type="button" class="se-tab" role="tab" aria-selected="false" data-se-view="preview">Preview</button>` +
+        `</div>`
+    );
+}
+
+private tabNavKey(key: string): boolean {
+    return key === 'ArrowLeft' || key === 'ArrowRight';
+}
+
+private tabActivateKey(key: string): boolean {
+    return key === 'Enter' || key === ' ';
+}
+
+private nextTabIndex(list: HTMLButtonElement[], btn: HTMLButtonElement, key: string): number {
+    const idx = list.indexOf(btn);
+    if (key === 'ArrowRight') { return (idx + 1) % list.length; }
+    return (idx + list.length - 1) % list.length;
 }
 
 private editorInheritedEndian(): string {
@@ -1120,6 +1149,300 @@ private editorInheritedEndian(): string {
 
 private editorInheritedAlloc(): string {
     return (this._editingType?.draft.allocation ?? this._bitFieldAllocation).toUpperCase();
+}
+
+/**
+ * Rows markup for the current draft fields — shared by the full editor render
+ * and the incremental `#se-fields` rebuild (so the two never diverge).
+ */
+private fieldRowsHtml(draft: StructDef): string {
+    return draft.fields.map((f, i) => this.fieldRowHtml(f, i, draft.fields.length === 1, draft.fields.length, draft.id)).join('');
+}
+
+/**
+ * Incremental editor refresh: rebuild only the `#se-fields` row container
+ * instead of the whole editor. The scroll container (.se-form) is never
+ * replaced, so its scrollTop survives — no jump to the top on Add Field /
+ * Add bit / move / delete. Then re-wire row-level controls and refresh the
+ * live C preview.
+ */
+private refreshFieldRows(sec: HTMLElement, draft: StructDef): void {
+    const fields = sec.querySelector<HTMLElement>('#se-fields');
+    if (!fields) { return; }
+    fields.innerHTML = this.fieldRowsHtml(draft);
+    this.wireFieldRows(fields, sec, draft);
+    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    if (pre) { this.renderStructCPreview(pre, draft); }
+}
+
+/** Re-render the live C preview as the user edits the draft. */
+private refreshEditorPreview(sec: HTMLElement, draft: StructDef): void {
+    this.syncEditorDraft(sec, draft);
+    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    if (pre) { this.renderStructCPreview(pre, draft); }
+}
+
+/**
+ * Row-level editor controls (type select, pointer, array, bit toggle, child
+ * rows, move/delete, endian/alloc select). Called on initial mount and again
+ * after every `#se-fields` rebuild so freshly inserted rows stay live.
+ */
+private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef): void {
+    const syncedFieldForButton = (btn: HTMLElement): { row: HTMLElement; idx: number; field: StructField | undefined } => {
+        const row = btn.closest<HTMLElement>('.struct-field-row')!;
+        this.syncEditorDraft(sec, draft);
+        const idx = parseInt(row.dataset.idx!);
+        return { row, idx, field: draft.fields[idx] };
+    };
+
+    type StructFieldWithBits = StructField & { bitFields: NonNullable<StructField['bitFields']> };
+    const syncedBitFieldChild = (btn: HTMLElement): { childRow: HTMLElement; field: StructFieldWithBits; childIdx: number } | null => {
+        const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
+        const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
+        this.syncEditorDraft(sec, draft);
+        const idx = parseInt(parentRow.dataset.idx!);
+        const field = draft.fields[idx];
+        if (!field?.bitFields) { return null; }
+        return { childRow, field: field as StructFieldWithBits, childIdx: parseInt(childRow.dataset.childIdx!) };
+    };
+
+    fieldsEl.querySelectorAll<HTMLElement>('.sfe-del-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            this.syncEditorDraft(sec, draft);
+            this._editorError = null;
+            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            const idx = parseInt(row.dataset.idx!);
+            draft.fields.splice(idx, 1);
+            this.refreshFieldRows(sec, draft);
+            this.scrollEditorRowIntoView(sec, Math.max(0, idx - 1));
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLElement>('.sfe-move-up').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const { idx } = syncedFieldForButton(btn);
+            this._editorError = null;
+            if (idx > 0) {
+                [draft.fields[idx - 1], draft.fields[idx]] = [draft.fields[idx], draft.fields[idx - 1]];
+                this.refreshFieldRows(sec, draft);
+                this.scrollEditorRowIntoView(sec, idx - 1);
+            }
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLElement>('.sfe-move-dn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const { idx } = syncedFieldForButton(btn);
+            this._editorError = null;
+            if (idx < draft.fields.length - 1) {
+                [draft.fields[idx], draft.fields[idx + 1]] = [draft.fields[idx + 1], draft.fields[idx]];
+                this.refreshFieldRows(sec, draft);
+                this.scrollEditorRowIntoView(sec, idx + 1);
+            }
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLElement>('.sfe-arr-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cell = btn.closest<HTMLElement>('.sfe-arr-cell')!;
+            const nowArr = !cell.classList.contains('is-array');
+            cell.classList.toggle('is-array', nowArr);
+            btn.classList.toggle('active', nowArr);
+            btn.title = nowArr ? 'Remove array' : 'Make array';
+            btn.setAttribute('aria-label', btn.title);
+            if (nowArr) {
+                const inp = cell.querySelector<HTMLInputElement>('.sfe-count-inp')!;
+                if (!inp.value) { inp.value = '2'; }
+                inp.focus(); inp.select();
+            }
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLElement>('.struct-field-row').forEach(row => {
+        row.tabIndex = 0;
+        row.addEventListener('contextmenu', ev => {
+            this.showEditorFieldPointerMenu(sec, draft, row, ev);
+        });
+        row.addEventListener('keydown', ev => {
+            if (this.fieldMenuKey(ev, row)) {
+                ev.preventDefault();
+                this.showEditorFieldPointerMenu(sec, draft, row, ev);
+            }
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLElement>('.sfe-ptr-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            if (!row) { return; }
+            const want = !(row.dataset.ptr === '1');
+            this.toggleFieldPointer(sec, draft, row, want);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-count-inp').forEach(inp => {
+        inp.addEventListener('input', () => {
+            inp.value = inp.value.replace(/\D/g, '').slice(0, 3);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLElement>('.sfe-bit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const { row, field: f } = syncedFieldForButton(btn);
+            if (!f) { return; }
+            const isOn = btn.classList.contains('sfe-bit-btn-on');
+            if (isOn) {
+                btn.classList.remove('sfe-bit-btn-on');
+                delete f.bitFields;
+                delete f.bitFieldsCollapsed;
+                const children = row.querySelector<HTMLElement>('.sfe-bf-children');
+                if (children) { children.remove(); }
+                row.classList.remove('has-bit-children');
+            } else {
+                btn.classList.add('sfe-bit-btn-on');
+                row.classList.add('has-bit-children');
+                f.bitFields = [{ name: 'bit0', bitWidth: 1 }];
+                f.bitFieldsCollapsed = undefined;
+            }
+            this.renderBitFieldTogglePreview(sec, draft);
+            this.refreshFieldRows(sec, draft);
+            this.scrollEditorRowIntoView(sec, parseInt(row.dataset.idx!));
+        });
+    });
+
+    this.wireClicks(fieldsEl, '.sfe-bf-add-child', btn => {
+        const parentIdx = this.parentFieldIndex(btn);
+        const { field: f } = syncedFieldForButton(btn);
+        if (!f) { return; }
+        if (!f.bitFields) { f.bitFields = []; }
+        const nextIdx = f.bitFields.length;
+        f.bitFields.push({ name: `bit${nextIdx}`, bitWidth: 1 });
+        this.refreshFieldRows(sec, draft);
+        this.scrollBitChildIntoView(sec, parentIdx, nextIdx);
+    });
+
+    this.wireClicks(fieldsEl, '.sfe-bf-del-child', btn => {
+        const parentIdx = this.parentFieldIndex(btn);
+        const child = syncedBitFieldChild(btn);
+        if (!child) { return; }
+        const { field: f, childIdx: ci } = child;
+        f.bitFields.splice(ci, 1);
+        if (f.bitFields.length === 0) {
+            f.bitFields.push({ name: 'bit0', bitWidth: 1 });
+        }
+        this.refreshFieldRows(sec, draft);
+        this.scrollBitChildIntoView(sec, parentIdx, Math.max(0, ci - 1));
+    });
+
+    this.wireClicks(fieldsEl, '.sfe-bf-child-row .sfe-move-up', btn => {
+        const parentIdx = this.parentFieldIndex(btn);
+        const child = syncedBitFieldChild(btn);
+        if (!child) { return; }
+        const { field: f, childIdx: ci } = child;
+        if (ci > 0) {
+            [f.bitFields[ci - 1], f.bitFields[ci]] = [f.bitFields[ci], f.bitFields[ci - 1]];
+            this.refreshFieldRows(sec, draft);
+            this.scrollBitChildIntoView(sec, parentIdx, ci - 1);
+        }
+    });
+
+    this.wireClicks(fieldsEl, '.sfe-bf-child-row .sfe-move-dn', btn => {
+        const parentIdx = this.parentFieldIndex(btn);
+        const child = syncedBitFieldChild(btn);
+        if (!child) { return; }
+        const { field: f, childIdx: ci } = child;
+        if (ci < f.bitFields.length - 1) {
+            [f.bitFields[ci], f.bitFields[ci + 1]] = [f.bitFields[ci + 1], f.bitFields[ci]];
+            this.refreshFieldRows(sec, draft);
+            this.scrollBitChildIntoView(sec, parentIdx, ci + 1);
+        }
+    });
+
+    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-name-inp').forEach(inp => {
+        inp.addEventListener('input', () => { this.refreshEditorPreview(sec, draft); });
+        inp.addEventListener('blur', () => {
+            const clean = this.sanitizeCIdent(inp.value);
+            if (clean !== inp.value) { inp.value = clean || 'field'; }
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
+        sel.addEventListener('change', () => {
+            this.handleFieldTypeChange(sec, draft, sel);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel, .sfe-alloc-sel').forEach(sel => {
+        sel.addEventListener('change', () => {
+            this.syncEditorDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name, .sfe-bf-child-width').forEach(inp => {
+        inp.addEventListener('input', () => {
+            this.syncEditorDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+}
+
+/**
+ * Refresh the "Auto — inherits <X>" titles (select + its Auto option) on all
+ * endian/alloc override selects after the struct default changed — in place,
+ * no editor rebuild (mirrors the tooltip text fieldRowHtml/editorHtml render
+ * on mount).
+ */
+private updateEditorOverrideTitles(sec: HTMLElement): void {
+    const endianInherit = this.editorInheritedEndian();
+    const allocInherit = this.editorInheritedAlloc();
+    sec.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel').forEach(sel =>
+        this.setOverrideSelectTitles(sel, 'endian', endianInherit));
+    sec.querySelectorAll<HTMLSelectElement>('.sfe-alloc-sel').forEach(sel =>
+        this.setOverrideSelectTitles(sel, 'allocation', allocInherit));
+    const structEndian = sec.querySelector<HTMLSelectElement>('#se-endian');
+    if (structEndian) { this.setOverrideSelectTitles(structEndian, 'endian', this._endian.toUpperCase()); }
+    const structAlloc = sec.querySelector<HTMLSelectElement>('#se-alloc');
+    if (structAlloc) { this.setOverrideSelectTitles(structAlloc, 'allocation', this._bitFieldAllocation.toUpperCase()); }
+}
+
+private overrideSelectValue(sel: HTMLSelectElement, kind: 'endian' | 'allocation'): 'le' | 'be' | 'lsb' | 'msb' | undefined {
+    return kind === 'endian' ? this.readEndianOverride(sel.value) : this.readAllocationOverride(sel.value);
+}
+
+private setOverrideSelectTitles(sel: HTMLSelectElement, kind: 'endian' | 'allocation', inherited: string): void {
+    const autoTitle = this.overrideAutoTitle(this.overrideSelectValue(sel, kind), inherited);
+    const fallbackTitle = this.overrideHelpTitle(kind);
+    sel.title = autoTitle ?? fallbackTitle;
+    const opt = sel.options[0];
+    if (opt) { opt.title = autoTitle ?? ''; }
+}
+
+/** Row index of the struct field that owns the clicked control. */
+private parentFieldIndex(btn: HTMLElement): number {
+    return parseInt(btn.closest<HTMLElement>('.struct-field-row')!.dataset.idx!);
+}
+
+/** Attach a click handler to every element matching `selector` under `root`. */
+private wireClicks(root: HTMLElement, selector: string, handler: (btn: HTMLElement) => void): void {
+    root.querySelectorAll<HTMLElement>(selector).forEach(btn => btn.addEventListener('click', () => handler(btn)));
+}
+
+/** Scroll a field row at `idx` into (near) viewport — used after row-set rebuilds. */
+private scrollEditorRowIntoView(sec: HTMLElement, idx: number): void {
+    const row = sec.querySelectorAll<HTMLElement>('.struct-field-row')[idx];
+    if (row && typeof row.scrollIntoView === 'function') { row.scrollIntoView({ block: 'nearest' }); }
+}
+
+/** Scroll a bit-field child at `childIdx` of the field row `parentIdx` into (near) viewport. */
+private scrollBitChildIntoView(sec: HTMLElement, parentIdx: number, childIdx: number): void {
+    const parentRow = sec.querySelector<HTMLElement>(`.struct-field-row[data-idx="${parentIdx}"]`);
+    const child = parentRow?.querySelector<HTMLElement>(`.sfe-bf-child-row[data-child-idx="${childIdx}"]`);
+    if (child && typeof child.scrollIntoView === 'function') { child.scrollIntoView({ block: 'nearest' }); }
 }
 
 private syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
@@ -1231,262 +1554,88 @@ private wireEditorInSec(sec: HTMLElement): void {
     if (!this._editingType) { return; }
     const { draft } = this._editingType;
 
-    sec.querySelector('#se-packed')!.addEventListener('click', () => {
-        const btn = sec.querySelector('#se-packed')!;
-        const nowPacked = !btn.classList.contains('active');
-        btn.classList.toggle('active', nowPacked);
+    const packedBtn = sec.querySelector<HTMLButtonElement>('#se-packed')!;
+    packedBtn.addEventListener('click', () => {
+        const nowPacked = !packedBtn.classList.contains('active');
+        packedBtn.classList.toggle('active', nowPacked);
         draft.packed = nowPacked;
-        refreshEditorPreview(sec, draft);
+        this.refreshEditorPreview(sec, draft);
     });
 
-    const refreshEditorPreview = (s: HTMLElement, d: StructDef): void => {
-        this.syncEditorDraft(s, d);
-        const pre = s.querySelector<HTMLElement>('#se-preview pre');
-        if (pre) { this.renderStructCPreview(pre, d); }
-    };
+    // Row-level controls are wired by wireFieldRows (also re-run after each
+    // incremental #se-fields rebuild). The struct-level controls below are
+    // mounted once and kept across those rebuilds.
+    this.wireFieldRows(sec.querySelector<HTMLElement>('#se-fields')!, sec, draft);
 
-    const syncedFieldForButton = (btn: HTMLElement): { row: HTMLElement; idx: number; field: StructField | undefined } => {
-        const row = btn.closest<HTMLElement>('.struct-field-row')!;
-        this.syncEditorDraft(sec, draft);
-        const idx = parseInt(row.dataset.idx!);
-        return { row, idx, field: draft.fields[idx] };
+    // Edit/Preview tab switch: attribute-only toggling (no re-render), so the
+    // draft and the section-body scroll keep their state when switching views.
+    const tabButtons = sec.querySelectorAll<HTMLButtonElement>('.se-tab');
+    const setEditorView = (view: string): void => {
+        tabButtons.forEach(btn => {
+            const on = btn.dataset.seView === view;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-selected', String(on));
+        });
+        sec.querySelectorAll<HTMLElement>('.se-view').forEach(pane => {
+            pane.hidden = pane.dataset.seView !== view;
+        });
     };
-
-    type StructFieldWithBits = StructField & { bitFields: NonNullable<StructField['bitFields']> };
-    const syncedBitFieldChild = (btn: HTMLElement): { childRow: HTMLElement; field: StructFieldWithBits; childIdx: number } | null => {
-        const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
-        const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
-        this.syncEditorDraft(sec, draft);
-        const idx = parseInt(parentRow.dataset.idx!);
-        const field = draft.fields[idx];
-        if (!field?.bitFields) { return null; }
-        return { childRow, field: field as StructFieldWithBits, childIdx: parseInt(childRow.dataset.childIdx!) };
-    };
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => { setEditorView(btn.dataset.seView!); });
+        btn.addEventListener('keydown', ev => {
+            if (this.tabNavKey(ev.key)) {
+                ev.preventDefault();
+                const list = Array.from(tabButtons);
+                const next = list[this.nextTabIndex(list, btn, ev.key)]!;
+                next.focus();
+                setEditorView(next.dataset.seView!);
+            } else if (this.tabActivateKey(ev.key)) {
+                ev.preventDefault();
+                setEditorView(btn.dataset.seView!);
+            }
+        });
+    });
 
     sec.querySelector('#se-add')!.addEventListener('click', () => {
         this.syncEditorDraft(sec, draft);
         this._editorError = null;
-        draft.fields.push({ name: `field${draft.fields.length}`, type: 'uint8', count: 1 });
-        this.render();
+        const lastIdx = draft.fields.length;
+        draft.fields.push({ name: `field${lastIdx}`, type: 'uint8', count: 1 });
+        this.refreshFieldRows(sec, draft);
+        this.scrollEditorRowIntoView(sec, lastIdx);
+        sec.querySelectorAll<HTMLInputElement>('.struct-field-row .sfe-name-inp')[lastIdx]?.focus();
     });
 
-    sec.querySelectorAll<HTMLElement>('.sfe-del-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            this.syncEditorDraft(sec, draft);
-            this._editorError = null;
-            const row = btn.closest<HTMLElement>('.struct-field-row')!;
-            draft.fields.splice(parseInt(row.dataset.idx!), 1);
-            this.render();
-        });
-    });
-
-    sec.querySelectorAll<HTMLElement>('.sfe-move-up').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const { idx } = syncedFieldForButton(btn);
-            this._editorError = null;
-            if (idx > 0) {
-                [draft.fields[idx - 1], draft.fields[idx]] = [draft.fields[idx], draft.fields[idx - 1]];
-                this.render();
-            }
-        });
-    });
-
-    sec.querySelectorAll<HTMLElement>('.sfe-move-dn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const { idx } = syncedFieldForButton(btn);
-            this._editorError = null;
-            if (idx < draft.fields.length - 1) {
-                [draft.fields[idx], draft.fields[idx + 1]] = [draft.fields[idx + 1], draft.fields[idx]];
-                this.render();
-            }
-        });
-    });
-
-    sec.querySelectorAll<HTMLElement>('.sfe-arr-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const cell = btn.closest<HTMLElement>('.sfe-arr-cell')!;
-            const nowArr = !cell.classList.contains('is-array');
-            cell.classList.toggle('is-array', nowArr);
-            btn.classList.toggle('active', nowArr);
-            btn.title = nowArr ? 'Remove array' : 'Make array';
-            btn.setAttribute('aria-label', btn.title);
-            if (nowArr) {
-                const inp = cell.querySelector<HTMLInputElement>('.sfe-count-inp')!;
-                if (!inp.value) { inp.value = '2'; }
-                inp.focus(); inp.select();
-            }
-            refreshEditorPreview(sec, draft);
-        });
-    });
-
-    // ── Per-field pointer context menu (secondary path alongside the * row button) ──
-    sec.querySelectorAll<HTMLElement>('.struct-field-row').forEach(row => {
-        row.tabIndex = 0;
-        row.addEventListener('contextmenu', ev => {
-            this.showEditorFieldPointerMenu(sec, draft, row, ev);
-        });
-        row.addEventListener('keydown', ev => {
-            if (this.fieldMenuKey(ev, row)) {
-                ev.preventDefault();
-                this.showEditorFieldPointerMenu(sec, draft, row, ev);
-            }
-        });
-    });
-
-    // ── Per-field pointer toggle button (*) ─────────────────────
-    sec.querySelectorAll<HTMLElement>('.sfe-ptr-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const row = btn.closest<HTMLElement>('.struct-field-row')!;
-            if (!row) { return; }
-            const want = !(row.dataset.ptr === '1');
-            this.toggleFieldPointer(sec, draft, row, want);
-        });
-    });
-
-    sec.querySelectorAll<HTMLInputElement>('.sfe-count-inp').forEach(inp => {
-        inp.addEventListener('input', () => {
-            inp.value = inp.value.replace(/\D/g, '').slice(0, 3);
-            refreshEditorPreview(sec, draft);
-        });
-    });
-
-    // ── Bit-field :N toggle button ─────────────────────────────────
-    sec.querySelectorAll<HTMLElement>('.sfe-bit-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const { row, field: f } = syncedFieldForButton(btn);
-            if (!f) { return; }
-            const isOn = btn.classList.contains('sfe-bit-btn-on');
-            if (isOn) {
-                // Toggle OFF: remove bitFields
-                btn.classList.remove('sfe-bit-btn-on');
-                delete f.bitFields;
-                delete f.bitFieldsCollapsed;
-                const children = row.querySelector<HTMLElement>('.sfe-bf-children');
-                if (children) { children.remove(); }
-                row.classList.remove('has-bit-children');
-            } else {
-                // Toggle ON: create default first child with 1 bit width
-                btn.classList.add('sfe-bit-btn-on');
-                row.classList.add('has-bit-children');
-                f.bitFields = [{ name: 'bit0', bitWidth: 1 }];
-                f.bitFieldsCollapsed = undefined;
-            }
-            // Update preview without re-syncing (refreshEditorPreview would overwrite our changes)
-            this.renderBitFieldTogglePreview(sec, draft);
-            this.render();  // Re-render to show/hide child rows
-        });
-    });
-
-    // ── Bit-field child: add ────────────────────────────────────
-    sec.querySelectorAll<HTMLElement>('.sfe-bf-add-child').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const { field: f } = syncedFieldForButton(btn);
-            if (!f) { return; }
-            if (!f.bitFields) { f.bitFields = []; }
-            const nextIdx = f.bitFields.length;
-            f.bitFields.push({ name: `bit${nextIdx}`, bitWidth: 1 });
-            this.render();
-        });
-    });
-
-    // ── Bit-field child: delete ─────────────────────────────────
-    sec.querySelectorAll<HTMLElement>('.sfe-bf-del-child').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const child = syncedBitFieldChild(btn);
-            if (!child) { return; }
-            const { field: f, childIdx: ci } = child;
-            f.bitFields.splice(ci, 1);
-            if (f.bitFields.length === 0) {
-                // Empty containers auto-recover with a 1-bit child.
-                f.bitFields.push({ name: 'bit0', bitWidth: 1 });
-            }
-            this.render();
-        });
-    });
-
-    // ── Bit-field child: reorder up ─────────────────────────────
-    sec.querySelectorAll<HTMLElement>('.sfe-bf-child-row .sfe-move-up').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const child = syncedBitFieldChild(btn);
-            if (!child) { return; }
-            const { field: f, childIdx: ci } = child;
-            if (ci > 0) {
-                [f.bitFields[ci - 1], f.bitFields[ci]] = [f.bitFields[ci], f.bitFields[ci - 1]];
-                this.render();
-            }
-        });
-    });
-
-    // ── Bit-field child: reorder down ───────────────────────────
-    sec.querySelectorAll<HTMLElement>('.sfe-bf-child-row .sfe-move-dn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const child = syncedBitFieldChild(btn);
-            if (!child) { return; }
-            const { field: f, childIdx: ci } = child;
-            if (ci < f.bitFields.length - 1) {
-                [f.bitFields[ci], f.bitFields[ci + 1]] = [f.bitFields[ci + 1], f.bitFields[ci]];
-                this.render();
-            }
-        });
-    });
-
-    sec.querySelectorAll<HTMLInputElement>('.sfe-name-inp').forEach(inp => {
-        inp.addEventListener('input', () => { refreshEditorPreview(sec, draft); });
-        inp.addEventListener('blur', () => {
-            const clean = this.sanitizeCIdent(inp.value);
-            if (clean !== inp.value) { inp.value = clean || 'field'; }
-            refreshEditorPreview(sec, draft);
-        });
-    });
-
-    sec.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
-        sel.addEventListener('change', () => {
-            this.handleFieldTypeChange(sec, draft, sel);
-            refreshEditorPreview(sec, draft);
-        });
-    });
-
-    // ── Endian / allocation override selects (field + struct level) ──
-    // Struct-level changes re-render so per-field "Auto" tooltips
-    // reflect the new effective source; field-level just refresh the preview.
+    // Struct-level endian/alloc change: sync the draft, refresh per-field "Auto"
+    // tooltips in place (no rebuild — the pane keeps its height/scroll), and
+    // re-render the preview.
     sec.querySelectorAll<HTMLSelectElement>('#se-endian, #se-alloc').forEach(sel => {
         sel.addEventListener('change', () => {
             this.syncEditorDraft(sec, draft);
-            this.render();
-        });
-    });
-    sec.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel, .sfe-alloc-sel').forEach(sel => {
-        sel.addEventListener('change', () => {
-            refreshEditorPreview(sec, draft);
-        });
-    });
-
-    // ── Bit-field child name/width input live refresh ───────────
-    sec.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name, .sfe-bf-child-width').forEach(inp => {
-        inp.addEventListener('input', () => {
-            refreshEditorPreview(sec, draft);
+            this.updateEditorOverrideTitles(sec);
+            this.refreshEditorPreview(sec, draft);
         });
     });
 
     sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
-        refreshEditorPreview(sec, draft);
+        this.refreshEditorPreview(sec, draft);
     });
     sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('blur', e => {
         const inp = e.target as HTMLInputElement;
         const clean = this.sanitizeCIdent(inp.value);
         if (clean !== inp.value) { inp.value = clean; }
-        refreshEditorPreview(sec, draft);
+        this.refreshEditorPreview(sec, draft);
     });
 
     sec.querySelector('#se-save')!.addEventListener('click', () => {
         this.saveEditorDraft(sec, draft);
     });
 
-        sec.querySelector('#se-cancel')!.addEventListener('click', () => {
-            this._editorError = null;
-            this._editingType = null;
-            this.render();
-        });
+    sec.querySelector('#se-cancel')!.addEventListener('click', () => {
+        this._editorError = null;
+        this._editingType = null;
+        this.render();
+    });
 }
 
 private saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
@@ -1600,7 +1749,9 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
         this._editorError = null;
         this.setFieldPointerFlag(field, row, want);
         if (want) { this.clearPointerBitChildren(sec, draft, row); }
-        this.render();
+        this.refreshFieldRows(sec, draft);
+        const idx = parseInt(row.dataset.idx!);
+        this.scrollEditorRowIntoView(sec, idx);
     }
 
     private fieldPointerMenuItems(row: HTMLElement, field: StructField): string {
@@ -1826,7 +1977,11 @@ private wireStructPinsPanel(sec: HTMLElement): void {
             const existing = this._structs.find(d => d.id === btn.dataset.structId) ?? null;
             if (!existing) { return; }
             this._editingType = {
-                draft: { id: existing.id, name: existing.name, packed: existing.packed ?? false, fields: existing.fields.map(f => ({ ...f })) },
+                draft: {
+                    id: existing.id, name: existing.name, packed: existing.packed ?? false,
+                    endian: existing.endian, allocation: existing.allocation,
+                    fields: existing.fields.map(f => ({ ...f })),
+                },
                 existing,
                 fromManage: true,
             };

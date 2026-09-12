@@ -569,17 +569,31 @@ suite('decodeStruct()', () => {
         assert.strictEqual(rows[2].endian, 'le');      // field endian beats containing struct
     });
 
-    test('pointer fields always decode with the global overlay endian', () => {
+    test('pointer fields inherit resolved endian (field beats struct beats global)', () => {
+        // Struct default BE, pointer field Auto: pointer must decode big-endian,
+        // inheriting the struct's endian rather than the global overlay.
         const def: StructDef = {
             id: 'x', name: 'Ptr', packed: true, endian: 'be',
             fields: [
-                { name: 'p', type: 'void', isPointer: true, count: 1, endian: 'be' },
+                { name: 'p', type: 'void', isPointer: true, count: 1 },
             ],
         };
         setBytesInSegment(0, [0x78, 0x56, 0x34, 0x12]);
         const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
-        assert.strictEqual(rows[0].decoded, '0x12345678');
-        assert.strictEqual(rows[0].endian, 'le');      // resolved = global, no override badge
+        assert.strictEqual(rows[0].decoded, '0x78563412');
+        assert.strictEqual(rows[0].endian, 'be');      // inherited from struct default
+
+        // Explicit per-field endian still beats the struct default.
+        const explicit: StructDef = {
+            id: 'y', name: 'PtrExplicit', packed: true, endian: 'be',
+            fields: [
+                { name: 'p', type: 'void', isPointer: true, count: 1, endian: 'le' },
+            ],
+        };
+        setBytesInSegment(0, [0x12, 0x34, 0x56, 0x78]);
+        const explicitRows = decodeStruct(explicit, 0, getByte, 'le', 'msb');
+        assert.strictEqual(explicitRows[0].decoded, '0x78563412');
+        assert.strictEqual(explicitRows[0].endian, 'le');
     });
 
     test('bit-field unit read uses effective endian; child packing uses effective allocation', () => {

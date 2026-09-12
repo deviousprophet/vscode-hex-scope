@@ -13,8 +13,9 @@
 /* Spacing now comes from the primitives (sidebar.css): .sb-btn 2px 8px,
    .sb-btn-add 5px 8px. Only non-spacing adaptations stay here. */
 .sa-row .sb-select { flex: 1; min-width: 0; }
-.se-form > .sb-btn-add { width: 100%; }
-.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px 4px; }
+/* Add Field: compact, centered in the form, not full-width. */
+.se-form > .sb-btn-add { align-self: center; width: auto; padding: 3px 12px; }
+.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px auto; align-self: center; }
 #si-add-btn { flex-shrink: 0; }
 #sm-close-btn { flex-shrink: 0; }
 
@@ -42,11 +43,45 @@
 
 /* -- Struct form editor (#s-struct when editing) ----------------- */
 
-.se-form { display: flex; flex-direction: column; gap: 5px; }
+/* The section body (.sb-pane .sb-body) stays the only scroll container for
+   the editor, like every other sidebar section: the whole form (name, struct
+   default, field rows, Add Field, Save/Cancel, C preview) flows in it and
+   scrolls together. The editor wrapper only stretches a SHORT form to fill the
+   pane (min-height:100%, fail-safe: if it cannot resolve, the layout degrades
+   to natural top-aligned content and the body still scrolls). Nothing inside
+   takes over scrolling. */
+.si-editor-wrap {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.se-form {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; gap: 5px;
+}
+
+/* Edit/Preview views: only one visible at a time; the section body remains the
+   sole scroll container (no inner scroll in either view). */
+.se-view { min-height: 0; }
+.se-view[data-se-view="edit"] {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.se-view[hidden] { display: none; }
+
+/* Edit/Preview tabs: inline shrink-to-fit toggle, not a full-width segmented bar. */
+.se-tabs { align-self: flex-start; }
+.se-tabs .se-tab { flex: 0 0 auto; }
 
 .se-name-inp {
     width: 100%;
     font-family: var(--font-ui); font-weight: 600;
+}
+
+.se-name-lbl {
+    font-size: 10px; font-weight: 600;
+    color: var(--addr-fg); font-family: var(--font-ui);
 }
 
 /* Struct-default row: grid-aligned so Endian/Alloc share the field grid columns */
@@ -406,13 +441,18 @@
     border-color: #569cd6; background: rgba(86,156,214,.12);
 }
 
-/* Live C preview inside the struct editor */
+/* Live C preview inside the struct editor. No fixed height and no inner
+   scroll: the preview flows in the section body and scrolls with it; long
+   lines wrap to the pane width. */
 .se-preview {
     border: 1px solid var(--border); border-radius: 3px;
     background: rgba(0,0,0,.18); overflow: hidden;
     margin-top: 2px;
 }
-.se-preview .si-c-preview { max-height: 160px; overflow-y: auto; }
+.se-preview .si-c-preview {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
 
 /* Expanded field rows */
 .si-fields {
