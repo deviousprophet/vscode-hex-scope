@@ -42,30 +42,21 @@
 
 /* -- Struct form editor (#s-struct when editing) ----------------- */
 
-/* Editor fills the section pane: the type-editor body becomes a flex column
-   (only while an editor is mounted, via :has) so the form stretches edge-to
-   -edge and there is no blank scroll space under a short "New Type" form.
-   independent of pane height. */
-.sb-pane .sb-body:has(> .si-editor-wrap) {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
+/* The section body (.sb-pane .sb-body) stays the only scroll container for
+   the editor, like every other sidebar section: the whole form (name, struct
+   default, field rows, Add Field, Save/Cancel, C preview) flows in it and
+   scrolls together. The editor wrapper only stretches a SHORT form to fill the
+   pane (min-height:100%, fail-safe: if it cannot resolve, the layout degrades
+   to natural top-aligned content and the body still scrolls). Nothing inside
+   takes over scrolling. */
 .si-editor-wrap {
-    flex: 1;
-    min-height: 0;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
 }
-
-/* The whole form (name, struct default, field rows, Add Field, Save/Cancel,
-   C preview) scrolls together as one unit inside the pane. Because it is the
-   flex-fill scroller, long structs scroll internally instead of the section
-   body wrapping a blank void. */
 .se-form {
     flex: 1; min-height: 0;
     display: flex; flex-direction: column; gap: 5px;
-    overflow-y: auto; overflow-x: hidden;
 }
 
 .se-name-inp {
