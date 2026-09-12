@@ -2927,7 +2927,7 @@ private firstBitUnitFieldName(rows: DecodedField[]): string {
         const offsetLabel = this.fieldOffsetLabel(agg);
 
         return (
-`<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
+            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
             this.bitUnitOffsetHtml(offsetLabel, hideOffset) +
             this.typeCellHtml(abbrev, fullTypeLabel) +
             this.collapsibleIconHtml(buttonClass, isOpen) +
