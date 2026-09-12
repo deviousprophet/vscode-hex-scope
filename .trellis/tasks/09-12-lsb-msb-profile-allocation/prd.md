@@ -31,23 +31,23 @@ absent the key → default `'msb'`).
 
 ## Acceptance Criteria
 
-- [ ] `ProfileRecord` in `src/hexScopeStorage.ts` gains `bitAllocation: BitFieldAllocation`;
+- [x] `ProfileRecord` in `src/hexScopeStorage.ts` gains `bitAllocation: BitFieldAllocation`;
       `emptyProfileRecord` defaults it to `'msb'`; `normalizeProfileRecord` normalizes it
       (`bitAllocationOrDefault`).
-- [ ] `bitAllocationOrDefault` added next to `endianOrDefault` in `src/webviewProtocol.ts`.
-- [ ] `init` and `perFileDataChange` provider messages carry `bitAllocation`;
+- [x] `bitAllocationOrDefault` added next to `endianOrDefault` in `src/webviewProtocol.ts`.
+- [x] `init` and `perFileDataChange` provider messages carry `bitAllocation`;
       `WebviewToProviderMessage` gains `{ type: 'saveBitAllocation'; bitAllocation }`.
-- [ ] Host `postInit` and `broadcastPerFileData` in `src/hexEditorSession.ts` include
+- [x] Host `postInit` and `broadcastPerFileData` in `src/hexEditorSession.ts` include
       `bitAllocation` from the bound profile record; `saveBitAllocation` persists into the
       bound profile exactly like `saveEndian`.
-- [ ] Webview model (`applyInitialState`, `applyPerFileDataChangeMessage`) sets
+- [x] Webview model (`applyInitialState`, `applyPerFileDataChangeMessage`) sets
       `S.bitFieldAllocation`; new invalidation `bitFieldAllocationChanged` re-drives
       `structPanel.setBitFieldAllocation`.
-- [ ] Struct panel MSB/LSB toggle reports changes to host via a new callback
+- [x] Struct panel MSB/LSB toggle reports changes to host via a new callback
       (`onBitAllocationChange`); hexViewer sets `S.bitFieldAllocation` and posts
       `saveBitAllocation`. Host push still wins on re-render (setBitFieldAllocation parity).
-- [ ] `profiles.schema.json`: `bitAllocation` enum `["lsb","msb"]` added to
+- [x] `profiles.schema.json`: `bitAllocation` enum `["lsb","msb"]` added to
       `profileRecord` properties and `required`.
-- [ ] Existing tests green; schema-validation test covers `bitAllocation` acceptance +
+- [x] Existing tests green; schema-validation test covers `bitAllocation` acceptance +
       rejection on profiles; a storage test covers default + round-trip persistence.
-- [ ] `npm run build` / `npm test` pass.
+- [x] `npm run build` / `npm test` pass.
