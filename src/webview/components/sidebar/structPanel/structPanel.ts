@@ -787,6 +787,17 @@ private bitChildButtonState(remainingBits: number): { addBtnDisabled: string; ad
     };
 }
 
+/** Update the "+ Add bit" button of a bit-field parent row in place after a child-width edit. */
+private refreshBitChildAddButton(draft: StructDef, row: HTMLElement | null): void {
+    const btn = row?.querySelector<HTMLButtonElement>('.sfe-bf-add-child');
+    if (!btn) { return; }
+    const field = draft.fields[parseInt(row!.dataset.idx!)];
+    if (!field) { return; }
+    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitsInContainer(field));
+    btn.disabled = addBtnDisabled !== '';
+    btn.title = addBtnTitle;
+}
+
 private deleteFieldCellHtml(isOnly: boolean): string {
     return isOnly
         ? `<span class="sfe-del-placeholder"></span>`
@@ -812,7 +823,7 @@ private activeClassAttr(isActive: boolean): string {
             `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
             `<button class="sfe-arr-toggle${this.activeClassAttr(isArr)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>` +
             `<input class="sfe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
-                   `value="${isArr ? f.count : ''}" placeholder="N" maxlength="3">` +
+                   `value="${isArr ? f.count : ''}" placeholder="N">` +
             `</div>`
         );
     }
@@ -1283,7 +1294,7 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
 
     fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-count-inp').forEach(inp => {
         inp.addEventListener('input', () => {
-            inp.value = inp.value.replace(/\D/g, '').slice(0, 3);
+            inp.value = inp.value.replace(/\D/g, '');
             this.refreshEditorPreview(sec, draft);
         });
     });
@@ -1383,10 +1394,20 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name, .sfe-bf-child-width').forEach(inp => {
+    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name').forEach(inp => {
+        inp.addEventListener('input', () => {
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width').forEach(inp => {
         inp.addEventListener('input', () => {
             this.syncEditorDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
+            this.refreshBitChildAddButton(
+                draft,
+                inp.closest<HTMLElement>('.struct-field-row'),
+            );
         });
     });
 }
@@ -1541,7 +1562,7 @@ private readEditorArrayCount(row: HTMLElement): number {
     const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
     if (!cell.classList.contains('is-array')) { return 1; }
     const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
-    return isNaN(v) || v < 1 ? 1 : Math.min(v, 256);
+    return isNaN(v) || v < 1 ? 1 : v;
 }
 
 private applyEditorBitFields(result: StructField, bitFields: BitFieldChild[] | undefined, childrenContainer: HTMLElement | null): void {

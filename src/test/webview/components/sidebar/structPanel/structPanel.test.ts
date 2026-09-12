@@ -2680,6 +2680,75 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(S.structs.length, 0, 'invalid struct must not be saved');
     });
 
+    test('array count above 256 saves with the entered value', async () => {
+        S.structs = [];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+
+        const setCount = (value: string): void => {
+            const row = document.querySelector<HTMLElement>('.struct-field-row')!;
+            if (!row.querySelector('.sfe-arr-cell')?.classList.contains('is-array')) {
+                click(dom, row.querySelector<HTMLElement>('.sfe-arr-toggle'));
+            }
+            const countInp = document.querySelector<HTMLInputElement>('.sfe-count-inp')!;
+            countInp.value = value;
+            countInp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        };
+
+        setCount('270');
+        click(dom, document.getElementById('se-save'));
+        assert.strictEqual(S.structs.length, 1, 'struct with large array count saves');
+        assert.strictEqual(S.structs[0].fields[0].count, 270, 'count 270 is preserved, not clamped to 256');
+    });
+
+    test('array count with many digits is not truncated on save', async () => {
+        S.structs = [];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const row = document.querySelector<HTMLElement>('.struct-field-row')!;
+        click(dom, row.querySelector<HTMLElement>('.sfe-arr-toggle'));
+        const countInp = document.querySelector<HTMLInputElement>('.sfe-count-inp')!;
+        countInp.value = '123456';
+        countInp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        click(dom, document.getElementById('se-save'));
+        assert.strictEqual(S.structs.length, 1, 'struct with large array count saves');
+        assert.strictEqual(S.structs[0].fields[0].count, 123456, 'count is preserved, not truncated to 3 digits');
+    });
+
+    test('editing bit child width in place refreshes the + Add bit disabled state', async () => {
+        S.structs = [];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+        const typeSel = document.querySelector<HTMLSelectElement>('.sfe-type-sel')!;
+        typeSel.value = 'uint8';
+        overrideChange(dom, typeSel);
+        click(dom, document.querySelector<HTMLElement>('.sfe-bit-btn'));
+
+        const setWidth = (inp: HTMLInputElement, value: string): void => {
+            inp.value = value;
+            inp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        };
+        const addBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('.sfe-bf-add-child')!;
+
+        let widths = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width'));
+        setWidth(widths[0]!, '3');
+        click(dom, document.querySelector<HTMLElement>('.sfe-bf-add-child'));
+        widths = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width'));
+        setWidth(widths[1]!, '5');
+
+        assert.strictEqual(addBtn().disabled, true, '3 + 5 fills the u8 container, add bit disabled');
+
+        setWidth(widths[0]!, '1');
+        assert.strictEqual(
+            addBtn().disabled,
+            false,
+            '1 + 5 = 6 frees bits, add bit re-enabled without save/reopen',
+        );
+    });
+
     test('editing existing struct preserves predefined endian and allocation', async () => {
         const preset: StructDef = {
             id: 'preset', name: 'Preset', packed: true, endian: 'be', allocation: 'msb',

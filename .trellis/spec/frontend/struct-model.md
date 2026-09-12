@@ -33,7 +33,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 ### 3. Contracts
 
 - Struct definitions are global/shared; pins are per file/address.
-- Field `count` is at least one. `isPointer` changes storage to pointer-width/address semantics while `type`/`refStructId` describe target.
+- Field `count` is at least one and has **no upper cap** — the struct editor accepts any positive integer (element count is layout metadata, never allocated up front). Validators only reject `count < 1` / non-integer. Keep it that way: do not reintroduce a hard clamp (e.g. `Math.min(v, 256)`) in editor or parser paths. `isPointer` changes storage to pointer-width/address semantics while `type`/`refStructId` describe target.
 - `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped).
 - `decodeStruct` resolves both concerns per field as `field.<x> ?? containing-struct.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats struct beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
 - Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched (first-class override again, not stripped); absent keys = inherit = prior behavior.
