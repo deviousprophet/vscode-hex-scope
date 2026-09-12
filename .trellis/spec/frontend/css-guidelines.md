@@ -99,3 +99,28 @@ The section header is the collapse control (VS Code model): every `.sb-section-h
 - Tab strip buttons use `writing-mode: vertical-rl` for compact vertical labels
 - Horizontal spacing baseline: `12px` (sidebar padding), `6px` (gap between related items)
 - Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; record-view grid tags are the sole retained `9px` exception)
+
+## Design Decision: Section Body Is the Only Scroll Container
+
+Every sidebar section is a VS Code PaneView container: the fixed 22px header plus a body (`.sb-pane .sb-body`) that is the **sole scroll region** for that section (`flex:1; min-height:0; overflow-y:auto`). The scrollbar appears only when content overflows (`auto`, never `scroll`); a shorter-than-pane body shows no scrollbar and no forced fill.
+
+**Options considered** for the struct type editor's "fill the pane / scroll" interplay:
+1. Inner scroller on `.se-form` pinned to pane height (via `.sb-pane .sb-body:has(> .si-editor-wrap)` flex + `overflow-y:auto`) — rejected: made the editor form non-scrollable in the real webview and violated the container rule.
+2. Section body as scroller + fail-safe stretch — chosen.
+
+**Rules:**
+- No inner element inside a section body may become a second scroller or pin content height. The only exceptions are deliberately bounded sub-panels (`max-height` + their own `overflow-y:auto`), e.g. the struct C preview (`.se-preview .si-c-preview`).
+- To make short content fill a tall pane **without** an inner scroller, use `min-height:100%` on the content wrapper plus a flexing child. This is fail-safe: if the percentage cannot resolve, it degrades to natural top-aligned content and the body still scrolls.
+- Never use `.has(...)` to turn the section body into a flex column for a scroll takeover.
+
+```css
+/* Correct: body stays the only scroller; short forms stretch, long forms scroll the body. */
+.si-editor-wrap { min-height: 100%; display: flex; flex-direction: column; }
+.se-form        { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; }
+```
+
+```css
+/* Wrong: inner scroller pinned via :has — the form stops scrolling in the real webview. */
+.sb-pane .sb-body:has(> .si-editor-wrap) { display: flex; flex-direction: column; min-height: 0; }
+.se-form { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+```
