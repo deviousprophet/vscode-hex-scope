@@ -545,6 +545,11 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Value display options (`View as` on header):
   - `Binary`, `Hex`, `Decimal`.
   - `Binary (bit fields only)` appears only when used bit width is less than full storage width.
+- Bit hover highlight:
+  - Hovering/selecting bit ranges paints the recalled bits in the parent binary value.
+  - Hover paint adds a 1px solid underscore per hovered `.si-bit`, rendered `box-shadow` inset (no `border-bottom`) so hovering adds no layout space and the value row never shifts.
+- Multi-line binary alignment:
+  - Values wider than 16 bits (u32/u64, or wide `Binary (bit fields only)` slices) wrap after 16 bits; the field name and dotted leader align to the value's **first** line, never dropping to the wrapped second line.
 - Context menu:
   - Header (array-header style): `Copy address`, `View as`.
   - Child rows (scalar style): `Copy as`, `View as`.

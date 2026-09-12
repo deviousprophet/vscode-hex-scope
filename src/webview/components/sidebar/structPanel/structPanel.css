@@ -560,11 +560,10 @@
 }
 .si-bit.hov {
     background: rgba(79,195,247,.12);
-    border-bottom: 1px dashed rgba(79,195,247,.55);
+    box-shadow: inset 0 -1px 0 rgba(79,195,247,.55);
     border-radius: 2px;
 }
-.si-bit.sel.hov { border-bottom: 0; }
-.si-bin-wrap { display: inline-block; max-width: 100%; white-space: normal; }
+.si-bin-wrap { display: inline; white-space: normal; }
 .si-bin-wrap br { display: block; line-height: 1.1; }
 .si-f-ptr { color: #e8a020 !important; font-style: italic; }
 .si-f-ptr-sym { color: var(--addr-fg); font-style: normal; opacity: .8; }
