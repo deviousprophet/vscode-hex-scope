@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.23.0] - 2026-09-16
 
 ### Added
 - Bit-field allocation (`LSB`/`MSB`) is now stored per firmware profile in `.hexscope/profiles.json`, so the chosen bit order is restored on reopen and shared across files bound to the same profile
