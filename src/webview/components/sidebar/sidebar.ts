@@ -511,6 +511,13 @@ export class SidebarSections {
         this.dom.get(id)!.section.style.flexBasis = `${px}px`;
     }
 
+    /** Apply each pane's allocated height (extracted for readability). */
+    private applyAllocations(ids: string[], alloc: Map<string, number>): void {
+        for (const id of ids) {
+            this.applyAllocation(id, alloc.get(id)!);
+        }
+    }
+
     /** Recomputed allocation/distribution. Non-collapse layouts run with the
         flex-basis transition disabled (`.no-transition`) so panes size
         instantly — body children are never measured mid-animation, which
@@ -531,10 +538,8 @@ export class SidebarSections {
                 const st = this.sizing.get(id)!;
                 return { id, saved: st.saved, user: st.user };
             }));
-        for (const id of ids) {
-            this.applyAllocation(id, alloc.get(id)!);
-        }
-        this.paintSashStates();
+this.applyAllocations(ids, alloc);
+    this.paintSashStates();
         if (!this.collapseAnimating) {
             // Remove after the browser applies the instant sizes; the next
             // collapse/expand (or any later user sizing) animates again.
