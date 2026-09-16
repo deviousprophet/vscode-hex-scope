@@ -102,20 +102,20 @@ The section header is the collapse control (VS Code model): every `.sb-section-h
 
 ## Design Decision: Section Body Is the Only Scroll Container
 
-Every sidebar section is a VS Code PaneView container: the fixed 22px header plus a body (`.sb-pane .sb-body`) that is the **sole scroll region** for that section (`flex:1; min-height:0; overflow-y:auto`). The scrollbar appears only when content overflows (`auto`, never `scroll`); a shorter-than-pane body shows no scrollbar and no forced fill.
+Every sidebar section is a VS Code PaneView container: the fixed 22px header plus a body (`.sb-pane .sb-body`) that is the **sole scroll region** for that section (`flex:1; min-height:0; overflow-y:auto`). The scrollbar appears only when content overflows (`auto`, never `scroll`); a shorter-than-pane body shows no scrollbar and no forced fill. The body flexes to fill the pane (`.sb-body { flex:1; min-height:0 }`); short content stays top-aligned (VS Code standard) and long content scrolls the body — no wrapper stretch is used because `min-height:100%` against a flex-derived body height proved unreliable across machines.
 
 **Options considered** for the struct type editor's "fill the pane / scroll" interplay:
 1. Inner scroller on `.se-form` pinned to pane height (via `.sb-pane .sb-body:has(> .si-editor-wrap)` flex + `overflow-y:auto`) — rejected: made the editor form non-scrollable in the real webview and violated the container rule.
-2. Section body as scroller + fail-safe stretch — chosen.
+2. `min-height:100%` on `.si-editor-wrap` (short form stretches, long form scrolls body) — rejected: resolved unreliably against the flex-derived body height (void + premature scrollbar across machines); body `flex:1` already makes the body fill the pane, so the wrapper stretch is unnecessary.
+3. Short content top-aligned, body is the sole scroll container — chosen: body fills the pane via `flex:1`; short content sits at the top (VS Code standard); long content scrolls the body. No inner stretch.
 
 **Rules:**
 - No inner element inside a section body may become a second scroller or pin content height. The only exceptions are deliberately bounded sub-panels (`max-height` + their own `overflow-y:auto`), e.g. the struct C preview (`.se-preview .si-c-preview`).
-- To make short content fill a tall pane **without** an inner scroller, use `min-height:100%` on the content wrapper plus a flexing child. This is fail-safe: if the percentage cannot resolve, it degrades to natural top-aligned content and the body still scrolls.
 - Never use `.has(...)` to turn the section body into a flex column for a scroll takeover.
 
 ```css
-/* Correct: body stays the only scroller; short forms stretch, long forms scroll the body. */
-.si-editor-wrap { min-height: 100%; display: flex; flex-direction: column; }
+/* Correct: body stays the only scroller; short forms top-align, long forms scroll the body. */
+.si-editor-wrap { display: flex; flex-direction: column; }
 .se-form        { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; }
 ```
 

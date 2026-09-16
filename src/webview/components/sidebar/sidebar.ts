@@ -382,6 +382,10 @@ export class SidebarSections {
     private readonly sizing: Map<string, { saved: number | null; px: number; user: boolean }>;
     private readonly dom: Map<string, SidebarSectionDom>;
     private resizeObserver: ResizeObserver | null = null;
+    /** True during a collapse/expand layout so the flex-basis transition stays
+        enabled (the intentional 150ms animation); other layout() calls run
+        with `.no-transition` (instant sizing, no stale body measurements). */
+    private collapseAnimating = false;
 
     constructor(root: HTMLElement, idPrefix: string, sections: readonly SidebarSectionSpec[], panelId?: string) {
         assertUniqueSectionIds(sections);
@@ -462,7 +466,12 @@ export class SidebarSections {
             // back to an equal share.
             this.resetAutoDefaults(id);
         }
+        // Ensure any prior no-transition class is cleared so collapse always
+        // animates (the previous layout's rAF may not have fired yet).
+        this.paneView.classList.remove('no-transition');
+        this.collapseAnimating = true;
         this.layout();
+        this.collapseAnimating = false;
     }
 
     isCollapsed(id: string): boolean {
@@ -502,10 +511,24 @@ export class SidebarSections {
         this.dom.get(id)!.section.style.flexBasis = `${px}px`;
     }
 
-    /** Recomputed allocation/distribution; the flex-basis transition animates the change. */
+    /** Apply each pane's allocated height (extracted for readability). */
+    private applyAllocations(ids: string[], alloc: Map<string, number>): void {
+        for (const id of ids) {
+            this.applyAllocation(id, alloc.get(id)!);
+        }
+    }
+
+    /** Recomputed allocation/distribution. Non-collapse layouts run with the
+        flex-basis transition disabled (`.no-transition`) so panes size
+        instantly — body children are never measured mid-animation, which
+        previously left stale heights as void + premature scrollbar. The class
+        is dropped next frame, so the NEXT collapse/expand animates normally. */
     private layout(): void {
         const height = this.paneView.clientHeight;
         if (height <= 0) { return; } // hidden panel (display:none tab) — leave bases alone
+        if (!this.collapseAnimating) {
+            this.paneView.classList.add('no-transition');
+        }
         const ids = [...this.dom.keys()];
         const expanded = ids.filter(id => !this.collapsed.get(id));
         const collapsedCount = ids.length - expanded.length;
@@ -515,10 +538,15 @@ export class SidebarSections {
                 const st = this.sizing.get(id)!;
                 return { id, saved: st.saved, user: st.user };
             }));
-        for (const id of ids) {
-            this.applyAllocation(id, alloc.get(id)!);
+this.applyAllocations(ids, alloc);
+    this.paintSashStates();
+        if (!this.collapseAnimating) {
+            // Remove after the browser applies the instant sizes; the next
+            // collapse/expand (or any later user sizing) animates again.
+            requestAnimationFrame(() => {
+                this.paneView.classList.remove('no-transition');
+            });
         }
-        this.paintSashStates();
     }
 
     /** Sashes adjacent to a collapsed pane become inert (dimmed, aria-disabled,

@@ -5,6 +5,9 @@
 ### Added
 - Bit-field allocation (`LSB`/`MSB`) is now stored per firmware profile in `.hexscope/profiles.json`, so the chosen bit order is restored on reopen and shared across files bound to the same profile
 
+### Fixed
+- Sidebar section bodies no longer keep a blank void below short content or a premature scrollbar; pane heights now apply instantly while the collapse/expand animation is preserved
+
 ## [2.22.0] - 2026-09-12
 
 ### Added

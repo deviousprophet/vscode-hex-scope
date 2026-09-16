@@ -6,6 +6,17 @@ import { Sidebar, SidebarSections, type SidebarPanel } from '../../../webview/co
 
 let currentDom: JSDOM | null = null;
 
+// jsdom has no rAF; SidebarSections.layout() uses it to drop the
+// `.no-transition` class after the instant flex-basis applies. Polyfill for
+// every suite in this file (tests construct/mutate sections directly).
+setup(() => {
+    (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame =
+        cb => { cb(0); return 0; };
+});
+teardown(() => {
+    delete (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+});
+
 type Globalish = {
     window: Window;
     document: Document;
