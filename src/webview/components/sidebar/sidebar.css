@@ -56,6 +56,11 @@
 /* While a sash is dragged, no flex-basis transition — panes must track the
    cursor exactly (VS Code animates collapse/expand only, not sash resize). */
 .sb-pane-view.dragging .sb-pane { transition: none; }
+/* Non-collapse layout recalculations (resize, initial mount, sash) must apply
+   flex-basis instantly — otherwise panes animate over 150ms and the body
+   children are measured at transitional heights (void + premature scrollbar).
+   Only collapse/expand keeps the ease-out transition. */
+.sb-pane-view.no-transition .sb-pane { transition: none !important; }
 .sb-pane .sb-body {
     flex: 1; min-height: 0;
     overflow-y: auto; overflow-x: hidden;
