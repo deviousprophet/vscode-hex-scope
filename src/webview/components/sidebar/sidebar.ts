@@ -331,6 +331,25 @@ function claimFreshSizes(out: Map<string, number>, panes: AllocPane, remaining: 
     }
 }
 
+/** Final normalization: the allocated sizes must sum exactly to the pool. Only
+    the all-user under-fill case leaves a gap (fresh panes already consume the
+    remainder), so scale every pane up proportionally to preserve relative
+    sizes; the last entry absorbs the rounding remainder. */
+function fillPool(out: Map<string, number>, pool: number): void {
+    let sum = 0;
+    for (const px of out.values()) { sum += px; }
+    if (out.size === 0 || sum >= pool) { return; }
+    const scale = pool / sum;
+    const entries = [...out.entries()];
+    const last = entries.length - 1;
+    let used = 0;
+    entries.forEach(([id, px], i) => {
+        const want = i === last ? pool - used : Math.floor(px * scale);
+        out.set(id, want);
+        used += want;
+    });
+}
+
 /**
  * Split `free` px among expanded panes. First-time panes (no saved size)
  * claim an equal share, then saved sizes are claimed smallest-first so a
@@ -350,6 +369,7 @@ function allocatePanes(free: number, panes: AllocPane): Map<string, number> {
     }
     const remaining = claimUserSizes(out, panes, pool);
     claimFreshSizes(out, panes, remaining);
+    fillPool(out, pool);
     return out;
 }
 
@@ -612,7 +632,10 @@ this.applyAllocations(ids, alloc);
         const ids = this.paneIds(above, below);
         if (!ids) { return; }
         const { a, b, combined } = this.panePair(ids);
-        const na = Math.max(MIN_PANE, Math.min((a.saved ?? a.px) + delta, combined - MIN_PANE));
+        // Base the delta on the DISPLAYED size: after a proportional fill a
+        // pane's px exceeds its stale `saved`, and using `saved` would snap the
+        // first drag back to the old px. Once shifted, saved === px for the pair.
+        const na = Math.max(MIN_PANE, Math.min(a.px + delta, combined - MIN_PANE));
         a.saved = na;
         b.saved = combined - na;
         // Mark user-set immediately so layout() honors the drag during drag;
@@ -783,12 +806,16 @@ this.applyAllocations(ids, alloc);
             document.body.style.cursor = 'row-resize';
             document.body.style.userSelect = 'none';
             let lastY = event.clientY;
+            let moved = false;
             // ponytail: no rAF throttle on mousemove — parity with the sidebar
             // resizer; wrap onMove in requestAnimationFrame if drag jank appears.
             const onMove = (moveEv: MouseEvent): void => {
                 const delta = moveEv.clientY - lastY;
                 lastY = moveEv.clientY;
-                if (delta !== 0) { this.shiftPane(neighbors.above, neighbors.below, delta, false); }
+                if (delta !== 0) {
+                    moved = true;
+                    this.shiftPane(neighbors.above, neighbors.below, delta, false);
+                }
             };
             const stopDrag = (): void => {
                 sash.classList.remove('dragging');
@@ -796,12 +823,17 @@ this.applyAllocations(ids, alloc);
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
                 // Persist once on release (no per-mousemove storage writes).
-                const aboveId = this.sectionIdOf(neighbors.above);
-                const belowId = this.sectionIdOf(neighbors.below);
-                if (aboveId !== null && belowId !== null) {
-                    this.sizing.get(aboveId)!.user = true;
-                    this.sizing.get(belowId)!.user = true;
-                    this.savePair(aboveId, belowId);
+                // A plain click with no movement is a no-op: nothing is
+                // persisted and the panes stay auto-default (fresh) so a later
+                // resize still splits evenly.
+                if (moved) {
+                    const aboveId = this.sectionIdOf(neighbors.above);
+                    const belowId = this.sectionIdOf(neighbors.below);
+                    if (aboveId !== null && belowId !== null) {
+                        this.sizing.get(aboveId)!.user = true;
+                        this.sizing.get(belowId)!.user = true;
+                        this.savePair(aboveId, belowId);
+                    }
                 }
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', stopDrag);

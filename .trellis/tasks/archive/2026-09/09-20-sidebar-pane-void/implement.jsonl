@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar.md", "reason": "Owns the SidebarSections pane/sash contract, persistence format, and Tests Required list this task edits"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Persistence scope rules for localStorage-backed UI state"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Numeric/boundary normalization rules for stored values"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Direct-DOM webview interaction/listener conventions for sidebar.ts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required checks and test placement before finishing"}
