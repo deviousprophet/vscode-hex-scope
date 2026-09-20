@@ -30,4 +30,19 @@ suite('webview contextCommands mapping', () => {
         assert.strictEqual(contextCommandResult('copy-ascii', bytes, false).type, 'copyText');
         assert.strictEqual(contextCommandResult('copy-c-array', bytes, false).type, 'copyText');
     });
+
+    test('copy-address formats the selection start, independent of selection length', () => {
+        assert.deepStrictEqual(contextCommandResult('copy-address', [0xDE], false, 0x1A2B), {
+            type: 'copyText',
+            text: '00001A2B',
+            label: 'address',
+        });
+        assert.deepStrictEqual(contextCommandResult('copy-address', [0xDE, 0xAD], false, 0), {
+            type: 'copyText',
+            text: '00000000',
+            label: 'address',
+        });
+        assert.strictEqual(contextCommandResult('copy-address', [], false).type, 'none');
+        assert.strictEqual(contextCommandResult('copy-address', [0xDE], false).type, 'none');
+    });
 });

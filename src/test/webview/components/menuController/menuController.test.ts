@@ -89,6 +89,7 @@ suite('webview MenuController component (hex menu)', () => {
         assert.ok(html.includes('data-cmd="copy-c-array"'));
         assert.ok(html.includes('data-sub="copy"'));
         assert.ok(html.includes('data-sub="analyze"'));
+        assert.ok(html.includes('data-cmd="copy-address"'));
         assert.ok(html.includes('data-cmd="go-address"'));
         assert.ok(html.includes('data-cmd="select-all"'));
         assert.ok(html.includes('data-cmd="select-segment"'));
@@ -133,6 +134,7 @@ suite('webview MenuController component (hex menu)', () => {
         assert.ok(html.includes('1 byte selected'));
         assert.ok(html.includes('data-cmd="copy-hex"'));
         assert.ok(html.includes('data-cmd="copy-ascii"'));
+        assert.ok(html.includes('data-cmd="copy-address"'));
         assert.ok(html.includes('data-cmd="dec"'));
         assert.ok(html.includes('data-cmd="binary"'));
         assert.ok(!html.includes('data-cmd="copy-c-array"'));

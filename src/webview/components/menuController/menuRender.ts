@@ -60,7 +60,8 @@ function goAddressRow(state: MenuState): string {
 }
 
 function interactionRows(state: MenuState): string {
-    return goAddressRow(state) +
+    return menuItem('copy-address', 'Copy Address') +
+        goAddressRow(state) +
         menuItem('select-all', 'Select all') +
         menuItem('select-segment', 'Select segment');
 }
