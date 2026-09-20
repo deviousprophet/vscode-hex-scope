@@ -13,42 +13,43 @@ Load the `fallow` skill (if available) for detailed fallow CLI docs, issue types
 
 ## Tooling
 
-Always run fallow via `npx fallow ...`. Never install fallow globally (`npm i -g fallow`). Never install it as a project dependency.
+Always run fallow through `scripts/fallow-extract.mjs` (which invokes `npx fallow ...`). Never install fallow globally (`npm i -g fallow`). Never install it as a project dependency.
 
 ## Process
 
-### 1. Run full fallow scan
+### 1. Run scan and digest
 
 ```bash
-npx fallow --format json --quiet 2>/dev/null || true
+node <skill-dir>/extract.mjs
 ```
 
-Parse JSON output with `node -e` or a proper JSON parser — do NOT `cat` or `Get-Content` the file, because the JSON line is truncated at 2000 chars when printed to terminal. The `health` section lives at the end and is the first part lost.
+`<skill-dir>` is the directory containing this SKILL.md (`.agents/skills/fallow-fix` in this repo). Run from the repo root — the script invokes `npx fallow --format json --quiet` itself, captures stdout (no file redirect), and prints one greppable digest. Do NOT `cat` or `Get-Content` raw JSON — a terminal truncates json lines at 2000 chars and the `health` section is the first part lost.
 
-Extract all:
-- `check.total_issues` — dead code (also `check.summary.*` for per-type breakdown)
-- `health.findings` — complexity, keyed by `name` + `line` + `cyclomatic` per finding
-- `health.targets` — structural "split high-impact file" suggestions (informational only); this is a separate array and NOT `health.refactoring_targets` (that key does not exist in the JSON)
-- `dupes.stats.clone_groups` — code duplication
-- fallow exit code
+Also available:
+- `--file <path>` to re-digest an existing fallow report file
+- `--test` to run the script's self-check
 
-Verify the schema with `node -e "const j=require('./fallow.json'); console.log(Object.keys(j.health))"` — expected keys include `findings`, `summary`, `vital_signs`, `file_scores`, `hotspots`, `targets`.
+The digest gives:
+- `verdict: GREEN | FINDINGS` plus per-axis counts
+- one line per finding, shaped `[<category>] <path>:<line> <label> <details>` — e.g. `[unused_exports] src/a.ts:12 export_name="bar"`, `[complexity] src/b.ts:1 name=complex cyclo=8 ... severity=high`, `[dup] 89 tokens, src/c.ts:3-7  src/d.ts:11-15`, `[target] <path> <category>: <recommendation>`
+- `--- counts ---` with every non-zero category and complexity severity breakdown
+- `--- hotspots (top 10 churn/risk) ---` — informational
+- `--- targets ---` — informational, never block green
+
+Exit code: `0` = green, `1` = findings exist, `2` = scan/parse failed, `3` = failed test.
 
 ### 2. Exit if green
 
-`check.total_issues === 0` alone is NOT green — `health.findings` is a separate axis and can be non-zero when `total_issues` is 0.
+`verdict: GREEN` (exit code `0`) requires ALL of:
+- dead-code `0` (`check.total_issues`)
+- complexity `0` (`health.findings` — ALL severities, including `moderate`)
+- duplication `0` (`dupes.stats.clone_groups`)
 
-Green requires ALL of:
-- `check.total_issues === 0` (dead code)
-- `health.findings.length === 0` (complexity — ALL severities, including `moderate`; each finding carries `name`/`line`/`cyclomatic`/`severity`)
-- `dupes.stats.clone_groups === 0` (duplication)
-- fallow exit code `0`
-
-`health.targets` are NOT part of green — they are informational suggestions that don't affect exit code or finding counts. Do not block green on them.
+`health.targets` and `hotspots` are NOT part of green — informational only. Do not block green on them.
 
 ### 3. Report refactoring targets (informational only)
 
-`health.targets` are structural "split high-impact file" suggestions based on churn and coupling (each target has `path`, `recommendation`, `category: "split_high_impact"`, `effort`, `confidence`, and `evidence.direct_callers`), not violations. They never block green.
+`[target]` lines are structural "split high-impact file" suggestions based on churn and coupling, not violations. They never block green.
 
 For each target:
 1. Check if the target file is in-scope for the current task (modified by the diff or directly related)
@@ -57,7 +58,7 @@ For each target:
 
 If a recommendation is clearly wrong (false positive), explain why and skip it regardless of scope. Note: `split_high_impact` targets are driven by complexity density + fan-in + churn, not size alone — a small single-concern file can be flagged; apply judgment rather than splitting for its own sake.
 
-Dead-code findings live under `check.<category>[]` (e.g. `check.unused_exports`) — read the file, verify the finding (the JSON gives `path`, `export_name`, `line`), then remove the unused code or drop the export keyword.
+Dead-code findings appear as `[unused_*]` / `[unresolved_imports]` / `[duplicate_exports]` etc. lines — read the file, verify the finding, then remove the unused code or drop the export keyword.
 
 ### 3. Fix dead-code findings (if any)
 
@@ -69,7 +70,7 @@ Dead-code findings live under `check.<category>[]` (e.g. `check.unused_exports`)
 
 ### 4. Fix complexity findings
 
-For each `health.findings[]` with `severity !== "none"` (identify via `name` + `line` + `severity`):
+For each `[complexity]` digest line with `severity != none` (digest gives `path:line name cyclo=... cognitive=... crap=... severity=...`):
 
 **Goal:** reduce cyclomatic complexity so CRAP score drops below threshold (30.0) at zero coverage. This requires cyclomatic ≤4 for each function.
 
@@ -93,11 +94,11 @@ Read clone instances. If the duplication is within the same module, extract a sh
 
 ### 6. Address refactoring targets (if in diff scope)
 
-Review `health.refactoring_targets`. If any target file was modified by the current diff, evaluate the suggested refactoring. Apply it if it improves the code without scope creep. If the target is outside the diff scope (pre-existing code), report it but do not refactor — it's a separate task.
+Review the `[target]` lines from the latest `scripts/fallow-extract.mjs` run (see step 3). If any target file was modified by the current diff, evaluate the suggested refactoring. Apply it if it improves the code without scope creep. If the target is outside the diff scope (pre-existing code), report it but do not refactor — it's a separate task.
 
 ### 7. Re-run fallow
 
-After fixing each group of findings, re-run fallow. Repeat until zero findings. Log what was fixed.
+After fixing each group of findings, re-run `node <skill-dir>/scripts/fallow-extract.mjs`. Repeat until `verdict: GREEN`. Log what was fixed.
 
 ### 8. Verify
 
