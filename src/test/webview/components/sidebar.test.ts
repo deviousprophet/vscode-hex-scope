@@ -598,6 +598,81 @@ suite('SidebarSections pane view', () => {
         assert.ok(localStorage.getItem(keyB) !== null);
     });
 
+    test('all-user panes that under-fill the pool scale proportionally (no void)', () => {
+        localStorage.setItem('hexScope.sidebarPanes.panetest.first', '100');
+        localStorage.setItem('hexScope.sidebarPanes.panetest.second', '100');
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        assert.strictEqual(basis('first'), 147, 'saved px scale up to fill the pool');
+        assert.strictEqual(basis('second'), 147, 'saved ratio preserved');
+        assert.strictEqual(basis('first') + basis('second'), 294, 'no void: sizes sum to the pool');
+    });
+
+    test('proportional fill covers a collapsed sibling (expanded panes fill the pool)', () => {
+        localStorage.setItem('hexScope.sidebarPanes.panetest.first', '100');
+        localStorage.setItem('hexScope.sidebarPanes.panetest.second', '100');
+        sections = new SidebarSections(root, 'test', [
+            { id: 'first', label: 'First' },
+            { id: 'second', label: 'Second' },
+            { id: 'third', label: 'Third', defaultCollapsed: true },
+        ], PANEL_ID);
+        Object.defineProperty(root.querySelector<HTMLElement>('.sb-pane-view')!, 'clientHeight', {
+            value: 400,
+            configurable: true,
+        });
+        sections.setCollapsed('first', false);
+        assert.strictEqual(basis('third'), 22, 'third stays collapsed');
+        assert.strictEqual(basis('first') + basis('second'), 366, 'expanded panes fill the pool (height - header - sashes)');
+        assert.ok(Math.abs(basis('first') - basis('second')) <= 1, 'saved ratio preserved');
+    });
+
+    test('drag after a proportional fill moves the displayed size (no jump to stale saved px)', () => {
+        localStorage.setItem('hexScope.sidebarPanes.panetest.first', '100');
+        localStorage.setItem('hexScope.sidebarPanes.panetest.second', '100');
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const before = basis('first');
+        dragSash(sashes()[0], 40);
+        assert.strictEqual(basis('first'), before + 40, 'delta applies to the displayed px, not the stale saved px');
+        assert.strictEqual(basis('second'), 294 - (before + 40), 'below pane absorbs the delta');
+    });
+
+    test('a sash click with no movement persists nothing and leaves panes fresh', () => {
+        mount([['first', 'First'], ['second', 'Second']], 300);
+        const keyA = 'hexScope.sidebarPanes.panetest.first';
+        const keyB = 'hexScope.sidebarPanes.panetest.second';
+        const sash = sashes()[0];
+        sash.dispatchEvent(new dom.window.MouseEvent('mousedown', { button: 0, clientY: 0, bubbles: true }));
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+        assert.strictEqual(localStorage.getItem(keyA), null, 'no movement → nothing persisted');
+        assert.strictEqual(localStorage.getItem(keyB), null);
+        // A later drag still works from the displayed split (no stale state).
+        dragSash(sash, 40);
+        assert.strictEqual(basis('first'), 187, 'the displayed delta survives the no-op click');
+        assert.strictEqual(basis('second'), 107);
+    });
+
+    test('a no-movement sash click leaves the clicked panes fresh (not user-set)', () => {
+        sections = new SidebarSections(root, 'test', [
+            { id: 'first', label: 'First' },
+            { id: 'second', label: 'Second' },
+            { id: 'third', label: 'Third', defaultCollapsed: true },
+        ], PANEL_ID);
+        Object.defineProperty(root.querySelector<HTMLElement>('.sb-pane-view')!, 'clientHeight', {
+            value: 300,
+            configurable: true,
+        });
+        sections.setCollapsed('first', false);
+        const sash = sashes()[0];
+        sash.dispatchEvent(new dom.window.MouseEvent('mousedown', { button: 0, clientY: 0, bubbles: true }));
+        dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+        // Fresh panes ignore the px they happened to be laid out at, so the
+        // late expand splits all three evenly. A pane wrongly marked user-set
+        // would be honored first and clamp to 124/82/82.
+        sections.setCollapsed('third', false);
+        assert.strictEqual(basis('first'), 96);
+        assert.strictEqual(basis('second'), 96);
+        assert.strictEqual(basis('third'), 96);
+    });
+
     test('sash drag toggles the no-transition dragging state on the pane view', () => {
         mount([['first', 'First'], ['second', 'Second']], 300);
         const view = root.querySelector<HTMLElement>('.sb-pane-view')!;
