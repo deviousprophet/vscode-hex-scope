@@ -26,9 +26,10 @@ export function copyCommandResult(cmd: string, bytes: number[]): ContextCommandR
     };
 }
 
-export function contextCommandResult(cmd: string, bytes: number[], editMode: boolean): ContextCommandResult {
-    if (bytes.length === 0) { return { type: 'none' }; }
+export function contextCommandResult(cmd: string, bytes: number[], editMode: boolean, selectionStart?: number): ContextCommandResult {
     const normalized = normalizeContextCommand(cmd);
+    if (bytes.length === 0) { return { type: 'none' }; }
+    if (normalized === 'address') { return addressCommandResult(selectionStart); }
     for (const handler of CONTEXT_COMMAND_HANDLERS) {
         const result = handler(normalized, bytes, editMode);
         if (result.type !== 'none') { return result; }
@@ -39,6 +40,15 @@ export function contextCommandResult(cmd: string, bytes: number[], editMode: boo
 /** Maps top-level context-menu copy cmds (copy-hex etc.) to contextCommandResult args. */
 function normalizeContextCommand(cmd: string): string {
     return cmd === 'copy-c-array' ? 'c-array' : cmd.replace(/^copy-/, '');
+}
+
+function addressCommandResult(selectionStart: number | undefined): ContextCommandResult {
+    if (selectionStart === undefined || !Number.isInteger(selectionStart) || selectionStart < 0) { return { type: 'none' }; }
+    return {
+        type: 'copyText',
+        text: (selectionStart >>> 0).toString(16).toUpperCase().padStart(8, '0'),
+        label: 'address',
+    };
 }
 
 function copyCommandHandler(cmd: string, bytes: number[]): ContextCommandResult {

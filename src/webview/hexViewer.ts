@@ -1730,7 +1730,7 @@ const CONTEXT_ACTIONS: Record<string, () => void> = {
 function handleCtxCommand(cmd: string): void {
     const action = CONTEXT_ACTIONS[cmd];
     if (action) { action(); return; }
-    applyContextCommandResult(contextCommandResult(cmd, selectedBytes(), S.editMode));
+    applyContextCommandResult(contextCommandResult(cmd, selectedBytes(), S.editMode, S.selStart ?? undefined));
 }
 
 function applyContextCommandResult(result: ReturnType<typeof contextCommandResult>): void {
