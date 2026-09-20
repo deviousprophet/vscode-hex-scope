@@ -1,0 +1,110 @@
+name: Feature request
+description: Suggest an idea or an improvement for Hex Scope
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Describing the problem you're trying to solve helps more than describing a specific implementation.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched [existing issues](https://github.com/deviousprophet/vscode-hex-scope/issues?q=is%3Aissue) and this hasn't been requested
+          required: true
+        - label: I checked the [README](https://github.com/deviousprophet/vscode-hex-scope#readme), [scripting guide](https://github.com/deviousprophet/vscode-hex-scope/blob/main/docs/SCRIPTING.md), and [changelog](https://github.com/deviousprophet/vscode-hex-scope/blob/main/CHANGELOG.md) and this isn't already possible
+          required: false
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What are you trying to do, and what gets in your way today?
+      placeholder: "When I'm reviewing a firmware image, I often need to ... but currently I have to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like Hex Scope to do? Describe the behavior you expect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you've tried (other tools, scripts, manual steps).
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Hex Scope would this touch?
+      options:
+        - File formats / parsing
+        - Memory view
+        - Records view
+        - Search
+        - Inspector
+        - Struct Overlay
+        - Integrity checks / stored values
+        - Editing / Save
+        - Copy & export
+        - Segment labels
+        - Profiles / .hexscope storage
+        - Scripting
+        - Toolbar / sidebar / UI
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: File format
+      description: Should this apply to a specific format?
+      options:
+        - Both Intel HEX and Motorola SREC
+        - Intel HEX only
+        - Motorola SREC only
+        - Support for a new format (describe below)
+        - Not file-specific
+    validations:
+      required: false
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples, mockups, or references
+      description: |
+        Sketches, screenshots from other tools, sample data, algorithm or standard references (e.g. a CRC variant with polynomial and init values).
+        **Do not share proprietary firmware.**
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to help implement this?
+      options:
+        - "No, I'm just suggesting"
+        - "Maybe, with some guidance"
+        - "Yes, I'd open a pull request"
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else that might help.
+    validations:
+      required: false

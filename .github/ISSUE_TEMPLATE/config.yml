@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Scripting guide
+    url: https://github.com/deviousprophet/vscode-hex-scope/blob/main/docs/SCRIPTING.md
+    about: Script API reference and examples. Check here before reporting a scripting problem.
+  - name: Storage layout (.hexscope/)
+    url: https://github.com/deviousprophet/vscode-hex-scope/blob/main/docs/HEXSCOPE_STORAGE.md
+    about: How profiles, structs, and bindings are stored on disk.
