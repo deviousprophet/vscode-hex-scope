@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required verification gates"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Persistence and validation constraints"}

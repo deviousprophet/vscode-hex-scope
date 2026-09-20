@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/integrity-checks.md", "reason": "Integrity contracts and behavior"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-integrity-panel.md", "reason": "Panel behavior and test contract"}
