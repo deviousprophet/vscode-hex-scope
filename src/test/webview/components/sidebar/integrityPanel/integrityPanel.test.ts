@@ -195,14 +195,15 @@ suite('IntegrityPanel checks', () => {
         assert.strictEqual(document.querySelectorAll('.integrity-card').length, 0);
     });
 
-    test('hash algorithm hides stored-value field', () => {
+    test('hash algorithm keeps stored-value field visible', () => {
         click(dom, document.getElementById('integrity-add-btn'));
         const form = integrityForm('add');
-        assert.ok(!form.querySelector<HTMLElement>('[data-stored-field]')!.hidden, 'checksum shows stored field');
+        const storedField = form.querySelector<HTMLElement>('[data-stored-field]')!;
+        assert.ok(!storedField.hidden, 'checksum shows stored field');
         const algorithm = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!;
         algorithm.value = 'sha-256';
         algorithm.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        assert.ok(form.querySelector<HTMLElement>('[data-stored-field]')!.hidden, 'hash hides stored field');
+        assert.ok(!storedField.hidden, 'hash shows stored field');
     });
 
     test('edit form save reports onPersistChecks; cancel closes the form', () => {
@@ -351,6 +352,24 @@ suite('IntegrityPanel results + auto fix', () => {
         assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '✕');
         assert.strictEqual(cb.staged.length, 1, 'discard must not immediately re-stage Auto fix');
         assert.ok(integrityCard().querySelector('.integrity-auto-fix')!.classList.contains('paused'));
+    });
+
+    test('SHA-1 stored values compare and Fix all writes the full digest', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4, ...Array(20).fill(0)]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'sha-1');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1017');
+        setDraftValue(form, 'stored', '1004');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        await waitForCalculation();
+        assert.ok(integrityCard().querySelector('.integrity-value-pane.stored')!.classList.contains('mismatch'));
+        click(dom, document.getElementById('integrity-fix-all'));
+        const expected = integrityValueToBytes((await calculateIntegrity('sha-1', new Uint8Array([1, 2, 3, 4]))).value, 'le');
+        assert.deepStrictEqual(cb.staged[0], Array.from(expected, (byte, offset): [number, number] => [0x1004 + offset, byte]));
+        assert.strictEqual(cb.staged[0].length, 20);
     });
 
     test('notifyEndianChanged re-decodes stored byte order', async function () {

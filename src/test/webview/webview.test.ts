@@ -848,14 +848,14 @@ suite('Integrity Checks sidebar', () => {
             const hashAlgorithm = addForm.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!;
             hashAlgorithm.value = 'sha-256';
             hashAlgorithm.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-            assert.ok(addForm.querySelector<HTMLElement>('[data-stored-field]')!.hidden);
+            assert.ok(!addForm.querySelector<HTMLElement>('[data-stored-field]')!.hidden);
             addForm.querySelector<HTMLElement>('[data-form-action="save"]')!.click();
             assert.strictEqual(document.querySelectorAll('.integrity-card').length, 2);
             assert.ok(!integrityCard(1).querySelector<HTMLElement>('[data-check-body]')!.hidden);
-            assert.strictEqual(integrityCard(1).querySelector('[data-auto-fix]'), null);
+            assert.ok(integrityCard(1).querySelector('[data-auto-fix]'));
             const hashConfig = (posted.at(-1) as { state: { checks: Array<{ storedAddress?: number; autoFixStoredValue: boolean }> } }).state.checks[1];
             assert.deepStrictEqual(hashConfig, {
-                algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x1003, autoFixStoredValue: false,
+                algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false,
             });
             integrityCard(1).querySelector<HTMLElement>('.act-btn-edit')!.click();
             integrityForm('edit-2').querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();

@@ -192,7 +192,7 @@ suite('integrity profile normalization', () => {
         assert.deepStrictEqual(profiles.map(profile => profile.id), ['profile-1']);
     });
 
-    test('strips stored verification settings from hash profiles', () => {
+    test('retains stored verification settings from hash profiles', () => {
         const profiles = normalizeIntegrityProfiles([{
             ...validProfile,
             checks: [{
@@ -202,14 +202,14 @@ suite('integrity profile normalization', () => {
         }]);
         assert.deepStrictEqual(profiles[0].checks[0], {
             algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x10FF,
-            autoFixStoredValue: false,
+            storedAddress: 0x1100, autoFixStoredValue: true,
         });
     });
 
 });
 
 suite('integrity check-set normalization', () => {
-    test('recognizes only CRC algorithms as stored checksums', () => {
+    test('distinguishes CRC algorithms for CRC-specific behavior', () => {
         assert.strictEqual(isChecksumAlgorithm('crc16-ccitt-false'), true);
         assert.strictEqual(isChecksumAlgorithm('crc32-iso-hdlc'), true);
         assert.strictEqual(isChecksumAlgorithm('md5'), false);

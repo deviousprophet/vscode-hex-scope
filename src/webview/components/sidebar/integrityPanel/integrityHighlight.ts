@@ -8,7 +8,7 @@ import {
     validateIntegrityRange,
 } from '../../../../core/integrity';
 import type { IntegrityCheckState, StoredValueUpdate } from './integrityCheckModel';
-import { hasStoredChecksum, highlightStatus } from './integrityResultRender';
+import { hasStoredValue, highlightStatus } from './integrityResultRender';
 import { integrityOutputByteLength } from './integrityCalculation';
 import type { IntegrityHighlight } from './integrityPanel';
 
@@ -41,7 +41,7 @@ function highlightForCheck(check: IntegrityCheckState): IntegrityHighlight | nul
 }
 
 function addStoredHighlight(highlight: IntegrityHighlight, check: IntegrityCheckState): void {
-    if (!hasStoredChecksum(check)) { return; }
+    if (!hasStoredValue(check)) { return; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return; }
     highlight.storedStart = stored.value;
