@@ -6,6 +6,9 @@
 - Integrity checks can store, compare, highlight, and update MD5 and SHA values
 - Hex Grid context menu can copy the selected start address as uppercase hexadecimal text
 
+### Fixed
+- Sidebar sections always fill the pane view, so pane sizes saved at a different panel height no longer leave an empty gap below the last section
+
 ## [2.23.0] - 2026-09-16
 
 ### Added
