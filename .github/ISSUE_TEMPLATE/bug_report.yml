@@ -1,0 +1,158 @@
+name: Bug report
+description: Something in Hex Scope is broken or behaves incorrectly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. A sample file and clear reproduction steps make bugs much faster to fix.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched [existing issues](https://github.com/deviousprophet/vscode-hex-scope/issues?q=is%3Aissue) and this hasn't been reported
+          required: true
+        - label: I'm using the latest version of Hex Scope (see the [changelog](https://github.com/deviousprophet/vscode-hex-scope/blob/main/CHANGELOG.md))
+          required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the bug.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Hex Scope is affected?
+      options:
+        - File loading / parsing
+        - Memory view
+        - Records view
+        - Search
+        - Inspector
+        - Struct Overlay
+        - Integrity checks / stored values / auto fix
+        - Editing / Save
+        - Quick Repair Checksums
+        - Copy & export
+        - Segment labels
+        - Profiles / .hexscope storage
+        - Scripting
+        - Toolbar / sidebar / UI layout
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: File format
+      options:
+        - Intel HEX (.hex, .ihx, .ihex)
+        - Motorola SREC (.srec, .mot, .s19, .s28, .s37)
+        - Not file-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps needed to trigger the bug.
+      placeholder: |
+        1. Right-click `firmware.hex` -> Open with HexScope Viewer
+        2. Switch to the Memory view
+        3. Press Ctrl+F and search for ...
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Include exact error messages if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample file or record snippet
+      description: |
+        Attach a minimal file that reproduces the problem (drag and drop into this box; rename to `.txt` if GitHub rejects the extension), or paste the relevant records inside a code fence.
+        **Do not share proprietary firmware.** Trim the file or replace sensitive data with dummy bytes.
+    validations:
+      required: false
+
+  - type: textarea
+    id: hexscope-data
+    attributes:
+      label: Related `.hexscope/` data or script (optional)
+      description: |
+        For Struct Overlay, Integrity, Profile, or Scripting bugs, paste the relevant part of `.hexscope/structs.json`, `.hexscope/profiles.json`, `.hexscope/bindings.json`, or the script from `.hexscope/scripts/` inside a code fence.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots and console output
+      description: |
+        Screenshots or screen recordings help a lot. For UI problems, also open the webview console with the Command Palette command **Developer: Open Webview Developer Tools**, and for extension errors check **Help -> Toggle Developer Tools -> Console**. Paste any errors here.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Hex Scope version
+      description: Shown in the Extensions view.
+      placeholder: "2.23.0"
+    validations:
+      required: true
+
+  - type: input
+    id: vscode-version
+    attributes:
+      label: Editor and version
+      description: VS Code (**Help -> About**), or the fork you use, e.g. VSCodium, Cursor, or another editor installed from Open VSX.
+      placeholder: "VS Code 1.125.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Remote (SSH / WSL / Dev Container / Codespaces)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else that might help, such as file size, workspace layout, or whether it started after an update.
+    validations:
+      required: false
