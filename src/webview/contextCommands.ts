@@ -30,6 +30,10 @@ export function contextCommandResult(cmd: string, bytes: number[], editMode: boo
     const normalized = normalizeContextCommand(cmd);
     if (bytes.length === 0) { return { type: 'none' }; }
     if (normalized === 'address') { return addressCommandResult(selectionStart); }
+    return runCommandHandlers(normalized, bytes, editMode);
+}
+
+function runCommandHandlers(normalized: string, bytes: number[], editMode: boolean): ContextCommandResult {
     for (const handler of CONTEXT_COMMAND_HANDLERS) {
         const result = handler(normalized, bytes, editMode);
         if (result.type !== 'none') { return result; }
