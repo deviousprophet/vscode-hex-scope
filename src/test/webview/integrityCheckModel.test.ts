@@ -64,7 +64,7 @@ suite('integrity check model', () => {
         });
     });
 
-    test('drops stored checksum fields when applying a hash draft', () => {
+    test('retains stored fields when applying a hash draft', () => {
         const check = makeIntegrityCheck(1, {
             algorithm: 'crc16-ccitt-false',
             startAddress: 0,
@@ -89,8 +89,8 @@ suite('integrity check model', () => {
             storedRaw: '00000008',
         });
 
-        assert.strictEqual(check.storedRaw, '');
-        assert.strictEqual(check.autoFixStoredValue, false);
+        assert.strictEqual(check.storedRaw, '00000008');
+        assert.strictEqual(check.autoFixStoredValue, true);
         assert.strictEqual(check.result, null);
         assert.strictEqual(check.expectedBytes, null);
         assert.strictEqual(check.storedBytes, null);
@@ -99,6 +99,26 @@ suite('integrity check model', () => {
         assert.strictEqual(check.calculating, false);
         assert.strictEqual(check.suppressAutoFixOnNextResult, false);
         assert.strictEqual(check.suppressedAutoFixMismatch, '');
+    });
+
+    test('round-trips stored hash configs through drafts and check state', () => {
+        const check = makeIntegrityCheck(1, {
+            algorithm: 'sha-512',
+            startAddress: 0x1000,
+            endAddress: 0x10FF,
+            storedAddress: 0x1100,
+            autoFixStoredValue: true,
+        });
+        assert.deepStrictEqual(integrityCheckConfigFromState(check), {
+            ok: true,
+            value: {
+                algorithm: 'sha-512',
+                startAddress: 0x1000,
+                endAddress: 0x10FF,
+                storedAddress: 0x1100,
+                autoFixStoredValue: true,
+            },
+        });
     });
 
     test('builds check sets and reports indexed validation errors', () => {

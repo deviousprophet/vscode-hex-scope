@@ -63,7 +63,7 @@ class IntegrityPanel {
 - Add form opens with selection defaults from `getSelection()`; no selection → full-file range from `getDataRange()` (host derives min segment start → max segment end from `S.parseResult.segments`); neither → blank. Optional "Check name" input (`data-draft-control="name"`, maxlength 40, trimmed, duplicates allowed); empty name persists as no field. Card title = `check.name || algorithmLabel(check.algorithm)`. `IntegrityCheckConfig.name?` carried by `normalizeIntegrityCheck` (trim, >40 dropped) so names survive reload; `schemaVersion` unchanged.
 - Live refill (label-form parity): `notifySelectionChanged()` on hex-view selection change (host calls it from `onHexViewSelectionChange` next to `syncLabelForm`) refills the open add/edit form — end-focused → end only, else start+end; null selection leaves values as-is; never on keystrokes. `formLastFocused` reset on open/save/cancel.
 - Header row = Fix all / ＋ Add (right, same line, no `Profile` label — profile selection lives in the toolbar **Select Profile** dropdown, not the panel).
-- Algorithm change toggles the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
+- Every algorithm exposes the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
 - Result cards: status symbol (✓/✕/∑/…/!/?), calculated value pane, optional stored pane (match/mismatch/unverified), copy button → `onCopyText`; Auto fix toggle stages mismatched stored values via `onStoredValueEdits`, with suppression so a discarded mismatch isn't immediately re-staged (paused state until toggle/Fix all/endian change).
 - Card header click toggles highlight → `onHighlightChange({ rangeStart, rangeEnd, status, storedStart?, storedLength? })`; edit/delete via card action buttons. Delete persists via `persistChecks()`.
 - `notifyEndianChanged()` clears suppression, re-renders, and re-decodes stored values per `getEndian()`.
@@ -75,7 +75,7 @@ class IntegrityPanel {
 |---|---|
 | Empty checks | "No integrity checks configured." empty state |
 | Invalid range (end < start / bad hex) | Inline `[data-form-error]`; no `onPersistChecks` |
-| Hash algorithm draft with stored field | Stored field hidden; stored config stripped |
+| Hash algorithm draft with stored field | Stored field remains visible; stored config persists |
 | Stored bytes unmapped | Card Error status; no comparison/fix |
 | Auto-fix mismatch staged | `onStoredValueEdits` with [addr, byte] pairs |
 | Discard after mismatch | Suppression flag; no immediate re-stage; `paused` styling |
@@ -84,7 +84,7 @@ class IntegrityPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init. Existing `integrityCheckModel.test.ts` (import re-point) + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate).
+`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init. Existing `integrityCheckModel.test.ts` (import re-point) + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate).
 
 ## Anti-patterns
 

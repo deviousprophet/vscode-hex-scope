@@ -190,9 +190,6 @@ function normalizeCheckName(value: unknown): string {
 function normalizeVerificationSettings(raw: IntegrityCheckConfig):
     | { ok: true; value: Pick<IntegrityCheckConfig, 'autoFixStoredValue' | 'storedAddress'> }
     | { ok: false } {
-    if (!isChecksumAlgorithm(raw.algorithm)) {
-        return { ok: true, value: { autoFixStoredValue: false } };
-    }
     if (!isStoredAddressValid(raw.storedAddress)) { return { ok: false }; }
     return {
         ok: true,

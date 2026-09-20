@@ -1,6 +1,5 @@
 import {
     formatIntegrityAddress,
-    isChecksumAlgorithm,
     parseIntegrityAddress,
     validateIntegrityRange,
     type IntegrityAlgorithm,
@@ -82,7 +81,7 @@ export function applyIntegrityDraft(check: IntegrityCheckState, draft: Integrity
     check.name = draft.name;
     check.startRaw = draft.startRaw;
     check.endRaw = draft.endRaw;
-    check.storedRaw = isChecksumAlgorithm(draft.algorithm) ? draft.storedRaw : '';
+    check.storedRaw = draft.storedRaw;
     if (!check.storedRaw) { check.autoFixStoredValue = false; }
     clearIntegrityAutoFixSuppression(check);
     clearIntegrityCheckResult(check);
@@ -107,7 +106,7 @@ export function integrityCheckConfigFromState(check: IntegrityCheckState): Integ
     if (!range.ok) { return range; }
     const nameCfg = checkNameConfig(check.name);
     if (!nameCfg.ok) { return nameCfg; }
-    const storedCfg = storedChecksumConfig(check);
+    const storedCfg = storedValueConfig(check);
     if (!storedCfg.ok) { return storedCfg; }
     return { ok: true, value: { ...range.value, ...nameCfg.value, ...storedCfg.value } };
 }
@@ -118,10 +117,10 @@ function checkNameConfig(name: string): { ok: true; value: { name?: string } } |
     return { ok: true, value: trimmed ? { name: trimmed } : {} };
 }
 
-function storedChecksumConfig(check: IntegrityCheckState):
+function storedValueConfig(check: IntegrityCheckState):
     | { ok: true; value: { storedAddress?: number; autoFixStoredValue: boolean } }
     | { ok: false; error: string } {
-    if (!hasStoredChecksum(check)) { return { ok: true, value: { autoFixStoredValue: false } }; }
+    if (!check.storedRaw) { return { ok: true, value: { autoFixStoredValue: false } }; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return stored; }
     return { ok: true, value: { storedAddress: stored.value, autoFixStoredValue: check.autoFixStoredValue } };
@@ -141,8 +140,4 @@ export function integrityCheckSetFromStates(checks: readonly IntegrityCheckState
     const configs = integrityCheckConfigsFromStates(checks);
     if (!configs.ok) { return configs; }
     return { ok: true, value: { schemaVersion: 1, checks: configs.value } };
-}
-
-function hasStoredChecksum(check: IntegrityCheckState): boolean {
-    return isChecksumAlgorithm(check.algorithm) && !!check.storedRaw;
 }

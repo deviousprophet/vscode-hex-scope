@@ -9,7 +9,6 @@ import {
     calculateIntegrity,
     collectIntegrityBytesAsync,
     integrityValueToBytes,
-    isChecksumAlgorithm,
     parseIntegrityAddress,
     readStoredIntegrityBytes,
     validateIntegrityRange,
@@ -75,7 +74,6 @@ function isUnconfiguredCheck(check: IntegrityCheckState): boolean {
 }
 
 function parseStoredField(check: IntegrityCheckState): { ok: true; value?: IntegrityStoredField } | { ok: false; error: string } {
-    if (!isChecksumAlgorithm(check.algorithm)) { return { ok: true, value: undefined }; }
     if (!check.storedRaw) { return { ok: true, value: undefined }; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return stored; }

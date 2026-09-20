@@ -8,7 +8,6 @@ import {
     integrityBytesEqual,
     integrityBytesToHex,
     integrityBytesToValueHex,
-    isChecksumAlgorithm,
     type IntegrityAlgorithm,
     type IntegrityResult,
 } from '../../../../core/integrity';
@@ -38,8 +37,8 @@ function checkRangeSummary(check: IntegrityCheckState): string {
     return check.storedRaw ? `${range} · stored ${check.storedRaw}` : range;
 }
 
-export function hasStoredChecksum(check: IntegrityCheckState): boolean {
-    return isChecksumAlgorithm(check.algorithm) && !!check.storedRaw;
+export function hasStoredValue(check: IntegrityCheckState): boolean {
+    return !!check.storedRaw;
 }
 
 function hasComparableStoredValue(check: IntegrityCheckState): check is IntegrityCheckState & {
@@ -87,7 +86,7 @@ function emptyResultBodyHtml(meta: string): string {
 }
 
 function pendingResultBodyHtml(check: IntegrityCheckState, deps: IntegrityResultRenderDeps): string {
-    const stored = hasStoredChecksum(check) ? pendingStoredResultHtml(check, deps) : '';
+    const stored = hasStoredValue(check) ? pendingStoredResultHtml(check, deps) : '';
     return `
     <div class="integrity-comparison${singleComparisonClass(stored)}">
         <div class="integrity-value-pane calculated pending">
@@ -137,7 +136,7 @@ function singleComparisonClass(storedHtml: string): string {
 }
 
 function storedResultHtml(check: IntegrityCheckState, deps: IntegrityResultRenderDeps): string {
-    if (!isChecksumAlgorithm(check.algorithm) || !check.storedBytes) { return ''; }
+    if (!check.storedBytes) { return ''; }
     const state = highlightStatus(check);
     const raw = integrityBytesToHex(check.storedBytes);
     const value = integrityBytesToValueHex(check.storedBytes, deps.endian());

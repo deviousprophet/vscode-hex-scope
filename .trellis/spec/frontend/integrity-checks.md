@@ -38,7 +38,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 - Start/end addresses are hexadecimal unsigned 32-bit and inclusive.
 - Every address in a range must be mapped unless it belongs to an explicitly excluded stored field.
 - Large byte collection and software integrity algorithms use the shared 24 ms work budget and yield cooperatively; SHA algorithms remain delegated to Web Crypto.
-- CRC16/CRC32 may compare against stored bytes and support selected stored byte order. Hash algorithms never retain stored-address/Auto-fix settings.
+- Every integrity algorithm may compare against stored bytes and supports selected stored byte order.
 - If stored field overlaps calculated range, exclude its bytes from calculation.
 - Calculated value text is uppercase; conversion to stored bytes honors selected LE/BE.
 - Checks use pending edited bytes through the shared reader.
@@ -56,7 +56,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 | End before start | `End address must be greater than or equal to start address.` |
 | First unmapped range byte | `No mapped byte at 0x........`. |
 | Stored bytes unmapped | Stored-address error; no comparison/fix. |
-| Hash draft contains stored config | Strip stored address and disable Auto fix. |
+| Stored field configured for any algorithm | Retain its address and Auto fix setting; validate against the algorithm output length. |
 | Malformed persisted profile/check set | Drop/reject during normalization; never trust cast. |
 | Duplicate profile name ignoring case | Keep one valid unique name; reject/drop duplicate. |
 | Fix groups write different values to same address | `Fix all conflict at 0x........`; apply none. |
@@ -64,8 +64,8 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 
 ### 5. Good/Base/Bad Cases
 
-- Base: SHA-256 over one mapped inclusive range shows digest and byte count, no stored controls.
-- Good: CRC stored field overlaps range; bytes are excluded, expected value converted to selected byte order, mismatch is highlighted, fix is undoable.
+- Base: SHA-256 over one mapped inclusive range shows digest and byte count; an optional full-digest stored field compares, highlights, and fixes.
+- Good: an integrity stored field overlaps range; bytes are excluded, expected value converted to selected byte order, mismatch is highlighted, fix is undoable.
 - Good: profile round-trip preserves `activeChecks` as normalized schema-v1 config inside the bound profile.
 - Bad: calculate across a gap by skipping missing bytes.
 - Bad: partially apply Fix all before discovering an overlap conflict.
@@ -73,7 +73,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 ### 6. Tests Required
 
 - `src/test/core/integrity.test.ts`: canonical `123456789` vectors, range parsing, missing bytes, overlap exclusion, byte order, stored reads, normalization, merge conflicts.
-- `src/test/webview/integrityCheckModel.test.ts`: draft/config round-trip, hash stripping, indexed validation errors, result/suppression reset.
+- `src/test/webview/integrityCheckModel.test.ts`: draft/config round-trip including hash stored fields, indexed validation errors, result/suppression reset.
 - `src/test/webview/webview.test.ts`: cards, shared byte order, forms, highlights/actions.
 - Add async token/stale-result and end-to-end edit-transaction assertions for calculation changes.
 

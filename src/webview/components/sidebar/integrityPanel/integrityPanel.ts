@@ -12,7 +12,6 @@ in integrityHighlight.ts. */
 import {
     formatIntegrityAddress,
     integrityBytesToHex,
-    isChecksumAlgorithm,
     mergeIntegrityEdits,
     normalizeIntegrityCheckSet,
     parseIntegrityAddress,
@@ -293,7 +292,7 @@ export class IntegrityPanel {
                 ${this.addressInputHtml('Start address', 'start', draft.startRaw, '08000000')}
                 ${this.addressInputHtml('End address (inclusive)', 'end', draft.endRaw, '080000FF')}
             </div>
-            <div data-stored-field${isChecksumAlgorithm(draft.algorithm) ? '' : ' hidden'}>
+            <div data-stored-field>
                 ${this.addressInputHtml('Stored value address (optional)', 'stored', draft.storedRaw, '08000100')}
             </div>
             <div class="integrity-form-error" data-form-error></div>
@@ -421,7 +420,7 @@ export class IntegrityPanel {
     }
 
     private applyAutoFixSetting(check: IntegrityCheckState, enabled: boolean): void {
-        if (!isChecksumAlgorithm(check.algorithm) || !check.storedRaw) { return; }
+        if (!check.storedRaw) { return; }
         this.clearAutoFixSuppression(check);
         check.autoFixStoredValue = enabled;
         this.persistChecks();
@@ -487,14 +486,6 @@ export class IntegrityPanel {
         form.querySelector('[data-form-action="cancel"]')?.addEventListener('click', () => this.cancelCheckForm(formId));
         form.querySelector<HTMLInputElement>('[data-draft-control="start"]')?.addEventListener('focus', () => { this.formLastFocused = 'start'; });
         form.querySelector<HTMLInputElement>('[data-draft-control="end"]')?.addEventListener('focus', () => { this.formLastFocused = 'end'; });
-        form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')?.addEventListener('change', event => {
-            this.updateStoredFieldVisibility(form, (event.target as HTMLSelectElement).value as IntegrityAlgorithm);
-        });
-    }
-
-    private updateStoredFieldVisibility(form: HTMLElement, algorithm: IntegrityAlgorithm): void {
-        const field = form.querySelector<HTMLElement>('[data-stored-field]');
-        if (field) { field.hidden = !isChecksumAlgorithm(algorithm); }
     }
 
     private saveCheckForm(formId: string, form: HTMLElement): void {
@@ -512,7 +503,7 @@ export class IntegrityPanel {
         const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
         const range = validateIntegrityRange(startRaw, endRaw, algorithm);
         if (!range.ok) { return range; }
-        const stored = this.readStoredDraft(form, algorithm);
+        const stored = this.readStoredDraft(form);
         if (!stored.ok) { return stored; }
         return {
             ok: true,
@@ -532,8 +523,7 @@ export class IntegrityPanel {
         return { ok: true, name };
     }
 
-    private readStoredDraft(form: HTMLElement, algorithm: IntegrityAlgorithm): StoredDraftValidation {
-        if (!isChecksumAlgorithm(algorithm)) { return { ok: true, value: '' }; }
+    private readStoredDraft(form: HTMLElement): StoredDraftValidation {
         const raw = form.querySelector<HTMLInputElement>('[data-draft-control="stored"]')!.value;
         if (!raw.trim()) { return { ok: true, value: '' }; }
         const parsed = parseIntegrityAddress(raw, 'Stored value');
