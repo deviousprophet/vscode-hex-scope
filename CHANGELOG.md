@@ -4,6 +4,7 @@
 
 ### Added
 - Integrity checks can store, compare, highlight, and update MD5 and SHA values
+- Hex Grid context menu can copy the selected start address as uppercase hexadecimal text
 
 ## [2.23.0] - 2026-09-16
 
