@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Integrity checks can store, compare, highlight, and update MD5 and SHA values
+
 ## [2.23.0] - 2026-09-16
 
 ### Added
