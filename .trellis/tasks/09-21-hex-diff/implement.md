@@ -76,7 +76,17 @@ Ordered; each step gated by the previous.
 8. **Specs.** Update `component-diff-view.md` (toolbar, icon buttons, always-visible search, loading card, format pill) and `editor-lifecycle.md` (`diffProgress`).
 9. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
 
-## Phase C — Finish (after Phase A5 is green)
+## Phase A6 — Concurrent load (loading regression fix)
+
+Ordered; each step gated by the previous.
+
+1. **Concurrent read+parse.** `src/diff/diffEditorPanel.ts`: replace the serial `readDiffSource`/`parseDiffSource` awaits with `Promise.all` over both files (read then parse each), keeping the staleness checks and the `diff` stage around `computeByteDiff`.
+2. **Monotonic summed progress.** Track each file's fraction (`[0,1]`); post `completed = fractionA + fractionB`, `total = 2` through the existing `DiffProgressReporter`. Extract the summing into a pure helper (`combinedLoadProgress`) so it can be unit-tested.
+3. **Tests.** Add a core/host test asserting `combinedLoadProgress` is monotonic and bounded by `total`, and that interleaved per-file fractions never regress the combined value. Keep the existing `diffProgress` webview tests green.
+4. **Specs.** Update `editor-lifecycle.md` (concurrent load + summed progress) and note the regression in `component-diff-view.md`.
+5. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase C — Finish (after Phase A6 is green)
 
 1. Commit all working-tree changes for the task (single commit; no secrets; match repo commit style).
 2. Run `/update-changelog` (`.agents/skills/update-changelog/SKILL.md`) to prepare the changelog entry synchronized with package version and the committed changes since the latest release tag.

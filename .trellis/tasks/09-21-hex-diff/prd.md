@@ -51,6 +51,10 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 28. **Format pill.** The side-head format label renders as a pill identical to the hex-view stats-bar format pill, via one shared `.fmt-pill` class used by both surfaces. The `·` separator between name and format is dropped.
 29. **Icon action buttons.** The diff action bar uses Unicode-glyph icon buttons (repo convention; no codicon font): `▲` Prev diff, `▼` Next diff, `≡` Show all, `≠` Show diff, `⇄` Swap sides, `⇅` Sync scroll. Every button keeps a `title` and `aria-label`, and the button hit target is comfortably sized (not the 18px icon-button minimum).
 
+### Findings round 5 (loading regression)
+
+30. **Concurrent load.** Round 4 serialized the two files' read+parse to keep progress monotonic, which doubles the wall clock for two similar large files. Restore concurrency: read and parse both sides with `Promise.all`, and keep the bar monotonic by summing the two per-file fractions (`completed = fractionA + fractionB`, `total = 2`). Sum of monotonic fractions stays monotonic.
+
 ## Requirements
 
 - R1 — `HexScope: Compare with...` command appears for a supported active file (editor title bar + command palette) and prompts for the second file.
@@ -82,6 +86,7 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - R27 — Row 1 is `Show all`/`Show diff` + `Prev diff`/`Next diff` (left), `Swap sides` (center), search bar (right); row 2 is `Sync scroll` (left) and the centered diff stat.
 - R28 — The side-head format shows as a pill matching the hex-view format pill, with no `·` separator.
 - R29 — Diff action buttons are icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`) with tooltips and `aria-label`s, and a hit target large enough to click comfortably.
+- R30 — Both files are read and parsed concurrently (no serial 2× penalty), while the loading bar still advances monotonically from the summed per-file fractions and never exceeds its total.
 
 ## Acceptance Criteria
 
@@ -116,6 +121,7 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - [ ] AC29 — The toolbar shows row 1 (`Show all`/`Show diff`, `Prev diff`, `Next diff`, `Swap sides`, search) and row 2 (`Sync scroll`, diff stat centered) as specified.
 - [ ] AC30 — Side heads render `<name>` followed by a format pill identical in style to the hex-view stats-bar format pill, with no ` · ` separator.
 - [ ] AC31 — The diff action bar shows only icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`), each with a tooltip/`aria-label`; buttons are comfortably sized and toggles still show an active state.
+- [ ] AC32 — Comparing two similar large files takes roughly one file's parse time (concurrent), not two, and the loading bar never moves backwards.
 
 ## Out of Scope
 

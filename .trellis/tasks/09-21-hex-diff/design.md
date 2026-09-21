@@ -291,6 +291,17 @@ Each `<button class="diff-action">` carries `title` + `aria-label` (readable too
 
 Extract the stats-bar pill rule into one shared utility class `.fmt-pill` in `src/webview/styles/base.css`; `statsBar.css` `.si-fmt .svl` uses it, and `diffViewer.setSideHead` renders the format as `<span class="fmt-pill">IHEX</span>` after the name (no ` · ` separator).
 
+## Findings Round 5 — Concurrent Load (regression fix)
+
+Round 4's `loadBothSides` (`src/diff/diffEditorPanel.ts:117-121`) serializes read+parse to keep `diffProgress` monotonic. Parsing dominates, so two similar files now cost ~2× the single-file time — the loading card made a pre-existing wait visible and also introduced this serialization.
+
+Fix:
+
+- Read and parse both sides with `Promise.all`; keep `AbortController`/generation staleness checks.
+- Each file's progress is a fraction in `[0, 1]` — its read fills the first half (`0 → 0.5`) and its parse the second (`0.5 → 1`, relayed from the parser's `completed/total`). (The earlier "read completes at 1" wording was wrong: it would regress a file's own fraction from 1 back to `parse = 0`; the shipped mapping keeps each fraction monotonic.) Post `completed = combinedLoadProgress([fractionA, fractionB])`, `total = 2`. Sum of two monotonic fractions is monotonic, so the bar never regresses; a file that throws stops contributing at its last fraction.
+- Keep the `diffProgress` shape (`stage` + `completed` + `total`) unchanged. With concurrency the stage reflects the furthest phase reached (`read` until both reads finish, then `parse`, then `diff`), so the card's stage label stays coherent.
+- Extract the fraction-summing into a pure helper (e.g. `combinedLoadProgress(fractions)`) so monotonicity is unit-testable without the panel.
+
 ## Compatibility & Rollback
 
 - The de-globalization refactor keeps ids on the shell elements and swaps CSS selectors only, so existing `getElementById` call sites and tests are unaffected.

@@ -9,8 +9,11 @@ import { parseSRecCompact } from '../core/parser/srecParser';
 import type { CompactParserOptions, CompactParseResult } from '../core/parser/compact';
 import { serializeParseResult } from '../core/wire';
 import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide, type DiffProgressStage } from '../diffProtocol';
+import { combinedLoadProgress } from './loadProgress';
 
+/** Each file contributes one unit to `diffProgress`; its read fills the first half, its parse the second. */
 const FILE_TOTAL = 2;
+const READ_SHARE = 0.5;
 
 interface ParsedDiffFile {
     format: HexScopeFormat;
@@ -85,7 +88,8 @@ export class DiffEditorPanel {
                 if (!loaded) { return; }
                 await DiffEditorPanel.post(panel, { type: 'diffInit', generation: gen, ...loaded });
             } catch (error) {
-                if (disposed) { return; }
+                if (isStale()) { return; }
+                controller.abort();
                 await DiffEditorPanel.post(panel, { type: 'diffError', generation: gen, message: diffErrorMessage(error) });
             }
         };
@@ -106,7 +110,7 @@ interface LoadedDiff {
     diff: DiffModel;
 }
 
-/** Read, parse, and diff both sides; `null` when the load was superseded or the panel is gone. */
+/** Read, parse, and diff both sides concurrently; `null` when the load was superseded or the panel is gone. */
 async function loadBothSides(
     baseUri: vscode.Uri,
     otherUri: vscode.Uri,
@@ -114,36 +118,48 @@ async function loadBothSides(
     progress: DiffProgressReporter,
     isStale: () => boolean,
 ): Promise<LoadedDiff | null> {
-    const baseRaw = await readDiffSource(baseUri, 0, progress);
-    const otherRaw = await readDiffSource(otherUri, 1, progress);
-    if (isStale()) { return null; }
-    const base = await parseDiffSource(baseUri, baseRaw, 0, signal, progress);
-    const other = await parseDiffSource(otherUri, otherRaw, 1, signal, progress);
-    if (isStale()) { return null; }
+    const fractions = [0, 0];
+    const report = (): void => {
+        if (isStale()) { return; }
+        const reading = fractions.some(fraction => fraction <= READ_SHARE);
+        progress.post(reading ? 'read' : 'parse', combinedLoadProgress(fractions), FILE_TOTAL);
+    };
+    const loadSide = async (uri: vscode.Uri, index: number): Promise<ParsedDiffFile | null> => {
+        const raw = await readDiffSource(uri);
+        fractions[index] = READ_SHARE;
+        report();
+        if (isStale()) { return null; }
+        const parsed = await parseDiffSource(uri, raw, signal, fraction => {
+            fractions[index] = READ_SHARE + (1 - READ_SHARE) * fraction;
+            report();
+        });
+        fractions[index] = 1;
+        report();
+        return parsed;
+    };
+    report();
+    const [base, other] = await Promise.all([loadSide(baseUri, 0), loadSide(otherUri, 1)]);
+    if (isStale() || !base || !other) { return null; }
     progress.post('diff', 0, 1);
     const diff = computeByteDiff(base.result.segments, other.result.segments);
     progress.post('diff', 1, 1);
     return { a: diffSide(baseUri, base), b: diffSide(otherUri, other), diff };
 }
 
-async function readDiffSource(uri: vscode.Uri, index: number, progress: DiffProgressReporter): Promise<string> {
-    progress.post('read', index, FILE_TOTAL);
-    const raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(uri));
-    progress.post('read', index + 1, FILE_TOTAL);
-    return raw;
+async function readDiffSource(uri: vscode.Uri): Promise<string> {
+    return new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(uri));
 }
 
 async function parseDiffSource(
     uri: vscode.Uri,
     raw: string,
-    index: number,
     signal: AbortSignal,
-    progress: DiffProgressReporter,
+    onProgress: (fraction: number) => void,
 ): Promise<ParsedDiffFile> {
     const format = detectFormatFromParts(extensionOf(uri), raw);
     const options: CompactParserOptions = {
         signal,
-        onProgress: event => progress.post('parse', index + event.completed / Math.max(1, event.total), FILE_TOTAL),
+        onProgress: event => onProgress(event.completed / Math.max(1, event.total)),
     };
     const result = format === 'srec' ? await parseSRecCompact(raw, options) : await parseIntelHexCompact(raw, options);
     if (result.checksumErrors > 0 || result.malformedLines > 0) {
