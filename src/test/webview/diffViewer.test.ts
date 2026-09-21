@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import './cssImportHook';
 
 import { computeByteDiff } from '../../core/diff';
+import { SearchEngine, type SearchHandlers } from '../../core/search';
 import type { MemorySegment } from '../../core/parser/types';
 import type { DiffSide } from '../../diffProtocol';
 import { hydrateDiffSide, renderDiffErrorHtml, renderSideHeadHtml } from '../../webview/diff/diffModel';
@@ -115,6 +116,23 @@ function typeInto(input: HTMLInputElement, value: string): void {
     input.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('input', { bubbles: true }));
 }
 
+function pressEnter(shift = false): void {
+    const input = document.getElementById('search-input') as HTMLInputElement;
+    input.dispatchEvent(new (currentDom!.window as unknown as typeof window).KeyboardEvent('keydown', {
+        key: 'Enter', shiftKey: shift, bubbles: true, cancelable: true,
+    }));
+}
+
+function selectMode(mode: string): void {
+    const select = document.getElementById('search-mode') as HTMLSelectElement;
+    select.value = mode;
+    select.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('change', { bubbles: true }));
+}
+
+function matchCount(): string {
+    return document.getElementById('match-count')!.textContent ?? '';
+}
+
 function wait(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -214,10 +232,23 @@ suite('HexScope Diff webview', () => {
         assert.ok(text.includes('0 added'), `added count in "${text}"`);
         assert.ok(text.includes('1 removed'), `removed count in "${text}"`);
         const actions = [...document.querySelectorAll<HTMLButtonElement>('#diff-summary .diff-action')];
-        assert.deepStrictEqual(actions.map(button => button.textContent), ['≡', '≠', '▲', '▼', '⇄', '⇅']);
         assert.deepStrictEqual(actions.map(button => button.id), [
             'diff-show-all', 'diff-show-diff', 'diff-prev', 'diff-next', 'diff-swap', 'diff-sync',
         ]);
+        assert.deepStrictEqual(
+            actions.map(button => button.querySelector('.diff-action-glyph')?.textContent),
+            ['≡', '≠', '▲', '▼', '⇄', '⇅'],
+            'each action keeps its Unicode glyph',
+        );
+        assert.deepStrictEqual(
+            actions.map(button => button.querySelector('.diff-action-text')?.textContent),
+            ['Show all', 'Show diff', 'Prev diff', 'Next diff', 'Swap sides', 'Sync scroll'],
+            'each action shows a visible text label',
+        );
+        assert.ok(
+            actions.every(button => button.querySelector('.diff-action-glyph')?.getAttribute('aria-hidden') === 'true'),
+            'the decorative glyph is hidden from assistive tech',
+        );
         for (const button of actions) {
             assert.ok((button.getAttribute('title') ?? '').length > 0, `${button.id} carries a tooltip`);
             assert.strictEqual(button.getAttribute('aria-label'), button.getAttribute('title'), `${button.id} label matches its tooltip`);
@@ -476,7 +507,10 @@ suite('HexScope Diff webview', () => {
         assert.ok(!css.includes('.diff-hide-addr'), 'both panes keep their own address gutter');
         assert.ok(/\.diff-root\[hidden\][^{]*\{[^}]*display:\s*none/.test(css), 'diff root collapses while the loading card shows');
         assert.ok(/\.diff-tb-row\s*\{[^}]*grid-template-columns:\s*1fr auto 1fr/.test(css), 'toolbar rows keep the left/center/right slots');
-        assert.ok(/\.diff-action\s*\{[^}]*width:\s*26px[^}]*height:\s*26px/.test(css), 'icon buttons keep a comfortable 26px hit target');
+        assert.ok(/\.diff-action\s*\{[^}]*height:\s*26px/.test(css), 'action buttons keep a comfortable 26px height');
+        assert.ok(!/\.diff-action\s*\{[^}]*width:\s*26px/.test(css), 'action buttons size to their icon + text');
+        assert.ok(/\.diff-action-glyph\s*\{/.test(css), 'the glyph span is styled');
+        assert.ok(/\.diff-action-text\s*\{/.test(css), 'the visible text span is styled');
         assert.ok(!/codicon|@font-face/.test(css), 'action bar stays Unicode-only (no icon font)');
         assert.ok(!css.includes('.loading-bar-fill.det'), 'the determinate loading bar override is gone (parity with the hex view)');
         const baseCss = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
@@ -537,5 +571,92 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(error, 1);
         assert.strictEqual(init, 1);
         assert.strictEqual(progress, 1);
+    });
+
+    test('repeat Enter navigates the completed query instead of re-running it', async () => {
+        mount([seg(0x3000, [0xDE, 0xAD]), seg(0x4000, [0xDE, 0xAD])], []);
+        const original = SearchEngine.prototype.search;
+        let calls = 0;
+        SearchEngine.prototype.search = function (req, handlers): void {
+            calls++;
+            original.call(this, req, handlers);
+        };
+        try {
+            typeInto(document.getElementById('search-input') as HTMLInputElement, 'DE AD');
+            clickButton('btn-search');
+            await wait(500);
+            assert.strictEqual(calls, 1, 'the run button starts one search');
+            assert.strictEqual(matchCount(), '1 / 2');
+            pressEnter();
+            assert.strictEqual(matchCount(), '2 / 2', 'Enter advances the active match');
+            assert.strictEqual(calls, 1, 'an unchanged completed query is not re-run');
+            pressEnter(true);
+            assert.strictEqual(matchCount(), '1 / 2', 'Shift+Enter walks back');
+            assert.strictEqual(calls, 1, 'Shift+Enter on the completed query is navigation only');
+        } finally {
+            SearchEngine.prototype.search = original;
+        }
+    });
+
+    test('next/prev wrap around the match list at both ends', async () => {
+        mount([seg(0x3000, [0xDE, 0xAD]), seg(0x4000, [0xDE, 0xAD])], []);
+        typeInto(document.getElementById('search-input') as HTMLInputElement, 'DE AD');
+        clickButton('btn-search');
+        await wait(500);
+        assert.strictEqual(matchCount(), '1 / 2');
+        clickButton('btn-next');
+        assert.strictEqual(matchCount(), '2 / 2');
+        clickButton('btn-next');
+        assert.strictEqual(matchCount(), '1 / 2', 'next wraps past the last match');
+        clickButton('btn-prev');
+        assert.strictEqual(matchCount(), '2 / 2', 'prev wraps before the first match');
+    });
+
+    test('a same-key UI change keeps matches and a diverged one drops them', async () => {
+        mount([seg(0x3000, [0xDE, 0xAD])], []);
+        typeInto(document.getElementById('search-input') as HTMLInputElement, 'DE AD');
+        clickButton('btn-search');
+        await wait(500);
+        assert.strictEqual(matchCount(), '1 / 1');
+        clickButton('search-btn-be');
+        assert.strictEqual(matchCount(), '1 / 1', 'endianness is n/a for bytes, so the key is unchanged');
+        selectMode('ascii');
+        assert.strictEqual(matchCount(), '0 / 0', 'a diverged query drops the stale matches');
+    });
+
+    test('a streamed batch paints, counts, and jumps to the first match', () => {
+        mount([seg(0x3000, [0xDE, 0xAD])], []);
+        const original = SearchEngine.prototype.search;
+        const captured: { handlers: SearchHandlers | null; calls: number } = { handlers: null, calls: 0 };
+        SearchEngine.prototype.search = function (_req, nextHandlers): void {
+            captured.calls++;
+            captured.handlers = nextHandlers;
+        };
+        try {
+            typeInto(document.getElementById('search-input') as HTMLInputElement, 'DE AD');
+            clickButton('btn-search');
+            assert.ok(captured.handlers !== null, 'the diff host requested a search');
+            clickButton('btn-search');
+            assert.strictEqual(captured.calls, 1, 'a Run click on the in-flight search is a no-op (hex parity)');
+            captured.handlers.onProgressUpdate?.([0x3000], 50);
+            assert.strictEqual(matchCount(), '1 / 1', 'streamed matches are counted');
+            assert.ok(cell('#diff-rows-a', 0x3000)?.classList.contains('amatch'), 'streamed match highlighted');
+            assert.ok(cell('#diff-rows-a', 0x3000)?.classList.contains('sel'), 'the first streamed batch selects the match');
+        } finally {
+            SearchEngine.prototype.search = original;
+        }
+    });
+
+    test('the match count survives a toolbar re-render', async () => {
+        const a = [seg(0x3000, [0xDE, 0xAD])];
+        const b: MemorySegment[] = [];
+        mount(a, b);
+        typeInto(document.getElementById('search-input') as HTMLInputElement, 'DE AD');
+        clickButton('btn-search');
+        await wait(500);
+        assert.strictEqual(matchCount(), '1 / 1');
+        setDiffSummary(computeByteDiff(a, b));
+        assert.strictEqual(matchCount(), '1 / 1', 'the count is re-pushed after the bar is re-injected');
+        assert.strictEqual((document.getElementById('search-input') as HTMLInputElement).value, 'DE AD', 'the query is preserved');
     });
 });

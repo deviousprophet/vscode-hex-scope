@@ -116,7 +116,28 @@ One step; no protocol, card, or test change.
 2. **Docs.** `editor-lifecycle.md` + `component-diff-view.md` read-split wording; `design.md` round 5/7 phrasing + new "Findings Round 8 — Diff Read Weight" section.
 3. **Validation:** `npm run check-types`, `npm run lint`, `npm test`; no new tests (private constant, no seam) — existing `diffLoadProgress`/`diffViewer` suites stay green.
 
-## Phase C — Finish (after Phase A7 is green)
+## Phase A10 — Icon + text action buttons (findings round 9)
+
+Ordered; each step gated by the previous.
+
+1. **`src/webview/diff/diffSummary.ts`**: `actionButton(id, glyph, text, title, active)` renders `<span class="diff-action-glyph" aria-hidden="true">${glyph}</span><span class="diff-action-text">${text}</span>`; update the six call sites (`Show all` / `Show diff` / `Prev diff` / `Next diff` / `Swap sides` / `Sync scroll`) keeping the descriptive `title`/`aria-label`.
+2. **`src/webview/diff/diff.css`**: `.diff-action` → `inline-flex` row, `gap:5px`, `height:26px`, `padding:0 8px`, auto width; add `.diff-action-glyph` (~14px) + `.diff-action-text` (10px); keep hover/`.active`/`:disabled`.
+3. **Tests** `src/test/webview/diffViewer.test.ts`: per-button glyph span + text span assertion (replace the bare `textContent` glyph list), keep `title`/`aria-label`, stylesheet guard → comfortable height + auto width.
+4. **Specs** `component-diff-view.md` (action-button rule + tests line) and `editor-lifecycle.md` (action-bar bullet): glyph + text.
+5. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase A11 — Search parity with the hex view (findings round 10)
+
+Ordered; each step gated by the previous.
+
+1. **`src/webview/search/searchNavigation.ts`** (new, pure, no `S`/DOM/`memoryGrid`): move `shouldNavigateCompletedSearch` here and add `isSearchDiverged`. `src/webview/search/searchEngine.ts` imports them (no behavior change) so the diff bundle stays isolated.
+2. **`src/webview/diff/diffSearch.ts`**: completed-key tracking + repeat-Enter navigate; `onProgressUpdate` streaming (paint + count + one-time first jump); divergence-gated `onQueryChanged`; modulo wrap in `stepMatch`; `applyMatches` selects the active match (`selection: true`); export `refreshDiffSearchCount()` and call it from `mountDiffSearch`.
+3. **`src/webview/diff/diffViewer.ts`**: call `refreshDiffSearchCount()` after `setDiffSummary` re-injects the bar.
+4. **Tests** `src/test/webview/diffViewer.test.ts`: repeat-Enter navigates (no second engine run), streaming count/jump, active-match selection + `Ctrl+C` copy, wrap at both ends, divergence keep/clear, count survives `setDiffSummary` re-render. Keep `searchBar.test.ts` green.
+5. **Specs** `component-diff-view.md` (search rule + tests) and `component-search-bar.md` (drop the diff "known gap"; note full parity).
+6. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase C — Finish (after Phase A11 is green)
 
 1. Commit all working-tree changes for the task (single commit; no secrets; match repo commit style).
 2. Run `/update-changelog` (`.agents/skills/update-changelog/SKILL.md`) to prepare the changelog entry synchronized with package version and the committed changes since the latest release tag.

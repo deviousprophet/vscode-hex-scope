@@ -20,11 +20,13 @@
 .diff-count-add { color: var(--ok); }
 .diff-count-del { color: var(--err); }
 .diff-action {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px; padding: 0; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    height: 26px; padding: 0 8px; flex-shrink: 0;
     background: transparent; color: var(--addr-fg); border: 1px solid var(--border); border-radius: 3px;
     font-size: 14px; line-height: 1; font-family: var(--font-ui); cursor: pointer;
 }
+.diff-action-glyph { font-size: 14px; line-height: 1; }
+.diff-action-text { font-size: 10px; }
 .diff-action:hover:not(:disabled) { color: var(--fg); border-color: var(--fg); }
 .diff-action:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }
 .diff-action.active { background: var(--btn-bg); color: var(--btn-fg); border-color: transparent; }

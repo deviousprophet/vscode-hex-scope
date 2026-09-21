@@ -5,6 +5,7 @@ import { paintMemoryMatchHighlights, paintMemorySelection, scrollTo } from '../m
 import { SearchEngine, buildNeedles } from '../../core/search';
 import type { SearchEndianness, SearchMode } from '../../core/types';
 import { searchKeyFor, type SearchTrigger } from '../components/searchBar/searchBarRender';
+import { isSearchDiverged, shouldNavigateCompletedSearch } from './searchNavigation';
 
 // -------------------- UI glue (previously in search.ts) --------------------
 
@@ -88,16 +89,6 @@ function handleCompletedSearchNavigation(q: string, searchKey: string, trigger: 
 
     navigateBySearchTrigger(trigger);
     return true;
-}
-
-/** Pure decision: should Enter navigate an unchanged completed search instead of re-running it? */
-export function shouldNavigateCompletedSearch(
-    q: string,
-    searchKey: string,
-    trigger: SearchTrigger,
-    lastCompletedSearchKey: string,
-): boolean {
-    return q.length > 0 && searchKey === lastCompletedSearchKey && trigger !== 'button';
 }
 
 function navigateBySearchTrigger(trigger: SearchTrigger): void {
@@ -211,21 +202,11 @@ export function clearSearch(): void {
 /** Drop search state when the visible query/mode/endian diverges from the running or completed search. */
 export function invalidateSearchIfDiverged(query: string, mode: SearchMode, endianness: SearchEndianness): void {
     if (S.matchAddrs.length === 0 && !_searchRunning) { return; }
-    if (!isDivergedFromSearch(query.trim(), mode, endianness)) { return; }
+    if (!isSearchDiverged(query, mode, endianness, _activeSearchKey, _lastCompletedSearchKey)) { return; }
     engine.clear();
     _searchRunning = false;
     _lastCompletedSearchKey = '';
     clearSearch();
-}
-
-/** Empty query, or a visible key differing from the active/completed search, counts as diverged. */
-function isDivergedFromSearch(q: string, mode: SearchMode, endianness: SearchEndianness): boolean {
-    return q.length === 0 || !matchesCurrentSearchKey(q, mode, endianness);
-}
-
-function matchesCurrentSearchKey(q: string, mode: SearchMode, endianness: SearchEndianness): boolean {
-    const key = searchKeyFor(mode, q, endianness);
-    return key === _activeSearchKey || key === _lastCompletedSearchKey;
 }
 
 export function nextMatch(): void {

@@ -31,16 +31,16 @@ export function renderDiffSummaryHtml(
 ): string {
     return `<div class="diff-tb-row">` +
         `<div class="diff-tb-left">` +
-        actionButton('diff-show-all', '≡', 'Show all rows', viewMode === 'all') +
-        actionButton('diff-show-diff', '≠', 'Show differences only', viewMode === 'diff') +
-        actionButton('diff-prev', '▲', 'Previous difference') +
-        actionButton('diff-next', '▼', 'Next difference') +
+        actionButton('diff-show-all', '≡', 'Show all', 'Show all rows', viewMode === 'all') +
+        actionButton('diff-show-diff', '≠', 'Show diff', 'Show differences only', viewMode === 'diff') +
+        actionButton('diff-prev', '▲', 'Prev diff', 'Previous difference') +
+        actionButton('diff-next', '▼', 'Next diff', 'Next difference') +
         `</div>` +
-        `<div class="diff-tb-center">${actionButton('diff-swap', '⇄', 'Swap sides')}</div>` +
+        `<div class="diff-tb-center">${actionButton('diff-swap', '⇄', 'Swap sides', 'Swap sides')}</div>` +
         `<div class="diff-tb-right"><div class="diff-search-slot" id="diff-search"></div></div>` +
         `</div>` +
         `<div class="diff-tb-row">` +
-        `<div class="diff-tb-left">${actionButton('diff-sync', '⇅', 'Sync scroll', syncScroll)}</div>` +
+        `<div class="diff-tb-left">${actionButton('diff-sync', '⇅', 'Sync scroll', 'Sync scroll', syncScroll)}</div>` +
         `<div class="diff-tb-center diff-stat">${renderDiffStat(diff)}</div>` +
         `<div class="diff-tb-right"></div>` +
         `</div>`;
@@ -52,8 +52,11 @@ function renderDiffStat(diff: DiffModel): string {
         `<span class="diff-count diff-count-del">${diff.summary.removed} removed</span>`;
 }
 
-function actionButton(id: string, glyph: string, label: string, active = false): string {
-    return `<button type="button" id="${id}" class="diff-action${active ? ' active' : ''}" title="${label}" aria-label="${label}">${glyph}</button>`;
+function actionButton(id: string, glyph: string, text: string, title: string, active = false): string {
+    return `<button type="button" id="${id}" class="diff-action${active ? ' active' : ''}" title="${title}" aria-label="${title}">` +
+        `<span class="diff-action-glyph" aria-hidden="true">${glyph}</span>` +
+        `<span class="diff-action-text">${text}</span>` +
+        `</button>`;
 }
 
 function wireSummaryButtons(): void {

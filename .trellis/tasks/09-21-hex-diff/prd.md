@@ -65,6 +65,29 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 33. **Monotonic progress.** The compact parser emits two stages (`parse` = source scan, `build` = record/segment materialization) that both report a full `completed/total`; the diff mapped both onto the same per-file half, so the stage switch reset the fraction from ~1.0 back to 0 (measured two backwards jumps: 100% → 75% → 80% → 56% → 60% → 94%). Own the per-file fraction in one place and clamp it to a running maximum so the bar only advances.
 34. **Zero-copy handoff.** The worker owns the file bytes (transferred, not copied) and returns segment buffers by transfer, so the round trip adds no full-size copy.
 
+### Findings round 7 (diff load speed & progress, continued)
+
+35. **Throttled worker progress.** A worker that posts a message per parser event serializes the two workers: the extension host's single main thread drains ~95k–525k tiny `progress` messages per file, so wall time returns to ~2× one worker (measured 4 MiB 1126ms unthrottled vs 744ms throttled; 16 MiB 4672ms vs 2593ms). Post only when `Math.floor(fraction * 100)` strictly advances (integer percent), keep the running-max fraction, and never throttle the `result` post.
+
+### Findings round 8 (read weight)
+
+36. **Read weight (bar shape).** The read slice of each file's unit (`READ_SHARE`) must be small, not 0.5: reading is fast and posts no intermediate progress, so a half-bar reservation made the bar jump straight to 50% and then crawl 50→100 during the parse. `READ_SHARE = 0.05` so the bar tracks the dominant parse (reads ≈5%, parse 5→100%).
+
+### Findings round 9 (action buttons show icon + text)
+
+37. **Icon + text action buttons.** The diff action bar buttons keep their Unicode glyph but add a short visible text label (`≡ Show all`, `≠ Show diff`, `▲ Prev diff`, `▼ Next diff`, `⇄ Swap sides`, `⇅ Sync scroll`) so the actions are readable without hovering; the descriptive tooltip/`aria-label` is unchanged. Supersedes the icon-only decision 29 (R29 / AC31).
+
+### Findings round 10 (search parity with the hex view)
+
+38. **Full search parity.** The diff search bar adopts the hex surface's host semantics for everything except the two intentional differences (the bar is always visible; one query unions both panes' addresses). Concretely:
+    - **Completed-query Enter navigates.** A second Enter / Shift+Enter on an unchanged completed query steps to the next/previous match instead of re-running the search, driven by the same canonical key (`searchKeyFor`) and completed-key tracking as the hex view.
+    - **Streaming results.** Consume the engine's `onProgressUpdate` to paint matches, update the count, and jump to the first hit while the search is still running, instead of waiting for `onComplete`.
+    - **Active match is the selection.** Navigating to a match sets the mirrored read-only selection to that match's address span (so `Ctrl+C` copies it), not just a highlight.
+    - **Wrap-around navigation.** Next/previous match wrap at the ends (modulo), matching the hex view.
+    - **Divergence-aware invalidation.** A UI-only query/mode/endian change drops the match set only when the visible search key *diverges* from the running/completed search; an unchanged key keeps the current matches.
+    - **Count survives a toolbar re-render.** After the toolbar re-injects the search bar, the host re-pushes the current match count.
+    - Search options already persist within a panel because the component instance is cached and `toHtml()` regenerates from its internal state; only a fresh compare (`resetDiffSearch`) resets them.
+
 ## Requirements
 
 - R1 — `HexScope: Compare with...` command appears for a supported active file (editor title bar + command palette) and prompts for the second file.
@@ -95,9 +118,10 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - R26 — The search bar is always visible in the diff view; `Ctrl+F` focuses it; no `Find` button exists.
 - R27 — Row 1 is `Show all`/`Show diff` + `Prev diff`/`Next diff` (left), `Swap sides` (center), search bar (right); row 2 is `Sync scroll` (left) and the centered diff stat.
 - R28 — The side-head format shows as a pill matching the hex-view format pill, with no `·` separator.
-- R29 — Diff action buttons are icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`) with tooltips and `aria-label`s, and a hit target large enough to click comfortably.
+- R29 — Diff action buttons show each action's Unicode glyph together with a short visible text label (`≡ Show all`, `≠ Show diff`, `▲ Prev diff`, `▼ Next diff`, `⇄ Swap sides`, `⇅ Sync scroll`), plus a tooltip and `aria-label`, with a hit target large enough to click comfortably.
 - R30 — Both files are read and parsed in parallel worker threads (no serial 2× penalty), while the reported progress stays monotonic from the summed per-file fractions and never exceeds its total.
 - R31 — The diff loading card shows the same indeterminate animated bar as the hex view; percent appears only in the card text as `Loading <stage> <pct>%…`, and the bar width is never driven by progress.
+- R32 — The diff search bar reaches full parity with the hex search bar's host behaviour: Enter on an unchanged completed query navigates matches instead of re-running; results stream while searching; the active match is the mirrored selection (so `Ctrl+C` copies it); next/previous wrap at the ends; a UI-only change invalidates matches only when the search key diverges; and the match count survives a toolbar re-render. The always-visible bar and the two-pane union search are the only intentional differences.
 
 ## Acceptance Criteria
 
@@ -131,9 +155,10 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - [ ] AC28 — The diff view always shows the search bar; `Ctrl+F` focuses/selects its input; there is no `Find` button.
 - [ ] AC29 — The toolbar shows row 1 (`Show all`/`Show diff`, `Prev diff`, `Next diff`, `Swap sides`, search) and row 2 (`Sync scroll`, diff stat centered) as specified.
 - [ ] AC30 — Side heads render `<name>` followed by a format pill identical in style to the hex-view stats-bar format pill, with no ` · ` separator.
-- [ ] AC31 — The diff action bar shows only icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`), each with a tooltip/`aria-label`; buttons are comfortably sized and toggles still show an active state.
+- [ ] AC31 — The diff action bar shows glyph + text buttons (`≡ Show all`, `≠ Show diff`, `▲ Prev diff`, `▼ Next diff`, `⇄ Swap sides`, `⇅ Sync scroll`), each with a tooltip/`aria-label`; buttons are comfortably sized and toggles still show an active state.
 - [ ] AC32 — Comparing two similar large files takes roughly one file's parse time (parallel workers), not two, and the reported progress never moves backwards.
 - [ ] AC33 — The diff loading card's bar animates indeterminately (never width-driven); its text reads `Loading read …%` / `Loading parse …%` / `Loading diff …%`, matching the hex-view loading label.
+- [ ] AC34 — In the diff view: a repeat Enter steps between matches without re-running the search; a large search streams a rising count and jumps to the first hit; the active match is selected on both panes and `Ctrl+C` copies its bytes; next/previous wrap at the ends; changing the query back to the completed one keeps its matches while a divergent query drops them; and the count is still shown after the toolbar re-renders.
 
 ## Out of Scope
 

@@ -378,6 +378,55 @@ Round 7 mapped each file's read onto `READ_SHARE = 0.5`, so the combined bar jum
 - No protocol, card, or `FILE_TOTAL` change: `combinedLoadProgress`, `advanceFraction`, the `read`/`parse` stage gate, and the text-only label are unchanged. Constant-only change (`src/diff/diffEditorPanel.ts`); no new tests (the split is a private host constant with no seam), and the existing `diffLoadProgress`/`diffViewer` suites stay green.
 - Rollback: restore `READ_SHARE = 0.5`.
 
+## Findings Round 9 — Action Buttons Show Icon + Text
+
+The action bar shipped icon-only (Round 4 / decision 29); the label must be visible. Keep the Unicode glyph, add a short visible text; the descriptive `title`/`aria-label` is unchanged.
+
+- `src/webview/diff/diffSummary.ts`: `actionButton(id, glyph, text, title, active)` renders `<span class="diff-action-glyph" aria-hidden="true">${glyph}</span><span class="diff-action-text">${text}</span>`. Call sites: `≡ Show all`, `≠ Show diff`, `▲ Prev diff`, `▼ Next diff`, `⇄ Swap sides`, `⇅ Sync scroll`.
+- `src/webview/diff/diff.css`: `.diff-action` becomes `inline-flex; align-items:center; gap:5px; height:26px; padding:0 8px; width:auto` (was a 26×26 square); `.diff-action-glyph { font-size:14px; line-height:1 }`, `.diff-action-text { font-size:10px }`. Hover/`.active`/`:disabled` unchanged; Unicode only — no codicon font/SVG.
+- Tests (`diffViewer.test.ts`): assert the per-button glyph span + text span (not a bare `textContent` glyph), keep `title`/`aria-label`, and change the stylesheet guard from `width:26px/height:26px` to a comfortable height with auto width.
+- Supersedes decision 29; prd R29 / AC31 revised.
+
+## Findings Round 10 — Search Parity
+
+Measured gaps between the hex search host (`src/webview/search/searchEngine.ts` + `hexViewer.ts` wiring) and the diff host (`src/webview/diff/diffSearch.ts`); both already share the `SearchBar` component.
+
+| Gap | Hex | Diff (before) |
+|---|---|---|
+| Repeat Enter on a completed query | navigates (`shouldNavigateCompletedSearch`) | re-runs the search |
+| Streaming results | `onProgressUpdate` paints + counts + first jump | `onComplete` only |
+| Active match | set as the selection (`selectCurrentMatch`) | highlight only (`selection:false`) |
+| Next/prev at the ends | wrap (`% length`) | clamp |
+| UI-only change | invalidate only when the key diverges | clear unconditionally |
+| Count after toolbar re-render | re-pushed | lost (markup re-injected) |
+
+Intentionally unchanged: the bar is always visible (decision 26) and one query unions both panes' addresses (decision 15).
+
+### Shared pure helpers (isolation-safe)
+
+`shouldNavigateCompletedSearch` and the divergence test live inside `searchEngine.ts`, which imports `S` + `memoryGrid` — importing it from the diff bundle would break isolation. Extract the pure decision logic into a new DOM/`S`-free module `src/webview/search/searchNavigation.ts`:
+
+```typescript
+function shouldNavigateCompletedSearch(query: string, searchKey: string, trigger: SearchTrigger, lastCompletedSearchKey: string): boolean;
+function isSearchDiverged(query: string, mode: SearchMode, endianness: SearchEndianness, activeKey: string, completedKey: string): boolean;
+```
+
+`searchEngine.ts` imports these (no behavior change); `diffSearch.ts` imports them too. `searchKeyFor` stays in `searchBarRender.ts` (already shared).
+
+### Diff host (`src/webview/diff/diffSearch.ts`)
+
+- State: add `completedKey` (canonical key of the last completed search) beside `matches`/`index`/`span`; reset in `resetDiffSearch`.
+- `onSearch` → consult `shouldNavigateCompletedSearch` first (step match on unchanged completed query), else run a fresh search; a new key while a search is running cancels it (hex parity).
+- `runDiffSearch` passes `onProgressUpdate` (paint + `setCount` + one-time first jump) and `onComplete` (store `completedKey`, set index, paint, scroll).
+- `onQueryChanged` → gate on `isSearchDiverged`; clear only when diverged (empty query counts as diverged).
+- `stepMatch` wraps with modulo.
+- `applyMatches` selects the active match: `scrollToDiff({ start, end }, { selection: true })` in addition to the `setSearchMatches` highlight.
+- Export `refreshDiffSearchCount()`, called after `mountDiffSearch()` re-injects the bar so the count survives a toolbar re-render.
+
+### Rollback
+
+Revert `diffSearch.ts` to the unconditional-clear / `onComplete`-only host; the shared helper module is inert.
+
 ## Compatibility & Rollback
 
 - The de-globalization refactor keeps ids on the shell elements and swaps CSS selectors only, so existing `getElementById` call sites and tests are unaffected.

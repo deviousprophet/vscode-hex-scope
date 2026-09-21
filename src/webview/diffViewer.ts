@@ -7,7 +7,7 @@ import { disambiguatedLabels } from '../core/diffLabels';
 import { postProviderMessage } from './vscodeApi';
 import { hydrateDiffSide, renderSideHeadHtml, type DiffSideData } from './diff/diffModel';
 import { applyDiffProgress, copySelectionText, mountDiffGrid, setDiffData, setDiffGridHooks, showDiffError } from './diff/diffGrid';
-import { resetDiffSearch } from './diff/diffSearch';
+import { refreshDiffSearchCount, resetDiffSearch } from './diff/diffSearch';
 import { setDiffSummary } from './diff/diffSummary';
 import { isCopyShortcut, isEditableTarget } from './components/hexView/hexViewPaint';
 import { dispatchDiffMessage, type DiffErrorMessage, type DiffInitMessage } from './diff/diffMessages';
@@ -67,6 +67,7 @@ function applyDiffInit(message: DiffInitMessage): void {
     resetDiffSearch();
     setDiffData(a, b, message.diff);
     setDiffSummary(message.diff);
+    refreshDiffSearchCount();
 }
 
 function applyDiffError(message: DiffErrorMessage): void {

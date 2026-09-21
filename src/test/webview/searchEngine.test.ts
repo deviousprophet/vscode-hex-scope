@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import './cssImportHook';
-import { shouldNavigateCompletedSearch } from '../../webview/search/searchEngine';
+import { isSearchDiverged, shouldNavigateCompletedSearch } from '../../webview/search/searchNavigation';
 
 suite('search engine glue — completed-query navigation decision', () => {
     const KEY = 'bytes|n/a|de ad';
@@ -28,5 +28,21 @@ suite('search engine glue — completed-query navigation decision', () => {
 
     test('does not navigate when no prior completed search exists', () => {
         assert.ok(!shouldNavigateCompletedSearch('DE AD', KEY, 'enter-next', ''));
+    });
+
+    const CANONICAL = 'bytes|n/a|DEAD';
+
+    test('diverges on an empty query', () => {
+        assert.ok(isSearchDiverged('   ', 'bytes', 'auto', '', CANONICAL));
+    });
+
+    test('does not diverge while the visible key matches the active or completed search', () => {
+        assert.ok(!isSearchDiverged('DE AD', 'bytes', 'auto', CANONICAL, ''));
+        assert.ok(!isSearchDiverged('DE AD', 'bytes', 'auto', '', CANONICAL));
+    });
+
+    test('diverges when the visible key matches neither search', () => {
+        assert.ok(isSearchDiverged('BE', 'bytes', 'auto', '', CANONICAL));
+        assert.ok(isSearchDiverged('DE AD', 'ascii', 'auto', '', CANONICAL));
     });
 });
