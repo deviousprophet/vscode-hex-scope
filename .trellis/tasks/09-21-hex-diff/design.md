@@ -298,9 +298,85 @@ Round 4's `loadBothSides` (`src/diff/diffEditorPanel.ts:117-121`) serializes rea
 Fix:
 
 - Read and parse both sides with `Promise.all`; keep `AbortController`/generation staleness checks.
-- Each file's progress is a fraction in `[0, 1]` — its read fills the first half (`0 → 0.5`) and its parse the second (`0.5 → 1`, relayed from the parser's `completed/total`). (The earlier "read completes at 1" wording was wrong: it would regress a file's own fraction from 1 back to `parse = 0`; the shipped mapping keeps each fraction monotonic.) Post `completed = combinedLoadProgress([fractionA, fractionB])`, `total = 2`. Sum of two monotonic fractions is monotonic, so the bar never regresses; a file that throws stops contributing at its last fraction.
+- Each file's progress is a fraction in `[0, 1]` — its read fills a small leading slice (`0 → 0.05`) and its parse the rest (`0.05 → 1`, relayed from the parser's `completed/total`). (The original `0 → 0.5` split was reduced to `0.05` in findings round 8; the earlier "read completes at 1" wording was wrong because it would regress a file's own fraction from 1 back to `parse = 0` — the shipped mapping keeps each fraction monotonic.) Post `completed = combinedLoadProgress([fractionA, fractionB])`, `total = 2`. Sum of two monotonic fractions is monotonic, so the bar never regresses; a file that throws stops contributing at its last fraction.
 - Keep the `diffProgress` shape (`stage` + `completed` + `total`) unchanged. With concurrency the stage reflects the furthest phase reached (`read` until both reads finish, then `parse`, then `diff`), so the card's stage label stays coherent.
 - Extract the fraction-summing into a pure helper (e.g. `combinedLoadProgress(fractions)`) so monotonicity is unit-testable without the panel.
+
+## Findings Round 6 — Loading-Bar Parity
+
+The hex view's loading card bar is **indeterminate** (`hexEditorSession._getHtml` `.loading-bar-fill` animation); its progress percent lives only in the card text (`hexViewer.loadProgressLabel` → `Loading <stage> <pct>%…`). The diff's determinate bar (Round 4, option B) diverged. Literal parity:
+
+- `src/diff/diffEditorPanel.ts` `diffHtml`: drop the `det` class from `#diff-loading-fill` so the shared indeterminate animation applies.
+- `src/webview/diff/diff.css`: delete the `.loading-bar-fill.det { animation: none; transition: width … }` rule.
+- `src/webview/diff/diffGrid.ts` `applyDiffProgress`: text-only — `Loading ${stage} ${pct}%…` with the raw stage names (`read` / `parse` / `diff`), mirroring `hexViewer.loadProgressLabel`; remove the `fill.style.width` write and the friendly `DIFF_STAGE_LABEL` map.
+- Unchanged: the `diffProgress` message shape and the summed `completed`/`total` metric (R30), and the card title "Comparing files".
+
+## Findings Round 7 — Diff Load Parallelism & Progress
+
+Measurement drove this round (4 MiB fixtures, `reactor` harness in temp):
+
+```text
+parseA=532ms  parseB=544ms  parseBoth-concurrent=869ms   → ~1.6×, not 1×
+computeByteDiff=29ms  serializeParseResult≈1ms           → not the bottleneck
+16 MiB: 2 backward percent jumps (100→75→80→56→60→94)
+```
+
+`Promise.all` overlaps two CPU-bound parses on one thread; only worker threads give real parallelism. The non-monotonic bar comes from the compact parser's `parse` (scan) and `build` stages each reporting a full `completed/total`, both mapped onto the same per-file half.
+
+### Worker boundary
+
+New `src/diff/diffParseWorker.ts` (Node worker, bundled to `dist/diffParseWorker.js` by `esbuild.js` — mirrors `src/core/scripting/scriptWorker.ts`). It is started with `new Worker(path.join(__dirname, 'diffParseWorker.js'), { workerData, transferList })`.
+
+```typescript
+// workerData (transferred — no copy); `kind` is the job sentinel (see below)
+interface DiffParseJob { kind: 'diffParse'; bytes: ArrayBuffer; extension: string }
+
+// worker → host
+type DiffParseOut =
+    | { type: 'progress'; fraction: number }            // monotonic 0..1 for this file
+    | { type: 'result'; format: HexScopeFormat; wire: WireParseResult }
+    | { type: 'error'; message: string };
+```
+
+- The worker decodes the transferred bytes (`TextDecoder`), detects the format (`detectFormatFromParts`), runs the compact parser, and returns `serializeParseResult(result, format)` as `WireParseResult` with every segment `ArrayBuffer` in the postMessage transfer list.
+- The worker maps its own `parse`/`build` progress onto a **single monotonic `fraction`**: `parse` (scan) fills `[0, 0.9]`, `build` fills `[0.9, 1]`, clamped to a running max — so the host never sees a decrease from one file.
+- **The worker must throttle progress to integer percent.** `parseSourceRecordsAsync` reports `completed = cursor` once per source line, so an unthrottled worker posts ~100k–500k tiny messages per file; the extension host's single main thread drains every one, the two workers stop overlapping, and wall time returns to ≈2× one worker. Post `{ type: 'progress' }` only when `Math.floor(fraction * 100)` strictly advances past the last emitted percent (`percent <= lastPercent` gate, not time-based) — at most 101 posts per file. Keep the running-max `fraction` monotonicity and never throttle the `result` post. Measured (two workers in parallel, temp harness, `dist/diffParseWorker.js`):
+
+```text
+                 unthrottled                          integer-percent throttle
+4 MiB   wall 1126ms  progressA=95343  progressB=95343    wall  744ms  progressA=95  progressB=95
+16 MiB  wall 4672ms  progressA=381368 progressB=381367   wall 2593ms  progressA=98  progressB=98
+```
+
+The throttled wall times match the no-progress baseline (≈755ms / ≈2950ms on the same machine), so the throttle recovers the parallelism win without dropping the bar.
+- **Import-safe worker + job sentinel.** The worker module is also imported by its own test (so fallow sees a static edge instead of a dead "unused file" — no `.fallowrc` edit). Because the test/extension host can itself be a Node worker thread, `parentPort` alone is not a reliable "am I the diff worker?" test: the entry runs only when `workerData.kind === 'diffParse'`. Job-shape validation stays *inside* the async entry (`main()`), so a bad job still posts `{ type: 'error' }` rather than crashing the thread.
+- **Testable pure helpers.** The stage mapping + integer-percent throttle live in exported `BUILD_FLOOR` / `stageFraction` / `nextLoadFraction` / `INITIAL_LOAD_FRACTION`, unit-tested directly (no worker spawn, no `out/` patching); the spawn-based round-trip test still covers the wire result, SREC, and job-failure paths.
+- The host still reads bytes (`vscode.workspace.fs.readFile`, remote-scheme safe), transfers the buffer to the worker, and keeps the `AbortController`: abort terminates the worker.
+
+### Host mapping (`src/diff/diffEditorPanel.ts`)
+
+- `readDiffSource` returns `Uint8Array` (no decode on the host).
+- `loadSide`: read → fraction `READ_SHARE` (0.05) → await the worker (relaying `fraction` as `READ_SHARE + (1 - READ_SHARE) * fraction`) → `1`. Read still runs on the host; the two parses run in parallel workers.
+- `diffSide` uses the worker's `wire` directly (no `serializeParseResult` on the host); `computeByteDiff` wraps each `wire.segments[i].data` in a `Uint8Array` view.
+- `src/diff/loadProgress.ts` gains the per-file monotonic mapper (`advanceFraction(previous, next)`) so monotonicity is unit-testable without a worker.
+
+### Progress contract
+
+- `diffProgress` shape (`stage` + `completed` + `total`) is unchanged.
+- Card label stays `Loading <stage> <pct>%…`; `diff` still brackets `computeByteDiff`.
+
+### Rollback
+
+Revert the worker to the in-process `Promise.all` parse; the protocol and card are unchanged.
+
+## Findings Round 8 — Diff Read Weight
+
+Round 7 mapped each file's read onto `READ_SHARE = 0.5`, so the combined bar jumped straight to 50% the moment both fast reads finished and then crawled `50 → 100` across the dominant parse — the bar looked broken (the cached/fast read was weighted like the slow parse it precedes).
+
+- `READ_SHARE` drops from `0.5` to `0.05`: reading is fast and posts no intermediate progress, so it keeps only a small leading slice; the parse owns `0.05 → 1`.
+- 0.05 stays above a file's `0` fraction so the `read` stage gate (`fraction <= READ_SHARE`) still flips to `parse` only once every side has finished reading, and both reads landing at `0.05` give `completed = 0.1` (≈5%) before the parse advances.
+- No protocol, card, or `FILE_TOTAL` change: `combinedLoadProgress`, `advanceFraction`, the `read`/`parse` stage gate, and the text-only label are unchanged. Constant-only change (`src/diff/diffEditorPanel.ts`); no new tests (the split is a private host constant with no seam), and the existing `diffLoadProgress`/`diffViewer` suites stay green.
+- Rollback: restore `READ_SHARE = 0.5`.
 
 ## Compatibility & Rollback
 

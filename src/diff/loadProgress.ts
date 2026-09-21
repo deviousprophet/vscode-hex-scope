@@ -8,6 +8,11 @@ export function combinedLoadProgress(fractions: readonly number[]): number {
     return fractions.reduce((total, fraction) => total + clamp(fraction), 0);
 }
 
+/** Clamp a per-file fraction to `[0, 1]` and never let it regress from `previous`. */
+export function advanceFraction(previous: number, next: number): number {
+    return Math.max(previous, clamp(next));
+}
+
 function clamp(fraction: number): number {
     return Math.max(0, Math.min(1, fraction));
 }

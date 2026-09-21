@@ -55,6 +55,16 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 
 30. **Concurrent load.** Round 4 serialized the two files' read+parse to keep progress monotonic, which doubles the wall clock for two similar large files. Restore concurrency: read and parse both sides with `Promise.all`, and keep the bar monotonic by summing the two per-file fractions (`completed = fractionA + fractionB`, `total = 2`). Sum of monotonic fractions stays monotonic.
 
+### Findings round 6 (loading-bar parity)
+
+31. **Loading-bar parity with the hex view.** The diff loading card uses the same *indeterminate animated* bar as the single-file viewer; the host stops width-driving the fill, and `diffProgress` only updates the card text as `Loading <stage> <pct>%…` (stage = `read` / `parse` / `diff`, mirroring `hexViewer.loadProgressLabel`). Supersedes the determinate bar in decision 25.
+
+### Findings round 7 (diff load speed & progress)
+
+32. **True parallelism.** Round 5's `Promise.all` gave concurrency but not parallelism: the extension host is single-threaded, so two CPU-bound compact parses interleave and the pair costs ~1.6–2× one file (measured 4 MiB: parseA 532ms + parseB 544ms → both-concurrent 869ms). Parse each file in its own Node `worker_threads` worker (following the `scriptRunner`/`scriptWorker` precedent) so the pair loads in roughly one file's parse time.
+33. **Monotonic progress.** The compact parser emits two stages (`parse` = source scan, `build` = record/segment materialization) that both report a full `completed/total`; the diff mapped both onto the same per-file half, so the stage switch reset the fraction from ~1.0 back to 0 (measured two backwards jumps: 100% → 75% → 80% → 56% → 60% → 94%). Own the per-file fraction in one place and clamp it to a running maximum so the bar only advances.
+34. **Zero-copy handoff.** The worker owns the file bytes (transferred, not copied) and returns segment buffers by transfer, so the round trip adds no full-size copy.
+
 ## Requirements
 
 - R1 — `HexScope: Compare with...` command appears for a supported active file (editor title bar + command palette) and prompts for the second file.
@@ -86,7 +96,8 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - R27 — Row 1 is `Show all`/`Show diff` + `Prev diff`/`Next diff` (left), `Swap sides` (center), search bar (right); row 2 is `Sync scroll` (left) and the centered diff stat.
 - R28 — The side-head format shows as a pill matching the hex-view format pill, with no `·` separator.
 - R29 — Diff action buttons are icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`) with tooltips and `aria-label`s, and a hit target large enough to click comfortably.
-- R30 — Both files are read and parsed concurrently (no serial 2× penalty), while the loading bar still advances monotonically from the summed per-file fractions and never exceeds its total.
+- R30 — Both files are read and parsed in parallel worker threads (no serial 2× penalty), while the reported progress stays monotonic from the summed per-file fractions and never exceeds its total.
+- R31 — The diff loading card shows the same indeterminate animated bar as the hex view; percent appears only in the card text as `Loading <stage> <pct>%…`, and the bar width is never driven by progress.
 
 ## Acceptance Criteria
 
@@ -121,7 +132,8 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - [ ] AC29 — The toolbar shows row 1 (`Show all`/`Show diff`, `Prev diff`, `Next diff`, `Swap sides`, search) and row 2 (`Sync scroll`, diff stat centered) as specified.
 - [ ] AC30 — Side heads render `<name>` followed by a format pill identical in style to the hex-view stats-bar format pill, with no ` · ` separator.
 - [ ] AC31 — The diff action bar shows only icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`), each with a tooltip/`aria-label`; buttons are comfortably sized and toggles still show an active state.
-- [ ] AC32 — Comparing two similar large files takes roughly one file's parse time (concurrent), not two, and the loading bar never moves backwards.
+- [ ] AC32 — Comparing two similar large files takes roughly one file's parse time (parallel workers), not two, and the reported progress never moves backwards.
+- [ ] AC33 — The diff loading card's bar animates indeterminately (never width-driven); its text reads `Loading read …%` / `Loading parse …%` / `Loading diff …%`, matching the hex-view loading label.
 
 ## Out of Scope
 

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { combinedLoadProgress } from '../../diff/loadProgress';
+import { advanceFraction, combinedLoadProgress } from '../../diff/loadProgress';
 
 suite('combinedLoadProgress', () => {
     test('sums the two per-file fractions', () => {
@@ -39,5 +39,29 @@ suite('combinedLoadProgress', () => {
         advance(0, 1);
         advance(1, 1);
         assert.strictEqual(previous, 2);
+    });
+});
+
+suite('advanceFraction', () => {
+    test('never decreases and clamps to [0, 1]', () => {
+        assert.strictEqual(advanceFraction(0, 0.4), 0.4);
+        assert.strictEqual(advanceFraction(0.4, 0.2), 0.4);
+        assert.strictEqual(advanceFraction(0.9, 1.5), 1);
+        assert.strictEqual(advanceFraction(0.2, -0.5), 0.2);
+    });
+
+    test('keeps the combined value monotonic across a scan→build stage switch', () => {
+        // The parser's build stage restarts at 0 after the scan reached ~1.0.
+        const fractions = [0, 0];
+        const advance = (index: number, stageValue: number): number => {
+            fractions[index] = advanceFraction(fractions[index], stageValue);
+            return combinedLoadProgress(fractions);
+        };
+        let previous = advance(0, 0.9);
+        previous = Math.max(previous, advance(1, 0.9));
+        const afterReset = advance(0, 0);
+        assert.strictEqual(afterReset, previous, 'build restart must not regress the combined value');
+        const afterBuild = advance(0, 1);
+        assert.ok(Math.abs(afterBuild - (previous + 0.1)) < 1e-9, `${afterBuild} != ${previous + 0.1}`);
     });
 });

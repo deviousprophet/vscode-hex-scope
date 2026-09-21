@@ -63,6 +63,25 @@ async function main() {
 		],
 	});
 
+	// Diff parse worker (one worker per compared file, in parallel)
+	const ctxDiffParseWorker = await esbuild.context({
+		entryPoints: [
+			'src/diff/diffParseWorker.ts'
+		],
+		bundle: true,
+		format: 'cjs',
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: 'node',
+		outfile: 'dist/diffParseWorker.js',
+		external: ['vscode'],
+		logLevel: 'silent',
+		plugins: [
+			esbuildProblemMatcherPlugin,
+		],
+	});
+
 	// Webview bundle (browser environment, no node/vscode externals)
 	const ctxWebview = await esbuild.context({
 		entryPoints: [
@@ -102,6 +121,7 @@ async function main() {
 	if (watch) {
 		await ctx.watch();
 		await ctxWorker.watch();
+		await ctxDiffParseWorker.watch();
 		await ctxWebview.watch();
 		await ctxDiff.watch();
 	} else {
@@ -109,6 +129,8 @@ async function main() {
 		await ctx.dispose();
 		await ctxWorker.rebuild();
 		await ctxWorker.dispose();
+		await ctxDiffParseWorker.rebuild();
+		await ctxDiffParseWorker.dispose();
 		await ctxWebview.rebuild();
 		await ctxWebview.dispose();
 		await ctxDiff.rebuild();

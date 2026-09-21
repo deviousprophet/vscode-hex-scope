@@ -1,23 +1,24 @@
 import * as crypto from 'crypto';
+import * as path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import * as vscode from 'vscode';
 import { DisposableStore } from '../core/disposableStore';
-import { detectFormatFromParts, type HexScopeFormat } from '../core/document';
+import type { HexScopeFormat } from '../core/document';
 import { computeByteDiff, type DiffModel } from '../core/diff';
 import { disambiguatedLabels } from '../core/diffLabels';
-import { parseIntelHexCompact } from '../core/parser/intelHexParser';
-import { parseSRecCompact } from '../core/parser/srecParser';
-import type { CompactParserOptions, CompactParseResult } from '../core/parser/compact';
-import { serializeParseResult } from '../core/wire';
+import type { MemorySegment } from '../core/parser/types';
+import type { WireParseResult } from '../core/types';
 import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide, type DiffProgressStage } from '../diffProtocol';
-import { combinedLoadProgress } from './loadProgress';
+import { advanceFraction, combinedLoadProgress } from './loadProgress';
 
-/** Each file contributes one unit to `diffProgress`; its read fills the first half, its parse the second. */
+/** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
-const READ_SHARE = 0.5;
+/** Reading is fast and posts no intermediate progress, so it keeps only a small slice; the parse owns the rest. */
+const READ_SHARE = 0.05;
 
 interface ParsedDiffFile {
     format: HexScopeFormat;
-    result: CompactParseResult;
+    wire: WireParseResult;
 }
 
 /** Dedupes progress posts per stage; the parsers' batches are already rate-limited. */
@@ -125,12 +126,14 @@ async function loadBothSides(
         progress.post(reading ? 'read' : 'parse', combinedLoadProgress(fractions), FILE_TOTAL);
     };
     const loadSide = async (uri: vscode.Uri, index: number): Promise<ParsedDiffFile | null> => {
-        const raw = await readDiffSource(uri);
+        const bytes = await readDiffSource(uri);
         fractions[index] = READ_SHARE;
         report();
         if (isStale()) { return null; }
-        const parsed = await parseDiffSource(uri, raw, signal, fraction => {
-            fractions[index] = READ_SHARE + (1 - READ_SHARE) * fraction;
+        let running = 0;
+        const parsed = await parseSideInWorker(uri, bytes, signal, fraction => {
+            running = advanceFraction(running, fraction);
+            fractions[index] = READ_SHARE + (1 - READ_SHARE) * running;
             report();
         });
         fractions[index] = 1;
@@ -141,31 +144,104 @@ async function loadBothSides(
     const [base, other] = await Promise.all([loadSide(baseUri, 0), loadSide(otherUri, 1)]);
     if (isStale() || !base || !other) { return null; }
     progress.post('diff', 0, 1);
-    const diff = computeByteDiff(base.result.segments, other.result.segments);
+    const diff = computeByteDiff(sideSegments(base.wire), sideSegments(other.wire));
     progress.post('diff', 1, 1);
     return { a: diffSide(baseUri, base), b: diffSide(otherUri, other), diff };
 }
 
-async function readDiffSource(uri: vscode.Uri): Promise<string> {
-    return new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(uri));
+async function readDiffSource(uri: vscode.Uri): Promise<Uint8Array> {
+    return vscode.workspace.fs.readFile(uri);
 }
 
-async function parseDiffSource(
+interface WorkerParseOut {
+    type?: string;
+    fraction?: number;
+    format?: HexScopeFormat;
+    wire?: WireParseResult;
+    message?: string;
+}
+
+interface WorkerMessageContext {
+    onFraction: (fraction: number) => void;
+    settle: (action: () => void) => void;
+    accept: (message: WorkerParseOut) => void;
+    reject: (error: unknown) => void;
+}
+
+type WorkerMessageHandler = (message: WorkerParseOut, ctx: WorkerMessageContext) => void;
+
+const WORKER_MESSAGE_HANDLERS: Record<string, WorkerMessageHandler> = {
+    progress: (message, ctx) => ctx.onFraction(message.fraction ?? 0),
+    result: (message, ctx) => ctx.accept(message),
+    error: (message, ctx) => ctx.settle(() => ctx.reject(new Error(message.message ?? 'Failed to parse file.'))),
+};
+
+/** Route one worker message to its handler; unknown types are ignored. */
+function handleWorkerMessage(message: WorkerParseOut, ctx: WorkerMessageContext): void {
+    WORKER_MESSAGE_HANDLERS[message.type ?? '']?.(message, ctx);
+}
+
+/** Parse one file in its own worker thread, relaying the worker's monotonic fraction. */
+function parseSideInWorker(
     uri: vscode.Uri,
-    raw: string,
+    bytes: Uint8Array,
     signal: AbortSignal,
-    onProgress: (fraction: number) => void,
+    onFraction: (fraction: number) => void,
 ): Promise<ParsedDiffFile> {
-    const format = detectFormatFromParts(extensionOf(uri), raw);
-    const options: CompactParserOptions = {
-        signal,
-        onProgress: event => onProgress(event.completed / Math.max(1, event.total)),
-    };
-    const result = format === 'srec' ? await parseSRecCompact(raw, options) : await parseIntelHexCompact(raw, options);
-    if (result.checksumErrors > 0 || result.malformedLines > 0) {
-        throw new Error(`${fileName(uri)} has ${result.checksumErrors} checksum error(s) and ${result.malformedLines} malformed line(s). Use Quick Repair first.`);
+    return new Promise<ParsedDiffFile>((resolve, reject) => {
+        const buffer = bytes.buffer as ArrayBuffer;
+        const worker = new Worker(path.join(__dirname, 'diffParseWorker.js'), {
+            workerData: { kind: 'diffParse', bytes: buffer, extension: extensionOf(uri) },
+            transferList: [buffer],
+        });
+        let settled = false;
+        const settle = (action: () => void): void => {
+            if (settled) { return; }
+            settled = true;
+            signal.removeEventListener('abort', onAbort);
+            void worker.terminate();
+            action();
+        };
+        const onAbort = (): void => settle(() => reject(new Error('Compare cancelled')));
+        signal.addEventListener('abort', onAbort, { once: true });
+        const accept = (message: WorkerParseOut): void => {
+            let parsed: ParsedDiffFile;
+            try {
+                parsed = acceptParsedSide(uri, message);
+            } catch (error) {
+                settle(() => reject(error));
+                return;
+            }
+            settle(() => resolve(parsed));
+        };
+        worker.on('message', message => handleWorkerMessage(message, { onFraction, settle, accept, reject }));
+        worker.on('error', error => settle(() => reject(error)));
+    });
+}
+
+interface CompleteParse extends WorkerParseOut {
+    format: HexScopeFormat;
+    wire: WireParseResult;
+}
+
+function hasCompleteParse(message: WorkerParseOut): message is CompleteParse {
+    return Boolean(message.format && message.wire);
+}
+
+function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {
+    if (wire.checksumErrors > 0 || wire.malformedLines > 0) {
+        throw new Error(`${fileName(uri)} has ${wire.checksumErrors} checksum error(s) and ${wire.malformedLines} malformed line(s). Use Quick Repair first.`);
     }
-    return { format, result };
+}
+
+function acceptParsedSide(uri: vscode.Uri, message: WorkerParseOut): ParsedDiffFile {
+    if (!hasCompleteParse(message)) { throw new Error(`Failed to parse ${fileName(uri)}.`); }
+    assertNoParseDefects(uri, message.wire);
+    return { format: message.format, wire: message.wire };
+}
+
+function sideSegments(wire: WireParseResult): MemorySegment[] {
+    return wire.segments.map(segment => ({ startAddress: segment.startAddress, data: new Uint8Array(segment.data) }));
 }
 
 function diffSide(uri: vscode.Uri, parsed: ParsedDiffFile): DiffSide {
@@ -173,7 +249,7 @@ function diffSide(uri: vscode.Uri, parsed: ParsedDiffFile): DiffSide {
         name: fileName(uri),
         path: uri.fsPath,
         format: parsed.format,
-        parseResult: serializeParseResult(parsed.result, parsed.format),
+        parseResult: parsed.wire,
         labels: [],
     };
 }

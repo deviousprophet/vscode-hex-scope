@@ -86,7 +86,37 @@ Ordered; each step gated by the previous.
 4. **Specs.** Update `editor-lifecycle.md` (concurrent load + summed progress) and note the regression in `component-diff-view.md`.
 5. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
 
-## Phase C — Finish (after Phase A6 is green)
+## Phase A7 — Loading-bar parity with the hex view
+
+Ordered; each step gated by the previous.
+
+1. **Indeterminate bar.** `src/diff/diffEditorPanel.ts`: drop the `det` class from `#diff-loading-fill` in `diffHtml`. `src/webview/diff/diff.css`: delete the `.loading-bar-fill.det` rule.
+2. **Text-only progress.** `src/webview/diff/diffGrid.ts` `applyDiffProgress`: set the card text to `Loading ${stage} ${pct}%…` (raw stage names, mirroring `hexViewer.loadProgressLabel`) and remove the `fill.style.width` write plus the `DIFF_STAGE_LABEL` map. Keep `progressPercent`.
+3. **Tests.** `src/test/webview/diffViewer.test.ts`: update the label expectations (`Loading read …%` / `Loading parse …%` / `Loading diff …%`) and assert the fill carries no inline width and no `det` class.
+4. **Specs.** Update `component-diff-view.md` and `editor-lifecycle.md` loading-card wording (indeterminate bar + text label).
+5. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase A8 — Parallel diff load (findings round 7)
+
+Ordered; each step gated by the previous. Fixes the measured 2× diff load and the non-monotonic bar.
+
+1. **`src/diff/diffParseWorker.ts`** (new, Node worker). `workerData: { kind: 'diffParse'; bytes: ArrayBuffer; extension: string }` (bytes transferred; `kind` sentinel so the import-safe module only runs as the diff worker — its test imports the pure helpers). Decode with `TextDecoder`, `detectFormatFromParts(extension, raw)`, run `parseIntelHexCompact`/`parseSRecCompact` with `onProgress` mapped to one **monotonic** `fraction` (scan `[0, 0.9]`, build `[0.9, 1]`, running max) in exported `stageFraction`/`nextLoadFraction`. Post `{ type: 'progress', fraction }`; on success post `{ type: 'result', format, wire }` where `wire = serializeParseResult(result, format)` with all segment `ArrayBuffer`s in the transfer list; on throw post `{ type: 'error', message }` (validation inside the async entry, so a bad job still posts an error). Mirror `src/core/scripting/scriptWorker.ts` (worker-side message/`parentPort` shape). Throttle progress to **integer percent**: post only when `Math.floor(fraction * 100)` strictly advances past the last emitted percent (`percent <= lastPercent` gate, not time-based), keeping the running-max monotonicity. `parseSourceRecordsAsync` reports once per source line, so an unthrottled worker posts ~100k–500k messages per file and the host's single main thread drains them all, serializing the two workers (measured, two workers in parallel: 4 MiB 1126ms / 95k msgs vs throttled 744ms / 95 msgs; 16 MiB 4672ms / 381k vs 2593ms / 98). Never throttle the `result` post.
+2. **`esbuild.js`**: add a `diffParseWorker` context — entry `src/diff/diffParseWorker.ts`, `bundle/cjs/node/external:['vscode']`, outfile `dist/diffParseWorker.js` — and include it in the `watch`/`rebuild`/`dispose` wiring beside `ctxWorker`.
+3. **`src/diff/loadProgress.ts`**: add `advanceFraction(previous, next)` — clamp to `[0, 1]` and keep the running maximum — so per-file monotonicity is testable without a worker.
+4. **`src/diff/diffEditorPanel.ts`**: `readDiffSource` returns the `Uint8Array` (no host-side decode). Add `parseSideInWorker(uri, bytes, signal, onFraction)` that spawns `new Worker(path.join(__dirname, 'diffParseWorker.js'), { workerData: { kind: 'diffParse', bytes: bytes.buffer, extension }, transferList: [bytes.buffer] })`, relays `progress` → `onFraction`, resolves `result`/rejects `error`, and terminates on `signal.abort`. `loadSide` uses it (`fraction = advanceFraction(previous, mapped)`); `diffSide` uses the worker `wire` directly; `computeByteDiff` wraps each `wire.segments[i].data` in a `Uint8Array` view. Drop the now-unused `parseIntelHexCompact`/`parseSRecCompact`/`serializeParseResult` imports.
+5. **Tests.** `src/test/core/diffLoadProgress.test.ts`: `advanceFraction` never decreases, clamps out-of-range, and a scan→build stage switch (1.0 → 0) does not regress the combined value. Add a worker round-trip test (small IHEX + SREC fixture) asserting format/segment bytes/error propagation, and keep the existing webview `diffProgress` label tests green.
+6. **Specs.** Update `editor-lifecycle.md` (worker-parallel parse + monotonic fraction) and `component-diff-view.md` (parallel worker + monotonic progress note).
+7. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase A9 — Read weight (findings round 8)
+
+One step; no protocol, card, or test change.
+
+1. **`src/diff/diffEditorPanel.ts`**: `READ_SHARE` `0.5` → `0.05` (and update the constant's doc comment). Reading is fast and posts no progress, so a half-bar reservation made the diff loading bar jump to 50% then crawl; the small slice lets the bar track the dominant parse. `FILE_TOTAL`, the `read`/`parse` stage gate (`fraction <= READ_SHARE`), and `READ_SHARE + (1 - READ_SHARE) * running` are unchanged.
+2. **Docs.** `editor-lifecycle.md` + `component-diff-view.md` read-split wording; `design.md` round 5/7 phrasing + new "Findings Round 8 — Diff Read Weight" section.
+3. **Validation:** `npm run check-types`, `npm run lint`, `npm test`; no new tests (private constant, no seam) — existing `diffLoadProgress`/`diffViewer` suites stay green.
+
+## Phase C — Finish (after Phase A7 is green)
 
 1. Commit all working-tree changes for the task (single commit; no secrets; match repo commit style).
 2. Run `/update-changelog` (`.agents/skills/update-changelog/SKILL.md`) to prepare the changelog entry synchronized with package version and the committed changes since the latest release tag.
