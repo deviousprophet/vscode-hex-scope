@@ -233,7 +233,7 @@ function diffHtml(
                 <div class="loading-eyebrow">HexScope</div>
                 <div class="loading-title">Comparing files</div>
                 <div class="loading-text">Reading ${escapeHtml(fileName(baseFileUri))} and ${escapeHtml(fileName(otherFileUri))}…</div>
-                <div class="loading-bar" role="presentation"><div class="loading-bar-fill det" id="diff-loading-fill"></div></div>
+                <div class="loading-bar" role="presentation"><div class="loading-bar-fill" id="diff-loading-fill"></div></div>
             </div>
         </div>
     </div>

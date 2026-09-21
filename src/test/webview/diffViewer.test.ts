@@ -19,7 +19,7 @@ function installDom(): JSDOM {
     const dom = new JSDOM(`<!doctype html><html><body><div id="app">
         <div class="loading-shell" id="diff-loading">
             <div class="loading-card"><div class="loading-text">Reading…</div>
-            <div class="loading-bar"><div class="loading-bar-fill det" id="diff-loading-fill"></div></div></div>
+            <div class="loading-bar"><div class="loading-bar-fill" id="diff-loading-fill"></div></div></div>
         </div>
         <div class="diff-root" id="diff-root">
         <div class="diff-summary" id="diff-summary"></div>
@@ -478,6 +478,7 @@ suite('HexScope Diff webview', () => {
         assert.ok(/\.diff-tb-row\s*\{[^}]*grid-template-columns:\s*1fr auto 1fr/.test(css), 'toolbar rows keep the left/center/right slots');
         assert.ok(/\.diff-action\s*\{[^}]*width:\s*26px[^}]*height:\s*26px/.test(css), 'icon buttons keep a comfortable 26px hit target');
         assert.ok(!/codicon|@font-face/.test(css), 'action bar stays Unicode-only (no icon font)');
+        assert.ok(!css.includes('.loading-bar-fill.det'), 'the determinate loading bar override is gone (parity with the hex view)');
         const baseCss = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
         assert.ok(/\.loading-shell\[hidden\][^{]*\{[^}]*display:\s*none/.test(baseCss), 'loading card collapses when hidden');
         assert.ok(/\.fmt-pill\s*\{/.test(baseCss), 'shared format pill utility');
@@ -507,11 +508,16 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(dispatchDiffMessage({ type: 'diffProgress', stage: 'nope', completed: 1, total: 2 }, handlers), false);
         assert.strictEqual(dispatchDiffMessage({ type: 'diffProgress', stage: 'diff', completed: 'x', total: 1 }, handlers), false);
 
+        const fill = document.getElementById('diff-loading-fill') as HTMLElement;
+        applyDiffProgress({ type: 'diffProgress', stage: 'read', completed: 1, total: 4 });
+        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Loading read 25%…');
         applyDiffProgress({ type: 'diffProgress', stage: 'parse', completed: 1, total: 2 });
-        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Parsing records 50%');
-        assert.strictEqual((document.getElementById('diff-loading-fill') as HTMLElement).style.width, '50%');
+        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Loading parse 50%…');
+        assert.strictEqual(fill.style.width, '', 'the bar is indeterminate — never width-driven');
+        assert.strictEqual(fill.classList.contains('det'), false, 'the determinate variant class is gone');
         applyDiffProgress({ type: 'diffProgress', stage: 'diff', completed: 0, total: 0 });
-        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Comparing bytes 0%');
+        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Loading diff 0%…');
+        assert.strictEqual(fill.style.width, '', 'a zero total never drives the bar width');
     });
 
     test('the diff dispatcher ignores unknown messages and routes known ones', () => {

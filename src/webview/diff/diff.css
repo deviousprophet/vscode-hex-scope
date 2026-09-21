@@ -30,8 +30,6 @@
 .diff-action.active { background: var(--btn-bg); color: var(--btn-fg); border-color: transparent; }
 .diff-action:disabled { opacity: .45; cursor: default; }
 
-.loading-bar-fill.det { animation: none; transition: width .15s ease-out; }
-
 .diff-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .diff-body[hidden], .diff-error[hidden] { display: none; }
 .diff-side { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }

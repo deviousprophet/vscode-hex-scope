@@ -379,18 +379,10 @@ function showDiffRoot(): void {
     if (root) { root.hidden = false; }
 }
 
-const DIFF_STAGE_LABEL: Record<DiffProgressMessage['stage'], string> = {
-    read: 'Reading files',
-    parse: 'Parsing records',
-    diff: 'Comparing bytes',
-};
-
-/** Update the loading card from a host `diffProgress` message. */
+/** Update the loading card from a host `diffProgress` message (indeterminate bar; progress lives in the text). */
 export function applyDiffProgress(message: DiffProgressMessage): void {
     const text = document.querySelector<HTMLElement>('#diff-loading .loading-text');
-    if (text) { text.textContent = `${DIFF_STAGE_LABEL[message.stage]} ${progressPercent(message)}%`; }
-    const fill = document.getElementById('diff-loading-fill');
-    if (fill) { fill.style.width = `${progressPercent(message)}%`; }
+    if (text) { text.textContent = `Loading ${message.stage} ${progressPercent(message)}%…`; }
 }
 
 function progressPercent(message: DiffProgressMessage): number {
