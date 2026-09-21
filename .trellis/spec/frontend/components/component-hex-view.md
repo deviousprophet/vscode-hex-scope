@@ -64,7 +64,7 @@ interface HexViewCallbacks {
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
-    onVisibleWindowChange?: (scrollTop: number) => void;      // scroll → host recomputes slice
+    onVisibleWindowChange?: (scrollTop: number, scrollLeft: number) => void;  // scroll → host recomputes slice + can mirror
     onAddressRowClick?: (rowBase: number, shift: boolean) => void;  // address-gutter click → select row
 }
 
@@ -76,6 +76,7 @@ export class HexView {
     setCallbacks(cb: HexViewCallbacks): void;
     setScrollTop(top: number): void;     // drive scroll container (physical)
     getScrollTop(): number;
+    setScrollLeft(left: number): void;   // drive horizontal offset + resync header scrollLeft
     scrollTo(addr: number): void;
     paintSelection(range: HexViewRange | null): void;      // incremental class paint
     paintMatch(matchAddrs: readonly number[], index: number, length: number): void;
@@ -98,7 +99,8 @@ export class HexView {
 - **Header:** component renders it (hidden addr gutter + 00..0F hex cells always + "Decoded text" gated by `showAscii`); header scrollLeft sync is component-internal.
 - **Zero size math:** all sizing from CSS (`--cell-size`, `--text-cell-width`, `.cell-group` `4n+1` gaps, `.data-row` height). No width/height computation in TS. Positioning attributes (`top: windowTop` on the wrapper, spacer heights) are host-computed values emitted as inline `style` — pre-existing parity, not size math.
 - **CSS debt (documented, not new):** `hexView.css` carries ~10 `!important` rules (integrity/match/sel/col-hi overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
-- **Root-scoped (single-instance today):** constructor takes `rootSelector`; the component queries only within its root. Note the shell still uses the pre-existing global ids `#memory-view`/`#mem-header`/`#mem-scroll` (single-instance webview). Diff-view two-panel reuse will need those ids turned into class-scoped root markup (a future diff task).
+- **Root-scoped, multi-instance:** constructor takes `rootSelector`; the component queries only within its root and never by global id — internal lookups use `.mem-header` / `.mem-scroll` class selectors, so two instances coexist in the diff editor without collisions. The single-file shell keeps its legacy ids (`#memory-view`/`#mem-header`/`#mem-scroll`) alongside the new classes so `memoryGrid.ts`/`hexViewer.ts` `getElementById` callers still work.
+- **Scroll seam:** the scroll listener reports both `scrollTop` and `scrollLeft`; `setScrollLeft` drives the horizontal offset and re-syncs the header `scrollLeft` (programmatic scroll fires no scroll event). The diff host uses these to mirror one grid onto the other.
 - **Host never writes component DOM directly:** nibble-edit preview via `paintCell(addr, text|null)`; struct-field highlight via `paintStructHighlight(addrs, cls)` / `paintClearStructHighlight(cls)` (root-scoped, class-wide clear); label-form draft tint via `paintLabelDraft(range|null, color)` — it sets `--lf-draft-color` on the root and toggles `.lf-draft` on mapped cells by iterating visible `[data-addr]` cells **once** (O(visible), not O(rangeLen), so huge draft ranges stay cheap); selection-edit session tint via `paintSelEdit(range|null)` toggling `.sel-edit` the same root-scoped way (distinct amber tint vs plain selection). Component owns `.editing` class + `textContent`, restores from own `data-val`. No host `querySelectorAll('[data-addr]')` pokes.
 - **showAscii boolean** (default true = byte-identical current); `false` gates only char cells + "Decoded text" header label.
 - Untrusted text escaped with `esc()`.
@@ -126,7 +128,8 @@ export class HexView {
 | Scroll during selection | Selection repainted from host state after slice rerender (`activeMatch` preserves `.amatch`). |
 | Scroll past the end (compressed) | `windowTop` is clamped to `physicalHeight − sliceHeight` so the slice never overflows the fixed-height container; otherwise the scroll area grows and the scroll handler fights the browser clamp (end-of-scroll shaking). |
 | Nibble preview active | `paintCell(addr, text)` shows preview; `paintCell(addr, null)` restores from own data-val. |
-| Two instances (future diff) | Root-scoped listeners filter by selector; no id collisions. |
+| Two instances (diff) | Both grids are root-scoped (class queries, no ids); independent scroll containers, host mirrors via `onVisibleWindowChange` + `setScrollTop`/`setScrollLeft`. |
+| Diff grid wants hex only | Host passes `showAscii:false`; header omits `.mem-hdr-decoded` and rows omit char cells + `.col-decoded`. |
 
 ## Tests Required
 
@@ -139,4 +142,4 @@ export class HexView {
 - Global DOM-id queries inside the component.
 - Size/layout math in TS instead of CSS.
 - Virtual-scroll math imported into the component (stays host/shared).
-- Diff-view features (side, mirror, per-row absolute) added before the diff task exists.
+- Diff layout (side, mirror toggle, per-row absolute, shared address column) added to the component; it lives in the diff host (`src/webview/diff/`).

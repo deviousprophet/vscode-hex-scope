@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gate: check-types, lint, test, plus the full Fallow scan and the /fallow-fix quality gate."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Verify diff protocol handling, unknown-message rejection, generation/staleness, and panel disposal cleanup."}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Parity gate for the HexView de-globalization refactor and the diff-view reuse contract."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Confirm protocol/state ownership and that no single-editor persistence is wired into the diff surface."}

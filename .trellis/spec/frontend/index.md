@@ -21,6 +21,7 @@ Every self-contained webview component has one spec at `components/component-<na
 |---|---|
 | [Component Template](./components/component-template.md) | Starting point for any new component spec; naming + boundary rules |
 | [HexView Component](./components/component-hex-view.md) | Virtualized hex grid: header/rows/gaps/banners, match/sel paint, interaction |
+| [DiffView Component](./components/component-diff-view.md) | Read-only two-grid diff surface: union rows, diff classes, summary + nav, reuse of HexView |
 | [Toolbar Component](./components/component-toolbar.md) | Top toolbar chrome: view tabs, ASCII toggle, edit-mode group, SearchBar slot |
 | [ExternalChange Component](./components/component-external-change.md) | External-change banners: conflict/reload/error + dismiss wiring |
 | [SearchBar Component](./components/component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
@@ -60,7 +61,7 @@ Every self-contained webview component has one spec at `components/component-<na
 ## Quality Check
 
 - Confirm each changed behavior still has one owning module and one authoritative contract.
-- Run full Fallow scan and fix findings via [`fallow-fix` skill](../.agents/skills/custom/fallow-fix/SKILL.md).
+- Run full Fallow scan and fix findings via the `/fallow-fix` skill ([`fallow-fix` skill](../../../.agents/skills/fallow-fix/SKILL.md)).
 - Run `npm run check-types`, `npm run lint`, and `npm test`.
 - Update the owning feature spec when signatures, payload fields, validation errors, persistence, or visible behavior change.
 

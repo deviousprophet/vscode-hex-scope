@@ -10,6 +10,7 @@ import { integrityHighlightClass } from './integrityHighlight';
 import { currentSelectionRange } from './selection';
 import { esc, byteClass, lowerBound } from '../utils';
 import {
+    applyVirtualScrollLayout,
     calcScrollLayout,
     calcRowOffset,
     calcTotalHeight,
@@ -174,7 +175,7 @@ function renderMemoryGrid(scrollContainer: HTMLElement): void {
     if (shouldSkipMemoryRender(layout.isCompressed, startIdx, endIdx)) { return; }
     vscrollRenderedRange = [startIdx, endIdx];
     const container = document.getElementById('mem-rows')!;
-    applyMemoryContainerLayout(container, layout);
+    applyVirtualScrollLayout(container, layout);
     container.innerHTML = renderHexViewHtml(buildHexViewInput(startIdx, endIdx, layout, state, scrollContainer));
     // Selection/matches composite declaratively; the draft tint is class-painted → repaint after rebuild.
     paintMemoryLabelDraft();
@@ -182,16 +183,6 @@ function renderMemoryGrid(scrollContainer: HTMLElement): void {
 
 function shouldSkipMemoryRender(compressed: boolean, startIdx: number, endIdx: number): boolean {
     return !compressed && startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1];
-}
-
-function applyMemoryContainerLayout(container: HTMLElement, layout: VirtualScrollLayout): void {
-    if (layout.isCompressed) {
-        container.style.position = 'relative';
-        container.style.height = `${layout.physicalHeight}px`;
-        return;
-    }
-    container.style.position = '';
-    container.style.height = '';
 }
 
 function buildHexViewInput(

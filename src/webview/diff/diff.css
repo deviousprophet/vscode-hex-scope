@@ -1,0 +1,44 @@
+/* ── Diff surface (isolated bundle; reuses the HexView grid component) ── */
+.diff-summary {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+    padding: 6px 12px; background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border); font-family: var(--font-ui); font-size: 11px;
+}
+.diff-count { font-weight: 700; }
+.diff-count-chg { color: var(--warn); }
+.diff-count-add { color: var(--ok); }
+.diff-count-del { color: var(--err); }
+.diff-nav-group { display: flex; gap: 4px; margin-left: auto; }
+.diff-nav {
+    background: var(--btn-bg); color: var(--btn-fg); border: none; border-radius: 3px;
+    padding: 2px 8px; font-size: 10px; font-weight: 600; font-family: var(--font-ui); cursor: pointer;
+}
+.diff-nav:hover:not(:disabled) { background: var(--btn-hover); }
+.diff-nav:disabled { opacity: .45; cursor: default; }
+
+.diff-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.diff-side {
+    flex: 1; min-width: 0; display: flex; flex-direction: column;
+    overflow: hidden; border-right: 1px solid var(--border);
+}
+.diff-side:last-child { border-right: none; }
+.diff-side-head {
+    flex: 0 0 auto; height: 22px; line-height: 22px; padding: 0 10px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    background: var(--panel-bg); border-bottom: 1px solid var(--border);
+    font-family: var(--font-ui); font-size: 11px; font-weight: 700; color: var(--addr-active-fg);
+}
+.diff-grid-root { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.diff-hide-addr .data-row .addr-cell { visibility: hidden; }
+
+.data-cell.diff-chg, .char-cell.diff-chg { background: rgba(229, 168, 0, .30); }
+.data-cell.diff-add, .char-cell.diff-add { background: rgba(70, 190, 110, .32); }
+.data-cell.diff-del, .char-cell.diff-del { background: rgba(235, 75, 85, .32); }
+
+.diff-error { flex: 1; display: grid; place-items: center; padding: 24px; }
+.diff-error-card {
+    width: min(460px, 100%); padding: 20px 22px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--panel-bg);
+}
+.diff-error-title { font-size: 13px; font-weight: 700; color: var(--err); margin-bottom: 6px; }
+.diff-error-text { font-size: 12px; line-height: 1.45; color: var(--fg); }

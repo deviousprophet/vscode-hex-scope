@@ -23,6 +23,7 @@ suite('HexScope Extension', () => {
 
         const expected = [
             'hexScope.openInHexScope',
+            'hexScope.compareWith',
             'hexScope.addSegmentLabel',
             'hexScope.copyAsHexString',
             'hexScope.copyAsCArray',

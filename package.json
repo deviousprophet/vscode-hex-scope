@@ -137,6 +137,11 @@
         "category": "HexScope"
       },
       {
+        "command": "hexScope.compareWith",
+        "title": "Compare with...",
+        "category": "HexScope"
+      },
+      {
         "command": "hexScope.runScript",
         "title": "Run Script",
         "category": "HexScope"
@@ -199,6 +204,11 @@
       "hexScope.actions": [
         {
           "command": "hexScope.openInHexScope",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "group": "navigation"
+        },
+        {
+          "command": "hexScope.compareWith",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
         },
