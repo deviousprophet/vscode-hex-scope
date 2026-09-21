@@ -185,12 +185,13 @@ Remove `hexScope.compareWith` (`Compare with...`) and its menu entry. Add:
 
 | Command | Title | `when` (inside `hexScope.actions` submenu) |
 |---|---|---|
-| `hexScope.selectForCompare` | `Select Compare` | `resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus` |
-| `hexScope.compareWithSelected` | `Compare Selected` | same + `hexScope.hasCompareSelection` |
-| `hexScope.clearCompareSelection` | `Clear Compare Selection` | same + `hexScope.hasCompareSelection` |
-| `hexScope.compareSelectedFiles` | `Compare Selected Files` | `resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection && explorerViewletFocus` |
+| `hexScope.selectAsFirst` | `Set as 1st file to compare` | `resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus` |
+| `hexScope.compareToStaged` | `Compare with the 1st file` | same + `hexScope.hasCompareSelection` |
+| `hexScope.compareSelected` | `Compare Two Files` | `resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection && explorerViewletFocus` |
 
-`explorerViewletFocus` is the explorer-only gate so the items never leak into the editor-title `HexScope` submenu. `listDoubleSelection` gives exact-two (Decision 21); three or more matches nothing.
+The three compare items use `group: "3_compare"` (VS Code's built-in Explorer compare group) while `Open with HexScope` / `Quick Repair` stay in `group: "navigation"`. VS Code always sorts `navigation` first, so the submenu renders two categories: navigation, then compare.
+
+`explorerViewletFocus` is the explorer-only gate so the items never leak into the editor-title `HexScope` submenu. `listDoubleSelection` gives exact-two (Decision 21); three or more matches nothing. There is no clear command.
 
 ### Selection stash (`src/diff/compareSelection.ts`, host)
 
@@ -198,32 +199,32 @@ Remove `hexScope.compareWith` (`Compare with...`) and its menu entry. Add:
 interface CompareSelection { uri: vscode.Uri; name: string }
 class CompareSelectionStore {
     get(): CompareSelection | null;
-    set(uri: vscode.Uri): void;      // sets status bar text/tooltip/command + setContext(hexScope.hasCompareSelection, true)
-    clear(): void;                  // hides status bar + setContext(..., false)
+    set(uri: vscode.Uri): void;      // stores the file + setContext(hexScope.hasCompareSelection, true)
+    clear(): void;                  // drops the file + setContext(..., false)
 }
 ```
 
 - Session memory only; a fresh window starts empty.
-- Status bar: `vscode.window.createStatusBarItem(StatusBarAlignment.Left)`, text e.g. `$(diff) HexScope: <name>`, tooltip `<full path>\nClick to clear`, `command = hexScope.clearCompareSelection`.
+- No status-bar item (Decision 19); the set confirmation is the command's information message.
 - The store is created in `activate` and pushed to `context.subscriptions`.
 
 ### Command handlers (`src/extension.ts`)
 
-- `selectForCompare(uri)`: reject folders/unsupported (`isSupportedHexFile`); `store.set(uri)`; information message naming the file and the next step.
-- `compareWithSelected(uri)`: `store.get()` must exist; validate both (`validateComparable`); on success clear the store and `DiffEditorPanel.open(context, stashed, clicked)`.
-- `compareSelectedFiles(uri, selectedUris)`: require exactly two supported (`selectedUris ?? [uri]`, dedupe); clicked `uri` is A/left, the other B/right; validate both; open.
-- `clearCompareSelection()`: `store.clear()`.
+- `selectAsFirst(uri)`: reject folders/unsupported (`isSupportedHexFile`); `store.set(uri)`; information message naming the file and the next step.
+- `compareToStaged(uri)`: `store.get()` must exist; validate both (`validateComparable`); on success clear the store and `DiffEditorPanel.open(context, staged, clicked)`.
+- `compareSelected(uri, selectedUris)`: require exactly two supported (`selectedUris ?? [uri]`, dedupe); clicked `uri` is A/left, the other B/right; validate both; open.
 - Palette invocation without a resource: warn `Select a firmware file in the Explorer` and return.
 
 ### Removals
 
 - Delete `src/diff/diffPicker.ts` and its tests; drop `pickComparisonTarget`, `chooseOtherFile`, `browseForFile`, `supportedOpenPaths`, `openTabPaths`, `documentPaths`, `orderedPair`, `ComparisonPickerDeps`/`resolveComparisonTarget` from `src/extension.ts` (superseded by the stash flow). `validateComparable` and `isSupportedHexFile` stay and are reused.
+- Delete the `Clear Compare Selection` command and the `CompareSelectionStore` status-bar item (`clear()` now only drops the stash + context key).
 
 ### Validation & error matrix
 
 | Condition | Response |
 |---|---|
-| `Compare Selected` with no stash | Item hidden by `when`; if invoked from palette, warn. |
+| `Compare with the 1st file` with no staged file | Item hidden by `when`; if invoked from palette, warn. |
 | Second/other file unsupported (multi-select) | Warn naming the file; open nothing. |
 | Stashed file deleted/moved/invalid at compare time | `validateComparable` warns (unreadable names the file; checksum/malformed offers Quick Repair); open nothing. The stash is kept — it clears only on a successful compare (R21). |
 | Checksum/malformed file | Existing `validateComparable` warning + Quick Repair offer. |

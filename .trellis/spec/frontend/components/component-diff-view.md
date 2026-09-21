@@ -19,7 +19,7 @@ src/webview/diff/diffSearch.ts        SearchBar reuse: one query over both sides
 src/webview/diff/diffMessages.ts      typed dispatchDiffMessage (unknown rejected)
 src/webview/diff/diff.css             layout, .diff-split divider, .diff-chg/.diff-add/.diff-del, hidden-state guards
 src/core/diffLabels.ts                disambiguatedLabels (shared by panel title + webview side heads)
-src/diff/compareSelection.ts           host compare-selection store (session stash + status-bar item + hexScope.hasCompareSelection)
+src/diff/compareSelection.ts           host compare-selection store (session stash + hexScope.hasCompareSelection; no status-bar item)
 src/webview/components/hexView/*      reused grid (showAscii:false)
 src/webview/components/searchBar/*    reused search bar component
 src/diffProtocol.ts                   hostwebview union
@@ -116,7 +116,7 @@ function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, str
 
 `src/test/webview/diffViewer.test.ts` (mocha + jsdom + cssImportHook): shared `data-row` order across both sides + gap row between distant blocks; changed byte on both sides; added empty-on-A / value-on-B; removed value-on-A / empty-on-B; computed summary counts + the exact action-bar button order and `Sync scroll` default; prev/next traversal and end stops; vertical + horizontal scroll sync (both directions, header alignment) and the sync-off gate; decoded text hidden (`.mem-hdr-decoded`, `.col-decoded`, `.char-cell` absent); address gutter on both panes; error card + hidden body; a real `SearchBar`-driven query proving one search over both panes, address union/dedupe, needle-span highlight, and next walking the addresses; click/shift-click/address-gutter selection mirrored on both panes with copy reading the source pane; `Swap sides` flipping colors and counts; `Show diff` filtering + `No differences`; unknown-message rejection; a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the absence of `.diff-hide-addr`.
 
-`src/test/core/diff.test.ts` owns the run semantics and `disambiguatedLabels`; `src/test/extension/extension.test.ts` owns command registration (the four Explorer compare commands; `hexScope.compareWith` gone), the `CompareSelectionStore` set/clear lifecycle, `selectedComparePair`/`stashedComparePair` ordering and rejection, `runCompare` validation/clear-on-success, and `copyText` parsing + clipboard write.
+`src/test/core/diff.test.ts` owns the run semantics and `disambiguatedLabels`; `src/test/extension/extension.test.ts` owns command registration (the three Explorer compare commands — `hexScope.selectAsFirst` / `hexScope.compareToStaged` / `hexScope.compareSelected`; `hexScope.compareWith` and the A3 command names are gone), the manifest gate (only those three sit in `group: "3_compare"`, each `when` carries `explorerViewletFocus` — never the editor title — `selectAsFirst` carries `!listMultiSelection`, `compareToStaged` carries `hexScope.hasCompareSelection`, `compareSelected` carries `listDoubleSelection` so 3+ shows no item, no other menu point lists a compare command, and `navigation` keeps only Open with HexScope / Quick Repair), the `CompareSelectionStore` set/clear lifecycle, `selectedComparePair`/`stashedComparePair` ordering and rejection, `runCompare` validation/clear-on-success, and `copyText` parsing + clipboard write.
 
 ## Anti-patterns
 

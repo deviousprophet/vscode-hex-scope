@@ -36,11 +36,11 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 
 ### Findings round 3 (explorer compare selection, Beyond Compare style)
 
-19. **Explorer-driven selection.** Compare is driven from the Explorer context menu, not a dialog. `Select Compare` stashes a left/first candidate in session memory; `Compare Selected` uses that stash with the right-clicked file and opens the diff. A status-bar item shows the pending stash (full path tooltip, click clears). The stash clears after a compare and on window reload. A `Clear Compare Selection` command clears it explicitly.
-20. **Command set.** `hexScope.selectForCompare` (`Select Compare`), `hexScope.compareWithSelected` (`Compare Selected`), `hexScope.compareSelectedFiles` (`Compare Selected Files`), `hexScope.clearCompareSelection` (`Clear Compare Selection`). The dialog-based `Compare with...` (`hexScope.compareWith`) and its editor-title entry are removed; the four commands remain in the Command Palette.
-21. **Visibility.** One file selected (`!listMultiSelection`): `Select Compare`, plus `Compare Selected` and `Clear Compare Selection` only while a stash exists. Exactly two files selected (`listDoubleSelection`): `Compare Selected Files` only. Three or more: no compare items. Items render inside the existing `HexScope` submenu and only in the Explorer (`explorerViewletFocus`), never the editor title.
+19. **Explorer-driven selection.** Compare is driven from the Explorer context menu, not a dialog. `Set as 1st file to compare` stashes a left/first candidate in session memory; `Compare with the 1st file` uses that stash with the right-clicked file and opens the diff. The stash clears after a successful compare and on window reload; setting a new 1st file replaces it. There is no explicit clear action and no status-bar item — feedback is the information message shown when the 1st file is set.
+20. **Command set.** `hexScope.selectAsFirst` (`Set as 1st file to compare`), `hexScope.compareToStaged` (`Compare with the 1st file`), `hexScope.compareSelected` (`Compare Two Files`). The dialog-based `Compare with...` (`hexScope.compareWith`) and its editor-title entry are removed; the three commands remain in the Command Palette. `Clear Compare Selection` does not exist.
+21. **Visibility.** One file selected (`!listMultiSelection`): `Set as 1st file to compare`, plus `Compare with the 1st file` only while a 1st file is staged. Exactly two files selected (`listDoubleSelection`): `Compare Two Files` only. Three or more: no compare items. Items render inside the existing `HexScope` submenu in the `3_compare` group (below the `navigation` group), and only in the Explorer (`explorerViewletFocus`), never the editor title.
 22. **Two-file order.** With exactly two selected, the right-clicked file is A/left and the other is B/right.
-23. **Explorer-only + validation.** `resourceLangId` describes only the clicked file, so the menu gate is an approximation; the command validates both files (supported extension, valid checksums) and warns instead of opening on failure. A stale stash (deleted/moved/invalid) warns and clears.
+23. **Explorer-only + validation.** `resourceLangId` describes only the clicked file, so the menu gate is an approximation; the command validates both files (supported extension, valid checksums). An unsupported, folder, unreadable, or checksum-invalid file warns and opens nothing. A stale staged file produces no panel; the stash is kept because it clears only on a successful compare.
 
 ## Requirements
 
@@ -60,13 +60,13 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - R14 — `Find` opens the reused search bar, searching both panes with one query; matches highlight in both grids and next/previous walks matches in address order, scrolling both grids.
 - R15 — Both panes show an address column; the divider between panes is thicker and hover-highlighted.
 - R16 — Files sharing a basename are disambiguated in the pane labels and tab title, with the full path on hover.
-- R17 — The Explorer `HexScope` submenu exposes `Select Compare`, `Compare Selected`, `Compare Selected Files`, and `Clear Compare Selection` per the visibility rules in Decision 21; none appears in the editor title.
-- R18 — `Select Compare` stores the clicked file and a status-bar item shows the pending file (full path on hover; click clears).
-- R19 — With a stash present, `Compare Selected` on another supported Explorer file opens the diff with the stashed file as A/left and the clicked file as B/right.
-- R20 — With exactly two files selected, `Compare Selected Files` opens the diff with the clicked file as A/left and the other as B/right.
-- R21 — The stash clears after a successful compare and on window reload; `Clear Compare Selection` clears it without comparing.
-- R22 — The dialog-based `Compare with...` command and its editor-title menu entry are gone.
-- R23 — Comparing 3+ selected files is not offered; an unsupported or invalid second file warns instead of opening.
+- R17 — The Explorer `HexScope` submenu exposes `Set as 1st file to compare`, `Compare with the 1st file`, and `Compare Two Files` per the visibility rules in Decision 21, in the `3_compare` group; none appears in the editor title.
+- R18 — `Set as 1st file to compare` stores the clicked file for the session and confirms it with an information message. There is no status-bar item and no clear command.
+- R19 — With a 1st file staged, `Compare with the 1st file` on another supported Explorer file opens the diff with the staged file as A/left and the clicked file as B/right.
+- R20 — With exactly two files selected, `Compare Two Files` opens the diff with the clicked file as A/left and the other as B/right.
+- R21 — The staged 1st file clears after a successful compare and on window reload; setting a new 1st file replaces it.
+- R22 — The dialog-based `Compare with...` command and its editor-title menu entry are gone, and no `Clear Compare Selection` command exists.
+- R23 — Comparing 3+ selected files is not offered; an unsupported, folder, unreadable, or invalid file warns instead of opening.
 
 ## Acceptance Criteria
 
@@ -88,13 +88,13 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - [ ] AC16 — `Find` reveals the search bar; one query highlights matches in both panes and next/previous walks matches in address order.
 - [ ] AC17 — Both panes display addresses; the pane divider is visibly thicker and highlights on hover.
 - [ ] AC18 — Two files named `firmware.hex` in different folders show distinguishable side labels and tab title with full paths on hover.
-- [ ] AC19 — Explorer on one supported file inside `HexScope` shows `Select Compare`; after selecting, the status bar shows the pending file and `Compare Selected` / `Clear Compare Selection` appear.
-- [ ] AC20 — `Compare Selected` on a second supported file opens the diff with the stashed file on the left and the clicked file on the right.
-- [ ] AC21 — Selecting exactly two supported files in Explorer shows `Compare Selected Files`, which opens the clicked file on the left and the other on the right.
+- [ ] AC19 — Explorer on one supported file inside `HexScope` shows `Set as 1st file to compare`; after setting it, an information message confirms the file and `Compare with the 1st file` appears.
+- [ ] AC20 — `Compare with the 1st file` on a second supported file opens the diff with the staged file on the left and the clicked file on the right.
+- [ ] AC21 — Selecting exactly two supported files in Explorer shows `Compare Two Files`, which opens the clicked file on the left and the other on the right.
 - [ ] AC22 — Selecting three or more files shows no compare item in the submenu.
-- [ ] AC23 — The status-bar item shows the pending file's full path on hover and clears the stash when clicked; the stash also clears after a compare and on window reload.
-- [ ] AC24 — `Compare with...` no longer exists in the Command Palette or editor title menu.
-- [ ] AC25 — Selecting an unsupported or checksum-invalid second file shows a warning and opens no panel.
+- [ ] AC23 — No status-bar item is shown for the staged file, and the staged file clears after a successful compare and on window reload.
+- [ ] AC24 — `Compare with...` and `Clear Compare Selection` do not exist in the Command Palette, submenu, or editor title menu.
+- [ ] AC25 — Selecting an unsupported, folder, unreadable, or checksum-invalid file shows a warning and opens no panel.
 
 ## Out of Scope
 

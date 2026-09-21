@@ -69,7 +69,6 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     const compareSelection = new CompareSelectionStore();
-    context.subscriptions.push(compareSelection);
 
     const compareDeps: CompareCommandDeps = {
         validate: validateComparable,
@@ -78,14 +77,14 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('hexScope.selectForCompare', (uri?: vscode.Uri) => {
-            runSelectForCompare(uri, {
+        vscode.commands.registerCommand('hexScope.selectAsFirst', (uri?: vscode.Uri) => {
+            selectAsFirst(uri, {
                 setStash: target => compareSelection.set(target),
                 warn: compareDeps.warn,
                 info: message => { void vscode.window.showInformationMessage(message); },
             });
         }),
-        vscode.commands.registerCommand('hexScope.compareWithSelected', (uri?: vscode.Uri) => {
+        vscode.commands.registerCommand('hexScope.compareToStaged', (uri?: vscode.Uri) => {
             void runCompare(
                 stashedComparePair(compareSelection.get(), uri),
                 COMPARE_SELECT_HINT,
@@ -93,11 +92,8 @@ export function activate(context: vscode.ExtensionContext) {
                 () => compareSelection.clear(),
             );
         }),
-        vscode.commands.registerCommand('hexScope.compareSelectedFiles', (uri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
+        vscode.commands.registerCommand('hexScope.compareSelected', (uri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
             void runCompare(selectedComparePair(uri, selectedUris), COMPARE_TWO_HINT, compareDeps);
-        }),
-        vscode.commands.registerCommand('hexScope.clearCompareSelection', () => {
-            compareSelection.clear();
         }),
     );
 
@@ -160,7 +156,7 @@ export interface SelectCompareDeps {
     info: (message: string) => void;
 }
 
-/** Explorer `Compare Selected Files`: the clicked file is A/left, the other selected file B/right. */
+/** Explorer `Compare Two Files`: the clicked file is A/left, the other selected file B/right. */
 export function selectedComparePair(
     clicked: vscode.Uri | undefined,
     selected: readonly vscode.Uri[] | undefined,
@@ -178,7 +174,7 @@ function soleCompanion(clicked: vscode.Uri, selected: readonly vscode.Uri[] | un
     return others.length === 1 ? others[0] : undefined;
 }
 
-/** `Compare Selected`: the stashed file is A/left, the clicked file B/right. */
+/** `Compare with the 1st file`: the stashed file is A/left, the clicked file B/right. */
 export function stashedComparePair(
     stash: CompareSelection | null,
     clicked: vscode.Uri | undefined,
@@ -205,11 +201,11 @@ async function bothComparable(pair: [vscode.Uri, vscode.Uri], validate: CompareC
     return (await validate(pair[0])) && (await validate(pair[1]));
 }
 
-/** `Select Compare`: stash the clicked supported file for the next `Compare Selected`. */
-export function runSelectForCompare(uri: vscode.Uri | undefined, deps: SelectCompareDeps): boolean {
+/** `Set as 1st file to compare`: stash the clicked supported file for the next `Compare with the 1st file`. */
+export function selectAsFirst(uri: vscode.Uri | undefined, deps: SelectCompareDeps): boolean {
     if (!uri || !isSupportedHexFile(uri)) { deps.warn(COMPARE_SELECT_HINT); return false; }
     deps.setStash(uri);
-    deps.info(`HexScope: ${selectionName(uri)} selected for compare. Open the second file and run "Compare Selected".`);
+    deps.info(`HexScope: ${selectionName(uri)} set as the 1st file. Open the second file and run "Compare with the 1st file".`);
     return true;
 }
 

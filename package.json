@@ -137,23 +137,18 @@
         "category": "HexScope"
       },
       {
-        "command": "hexScope.selectForCompare",
-        "title": "Select Compare",
+        "command": "hexScope.selectAsFirst",
+        "title": "Set as 1st file to compare",
         "category": "HexScope"
       },
       {
-        "command": "hexScope.compareWithSelected",
-        "title": "Compare Selected",
+        "command": "hexScope.compareToStaged",
+        "title": "Compare with the 1st file",
         "category": "HexScope"
       },
       {
-        "command": "hexScope.compareSelectedFiles",
-        "title": "Compare Selected Files",
-        "category": "HexScope"
-      },
-      {
-        "command": "hexScope.clearCompareSelection",
-        "title": "Clear Compare Selection",
+        "command": "hexScope.compareSelected",
+        "title": "Compare Two Files",
         "category": "HexScope"
       },
       {
@@ -223,24 +218,19 @@
           "group": "navigation"
         },
         {
-          "command": "hexScope.selectForCompare",
+          "command": "hexScope.selectAsFirst",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus",
-          "group": "navigation"
+          "group": "3_compare"
         },
         {
-          "command": "hexScope.compareWithSelected",
+          "command": "hexScope.compareToStaged",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus && hexScope.hasCompareSelection",
-          "group": "navigation"
+          "group": "3_compare"
         },
         {
-          "command": "hexScope.clearCompareSelection",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus && hexScope.hasCompareSelection",
-          "group": "navigation"
-        },
-        {
-          "command": "hexScope.compareSelectedFiles",
+          "command": "hexScope.compareSelected",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection && explorerViewletFocus",
-          "group": "navigation"
+          "group": "3_compare"
         },
         {
           "command": "hexScope.quickRepair",

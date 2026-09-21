@@ -51,7 +51,18 @@ Ordered; each step gated by the previous.
 6. **Specs.** Update `editor-lifecycle.md` (commands, `when` clauses, status bar, stash lifecycle) and `component-diff-view.md` (picker removed).
 7. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
 
-## Phase C — Finish (after Phase A3 is green)
+## Phase A4 — Compare command revision (supersedes A3 command set)
+
+Ordered; each step gated by the previous.
+
+1. **`package.json`**: replace the four A3 commands with three — `hexScope.selectAsFirst` (`Set as 1st file to compare`), `hexScope.compareToStaged` (`Compare with the 1st file`), `hexScope.compareSelected` (`Compare Two Files`); delete `hexScope.selectForCompare`, `hexScope.compareWithSelected`, `hexScope.clearCompareSelection` (command + menu). Keep `when` gates as revised in `design.md` (Findings Round 3) and `group: "3_compare"`.
+2. **`src/diff/compareSelection.ts`**: remove the status-bar item and `dispose()`; the store becomes `get`/`set`/`clear` only (store file + `hexScope.hasCompareSelection` context key). Session memory only.
+3. **`src/extension.ts`**: register `selectAsFirst`, `compareToStaged`, `compareSelected`; drop `clearCompareSelection`; update the test seams and the information-message/hint strings; keep `explorerViewletFocus` gates and `validateComparable`.
+4. **Tests**: update `src/test/extension/extension.test.ts` for the three commands, no status-bar item, and the revised hints; remove `clear` coverage.
+5. **Specs**: update `editor-lifecycle.md` and `component-diff-view.md` to the three commands (no clear, no status bar).
+6. **Validation**: `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase C — Finish (after Phase A4 is green)
 
 1. Commit all working-tree changes for the task (single commit; no secrets; match repo commit style).
 2. Run `/update-changelog` (`.agents/skills/update-changelog/SKILL.md`) to prepare the changelog entry synchronized with package version and the committed changes since the latest release tag.
