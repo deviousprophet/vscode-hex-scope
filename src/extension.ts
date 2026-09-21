@@ -3,6 +3,13 @@ import * as vscode from 'vscode';
 import { HexEditorProvider } from './hexEditorProvider';
 import { HexEditorSession } from './hexEditorSession';
 import { DiffEditorPanel } from './diff/diffEditorPanel';
+import {
+    actionForChoice,
+    BROWSE_ITEM_LABEL,
+    comparisonConfirmItems,
+    openEditorItems,
+    pickerBasename,
+} from './diff/diffPicker';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
@@ -126,22 +133,107 @@ async function runQuickRepair(uri?: vscode.Uri): Promise<void> {
 async function compareWith(context: vscode.ExtensionContext, uri?: vscode.Uri): Promise<void> {
     const base = commandTarget(uri);
     if (!base || !isSupportedHexFile(base)) { return; }
-    const other = await pickComparisonTarget(base);
-    if (!other) { return; }
-    await DiffEditorPanel.open(context, base, other);
+    const picked = await pickComparisonTarget(base);
+    if (!picked) { return; }
+    const [first, second] = orderedPair(base, picked);
+    await DiffEditorPanel.open(context, first, second);
 }
 
-/** Validate the base file, prompt for the second file, and validate that too. */
-async function pickComparisonTarget(base: vscode.Uri): Promise<vscode.Uri | undefined> {
-    if (!(await validateComparable(base))) { return undefined; }
+/** Panel side order: side A is the active base file unless the user swapped the pair. */
+function orderedPair(base: vscode.Uri, picked: ComparisonTarget): [vscode.Uri, vscode.Uri] {
+    return picked.swap ? [picked.uri, base] : [base, picked.uri];
+}
+
+interface ComparisonTarget {
+    uri: vscode.Uri;
+    swap: boolean;
+}
+
+export interface ComparisonPickerDeps {
+    validate: (uri: vscode.Uri) => Promise<boolean>;
+    chooseOther: (base: vscode.Uri) => Promise<vscode.Uri | undefined>;
+    confirm: (baseName: string, otherName: string) => Promise<string | undefined>;
+}
+
+/** Validate the base file, choose the second file, then confirm the pair (or swap sides). */
+export async function resolveComparisonTarget(
+    base: vscode.Uri,
+    deps: ComparisonPickerDeps,
+): Promise<ComparisonTarget | undefined> {
+    if (!(await deps.validate(base))) { return undefined; }
+    const other = await deps.chooseOther(base);
+    if (!other || !(await deps.validate(other))) { return undefined; }
+    return confirmedTarget(base, other, deps);
+}
+
+async function confirmedTarget(
+    base: vscode.Uri,
+    other: vscode.Uri,
+    deps: ComparisonPickerDeps,
+): Promise<ComparisonTarget | undefined> {
+    const baseName = pickerBasename(base.fsPath);
+    const otherName = pickerBasename(other.fsPath);
+    const action = actionForChoice(await deps.confirm(baseName, otherName), baseName, otherName);
+    return action === 'cancel' ? undefined : { uri: other, swap: action === 'swap' };
+}
+
+async function pickComparisonTarget(base: vscode.Uri): Promise<ComparisonTarget | undefined> {
+    return resolveComparisonTarget(base, {
+        validate: validateComparable,
+        chooseOther: chooseOtherFile,
+        confirm: async (baseName, otherName) => vscode.window.showQuickPick(
+            comparisonConfirmItems(baseName, otherName),
+            { placeHolder: 'Compare files' },
+        ),
+    });
+}
+
+type PickerQuickItem = vscode.QuickPickItem & { uri?: string; browse?: boolean };
+
+async function chooseOtherFile(base: vscode.Uri): Promise<vscode.Uri | undefined> {
+    const items: PickerQuickItem[] = [
+        ...openEditorItems(supportedOpenPaths(), base.fsPath),
+        { label: BROWSE_ITEM_LABEL, browse: true },
+    ];
+    const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Compare with…',
+    });
+    if (!picked) { return undefined; }
+    if (picked.browse) { return browseForFile(); }
+    return picked.uri ? vscode.Uri.file(picked.uri) : undefined;
+}
+
+async function browseForFile(): Promise<vscode.Uri | undefined> {
     const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
         openLabel: 'Compare with',
         filters: { 'Firmware files': SUPPORTED_EXTENSIONS },
     });
-    const other = firstUri(picked);
-    if (!other) { return undefined; }
-    return (await validateComparable(other)) ? other : undefined;
+    return firstUri(picked);
+}
+
+/** Paths of supported files open in text editors or loaded as documents, deduped. */
+function supportedOpenPaths(): string[] {
+    const paths = new Set<string>();
+    for (const path of openTabPaths()) { paths.add(path); }
+    for (const path of documentPaths()) { paths.add(path); }
+    return [...paths];
+}
+
+function openTabPaths(): string[] {
+    return vscode.window.tabGroups.all
+        .flatMap(group => group.tabs)
+        .map(tab => tab.input)
+        .filter((input): input is vscode.TabInputText => input instanceof vscode.TabInputText)
+        .map(input => input.uri)
+        .filter(isSupportedHexFile)
+        .map(uri => uri.fsPath);
+}
+
+function documentPaths(): string[] {
+    return vscode.workspace.textDocuments
+        .filter(document => isSupportedHexFile(document.uri))
+        .map(document => document.uri.fsPath);
 }
 
 function firstUri(uris: readonly vscode.Uri[] | undefined): vscode.Uri | undefined {

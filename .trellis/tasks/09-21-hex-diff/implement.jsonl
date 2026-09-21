@@ -6,3 +6,5 @@
 {"file": ".trellis/spec/frontend/type-safety.md", "reason": "Discriminated unions and boundary normalization for the new diff protocol messages."}
 {"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Webview DOM rendering, listener wiring, and rerender rules for the diff surface."}
 {"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "CSS file placement, tokens, and selector patterns for diff highlight and layout styles."}
+{"file": ".trellis/spec/frontend/components/component-search-bar.md", "reason": "Reusing the SearchBar component and core/search.ts for the diff surface's Find feature."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Owns the diff surface contract; must be updated with pointer parity, view modes, swap, search, and labels."}

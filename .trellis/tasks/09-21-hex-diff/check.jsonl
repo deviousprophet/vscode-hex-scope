@@ -2,3 +2,4 @@
 {"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Verify diff protocol handling, unknown-message rejection, generation/staleness, and panel disposal cleanup."}
 {"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Parity gate for the HexView de-globalization refactor and the diff-view reuse contract."}
 {"file": ".trellis/spec/frontend/state-management.md", "reason": "Confirm protocol/state ownership and that no single-editor persistence is wired into the diff surface."}
+{"file": ".trellis/spec/frontend/components/component-search-bar.md", "reason": "Verify SearchBar reuse keeps the component host-agnostic for the diff surface (no S/global writes)."}

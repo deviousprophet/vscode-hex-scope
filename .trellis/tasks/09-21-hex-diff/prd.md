@@ -24,6 +24,16 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 10. **Grid reuse.** Reuse the existing `HexView` component for the diff grid (confirmed). Requires a prerequisite de-globalization refactor: turn its remaining `#mem-scroll` / `#mem-header` id queries and id-based CSS into root-scoped class selectors, and add a horizontal-scroll sync seam so two instances can coexist.
 11. **Naming.** Task "Hex Diff View", slug `hex-diff`, branch `feat/hex-diff`. No issue number anywhere.
 
+### Findings round 2 (post-Phase-A review)
+
+12. **Interaction parity.** Full read-only pointer parity with `HexView`: hover + column hover, click/drag byte selection, address-gutter row selection, copy selected bytes. No editing. Selection is mirrored across both panes (same address range painted on each side).
+13. **Action bar.** Buttons, left→right: `Prev diff`, `Next diff`, `Show all`, `Show diff`, `Swap sides`, `Find`, `Sync scroll`. `Sync scroll` default ON. `Swap sides` swaps pane order, header file labels, and diff colors (colors follow the file). `Copy` copies from the pane where the selection was made. Counts (changed / added / removed) remain.
+14. **View modes.** `Show all` default = full union row model. `Show diff` = only rows containing at least one changed/added/removed byte; identical rows and gap rows hidden; on zero differences show a `No differences` empty-state message. Navigating to a run keeps the current mode (a run row is by definition a difference row, so it stays visible).
+15. **Search.** Reuse the `SearchBar` component and `core/search.ts` engine. One query searches both panes; matches highlight in both grids; the match count is the combined address-ordered set. `Find` toggles the bar (hidden by default). Match next/previous walks addresses in order and scrolls both grids.
+16. **Address column.** Visible on both panes (the single shared address column may repeat).
+17. **Divider.** 3px higher-contrast divider between panes, brightening on hover, static width (not draggable).
+18. **Same-name files.** When both panes share a basename, side labels (and the tab title) use the shortest disambiguating path suffix; the full path is always available as a tooltip. Picker lists supported open editors with their paths plus `Browse…` (no persisted recent-files list).
+
 ## Requirements
 
 - R1 — `HexScope: Compare with...` command appears for a supported active file (editor title bar + command palette) and prompts for the second file.
@@ -34,6 +44,14 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - R6 — Navigation jumps to the next and previous difference, cycling through differences in address order.
 - R7 — Existing per-file segment labels render as read-only context on their own side. (Phase B.)
 - R8 — Files with differing address spaces, formats, or non-contiguous records are handled without error; unmapped-but-aligned bytes render as empty cells, not as false differences.
+- R9 — Either pane scrolls the exact same rows: a short file must not leave a blank lower half or a phantom error region; the error state only appears when a comparison fails.
+- R10 — Click/drag selection, address-gutter selection, hover + column hover, and copy behave like the single-file `HexView`; selection is read-only and mirrored across both panes.
+- R11 — The action bar exposes `Prev diff`, `Next diff`, `Show all`, `Show diff`, `Swap sides`, `Find`, `Sync scroll`; `Sync scroll` starts ON and can be turned off for independent scrolling.
+- R12 — `Show diff` filters out identical and gap rows, shows `No differences` when the pair is identical, and keeps the mode when navigating runs.
+- R13 — `Swap sides` swaps panes, header file labels, and diff colors; `Copy` copies from the pane where the selection was made.
+- R14 — `Find` opens the reused search bar, searching both panes with one query; matches highlight in both grids and next/previous walks matches in address order, scrolling both grids.
+- R15 — Both panes show an address column; the divider between panes is thicker and hover-highlighted.
+- R16 — Files sharing a basename are disambiguated in the pane labels and tab title, with the full path on hover.
 
 ## Acceptance Criteria
 
@@ -47,6 +65,14 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - [ ] AC8 — Next/previous difference buttons move the viewport between successive differences and wrap or stop predictably at the ends.
 - [ ] AC9 — The diff editor exposes no editing, save, script, integrity, or sidebar affordances.
 - [ ] AC10 — Closing the diff tab releases its panels/watchers and leaves no retained host state.
+- [ ] AC11 — Comparing a short pair fills the viewport normally: no blank lower half and no phantom error area; a failed comparison shows the error card and hides the grids.
+- [ ] AC12 — Dragging or address-gutter-dragging selects the same address range on both panes; `Ctrl+C` copies the source pane's bytes.
+- [ ] AC13 — `Sync scroll` ON: scrolling one pane scrolls the other; OFF: panes scroll independently.
+- [ ] AC14 — `Show diff` hides identical and gap rows; an identical pair shows `No differences`; `Prev`/`Next` still frame each run.
+- [ ] AC15 — `Swap sides` flips pane order and labels and turns added cells into removed cells (and vice versa).
+- [ ] AC16 — `Find` reveals the search bar; one query highlights matches in both panes and next/previous walks matches in address order.
+- [ ] AC17 — Both panes display addresses; the pane divider is visibly thicker and highlights on hover.
+- [ ] AC18 — Two files named `firmware.hex` in different folders show distinguishable side labels and tab title with full paths on hover.
 
 ## Out of Scope
 

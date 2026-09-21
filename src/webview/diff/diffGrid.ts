@@ -1,5 +1,8 @@
 import type { DiffModel } from '../../core/diff';
-import { HexView } from '../components/hexView/hexView';
+import { computeByteDiff } from '../../core/diff';
+import type { MemorySegment } from '../../core/parser/types';
+import { formatCopyCommand } from '../../core/byteTools/copyFormatters';
+import { HexView, type HexViewCallbacks } from '../components/hexView/hexView';
 import {
     BYTES_PER_ROW,
     renderHexViewHeader,
@@ -24,6 +27,9 @@ import {
 import { byteClass, esc } from '../utils';
 import { buildDiffRows, diffClassForSide, diffKindAt, getSideByte, renderDiffErrorHtml, type DiffRow, type DiffSideData } from './diffModel';
 
+export type DiffViewMode = 'all' | 'diff';
+type DiffPane = 'a' | 'b';
+
 const FALLBACK_ROW_HEIGHT = 20.8;
 const FALLBACK_GAP_HEIGHT = 35.2;
 const BUFFER_SIZE = 10;
@@ -36,55 +42,240 @@ interface DiffGridData {
     diff: DiffModel;
 }
 
+interface DiffGridHooks {
+    onSidesSwapped?: (a: DiffSideData, b: DiffSideData) => void;
+}
+
 let data: DiffGridData | null = null;
+let visibleRows: DiffRow[] = [];
 let viewA: HexView | null = null;
 let viewB: HexView | null = null;
 let vscroll: VirtualScrollState | null = null;
 let vscrollContainer: HTMLElement | null = null;
-let activeRange: HexViewRange | null = null;
+let selection: HexViewRange | null = null;
+let selectionPane: DiffPane = 'a';
+let selAnchor: number | null = null;
+let matchSet: ReadonlySet<number> = new Set();
+let activeMatch: HexViewRange | null = null;
+let viewMode: DiffViewMode = 'all';
+let syncScroll = true;
 let syncingScroll = false;
+let hooks: DiffGridHooks = {};
+
+export function setDiffGridHooks(next: DiffGridHooks): void {
+    hooks = next;
+}
 
 export function mountDiffGrid(): void {
     if (!viewA) {
-        viewA = new HexView('#diff-a', { onVisibleWindowChange: (top, left) => syncFrom('a', top, left) });
+        viewA = new HexView('#diff-a', callbacksFor('a'));
         viewA.mount();
     }
     if (!viewB) {
-        viewB = new HexView('#diff-b', { onVisibleWindowChange: (top, left) => syncFrom('b', top, left) });
+        viewB = new HexView('#diff-b', callbacksFor('b'));
         viewB.mount();
     }
+}
+
+function callbacksFor(side: DiffPane): HexViewCallbacks {
+    return {
+        onVisibleWindowChange: (top, left) => syncFrom(side, top, left),
+        onCellClick: (addr, shift) => selectCell(side, addr, shift),
+        onSelectionChange: range => setSelection(side, range),
+        onAddressRowClick: (rowBase, shift) => selectRow(side, rowBase, shift),
+        onAddressRowDrag: rows => selectRowRange(side, rows),
+    };
 }
 
 /** Test seam: drop cached grid instances so a fresh document re-attaches listeners. */
 export function resetDiffGrid(): void {
     data = null;
+    visibleRows = [];
     viewA = null;
     viewB = null;
     vscroll = null;
     vscrollContainer = null;
-    activeRange = null;
+    selection = null;
+    selectionPane = 'a';
+    selAnchor = null;
+    matchSet = new Set();
+    activeMatch = null;
+    viewMode = 'all';
+    syncScroll = true;
     syncingScroll = false;
 }
 
 export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): void {
     data = { rows: buildDiffRows(a, b), a, b, diff };
+    visibleRows = filterRows(data.rows);
     vscroll = null;
     vscrollContainer = null;
-    activeRange = null;
+    selection = null;
+    selectionPane = 'a';
+    selAnchor = null;
+    matchSet = new Set();
+    activeMatch = null;
+    viewMode = 'all';
+    syncScroll = true;
     clearDiffError();
     renderHeaders();
     renderDiffGrid();
 }
 
+// ── View mode ─────────────────────────────────────────────────────
+
+export function getViewMode(): DiffViewMode {
+    return viewMode;
+}
+
+export function setViewMode(mode: DiffViewMode): void {
+    if (mode === viewMode) { return; }
+    viewMode = mode;
+    visibleRows = filterRows(data?.rows ?? []);
+    renderDiffGrid();
+}
+
+export function getSyncScroll(): boolean {
+    return syncScroll;
+}
+
+export function setSyncScroll(on: boolean): void {
+    syncScroll = on;
+}
+
+function filterRows(rows: readonly DiffRow[]): DiffRow[] {
+    if (viewMode === 'all') { return [...rows]; }
+    return rows.filter(row => row.kind === 'data' && rowHasDiff(row));
+}
+
+function rowHasDiff(row: DiffRow): boolean {
+    if (!data) { return false; }
+    for (let col = 0; col < BYTES_PER_ROW; col++) {
+        if (diffKindAt(data.diff.runs, row.address + col) !== undefined) { return true; }
+    }
+    return false;
+}
+
+// ── Selection (read-only, mirrored) ───────────────────────────────
+
+function selectCell(side: DiffPane, addr: number, shift: boolean): void {
+    const start = shift && selAnchor !== null ? selAnchor : addr;
+    if (!shift) { selAnchor = addr; }
+    applySelection(side, start, addr);
+}
+
+function selectRow(side: DiffPane, rowBase: number, shift: boolean): void {
+    const start = shift && selAnchor !== null ? selAnchor : rowBase;
+    if (!shift) { selAnchor = rowBase; }
+    applySelection(side, start, rowBase + BYTES_PER_ROW - 1);
+}
+
+function selectRowRange(side: DiffPane, rows: HexViewRange): void {
+    applySelection(side, rows.start, rows.end + BYTES_PER_ROW - 1);
+}
+
+function setSelection(side: DiffPane, range: HexViewRange): void {
+    selAnchor = range.start;
+    applySelection(side, range.start, range.end);
+}
+
+function applySelection(side: DiffPane, start: number, end: number): void {
+    selection = { start: Math.min(start, end), end: Math.max(start, end) };
+    selectionPane = side;
+    viewA?.paintSelection(selection);
+    viewB?.paintSelection(selection);
+}
+
+/** Copy source pane's mapped bytes for the current selection; unmapped addresses are skipped. */
+export function copySelectionText(): { text: string; label: string } | null {
+    if (!data || !selection) { return null; }
+    return copyPayload(mappedBytes(sideForPane(selectionPane), selection));
+}
+
+function sideForPane(pane: DiffPane): DiffSideData {
+    const sides = data!;
+    return pane === 'b' ? sides.b : sides.a;
+}
+
+function mappedBytes(side: DiffSideData, range: HexViewRange): number[] {
+    const bytes: number[] = [];
+    for (let addr = range.start; addr <= range.end; addr++) {
+        const value = getSideByte(side, addr);
+        if (value !== undefined) { bytes.push(value); }
+    }
+    return bytes;
+}
+
+function copyPayload(bytes: number[]): { text: string; label: string } | null {
+    return bytes.length > 0
+        ? { text: formatCopyCommand('hex', bytes), label: pluralBytes(bytes.length) }
+        : null;
+}
+
+function pluralBytes(count: number): string {
+    return `${count} byte${count === 1 ? '' : 's'}`;
+}
+
+// ── Swap ──────────────────────────────────────────────────────────
+
+/** Swap pane order/labels and recompute the diff for the new base pair, then re-render. */
+export function swapSides(): DiffModel | null {
+    if (!data) { return null; }
+    const a = data.a;
+    data.a = data.b;
+    data.b = a;
+    data.diff = computeByteDiff(memorySegments(data.a), memorySegments(data.b));
+    hooks.onSidesSwapped?.(data.a, data.b);
+    renderDiffGrid();
+    return data.diff;
+}
+
+function memorySegments(side: DiffSideData): MemorySegment[] {
+    return side.parseResult.segments.map(segment => ({
+        startAddress: segment.startAddress,
+        data: segment.data as Uint8Array,
+    }));
+}
+
+// ── Search matches ────────────────────────────────────────────────
+
+export function currentSides(): { a: DiffSideData; b: DiffSideData } | null {
+    return data ? { a: data.a, b: data.b } : null;
+}
+
+export function setSearchMatches(addrs: readonly number[], active: number, length: number): void {
+    const span = Math.max(1, length);
+    matchSet = matchSetWithSpans(addrs, span);
+    activeMatch = active >= 0 && active < addrs.length
+        ? { start: addrs[active], end: addrs[active] + span - 1 }
+        : null;
+    renderDiffGrid();
+}
+
+/** Match-highlight width follows the executed needle span (parity with memoryGrid.addMatchSpan). */
+function matchSetWithSpans(addrs: readonly number[], span: number): ReadonlySet<number> {
+    const set = new Set<number>();
+    for (const addr of addrs) {
+        for (let i = 0; i < span; i++) { set.add(addr + i); }
+    }
+    return set;
+}
+
+// ── Render ────────────────────────────────────────────────────────
+
 function renderDiffGrid(): void {
     const ui = gridContainers();
     if (!ui || !data) { return; }
-    if (data.rows.length === 0) { renderEmptyGrid(ui); return; }
+    if (visibleRows.length === 0) { renderEmptyGrid(ui, emptyMessage()); return; }
     renderVisibleSlice(ui);
 }
 
-function renderEmptyGrid(ui: GridContainers): void {
-    const emptyHtml = renderHexViewHtml(emptyInput());
+function emptyMessage(): string {
+    return viewMode === 'diff' ? 'No differences' : 'No data records found.';
+}
+
+function renderEmptyGrid(ui: GridContainers, message: string): void {
+    const emptyHtml = `<div class="diff-empty">${esc(message)}</div>`;
     ui.a.innerHTML = emptyHtml;
     ui.b.innerHTML = emptyHtml;
 }
@@ -103,17 +294,23 @@ function renderVisibleSlice(ui: GridContainers): void {
     ui.b.innerHTML = renderHexViewHtml(buildInput('b', start, end, layout, windowTop, topSpacer, bottomSpacer));
 }
 
-export function scrollToDiff(range: HexViewRange): void {
+export function scrollToDiff(range: HexViewRange, options: { selection?: boolean } = {}): void {
     if (!data || !vscroll) { return; }
     const rowIndex = findRowIndexForAddress(range.start);
     if (rowIndex < 0) { return; }
-    activeRange = range;
-    const state = vscroll;
+    applySelectionOption(range, options);
+    scrollToRow(rowIndex, vscroll);
+}
+
+function applySelectionOption(range: HexViewRange, options: { selection?: boolean }): void {
+    if (options.selection !== false) { selection = range; }
+}
+
+function scrollToRow(rowIndex: number, state: VirtualScrollState): void {
     const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.getRowHeight(rowIndex) * 2);
-    const layout = calcScrollLayout(state);
-    const targetTop = Math.min(desiredTop, layout.logicalScrollable);
-    state.scrollTop = targetTop;
-    const physicalTop = logicalToPhysicalScroll(targetTop, state);
+    const top = Math.min(desiredTop, calcScrollLayout(state).logicalScrollable);
+    state.scrollTop = top;
+    const physicalTop = logicalToPhysicalScroll(top, state);
     viewA?.setScrollTop(physicalTop);
     viewB?.setScrollTop(physicalTop);
     renderDiffGrid();
@@ -137,44 +334,41 @@ function clearDiffError(): void {
 
 // ── Scroll sync ───────────────────────────────────────────────────
 
-/** Mirror one grid's scroll onto the other; both grids share rows and row heights. */
-function syncFrom(driver: 'a' | 'b', top: number, left: number): void {
-    if (syncingScroll || !data || !vscroll) { return; }
+/** Re-slice the driver grid; mirror onto the follower only when sync is on. */
+function syncFrom(driver: DiffPane, top: number, left: number): void {
+    if (isSyncBlocked()) { return; }
     syncingScroll = true;
     try {
-        vscroll.scrollTop = physicalToLogicalScroll(top, vscroll);
-        renderDiffGrid();
-        const follower = followerOf(driver);
-        follower?.setScrollTop(top);
-        follower?.setScrollLeft(left);
+        applyDriverScroll(top);
+        if (syncScroll) { mirrorToFollower(driver, top, left); }
     } finally {
         syncingScroll = false;
     }
 }
 
-function followerOf(driver: 'a' | 'b'): HexView | null {
+function isSyncBlocked(): boolean {
+    return syncingScroll || !data || !vscroll;
+}
+
+function applyDriverScroll(top: number): void {
+    vscroll!.scrollTop = physicalToLogicalScroll(top, vscroll!);
+    renderDiffGrid();
+}
+
+function mirrorToFollower(driver: DiffPane, top: number, left: number): void {
+    const follower = followerOf(driver);
+    follower?.setScrollTop(top);
+    follower?.setScrollLeft(left);
+}
+
+function followerOf(driver: DiffPane): HexView | null {
     return driver === 'a' ? viewB : viewA;
 }
 
 // ── Render input building ─────────────────────────────────────────
 
-function emptyInput(): HexViewRenderInput {
-    return {
-        rows: [],
-        topSpacer: 0,
-        bottomSpacer: 0,
-        compressed: false,
-        containerHeight: 0,
-        windowTop: 0,
-        matchSet: new Set(),
-        selection: null,
-        activeMatch: null,
-        showAscii: false,
-    };
-}
-
 function buildInput(
-    side: 'a' | 'b',
+    side: DiffPane,
     start: number,
     end: number,
     layout: VirtualScrollLayout,
@@ -184,8 +378,8 @@ function buildInput(
 ): HexViewRenderInput {
     const sideData = side === 'a' ? data!.a : data!.b;
     const rows: HexViewRow[] = [];
-    for (let i = start; i < end && i < data!.rows.length; i++) {
-        rows.push(toHexRow(data!.rows[i], side, sideData));
+    for (let i = start; i < end && i < visibleRows.length; i++) {
+        rows.push(toHexRow(visibleRows[i], side, sideData));
     }
     return {
         rows,
@@ -194,21 +388,21 @@ function buildInput(
         compressed: layout.isCompressed,
         containerHeight: layout.physicalHeight,
         windowTop,
-        matchSet: new Set(),
-        selection: activeRange,
-        activeMatch: null,
+        matchSet,
+        selection,
+        activeMatch,
         showAscii: false,
     };
 }
 
-function toHexRow(row: DiffRow, side: 'a' | 'b', sideData: DiffSideData): HexViewRow {
+function toHexRow(row: DiffRow, side: DiffPane, sideData: DiffSideData): HexViewRow {
     if (row.kind === 'gap') {
         return { address: row.address, kind: 'gap', cells: [], gap: row.gap };
     }
     return { address: row.address, kind: 'data', cells: buildCells(row.address, side, sideData) };
 }
 
-function buildCells(base: number, side: 'a' | 'b', sideData: DiffSideData): HexViewCell[] {
+function buildCells(base: number, side: DiffPane, sideData: DiffSideData): HexViewCell[] {
     const cells: HexViewCell[] = [];
     for (let col = 0; col < BYTES_PER_ROW; col++) {
         const addr = base + col;
@@ -218,7 +412,7 @@ function buildCells(base: number, side: 'a' | 'b', sideData: DiffSideData): HexV
     return cells;
 }
 
-function dataCell(val: number, side: 'a' | 'b', addr: number): HexViewCell {
+function dataCell(val: number, side: DiffPane, addr: number): HexViewCell {
     const printable = val >= 0x20 && val < 0x7F;
     const diffCls = diffClassForSide(side, diffKindAt(data!.diff.runs, addr));
     return {
@@ -244,7 +438,7 @@ function rowMetrics(): { rowHeight: number; gapHeight: number } {
 function ensureScrollState(scrollEl: HTMLElement): VirtualScrollState {
     const { rowHeight, gapHeight } = rowMetrics();
     const version = `${rowHeight.toFixed(3)}:${gapHeight.toFixed(3)}`;
-    const rowCount = data!.rows.length;
+    const rowCount = visibleRows.length;
     if (isCurrentScrollState(scrollEl, version, rowCount)) { return vscroll!; }
 
     const logicalTop = vscroll && vscrollContainer === scrollEl
@@ -257,7 +451,7 @@ function ensureScrollState(scrollEl: HTMLElement): VirtualScrollState {
         visibleRowIndices: [0, 0],
         rowCount,
         heightVersion: version,
-        getRowHeight: index => data!.rows[index]?.kind === 'gap' ? gapHeight : rowHeight,
+        getRowHeight: index => visibleRows[index]?.kind === 'gap' ? gapHeight : rowHeight,
     };
     vscrollContainer = scrollEl;
     return vscroll;
@@ -274,8 +468,8 @@ function isCurrentScrollState(scrollEl: HTMLElement, version: string, rowCount: 
 
 function findRowIndexForAddress(addr: number): number {
     const base = addr - (addr % BYTES_PER_ROW);
-    for (let i = 0; i < data!.rows.length; i++) {
-        const row = data!.rows[i];
+    for (let i = 0; i < visibleRows.length; i++) {
+        const row = visibleRows[i];
         if (row.kind === 'data' && row.address === base) { return i; }
     }
     return -1;

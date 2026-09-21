@@ -62,6 +62,7 @@ function runSearch(query: string, mode: SearchMode, endianness: SearchEndianness
 - Search chrome carries `aria-label="Search"` on `#search-input` and `aria-live="polite"` on `#match-count` (match-result changes are announced). The host re-pushes the count after a full render.
 - All styles specific to search UI live in `searchBar.css` (moved verbatim from `toolbar.css`). `toolbar.css` is now `statsBar.css` (only `#stats-bar`/`.si*` rules); toolbar chrome lives in `components/toolbar/toolbar.css`, search in `searchBar.css`, banners in `externalChange.css`. Design tokens stay in `base.css`.
 - Global DOM IDs (`#search-input`, `#match-count`, `#search-mode`, …), single instance. Multi-instance/scoped selectors are out of scope (diff view, future).
+- **Second surface (diff view):** `src/webview/diff/diffSearch.ts` reuses `SearchBar` inside the isolated diff bundle (`import '../components/searchBar/searchBar'` + `searchBar.css`). The component stays host-agnostic there too — it never reads `S`, and the diff host owns execution: one query over both sides' hydrated segments, unioned/deduped addresses, painting via the grids' render input, and `scrollToDiff` for navigation. Because both surfaces are separate bundles/realms, the global ids do not collide. Known gap: the diff host has no completed-query "Enter navigates" shortcut, so repeat-Enter re-runs the search (see `component-diff-view.md`).
 - Component HTML/behaviour escapes untrusted input with `esc()`; no inline `<style>`.
 
 ## Behaviour (user-visible parity with pre-refactor)

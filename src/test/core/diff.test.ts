@@ -1,6 +1,8 @@
 import * as assert from 'assert';
 import { computeByteDiff } from '../../core/diff';
 import type { MemorySegment } from '../../core/parser/types';
+import { disambiguatedLabels } from '../../core/diffLabels';
+import { actionForChoice, comparisonConfirmItems, openEditorItems, pickerBasename } from '../../diff/diffPicker';
 
 function seg(startAddress: number, bytes: number[]): MemorySegment {
     return { startAddress, data: Uint8Array.from(bytes) };
@@ -86,5 +88,51 @@ suite('computeByteDiff', () => {
             [seg(0xFFFFFFFC, [0x01, 0x02, 0x03, 0x05])],
         );
         assert.deepStrictEqual(model.runs, [{ start: 0xFFFFFFFF, end: 0xFFFFFFFF, kind: 'changed', count: 1 }]);
+    });
+});
+
+suite('disambiguatedLabels', () => {
+    test('uses basenames when they differ', () => {
+        assert.deepStrictEqual(
+            disambiguatedLabels({ name: 'a.hex', path: '/x/a.hex' }, { name: 'b.hex', path: '/x/b.hex' }),
+            ['a.hex', 'b.hex'],
+        );
+    });
+
+    test('uses the shortest disambiguating suffix when basenames collide', () => {
+        assert.deepStrictEqual(
+            disambiguatedLabels({ name: 'firmware.hex', path: '/one/fw/firmware.hex' }, { name: 'firmware.hex', path: '/two/fw/firmware.hex' }),
+            ['one/fw/firmware.hex', 'two/fw/firmware.hex'],
+        );
+    });
+
+    test('grows the suffix until the paths differ', () => {
+        assert.deepStrictEqual(
+            disambiguatedLabels({ name: 'firmware.hex', path: '/one/firmware.hex' }, { name: 'firmware.hex', path: '/two/firmware.hex' }),
+            ['one/firmware.hex', 'two/firmware.hex'],
+        );
+    });
+});
+
+suite('comparison picker helpers', () => {
+    test('open-editor candidates exclude the base file and show path descriptions', () => {
+        const items = openEditorItems(['/x/a.hex', '/y/b.srec', '/x/base.hex'], '/x/base.hex');
+        assert.deepStrictEqual(items, [
+            { label: 'a.hex', description: '/x/a.hex', uri: '/x/a.hex' },
+            { label: 'b.srec', description: '/y/b.srec', uri: '/y/b.srec' },
+        ]);
+    });
+
+    test('confirm choices map to compare / swap / cancel', () => {
+        const choices = comparisonConfirmItems('a.hex', 'b.hex');
+        assert.strictEqual(actionForChoice(choices[0], 'a.hex', 'b.hex'), 'compare');
+        assert.strictEqual(actionForChoice('Swap', 'a.hex', 'b.hex'), 'swap');
+        assert.strictEqual(actionForChoice('Cancel', 'a.hex', 'b.hex'), 'cancel');
+        assert.strictEqual(actionForChoice(undefined, 'a.hex', 'b.hex'), 'cancel');
+    });
+
+    test('basename handles both separators', () => {
+        assert.strictEqual(pickerBasename('C:\\fw\\a.hex'), 'a.hex');
+        assert.strictEqual(pickerBasename('/fw/a.hex'), 'a.hex');
     });
 });

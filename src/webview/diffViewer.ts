@@ -3,16 +3,21 @@
 
 import './diff/diff.css';
 import type { DiffWebviewToProvider } from '../diffProtocol';
+import { disambiguatedLabels } from '../core/diffLabels';
 import { postProviderMessage } from './vscodeApi';
-import { hydrateDiffSide } from './diff/diffModel';
-import { mountDiffGrid, setDiffData, showDiffError } from './diff/diffGrid';
+import { hydrateDiffSide, type DiffSideData } from './diff/diffModel';
+import { copySelectionText, mountDiffGrid, setDiffData, setDiffGridHooks, showDiffError } from './diff/diffGrid';
+import { resetDiffSearch } from './diff/diffSearch';
 import { setDiffSummary } from './diff/diffSummary';
+import { isCopyShortcut, isEditableTarget } from './components/hexView/hexViewPaint';
 import { dispatchDiffMessage, type DiffErrorMessage, type DiffInitMessage } from './diff/diffMessages';
 
 const READY: DiffWebviewToProvider = { type: 'ready' };
+let sides: { a: DiffSideData; b: DiffSideData } | null = null;
 
 function renderDiffShellHtml(): string {
     return `<div class="diff-summary" id="diff-summary"></div>` +
+        `<div class="diff-find" id="diff-search"></div>` +
         `<div class="diff-body" id="diff-body">` +
         `<div class="diff-side">` +
         `<div class="diff-side-head" id="diff-head-a"></div>` +
@@ -20,7 +25,8 @@ function renderDiffShellHtml(): string {
         `<div class="mem-header" id="diff-header-a"></div>` +
         `<div class="mem-scroll"><div class="mem-rows" id="diff-rows-a"></div></div>` +
         `</div></div>` +
-        `<div class="diff-side diff-hide-addr">` +
+        `<div class="diff-split" id="diff-split"></div>` +
+        `<div class="diff-side">` +
         `<div class="diff-side-head" id="diff-head-b"></div>` +
         `<div class="diff-grid-root" id="diff-b">` +
         `<div class="mem-header" id="diff-header-b"></div>` +
@@ -32,10 +38,17 @@ function renderDiffShellHtml(): string {
 const app = document.getElementById('app');
 if (app) { app.innerHTML = renderDiffShellHtml(); }
 
+setDiffGridHooks({
+    onSidesSwapped: (a, b) => {
+        sides = { a, b };
+        renderSideHeads();
+    },
+});
 mountDiffGrid();
 postProviderMessage(READY);
 
 window.addEventListener('message', event => { applyDiffMessage(event.data); });
+document.addEventListener('keydown', handleCopyShortcut);
 
 function applyDiffMessage(message: unknown): void {
     dispatchDiffMessage(message, {
@@ -47,8 +60,9 @@ function applyDiffMessage(message: unknown): void {
 function applyDiffInit(message: DiffInitMessage): void {
     const a = hydrateDiffSide(message.a);
     const b = hydrateDiffSide(message.b);
-    setSideHead('diff-head-a', a.name, a.format);
-    setSideHead('diff-head-b', b.name, b.format);
+    sides = { a, b };
+    renderSideHeads();
+    resetDiffSearch();
     setDiffData(a, b, message.diff);
     setDiffSummary(message.diff);
 }
@@ -57,8 +71,24 @@ function applyDiffError(message: DiffErrorMessage): void {
     showDiffError(message.message);
 }
 
-function setSideHead(id: string, name: string, format: string): void {
+function handleCopyShortcut(e: KeyboardEvent): void {
+    if (!isCopyShortcut(e) || isEditableTarget(e.target as HTMLElement | null)) { return; }
+    const payload = copySelectionText();
+    if (!payload) { return; }
+    e.preventDefault();
+    postProviderMessage({ type: 'copyText', text: payload.text, label: payload.label });
+}
+
+function renderSideHeads(): void {
+    if (!sides) { return; }
+    const [labelA, labelB] = disambiguatedLabels(sides.a, sides.b);
+    setSideHead('diff-head-a', labelA, sides.a);
+    setSideHead('diff-head-b', labelB, sides.b);
+}
+
+function setSideHead(id: string, label: string, side: DiffSideData): void {
     const el = document.getElementById(id);
     if (!el) { return; }
-    el.textContent = `${name} · ${format.toUpperCase()}`;
+    el.textContent = `${label} · ${side.format.toUpperCase()}`;
+    el.title = side.path;
 }

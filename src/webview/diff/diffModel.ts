@@ -7,6 +7,7 @@ import { esc } from '../utils';
 
 export interface DiffSideData {
     name: string;
+    path: string;
     format: 'ihex' | 'srec';
     parseResult: SerializedParseResult;
     segmentIndex: SegmentIndexEntry[];
@@ -37,6 +38,7 @@ export function hydrateDiffSide(side: DiffSide): DiffSideData {
     };
     return {
         name: side.name,
+        path: side.path,
         format: side.format,
         parseResult,
         segmentIndex: buildSegmentIndex(parseResult),

@@ -3,11 +3,12 @@ import * as vscode from 'vscode';
 import { DisposableStore } from '../core/disposableStore';
 import { detectFormatFromParts, type HexScopeFormat } from '../core/document';
 import { computeByteDiff } from '../core/diff';
+import { disambiguatedLabels } from '../core/diffLabels';
 import { parseIntelHexCompact } from '../core/parser/intelHexParser';
 import { parseSRecCompact } from '../core/parser/srecParser';
 import type { CompactParseResult } from '../core/parser/compact';
 import { serializeParseResult } from '../core/wire';
-import { diffMessageType, type DiffProviderToWebview, type DiffSide } from '../diffProtocol';
+import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide } from '../diffProtocol';
 
 interface ParsedDiffFile {
     format: HexScopeFormat;
@@ -49,8 +50,14 @@ export class DiffEditorPanel {
         panel.webview.html = diffHtml(context, panel.webview);
 
         resources.add(panel.webview.onDidReceiveMessage(message => {
-            if (diffMessageType(message) === 'ready') {
+            const type = diffMessageType(message);
+            if (type === 'ready') {
                 void loadDiff();
+                return;
+            }
+            const text = diffCopyText(message);
+            if (text !== null) {
+                void vscode.env.clipboard.writeText(text);
             }
         }));
 
@@ -101,6 +108,7 @@ async function parseDiffFile(uri: vscode.Uri, signal: AbortSignal): Promise<Pars
 function diffSide(uri: vscode.Uri, parsed: ParsedDiffFile): DiffSide {
     return {
         name: fileName(uri),
+        path: uri.fsPath,
         format: parsed.format,
         parseResult: serializeParseResult(parsed.result, parsed.format),
         labels: [],
@@ -108,7 +116,12 @@ function diffSide(uri: vscode.Uri, parsed: ParsedDiffFile): DiffSide {
 }
 
 function diffTitle(baseUri: vscode.Uri, otherUri: vscode.Uri): string {
-    return `${fileName(baseUri)} ↔ ${fileName(otherUri)}`;
+    const [labelA, labelB] = disambiguatedLabels(labelInput(baseUri), labelInput(otherUri));
+    return `${labelA} ↔ ${labelB}`;
+}
+
+function labelInput(uri: vscode.Uri): { name: string; path: string } {
+    return { name: fileName(uri), path: uri.fsPath };
 }
 
 function fileName(uri: vscode.Uri): string {

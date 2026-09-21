@@ -55,6 +55,7 @@ Semantics: sweep the union of resolved addresses from both sides; address in bot
 ```typescript
 export interface DiffSide {
     name: string;
+    path: string;                 // full path, always available for tooltip/disambiguation
     format: 'ihex' | 'srec';
     parseResult: WireParseResult;
     labels: SegmentLabel[];
@@ -64,7 +65,9 @@ export type DiffProviderToWebview =
     | { type: 'diffInit'; generation: number; a: DiffSide; b: DiffSide; diff: DiffModel }
     | { type: 'diffError'; generation?: number; message: string };
 
-export type DiffWebviewToProvider = { type: 'ready' };
+export type DiffWebviewToProvider =
+    | { type: 'ready' }
+    | { type: 'copyText'; text: string; label?: string };
 ```
 
 Serialization reuses the moved `serializeParseResult` (`core/wire.ts`), which copies each `Uint8Array` into an exact `ArrayBuffer` — same seam contract as the single-file editor.
@@ -121,6 +124,56 @@ Owns: file read, format detection (`detectFormatFromParts`), compact parse (shar
 - **Separate bundle vs mode flag**: isolation and a smaller surface chosen; cost is a second esbuild entry.
 - **Run list vs per-address map**: runs stay compact for large sparse images; cost is a host sweep of mapped bytes.
 - **Address-keyed vs textual**: shifted-but-identical blocks count as removed + added; accepted because firmware is address-addressed.
+
+## Findings Round 2 — Diff Surface Upgrades
+
+Post-review findings and their designs. All are Phase A edge/UX fixes; the diff surface stays read-only.
+
+### F1 — Blank lower half
+
+`diff.css` gives `.diff-error { display: grid }` and `.diff-body { display: flex }`, which override the HTML `hidden` attribute, so the hidden error container still occupies `flex:1` and splits the viewport 50/50. Fix by gating both on the attribute:
+
+```css
+.diff-body[hidden], .diff-error[hidden] { display: none; }
+```
+
+### F4 — Addresses on both panes
+
+Remove the `.diff-hide-addr` class from the B panel shell and drop the `.diff-hide-addr .addr-cell` rule; both grids render their own address gutter.
+
+### F7 — Divider
+
+Replace the 1px `.diff-side` border with a dedicated `.diff-split` element between the panes: `3px`, higher-contrast token, `:hover` brightens, static width. Sides stay `flex:1`; the splitter is `flex:0 0 3px`.
+
+### F3 — Read-only pointer parity
+
+Host owns one selection range in `diffGrid.ts`; mirrors it into both grids via render-input `selection` (already supported) and repaints with `HexView.paintSelection`. Wire both instances:
+
+```typescript
+onCellClick(addr, shift, col)      // anchor + extend, mirrored paint
+onSelectionChange(range)           // drag range
+onAddressRowClick(rowBase, shift)
+onAddressRowDrag(rows)
+```
+
+Copy: `Ctrl+C` (host document keydown, selection present) resolves the source pane's bytes for the selected mapped addresses and posts `copyText`; the host writes `vscode.env.clipboard`. Unmapped addresses are skipped (no zero-fill), matching `core/byteTools/copy.ts`.
+
+### F5 — Action bar + view modes
+
+`diffSummary.ts` renders: counts · `Prev diff` · `Next diff` · `Show all` · `Show diff` · `Swap sides` · `Find` · `Sync scroll`.
+
+- `viewMode: 'all' | 'diff'` in `diffGrid.ts`; `diff` filters `data.rows` to rows with at least one diff byte (gaps and identical rows removed). Zero rows under `diff` → `No differences` empty state.
+- `syncScroll` boolean (default `true`) gates the `syncFrom` mirroring in `diffGrid.ts`.
+- `findVisible` toggles the search bar.
+
+### F2/F6 — Swap + search
+
+- `Swap sides` exchanges `data.a` / `data.b` and the two head labels, then re-renders. Diff runs are address-keyed and `diffClassForSide` already colors per side, so `added`/`removed` swap automatically.
+- `Find` reveals a `SearchBar` instance (reused component + `searchBar.css`). Host `runSearch` uses `core/search.ts` per side over hydrated `SerializedSegment[]`; match addresses are unioned (dedupe by address) and painted through render-input `matchSet` / `activeMatch` in both grids. Count = combined distinct addresses. Next/previous walks addresses and reuses `scrollToDiff`.
+
+### F7' (labels) — Same-name files
+
+Host sends `DiffSide.path` (full path). `diffViewer.ts` computes the label: basename, unless both sides share it, then the shortest disambiguating trailing path suffix. `title` carries the full path; the panel tab title uses the same labels.
 
 ## Compatibility & Rollback
 
