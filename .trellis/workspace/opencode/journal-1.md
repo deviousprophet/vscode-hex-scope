@@ -42,3 +42,42 @@ Fixed the empty void below the last expanded sidebar pane caused by px-based sav
 ### Next Steps
 
 - Open a PR from fix/sidebar-pane-void.
+
+---
+
+## Session 2: Hex Diff View — action button labels + search parity
+
+**Date**: 2026-09-21
+**Task**: Hex Diff View
+**Branch**: `feat/hex-diff`
+
+### Summary
+
+Completed the last two execution phases of the read-only two-file hex diff editor: findings round 9 (action buttons show icon + text) and round 10 (full search parity with the hex view), then added the changelog entry.
+
+### Main Changes
+
+- A10: `actionButton(id, glyph, text, title, active)` renders `aria-hidden` glyph span + visible text span; `.diff-action` is an auto-width `inline-flex` button (`height:26px`, `padding:0 8px`), with `.diff-action-glyph`/`.diff-action-text`.
+- A11: new pure `src/webview/search/searchNavigation.ts` (`shouldNavigateCompletedSearch`, `isSearchDiverged`) shared by `searchEngine.ts` and the isolated diff bundle; `diffSearch.ts` gains completed-key repeat-Enter navigation, `onProgressUpdate` streaming (paint + count + one-time first jump), divergence-gated `onQueryChanged`, modulo next/prev wrap, active-match selection, and `refreshDiffSearchCount()`.
+- Checker self-fix: in-flight Run on a same-key search now no-ops (hex parity) instead of stepping; refactored `diffSearch.ts` to clear the fallow health gate (0 findings).
+- Specs updated: `component-diff-view.md`, `component-search-bar.md`, `editor-lifecycle.md`.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a7b7ec6` | feat(diff): action button labels and hex-view search parity |
+| `55b1f09` | docs(changelog): note the hex diff view under Unreleased |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm test (1065 passing).
+- [OK] fallow health/clone/dead-code audit: 0 findings.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Open a PR from feat/hex-diff; the changelog entry sits under `[Unreleased]` (main == v2.24.0).
