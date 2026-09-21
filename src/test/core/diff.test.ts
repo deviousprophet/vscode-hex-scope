@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import { computeByteDiff } from '../../core/diff';
 import type { MemorySegment } from '../../core/parser/types';
 import { disambiguatedLabels } from '../../core/diffLabels';
-import { actionForChoice, comparisonConfirmItems, openEditorItems, pickerBasename } from '../../diff/diffPicker';
 
 function seg(startAddress: number, bytes: number[]): MemorySegment {
     return { startAddress, data: Uint8Array.from(bytes) };
@@ -111,28 +110,5 @@ suite('disambiguatedLabels', () => {
             disambiguatedLabels({ name: 'firmware.hex', path: '/one/firmware.hex' }, { name: 'firmware.hex', path: '/two/firmware.hex' }),
             ['one/firmware.hex', 'two/firmware.hex'],
         );
-    });
-});
-
-suite('comparison picker helpers', () => {
-    test('open-editor candidates exclude the base file and show path descriptions', () => {
-        const items = openEditorItems(['/x/a.hex', '/y/b.srec', '/x/base.hex'], '/x/base.hex');
-        assert.deepStrictEqual(items, [
-            { label: 'a.hex', description: '/x/a.hex', uri: '/x/a.hex' },
-            { label: 'b.srec', description: '/y/b.srec', uri: '/y/b.srec' },
-        ]);
-    });
-
-    test('confirm choices map to compare / swap / cancel', () => {
-        const choices = comparisonConfirmItems('a.hex', 'b.hex');
-        assert.strictEqual(actionForChoice(choices[0], 'a.hex', 'b.hex'), 'compare');
-        assert.strictEqual(actionForChoice('Swap', 'a.hex', 'b.hex'), 'swap');
-        assert.strictEqual(actionForChoice('Cancel', 'a.hex', 'b.hex'), 'cancel');
-        assert.strictEqual(actionForChoice(undefined, 'a.hex', 'b.hex'), 'cancel');
-    });
-
-    test('basename handles both separators', () => {
-        assert.strictEqual(pickerBasename('C:\\fw\\a.hex'), 'a.hex');
-        assert.strictEqual(pickerBasename('/fw/a.hex'), 'a.hex');
     });
 });

@@ -137,8 +137,23 @@
         "category": "HexScope"
       },
       {
-        "command": "hexScope.compareWith",
-        "title": "Compare with...",
+        "command": "hexScope.selectForCompare",
+        "title": "Select Compare",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.compareWithSelected",
+        "title": "Compare Selected",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.compareSelectedFiles",
+        "title": "Compare Selected Files",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.clearCompareSelection",
+        "title": "Clear Compare Selection",
         "category": "HexScope"
       },
       {
@@ -208,8 +223,23 @@
           "group": "navigation"
         },
         {
-          "command": "hexScope.compareWith",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "command": "hexScope.selectForCompare",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus",
+          "group": "navigation"
+        },
+        {
+          "command": "hexScope.compareWithSelected",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus && hexScope.hasCompareSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "hexScope.clearCompareSelection",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus && hexScope.hasCompareSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "hexScope.compareSelectedFiles",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection && explorerViewletFocus",
           "group": "navigation"
         },
         {

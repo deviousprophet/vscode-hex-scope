@@ -39,7 +39,19 @@ Ordered; each step gated by the previous.
 10. **Tests.** Extend `src/test/webview/diffViewer.test.ts` (error/body hidden, addresses on both panes, divider present, selection mirrored + copy payload, `Show diff` filtering + `No differences`, swap flips colors/labels, sync toggle, search highlight + nav, label disambiguation). Extend `src/test/extension/extension.test.ts` for the picker flow and `copyText` clipboard. `src/test/core/diff.test.ts` unchanged.
 11. **Spec updates.** Update `component-diff-view.md`, `component-hex-view.md` (pointer parity reuse), `component-search-bar.md` (multi-surface reuse note), `editor-lifecycle.md` (copyText + picker), `memory-navigation.md` (view-mode filtering).
 
-## Phase C — Finish (after Phase A2 is green)
+## Phase A3 — Explorer compare selection (Beyond Compare style)
+
+Ordered; each step gated by the previous.
+
+1. **`src/diff/compareSelection.ts`** (new, host): `CompareSelectionStore` with `get`/`set`/`clear`; owns the status-bar item (`$(diff) HexScope: <name>`, tooltip `<path>\nClick to clear`, `command = hexScope.clearCompareSelection`) and the `hexScope.hasCompareSelection` context key via `setContext`. Session memory only.
+2. **`package.json`**: remove `hexScope.compareWith` and its `hexScope.actions` entry; add the four commands + submenu entries with the `when` clauses from `design.md` (Findings Round 3) — `explorerViewletFocus` keeps them out of the editor title.
+3. **`src/extension.ts`**: create the store in `activate` (push to subscriptions); register `hexScope.selectForCompare`, `hexScope.compareWithSelected`, `hexScope.compareSelectedFiles`, `hexScope.clearCompareSelection`; keep `validateComparable` / `isSupportedHexFile`; remove `compareWith`, `pickComparisonTarget`, `chooseOtherFile`, `browseForFile`, `supportedOpenPaths`, `openTabPaths`, `documentPaths`, `orderedPair`, `ComparisonPickerDeps`, `resolveComparisonTarget`, and the `diffPicker` imports.
+4. **Delete `src/diff/diffPicker.ts`.**
+5. **Tests.** Update `src/test/extension/extension.test.ts`: remove picker tests; add select-for-compare (status bar + context key), compare-selected (clicked = B, stash = A, clears on success), compare-selected-files (exactly two; clicked = A), clear, unsupported-second-file warning, palette-without-resource warning. Remove picker tests from `src/test/core/diff.test.ts` (keep the label tests).
+6. **Specs.** Update `editor-lifecycle.md` (commands, `when` clauses, status bar, stash lifecycle) and `component-diff-view.md` (picker removed).
+7. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase C — Finish (after Phase A3 is green)
 
 1. Commit all working-tree changes for the task (single commit; no secrets; match repo commit style).
 2. Run `/update-changelog` (`.agents/skills/update-changelog/SKILL.md`) to prepare the changelog entry synchronized with package version and the committed changes since the latest release tag.

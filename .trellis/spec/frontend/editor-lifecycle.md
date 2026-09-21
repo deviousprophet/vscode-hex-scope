@@ -141,9 +141,14 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 
 ### 3. Contracts
 
-- `hexScope.compareWith` is contributed in `package.json` (category HexScope, editor title + command palette) and registered in `src/extension.ts`. It validates the active supported file with `parseResultIsValid`, then runs one picker flow: `supportedOpenPaths()` (tab groups' `TabInputText` + loaded documents, supported extensions only, deduped) is offered as a `showQuickPick` of `{ label: basename, description: fullPath }` plus a `Browse…` item that falls through to `showOpenDialog` filtered to `.hex .ihx .ihex .srec .mot .s19 .s28 .s37`; the chosen file is re-validated and a second `showQuickPick` confirms `Compare <a> ↔ <b>` / `Swap` / `Cancel`. `resolveComparisonTarget(base, deps)` holds that decision as a pure async function over injected `validate`/`chooseOther`/`confirm` deps (test seam); `Swap` reports `{ uri, swap: true }` and `compareWith` opens the panel with the pair reversed. No persisted recent-files list.
-- The panel is a `WebviewPanel` in `vscode.ViewColumn.Active`, read-only (`enableScripts`, `retainContextWhenHidden`, `localResourceRoots`), titled `<base> ↔ <other>`.
-- A = base (active) file, left; B = picked file, right. `added` = mapped in B only; `removed` = mapped in A only.
+- Four commands are contributed in `package.json` (category HexScope) and listed only in the `hexScope.actions` submenu with `explorerViewletFocus`, so none appears in the editor title: `hexScope.selectForCompare` (`Select Compare`, `!listMultiSelection`), `hexScope.compareWithSelected` (`Compare Selected`, `!listMultiSelection && hexScope.hasCompareSelection`), `hexScope.clearCompareSelection` (`Clear Compare Selection`, same gate), `hexScope.compareSelectedFiles` (`Compare Selected Files`, `listDoubleSelection`). `resourceLangId` describes only the clicked file, so each command re-validates the other file(s) itself. The dialog-based `hexScope.compareWith` and its `src/diff/diffPicker.ts` helpers are removed.
+- `CompareSelectionStore` (`src/diff/compareSelection.ts`) holds the session-only left/first candidate. `set(uri)` stores the basename, shows a left-aligned status-bar item (`$(diff) HexScope: <name>`, tooltip `<fullPath>\nClick to clear`, `command = hexScope.clearCompareSelection`) and sets the `hexScope.hasCompareSelection` context key; `clear()` drops the candidate, hides the item, and unsets the key. The store is registered in `context.subscriptions`; nothing is persisted (no Memento).
+- `selectForCompare(uri)` warns `Select a firmware file in the Explorer` for a missing/unsupported resource, else stashes it and reports the next step (`runSelectForCompare`).
+- `compareWithSelected(uri)`: pair = stash A/left, clicked file B/right (`stashedComparePair`); warns `Select a firmware file in the Explorer` when either is missing.
+- `compareSelectedFiles(uri, selectedUris)`: deduped, supported files only; exactly two are required (`selectedComparePair`) — clicked file A/left, the other B/right. One or 3+ warns `Select exactly two firmware files`.
+- `runCompare(pair, hint, deps)` validates both sides with `validateComparable` and opens `DiffEditorPanel.open(context, a, b)`; the stash clears only on a successful compare, so a failed validation keeps it.
+- The panel is a `WebviewPanel` in `vscode.ViewColumn.Active`, read-only (`enableScripts`, `retainContextWhenHidden`, `localResourceRoots`), titled `<a> ↔ <b>`.
+- A = left file, B = right file. `added` = mapped in B only; `removed` = mapped in A only.
 - Host reads + compact-parses both files, rejects any file with `checksumErrors > 0 || malformedLines > 0` (message points at Quick Repair), computes `computeByteDiff(base.segments, other.segments)`, and serializes each side through `serializeParseResult` (`src/core/wire.ts`).
 - Webview sends `ready`; host responds with one `diffInit` (generation-stamped) or `diffError`.
 - Cleanup is registered before any await: `panel.onDidDispose` → `DisposableStore.dispose()`; disposal sets `disposed` and aborts the `AbortController`; a load whose generation is stale or disposed posts nothing.
@@ -160,7 +165,10 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 
 | Condition | Required response |
 |---|---|
-| Active file unsupported / missing | Command returns without opening a panel. |
+| `Select Compare` with no/unsupported resource | Warn `Select a firmware file in the Explorer`; no stash, no panel. |
+| `Compare Selected` with no stash or no clicked resource | Warn; open nothing. |
+| `Compare Selected Files` with 1 or 3+ selected, or an unsupported companion | Warn `Select exactly two firmware files`; open nothing. |
+| Stashed file deleted/moved/invalid at compare time | `validateComparable` warns and opens nothing: unreadable (missing/moved/folder) names the file; checksum/malformed offers Quick Repair. The stash is kept because no compare opened. |
 | Either file has checksum/malformed errors | No compare; message names the file and says to run Quick Repair. |
 | File read/parse throws | Post `diffError`; webview renders the error card and hides the body. |
 | Unknown webview message | `diffMessageType` returns undefined; ignored. |
@@ -173,7 +181,7 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 
 ### 5. Good/Base/Bad Cases
 
-- Base: `Compare with...` on a valid file → pick a second valid file → panel tab → `ready` → `diffInit` → aligned grids + summary.
+- Base: `Select Compare` on a valid Explorer file → status bar shows it → `Compare Selected` on a second valid file → panel tab → `ready` → `diffInit` → aligned grids + summary.
 - Good: self-compare yields zero changed/added/removed.
 - Good: `Show diff` on a pair differing in two places frames each run with `Prev`/`Next` while keeping the filtered mode.
 - Good: `Ctrl+C` after selecting in the right pane copies the right file's bytes, not the left pane's.
@@ -182,8 +190,8 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 
 ### 6. Tests Required
 
-- `src/test/extension/extension.test.ts`: `hexScope.compareWith` activation/registration plus `resolveComparisonTarget` for compare / swap / cancel / invalid-base / dismissed-picker, and `diffCopyText` payload parsing with a real clipboard round-trip.
-- `src/test/core/diff.test.ts`: `computeByteDiff` identical / one changed / added-only / removed-only / gaps / adjacent-run merge / empty / address 0 / last-byte, plus `disambiguatedLabels` and the picker helpers.
+- `src/test/extension/extension.test.ts`: the four compare commands are registered (`hexScope.compareWith` is gone); `CompareSelectionStore` set/clear lifecycle (`src/diff/compareSelection.ts`); `selectedComparePair` clicked-file-is-A ordering plus 1/3+/unsupported rejection; `stashedComparePair` stash-first ordering; `runCompare` validation-failure opens nothing and clears the stash only on success; `runSelectForCompare` warns without a supported resource; and `diffCopyText` payload parsing with a real clipboard round-trip.
+- `src/test/core/diff.test.ts`: `computeByteDiff` identical / one changed / added-only / removed-only / gaps / adjacent-run merge / empty / address 0 / last-byte, plus `disambiguatedLabels`.
 - `src/test/webview/diffViewer.test.ts`: shared union row model + address alignment, changed marking on both sides, added empty-on-A, removed empty-on-B, computed summary counts + exact action-bar order, prev/next traversal + end stops, vertical + horizontal scroll sync + sync-off gate, decoded-text hidden, addresses on both panes, error-state card + hidden body, a real `SearchBar` query over both panes (union/dedupe, needle span, next walk), mirrored click/shift-click/address-gutter selection + source-pane copy, `Show diff` filtering + `No differences`, `Swap sides` color/count flip, unknown-message rejection, and a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the removed `.diff-hide-addr`.
 
 ### 7. Wrong vs Correct

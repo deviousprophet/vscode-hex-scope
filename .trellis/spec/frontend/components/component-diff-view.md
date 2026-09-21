@@ -4,7 +4,7 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/diffViewer.ts` (composition root), `src/webview/diff/` (`diffModel.ts`, `diffGrid.ts`, `diffSummary.ts`, `diffSearch.ts`, `diffMessages.ts`, `diff.css`), and the host-side picker helpers `src/diff/diffPicker.ts` + `src/core/diffLabels.ts`: the dedicated read-only editor comparing two IHEX/SREC files. It renders one shared union row model across two `HexView` instances, a summary/action bar, prev/next run navigation, a reused `SearchBar`, and mirrored read-only selection.
+Owns `src/webview/diffViewer.ts` (composition root), `src/webview/diff/` (`diffModel.ts`, `diffGrid.ts`, `diffSummary.ts`, `diffSearch.ts`, `diffMessages.ts`, `diff.css`), and the host-side compare-selection store `src/diff/compareSelection.ts` + `src/core/diffLabels.ts`: the dedicated read-only editor comparing two IHEX/SREC files. It renders one shared union row model across two `HexView` instances, a summary/action bar, prev/next run navigation, a reused `SearchBar`, and mirrored read-only selection.
 
 Boundary rule: the diff host owns data (both `DiffSideData`, `DiffModel`, shared `VirtualScrollState`) and all domain decisions. `HexView` stays presentational; the diff host never writes grid cell DOM directly and never touches the single-file app shell (`state.ts`, `S`, sidebar, toolbar, integrity, scripts).
 
@@ -19,7 +19,7 @@ src/webview/diff/diffSearch.ts        SearchBar reuse: one query over both sides
 src/webview/diff/diffMessages.ts      typed dispatchDiffMessage (unknown rejected)
 src/webview/diff/diff.css             layout, .diff-split divider, .diff-chg/.diff-add/.diff-del, hidden-state guards
 src/core/diffLabels.ts                disambiguatedLabels (shared by panel title + webview side heads)
-src/diff/diffPicker.ts                host picker helpers: openEditorItems, comparisonConfirmItems, actionForChoice, pickerBasename
+src/diff/compareSelection.ts           host compare-selection store (session stash + status-bar item + hexScope.hasCompareSelection)
 src/webview/components/hexView/*      reused grid (showAscii:false)
 src/webview/components/searchBar/*    reused search bar component
 src/diffProtocol.ts                   hostwebview union
@@ -116,7 +116,7 @@ function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, str
 
 `src/test/webview/diffViewer.test.ts` (mocha + jsdom + cssImportHook): shared `data-row` order across both sides + gap row between distant blocks; changed byte on both sides; added empty-on-A / value-on-B; removed value-on-A / empty-on-B; computed summary counts + the exact action-bar button order and `Sync scroll` default; prev/next traversal and end stops; vertical + horizontal scroll sync (both directions, header alignment) and the sync-off gate; decoded text hidden (`.mem-hdr-decoded`, `.col-decoded`, `.char-cell` absent); address gutter on both panes; error card + hidden body; a real `SearchBar`-driven query proving one search over both panes, address union/dedupe, needle-span highlight, and next walking the addresses; click/shift-click/address-gutter selection mirrored on both panes with copy reading the source pane; `Swap sides` flipping colors and counts; `Show diff` filtering + `No differences`; unknown-message rejection; a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the absence of `.diff-hide-addr`.
 
-`src/test/core/diff.test.ts` owns the run semantics and `disambiguatedLabels`; `src/test/extension/extension.test.ts` owns command registration, the confirm/swap/cancel picker resolution, and `copyText` parsing + clipboard write.
+`src/test/core/diff.test.ts` owns the run semantics and `disambiguatedLabels`; `src/test/extension/extension.test.ts` owns command registration (the four Explorer compare commands; `hexScope.compareWith` gone), the `CompareSelectionStore` set/clear lifecycle, `selectedComparePair`/`stashedComparePair` ordering and rejection, `runCompare` validation/clear-on-success, and `copyText` parsing + clipboard write.
 
 ## Anti-patterns
 

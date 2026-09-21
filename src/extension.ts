@@ -3,19 +3,16 @@ import * as vscode from 'vscode';
 import { HexEditorProvider } from './hexEditorProvider';
 import { HexEditorSession } from './hexEditorSession';
 import { DiffEditorPanel } from './diff/diffEditorPanel';
-import {
-    actionForChoice,
-    BROWSE_ITEM_LABEL,
-    comparisonConfirmItems,
-    openEditorItems,
-    pickerBasename,
-} from './diff/diffPicker';
+import { CompareSelectionStore, selectionName, type CompareSelection } from './diff/compareSelection';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
 
 const SUPPORTED_EXTENSIONS = ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28', 's37'];
+
+export const COMPARE_SELECT_HINT = 'Select a firmware file in the Explorer';
+export const COMPARE_TWO_HINT = 'Select exactly two firmware files';
 
 async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: 'ihex' | 'srec'; parseResult: ParseResult }> {
     const raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(uri));
@@ -71,10 +68,37 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    const compareSelection = new CompareSelectionStore();
+    context.subscriptions.push(compareSelection);
+
+    const compareDeps: CompareCommandDeps = {
+        validate: validateComparable,
+        open: (a, b) => DiffEditorPanel.open(context, a, b),
+        warn: message => { void vscode.window.showWarningMessage(message); },
+    };
+
     context.subscriptions.push(
-        vscode.commands.registerCommand('hexScope.compareWith', (uri?: vscode.Uri) => {
-            void compareWith(context, uri);
-        })
+        vscode.commands.registerCommand('hexScope.selectForCompare', (uri?: vscode.Uri) => {
+            runSelectForCompare(uri, {
+                setStash: target => compareSelection.set(target),
+                warn: compareDeps.warn,
+                info: message => { void vscode.window.showInformationMessage(message); },
+            });
+        }),
+        vscode.commands.registerCommand('hexScope.compareWithSelected', (uri?: vscode.Uri) => {
+            void runCompare(
+                stashedComparePair(compareSelection.get(), uri),
+                COMPARE_SELECT_HINT,
+                compareDeps,
+                () => compareSelection.clear(),
+            );
+        }),
+        vscode.commands.registerCommand('hexScope.compareSelectedFiles', (uri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
+            void runCompare(selectedComparePair(uri, selectedUris), COMPARE_TWO_HINT, compareDeps);
+        }),
+        vscode.commands.registerCommand('hexScope.clearCompareSelection', () => {
+            compareSelection.clear();
+        }),
     );
 
     context.subscriptions.push(
@@ -124,129 +148,110 @@ export function activate(context: vscode.ExtensionContext) {
     }
 }
 
+export interface CompareCommandDeps {
+    validate: (uri: vscode.Uri) => Promise<boolean>;
+    open: (a: vscode.Uri, b: vscode.Uri) => Promise<void>;
+    warn: (message: string) => void;
+}
+
+export interface SelectCompareDeps {
+    setStash: (uri: vscode.Uri) => void;
+    warn: (message: string) => void;
+    info: (message: string) => void;
+}
+
+/** Explorer `Compare Selected Files`: the clicked file is A/left, the other selected file B/right. */
+export function selectedComparePair(
+    clicked: vscode.Uri | undefined,
+    selected: readonly vscode.Uri[] | undefined,
+): [vscode.Uri, vscode.Uri] | undefined {
+    if (!clicked || !isSupportedHexFile(clicked)) { return undefined; }
+    const companion = soleCompanion(clicked, selected);
+    return companion ? [clicked, companion] : undefined;
+}
+
+/** The one other supported selected file, or undefined unless exactly one remains. */
+function soleCompanion(clicked: vscode.Uri, selected: readonly vscode.Uri[] | undefined): vscode.Uri | undefined {
+    const others = uniqueUris(selected ?? [])
+        .filter(isSupportedHexFile)
+        .filter(uri => uri.toString() !== clicked.toString());
+    return others.length === 1 ? others[0] : undefined;
+}
+
+/** `Compare Selected`: the stashed file is A/left, the clicked file B/right. */
+export function stashedComparePair(
+    stash: CompareSelection | null,
+    clicked: vscode.Uri | undefined,
+): [vscode.Uri, vscode.Uri] | undefined {
+    if (!stash || !clicked || !isSupportedHexFile(clicked)) { return undefined; }
+    return [stash.uri, clicked];
+}
+
+/** Validate both sides, then open the diff panel; `onSuccess` runs only on a successful open. */
+export async function runCompare(
+    pair: [vscode.Uri, vscode.Uri] | undefined,
+    hint: string,
+    deps: CompareCommandDeps,
+    onSuccess?: () => void,
+): Promise<boolean> {
+    if (!pair) { deps.warn(hint); return false; }
+    if (!(await bothComparable(pair, deps.validate))) { return false; }
+    onSuccess?.();
+    await deps.open(pair[0], pair[1]);
+    return true;
+}
+
+async function bothComparable(pair: [vscode.Uri, vscode.Uri], validate: CompareCommandDeps['validate']): Promise<boolean> {
+    return (await validate(pair[0])) && (await validate(pair[1]));
+}
+
+/** `Select Compare`: stash the clicked supported file for the next `Compare Selected`. */
+export function runSelectForCompare(uri: vscode.Uri | undefined, deps: SelectCompareDeps): boolean {
+    if (!uri || !isSupportedHexFile(uri)) { deps.warn(COMPARE_SELECT_HINT); return false; }
+    deps.setStash(uri);
+    deps.info(`HexScope: ${selectionName(uri)} selected for compare. Open the second file and run "Compare Selected".`);
+    return true;
+}
+
+function uniqueUris(uris: readonly vscode.Uri[]): vscode.Uri[] {
+    const seen = new Set<string>();
+    const result: vscode.Uri[] = [];
+    for (const uri of uris) {
+        const key = uri.toString();
+        if (seen.has(key)) { continue; }
+        seen.add(key);
+        result.push(uri);
+    }
+    return result;
+}
+
 async function runQuickRepair(uri?: vscode.Uri): Promise<void> {
     const target = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!target) { return; }
     await repairTargetChecksums(target);
 }
 
-async function compareWith(context: vscode.ExtensionContext, uri?: vscode.Uri): Promise<void> {
-    const base = commandTarget(uri);
-    if (!base || !isSupportedHexFile(base)) { return; }
-    const picked = await pickComparisonTarget(base);
-    if (!picked) { return; }
-    const [first, second] = orderedPair(base, picked);
-    await DiffEditorPanel.open(context, first, second);
-}
-
-/** Panel side order: side A is the active base file unless the user swapped the pair. */
-function orderedPair(base: vscode.Uri, picked: ComparisonTarget): [vscode.Uri, vscode.Uri] {
-    return picked.swap ? [picked.uri, base] : [base, picked.uri];
-}
-
-interface ComparisonTarget {
-    uri: vscode.Uri;
-    swap: boolean;
-}
-
-export interface ComparisonPickerDeps {
-    validate: (uri: vscode.Uri) => Promise<boolean>;
-    chooseOther: (base: vscode.Uri) => Promise<vscode.Uri | undefined>;
-    confirm: (baseName: string, otherName: string) => Promise<string | undefined>;
-}
-
-/** Validate the base file, choose the second file, then confirm the pair (or swap sides). */
-export async function resolveComparisonTarget(
-    base: vscode.Uri,
-    deps: ComparisonPickerDeps,
-): Promise<ComparisonTarget | undefined> {
-    if (!(await deps.validate(base))) { return undefined; }
-    const other = await deps.chooseOther(base);
-    if (!other || !(await deps.validate(other))) { return undefined; }
-    return confirmedTarget(base, other, deps);
-}
-
-async function confirmedTarget(
-    base: vscode.Uri,
-    other: vscode.Uri,
-    deps: ComparisonPickerDeps,
-): Promise<ComparisonTarget | undefined> {
-    const baseName = pickerBasename(base.fsPath);
-    const otherName = pickerBasename(other.fsPath);
-    const action = actionForChoice(await deps.confirm(baseName, otherName), baseName, otherName);
-    return action === 'cancel' ? undefined : { uri: other, swap: action === 'swap' };
-}
-
-async function pickComparisonTarget(base: vscode.Uri): Promise<ComparisonTarget | undefined> {
-    return resolveComparisonTarget(base, {
-        validate: validateComparable,
-        chooseOther: chooseOtherFile,
-        confirm: async (baseName, otherName) => vscode.window.showQuickPick(
-            comparisonConfirmItems(baseName, otherName),
-            { placeHolder: 'Compare files' },
-        ),
-    });
-}
-
-type PickerQuickItem = vscode.QuickPickItem & { uri?: string; browse?: boolean };
-
-async function chooseOtherFile(base: vscode.Uri): Promise<vscode.Uri | undefined> {
-    const items: PickerQuickItem[] = [
-        ...openEditorItems(supportedOpenPaths(), base.fsPath),
-        { label: BROWSE_ITEM_LABEL, browse: true },
-    ];
-    const picked = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Compare with…',
-    });
-    if (!picked) { return undefined; }
-    if (picked.browse) { return browseForFile(); }
-    return picked.uri ? vscode.Uri.file(picked.uri) : undefined;
-}
-
-async function browseForFile(): Promise<vscode.Uri | undefined> {
-    const picked = await vscode.window.showOpenDialog({
-        canSelectMany: false,
-        openLabel: 'Compare with',
-        filters: { 'Firmware files': SUPPORTED_EXTENSIONS },
-    });
-    return firstUri(picked);
-}
-
-/** Paths of supported files open in text editors or loaded as documents, deduped. */
-function supportedOpenPaths(): string[] {
-    const paths = new Set<string>();
-    for (const path of openTabPaths()) { paths.add(path); }
-    for (const path of documentPaths()) { paths.add(path); }
-    return [...paths];
-}
-
-function openTabPaths(): string[] {
-    return vscode.window.tabGroups.all
-        .flatMap(group => group.tabs)
-        .map(tab => tab.input)
-        .filter((input): input is vscode.TabInputText => input instanceof vscode.TabInputText)
-        .map(input => input.uri)
-        .filter(isSupportedHexFile)
-        .map(uri => uri.fsPath);
-}
-
-function documentPaths(): string[] {
-    return vscode.workspace.textDocuments
-        .filter(document => isSupportedHexFile(document.uri))
-        .map(document => document.uri.fsPath);
-}
-
-function firstUri(uris: readonly vscode.Uri[] | undefined): vscode.Uri | undefined {
-    if (!uris || uris.length === 0) { return undefined; }
-    return uris[0];
-}
-
 function isSupportedHexFile(uri: vscode.Uri): boolean {
     return SUPPORTED_EXTENSIONS.includes(uri.path.split('.').pop()?.toLowerCase() ?? '');
 }
 
+/** Read + parse, or undefined when the file is missing/moved/unreadable. */
+async function readParseResult(uri: vscode.Uri): Promise<ParseResult | undefined> {
+    try {
+        return (await loadHexDocument(uri)).parseResult;
+    } catch {
+        return undefined;
+    }
+}
+
 async function validateComparable(uri: vscode.Uri): Promise<boolean> {
-    const { parseResult } = await loadHexDocument(uri);
+    const parseResult = await readParseResult(uri);
+    if (!parseResult) {
+        await vscode.window.showWarningMessage(
+            `HexScope: cannot read ${selectionName(uri)} for comparison.`
+        );
+        return false;
+    }
     if (parseResultIsValid(parseResult)) { return true; }
     await openNormalEditor(uri);
     const repair = await vscode.window.showWarningMessage(
@@ -285,4 +290,3 @@ function repairCompleteMessage(checksumErrors: number, target: vscode.Uri): stri
 }
 
 export function deactivate() {}
-
