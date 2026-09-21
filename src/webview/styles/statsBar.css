@@ -11,8 +11,6 @@
 .s-ok      { color: var(--ok);  margin-left: auto; }
 .s-err     { color: var(--err); font-weight: 700; }
 .s-invalid { color: var(--err); margin-left: auto; }
-.si-fmt .svl {
-    font-family: var(--font-ui); font-size: 10px; font-weight: 700; letter-spacing: .04em;
-    padding: 1px 6px; border-radius: 3px;
-    color: var(--high-color); background: rgba(156,220,254,.12); border: 1px solid rgba(156,220,254,.3);
-}
+/* Format value reuses the shared `.fmt-pill` utility (base.css); only the
+   mono value font from `.svl` needs overriding here. */
+.si-fmt .svl { font-family: var(--font-ui); font-weight: 700; }

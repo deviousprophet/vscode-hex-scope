@@ -26,6 +26,7 @@ import {
 } from '../render/virtualScroll';
 import { byteClass, esc } from '../utils';
 import { buildDiffRows, diffClassForSide, diffKindAt, getSideByte, renderDiffErrorHtml, type DiffRow, type DiffSideData } from './diffModel';
+import type { DiffProgressMessage } from './diffMessages';
 
 export type DiffViewMode = 'all' | 'diff';
 type DiffPane = 'a' | 'b';
@@ -61,6 +62,8 @@ let viewMode: DiffViewMode = 'all';
 let syncScroll = true;
 let syncingScroll = false;
 let hooks: DiffGridHooks = {};
+let lastRenderKey: string | null = null;
+let renderHandle: number | null = null;
 
 export function setDiffGridHooks(next: DiffGridHooks): void {
     hooks = next;
@@ -103,6 +106,8 @@ export function resetDiffGrid(): void {
     viewMode = 'all';
     syncScroll = true;
     syncingScroll = false;
+    cancelPendingRender();
+    lastRenderKey = null;
 }
 
 export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): void {
@@ -117,6 +122,8 @@ export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     activeMatch = null;
     viewMode = 'all';
     syncScroll = true;
+    cancelPendingRender();
+    lastRenderKey = null;
     clearDiffError();
     renderHeaders();
     renderDiffGrid();
@@ -264,10 +271,41 @@ function matchSetWithSpans(addrs: readonly number[], span: number): ReadonlySet<
 // ── Render ────────────────────────────────────────────────────────
 
 function renderDiffGrid(): void {
+    const slice = currentSlice();
+    if (!slice) { return; }
+    lastRenderKey = sliceKey(slice);
+    drawSlice(slice);
+}
+
+/** Scroll-driven render: coalesced to one frame and skipped when the visible slice is unchanged. */
+function renderScrollSlice(): void {
+    const slice = currentSlice();
+    if (!slice) { return; }
+    const key = sliceKey(slice);
+    if (key === lastRenderKey) { return; }
+    lastRenderKey = key;
+    drawSlice(slice);
+}
+
+interface RenderSlice {
+    ui: GridContainers;
+    state: VirtualScrollState;
+    start: number;
+    end: number;
+}
+
+function currentSlice(): RenderSlice | null {
     const ui = gridContainers();
-    if (!ui || !data) { return; }
-    if (visibleRows.length === 0) { renderEmptyGrid(ui, emptyMessage()); return; }
-    renderVisibleSlice(ui);
+    if (!ui || !data) { return null; }
+    const state = ensureScrollState(ui.scroll);
+    const [start, end] = calcVisibleRange(state);
+    return { ui, state, start, end };
+}
+
+function sliceKey({ state, start, end }: RenderSlice): string {
+    // containerHeight is part of the scroll-state identity (`isCurrentScrollState`), so a
+    // resize that keeps the row range must still re-apply the physical layout.
+    return `${state.heightVersion}|${state.containerHeight}|${visibleRows.length}|${viewMode}|${syncScroll}|${start}|${end}`;
 }
 
 function emptyMessage(): string {
@@ -280,10 +318,9 @@ function renderEmptyGrid(ui: GridContainers, message: string): void {
     ui.b.innerHTML = emptyHtml;
 }
 
-function renderVisibleSlice(ui: GridContainers): void {
-    const state = ensureScrollState(ui.scroll);
+function drawSlice({ ui, state, start, end }: RenderSlice): void {
+    if (visibleRows.length === 0) { renderEmptyGrid(ui, emptyMessage()); return; }
     const layout = calcScrollLayout(state);
-    const [start, end] = calcVisibleRange(state);
     applyVirtualScrollLayout(ui.a, layout);
     applyVirtualScrollLayout(ui.b, layout);
     const topSpacer = calcRowOffset(start, state);
@@ -317,6 +354,7 @@ function scrollToRow(rowIndex: number, state: VirtualScrollState): void {
 }
 
 export function showDiffError(message: string): void {
+    showDiffRoot();
     const body = document.getElementById('diff-body');
     if (body) { body.hidden = true; }
     const errorEl = document.getElementById('diff-error');
@@ -330,6 +368,35 @@ function clearDiffError(): void {
     if (errorEl) { errorEl.hidden = true; }
     const body = document.getElementById('diff-body');
     if (body) { body.hidden = false; }
+    showDiffRoot();
+}
+
+/** Loading card → grids/error card swap (no-op when the shell lacks the loading card). */
+function showDiffRoot(): void {
+    const loading = document.getElementById('diff-loading');
+    if (loading) { loading.hidden = true; }
+    const root = document.getElementById('diff-root');
+    if (root) { root.hidden = false; }
+}
+
+const DIFF_STAGE_LABEL: Record<DiffProgressMessage['stage'], string> = {
+    read: 'Reading files',
+    parse: 'Parsing records',
+    diff: 'Comparing bytes',
+};
+
+/** Update the loading card from a host `diffProgress` message. */
+export function applyDiffProgress(message: DiffProgressMessage): void {
+    const text = document.querySelector<HTMLElement>('#diff-loading .loading-text');
+    if (text) { text.textContent = `${DIFF_STAGE_LABEL[message.stage]} ${progressPercent(message)}%`; }
+    const fill = document.getElementById('diff-loading-fill');
+    if (fill) { fill.style.width = `${progressPercent(message)}%`; }
+}
+
+function progressPercent(message: DiffProgressMessage): number {
+    return message.total > 0
+        ? Math.max(0, Math.min(100, Math.floor((message.completed / message.total) * 100)))
+        : 0;
 }
 
 // ── Scroll sync ───────────────────────────────────────────────────
@@ -339,7 +406,8 @@ function syncFrom(driver: DiffPane, top: number, left: number): void {
     if (isSyncBlocked()) { return; }
     syncingScroll = true;
     try {
-        applyDriverScroll(top);
+        vscroll!.scrollTop = physicalToLogicalScroll(top, vscroll!);
+        scheduleRender();
         if (syncScroll) { mirrorToFollower(driver, top, left); }
     } finally {
         syncingScroll = false;
@@ -350,9 +418,36 @@ function isSyncBlocked(): boolean {
     return syncingScroll || !data || !vscroll;
 }
 
-function applyDriverScroll(top: number): void {
-    vscroll!.scrollTop = physicalToLogicalScroll(top, vscroll!);
-    renderDiffGrid();
+/** Coalesce scroll-driven re-renders to one per animation frame. */
+function scheduleRender(): void {
+    if (renderHandle !== null) { return; }
+    renderHandle = requestFrame(() => {
+        renderHandle = null;
+        renderScrollSlice();
+    });
+}
+
+function requestFrame(callback: () => void): number {
+    return typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame(callback)
+        : (setTimeout(callback, 16) as unknown as number);
+}
+
+function cancelPendingRender(): void {
+    if (renderHandle === null) { return; }
+    cancelFrame(renderHandle);
+    renderHandle = null;
+}
+
+function cancelFrame(handle: number): void {
+    if (typeof cancelAnimationFrame === 'function') { cancelAnimationFrame(handle); return; }
+    clearTimeout(handle);
+}
+
+/** Test seam: render any pending scroll frame synchronously. */
+export function flushDiffRender(): void {
+    cancelPendingRender();
+    renderScrollSlice();
 }
 
 function mirrorToFollower(driver: DiffPane, top: number, left: number): void {

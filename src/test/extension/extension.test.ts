@@ -11,7 +11,7 @@ import {
     type SelectCompareDeps,
 } from '../../extension';
 import { CompareSelectionStore, selectionName } from '../../diff/compareSelection';
-import { diffCopyText } from '../../diffProtocol';
+import { diffCopyText, diffMessageType } from '../../diffProtocol';
 
 suite('HexScope Extension', () => {
 
@@ -281,5 +281,10 @@ suite('HexScope compare commands', () => {
         assert.strictEqual(diffCopyText({ type: 'copyText', text: 42 }), null);
         await vscode.env.clipboard.writeText('DE AD');
         assert.strictEqual(await vscode.env.clipboard.readText(), 'DE AD');
+    });
+
+    test('diffProgress is a recognized diff provider message', () => {
+        assert.strictEqual(diffMessageType({ type: 'diffProgress', stage: 'diff', completed: 1, total: 1 }), 'diffProgress');
+        assert.strictEqual(diffMessageType({ type: 'diffInit' }), 'diffInit');
     });
 });

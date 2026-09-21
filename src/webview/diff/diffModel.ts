@@ -125,3 +125,8 @@ export function renderDiffErrorHtml(message: string): string {
         `<div class="diff-error-text">${esc(message)}</div>` +
         `</div>`;
 }
+
+/** Side head: file label plus the shared format pill (no separator). */
+export function renderSideHeadHtml(label: string, format: 'ihex' | 'srec'): string {
+    return `${esc(label)} <span class="fmt-pill">${format.toUpperCase()}</span>`;
+}

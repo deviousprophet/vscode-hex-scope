@@ -10,9 +10,12 @@ export interface DiffSide {
     labels: SegmentLabel[];
 }
 
+export type DiffProgressStage = 'read' | 'parse' | 'diff';
+
 export type DiffProviderToWebview =
     | { type: 'diffInit'; generation: number; a: DiffSide; b: DiffSide; diff: DiffModel }
-    | { type: 'diffError'; generation?: number; message: string };
+    | { type: 'diffError'; generation?: number; message: string }
+    | { type: 'diffProgress'; stage: DiffProgressStage; completed: number; total: number };
 
 export type DiffWebviewToProvider =
     | { type: 'ready' }

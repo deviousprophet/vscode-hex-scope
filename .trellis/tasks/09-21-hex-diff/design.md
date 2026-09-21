@@ -230,6 +230,67 @@ class CompareSelectionStore {
 | Checksum/malformed file | Existing `validateComparable` warning + Quick Repair offer. |
 | Three or more selected | No item; palette invocation warns. |
 
+## Findings Round 4 — Diff View Polish
+
+Post-review UX fixes for the diff surface. Still read-only.
+
+### R4-1 — Scroll stability
+
+`diffGrid.syncFrom` rebuilds both panes' `innerHTML` on every scroll event (`renderDiffGrid` at `diffGrid.ts:293-294`), so the pane being scrolled is destroyed and recreated mid-scroll — a blank/flicker band, worst in compressed (large-file) mode where both panes also carry fixed height + `windowTop`.
+
+Fix in `diffGrid.ts`:
+- Coalesce scroll-driven renders with `requestAnimationFrame` (one render per frame).
+- Track the last rendered visible range (`[start, end)` + layout version + view/sync state); skip the render when unchanged.
+- Keep the follower mirror (`setScrollTop`/`setScrollLeft`) but only re-slice when the range actually moves.
+
+### R4-2 — Loading screen + real progress
+
+`diffHtml` renders an empty `<div id="app">`; the host parses both files on `ready` with no feedback.
+
+- `diffHtml` gets the same loading card markup used by `hexEditorSession._getHtml` (eyebrow / title / text / animated bar), naming both files, with a determinate bar target.
+- New host→webview message (union in `src/diffProtocol.ts`):
+  ```typescript
+  | { type: 'diffProgress'; stage: 'read' | 'parse' | 'diff'; completed: number; total: number }
+  ```
+- `DiffEditorPanel` posts `diffProgress` while reading/parsing each file (using the parsers' `onProgress`) and once around `computeByteDiff`, throttled like `LoadProgressReporter`.
+- The webview swaps the card for the grids on `diffInit`, and for the error card on `diffError`.
+
+### R4-3 — Search bar always visible
+
+`diffSearch.ts` hides `#diff-search` until `Find` (`findVisible` starts `false`, `#diff-search.open` gates display), and `diffSummary.ts` renders a `Find` toggle button.
+
+Fix: mount `SearchBar` on boot and always show `#diff-search`; delete `toggleFind`/`isFindVisible`/the `Find` button (and its active-state wiring). `Ctrl+F` focus/select stays in the reused `SearchBar` (close/open no-ops).
+
+### R4-4 — Toolbar layout (two rows)
+
+`diffSummary.ts` markup becomes two rows:
+
+- Row 1: `Show all` / `Show diff` toggle + `Prev diff` / `Next diff` (left), `Swap sides` (center, on the pane split), always-visible search bar (right).
+- Row 2: `Sync scroll` toggle (left), diff stat (changed / added / removed) centered.
+
+The search bar moves out of `#diff-search` below the toolbar and into the row-1 right slot (still the reused `SearchBar` markup). Diff stat leaves row 1 and is centered on row 2. Center alignment uses a 3-slot flex row so `Swap sides` sits on the split line for equal panes.
+
+### R4-6 — Icon action buttons
+
+Match the repo's webview convention (Unicode glyphs, no codicon font). `diffSummary.ts` `actionButton` renders a glyph instead of a label:
+
+| Action | Glyph | `title` / `aria-label` |
+|---|---|---|
+| `diff-prev` | `▲` | Previous difference |
+| `diff-next` | `▼` | Next difference |
+| `diff-show-all` | `≡` | Show all rows |
+| `diff-show-diff` | `≠` | Show differences only |
+| `diff-swap` | `⇄` | Swap sides |
+| `diff-sync` | `⇅` | Sync scroll |
+
+Each `<button class="diff-action">` carries `title` + `aria-label` (readable tooltip; text buttons had visible labels, icons need this for accessibility parity) and keeps the `.active` state for the toggle pair / `Sync scroll`. Size: comfortable hit target (≈26×26px, ~14px glyph) rather than the 18px icon minimum, per the review request.
+
+`actionButton(id, label, glyph, active)` gains the glyph + tooltip params; `updateToggleButtons` is unchanged.
+
+### R4-5 — Format pill (shared class)
+
+Extract the stats-bar pill rule into one shared utility class `.fmt-pill` in `src/webview/styles/base.css`; `statsBar.css` `.si-fmt .svl` uses it, and `diffViewer.setSideHead` renders the format as `<span class="fmt-pill">IHEX</span>` after the name (no ` · ` separator).
+
 ## Compatibility & Rollback
 
 - The de-globalization refactor keeps ids on the shell elements and swaps CSS selectors only, so existing `getElementById` call sites and tests are unaffected.

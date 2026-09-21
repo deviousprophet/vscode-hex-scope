@@ -4,26 +4,27 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/diffViewer.ts` (composition root), `src/webview/diff/` (`diffModel.ts`, `diffGrid.ts`, `diffSummary.ts`, `diffSearch.ts`, `diffMessages.ts`, `diff.css`), and the host-side compare-selection store `src/diff/compareSelection.ts` + `src/core/diffLabels.ts`: the dedicated read-only editor comparing two IHEX/SREC files. It renders one shared union row model across two `HexView` instances, a summary/action bar, prev/next run navigation, a reused `SearchBar`, and mirrored read-only selection.
+Owns `src/webview/diffViewer.ts` (composition root), `src/webview/diff/` (`diffModel.ts`, `diffGrid.ts`, `diffSummary.ts`, `diffSearch.ts`, `diffMessages.ts`, `diff.css`), and the host-side compare-selection store `src/diff/compareSelection.ts` + `src/core/diffLabels.ts`: the dedicated read-only editor comparing two IHEX/SREC files. It renders one shared union row model across two `HexView` instances, a two-row summary/action toolbar, prev/next run navigation, an always-visible reused `SearchBar`, mirrored read-only selection, and a host-driven loading card with determinate progress.
 
 Boundary rule: the diff host owns data (both `DiffSideData`, `DiffModel`, shared `VirtualScrollState`) and all domain decisions. `HexView` stays presentational; the diff host never writes grid cell DOM directly and never touches the single-file app shell (`state.ts`, `S`, sidebar, toolbar, integrity, scripts).
 
 ## Layout
 
 ```text
-src/webview/diffViewer.ts             composition root: shell HTML, ready handshake, message dispatch, Ctrl+C copy, side heads
-src/webview/diff/diffModel.ts         hydrateDiffSide, buildDiffRows, getSideByte, diffKindAt, diffClassForSide, renderDiffErrorHtml
-src/webview/diff/diffGrid.ts          mount/reset, setDiffData, view mode, mirrored selection, copy, swap, search matches, scrollToDiff, showDiffError
-src/webview/diff/diffSummary.ts       renderDiffSummaryHtml, setDiffSummary + action bar wiring (prev/next, show all/diff, swap, find, sync)
-src/webview/diff/diffSearch.ts        SearchBar reuse: one query over both sides, unioned match addresses, next/prev walk
-src/webview/diff/diffMessages.ts      typed dispatchDiffMessage (unknown rejected)
-src/webview/diff/diff.css             layout, .diff-split divider, .diff-chg/.diff-add/.diff-del, hidden-state guards
+src/webview/diffViewer.ts             composition root: shell HTML, ready handshake, message dispatch (init/error/progress), Ctrl+C copy, side heads
+src/webview/diff/diffModel.ts         hydrateDiffSide, buildDiffRows, getSideByte, diffKindAt, diffClassForSide, renderDiffErrorHtml, renderSideHeadHtml
+src/webview/diff/diffGrid.ts          mount/reset, setDiffData, view mode, mirrored selection, copy, swap, search matches, scrollToDiff, loading-card swap, coalesced scroll renders
+src/webview/diff/diffSummary.ts       renderDiffSummaryHtml + setDiffSummary: two-row toolbar, icon action buttons, stat, search slot, action wiring
+src/webview/diff/diffSearch.ts        SearchBar reuse (always mounted): one query over both sides, unioned match addresses, next/prev walk
+src/webview/diff/diffMessages.ts      typed dispatchDiffMessage (unknown rejected) for diffInit/diffError/diffProgress
+src/webview/diff/diff.css             layout, .diff-root, .diff-split divider, .diff-chg/.diff-add/.diff-del, toolbar rows, icon buttons, hidden-state guards
+src/webview/styles/base.css           shared `.fmt-pill` utility (stats bar + diff side heads)
 src/core/diffLabels.ts                disambiguatedLabels (shared by panel title + webview side heads)
 src/diff/compareSelection.ts           host compare-selection store (session stash + hexScope.hasCompareSelection; no status-bar item)
 src/webview/components/hexView/*      reused grid (showAscii:false)
 src/webview/components/searchBar/*    reused search bar component
-src/diffProtocol.ts                   hostwebview union
-src/diff/diffEditorPanel.ts           host panel (webview bundle entry)
+src/diffProtocol.ts                   hostwebview union (incl. diffProgress)
+src/diff/diffEditorPanel.ts           host panel (webview bundle entry): loading card + throttled progress posts
 ```
 
 ## Contract
@@ -56,10 +57,13 @@ function currentSides(): { a: DiffSideData; b: DiffSideData } | null;
 function copySelectionText(): { text: string; label: string } | null;
 function swapSides(): DiffModel | null;             // swaps a/b, recomputes the diff, re-renders
 function scrollToDiff(range: HexViewRange, options?: { selection?: boolean }): void;   // nav: frame + scroll both grids
-function showDiffError(message: string): void;
+function flushDiffRender(): void;                    // test seam: render a pending scroll frame synchronously
+function applyDiffProgress(message: DiffProgressMessage): void;   // loading-card text + bar fill
+function showDiffError(message: string): void;       // hides the loading card, shows the error card
 
-function setDiffSummary(diff: DiffModel): void;
-function dispatchDiffMessage(message: unknown, handlers: DiffMessageHandlers): boolean;
+function setDiffSummary(diff: DiffModel): void;      // also re-injects the always-visible SearchBar
+function dispatchDiffMessage(message: unknown, handlers: DiffMessageHandlers): boolean;  // diffInit | diffError | diffProgress
+function renderSideHeadHtml(label: string, format: 'ihex' | 'srec'): string;             // diffModel.ts: name + `.fmt-pill`
 function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, string];   // src/core/diffLabels.ts
 ```
 
@@ -78,9 +82,14 @@ function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, str
 - **Mirrored read-only selection:** the host owns one `selection` range plus the source pane. `HexView` callbacks (`onCellClick`, `onSelectionChange`, `onAddressRowClick`, `onAddressRowDrag`) feed `applySelection`, which repaints both grids with `paintSelection`.
 - **Copy:** `Ctrl+C` (host document keydown, selection present) resolves the source pane's mapped bytes for the selection, skips unmapped addresses (never zero-filled), and posts `copyText`; the panel writes `vscode.env.clipboard`. `HexView`'s drag-time `onCopy` is deliberately not wired — the document handler owns copy.
 - **View modes:** `Show all` (default) renders the full union row model; `Show diff` keeps only `data` rows with at least one diff byte (gap and identical rows hidden) and shows `No differences` when the filtered list is empty. Navigating a run keeps the current mode.
-- **Scroll sync:** `mountDiffGrid` wires each `HexView` `onVisibleWindowChange(top, left)` into `syncFrom`; the driver updates the shared `VirtualScrollState` and re-slices, then mirrors `setScrollTop`/`setScrollLeft` onto the follower behind a re-entrancy guard. `Sync scroll` (default ON) gates the mirror only — the driver always re-slices.
+- **Scroll sync:** `mountDiffGrid` wires each `HexView` `onVisibleWindowChange(top, left)` into `syncFrom`; the driver updates the shared `VirtualScrollState`, renders, then mirrors `setScrollTop`/`setScrollLeft` onto the follower behind a re-entrancy guard. `Sync scroll` (default ON) gates the mirror only — the driver always re-slices.
+- **Scroll stability:** scroll-driven renders coalesce to one per animation frame (`requestAnimationFrame`, `setTimeout(16)` fallback) and are skipped when the slice key — visible `[start, end)`, `heightVersion`, container height, row count, view mode, sync flag — is unchanged. Container height is part of the key because it is part of the scroll-state identity (`isCurrentScrollState`), so a resize that keeps the same row range still re-applies the physical layout. Direct renders (`setDiffData`/`setViewMode`/`setSearchMatches`/`scrollToRow`) stay synchronous; `setDiffData`/`resetDiffGrid` cancel a pending frame. `flushDiffRender` is the test seam.
+- **Toolbar (two rows):** row 1 is `Show all`/`Show diff` + `Prev diff`/`Next diff` (left), `Swap sides` (center, on the pane split), the always-visible `SearchBar` (right); row 2 is `Sync scroll` (left) and the changed/added/removed stat centered. A 3-slot `1fr auto 1fr` grid keeps the centers on the split line.
+- **Icon action buttons:** every `.diff-action` is a ~26×26px glyph button (`▲` prev, `▼` next, `≡` show all, `≠` show diff, `⇄` swap, `⇅` sync) with `title` + `aria-label`; toggles keep the `.active` state, `:disabled` stays dimmed. Unicode glyphs only — no codicon font/SVG.
+- **Format pill:** side heads render `<name> <span class="fmt-pill">IHEX|SREC</span>` via `renderSideHeadHtml` (no `·` separator); `.fmt-pill` is the one shared utility in `styles/base.css` also used by the single-file stats bar. The full path stays the head's `title`.
+- **Loading card + progress:** `diffHtml` renders the shared `.loading-*` card (`#diff-loading`) in `#app`; `DiffEditorPanel` posts throttled `diffProgress` (`read`/`parse`/`diff`, completed/total) while reading, parsing (relayed from the parsers' `onProgress`, file A then B over a total of 2), and diffing. The card is swapped for `#diff-root` on `diffInit`/`diffError` (`applyDiffProgress` updates text + bar fill meanwhile).
 - **Swap:** `Swap sides` exchanges `data.a`/`data.b`, the side heads, and recomputes `computeByteDiff` for the new base pair, so counts and colors follow the file (`added` ↔ `removed`).
-- **Search:** `Find` toggles the reused `SearchBar` (`diffSearch.ts`). One query runs over both sides' hydrated segments, match addresses are unioned/deduped, and both grids paint from render-input `matchSet`/`activeMatch`. The executed needle span expands the highlight (parity with `memoryGrid.addMatchSpan`); the count is the combined distinct address count.
+- **Search:** the reused `SearchBar` (`diffSearch.ts`) is mounted on boot into the row-1 right slot and re-injected after each toolbar render; there is no `Find` button and no open/close gating. One query runs over both sides' hydrated segments, match addresses are unioned/deduped, and both grids paint from render-input `matchSet`/`activeMatch`. The executed needle span expands the highlight (parity with `memoryGrid.addMatchSpan`); the count is the combined distinct address count. `Ctrl+F` focus/select stays inside the component.
 - **Hidden-state gating:** `.diff-body[hidden]` and `.diff-error[hidden]` must keep `display: none`; `.diff-error`'s `display: grid` otherwise defeats the `hidden` attribute and splits the viewport (blank lower half).
 - **Read-only surface:** no editing, save, scripts, integrity, sidebar, or context menus; selection/nav only.
 - **Typed protocol:** `dispatchDiffMessage` rejects unknown/malformed messages; handlers are an exhaustive `DiffMessageHandlers` map.
@@ -89,12 +98,12 @@ function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, str
 
 ## Behaviour
 
-- Root shell order: `#diff-summary` (summary + action bar), `#diff-search` (find bar, hidden until `Find`), `#diff-body` (two `.diff-side` panels with a `.diff-split` between them, each with its own address gutter), `#diff-error` (hidden error card).
-- Side heads show `<name> · <FORMAT>` with the full path as `title`.
-- Summary bar reports total bytes changed / added / removed, then the action buttons in this exact order: `Prev diff`, `Next diff`, `Show all`, `Show diff`, `Swap sides`, `Find`, `Sync scroll`. `Show all`/`Show diff`/`Sync scroll`/`Find` carry an `active` class when on; `Prev diff` is disabled at the first run, `Next diff` at the last.
+- Root shell order: `#app` holds the `#diff-loading` card; `#diff-root` (hidden until init) holds `#diff-summary` (two-row toolbar + injected search slot), `#diff-body` (two `.diff-side` panels with a `.diff-split` between them, each with its own address gutter), and `#diff-error` (hidden error card).
+- Side heads show the (disambiguated) `<name>` plus the `.fmt-pill` format, with the full path as `title`.
+- Toolbar row 1 (left→right): `Show all` `≡`, `Show diff` `≠`, `Prev diff` `▲`, `Next diff` `▼` — then `Swap sides` `⇄` centered on the split and the always-visible search bar on the right. Row 2: `Sync scroll` `⇅` left, changed/added/removed stat centered. `Show all`/`Show diff`/`Sync scroll` carry an `active` class when on; `Prev diff` is disabled at the first run, `Next diff` at the last.
 - `scrollToDiff` finds the run's row, positions it a couple of rows below the top, re-slices, and mirrors both grids.
-- Error state hides `#diff-body` (the `hidden` attribute must actually collapse it) and shows the escaped message card.
-- On mount the webview posts `{ type: 'ready' }`; `diffInit` hydrates both sides, renders heads, grid, and summary. `Ctrl+C` with a selection posts `{ type: 'copyText', text, label }`.
+- Error state hides `#diff-body` (the `hidden` attribute must actually collapse it) and shows the escaped message card; the loading card is hidden in both the init and error paths.
+- On mount the webview posts `{ type: 'ready' }`; the host streams `diffProgress` while loading, then `diffInit` hydrates both sides, renders heads, grid, and summary (or `diffError` shows the error card). `Ctrl+C` with a selection posts `{ type: 'copyText', text, label }`.
 
 ## Validation & Error Matrix
 
@@ -104,19 +113,21 @@ function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, str
 | `Show diff` on an identical pair | Filtered list is empty → both grids render the `No differences` placeholder. |
 | Address mapped on one side only | Unmapped side renders an empty `be` cell; mapped side carries `diff-add`/`diff-del`. |
 | Whole aligned block unmapped both sides | Gap row, never per-address rows. |
-| `diffError` received | Error card replaces the body (body actually hidden); message escaped. |
-| Unknown message type | `dispatchDiffMessage` returns false; no handler runs. |
+| `diffError` received | Error card replaces the body (body actually hidden, loading card hidden); message escaped. |
+| `diffProgress` received | Loading card text/bar advance (`Reading files` / `Parsing records` / `Comparing bytes` + percent); grids stay hidden until `diffInit`. |
+| Unknown message type | `dispatchDiffMessage` returns false; no handler runs (malformed `diffProgress` stage/fields rejected too). |
 | Large union range | Virtualized slice via shared `VirtualScrollState`; logical scroll preserved across re-slice. |
 | One grid scrolled | With `Sync scroll` on, the follower mirrors vertical + horizontal and the header stays aligned; with it off the follower does not move. |
+| Scroll while compressed | Scroll renders coalesce to one per frame and skip an unchanged slice — the actively scrolled pane is never blanked per event. |
 | Selection spans unmapped addresses | Mirrored range paints on both panes; copy emits only mapped source bytes. |
 | Query matches both panes at the same address | Address unioned once; count reflects distinct addresses. |
-| Search `Enter`/`Shift+Enter` | Fresh query runs; `Shift+Enter` starts from the last match. Repeat-Enter re-runs the search (host has no completed-query navigate shortcut). |
+| Search `Enter`/`Shift+Enter` | Fresh query runs; `Shift+Enter` starts from the last match. Repeat-Enter re-runs the search (host has no completed-query navigate shortcut). Always-visible bar; `Ctrl+F` focuses/selects the input. |
 
 ## Tests Required
 
-`src/test/webview/diffViewer.test.ts` (mocha + jsdom + cssImportHook): shared `data-row` order across both sides + gap row between distant blocks; changed byte on both sides; added empty-on-A / value-on-B; removed value-on-A / empty-on-B; computed summary counts + the exact action-bar button order and `Sync scroll` default; prev/next traversal and end stops; vertical + horizontal scroll sync (both directions, header alignment) and the sync-off gate; decoded text hidden (`.mem-hdr-decoded`, `.col-decoded`, `.char-cell` absent); address gutter on both panes; error card + hidden body; a real `SearchBar`-driven query proving one search over both panes, address union/dedupe, needle-span highlight, and next walking the addresses; click/shift-click/address-gutter selection mirrored on both panes with copy reading the source pane; `Swap sides` flipping colors and counts; `Show diff` filtering + `No differences`; unknown-message rejection; a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the absence of `.diff-hide-addr`.
+`src/test/webview/diffViewer.test.ts` (mocha + jsdom + cssImportHook): shared `data-row` order across both sides + gap row between distant blocks; changed byte on both sides; added empty-on-A / value-on-B; removed value-on-A / empty-on-B; computed summary counts + the exact icon-button order/glyphs/`title`+`aria-label`; the two-row toolbar grouping (row 1 left/center/right, row 2 sync + centered stat); prev/next traversal and end stops; vertical + horizontal scroll sync (both directions, header alignment), the sync-off gate, and scroll-render coalescing + unchanged-slice skip (innerHTML-write probe via `flushDiffRender`); decoded text hidden (`.mem-hdr-decoded`, `.col-decoded`, `.char-cell` absent); address gutter on both panes; error card + hidden body; always-visible search (no `Find` button) + `Ctrl+F` focus; a real `SearchBar`-driven query proving one search over both panes, address union/dedupe, needle-span highlight, and next walking the addresses; click/shift-click/address-gutter selection mirrored on both panes with copy reading the source pane; `Swap sides` flipping colors and counts; `Show diff` filtering + `No differences`; `renderSideHeadHtml` format pill (no separator, escaped label) + the `.fmt-pill` base.css guard; `applyDiffProgress` card text/bar-fill updates and `diffProgress` dispatch/rejection; unknown-message rejection; a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the absence of `.diff-hide-addr`.
 
-`src/test/core/diff.test.ts` owns the run semantics and `disambiguatedLabels`; `src/test/extension/extension.test.ts` owns command registration (the three Explorer compare commands — `hexScope.selectAsFirst` / `hexScope.compareToStaged` / `hexScope.compareSelected`; `hexScope.compareWith` and the A3 command names are gone), the manifest gate (only those three sit in `group: "3_compare"`, each `when` carries `explorerViewletFocus` — never the editor title — `selectAsFirst` carries `!listMultiSelection`, `compareToStaged` carries `hexScope.hasCompareSelection`, `compareSelected` carries `listDoubleSelection` so 3+ shows no item, no other menu point lists a compare command, and `navigation` keeps only Open with HexScope / Quick Repair), the `CompareSelectionStore` set/clear lifecycle, `selectedComparePair`/`stashedComparePair` ordering and rejection, `runCompare` validation/clear-on-success, and `copyText` parsing + clipboard write.
+`src/test/core/diff.test.ts` owns the run semantics and `disambiguatedLabels`; `src/test/extension/extension.test.ts` owns command registration (the three Explorer compare commands — `hexScope.selectAsFirst` / `hexScope.compareToStaged` / `hexScope.compareSelected`; `hexScope.compareWith` and the A3 command names are gone), the manifest gate (only those three sit in `group: "3_compare"`, each `when` carries `explorerViewletFocus` — never the editor title — `selectAsFirst` carries `!listMultiSelection`, `compareToStaged` carries `hexScope.hasCompareSelection`, `compareSelected` carries `listDoubleSelection` so 3+ shows no item, no other menu point lists a compare command, and `navigation` keeps only Open with HexScope / Quick Repair), the `CompareSelectionStore` set/clear lifecycle, `selectedComparePair`/`stashedComparePair` ordering and rejection, `runCompare` validation/clear-on-success, and `copyText` parsing + clipboard write plus `diffProgress`/`diffInit` recognition by `diffMessageType`.
 
 ## Anti-patterns
 
@@ -127,4 +138,7 @@ function disambiguatedLabels(a: PathLabelInput, b: PathLabelInput): [string, str
 - Adding sidebar/toolbar/integrity/scripts chrome to the diff surface.
 - Persisting diff state or touching `.hexscope/` from the diff panel.
 - Letting `display: flex/grid` on `.diff-body`/`.diff-error` win over their `[hidden]` guard (reintroduces the blank lower half).
+- Writing grid DOM from the scroll path without coalescing (per-event `innerHTML` rebuild blanks/flickers the scrolled pane).
+- A `Find` button / hidden-until-toggled search bar in the diff surface (the bar is always visible).
+- Duplicating the format-pill rule outside the shared `.fmt-pill` utility (or reintroducing the ` · ` name/format separator).
 - Reintroducing a hidden-address-column variant instead of giving each pane its own gutter.

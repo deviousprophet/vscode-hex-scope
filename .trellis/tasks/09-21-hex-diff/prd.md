@@ -42,6 +42,15 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 22. **Two-file order.** With exactly two selected, the right-clicked file is A/left and the other is B/right.
 23. **Explorer-only + validation.** `resourceLangId` describes only the clicked file, so the menu gate is an approximation; the command validates both files (supported extension, valid checksums). An unsupported, folder, unreadable, or checksum-invalid file warns and opens nothing. A stale staged file produces no panel; the stash is kept because it clears only on a successful compare.
 
+### Findings round 4 (diff view polish)
+
+24. **Scroll stability.** In large compressed comparisons, the actively scrolled pane must not blank or flicker. Scroll-driven re-renders are coalesced to one per animation frame and skipped when the visible slice indices are unchanged (both panes render only when the slice actually moves).
+25. **Loading screen.** The diff editor shows the same loading card as the single-file viewer while reading, parsing, and computing, with determinate progress from a new `diffProgress` host→webview message (stages `read` / `parse` / `diff`, per-file `completed`/`total`). The card is replaced by the grids on `diffInit` and by the error card on `diffError`.
+26. **Search always visible.** The search bar is always visible in the diff view — there is no `Find` toggle or `Find` action button. `Ctrl+F` focuses and selects the input (the reused `SearchBar` binds `Ctrl+F`).
+27. **Toolbar layout.** Row 1: `Show all` / `Show diff` toggle then `Prev diff` / `Next diff` (left), `Swap sides` (center, aligned to the pane split), always-visible search bar (right). Row 2: `Sync scroll` toggle (left), diff stat (changed / added / removed) centered.
+28. **Format pill.** The side-head format label renders as a pill identical to the hex-view stats-bar format pill, via one shared `.fmt-pill` class used by both surfaces. The `·` separator between name and format is dropped.
+29. **Icon action buttons.** The diff action bar uses Unicode-glyph icon buttons (repo convention; no codicon font): `▲` Prev diff, `▼` Next diff, `≡` Show all, `≠` Show diff, `⇄` Swap sides, `⇅` Sync scroll. Every button keeps a `title` and `aria-label`, and the button hit target is comfortably sized (not the 18px icon-button minimum).
+
 ## Requirements
 
 - R1 — `HexScope: Compare with...` command appears for a supported active file (editor title bar + command palette) and prompts for the second file.
@@ -67,6 +76,12 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - R21 — The staged 1st file clears after a successful compare and on window reload; setting a new 1st file replaces it.
 - R22 — The dialog-based `Compare with...` command and its editor-title menu entry are gone, and no `Clear Compare Selection` command exists.
 - R23 — Comparing 3+ selected files is not offered; an unsupported, folder, unreadable, or invalid file warns instead of opening.
+- R24 — Scrolling a large compressed comparison never blanks or flickers the actively scrolled pane; re-renders coalesce to one per animation frame and skip unchanged slices.
+- R25 — A loading card shows determinate progress while the comparison loads and is replaced by the grids (or the error card) when loading finishes.
+- R26 — The search bar is always visible in the diff view; `Ctrl+F` focuses it; no `Find` button exists.
+- R27 — Row 1 is `Show all`/`Show diff` + `Prev diff`/`Next diff` (left), `Swap sides` (center), search bar (right); row 2 is `Sync scroll` (left) and the centered diff stat.
+- R28 — The side-head format shows as a pill matching the hex-view format pill, with no `·` separator.
+- R29 — Diff action buttons are icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`) with tooltips and `aria-label`s, and a hit target large enough to click comfortably.
 
 ## Acceptance Criteria
 
@@ -95,6 +110,12 @@ Read-only dedicated editor comparing two Intel HEX / SREC files in an address-al
 - [ ] AC23 — No status-bar item is shown for the staged file, and the staged file clears after a successful compare and on window reload.
 - [ ] AC24 — `Compare with...` and `Clear Compare Selection` do not exist in the Command Palette, submenu, or editor title menu.
 - [ ] AC25 — Selecting an unsupported, folder, unreadable, or checksum-invalid file shows a warning and opens no panel.
+- [ ] AC26 — Scroll-wheel scrolling a large compressed comparison keeps the actively scrolled pane continuously populated (no blank band/flicker).
+- [ ] AC27 — Opening a large comparison shows the loading card with advancing progress, then the aligned grids; a failed comparison shows the error card instead.
+- [ ] AC28 — The diff view always shows the search bar; `Ctrl+F` focuses/selects its input; there is no `Find` button.
+- [ ] AC29 — The toolbar shows row 1 (`Show all`/`Show diff`, `Prev diff`, `Next diff`, `Swap sides`, search) and row 2 (`Sync scroll`, diff stat centered) as specified.
+- [ ] AC30 — Side heads render `<name>` followed by a format pill identical in style to the hex-view stats-bar format pill, with no ` · ` separator.
+- [ ] AC31 — The diff action bar shows only icon buttons (`▲` `▼` `≡` `≠` `⇄` `⇅`), each with a tooltip/`aria-label`; buttons are comfortably sized and toggles still show an active state.
 
 ## Out of Scope
 

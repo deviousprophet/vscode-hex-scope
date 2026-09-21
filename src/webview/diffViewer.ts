@@ -5,8 +5,8 @@ import './diff/diff.css';
 import type { DiffWebviewToProvider } from '../diffProtocol';
 import { disambiguatedLabels } from '../core/diffLabels';
 import { postProviderMessage } from './vscodeApi';
-import { hydrateDiffSide, type DiffSideData } from './diff/diffModel';
-import { copySelectionText, mountDiffGrid, setDiffData, setDiffGridHooks, showDiffError } from './diff/diffGrid';
+import { hydrateDiffSide, renderSideHeadHtml, type DiffSideData } from './diff/diffModel';
+import { applyDiffProgress, copySelectionText, mountDiffGrid, setDiffData, setDiffGridHooks, showDiffError } from './diff/diffGrid';
 import { resetDiffSearch } from './diff/diffSearch';
 import { setDiffSummary } from './diff/diffSummary';
 import { isCopyShortcut, isEditableTarget } from './components/hexView/hexViewPaint';
@@ -16,8 +16,8 @@ const READY: DiffWebviewToProvider = { type: 'ready' };
 let sides: { a: DiffSideData; b: DiffSideData } | null = null;
 
 function renderDiffShellHtml(): string {
-    return `<div class="diff-summary" id="diff-summary"></div>` +
-        `<div class="diff-find" id="diff-search"></div>` +
+    return `<div class="diff-root" id="diff-root" hidden>` +
+        `<div class="diff-summary" id="diff-summary"></div>` +
         `<div class="diff-body" id="diff-body">` +
         `<div class="diff-side">` +
         `<div class="diff-side-head" id="diff-head-a"></div>` +
@@ -32,11 +32,12 @@ function renderDiffShellHtml(): string {
         `<div class="mem-header" id="diff-header-b"></div>` +
         `<div class="mem-scroll"><div class="mem-rows" id="diff-rows-b"></div></div>` +
         `</div></div></div>` +
-        `<div class="diff-error" id="diff-error" hidden></div>`;
+        `<div class="diff-error" id="diff-error" hidden></div>` +
+        `</div>`;
 }
 
 const app = document.getElementById('app');
-if (app) { app.innerHTML = renderDiffShellHtml(); }
+if (app) { app.insertAdjacentHTML('beforeend', renderDiffShellHtml()); }
 
 setDiffGridHooks({
     onSidesSwapped: (a, b) => {
@@ -54,6 +55,7 @@ function applyDiffMessage(message: unknown): void {
     dispatchDiffMessage(message, {
         diffInit: applyDiffInit,
         diffError: applyDiffError,
+        diffProgress: applyDiffProgress,
     });
 }
 
@@ -89,6 +91,6 @@ function renderSideHeads(): void {
 function setSideHead(id: string, label: string, side: DiffSideData): void {
     const el = document.getElementById(id);
     if (!el) { return; }
-    el.textContent = `${label} · ${side.format.toUpperCase()}`;
+    el.innerHTML = renderSideHeadHtml(label, side.format);
     el.title = side.path;
 }

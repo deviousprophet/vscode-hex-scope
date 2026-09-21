@@ -127,7 +127,8 @@ interface DiffSide { name: string; path: string; format: 'ihex' | 'srec'; parseR
 
 type DiffProviderToWebview =
     | { type: 'diffInit'; generation: number; a: DiffSide; b: DiffSide; diff: DiffModel }
-    | { type: 'diffError'; generation?: number; message: string };
+    | { type: 'diffError'; generation?: number; message: string }
+    | { type: 'diffProgress'; stage: 'read' | 'parse' | 'diff'; completed: number; total: number };
 
 type DiffWebviewToProvider =
     | { type: 'ready' }
@@ -150,14 +151,16 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 - The panel is a `WebviewPanel` in `vscode.ViewColumn.Active`, read-only (`enableScripts`, `retainContextWhenHidden`, `localResourceRoots`), titled `<a> ↔ <b>`.
 - A = left file, B = right file. `added` = mapped in B only; `removed` = mapped in A only.
 - Host reads + compact-parses both files, rejects any file with `checksumErrors > 0 || malformedLines > 0` (message points at Quick Repair), computes `computeByteDiff(base.segments, other.segments)`, and serializes each side through `serializeParseResult` (`src/core/wire.ts`).
-- Webview sends `ready`; host responds with one `diffInit` (generation-stamped) or `diffError`.
+- Webview sends `ready`; host streams throttled `diffProgress` (`read` → `parse` → `diff`) while loading, then responds with one `diffInit` (generation-stamped) or `diffError`. `read`/`parse` report completed/total over both files (total 2); `parse` relays the parsers' `onProgress` for file A then file B; `diff` brackets `computeByteDiff`.
 - Cleanup is registered before any await: `panel.onDidDispose` → `DisposableStore.dispose()`; disposal sets `disposed` and aborts the `AbortController`; a load whose generation is stale or disposed posts nothing.
-- The diff bundle is isolated: summary/action bar + two grids + find bar only. It never imports the single-file app shell (`state.ts`, sidebar, toolbar, integrity, scripts).
+- The panel shell renders the shared `.loading-*` card (`#diff-loading`) inside `#app`; `#diff-root` (the two-row toolbar + grids + error card) is hidden until `diffInit`, and `diffError` also hides the loading card. `diffProgress` updates the card's text and bar fill only.
+- The diff bundle is isolated: two-row toolbar + two grids + always-visible search bar only. It never imports the single-file app shell (`state.ts`, sidebar, toolbar, integrity, scripts).
 - Diff grids render hex only: `showAscii:false` (no decoded-text label, no char cells).
 - Both panes render their own address gutter and are separated by a static 3px `.diff-split`; the error card and body are gated on `[hidden]` so a short pair never leaves a blank lower half.
 - The webview owns one mirrored read-only selection: `HexView` click/drag/address-gutter callbacks repaint both panes, and `Ctrl+C` posts `copyText` with the **source pane's** mapped bytes only (unmapped addresses skipped, never zero-filled); the panel answers with `vscode.env.clipboard.writeText` via `diffCopyText`.
-- The action bar exposes `Prev diff`, `Next diff`, `Show all`, `Show diff`, `Swap sides`, `Find`, `Sync scroll` plus the changed/added/removed counts. `Show diff` filters to rows containing a diff byte and shows `No differences` when empty; `Sync scroll` defaults ON and gates only the follower mirror; `Swap sides` swaps panes/labels and recomputes the diff for the new base pair.
-- `Find` reuses the `SearchBar` component in the diff bundle (`src/webview/diff/diffSearch.ts`): one query runs over both sides' hydrated segments, addresses are unioned/deduped, both grids paint from render-input `matchSet`/`activeMatch` (expanded by the executed needle span), and next/prev walk the union while scrolling both grids. The component stays host-agnostic — no `S`, no direct engine calls.
+- The action bar is two rows of icon buttons (`title` + `aria-label`, ~26×26px, Unicode glyphs — no codicon font): row 1 left `≡ Show all` / `≠ Show diff` then `▲ Prev diff` / `▼ Next diff`, row 1 center `⇄ Swap sides` (on the pane split), row 1 right the always-visible search bar; row 2 left `⇅ Sync scroll`, row 2 center the changed/added/removed stat. `Show diff` filters to rows containing a diff byte and shows `No differences` when empty; `Sync scroll` defaults ON and gates only the follower mirror; `Swap sides` swaps panes/labels and recomputes the diff for the new base pair. Scroll-driven renders coalesce to one per animation frame and skip an unchanged slice.
+- The `SearchBar` component is always mounted in the diff bundle (`src/webview/diff/diffSearch.ts`) — there is no `Find` button: one query runs over both sides' hydrated segments, addresses are unioned/deduped, both grids paint from render-input `matchSet`/`activeMatch` (expanded by the executed needle span), and next/prev walk the union while scrolling both grids. `Ctrl+F` focus/select stays in the component. The component stays host-agnostic — no `S`, no direct engine calls.
+- Side heads render the disambiguated `<name>` plus the shared `.fmt-pill` format (no `·` separator).
 - `DiffSide.path` carries the full path: pane labels use `disambiguatedLabels` (basename, upgraded to the shortest distinct trailing suffix on collision) with the full path as `title`, and the panel tab title uses the same labels.
 - `DiffEditorPanel` owns no persistence, watchers, profiles, or `.hexscope/` state.
 
@@ -170,8 +173,9 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 | `Compare Two Files` with 1 or 3+ selected, or an unsupported companion | Warn `Select exactly two firmware files`; open nothing. |
 | Stashed file deleted/moved/invalid at compare time | `validateComparable` warns and opens nothing: unreadable (missing/moved/folder) names the file; checksum/malformed offers Quick Repair. The stash is kept because no compare opened. |
 | Either file has checksum/malformed errors | No compare; message names the file and says to run Quick Repair. |
-| File read/parse throws | Post `diffError`; webview renders the error card and hides the body. |
+| File read/parse throws | Post `diffError`; webview renders the error card, hides the body, hides the loading card. |
 | Unknown webview message | `diffMessageType` returns undefined; ignored. |
+| Malformed `diffProgress` (bad stage/non-number fields) | `dispatchDiffMessage` returns false; card untouched. |
 | Panel disposed mid-load / superseded generation | Post nothing; abort active parse. |
 | Identical files | `diffInit` with an empty summary and run list; grids render plain; `Show diff` shows `No differences`. |
 | Address gaps / differing formats | Union row model; gap rows / empty cells; no synthetic zero bytes. |
@@ -181,18 +185,19 @@ Union lives only in `src/diffProtocol.ts`; the webview dispatcher is `src/webvie
 
 ### 5. Good/Base/Bad Cases
 
-- Base: `Set as 1st file to compare` on a valid Explorer file → `Compare with the 1st file` on a second valid file → panel tab → `ready` → `diffInit` → aligned grids + summary.
+- Base: `Set as 1st file to compare` on a valid Explorer file → `Compare with the 1st file` on a second valid file → panel tab → loading card with advancing `diffProgress` → `diffInit` → aligned grids + toolbar.
 - Good: self-compare yields zero changed/added/removed.
 - Good: `Show diff` on a pair differing in two places frames each run with `Prev`/`Next` while keeping the filtered mode.
 - Good: `Ctrl+C` after selecting in the right pane copies the right file's bytes, not the left pane's.
+- Good: a failed comparison swaps the loading card for the error card; the grids never render.
 - Bad: the diff webview imports `state.ts` or posts single-file messages; the host writes `.hexscope/` from the diff panel.
 - Bad: dispatching `(handlers as any)[msg.type]` instead of the typed dispatcher.
 
 ### 6. Tests Required
 
-- `src/test/extension/extension.test.ts`: the three compare commands are registered (`hexScope.compareWith`, `hexScope.selectForCompare`, `hexScope.compareWithSelected`, `hexScope.compareSelectedFiles`, and `hexScope.clearCompareSelection` are gone); the `hexScope.actions` manifest gate (`3_compare` group holds only those three, each `when` carries `explorerViewletFocus` and its selection-count clause, no other menu point lists a compare command, `navigation` keeps only Open with HexScope / Quick Repair); `CompareSelectionStore` set/clear lifecycle (`src/diff/compareSelection.ts`); `selectedComparePair` clicked-file-is-A ordering plus 1/3+/unsupported rejection; `stashedComparePair` stash-first ordering; `runCompare` validation-failure opens nothing and clears the stash only on success; `selectAsFirst` warns without a supported resource; and `diffCopyText` payload parsing with a real clipboard round-trip.
+- `src/test/extension/extension.test.ts`: the three compare commands are registered (`hexScope.compareWith`, `hexScope.selectForCompare`, `hexScope.compareWithSelected`, `hexScope.compareSelectedFiles`, and `hexScope.clearCompareSelection` are gone); the `hexScope.actions` manifest gate (`3_compare` group holds only those three, each `when` carries `explorerViewletFocus` and its selection-count clause, no other menu point lists a compare command, `navigation` keeps only Open with HexScope / Quick Repair); `CompareSelectionStore` set/clear lifecycle (`src/diff/compareSelection.ts`); `selectedComparePair` clicked-file-is-A ordering plus 1/3+/unsupported rejection; `stashedComparePair` stash-first ordering; `runCompare` validation-failure opens nothing and clears the stash only on success; `selectAsFirst` warns without a supported resource; and `diffCopyText` payload parsing with a real clipboard round-trip plus `diffMessageType` recognizing `diffProgress`/`diffInit`.
 - `src/test/core/diff.test.ts`: `computeByteDiff` identical / one changed / added-only / removed-only / gaps / adjacent-run merge / empty / address 0 / last-byte, plus `disambiguatedLabels`.
-- `src/test/webview/diffViewer.test.ts`: shared union row model + address alignment, changed marking on both sides, added empty-on-A, removed empty-on-B, computed summary counts + exact action-bar order, prev/next traversal + end stops, vertical + horizontal scroll sync + sync-off gate, decoded-text hidden, addresses on both panes, error-state card + hidden body, a real `SearchBar` query over both panes (union/dedupe, needle span, next walk), mirrored click/shift-click/address-gutter selection + source-pane copy, `Show diff` filtering + `No differences`, `Swap sides` color/count flip, unknown-message rejection, and a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the removed `.diff-hide-addr`.
+- `src/test/webview/diffViewer.test.ts`: shared union row model + address alignment, changed marking on both sides, added empty-on-A, removed empty-on-B, computed summary counts + exact icon-button order/glyphs/tooltips, the two-row toolbar grouping, prev/next traversal + end stops, vertical + horizontal scroll sync + sync-off gate + render coalescing/unchanged-slice skip, decoded-text hidden, addresses on both panes, error-state card + hidden body, always-visible `SearchBar` (no `Find` button) + `Ctrl+F`, a real query over both panes (union/dedupe, needle span, next walk), mirrored click/shift-click/address-gutter selection + source-pane copy, `Show diff` filtering + `No differences`, `Swap sides` color/count flip, the format pill (`renderSideHeadHtml`, no separator), `applyDiffProgress` card updates, unknown-malformed-message rejection, and a stylesheet guard for the `[hidden]` rules, the 3px splitter, and the removed `.diff-hide-addr`.
 
 ### 7. Wrong vs Correct
 

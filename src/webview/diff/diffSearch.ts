@@ -9,12 +9,7 @@ let engine = new SearchEngine();
 let matches: number[] = [];
 let index = -1;
 let span = 1;
-let findVisible = false;
 let pendingTrigger: SearchTrigger = 'button';
-
-export function isFindVisible(): boolean {
-    return findVisible;
-}
 
 /** Drop matches and the bar for a replaced document. */
 export function resetDiffSearch(): void {
@@ -22,16 +17,16 @@ export function resetDiffSearch(): void {
     matches = [];
     index = -1;
     bar = null;
-    findVisible = false;
-    const container = document.getElementById('diff-search');
-    if (container) {
-        container.classList.remove('open');
-        delete container.dataset.ready;
-    }
+    pendingTrigger = 'button';
 }
 
-export function toggleFind(): void {
-    if (findVisible) { hideFind(); } else { showFind(); }
+/** Inject the always-visible search bar into the toolbar slot (re-run after a toolbar re-render). */
+export function mountDiffSearch(): void {
+    const container = document.getElementById('diff-search');
+    if (!container) { return; }
+    const searchBar = ensureBar();
+    container.innerHTML = searchBar.toHtml();
+    searchBar.mount();
 }
 
 function ensureBar(): SearchBar {
@@ -50,31 +45,6 @@ function ensureBar(): SearchBar {
         },
     });
     return bar;
-}
-
-function showFind(): void {
-    const container = document.getElementById('diff-search');
-    if (!container) { return; }
-    const searchBar = ensureBar();
-    if (!container.dataset.ready) {
-        container.innerHTML = searchBar.toHtml();
-        container.dataset.ready = '1';
-    }
-    searchBar.mount();
-    container.classList.add('open');
-    findVisible = true;
-    focusSearchInput();
-}
-
-function hideFind(): void {
-    document.getElementById('diff-search')?.classList.remove('open');
-    findVisible = false;
-}
-
-function focusSearchInput(): void {
-    const input = document.getElementById('search-input') as HTMLInputElement | null;
-    input?.focus();
-    input?.select();
 }
 
 function runDiffSearch(query: string, mode: SearchMode, endianness: SearchEndianness): void {

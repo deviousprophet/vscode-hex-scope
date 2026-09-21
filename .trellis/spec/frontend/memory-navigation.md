@@ -105,9 +105,9 @@ interface DiffRow { address: number; kind: 'data' | 'gap'; gap?: { from: number;
 - One row model is shared by both grids: the union of mapped 16-byte-aligned blocks from both sides, ascending. A block is `data` when either side maps any byte in it; `gap` only when neither side maps it.
 - `getSideByte` returns `undefined` for an address a side does not map — never a synthetic zero. A side renders an empty (`be`) cell there.
 - `diffKindAt` is a binary search over `DiffModel.runs`; `diffClassForSide` marks `changed` on both sides, `added` on B only, `removed` on A only.
-- The right grid hides the address column (`.diff-hide-addr`), since both grids share one address column and identical rows.
+- Both grids render their own address column (no hidden-address variant) and identical row order.
 - Diff grids render hex only (`showAscii:false`).
-- Both instances share `VirtualScrollState`; the driving grid reports `onVisibleWindowChange(top, left)`, the host re-slices and mirrors `setScrollTop`/`setScrollLeft` onto the follower with a re-entrancy guard.
+- Both instances share `VirtualScrollState`; the driving grid reports `onVisibleWindowChange(top, left)`, the host re-slices and mirrors `setScrollTop`/`setScrollLeft` onto the follower with a re-entrancy guard. Scroll-driven renders coalesce to one per animation frame and skip an unchanged visible slice.
 
 ### 4. Validation & Error Matrix
 

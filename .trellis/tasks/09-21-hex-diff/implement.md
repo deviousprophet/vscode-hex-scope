@@ -62,7 +62,21 @@ Ordered; each step gated by the previous.
 5. **Specs**: update `editor-lifecycle.md` and `component-diff-view.md` to the three commands (no clear, no status bar).
 6. **Validation**: `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
 
-## Phase C — Finish (after Phase A4 is green)
+## Phase A5 — Diff view polish (findings round 4)
+
+Ordered; each step gated by the previous.
+
+1. **R4-1 scroll stability.** `src/webview/diff/diffGrid.ts`: coalesce `syncFrom` renders with `requestAnimationFrame` and skip the render when the visible range / layout version / view+sync state is unchanged (follower mirror still runs); add a test seam to flush a pending frame.
+2. **R4-5 format pill.** `src/webview/styles/base.css`: add the shared `.fmt-pill` utility. `src/webview/styles/statsBar.css`: `.si-fmt .svl` reuses `.fmt-pill` (no visual change). `src/webview/diffViewer.ts` `setSideHead`: render `<name>` + `<span class="fmt-pill">IHEX|SREC</span>` (drop ` · `); keep the full-path `title`. `src/webview/diff/diff.css`: nothing new for the pill.
+3. **R4-3 always-visible search.** `src/webview/diffSearch.ts`: mount and show the bar on boot; remove `toggleFind`/`isFindVisible`/`#diff-search.open` gating. `src/webview/diff/diffSummary.ts`: remove the `Find` button + its active-state wiring.
+4. **R4-4 toolbar layout.** `src/webview/diff/diffSummary.ts` + `src/webview/diffViewer.ts` shell + `src/webview/diff/diff.css`: two-row toolbar — row 1 `Show all`/`Show diff` + `Prev diff`/`Next diff` (left), `Swap sides` (center), search bar (right); row 2 `Sync scroll` (left), diff stat centered. Move the `SearchBar` markup into row 1.
+5. **R4-2 loading screen + progress.** `src/diffProtocol.ts`: add `{ type: 'diffProgress'; stage: 'read' | 'parse' | 'diff'; completed: number; total: number }` to `DiffProviderToWebview`. `src/diff/diffEditorPanel.ts`: add the loading card to `diffHtml`, post throttled `diffProgress` while reading/parsing each file and around the diff, and hide the card on `diffInit`/`diffError`. `src/webview/diff/diffMessages.ts`/`diffViewer.ts`: handle `diffProgress` (update the card) and swap the card for the grids/error.
+6. **Tests.** `src/test/webview/diffViewer.test.ts`: scroll-stability (no re-render when the range is unchanged; one render per frame), always-visible search bar (no `Find` button), two-row toolbar order/grouping, format pill + no separator. `src/test/extension/extension.test.ts` or a small core test for `diffProgress` payload/handling. Keep the existing suites green.
+7. **R4-6 icon buttons.** `src/webview/diff/diffSummary.ts`: `actionButton(id, label, glyph, active)` renders the glyph (`▲` `▼` `≡` `≠` `⇄` `⇅`) with `title` + `aria-label`; `src/webview/diff/diff.css`: `.diff-action` becomes a comfortable square icon button (~26×26px, ~14px glyph) with hover/active/disabled states preserved.
+8. **Specs.** Update `component-diff-view.md` (toolbar, icon buttons, always-visible search, loading card, format pill) and `editor-lifecycle.md` (`diffProgress`).
+9. **Validation:** `npm run check-types`, `npm run lint`, `npm test`, then the `/fallow-fix` gate.
+
+## Phase C — Finish (after Phase A5 is green)
 
 1. Commit all working-tree changes for the task (single commit; no secrets; match repo commit style).
 2. Run `/update-changelog` (`.agents/skills/update-changelog/SKILL.md`) to prepare the changelog entry synchronized with package version and the committed changes since the latest release tag.

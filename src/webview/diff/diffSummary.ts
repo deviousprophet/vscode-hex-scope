@@ -8,7 +8,7 @@ import {
     swapSides,
     type DiffViewMode,
 } from './diffGrid';
-import { isFindVisible, toggleFind } from './diffSearch';
+import { mountDiffSearch } from './diffSearch';
 
 let runs: readonly DiffRun[] = [];
 let index = -1;
@@ -18,6 +18,7 @@ export function setDiffSummary(diff: DiffModel): void {
     index = -1;
     const summary = document.getElementById('diff-summary');
     if (summary) { summary.innerHTML = renderDiffSummaryHtml(diff); }
+    mountDiffSearch();
     wireSummaryButtons();
     updateNavButtons();
     updateToggleButtons();
@@ -28,22 +29,31 @@ export function renderDiffSummaryHtml(
     viewMode: DiffViewMode = getViewMode(),
     syncScroll: boolean = getSyncScroll(),
 ): string {
-    return `<span class="diff-count diff-count-chg">${diff.summary.changed} changed</span>` +
-        `<span class="diff-count diff-count-add">${diff.summary.added} added</span>` +
-        `<span class="diff-count diff-count-del">${diff.summary.removed} removed</span>` +
-        `<span class="diff-actions">` +
-        actionButton('diff-prev', 'Prev diff') +
-        actionButton('diff-next', 'Next diff') +
-        actionButton('diff-show-all', 'Show all', viewMode === 'all') +
-        actionButton('diff-show-diff', 'Show diff', viewMode === 'diff') +
-        actionButton('diff-swap', 'Swap sides') +
-        actionButton('diff-find', 'Find', isFindVisible()) +
-        actionButton('diff-sync', 'Sync scroll', syncScroll) +
-        `</span>`;
+    return `<div class="diff-tb-row">` +
+        `<div class="diff-tb-left">` +
+        actionButton('diff-show-all', '≡', 'Show all rows', viewMode === 'all') +
+        actionButton('diff-show-diff', '≠', 'Show differences only', viewMode === 'diff') +
+        actionButton('diff-prev', '▲', 'Previous difference') +
+        actionButton('diff-next', '▼', 'Next difference') +
+        `</div>` +
+        `<div class="diff-tb-center">${actionButton('diff-swap', '⇄', 'Swap sides')}</div>` +
+        `<div class="diff-tb-right"><div class="diff-search-slot" id="diff-search"></div></div>` +
+        `</div>` +
+        `<div class="diff-tb-row">` +
+        `<div class="diff-tb-left">${actionButton('diff-sync', '⇅', 'Sync scroll', syncScroll)}</div>` +
+        `<div class="diff-tb-center diff-stat">${renderDiffStat(diff)}</div>` +
+        `<div class="diff-tb-right"></div>` +
+        `</div>`;
 }
 
-function actionButton(id: string, label: string, active = false): string {
-    return `<button type="button" id="${id}" class="diff-action${active ? ' active' : ''}">${label}</button>`;
+function renderDiffStat(diff: DiffModel): string {
+    return `<span class="diff-count diff-count-chg">${diff.summary.changed} changed</span>` +
+        `<span class="diff-count diff-count-add">${diff.summary.added} added</span>` +
+        `<span class="diff-count diff-count-del">${diff.summary.removed} removed</span>`;
+}
+
+function actionButton(id: string, glyph: string, label: string, active = false): string {
+    return `<button type="button" id="${id}" class="diff-action${active ? ' active' : ''}" title="${label}" aria-label="${label}">${glyph}</button>`;
 }
 
 function wireSummaryButtons(): void {
@@ -55,7 +65,6 @@ function wireSummaryButtons(): void {
         const next = swapSides();
         if (next) { setDiffSummary(next); }
     });
-    navButton('diff-find')?.addEventListener('click', () => { toggleFind(); updateToggleButtons(); });
     navButton('diff-sync')?.addEventListener('click', () => toggleSync());
 }
 
@@ -73,7 +82,6 @@ function updateToggleButtons(): void {
     navButton('diff-show-all')?.classList.toggle('active', getViewMode() === 'all');
     navButton('diff-show-diff')?.classList.toggle('active', getViewMode() === 'diff');
     navButton('diff-sync')?.classList.toggle('active', getSyncScroll());
-    navButton('diff-find')?.classList.toggle('active', isFindVisible());
 }
 
 function step(delta: number): void {
