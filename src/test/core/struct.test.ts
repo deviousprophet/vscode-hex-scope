@@ -4,15 +4,14 @@ import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
 } from '../../core/structCodec';
-import { S } from '../../webview/state';
-import { getByte } from '../../webview/memory/memoryData';
+import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
-import { setBytesInSegment } from '../shared/structTestHelpers';
+
+let structs: StructDef[] = [];
 
 function resetStructState(): void {
-    S.structs           = [];
-    S.parseResult       = null;
-    S.segmentIndex      = [];
+    structs = [];
+    setBytesInSegment(0, []);
 }
 
 function layoutFields(): StructField[] {
@@ -187,9 +186,9 @@ suite('structByteSize()', () => {
                 { name: 'c', type: 'struct', refStructId: 'child', count: 1 },
             ],
         };
-        S.structs = [child, parent];
-        assert.strictEqual(structByteSize(parent, S.structs), 8);
-        S.structs = [];
+        structs = [child, parent];
+        assert.strictEqual(structByteSize(parent, structs), 8);
+        structs = [];
     });
 });
 
@@ -316,9 +315,7 @@ suite('decodeStruct()', () => {
         const def: StructDef = { id: 'x', name: 'S', fields: [
             { name: 'a', type: 'uint8', count: 1 },
         ]};
-        // Do NOT populate parseResult; getBy te will return undefined
-        S.parseResult = null;
-        S.segmentIndex = [];
+        // Do NOT populate any bytes; getByte will return undefined
         const rows = decodeStruct(def, 0x200, getByte, 'le');
         assert.strictEqual(rows[0].hasData, false);
         assert.strictEqual(rows[0].decoded, '??');
@@ -409,7 +406,7 @@ suite('decodeStruct()', () => {
                 { name: 'node', type: 'struct', refStructId: 'endian_child', count: 1 },
             ],
         };
-        S.structs = [child, parent];
+        structs = [child, parent];
         setBytesInSegment(0, [
             0x34, 0x12,
             0x12, 0x34,
@@ -418,7 +415,7 @@ suite('decodeStruct()', () => {
             0x12, 0x34, 0x56, 0x78,
         ]);
 
-        const rows = decodeStruct(parent, 0, getByte, 'be', 'msb', S.structs);
+        const rows = decodeStruct(parent, 0, getByte, 'be', 'msb', structs);
         assert.strictEqual(rows[0].fieldName, 'word');
         assert.ok(rows[0].decoded.startsWith('13330'), rows[0].decoded);
         assert.ok(rows[1].decoded.startsWith('4660'), rows[1].decoded);
@@ -511,10 +508,10 @@ suite('decodeStruct()', () => {
             name: 'Parent',
             fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3 }],
         };
-        S.structs = [child, parent];
+        structs = [child, parent];
         setBytesInSegment(0, [0x11, 0x22, 0x33]);
 
-        const rows = decodeStruct(parent, 0, getByte, 'le', 'msb', S.structs);
+        const rows = decodeStruct(parent, 0, getByte, 'le', 'msb', structs);
         assert.strictEqual(rows.length, 3);
         assert.strictEqual(rows[0].fieldName, 'nodes[0].v');
         assert.strictEqual(rows[1].fieldName, 'nodes[1].v');
@@ -557,10 +554,10 @@ suite('decodeStruct()', () => {
                 { name: 'fieldBeats', type: 'struct', refStructId: 'child', count: 1, endian: 'le' },
             ],
         };
-        S.structs = [child, childLe, parent];
+        structs = [child, childLe, parent];
         // inherit BE: 0x1234. own LE: 0x1234. fieldBeats LE: 0x1234.
         setBytesInSegment(0, [0x12, 0x34, 0x34, 0x12, 0x34, 0x12]);
-        const rows = decodeStruct(parent, 0, getByte, 'le', 'msb', S.structs);
+        const rows = decodeStruct(parent, 0, getByte, 'le', 'msb', structs);
         assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);
         assert.ok(rows[1].decoded.startsWith('4660'), rows[1].decoded);
         assert.ok(rows[2].decoded.startsWith('4660'), rows[2].decoded);
@@ -677,14 +674,14 @@ suite('decodeStruct()', () => {
                 { name: 'cfg', type: 'struct', refStructId: 'beCfg', count: 1 },
             ],
         };
-        S.structs = [beCfg, outer];
+        structs = [beCfg, outer];
         setBytesInSegment(0, [
             0x34, 0x12,             // hdr: LE 0x1234
             0x78, 0x56, 0x34, 0x12, // base: pointer (global LE) 0x12345678
             0x12, 0x34,             // cfg.rate: BE 0x1234
             0xB1,                   // cfg.ctl: MSB children a=5, b=17
         ]);
-        const rows = decodeStruct(outer, 0, getByte, 'le', 'msb', S.structs);
+        const rows = decodeStruct(outer, 0, getByte, 'le', 'msb', structs);
         assert.strictEqual(rows.length, 5);
         assert.ok(rows[0].decoded.startsWith('4660'), rows[0].decoded);   // hdr LE
         assert.strictEqual(rows[1].decoded, '0x12345678');                // pointer global LE
@@ -713,9 +710,9 @@ suite('resolveStructFieldByPath()', () => {
             fields: [{ name: 'nodes', type: 'struct', refStructId: 'child', count: 3 }],
         };
 
-        S.structs = [child, parent];
+        structs = [child, parent];
 
-        const resolved = resolveStructFieldByPath(parent, 'nodes', S.structs);
+        const resolved = resolveStructFieldByPath(parent, 'nodes', structs);
         assert.ok(resolved);
         assert.strictEqual(resolved!.field.type, 'struct');
         assert.strictEqual(resolved!.field.count, 3);
@@ -739,9 +736,9 @@ suite('resolveStructFieldByPath()', () => {
             fields: [{ name: 'wrappers', type: 'struct', refStructId: 'mid', count: 2 }],
         };
 
-        S.structs = [leaf, mid, top];
+        structs = [leaf, mid, top];
 
-        const resolved = resolveStructFieldByPath(top, 'wrappers[0].nodes', S.structs);
+        const resolved = resolveStructFieldByPath(top, 'wrappers[0].nodes', structs);
         assert.ok(resolved);
         assert.strictEqual(resolved!.field.type, 'struct');
         assert.strictEqual(resolved!.field.count, 4);
@@ -874,18 +871,18 @@ suite('validateStructs()', () => {
 
 // ── allStructs ────────────────────────────────────────────────────
 
-suite('allStructs(S.structs)', () => {
+suite('allStructs()', () => {
     setup(() => resetStructState());
 
     test('returns empty array when no user structs', () => {
-        assert.strictEqual(allStructs(S.structs).length, 0);
+        assert.strictEqual(allStructs(structs).length, 0);
     });
 
     test('returns user structs in insertion order', () => {
         const a: StructDef = { id: 'a', name: 'A', fields: [] };
         const b: StructDef = { id: 'b', name: 'B', fields: [] };
-        S.structs = [a, b];
-        const all = allStructs(S.structs);
+        structs = [a, b];
+        const all = allStructs(structs);
         assert.strictEqual(all.length, 2);
         assert.strictEqual(all[0].id, 'a');
         assert.strictEqual(all[1].id, 'b');
@@ -893,8 +890,8 @@ suite('allStructs(S.structs)', () => {
 
     test('user struct appended when another already exists', () => {
         const custom: StructDef = { id: 'u1', name: 'Custom', fields: [] };
-        S.structs = [custom];
-        const all = allStructs(S.structs);
+        structs = [custom];
+        const all = allStructs(structs);
         assert.strictEqual(all.length, 1);
         assert.strictEqual(all[0].id, 'u1');
     });
