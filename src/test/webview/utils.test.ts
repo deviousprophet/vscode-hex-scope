@@ -1,7 +1,17 @@
 import * as assert from 'assert';
 
-import { formatDecimal, formatHex, formatHexHtml, asUint64, flashCopied, inlineConfirm } from '../../webview/utils';
+import { formatDecimal, formatHex, formatHexHtml, asUint64, flashCopied, inlineConfirm, loadingProgressLabel } from '../../webview/utils';
 import { JSDOM } from 'jsdom';
+
+suite('webview utils loadingProgressLabel', () => {
+    test('formats the one shared Loading <stage> <pct>%… label', () => {
+        assert.strictEqual(loadingProgressLabel('parse', 1, 4), 'Loading parse 25%…');
+        assert.strictEqual(loadingProgressLabel('diff', 0, 0), 'Loading diff…');
+        assert.strictEqual(loadingProgressLabel('transfer', 0), 'Loading transfer…');
+        assert.strictEqual(loadingProgressLabel('read', -1, 2), 'Loading read 0%…');
+        assert.strictEqual(loadingProgressLabel('read', 9, 2), 'Loading read 100%…');
+    });
+});
 
 suite('webview utils formatting', () => {
     test('formatDecimal number uses en locale grouping', () => {

@@ -1231,18 +1231,6 @@ export class HexEditorSession {
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style nonce="${nonce}">
-body{margin:0;padding:0;height:100vh;background:var(--vscode-editor-background,#1e1e1e)}
-#app{display:flex;flex-direction:column;height:100%;overflow:hidden}
-.loading-shell{display:grid;place-items:center;height:100%;padding:24px;background:radial-gradient(circle at top,rgba(156,220,254,.12),transparent 42%),linear-gradient(180deg,rgba(255,255,255,.02),transparent 28%)}
-.loading-card{width:min(460px,100%);padding:24px 26px;border:1px solid var(--vscode-panel-border,rgba(128,128,128,.35));border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));box-shadow:0 18px 50px rgba(0,0,0,.24)}
-.loading-eyebrow{margin-bottom:8px;color:var(--vscode-textLink-foreground,#3794ff);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-.loading-title{margin-bottom:6px;font-size:22px;font-weight:700;color:var(--vscode-editor-foreground,#ccc)}
-.loading-text{margin-bottom:18px;color:var(--vscode-descriptionForeground,#8b8b8b);line-height:1.45}
-.loading-bar{position:relative;overflow:hidden;height:8px;border-radius:999px;background:rgba(255,255,255,.06)}
-.loading-bar-fill{width:35%;height:100%;border-radius:inherit;background:linear-gradient(90deg,rgba(156,220,254,.35),rgba(156,220,254,.95));animation:loading-slide 1.15s ease-in-out infinite}
-@keyframes loading-slide{0%{transform:translateX(-120%)}100%{transform:translateX(300%)}}
-    </style>
 ${cssLinks}
     <link rel="stylesheet" href="${webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'dist', 'webview.css'))}">
     <title>HexScope</title>

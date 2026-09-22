@@ -14,6 +14,13 @@ export function fmtB(b: number): string {
     return `${(b / 1_048_576).toFixed(1)} MB`;
 }
 
+/** The one `Loading <stage> <pct>%…` label both shells render; a missing/zero total drops the percent. */
+export function loadingProgressLabel(stage: string, completed: number, total?: number): string {
+    if (total === undefined || total <= 0) { return `Loading ${stage}…`; }
+    const percent = Math.max(0, Math.min(100, Math.floor((completed / total) * 100)));
+    return `Loading ${stage} ${percent}%…`;
+}
+
 const MENU_GUTTER = 8;
 
 export function positionMenu(el: HTMLElement, x: number, y: number): void {
