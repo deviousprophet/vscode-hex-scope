@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { fileName } from '../core/pathName';
 
 export interface CompareSelection {
     uri: vscode.Uri;
@@ -7,9 +8,7 @@ export interface CompareSelection {
 
 const COMPARE_SELECTION_CONTEXT = 'hexScope.hasCompareSelection';
 
-export function selectionName(uri: vscode.Uri): string {
-    return uri.fsPath.split(/[\\/]/).pop() ?? uri.fsPath;
-}
+export { fileName as selectionName };
 
 /** Session-only stash of the left/first compare candidate. */
 export class CompareSelectionStore {
@@ -20,7 +19,7 @@ export class CompareSelectionStore {
     }
 
     set(uri: vscode.Uri): void {
-        const name = selectionName(uri);
+        const name = fileName(uri);
         this.selection = { uri, name };
         void vscode.commands.executeCommand('setContext', COMPARE_SELECTION_CONTEXT, true);
     }

@@ -8,7 +8,8 @@ import { S, BPR } from '../state';
 import { getByte } from './memoryData';
 import { integrityHighlightClass } from './integrityHighlight';
 import { currentSelectionRange } from './selection';
-import { esc, byteClass, lowerBound } from '../utils';
+import { lowerBound } from '../utils';
+import { buildHexCells, isPrintableByte, type CellDecoration } from '../render/hexCells';
 import {
     applyVirtualScrollLayout,
     calcScrollLayout,
@@ -21,6 +22,7 @@ import {
     type VirtualScrollLayout,
     type VirtualScrollState,
 } from '../render/virtualScroll';
+import { addMatchSpan } from '../render/matchSpans';
 import {
     HexView,
     type HexViewCallbacks,
@@ -262,10 +264,6 @@ function buildVisibleMatchSet(length: number, visibleMin: number, visibleMax: nu
     return matchSet;
 }
 
-function addMatchSpan(matchSet: Set<number>, base: number, length: number): void {
-    for (let i = 0; i < length; i++) { matchSet.add(base + i); }
-}
-
 function buildActiveMatch(length: number | null): HexViewRange | null {
     if (!length || S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return null; }
     const base = S.matchAddrs[S.matchIdx];
@@ -297,43 +295,34 @@ function memRowToHexRow(row: MemRow, labelMap: Map<number, SegmentLabel[]>): Hex
 }
 
 function buildRowCells(base: number): HexViewCell[] {
-    const cells: HexViewCell[] = [];
-    for (let col = 0; col < BPR; col++) {
-        const addr = base + col;
-        const val = getByte(addr);
-        cells.push(val === undefined ? emptyCell() : dataCell(addr, val));
-    }
-    return cells;
+    return buildHexCells(base, BPR, getByte, decorateMemoryCell);
 }
 
-function emptyCell(): HexViewCell {
-    return { hex: ' ', char: ' ', cls: 'be' };
-}
-
-function dataCell(addr: number, val: number): HexViewCell {
-    const dirty = S.edits.has(addr) ? ' dirty' : '';
+function decorateMemoryCell(addr: number, val: number): CellDecoration {
+    const dirty = dirtySuffix(addr);
     const integrity = integrityHighlightClass(addr);
-    const charCls = charCellClass(val) + (S.editMode && !isPrintableMemoryByte(val) ? ' edit-placeholder' : '');
+    const placeholder = isEditPlaceholder(val);
     return {
-        hex: val.toString(16).toUpperCase().padStart(2, '0'),
-        char: charCellText(val),
-        cls: byteClass(val) + dirty + integrity,
-        charCls: charCls + dirty + integrity,
-        val,
+        hexCls: dirty + integrity,
+        charCls: placeholderSuffix(placeholder) + dirty + integrity,
+        char: placeholderChar(placeholder),
     };
 }
 
-function isPrintableMemoryByte(val: number): boolean {
-    return val >= 0x20 && val < 0x7F;
+function dirtySuffix(addr: number): string {
+    return S.edits.has(addr) ? ' dirty' : '';
 }
 
-function charCellClass(val: number): string {
-    return isPrintableMemoryByte(val) ? 'cp' : 'cd';
+function isEditPlaceholder(val: number): boolean {
+    return S.editMode && !isPrintableByte(val);
 }
 
-function charCellText(val: number): string {
-    if (isPrintableMemoryByte(val)) { return esc(String.fromCharCode(val)); }
-    return S.editMode ? '·' : '';
+function placeholderSuffix(placeholder: boolean): string {
+    return placeholder ? ' edit-placeholder' : '';
+}
+
+function placeholderChar(placeholder: boolean): string | undefined {
+    return placeholder ? '·' : undefined;
 }
 
 function buildLabelMap(): Map<number, SegmentLabel[]> {

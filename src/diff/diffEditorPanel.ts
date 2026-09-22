@@ -10,6 +10,7 @@ import type { MemorySegment } from '../core/parser/types';
 import type { WireParseResult } from '../core/types';
 import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide, type DiffProgressStage } from '../diffProtocol';
 import { advanceFraction, combinedLoadProgress } from './loadProgress';
+import { fileName } from '../core/pathName';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
@@ -261,10 +262,6 @@ function diffTitle(baseUri: vscode.Uri, otherUri: vscode.Uri): string {
 
 function labelInput(uri: vscode.Uri): { name: string; path: string } {
     return { name: fileName(uri), path: uri.fsPath };
-}
-
-function fileName(uri: vscode.Uri): string {
-    return uri.fsPath.split(/[\\/]/).pop() ?? uri.fsPath;
 }
 
 function extensionOf(uri: vscode.Uri): string {
