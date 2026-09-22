@@ -100,6 +100,16 @@ The section header is the collapse control (VS Code model): every `.sb-section-h
 - Horizontal spacing baseline: `12px` (sidebar padding), `6px` (gap between related items)
 - Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; record-view grid tags are the sole retained `9px` exception)
 
+## Exception Log
+
+Documented deviations from the token/type-floor rules, each with a reason. Add an entry before introducing a new one.
+
+| Rule | Exception | Reason |
+|---|---|---|
+| No hardcoded color without a token | `diff.css:2` `--diff-split-bg: var(--vscode-editorIndentGuide-activeBackground, var(--border))` | Uses the VS Code indent-guide theme color (the intended higher-contrast splitter token); the fallback is the existing `--border` token, not a literal hex. |
+| 10px type floor | `.diff-action-glyph` 14px (`.diff-action-text` stays 10px) | The glyph span holds a Unicode icon (`▲▼≡≠⇄⇅`), not text — sized for legibility like the `.act-btn` icon precedent; the accompanying label stays on the 10px floor. |
+| 10px metadata floor | `.diff-summary` 11px (`.diff-count` badges inherit) | `.diff-summary` is a toolbar/stat band, not a dense field label; it matches the single-file stats bar (`statsBar.css` 11px) and the VS Code pane-header type. |
+
 ## Design Decision: Section Body Is the Only Scroll Container
 
 Every sidebar section is a VS Code PaneView container: the fixed 22px header plus a body (`.sb-pane .sb-body`) that is the **sole scroll region** for that section (`flex:1; min-height:0; overflow-y:auto`). The scrollbar appears only when content overflows (`auto`, never `scroll`); a shorter-than-pane body shows no scrollbar and no forced fill. The body flexes to fill the pane (`.sb-body { flex:1; min-height:0 }`); short content stays top-aligned (VS Code standard) and long content scrolls the body — no wrapper stretch is used because `min-height:100%` against a flex-derived body height proved unreliable across machines.
