@@ -66,7 +66,7 @@ class IntegrityPanel {
 - Every algorithm exposes the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
 - Result cards: status symbol (✓/✕/∑/…/!/?), calculated value pane, optional stored pane (match/mismatch/unverified), copy button → `onCopyText`; Auto fix toggle stages mismatched stored values via `onStoredValueEdits`, with suppression so a discarded mismatch isn't immediately re-staged (paused state until toggle/Fix all/endian change).
 - Card header click toggles highlight → `onHighlightChange({ rangeStart, rangeEnd, status, storedStart?, storedLength? })`; edit/delete via card action buttons. Delete persists via `persistChecks()`.
-- `notifyEndianChanged()` clears suppression, re-renders, and re-decodes stored values per `getEndian()`.
+- `notifyEndianChanged()` clears suppression, re-renders, and re-decodes stored values per `getEndian()` — checksums (CRC16/CRC32) only; MD5/SHA stored panes always use natural byte order and show no endian tag (`Stored`, not `Stored (LE)`). Byte order is gated by `isChecksumAlgorithm()` (`src/core/integrity.ts`) in both `integrityCalculation.ts` (`expectedBytes`) and `integrityResultRender.ts` (stored pane value + label).
 - Lazy init: no calculation or notify work until `setTabActive(true)` (first integrity tab activation).
 
 ## Validation & Error Matrix

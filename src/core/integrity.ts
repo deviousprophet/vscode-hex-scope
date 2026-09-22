@@ -16,6 +16,11 @@ export function isChecksumAlgorithm(algorithm: IntegrityAlgorithm): boolean {
     return algorithm === 'crc16-ccitt-false' || algorithm === 'crc32-iso-hdlc';
 }
 
+/** Stored byte order: checksums honor the selected endian, hashes are always natural order. */
+export function integrityByteOrder(algorithm: IntegrityAlgorithm, endian: IntegrityByteOrder): IntegrityByteOrder {
+    return isChecksumAlgorithm(algorithm) ? endian : 'be';
+}
+
 const INTEGRITY_PROFILE_SCHEMA_VERSION = 1 as const;
 
 export interface IntegrityCheckConfig {
