@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify the boundary validation and narrowed parse type (S5, S6)."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify zero clone groups after S3/S9."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify selection/copy, Show diff navigation, and independent scroll behavior (C1, C4, C5)."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Verify the staged-file clearing contract (C2)."}

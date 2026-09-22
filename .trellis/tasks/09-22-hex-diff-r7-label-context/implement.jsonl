@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Diff surface contract that must be extended with the R7 per-side label context."}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "HexView row banners / .seg-banner render path reused for read-only labels."}
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Profile bindings + label storage the host resolver reads (boundProfileId/collectProfileRecords)."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module ownership for the host resolver and webview banner mapping."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse the existing memoryGrid label-map/banner path instead of forking it."}

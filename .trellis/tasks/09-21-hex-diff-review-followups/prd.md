@@ -125,13 +125,26 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
   mirrored selection, failing AC34's "selected on both panes" for that hit. The two-pane union
   search can legitimately find identical bytes, so this is reachable.
 
+- **C5 — Turning `Sync scroll` off blanks the follower pane.** R11 / AC13
+  (`archive/…/09-21-hex-diff/prd.md:103,140`): "`Sync scroll` … can be turned off for independent
+  scrolling"/"OFF: panes scroll independently." The two grids share **one** virtual-scroll state and
+  **one** render slice: `drawSlice` (`src/webview/diff/diffGrid.ts:321-332`) writes both panes from a
+  single `currentSlice()` window with a single `windowTop` derived from pane A's scroll container
+  (`scrollContainerA`, `:589-591`). `syncFrom` (`:397-407`) sets the shared `vscroll.scrollTop` from
+  whichever pane scrolled, but only mirrors the follower's **physical** `scrollTop` when `syncScroll`
+  is on (`:403`). With sync off, scrolling B re-renders **both** panes for B's row window while A's
+  physical `scrollTop` stays put, so A's viewport lands on spacer/empty space → black, no content;
+  symmetric when A drives B. AC13's "independently" holds for `scrollTop` mirroring but not for the
+  rendered content. The existing test (`src/test/webview/diffViewer.test.ts:328-341`) asserts only
+  `scrollTop` values, never that the follower still renders rows, so it passes.
+
 ## Requirements
 
 - R1 — Resolve each Standards finding S1–S10: update the stale spec (S1, S2), remove the
   duplicated bodies (S3, S9), correct the docstrings/comments (S4/C3), tighten the `diffInit`
   boundary validation (S5), remove or justify the fabricated `records: []` (S6), and fix or
   explicitly waive the CSS/type-floor items with a recorded reason (S7, S8, S10).
-- R2 — Resolve each Spec finding: implement or explicitly defer R7 segment-label context (A1),
+- R2 — Resolve each Spec finding: implement R7 segment-label context (A1, decided 2026-09-22),
   fix the premature stash clear so it clears only after a successful open (C2), and fix the
   search-driven selection pane so `Ctrl+C` copies the match's bytes (C1).
 - R3 — Make search navigation behave under `Show diff`: a match on a hidden (identical/gap) row
@@ -142,6 +155,13 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
 - R5 — Each Standards hard violation (S1–S3) must clear the `fallow` gate
   (`npx -y fallow audit --base origin/main --gate all`) with zero clone groups, and the branch
   must keep `npm run check-types`, `npm run lint`, `npm test` green.
+- R6 — With `Sync scroll` off, both panes must keep rendering content at their own scroll position:
+  independent scrolling must not blank the follower (C5). Each pane renders the rows for its own
+  scroll window instead of a single shared window.
+- R7 — Per-side segment labels render as read-only context on their own pane (archived R7, Phase B):
+  A's labels on A, B's labels on B, using the existing `.seg-banner` row mechanism. No label editing
+  or `saveLabels` in the diff editor. The host must stop hardcoding `labels: []`
+  (`src/diff/diffEditorPanel.ts:253`) and source each file's labels.
 
 ## Acceptance Criteria
 
@@ -162,20 +182,62 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
   successful open, with a test for the open-failure path (C2, A2).
 - [ ] AC8 — In `Show diff` mode, navigating to a match on a hidden row scrolls and selects it (or
   skips it) predictably, and the active match is selected on both panes (C4).
-- [ ] AC9 — R7 segment-label context is implemented or explicitly deferred in the spec with the
-  missing-AC gap recorded; R30's wording matches the read-host/parse-worker split (A1, A3).
-- [ ] AC10 — Micro scope-creep items B1–B4 are each kept-with-justification or removed with a
-  recorded decision.
+- [ ] AC9 — R7 segment-label context is implemented (per-side read-only `.seg-banner` overlays
+  sourced from each file's labels, per D1); R30's wording matches the read-host/parse-worker split
+  (A1, A3).
+- [ ] AC10 — Micro scope-creep items B1–B4 are each kept with a recorded justification (D3).
 - [ ] AC11 — `npm run check-types`, `npm run lint`, `npm test` all pass.
+- [ ] AC12 — With `Sync scroll` off, scrolling one pane leaves the other pane populated with the
+  rows for its own scroll position (no blank/black follower); a test scrolls one pane with sync off
+  and asserts the follower still renders its visible rows, not merely an unchanged `scrollTop`
+  (C5, R11/AC13).
 
 ## Out of Scope
 
 - Any change to released behavior or versioning.
 - New diff features beyond the review findings above.
 
+## Decisions (resolved 2026-09-22)
+
+- **D1 — R7 segment-label context is implemented, not deferred.** A1/B4. Host stops hardcoding
+  `labels: []` and sources each file's labels; the diff grid renders per-side read-only `.seg-banner`
+  context (archived `design.md:107-109`). B4 is therefore resolved by implementation, not removal.
+- **D2 — Parent + child tasks.** This task is the parent: it owns the source requirement set
+  (findings + R1–R7 + AC1–AC12), the task map, cross-child acceptance, and final integration review.
+  It is not the implementation target. Children own independently verifiable deliverables; ordering
+  that cannot be inferred from the tree is written into each child's artifacts.
+- **D3 — Micro scope-creep B1–B4 are all kept with recorded justification.** B1 tab-title `↔`
+  separator (useful disambiguation), B2 aggregate `"No data records found."` empty state, B3 runtime
+  message guards (reinforced by the S5 boundary tightening), B4 `DiffSide.labels` (live once R7
+  lands). No removal.
+
+## Task Map (children)
+
+| Child | Deliverable | Findings | Depends on |
+|-------|-------------|----------|------------|
+| `hex-diff-spec-doc-reconcile` | Spec/doc-consistency: no behavior change | S1, S2, S4/C3, A3/R30, B1–B4 decisions, S7/S8/S10 fix-or-waive | — |
+| `hex-diff-surface-correctness` | Diff-surface code fixes | S3, S5, S6, S9, C1, C2, C4, C5 | — |
+| `hex-diff-r7-label-context` | R7 per-side label context | A1/B4, R7 | `hex-diff-surface-correctness` (shared `diffGrid.ts`/`diffModel.ts`/`diffEditorPanel.ts`; land after its review) |
+
+Write ordering: the two independent children may run in parallel; the R7 child must be implemented
+after the correctness child's `diffGrid.ts` changes are merged to avoid concurrent edits to the same
+modules (dependency is recorded in the R7 child's `prd.md`/`implement.md`, not implied by tree
+position).
+
+## Parent Acceptance
+
+- [ ] PC1 — Every Standards and Spec finding (S1–S10, A1–A3, B1–B4, C1–C5) is owned by exactly one
+  child and maps to that child's acceptance criteria; no finding is unassigned or double-owned.
+- [ ] PC2 — All three children are archived with their criteria met, or an explicit recorded decision
+  defers a child item.
+- [ ] PC3 — On the integrated branch: `npx -y fallow audit --base origin/main --gate all` reports
+  zero clone groups; `npm run check-types`, `npm run lint`, `npm test` all green.
+- [ ] PC4 — The two review axes stay separate: the integration review confirms no Standards fix
+  regressed a Spec finding (or vice versa), and each fix cites its finding ID.
+
 ## Notes
 
 - Findings map 1:1 to the two review reports; keep the Standards and Spec axes separate when
   fixing (a fix can satisfy one axis and regress the other).
-- Lightweight tasks can remain PRD-only. For complex tasks, add `design.md` and `implement.md`
-  before `task.py start`.
+- The parent is not an implementation target; `task.py start` applies to children. Child artifacts
+  carry their own `prd.md` (and `design.md`/`implement.md` where the child is complex).
