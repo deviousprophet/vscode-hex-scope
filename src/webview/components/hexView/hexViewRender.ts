@@ -29,7 +29,7 @@ export interface HexViewRow {
     address: number;
     kind: 'data' | 'gap';
     cells: HexViewCell[];
-    gap?: { from: number; to: number; bytes: number };
+    gap?: { from: number; to: number; bytes: number; line?: boolean };
     banners?: HexViewBanner[];
 }
 
@@ -113,6 +113,7 @@ function appendHexViewRow(parts: string[], row: HexViewRow, input: HexViewRender
 function renderGapRow(row: HexViewRow): string {
     const gap = row.gap;
     if (!gap) { return ''; }
+    if (gap.line) { return `<div class="gap-row gap-line" aria-hidden="true"></div>`; }
     return `<div class="gap-row">` +
         `<span class="gap-dots"></span>` +
         `<span class="gap-range">0x${addrHex(gap.from)}  0x${addrHex(gap.to)}</span>` +

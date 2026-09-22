@@ -36,7 +36,7 @@ interface HexViewRow {
     address: number;
     kind: 'data' | 'gap';
     cells: HexViewCell[];         // data rows only; one per byte
-    gap?: { from: number; to: number; bytes: number };  // gap rows only
+    gap?: { from: number; to: number; bytes: number; line?: boolean };  // gap rows only; `line` = bare `Show diff` separator (empty `.gap-line`, same box height)
     banners?: HexViewBanner[];    // segment labels above the row
 }
 interface HexViewRange { start: number; end: number }

@@ -291,7 +291,29 @@ function alignFollowerToDriver(): void {
 
 function filterRows(rows: readonly DiffRow[]): DiffRow[] {
     if (viewMode === 'all') { return [...rows]; }
-    return rows.filter(row => row.kind === 'data' && rowHasDiff(row));
+    return withDiffSeparators(rows.filter(row => row.kind === 'data' && rowHasDiff(row)));
+}
+
+/** In Show diff, keep a bare separator row where consecutive diff rows skip address space. */
+function withDiffSeparators(rows: DiffRow[]): DiffRow[] {
+    const out: DiffRow[] = [];
+    for (const row of rows) {
+        const previous = out[out.length - 1];
+        if (previous && row.address - previous.address > BYTES_PER_ROW) {
+            out.push({
+                address: previous.address + BYTES_PER_ROW,
+                kind: 'gap',
+                gap: {
+                    from: previous.address + BYTES_PER_ROW,
+                    to: row.address - 1,
+                    bytes: row.address - previous.address - BYTES_PER_ROW,
+                    line: true,
+                },
+            });
+        }
+        out.push(row);
+    }
+    return out;
 }
 
 function rowHasDiff(row: DiffRow): boolean {

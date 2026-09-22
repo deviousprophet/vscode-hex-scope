@@ -173,6 +173,8 @@
 .gap-dots  { font-family: var(--font-editor); color: var(--gap-bdr); margin-right: 10px; letter-spacing: 4px; }
 .gap-range { font-family: var(--font-editor); font-size: var(--font-size); color: var(--addr-fg); }
 .gap-size  { font-size: 11px; color: var(--non-graphic); margin-left: 10px; }
+.gap-line  { background: none; border: 0; border-radius: 0; padding: 0; }
+.gap-line::after { content: ''; flex: 1; border-top: 1px solid var(--gap-bdr); }
 
 /* ── Segment label banner ────────────────────────────────────── */
 .seg-banner {

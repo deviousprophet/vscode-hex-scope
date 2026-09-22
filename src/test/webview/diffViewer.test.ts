@@ -708,6 +708,40 @@ suite('HexScope Diff webview', () => {
         assert.ok(rows('#diff-rows-a').length >= 2, 'Show all restores the full row model');
     });
 
+    test('Show diff separates non-contiguous diff rows with a bare line in both panes', () => {
+        mount([seg(0x1000, [0x01]), seg(0x1040, [0x11])], [seg(0x1000, [0x02]), seg(0x1040, [0x12])]);
+        clickButton('diff-show-diff');
+        const sequence = (sideSelector: string): string[] =>
+            [...document.querySelectorAll<HTMLElement>(`${sideSelector} > *`)]
+                .map(el => el.classList.contains('gap-line') ? 'gap-line' : el.dataset.row ?? '');
+        assert.deepStrictEqual(sequence('#diff-rows-a'), ['4096', 'gap-line', '4160']);
+        assert.deepStrictEqual(sequence('#diff-rows-b'), ['4096', 'gap-line', '4160'], 'separator sits at the same position in both panes');
+        const line = document.querySelector<HTMLElement>('#diff-rows-a .gap-line')!;
+        assert.strictEqual(line.textContent, '', 'no text on the separator');
+        assert.strictEqual(line.getAttribute('aria-hidden'), 'true');
+        assert.strictEqual(line.getAttribute('tabindex'), null, 'separator is not focusable');
+    });
+
+    test('Show diff adds no separator between contiguous diff rows', () => {
+        mount([seg(0x1000, Array(32).fill(0x01))], [seg(0x1000, Array(32).fill(0x02))]);
+        clickButton('diff-show-diff');
+        assert.strictEqual(rows('#diff-rows-a').length, 2, 'both contiguous rows are diffs');
+        assert.strictEqual(document.querySelector('#diff-rows-a .gap-line'), null, 'contiguous rows need no separator');
+    });
+
+    test('Show diff adds no separator around a single diff row', () => {
+        mount([seg(0x1000, [0x01])], [seg(0x1000, [0x02])]);
+        clickButton('diff-show-diff');
+        assert.strictEqual(document.querySelector('#diff-rows-a .gap-line'), null, 'a single diff row has no separator');
+    });
+
+    test('Show all keeps the labelled gap row and no separator line', () => {
+        mount([seg(0x1000, [0x01]), seg(0x1040, [0x11])], [seg(0x1000, [0x02]), seg(0x1040, [0x12])]);
+        const gap = document.querySelector<HTMLElement>('#diff-rows-a .gap-row');
+        assert.ok(gap?.textContent?.includes('unmapped'), 'aggregate mode keeps the gap text');
+        assert.strictEqual(document.querySelector('#diff-rows-a .gap-line'), null, 'no separator line in Show all');
+    });
+
     test('Show diff on an identical pair reports No differences', () => {
         mount([seg(0x1000, [0x01])], [seg(0x1000, [0x01])]);
         clickButton('diff-show-diff');

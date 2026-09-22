@@ -17,7 +17,7 @@ export interface DiffSideData {
 export interface DiffRow {
     address: number;
     kind: 'data' | 'gap';
-    gap?: { from: number; to: number; bytes: number };
+    gap?: { from: number; to: number; bytes: number; line?: boolean };
 }
 
 const NO_EDITS: ReadonlyMap<number, number> = new Map();

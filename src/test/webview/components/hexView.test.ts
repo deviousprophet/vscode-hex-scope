@@ -272,6 +272,19 @@ suite('HexView body render', () => {
         assert.ok(html.includes('<span class="gap-size">16 B unmapped</span>'));
     });
 
+    test('a gap row marked as a line renders a bare, inert separator', () => {
+        const html = renderHexViewHtml(standardInput({
+            rows: [{
+                address: 0x1010, kind: 'gap',
+                cells: [],
+                gap: { from: 0x1010, to: 0x101F, bytes: 16, line: true },
+            }],
+        }));
+        assert.ok(html.includes('<div class="gap-row gap-line" aria-hidden="true"></div>'));
+        assert.ok(!html.includes('gap-dots'), 'no gap text on a line separator');
+        assert.ok(!html.includes('unmapped'), 'no byte count on a line separator');
+    });
+
     test('segment banner renders above the row with escaped name and color style', () => {
         const html = renderHexViewHtml(standardInput({
             rows: [{
