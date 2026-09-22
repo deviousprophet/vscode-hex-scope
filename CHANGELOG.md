@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.25.0] - 2026-09-22
 
 ### Added
 - A read-only hex diff editor comparing two Intel HEX/SREC files by resolved address over a shared row model, with byte-level changed/added/removed highlighting, a changed/added/removed summary, and previous/next difference navigation
