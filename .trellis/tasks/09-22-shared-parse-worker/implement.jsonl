@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module placement and deep-seam rules for the new src/parse/ worker + client and src/core/loadingCard.ts"}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Hex session lifecycle, worker spawn protocol, abort/disposal and generation rules"}
+{"file": ".trellis/spec/frontend/document-formats.md", "reason": "Compact parse result contract; serialize/hydrate must round-trip records + segments"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Loading card CSS ownership stays in base.css; no inline style duplication"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "One owner per contract when collapsing three loading-card copies and two worker clients"}

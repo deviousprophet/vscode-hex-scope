@@ -24,9 +24,11 @@ src/
 ├── diff/                     second editor surface (read-only compare); does not reuse HexEditorSession
 │   ├── compareSelection.ts   session-only compare-selection store (no Memento)
 │   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, worker spawn
-│   ├── diffParseWorker.ts    Node worker: decode + format detect + compact parse (one per file)
 │   ├── diffReload.ts         host reload decisions (sideDefects/buildDiffState/reloadState)
 │   └── loadProgress.ts       combined per-file load fraction summing
+├── parse/                    shared Node parse worker + host client (diff sides and hex editor)
+│   ├── parseWorker.ts        worker entry: `diffParse`/`hexParse` job dispatch, progress thinning
+│   └── parseWorkerClient.ts  runParseJob(): spawn/settle-once/abort-terminate/relay
 ├── core/
 │   ├── parser/               IHEX/SREC line parsing and segment construction
 │   ├── document.ts           format detection, serialization, checksum repair
@@ -37,13 +39,14 @@ src/
 │   ├── structMigration.ts    struct-def migration + dedupe (session, migration, tests)
 │   ├── diff.ts               byte-diff runs for the compare surface (DiffModel)
 │   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
-│   ├── pathName.ts           shared basename helper (compare selection + diff panel)
+│   ├── pathName.ts           shared basename/extension helper (compare selection + diff panel + hex session)
 │   ├── wire.ts               ParseResult -> SerializedParseResult wire projection
 │   └── byteTools/            pure copy/analyze/format helpers
 └── webview/
     ├── hexViewer.ts          single-file composition root and DOM effect wiring
     ├── diffViewer.ts         diff composition root (isolated bundle; no single-file shell)
     ├── appModel.ts           authoritative UI model transitions
+    ├── utils.ts              shared webview pure helpers (esc, formatting, `loadingProgressLabel` card label)
     ├── state.ts              state shape/defaults only
     ├── webviewMessage*.ts    provider dispatch and typed model updates
     ├── memory/               memory view + selection modules

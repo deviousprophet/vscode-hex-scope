@@ -30,6 +30,10 @@ function serializeIntelHexAsync(raw: string, result: ParseResult, edits: Map<num
 function serializeSRecAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
 function spliceEditedLines(raw: string, edits: Map<number, number>, format: HexScopeFormat): string;
 function repairChecksums(raw: string, result: ParseResult): string;
+function serializeCompactParseResult(result: CompactParseResult): SerializedCompactParseResult;
+function hydrateCompactParseResult(payload: SerializedCompactParseResult): CompactParseResult;
+function compactTransferList(payload: SerializedCompactParseResult): ArrayBuffer[];
+function wireSegments(segments: MemorySegment[]): Array<{ startAddress: number; data: ArrayBuffer }>;
 ```
 
 `ParseResult` owns `records`, checksum/malformed counts, contiguous valid `segments`, total bytes, and optional execution `startAddress`.
@@ -39,6 +43,7 @@ function repairChecksums(raw: string, result: ParseResult): string;
 - Recognized SREC extensions (`srec`, `mot`, `s19`, `s28`, `s37`) override content sniffing. Otherwise leading `S[0-9]` selects SREC; default is IHEX.
 - Parsers retain every nonblank source record, including malformed/checksum-invalid rows, for Record view and repair UI.
 - Compact parsers retain every nonblank record as typed source-offset metadata, materializing record objects only for requested pages or edit/repair compatibility paths.
+- `serializeCompactParseResult` / `hydrateCompactParseResult` are the cloneable bridge for the parse worker: the serialized result carries the typed record-metadata pages plus exact segment `ArrayBuffer` slices (`wireSegments`), `compactTransferList` returns every page + segment buffer for zero-copy `postMessage` transfer, and hydrate rebuilds a `CompactParseResult` whose `materialize()` round-trips against the same source. `wireSegments` is the one segment→wire projection shared with `serializeParseResult`.
 - Async parsing and compact metadata construction scan in bounded batches without `split`, check cancellation, report monotonic parse/build progress, and yield within the configured 24 ms work budget.
 - Only valid-checksum, non-malformed data records contribute to memory segments.
 - Adjacent data records merge only when the next `resolvedAddress` equals current end; gaps create new segments.

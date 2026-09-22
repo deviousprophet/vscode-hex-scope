@@ -6,7 +6,7 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 
 | File | Content |
 |---|---|
-| `base.css` | Reset, design tokens (`:root` vars), shared utility classes (incl. `.compact-tabs`) |
+| `base.css` | Reset, design tokens (`:root` vars), shared utility classes (incl. `.compact-tabs`), and the shared loading card (`.loading-shell` / `.loading-card` / `.loading-bar`, `[hidden]` collapse) — the single CSS owner for both host shells |
 | `layout.css` | Two-pane layout |
 | `statsBar.css` | Stats bar (bytes/records/segments/format) |
 | `hexView.css` (in components/hexView/) | Memory hex grid (component-owned) |
@@ -29,6 +29,8 @@ src/webview/components/searchBar/
 Once a component's rules are extracted, `styles/` holds only shared/global concerns. See [SearchBar Component](./components/component-search-bar.md).
 
 No inline `<style>` tags in TS/HTML. No CSS in TS template strings beyond class names.
+
+The loading card is a shared-shell concern owned at two layers: each host boot shell emits its own small **inline** card markup (they differ in title/text and must exist before webview JS runs — the hex shell's static card, the diff shell's `#diff-loading` card, and the hex webview error card, which has no bar), while `base.css` owns every `.loading-*` rule — no host shell may re-declare or inline the CSS, and only the label text is shared (`loadingProgressLabel` in `src/webview/utils.ts`).
 
 ## Design Tokens
 
