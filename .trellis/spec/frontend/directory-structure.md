@@ -49,10 +49,11 @@ src/
     ├── memory/               memory view + selection modules
     ├── search/               search engine + shared navigation decisions (searchNavigation.ts)
     ├── render/               shared render helpers (virtualScroll, matchSpans, hexCells, registry)
-    ├── diff/                 isolated diff surface (diffModel/diffGrid/diffSummary/diffSearch/diffMessages/diffExternalChange/diff.css)
+    ├── diff/                 isolated diff surface (diffModel/diffGrid/diffSummary/diffSearch/diffMessages/diffExternalChange/diff.css — host + chrome; grid surface in components/diffView)
     └── components/           self-contained UI components
         ├── searchBar/        searchBar.ts + searchBarRender.ts + searchBar.css
         ├── hexView/          hexView.ts + hexViewRender.ts + hexViewPaint.ts + hexView.css
+        ├── diffView/         diffView.ts + diffViewRender.ts + diffView.css (two-pane diff grid surface; owns the two HexView instances)
         ├── toolbar/          toolbar.ts + toolbar.css
         ├── externalChange/   externalChange.ts + externalChange.css
         ├── recordView/       recordView.ts + recordView.css

@@ -146,4 +146,4 @@ export class HexView {
 - Global DOM-id queries inside the component.
 - Size/layout math in TS instead of CSS.
 - Virtual-scroll math imported into the component (stays host/shared).
-- Diff layout (side, mirror toggle, per-row absolute, shared address column) added to the component; it lives in the diff host (`src/webview/diff/`).
+- Diff layout (side, mirror toggle, per-row absolute, shared address column) added here; it belongs to the diff component (`components/diffView/`) and its host (`diff/diffGrid.ts`).

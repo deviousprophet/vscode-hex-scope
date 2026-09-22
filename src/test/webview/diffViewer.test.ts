@@ -766,7 +766,8 @@ suite('HexScope Diff webview', () => {
     });
 
     test('diff stylesheet keeps the hidden-state guards, the 3px splitter, and no hidden address column', () => {
-        const css = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/diff/diff.css'), 'utf8');
+        const css = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/diff/diff.css'), 'utf8') +
+            fs.readFileSync(path.resolve(__dirname, '../../../src/webview/components/diffView/diffView.css'), 'utf8');
         assert.ok(/\.diff-body\[hidden\][^{]*\{[^}]*display:\s*none/.test(css), 'hidden body collapses instead of splitting the viewport');
         assert.ok(/\.diff-error\[hidden\][^{]*\{[^}]*display:\s*none/.test(css), 'hidden error collapses');
         assert.ok(/\.diff-split\s*\{[^}]*flex:\s*0 0 3px/.test(css), 'splitter is a static 3px divider');

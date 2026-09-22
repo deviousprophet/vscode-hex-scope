@@ -2,10 +2,10 @@ import type { DiffModel } from '../../core/diff';
 import { computeByteDiff } from '../../core/diff';
 import type { MemorySegment } from '../../core/parser/types';
 import { formatCopyCommand } from '../../core/byteTools/copyFormatters';
-import { HexView, type HexViewCallbacks } from '../components/hexView/hexView';
+import { DiffView, type DiffPane, type DiffViewCallbacks } from '../components/diffView/diffView';
+import { renderDiffEmptyHtml } from '../components/diffView/diffViewRender';
 import {
     BYTES_PER_ROW,
-    renderHexViewHeader,
     renderHexViewHtml,
     type HexViewCell,
     type HexViewRange,
@@ -27,12 +27,10 @@ import {
 } from '../render/virtualScroll';
 import { addMatchSpan } from '../render/matchSpans';
 import { buildHexCells, type CellDecoration } from '../render/hexCells';
-import { esc } from '../utils';
 import { buildDiffRows, diffClassForSide, diffKindAt, getSideByte, renderDiffErrorHtml, type DiffRow, type DiffSideData } from './diffModel';
 import type { DiffProgressMessage } from './diffMessages';
 
 export type DiffViewMode = 'all' | 'diff';
-type DiffPane = 'a' | 'b';
 
 const FALLBACK_ROW_HEIGHT = 20.8;
 const FALLBACK_GAP_HEIGHT = 35.2;
@@ -53,8 +51,7 @@ interface DiffGridHooks {
 
 let data: DiffGridData | null = null;
 let visibleRows: DiffRow[] = [];
-let viewA: HexView | null = null;
-let viewB: HexView | null = null;
+const diffView = new DiffView();
 
 interface ScrollPane {
     state: VirtualScrollState;
@@ -82,10 +79,6 @@ let stableFrames = 0;
 let paneTopA: number | null = null;
 let paneTopB: number | null = null;
 
-function paneView(pane: DiffPane): HexView | null {
-    return pane === 'a' ? viewA : viewB;
-}
-
 function paneScroll(pane: DiffPane): ScrollPane | null {
     return pane === 'a' ? scrollPaneA : scrollPaneB;
 }
@@ -104,23 +97,17 @@ export function setDiffGridHooks(next: DiffGridHooks): void {
 }
 
 export function mountDiffGrid(): void {
-    if (!viewA) {
-        viewA = new HexView('#diff-a', callbacksFor('a'));
-        viewA.mount();
-    }
-    if (!viewB) {
-        viewB = new HexView('#diff-b', callbacksFor('b'));
-        viewB.mount();
-    }
+    diffView.setCallbacks(hostCallbacks());
+    diffView.mount();
 }
 
-function callbacksFor(side: DiffPane): HexViewCallbacks {
+function hostCallbacks(): DiffViewCallbacks {
     return {
-        onVisibleWindowChange: (top, left) => syncFrom(side, top, left),
-        onCellClick: (addr, shift) => selectCell(side, addr, shift),
-        onSelectionChange: range => setSelection(side, range),
-        onAddressRowClick: (rowBase, shift) => selectRow(side, rowBase, shift),
-        onAddressRowDrag: rows => selectRowRange(side, rows),
+        onVisibleWindowChange: (pane, top, left) => syncFrom(pane, top, left),
+        onCellClick: (pane, addr, shift) => selectCell(pane, addr, shift),
+        onSelectionChange: (pane, range) => setSelection(pane, range),
+        onAddressRowClick: (pane, rowBase, shift) => selectRow(pane, rowBase, shift),
+        onAddressRowDrag: (pane, rows) => selectRowRange(pane, rows),
     };
 }
 
@@ -128,8 +115,7 @@ function callbacksFor(side: DiffPane): HexViewCallbacks {
 export function resetDiffGrid(): void {
     data = null;
     visibleRows = [];
-    viewA = null;
-    viewB = null;
+    diffView.reset();
     scrollPaneA = null;
     scrollPaneB = null;
     lastDriver = 'a';
@@ -165,7 +151,7 @@ export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     stopScrollPoll();
     lastRenderKey = null;
     clearDiffError();
-    renderHeaders();
+    diffView.injectHeaders();
     renderDiffGrid();
 }
 
@@ -183,7 +169,7 @@ export function applyReload(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     stopScrollPoll();
     lastRenderKey = null;
     clearDiffError();
-    renderHeaders();
+    diffView.injectHeaders();
     renderDiffGrid();
     restoreReloadAnchors(anchors);
     renderDiffGrid();
@@ -234,7 +220,7 @@ function restoreAnchor(anchor: ReloadAnchor): void {
     const logicalTop = anchorLogicalTop(anchor, scroll);
     if (logicalTop === null) { return; }
     scroll.state.scrollTop = logicalTop;
-    paneView(anchor.pane)?.setScrollTop(logicalToPhysicalScroll(logicalTop, scroll.state));
+    diffView.setScrollTop(anchor.pane, logicalToPhysicalScroll(logicalTop, scroll.state));
 }
 
 function anchorLogicalTop(anchor: ReloadAnchor, scroll: ScrollPane): number | null {
@@ -299,8 +285,8 @@ function alignFollowerToDriver(): void {
     const follower = paneScroll(followerOf(lastDriver));
     if (!driver || !follower) { return; }
     follower.state.scrollTop = driver.state.scrollTop;
-    paneView(followerOf(lastDriver))?.setScrollTop(driver.container.scrollTop);
-    paneView(followerOf(lastDriver))?.setScrollLeft(driver.container.scrollLeft);
+    diffView.setScrollTop(followerOf(lastDriver), driver.container.scrollTop);
+    diffView.setScrollLeft(followerOf(lastDriver), driver.container.scrollLeft);
 }
 
 function filterRows(rows: readonly DiffRow[]): DiffRow[] {
@@ -347,8 +333,7 @@ function applySelection(side: DiffPane, start: number, end: number): void {
 
 /** Repaint the host-owned selection on both panes (read-only mirror). */
 function paintMirroredSelection(): void {
-    viewA?.paintSelection(selection);
-    viewB?.paintSelection(selection);
+    diffView.paintSelection(selection);
 }
 
 /** Copy source pane's mapped bytes for the current selection; unmapped addresses are skipped. */
@@ -550,7 +535,7 @@ function emptyMessage(): string {
 }
 
 function renderEmptyGrid(a: PaneSlice, b: PaneSlice, message: string): void {
-    const emptyHtml = `<div class="diff-empty">${esc(message)}</div>`;
+    const emptyHtml = renderDiffEmptyHtml(message);
     a.rows.innerHTML = emptyHtml;
     b.rows.innerHTML = emptyHtml;
 }
@@ -618,7 +603,7 @@ function scrollPaneToRow(pane: DiffPane, rowIndex: number): void {
     const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.getRowHeight(rowIndex) * 2);
     const top = Math.min(desiredTop, calcScrollLayout(state).logicalScrollable);
     state.scrollTop = top;
-    paneView(pane)?.setScrollTop(logicalToPhysicalScroll(top, state));
+    diffView.setScrollTop(pane, logicalToPhysicalScroll(top, state));
 }
 
 export function showDiffError(message: string): void {
@@ -697,7 +682,7 @@ function mirrorFollowerState(driver: DiffPane, logicalTop: number): void {
 }
 
 function mirrorFollowerLeft(driver: DiffPane, left: number): void {
-    paneView(followerOf(driver))?.setScrollLeft(left);
+    diffView.setScrollLeft(followerOf(driver), left);
 }
 
 // ── Driver poll (live scrollTop per frame) ────────────────────────
@@ -900,14 +885,6 @@ function findRowIndexForAddress(addr: number): number {
 }
 
 // ── DOM lookup ────────────────────────────────────────────────────
-
-function renderHeaders(): void {
-    const headerHtml = renderHexViewHeader(false);
-    for (const id of ['diff-header-a', 'diff-header-b']) {
-        const header = document.getElementById(id);
-        if (header) { header.innerHTML = headerHtml; }
-    }
-}
 
 function scrollContainer(pane: DiffPane): HTMLElement | null {
     const rootId = pane === 'a' ? 'diff-a' : 'diff-b';
