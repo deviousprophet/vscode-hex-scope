@@ -3,11 +3,13 @@
 ## [Unreleased]
 
 ### Added
-- A read-only hex diff editor comparing two Intel HEX/SREC files by resolved address over a shared row model, with byte-level changed/added/removed highlighting, a changed/added/removed summary, previous/next difference navigation, and read-only selection across both panes (`Ctrl+C` copies the source pane's bytes)
-- Explorer `HexScope` submenu actions to compare files: `Set as 1st file to compare`, `Compare with the 1st file`, and `Compare Two Files`
-- `Show all` / `Show diff` row filtering, `Swap sides`, and `Sync scroll` (on by default) in the diff toolbar, whose buttons show each action's Unicode glyph with a visible text label and whose side heads render the shared format pill
-- A diff search bar that queries both files at once and matches the hex search behavior: repeat Enter on an unchanged completed query steps through matches, results stream in while searching, the active match is selected, and next/previous wrap at the ends
-- Diff comparisons read and parse both files in parallel worker threads, so a pair loads in roughly one file's parse time, behind the shared indeterminate loading card with progress that only advances
+- A read-only hex diff editor comparing two Intel HEX/SREC files by resolved address over a shared row model, with byte-level changed/added/removed highlighting, a changed/added/removed summary, and previous/next difference navigation
+- Read-only selection mirrored across both diff panes, with `Ctrl+C` copying the bytes from the pane that maps the selection
+- A diff toolbar — `Show all` / `Show diff`, `Prev diff` / `Next diff`, `Swap sides`, and `Sync scroll` (on by default) — with a glyph plus text label on each button; `Show diff` marks the skipped address gap between non-adjacent differences with a separator line
+- Diff search over both files at once, with streamed results, wrap-around next/previous, and repeat Enter stepping an unchanged completed query
+- Diff panes stay aligned during fast/inertial `Sync scroll`, and streamed search repaints incrementally so large pairs stay responsive
+- Explorer `HexScope` compare actions: `Set as 1st file to compare`, `Compare with the 1st file`, and `Compare Two Files`
+- Diff comparisons read and parse both files in parallel worker threads (roughly one file's parse time), behind the shared indeterminate loading card, and reload when either file changes on disk
 
 ### Fixed
 - Integrity checks with a stored MD5 or SHA value now compare and update correctly when the byte-order toggle is `LE`; hash digests stay in natural byte order and the stored pane no longer shows an `LE`/`BE` tag for hashes
