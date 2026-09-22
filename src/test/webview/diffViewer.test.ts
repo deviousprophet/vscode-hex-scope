@@ -386,6 +386,25 @@ suite('HexScope Diff webview', () => {
         assert.ok(secondTop >= 0, 'the repositioned wrapper stays inside the physical container');
     });
 
+    test('diff pane overscan scales with the container height', () => {
+        document.documentElement.style.setProperty('--vscode-editor-font-size', '20px');
+        const rowHeight = 32;
+        const viewportHeight = 600;
+        const viewportRows = Math.ceil(viewportHeight / rowHeight);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        Object.defineProperty(scrollA, 'clientHeight', { value: viewportHeight, configurable: true });
+        const wide = seg(0x1000, Array.from({ length: 3200 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+
+        scrollA.scrollTop = 1600;
+        dispatchScroll(scrollA);
+        flushDiffRender();
+        const lastVisibleRow = Math.ceil((1600 + viewportHeight) / rowHeight) - 1;
+        const rendered = rows('#diff-rows-a');
+        const lastRenderedRow = (Number(rendered[rendered.length - 1].dataset.row) - 0x1000) / 16;
+        assert.ok(lastRenderedRow - lastVisibleRow >= viewportRows, 'overscan buffers at least a viewport of rows past the visible range');
+    });
+
     test('turning Sync scroll off lets the panes scroll independently', () => {
         mount([seg(0x1000, [0x01, 0x02])], [seg(0x1000, [0x01, 0x02])]);
         const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;

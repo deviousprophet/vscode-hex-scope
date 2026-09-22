@@ -18,6 +18,7 @@ import {
     calcVisibleRange,
     clampWindowTop,
     logicalToPhysicalScroll,
+    overscanRowCount,
     physicalToLogicalScroll,
     type VirtualScrollLayout,
     type VirtualScrollState,
@@ -40,7 +41,7 @@ import type { MemRow, SegmentLabel } from '../../core/types';
 const VIRTUAL_SCROLL_CONFIG = {
     fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
     fallbackGapHeight: 35.2,  // CSS fallback: row * 1.5 + 2px vertical margins
-    bufferSize: 10,           // render 10 rows above/below viewport
+    minBufferSize: 10,        // floor; overscan grows to a full viewport of extra rows above/below
 };
 
 let hexView: HexView | null = null;
@@ -406,6 +407,7 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     vscrollState.containerHeight = containerHeight;
     vscrollState.rowCount = S.memRows.length;
     vscrollState.heightVersion = heightVersion;
+    vscrollState.bufferSize = overscanRowCount(containerHeight, rowHeight, VIRTUAL_SCROLL_CONFIG.minBufferSize);
     vscrollState.getRowHeight = memoryRowHeightGetter(rowHeight, gapHeight);
     vscrollRenderedRange = [-1, -1];
 }
@@ -418,7 +420,7 @@ function initializeMemoryScrollState(scrollContainer: HTMLElement): void {
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
         scrollTop: logicalScrollTop,
-        bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
+        bufferSize: overscanRowCount(scrollContainer.clientHeight, rowHeight, VIRTUAL_SCROLL_CONFIG.minBufferSize),
         visibleRowIndices: [0, 0],
         rowCount: S.memRows.length,
         heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight),

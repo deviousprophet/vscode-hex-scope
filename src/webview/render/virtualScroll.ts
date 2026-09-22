@@ -137,6 +137,11 @@ export function applyVirtualScrollLayout(container: HTMLElement, layout: Virtual
     container.style.height = layout.isCompressed ? `${layout.physicalHeight}px` : '';
 }
 
+export function overscanRowCount(containerHeight: number, rowHeight: number, minBufferSize: number): number {
+    if (!Number.isFinite(rowHeight) || rowHeight <= 0) { return minBufferSize; }
+    return Math.max(minBufferSize, Math.ceil(containerHeight / rowHeight));
+}
+
 export function physicalToLogicalScroll(physicalScrollTop: number, state: VirtualScrollState): number {
     const layout = calcScrollLayout(state);
     return physicalToLogicalScrollForLayout(physicalScrollTop, layout);

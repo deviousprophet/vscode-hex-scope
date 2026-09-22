@@ -20,6 +20,7 @@ import {
     calcVisibleRange,
     clampWindowTop,
     logicalToPhysicalScroll,
+    overscanRowCount,
     physicalToLogicalScroll,
     type VirtualScrollLayout,
     type VirtualScrollState,
@@ -732,7 +733,7 @@ function createScrollState(scrollEl: HTMLElement, current: ScrollPane | null, se
     return {
         containerHeight: scrollEl.clientHeight,
         scrollTop: carriedLogicalTop(scrollEl, current),
-        bufferSize: BUFFER_SIZE,
+        bufferSize: overscanRowCount(scrollEl.clientHeight, seed.rowHeight, BUFFER_SIZE),
         visibleRowIndices: [0, 0],
         rowCount: seed.rowCount,
         heightVersion: seed.version,
