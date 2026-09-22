@@ -40,6 +40,7 @@ src/
 │   ├── diff.ts               byte-diff runs for the compare surface (DiffModel)
 │   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
 │   ├── pathName.ts           shared basename/extension helper (compare selection + diff panel + hex session)
+│   ├── documentExternalChange.ts  watcher-event gate (loaded? / changed? / self-write horizon)
 │   ├── wire.ts               ParseResult -> SerializedParseResult wire projection
 │   └── byteTools/            pure copy/analyze/format helpers
 └── webview/

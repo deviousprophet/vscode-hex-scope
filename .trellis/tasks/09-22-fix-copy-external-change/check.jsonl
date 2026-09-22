@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Verify the fix preserves every contract in the external-change section (self-writes, lock/conflict/repair) while removing the spurious banner."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Run the required checks and confirm test placement/coverage expectations are met."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Confirm the new core module respects dependency direction and deep-module boundaries."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Confirm the gate API uses no untyped payload fields or boundary casts."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Cross-layer and code-reuse thinking triggers for the review."}
