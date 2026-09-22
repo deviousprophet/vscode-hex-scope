@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "Owns the external-change watcher contract: self-write horizon, lock/conflict/repair behavior. Fix must not change it except to suppress spurious same-content events."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Owns HexEditorSession/provider lifecycle and host-webview messages; the watcher and onExternalChange live in the session."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Deep-module seam placement rules for the new core/documentExternalChange.ts module."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Protocol flow and invalidation ownership; external-change messages feed the webview model."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required checks, test placement, and coverage expectations for the regression test."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Watcher event -> session -> webview message crosses the extension-host/webview boundary."}

@@ -260,3 +260,25 @@ One parse worker (src/parse/parseWorker.ts) now dispatches diffParse | hexParse;
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: Fix spurious external-change banner on hex file copy
+<!-- trellis-session: v=2 fp=fd27d3ce3b72ef6d -->
+
+**Date**: 2026-09-22
+**Task**: Fix spurious external-change banner on hex file copy
+**Branch**: `fix/copy-external-change`
+
+### Summary
+
+Copied hex files auto-opened with a spurious external-change banner: the per-document FileSystemWatcher's onDidCreate fired for the newly created copy. Added src/core/documentExternalChange.ts (createExternalChangeGate: drop events before initial load, within the 1s self-write horizon, or when content is unchanged), wired it into HexEditorSession.onExternalChange + onProfileChanged, and added src/test/core/documentExternalChange.test.ts. Red->green loop shown; check-types/lint/npm test (1131) pass; fallow GREEN. Updated editing-save-external-change.md + directory-structure.md.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d6414e` | fix(editor): suppress spurious external-change banner on file copy |
+
+### Status
+
+[OK] **Completed**

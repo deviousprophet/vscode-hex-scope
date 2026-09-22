@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~262 | Active |
+| `journal-1.md` | ~284 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-09-22 | Fix spurious external-change banner on hex file copy | `0d6414e` | `fix/copy-external-change` |
 | 9 | 2026-09-22 | Share the parse worker with the hex editor | `3de465b`, `7c8a188`, `f742b99`, `930b6db` | `feat/shared-parse-worker` |
 | 8 | 2026-09-22 | DiffView search latency: incremental paint + single-render jump | `68d6090` | `feat/hex-diff` |
 | 7 | 2026-09-22 | DiffView scroll glitch: wrapper reposition, scroll anchoring, viewport overscan | `59c3409`, `5b13255`, `ed75695` | `feat/hex-diff` |

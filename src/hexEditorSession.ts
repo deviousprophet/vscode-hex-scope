@@ -11,6 +11,7 @@ import type { SegmentLabel, SerializedRecord, StructDef, StructPin } from './cor
 import { buildSplicePlan, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
+import { createExternalChangeGate } from './core/documentExternalChange';
 import { runParseJob } from './parse/parseWorkerClient';
 import {
     normalizeIntegrityCheckSet,
@@ -745,7 +746,7 @@ export class HexEditorSession {
 
         /** External change to the registry: re-key the bound state, then debounced reload. */
         const onProfileChanged = (): void => {
-            if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
+            if (externalChangeGate.isSelfWrite()) { return; }
             clearTimeout(profileReloadTimer);
             profileReloadTimer = setTimeout(() => {
                 void refreshProfileStores();
@@ -819,9 +820,8 @@ export class HexEditorSession {
         // Self-writes are ignored within a short horizon so our own save/repair
         // never surfaces as an "external change" — even when the FS watcher
         // emits several events per write (flag was the old one-shot version).
-        const SELF_WRITE_HORIZON_MS = 1000;
-        let lastSelfWriteAt = 0;
-        const markSelfWrite = () => { lastSelfWriteAt = Date.now(); };
+        const externalChangeGate = createExternalChangeGate(1000);
+        const markSelfWrite = () => externalChangeGate.markSelfWrite();
         const watcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
                 document.uri.path.split('/').pop()!)
@@ -829,12 +829,19 @@ export class HexEditorSession {
         resources.add(watcher);
 
         const onExternalChange = () => {
-            if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
+            if (externalChangeGate.isSelfWrite()) { return; }
+            // The initial load owns the content until it completes; any event
+            // before then is redundant (the load reads the current file).
+            if (!parseResult) { return; }
             clearTimeout(reloadTimer);
             reloadTimer = setTimeout(async () => {
                 try {
                     const newRaw = new TextDecoder('utf-8').decode(
                         await vscode.workspace.fs.readFile(document.uri));
+                    // Unchanged bytes are not an external change: a copy/create
+                    // event for the open file and duplicate watcher emissions
+                    // for one write both land here.
+                    if (!externalChangeGate.shouldHandle(newRaw, parseResult !== null, raw)) { return; }
                     const loaded = await parseCompactSource(newRaw);
                     const newResult = loaded.result;
                     
