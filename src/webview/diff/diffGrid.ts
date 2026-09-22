@@ -425,9 +425,24 @@ function renderScrollSlice(): void {
     const b = currentSlice('b');
     if (!a || !b) { return; }
     const key = sliceKey(a, b);
-    if (key === lastRenderKey) { return; }
+    if (key === lastRenderKey) {
+        repositionPane(a);
+        repositionPane(b);
+        return;
+    }
     lastRenderKey = key;
     drawSlice(a, b);
+}
+
+function repositionPane(slice: PaneSlice): void {
+    const layout = calcScrollLayout(slice.state);
+    if (!layout.isCompressed) { return; }
+    const wrapper = slice.rows.firstElementChild as HTMLElement | null;
+    if (!wrapper) { return; }
+    const topSpacer = calcRowOffset(slice.start, slice.state);
+    const sliceHeight = calcRowOffset(slice.end, slice.state) - topSpacer;
+    const windowTop = clampWindowTop(slice.container.scrollTop + topSpacer - slice.state.scrollTop, layout.physicalHeight, sliceHeight);
+    wrapper.style.top = `${windowTop}px`;
 }
 
 interface PaneSlice {

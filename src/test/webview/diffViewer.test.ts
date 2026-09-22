@@ -361,6 +361,31 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(writes.count, 1, 'an unchanged slice is not rebuilt');
     });
 
+    test('compressed scroll frames reposition the wrapper without rebuilding rows', () => {
+        document.documentElement.style.setProperty('--vscode-editor-font-size', '5000px');
+        const big = seg(0x1000, Array.from({ length: 3001 * 16 }, (_, i) => i & 0xff));
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        Object.defineProperty(scrollA, 'clientHeight', { value: 600, configurable: true });
+        mount([big], [big]);
+        const rowsA = document.getElementById('diff-rows-a')!;
+        const writes = countInnerHtmlWrites(rowsA);
+
+        scrollA.scrollTop = 4_000_000;
+        dispatchScroll(scrollA);
+        flushDiffRender();
+        assert.strictEqual(rowsA.style.position, 'relative', 'a union past the physical cap compresses the pane');
+        const wrapper = rowsA.firstElementChild as HTMLElement;
+        const firstTop = parseFloat(wrapper.style.top);
+
+        scrollA.scrollTop = 4_002_000;
+        dispatchScroll(scrollA);
+        flushDiffRender();
+        const secondTop = parseFloat(wrapper.style.top);
+        assert.strictEqual(writes.count, 1, 'the unchanged visible slice still skips the row rebuild');
+        assert.ok(secondTop < firstTop, 'the compressed wrapper tracks the new scrollTop');
+        assert.ok(secondTop >= 0, 'the repositioned wrapper stays inside the physical container');
+    });
+
     test('turning Sync scroll off lets the panes scroll independently', () => {
         mount([seg(0x1000, [0x01, 0x02])], [seg(0x1000, [0x01, 0x02])]);
         const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
