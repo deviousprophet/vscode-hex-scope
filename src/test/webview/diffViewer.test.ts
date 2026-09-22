@@ -982,6 +982,102 @@ suite('HexScope Diff webview', () => {
         }
     });
 
+    test('the first streamed search batch jumps with one render per pane', () => {
+        const wide = seg(0x3000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const writesA = countInnerHtmlWrites(document.getElementById('diff-rows-a')!);
+        const writesB = countInnerHtmlWrites(document.getElementById('diff-rows-b')!);
+        const original = SearchEngine.prototype.search;
+        const captured: { handlers: SearchHandlers | null } = { handlers: null };
+        SearchEngine.prototype.search = function (_req, nextHandlers): void { captured.handlers = nextHandlers; };
+        try {
+            typeInto(document.getElementById('search-input') as HTMLInputElement, 'FF');
+            clickButton('btn-search');
+            captured.handlers!.onProgressUpdate?.([0x3000], 10);
+            assert.strictEqual(writesA.count, 1, 'the first batch jumps with one render on A');
+            assert.strictEqual(writesB.count, 1, 'the first batch jumps with one render on B');
+            assert.strictEqual(matchCount(), '1 / 1');
+        } finally {
+            SearchEngine.prototype.search = original;
+        }
+    });
+
+    test('later streamed search batches repaint without rebuilding rows', () => {
+        const wide = seg(0x3000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const writesA = countInnerHtmlWrites(document.getElementById('diff-rows-a')!);
+        const writesB = countInnerHtmlWrites(document.getElementById('diff-rows-b')!);
+        const original = SearchEngine.prototype.search;
+        const captured: { handlers: SearchHandlers | null } = { handlers: null };
+        SearchEngine.prototype.search = function (_req, nextHandlers): void { captured.handlers = nextHandlers; };
+        try {
+            typeInto(document.getElementById('search-input') as HTMLInputElement, 'FF');
+            clickButton('btn-search');
+            captured.handlers!.onProgressUpdate?.([0x3000], 10);
+            captured.handlers!.onProgressUpdate?.([0x3000, 0x3010], 20);
+            captured.handlers!.onProgressUpdate?.([0x3000, 0x3020], 30);
+            assert.strictEqual(writesA.count, 1, 'later batches rebuild no rows on A');
+            assert.strictEqual(writesB.count, 1, 'later batches rebuild no rows on B');
+            assert.strictEqual(matchCount(), '1 / 2', 'the streamed count follows the deduped addresses');
+            assert.ok(cell('#diff-rows-a', 0x3020)!.classList.contains('match'), 'a later batch still paints its visible match');
+            captured.handlers!.onComplete([0x3000, 0x3010]);
+            assert.strictEqual(matchCount(), '1 / 2', 'the completed count is correct');
+        } finally {
+            SearchEngine.prototype.search = original;
+        }
+    });
+
+    test('a redraw after a streamed batch repaints matches from the declarative state', () => {
+        mount([seg(0x3000, [0x10, 0x11, 0x12, 0x13])], [seg(0x3000, [0x10, 0x99, 0x12, 0x13])]);
+        setSearchMatches([0x3000], 0, 1);
+        assert.ok(cell('#diff-rows-a', 0x3000)!.classList.contains('match'), 'the batch painted incrementally');
+        setViewMode('diff');
+        assert.ok(cell('#diff-rows-a', 0x3000)!.classList.contains('match'), 'the redraw repaints from matchSet');
+        assert.ok(cell('#diff-rows-a', 0x3000)!.classList.contains('amatch'), 'the active match survives the redraw');
+        assert.ok(cell('#diff-rows-b', 0x3000)!.classList.contains('amatch'), 'B repaints from the same state');
+    });
+
+    test('a search jump renders once per pane at the destination with no deferred redraw', () => {
+        installRafController();
+        const wide = seg(0x3000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const writesA = countInnerHtmlWrites(document.getElementById('diff-rows-a')!);
+        const writesB = countInnerHtmlWrites(document.getElementById('diff-rows-b')!);
+        const original = SearchEngine.prototype.search;
+        const captured: { handlers: SearchHandlers | null } = { handlers: null };
+        SearchEngine.prototype.search = function (_req, nextHandlers): void { captured.handlers = nextHandlers; };
+        try {
+            typeInto(document.getElementById('search-input') as HTMLInputElement, 'FF');
+            clickButton('btn-search');
+            const dest = 0x3000 + 20 * 16;
+            captured.handlers!.onProgressUpdate?.([dest], 50);
+            assert.strictEqual(writesA.count, 1, 'exactly one render on A');
+            assert.strictEqual(writesB.count, 1, 'exactly one render on B');
+            assert.strictEqual(rafController!.pending(), 0, 'no deferred render is queued by the jump');
+            assert.ok(cell('#diff-rows-a', dest)!.classList.contains('amatch'), 'A lands on the destination match');
+            assert.ok(cell('#diff-rows-a', dest)!.classList.contains('sel'), 'A lands on the destination selection');
+            assert.ok(cell('#diff-rows-b', dest)!.classList.contains('amatch'), 'B mirrors both');
+            dispatchScroll(document.querySelector<HTMLElement>('#diff-a .mem-scroll')!);
+            assert.strictEqual(rafController!.pending(), 0, 'the programmatic scroll event schedules nothing');
+            assert.strictEqual(writesA.count, 1, 'the suppressed event does not rebuild rows');
+        } finally {
+            SearchEngine.prototype.search = original;
+        }
+    });
+
+    test('a genuine user scroll after a suppressed jump still starts the poll', () => {
+        installRafController();
+        const wide = seg(0x3000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        scrollToDiff({ start: 0x3000 + 20 * 16, end: 0x3000 + 20 * 16 });
+        dispatchScroll(scrollA);
+        assert.strictEqual(rafController!.pending(), 0, 'the programmatic event is suppressed');
+        scrollA.scrollTop = scrollA.scrollTop + 64;
+        dispatchScroll(scrollA);
+        assert.strictEqual(rafController!.pending(), 1, 'a mismatched position is treated as a real scroll');
+    });
+
     test('the match count survives a toolbar re-render', async () => {
         const a = [seg(0x3000, [0xDE, 0xAD])];
         const b: MemorySegment[] = [];

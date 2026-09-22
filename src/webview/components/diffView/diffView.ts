@@ -61,6 +61,12 @@ export class DiffView {
         this.viewB?.paintSelection(range);
     }
 
+    /** Incremental match repaint on both panes (no row rebuild) — streamed search batches. */
+    paintMatch(matchAddrs: readonly number[], index: number, length: number): void {
+        this.viewA?.paintMatch(matchAddrs, index, length);
+        this.viewB?.paintMatch(matchAddrs, index, length);
+    }
+
     /** Fill both pane headers from the hex-only header render (no decoded column). */
     injectHeaders(): void {
         const headerHtml = renderHexViewHeader(false);

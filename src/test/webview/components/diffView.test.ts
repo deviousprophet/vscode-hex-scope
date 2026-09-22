@@ -266,6 +266,21 @@ suite('DiffView paint and scroll', () => {
         assert.strictEqual(document.querySelectorAll(`#${paneRowsId('b')} .sel`).length, 0);
     });
 
+    test('paintMatch mirrors the match span on both panes; empty clears', () => {
+        currentDom = installDom();
+        const { view } = installDiffView();
+        renderBoth();
+        view.paintMatch([ADDR_BASE + 2], 0, 2);
+        assert.ok(cell('a', ADDR_BASE + 2)?.classList.contains('match'), 'A match painted');
+        assert.ok(cell('a', ADDR_BASE + 2)?.classList.contains('amatch'), 'A active match painted');
+        assert.ok(cell('a', ADDR_BASE + 3)?.classList.contains('match'), 'A covers the needle span');
+        assert.ok(cell('b', ADDR_BASE + 3)?.classList.contains('match'), 'B mirrors the match');
+        assert.ok(!cell('a', ADDR_BASE)?.classList.contains('match'), 'unmatched cell untouched');
+        view.paintMatch([], -1, 1);
+        assert.strictEqual(document.querySelectorAll(`#${paneRowsId('a')} .match`).length, 0, 'A cleared');
+        assert.strictEqual(document.querySelectorAll(`#${paneRowsId('b')} .match`).length, 0, 'B cleared');
+    });
+
     test('injectHeaders fills both headers with the hex-only header', () => {
         currentDom = installDom();
         const { view } = installDiffView();

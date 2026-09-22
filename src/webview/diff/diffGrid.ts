@@ -78,6 +78,8 @@ let lastPolledTop = 0;
 let stableFrames = 0;
 let paneTopA: number | null = null;
 let paneTopB: number | null = null;
+/** Programmatic `scrollTop` writes already followed by a synchronous render; suppress their native event. */
+const suppressedScrolls = new Map<DiffPane, number>();
 
 function paneScroll(pane: DiffPane): ScrollPane | null {
     return pane === 'a' ? scrollPaneA : scrollPaneB;
@@ -132,6 +134,7 @@ export function resetDiffGrid(): void {
     paneTopA = null;
     paneTopB = null;
     lastRenderKey = null;
+    suppressedScrolls.clear();
 }
 
 export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): void {
@@ -150,6 +153,7 @@ export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     cancelPendingRender();
     stopScrollPoll();
     lastRenderKey = null;
+    suppressedScrolls.clear();
     clearDiffError();
     diffView.injectHeaders();
     renderDiffGrid();
@@ -168,6 +172,7 @@ export function applyReload(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     cancelPendingRender();
     stopScrollPoll();
     lastRenderKey = null;
+    suppressedScrolls.clear();
     clearDiffError();
     diffView.injectHeaders();
     renderDiffGrid();
@@ -220,7 +225,21 @@ function restoreAnchor(anchor: ReloadAnchor): void {
     const logicalTop = anchorLogicalTop(anchor, scroll);
     if (logicalTop === null) { return; }
     scroll.state.scrollTop = logicalTop;
-    diffView.setScrollTop(anchor.pane, logicalToPhysicalScroll(logicalTop, scroll.state));
+    const physicalTop = logicalToPhysicalScroll(logicalTop, scroll.state);
+    diffView.setScrollTop(anchor.pane, physicalTop);
+    suppressDriverScroll(anchor.pane, physicalTop);
+}
+
+/** Mark a programmatic `scrollTop` as already rendered so its native event is ignored. */
+function suppressDriverScroll(pane: DiffPane, physicalTop: number): void {
+    suppressedScrolls.set(pane, physicalTop);
+}
+
+/** Consume the one-shot guard when the native event matches the written position exactly. */
+function consumeSuppressedScroll(pane: DiffPane, top: number): boolean {
+    const expected = suppressedScrolls.get(pane);
+    suppressedScrolls.delete(pane);
+    return expected !== undefined && Math.abs(expected - top) < 0.001;
 }
 
 function anchorLogicalTop(anchor: ReloadAnchor, scroll: ScrollPane): number | null {
@@ -275,6 +294,7 @@ export function setSyncScroll(on: boolean): void {
     if (on === syncScroll) { return; }
     syncScroll = on;
     stopScrollPoll();
+    suppressedScrolls.clear();
     if (on) { alignFollowerToDriver(); }
     renderDiffGrid();
 }
@@ -287,6 +307,7 @@ function alignFollowerToDriver(): void {
     follower.state.scrollTop = driver.state.scrollTop;
     diffView.setScrollTop(followerOf(lastDriver), driver.container.scrollTop);
     diffView.setScrollLeft(followerOf(lastDriver), driver.container.scrollLeft);
+    suppressDriverScroll(followerOf(lastDriver), driver.container.scrollTop);
 }
 
 function filterRows(rows: readonly DiffRow[]): DiffRow[] {
@@ -421,7 +442,7 @@ export function setSearchMatches(addrs: readonly number[], active: number, lengt
     activeMatch = active >= 0 && active < addrs.length
         ? { start: addrs[active], end: addrs[active] + span - 1 }
         : null;
-    renderDiffGrid();
+    diffView.paintMatch(addrs, active, span);
 }
 
 /** Match-highlight width follows the executed needle span (shared with memoryGrid). */
@@ -625,7 +646,9 @@ function scrollPaneToRow(pane: DiffPane, rowIndex: number): void {
     const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.getRowHeight(rowIndex) * 2);
     const top = Math.min(desiredTop, calcScrollLayout(state).logicalScrollable);
     state.scrollTop = top;
-    diffView.setScrollTop(pane, logicalToPhysicalScroll(top, state));
+    const physicalTop = logicalToPhysicalScroll(top, state);
+    diffView.setScrollTop(pane, physicalTop);
+    suppressDriverScroll(pane, physicalTop);
 }
 
 export function showDiffError(message: string): void {
@@ -689,6 +712,7 @@ function applyDriverScroll(driver: DiffPane, driverScroll: ScrollPane, top: numb
     const logicalTop = physicalToLogicalScroll(top, driverScroll.state);
     driverScroll.state.scrollTop = logicalTop;
     lastDriver = driver;
+    if (consumeSuppressedScroll(driver, top)) { return; }
     if (syncScroll) {
         mirrorFollowerState(driver, logicalTop);
         mirrorFollowerLeft(driver, left);
