@@ -9,7 +9,7 @@ export interface DiffSideData {
     name: string;
     path: string;
     format: 'ihex' | 'srec';
-    parseResult: SerializedParseResult;
+    parseResult: Omit<SerializedParseResult, 'records'>;
     segmentIndex: SegmentIndexEntry[];
     labels: SegmentLabel[];
 }
@@ -23,8 +23,7 @@ export interface DiffRow {
 const NO_EDITS: ReadonlyMap<number, number> = new Map();
 
 export function hydrateDiffSide(side: DiffSide): DiffSideData {
-    const parseResult: SerializedParseResult = {
-        records: [],
+    const parseResult: Omit<SerializedParseResult, 'records'> = {
         recordCount: side.parseResult.recordCount,
         segments: side.parseResult.segments.map(segment => ({
             startAddress: segment.startAddress,

@@ -1,4 +1,4 @@
-import type { MemRow, SerializedParseResult } from './types';
+import type { MemRow, SerializedParseResult, SerializedSegment } from './types';
 
 export interface SegmentIndexEntry {
     startAddr: number;
@@ -8,12 +8,17 @@ export interface SegmentIndexEntry {
 
 type ParseSegment = SerializedParseResult['segments'][number];
 
-export function buildSegmentIndex(parseResult: SerializedParseResult | null): SegmentIndexEntry[] {
-    if (!parseResult || parseResult.segments.length === 0) {
+/** Minimal structural source the address helpers read: only `segments` matters. */
+export interface SegmentSource {
+    readonly segments: readonly SerializedSegment[];
+}
+
+export function buildSegmentIndex(source: SegmentSource | null): SegmentIndexEntry[] {
+    if (!source || source.segments.length === 0) {
         return [];
     }
 
-    return parseResult.segments
+    return source.segments
         .map((seg, segOffset) => ({
             startAddr: seg.startAddress,
             endAddr: seg.startAddress + seg.data.length - 1,
@@ -43,17 +48,17 @@ function findSegmentAtAddress(segmentIndex: readonly SegmentIndexEntry[], addr: 
 }
 
 export function getByteAt(
-    parseResult: SerializedParseResult | null,
+    source: SegmentSource | null,
     segmentIndex: readonly SegmentIndexEntry[],
     edits: ReadonlyMap<number, number>,
     addr: number,
 ): number | undefined {
-    if (!parseResult) { return undefined; }
+    if (!source) { return undefined; }
 
     const seg = findSegmentAtAddress(segmentIndex, addr);
     if (!seg) { return undefined; }
     const offset = addr - seg.startAddr;
-    return edits.get(addr) ?? parseResult.segments[seg.offset].data[offset];
+    return edits.get(addr) ?? source.segments[seg.offset].data[offset];
 }
 
 function rowStartForAddress(addr: number, bytesPerRow: number): number {

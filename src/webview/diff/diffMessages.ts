@@ -1,4 +1,5 @@
-import type { DiffProviderToWebview, DiffProgressStage } from '../../diffProtocol';
+import type { DiffKind, DiffModel } from '../../core/diff';
+import type { DiffProviderToWebview, DiffProgressStage, DiffSide } from '../../diffProtocol';
 
 export type DiffInitMessage = Extract<DiffProviderToWebview, { type: 'diffInit' }>;
 export type DiffErrorMessage = Extract<DiffProviderToWebview, { type: 'diffError' }>;
@@ -11,20 +12,78 @@ export interface DiffMessageHandlers {
 }
 
 const DIFF_PROGRESS_STAGES: readonly DiffProgressStage[] = ['read', 'parse', 'diff'];
+const DIFF_FORMATS: readonly DiffSide['format'][] = ['ihex', 'srec'];
+const DIFF_KINDS: readonly DiffKind[] = ['changed', 'added', 'removed'];
+
+function isString(value: unknown): value is string {
+    return typeof value === 'string';
+}
+
+function isWireSegment(value: unknown): boolean {
+    const segment = value as { startAddress?: unknown; data?: unknown } | null;
+    return !!segment && typeof segment.startAddress === 'number' && !!segment.data;
+}
+
+interface DiffSideShape {
+    name?: unknown;
+    path?: unknown;
+    format?: unknown;
+    parseResult?: unknown;
+    labels?: unknown;
+}
+
+function hasSideHeader(side: DiffSideShape | null): boolean {
+    if (!side) { return false; }
+    return isString(side.name)
+        && isString(side.path)
+        && DIFF_FORMATS.includes(side.format as DiffSide['format']);
+}
+
+/** Structural `DiffSide` check so a malformed init is rejected before hydration can throw. */
+function isDiffSide(value: unknown): value is DiffSide {
+    const side = value as DiffSideShape | null;
+    if (!hasSideHeader(side)) { return false; }
+    if (!Array.isArray(side!.labels)) { return false; }
+    return isWireParseResult(side!.parseResult);
+}
+
+function isWireParseResult(value: unknown): boolean {
+    const result = value as { recordCount?: unknown; segments?: unknown } | null;
+    return !!result
+        && typeof result.recordCount === 'number'
+        && Array.isArray(result.segments)
+        && result.segments.every(isWireSegment);
+}
+
+function isDiffRun(value: unknown): boolean {
+    const run = value as { start?: unknown; end?: unknown; kind?: unknown } | null;
+    return !!run
+        && typeof run.start === 'number'
+        && typeof run.end === 'number'
+        && DIFF_KINDS.includes(run.kind as DiffKind);
+}
+
+/** Shallow `DiffModel` check: the webview maps runs directly, so every run must be well-formed. */
+function isDiffModel(value: unknown): value is DiffModel {
+    const model = value as { runs?: unknown } | null;
+    return !!model && Array.isArray(model.runs) && model.runs.every(isDiffRun);
+}
 
 interface DiffInitShape {
+    type?: unknown;
     a?: unknown;
     b?: unknown;
     diff?: unknown;
 }
 
-function hasDiffInitFields(value: DiffInitShape): boolean {
-    return !!value.a && !!value.b && !!value.diff;
+function hasDiffInitSides(value: DiffInitShape): boolean {
+    return isDiffSide(value.a) && isDiffSide(value.b) && isDiffModel(value.diff);
 }
 
 function isDiffInit(message: unknown): message is DiffInitMessage {
-    const value = message as (DiffInitShape & { type?: unknown }) | null;
-    return !!value && value.type === 'diffInit' && hasDiffInitFields(value);
+    const value = message as DiffInitShape | null;
+    if (!value || value.type !== 'diffInit') { return false; }
+    return hasDiffInitSides(value);
 }
 
 function isDiffError(message: unknown): message is DiffErrorMessage {
