@@ -19,7 +19,7 @@ decision-record update, plus the CSS/type-floor findings' fix-or-waive decision.
   `READ_SHARE = 0.05` (`src/diff/diffEditorPanel.ts:17`, `0 → 0.05`).
 - `src/webview/diff/diff.css:2` bakes a literal fallback `#7a7a7a`; `.diff-action`/`.diff-action-glyph`
   are 14px, `.diff-action-text` 10px, `.diff-summary` 11px.
-- Decisions D1–D3 in the parent PRD resolve the product questions (R7 implemented; B1–B4 kept).
+- Decisions D1–D3 in the parent PRD resolve the product questions (R7 **dropped**; B1–B4 kept).
 
 ## Requirements
 
@@ -47,9 +47,11 @@ decision-record update, plus the CSS/type-floor findings' fix-or-waive decision.
   Record the outcome in `css-guidelines.md` (exception log) and/or `component-diff-view.md`.
 - R6 — Record the D3 decision (B1–B4 kept with justification) in `component-diff-view.md`, including
   B1 `↔` tab separator, B2 aggregate `"No data records found."`, B3 runtime message guards (now backed
-  by the S5 boundary tightening in the sibling child), B4 `DiffSide.labels` (live once R7 lands).
+  by the S5 boundary tightening in the sibling child), B4 `DiffSide.labels` (retained seam; R7 dropped
+  per parent D1). Note in the spec that R7 segment-label context is deliberately not implemented on this
+  branch.
 - R7 — Where this child touches behavior specs affected by the sibling children (C5 independent
-  scroll, R7 label context), add only pointers; the behavior contracts are owned by those children.
+  scroll), add only pointers; the behavior contracts are owned by those children.
 
 ## Acceptance Criteria
 
@@ -67,15 +69,15 @@ decision-record update, plus the CSS/type-floor findings' fix-or-waive decision.
 
 ## Out of Scope
 
-- Source behavior changes, the C1–C5/C4 fixes, the S3/S5/S6/S9 code refactors, and R7 label context —
-  owned by the sibling children.
+- Source behavior changes, the C1–C6 code fixes, and the S3/S5/S6/S9 code refactors — owned by the
+  sibling children. (R7 label context is dropped from this branch — see parent D1.)
 - `.trellis/spec/frontend/**` content beyond the findings above.
 
 ## Dependencies
 
 - None. This child may run in parallel with `hex-diff-surface-correctness`.
-- Its spec text for C5 (independent scroll) and R7 (label context) must not describe behavior before
-  those children land; use forward-pointers, or re-verify after they merge.
+- Its spec text for C5 (independent scroll) must not describe behavior before that child lands; use
+  forward-pointers, or re-verify after it merges.
 
 ## Notes
 

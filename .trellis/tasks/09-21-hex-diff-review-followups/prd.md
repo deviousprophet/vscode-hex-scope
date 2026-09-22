@@ -72,13 +72,15 @@ deferred until the task is started.
 
 ### (a) Spec'd requirements missing or partial
 
-- **A1 — R7 segment-label context is not implemented (missing).** `prd.md:99`. `diffSide()`
+- **A1 — R7 segment-label context is not implemented (missing) — DROPPED from this branch (2026-09-22).**
+  `prd.md:99`. `diffSide()`
   hardcodes `labels: []` (`src/diff/diffEditorPanel.ts:253`); `DiffSide.labels` is carried on the
   wire and copied by `hydrateDiffSide` (`src/webview/diff/diffModel.ts:45`) but nothing renders
   it; `.seg-banner` exists only in the single-file renderer
   (`src/webview/components/hexView/hexViewRender.ts:124`). No AC covers R7, so it escaped
   verification. (Note: `src/core/diffLabels.ts` is *file-name* disambiguation for R16, not the R7
-  *segment* labels.)
+  *segment* labels.) The user decided **not** to implement R7 on `feat/hex-diff`; the
+  `hex-diff-r7-label-context` child and its plan were deleted. Known, deliberately unaddressed gap.
 - **A2 — R21 clearing semantics partial.** `prd.md:113`. Window-reload clearing and
   replace-on-set hold; "clears after a successful compare" does not (see C2).
 - **A3 — R30 wording over-claims (minor).** `prd.md:122`. Parsing runs in parallel
@@ -96,7 +98,9 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
   R12 only requires `"No differences"` for an identical pair under `Show diff`.
 - **B3** — Runtime message guards (`src/webview/diff/diffMessages.ts`); design only declared
   typed unions. Defensive extra.
-- **B4** — Dead R7 seam: `DiffSide.labels` + `hydrateDiffSide` label copy (A1) ships unused.
+- **B4** — Dead R7 seam: `DiffSide.labels` + `hydrateDiffSide` label copy (A1) ships unused. With R7
+  dropped (D1), this stays a deliberately retained seam — the wire field is harmless and keeps a
+  future R7 cheap. No removal.
 
 ### (c) Spec'd but implemented wrong
 
@@ -138,15 +142,26 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
   rendered content. The existing test (`src/test/webview/diffViewer.test.ts:328-341`) asserts only
   `scrollTop` values, never that the follower still renders rows, so it passes.
 
+- **C6 — No external-change reload in the diff view (user-reported, 2026-09-22).** The single-file
+  editor watches its file (`src/hexEditorSession.ts:802-866`): a `FileSystemWatcher` with a
+  `SELF_WRITE_HORIZON_MS = 1000` self-write guard, 200 ms debounce, re-read + `parseCompactSource`,
+  then posts `externalChange` (with `parseResult`/`labels`/`generation`) or `externalChangeError`
+  (checksum/malformed, with `canQuickRepair`). The webview renders the reusable `ExternalChange`
+  banners (`src/webview/components/externalChange/externalChange.ts`: conflict / reload / error) and
+  reloads on click. The diff surface has **none** of this: `DiffEditorPanel` registers no watcher, so
+  an externally edited compared file keeps showing stale bytes until the tab is reopened, and there is
+  no reload affordance. The diff is read-only, so there are no unsaved edits to conflict with — only
+  reload / error matter.
+
 ## Requirements
 
 - R1 — Resolve each Standards finding S1–S10: update the stale spec (S1, S2), remove the
   duplicated bodies (S3, S9), correct the docstrings/comments (S4/C3), tighten the `diffInit`
   boundary validation (S5), remove or justify the fabricated `records: []` (S6), and fix or
   explicitly waive the CSS/type-floor items with a recorded reason (S7, S8, S10).
-- R2 — Resolve each Spec finding: implement R7 segment-label context (A1, decided 2026-09-22),
-  fix the premature stash clear so it clears only after a successful open (C2), and fix the
-  search-driven selection pane so `Ctrl+C` copies the match's bytes (C1).
+- R2 — Resolve each Spec finding: fix the premature stash clear so it clears only after a successful
+  open (C2), and fix the search-driven selection pane so `Ctrl+C` copies the match's bytes (C1).
+  (R7 segment-label context is dropped from this branch — see D1, R7.)
 - R3 — Make search navigation behave under `Show diff`: a match on a hidden (identical/gap) row
   either reveals/scrolls to it or is skipped predictably, and the active match is selected on both
   panes (C4).
@@ -158,10 +173,13 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
 - R6 — With `Sync scroll` off, both panes must keep rendering content at their own scroll position:
   independent scrolling must not blank the follower (C5). Each pane renders the rows for its own
   scroll window instead of a single shared window.
-- R7 — Per-side segment labels render as read-only context on their own pane (archived R7, Phase B):
-  A's labels on A, B's labels on B, using the existing `.seg-banner` row mechanism. No label editing
-  or `saveLabels` in the diff editor. The host must stop hardcoding `labels: []`
-  (`src/diff/diffEditorPanel.ts:253`) and source each file's labels.
+- R7 — DROPPED (2026-09-22). Per-side segment labels (archived R7, Phase B) are **not** implemented on
+  `feat/hex-diff`; the `hex-diff-r7-label-context` child was deleted. Retained here only so R2/AC9/D1
+  references stay traceable. Do not implement without a new decision.
+- R8 — External changes to either compared file reload the diff view (C6): watch both URIs, re-read
+  and re-parse the changed side(s), recompute the diff, and surface the change through the reused
+  hex-view external-change banner mechanism (reload + error banners). The diff is read-only, so no
+  conflict/unsaved-edit banner path is needed.
 
 ## Acceptance Criteria
 
@@ -182,15 +200,17 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
   successful open, with a test for the open-failure path (C2, A2).
 - [ ] AC8 — In `Show diff` mode, navigating to a match on a hidden row scrolls and selects it (or
   skips it) predictably, and the active match is selected on both panes (C4).
-- [ ] AC9 — R7 segment-label context is implemented (per-side read-only `.seg-banner` overlays
-  sourced from each file's labels, per D1); R30's wording matches the read-host/parse-worker split
-  (A1, A3).
+- [ ] AC9 — R30's wording matches the read-host/parse-worker split (A3). (R7 segment-label context is
+  dropped from this branch — see D1, R7; there is no R7 acceptance criterion.)
 - [ ] AC10 — Micro scope-creep items B1–B4 are each kept with a recorded justification (D3).
 - [ ] AC11 — `npm run check-types`, `npm run lint`, `npm test` all pass.
 - [ ] AC12 — With `Sync scroll` off, scrolling one pane leaves the other pane populated with the
   rows for its own scroll position (no blank/black follower); a test scrolls one pane with sync off
   and asserts the follower still renders its visible rows, not merely an unchanged `scrollTop`
   (C5, R11/AC13).
+- [ ] AC13 — Editing either compared file on disk surfaces an external-change reload in the diff view
+  (reusing the hex-view banner mechanism); accepting it re-reads, re-parses, and re-diffs so the grid
+  shows the new bytes, and an externally-broken file surfaces the error banner (C6, R8).
 
 ## Out of Scope
 
@@ -199,17 +219,18 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
 
 ## Decisions (resolved 2026-09-22)
 
-- **D1 — R7 segment-label context is implemented, not deferred.** A1/B4. Host stops hardcoding
-  `labels: []` and sources each file's labels; the diff grid renders per-side read-only `.seg-banner`
-  context (archived `design.md:107-109`). B4 is therefore resolved by implementation, not removal.
+- **D1 — R7 segment-label context is DROPPED from this branch (supersedes the 2026-09-22 implement
+  decision).** The user chose not to implement archived R7 on `feat/hex-diff`; the
+  `hex-diff-r7-label-context` child and its artifacts were removed. A1 is a known unaddressed gap and
+  B4 stays a retained seam. R30's wording (A3) still lands via the spec child.
 - **D2 — Parent + child tasks.** This task is the parent: it owns the source requirement set
-  (findings + R1–R7 + AC1–AC12), the task map, cross-child acceptance, and final integration review.
-  It is not the implementation target. Children own independently verifiable deliverables; ordering
-  that cannot be inferred from the tree is written into each child's artifacts.
+  (findings + R1–R6, R8 + AC1–AC13), the task map, cross-child acceptance, and final integration
+  review. It is not the implementation target. Children own independently verifiable deliverables;
+  ordering that cannot be inferred from the tree is written into each child's artifacts.
 - **D3 — Micro scope-creep B1–B4 are all kept with recorded justification.** B1 tab-title `↔`
   separator (useful disambiguation), B2 aggregate `"No data records found."` empty state, B3 runtime
-  message guards (reinforced by the S5 boundary tightening), B4 `DiffSide.labels` (live once R7
-  lands). No removal.
+  message guards (reinforced by the S5 boundary tightening), B4 `DiffSide.labels` (retained; R7
+  dropped, kept as a harmless seam for a future branch). No removal.
 
 ## Task Map (children)
 
@@ -217,19 +238,20 @@ No material creep — nothing from the spec's Out of Scope list. Micro extras on
 |-------|-------------|----------|------------|
 | `hex-diff-spec-doc-reconcile` | Spec/doc-consistency: no behavior change | S1, S2, S4/C3, A3/R30, B1–B4 decisions, S7/S8/S10 fix-or-waive | — |
 | `hex-diff-surface-correctness` | Diff-surface code fixes | S3, S5, S6, S9, C1, C2, C4, C5 | — |
-| `hex-diff-r7-label-context` | R7 per-side label context | A1/B4, R7 | `hex-diff-surface-correctness` (shared `diffGrid.ts`/`diffModel.ts`/`diffEditorPanel.ts`; land after its review) |
+| `hex-diff-external-change` | External-change reload for compared files | C6, R8 | `hex-diff-surface-correctness` (shared `diffEditorPanel.ts`; and reuse the hex-view `ExternalChange` banner component) |
 
-Write ordering: the two independent children may run in parallel; the R7 child must be implemented
-after the correctness child's `diffGrid.ts` changes are merged to avoid concurrent edits to the same
-modules (dependency is recorded in the R7 child's `prd.md`/`implement.md`, not implied by tree
-position).
+Write ordering: `hex-diff-spec-doc-reconcile` may run in parallel with the code children.
+`hex-diff-external-change` shares `src/diff/diffEditorPanel.ts`; if a future R7 task is ever re-created
+it must be sequenced against it. Dependency notes live in the child artifacts, not implied by tree
+position. (The `hex-diff-r7-label-context` child was deleted per D1.)
 
 ## Parent Acceptance
 
-- [ ] PC1 — Every Standards and Spec finding (S1–S10, A1–A3, B1–B4, C1–C5) is owned by exactly one
-  child and maps to that child's acceptance criteria; no finding is unassigned or double-owned.
-- [ ] PC2 — All three children are archived with their criteria met, or an explicit recorded decision
-  defers a child item.
+- [ ] PC1 — Every Standards and Spec finding (S1–S10, A2–A3, B1–B4, C1–C6) is owned by exactly one
+  child and maps to that child's acceptance criteria; no finding is unassigned or double-owned. (A1/R7
+  is dropped per D1.)
+- [ ] PC2 — All remaining children are archived with their criteria met, or an explicit recorded
+  decision defers a child item.
 - [ ] PC3 — On the integrated branch: `npx -y fallow audit --base origin/main --gate all` reports
   zero clone groups; `npm run check-types`, `npm run lint`, `npm test` all green.
 - [ ] PC4 — The two review axes stay separate: the integration review confirms no Standards fix

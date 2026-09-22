@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/frontend/components/component-external-change.md", "reason": "Owns the ExternalChange banner contract being reused/generalized for the diff bundle (reload + error banners)."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Diff surface contract; must gain the external-change reload protocol and view-state-on-reload rules."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Owns the diff panel lifecycle (watchers, DisposableStore, generation) and the compare panel contract."}
+{"file": ".trellis/spec/frontend/memory-navigation.md", "reason": "Diff row model + per-pane virtual scroll that reload must preserve."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Boundary pattern for the new diffExternalChange/diffExternalChangeError structural guards."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gate + test placement for the watcher and banner tests."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse the hex-view ExternalChange component instead of forking a diff-only banner."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Host->webview external-change data flow and the isolated-bundle boundary."}

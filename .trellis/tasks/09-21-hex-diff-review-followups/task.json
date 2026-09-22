@@ -21,7 +21,7 @@
   "children": [
     "09-22-hex-diff-spec-doc-reconcile",
     "09-22-hex-diff-surface-correctness",
-    "09-22-hex-diff-r7-label-context"
+    "09-22-hex-diff-external-change"
   ],
   "parent": null,
   "relatedFiles": [],
