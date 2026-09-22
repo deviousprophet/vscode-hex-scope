@@ -1,5 +1,5 @@
 /* ── Diff surface (isolated bundle; reuses the HexView grid component) ── */
-:root { --diff-split-bg: var(--vscode-editorIndentGuide-activeBackground, #7a7a7a); }
+:root { --diff-split-bg: var(--vscode-editorIndentGuide-activeBackground, var(--border)); }
 
 .diff-root { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .diff-root[hidden] { display: none; }
