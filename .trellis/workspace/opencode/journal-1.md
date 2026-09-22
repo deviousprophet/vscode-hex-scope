@@ -164,3 +164,28 @@ Implemented and verified child hex-diff-external-change (C6/R8): ExternalChange 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Hex diff spec/doc reconciliation
+<!-- trellis-session: v=2 fp=04f8b6d853ce24ab -->
+
+**Date**: 2026-09-22
+**Task**: Hex diff spec/doc reconciliation
+**Branch**: `feat/hex-diff`
+
+### Summary
+
+Implemented and verified child hex-diff-spec-doc-reconcile: updated directory-structure.md Module Ownership tree with every new runtime owner (diff/, webview/diff/, core diff modules, shared matchSpans/hexCells/pathName); recorded the src/diffProtocol.ts carve-out alongside webviewProtocol.ts (state-management/type-safety too); corrected the loadProgress.ts read/parse comment to 0->0.05 read split (host/concurrent) vs worker parse; reconciled R30 wording (reads host-side, parse parallel); fixed S7 diff.css splitter fallback to var(--border); waived S8/S10 in a new css-guidelines.md Exception Log; recorded B1-B4 keep decisions + R7 dropped in component-diff-view.md. Doc/CSS/comment-only, no runtime change. Gates: check-types/lint/1086 tests/fallow pass. All three review-follow-up children now archived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5820f89` | docs(diff): correct the loadProgress read/parse comment (S4, C3) |
+| `35d3a51` | style(diff): fall back the splitter color to the border token (S7) |
+| `13d4235` | docs(spec): reconcile hex-diff ownership, R30 wording, B1-B4 decisions (S1, S2, A3) |
+| `d776390` | chore(task): record hex-diff spec/doc reconciliation |
+
+### Status
+
+[OK] **Completed**
