@@ -3,13 +3,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
-import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexParser';
-import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
-import type { ParseResult, MemorySegment } from './core/parser/types';
-import type { CompactParseResult } from './core/parser/compact';
+import { parseIntelHexLine } from './core/parser/intelHexParser';
+import { parseSRecRecordLine } from './core/parser/srecParser';
+import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/types';
+import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, StructDef, StructPin } from './core/types';
-import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { buildSplicePlan, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import { serializeParseResult } from './core/wire';
+import { fileExtension } from './core/pathName';
+import { runParseJob } from './parse/parseWorkerClient';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
@@ -162,8 +164,23 @@ class LoadProgressReporter {
     }
 }
 
-function parseCompactByFormat(source: string, format: HexScopeFormat, options: Parameters<typeof parseIntelHexCompact>[1]): Promise<CompactParseResult> {
-    return format === 'srec' ? parseSRecCompact(source, options) : parseIntelHexCompact(source, options);
+/** Parse one hex source string off the extension-host thread; the worker reports the detected format. */
+function parseHexInWorker(
+    raw: string,
+    extension: string,
+    signal: AbortSignal,
+    onProgress: (progress: ParseProgress) => void,
+): Promise<{ format: HexScopeFormat; result: CompactParseResult }> {
+    return runParseJob({
+        job: { kind: 'hexParse', source: raw, extension },
+        signal,
+        abortMessage: 'Parse cancelled',
+        onProgress: message => { if ('stage' in message) { onProgress(message); } },
+        onResult: message => {
+            if (!('compact' in message)) { throw new Error('Hex parse worker returned no result.'); }
+            return { format: message.format, result: hydrateCompactParseResult(message.compact) };
+        },
+    });
 }
 
 function parseErrorMessage(error: unknown): string {
@@ -197,16 +214,18 @@ function validRecordPageCount(count: number): boolean {
     return Number.isInteger(count) && count >= 1;
 }
 
-async function parseCompactSafely(
-    source: string,
-    format: HexScopeFormat,
-    options: Parameters<typeof parseIntelHexCompact>[1],
-    isCancelled: () => boolean,
-): Promise<CompactParseResult | null> {
+/** A cancelled/disposed load aborts its worker; the rejection is swallowed as "no result". */
+async function parseHexSafely(
+    raw: string,
+    extension: string,
+    controller: AbortController,
+    isDisposed: () => boolean,
+    onProgress: (progress: ParseProgress) => void,
+): Promise<{ format: HexScopeFormat; result: CompactParseResult } | null> {
     try {
-        return await parseCompactByFormat(source, format, options);
+        return await parseHexInWorker(raw, extension, controller.signal, onProgress);
     } catch (error) {
-        if (isCancelled()) { return null; }
+        if (controller.signal.aborted || isDisposed()) { return null; }
         throw error;
     }
 }
@@ -234,10 +253,11 @@ async function loadInitialDocument(
     const source = await readDocumentSource(document, panel.webview, generation, isDisposed);
     if (source === null) { return null; }
     if (initialLoadCancelled(isDisposed, token)) { return null; }
-    const format = detectFormat(document.uri, source);
-    const result = await parseCompactSafely(source, format, { signal: controller.signal, onProgress }, () => controller.signal.aborted || isDisposed());
-    if (!result) { return null; }
-    return finishInitialDocument(source, format, result, document, panel);
+    const loaded = await parseHexSafely(
+        source, fileExtension(document.uri), controller, isDisposed, onProgress,
+    );
+    if (!loaded) { return null; }
+    return finishInitialDocument(source, loaded.format, loaded.result, document, panel);
 }
 
 function initialLoadCancelled(isDisposed: () => boolean, token: vscode.CancellationToken): boolean {
@@ -784,19 +804,15 @@ export class HexEditorSession {
             const controller = new AbortController();
             activeLoad = controller;
             const nextGeneration = ++generation;
-            const options = {
-                signal: controller.signal,
-                onProgress: (progress: { stage: 'parse' | 'build'; completed: number; total: number }) => {
-                    const previous = generation;
-                    generation = nextGeneration;
-                    postProgress(progress.stage, progress.completed, progress.total);
-                    generation = previous;
-                },
+            const onProgress = (progress: ParseProgress): void => {
+                const previous = generation;
+                generation = nextGeneration;
+                postProgress(progress.stage, progress.completed, progress.total);
+                generation = previous;
             };
-            const result = format === 'srec'
-                ? await parseSRecCompact(source, options)
-                : await parseIntelHexCompact(source, options);
-            return { result, generation: nextGeneration };
+            const loaded = await parseHexInWorker(source, fileExtension(document.uri), controller.signal, onProgress);
+            format = loaded.format;
+            return { result: loaded.result, generation: nextGeneration };
         };
 
         // ── Live reload on external file changes ──────────────────────────
@@ -1579,11 +1595,6 @@ async function readBindingsTable(root: string): Promise<Binding[] | null> {
     const read = await readJson(bindingsJsonUri(root));
     if (read.status !== 'ok') { return null; }
     return normalizeBindings(read.value).value;
-}
-
-/** Detect whether raw content is Intel HEX or Motorola SREC. */
-function detectFormat(uri: vscode.Uri, raw: string): HexScopeFormat {
-    return detectFormatFromParts(uri.path.split('.').pop()?.toLowerCase() ?? '', raw);
 }
 
 function getNonce(): string {

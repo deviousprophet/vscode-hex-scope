@@ -63,10 +63,10 @@ async function main() {
 		],
 	});
 
-	// Diff parse worker (one worker per compared file, in parallel)
-	const ctxDiffParseWorker = await esbuild.context({
+	// Shared parse worker (diff sides in parallel, and the single-file hex editor)
+	const ctxParseWorker = await esbuild.context({
 		entryPoints: [
-			'src/diff/diffParseWorker.ts'
+			'src/parse/parseWorker.ts'
 		],
 		bundle: true,
 		format: 'cjs',
@@ -74,7 +74,7 @@ async function main() {
 		sourcemap: !production,
 		sourcesContent: false,
 		platform: 'node',
-		outfile: 'dist/diffParseWorker.js',
+		outfile: 'dist/parseWorker.js',
 		external: ['vscode'],
 		logLevel: 'silent',
 		plugins: [
@@ -121,7 +121,7 @@ async function main() {
 	if (watch) {
 		await ctx.watch();
 		await ctxWorker.watch();
-		await ctxDiffParseWorker.watch();
+		await ctxParseWorker.watch();
 		await ctxWebview.watch();
 		await ctxDiff.watch();
 	} else {
@@ -129,8 +129,8 @@ async function main() {
 		await ctx.dispose();
 		await ctxWorker.rebuild();
 		await ctxWorker.dispose();
-		await ctxDiffParseWorker.rebuild();
-		await ctxDiffParseWorker.dispose();
+		await ctxParseWorker.rebuild();
+		await ctxParseWorker.dispose();
 		await ctxWebview.rebuild();
 		await ctxWebview.dispose();
 		await ctxDiff.rebuild();

@@ -5,3 +5,8 @@
 export function fileName(uri: { fsPath: string }): string {
     return uri.fsPath.split(/[\\/]/).pop() ?? uri.fsPath;
 }
+
+/** Lowercased extension (no dot) of a URI path, or `''`. */
+export function fileExtension(uri: { path: string }): string {
+    return uri.path.split('.').pop()?.toLowerCase() ?? '';
+}
