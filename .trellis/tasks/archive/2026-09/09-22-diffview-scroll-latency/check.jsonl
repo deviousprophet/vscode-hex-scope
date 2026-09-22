@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify scroll-sync contract, scroll stability, and Validation matrix match the new poll/transform behavior"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Verify the component boundary (host writes .mem-rows style, not cell DOM) and setScrollTop one-shot paths are preserved"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Check listener/coalescing conventions and no direct cell-DOM writes; confirm virtualization stays host-owned"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Confirm required checks, coverage expectations, and fallow-fix gate are satisfied"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Check numeric scroll math (delta, clamp) and frame-handle typing stay normalized"}
+{"file": ".trellis/tasks/09-22-diffview-scroll-latency/design.md", "reason": "Review gate source: seam/drift proof obligations and rollback points to verify against the diff"}
