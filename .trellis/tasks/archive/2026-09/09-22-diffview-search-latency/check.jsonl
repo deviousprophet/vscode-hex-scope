@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify streamed search paints incrementally, jump renders once at the destination, and the spec/matrix/tests match"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Verify paintMatch is used as documented and the host never writes cell DOM directly"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Confirm component/host boundary and that no host logic leaked into the component"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Confirm gates, coverage for streamed/jump paths, and fallow-fix gate"}
+{"file": ".trellis/tasks/09-22-diffview-search-latency/design.md", "reason": "Review source: R1 incremental paint, R2 single-render jump, R3 programmatic-scroll guard, rollback points to verify"}

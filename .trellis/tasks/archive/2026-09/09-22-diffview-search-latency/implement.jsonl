@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Owning spec: search streaming/paint rule, scroll jump behavior, validation matrix, Tests Required this task changes"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "paintMatch incremental paint contract reused for the follower/both panes; diff host reuse note"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Host vs component boundary: host drives paint through the component, no direct cell-DOM writes"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates and test placement; new tests must discriminate"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Search match state ownership (matchSet/activeMatch) and redraw-from-state invariants"}
