@@ -82,8 +82,38 @@ Completed the last two execution phases of the read-only two-file hex diff edito
 
 - Open a PR from feat/hex-diff; the changelog entry sits under `[Unreleased]` (main == v2.24.0).
 
+---
 
-## Session 3: Hex diff surface correctness fixes
+## Session 3: Fix hash stored-value byte order in integrity panel
+<!-- trellis-session: v=2 fp=913341fb133c9dfb -->
+
+**Date**: 2026-09-22
+**Task**: Fix hash stored-value byte order in integrity panel
+**Branch**: `fix/integrity-hash-endianness`
+
+### Summary
+
+Gated stored-value byte order on isChecksumAlgorithm so MD5/SHA digests compare and write in natural byte order while CRC16/CRC32 keep honoring the LE/BE toggle; hash stored pane no longer shows an endian tag. Updated integrity specs, added targeted hash tests, logged changelog, opened draft PR #248.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `75520de` | fix(integrity): keep hash stored values in natural byte order |
+| `f209837` | docs(integrity): scope stored byte order to checksums in specs |
+| `9205114` | docs(changelog): log hash byte-order integrity fix |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Open a PR from fix/integrity-hash-endianness (draft PR #248).
+
+---
+
+## Session 4: Hex diff surface correctness fixes
 <!-- trellis-session: v=2 fp=82c170fac3a631b5 -->
 
 **Date**: 2026-09-22
