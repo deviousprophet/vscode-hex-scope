@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required verification gates and integrity test coverage expectations"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Use the existing tested isChecksumAlgorithm predicate instead of new algorithm checks"}
