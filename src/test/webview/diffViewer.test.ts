@@ -88,6 +88,16 @@ function mount(a: MemorySegment[], b: MemorySegment[]): void {
     setDiffSummary(diff);
 }
 
+function diffInitMessage(a: MemorySegment[] = [seg(0x1000, [0x01])], b: MemorySegment[] = [seg(0x1000, [0x02])]): unknown {
+    return {
+        type: 'diffInit',
+        generation: 1,
+        a: side('a.hex', a),
+        b: side('b.hex', b),
+        diff: computeByteDiff(a, b),
+    };
+}
+
 function cell(sideSelector: string, addr: number): HTMLElement | null {
     const hex = addr.toString(16).toUpperCase().padStart(8, '0');
     return document.querySelector<HTMLElement>(`${sideSelector} .data-cell[data-addr="${hex}"]`);
@@ -139,6 +149,10 @@ function wait(ms: number): Promise<void> {
 
 function dispatchScroll(el: HTMLElement): void {
     el.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('scroll', { bubbles: true }));
+}
+
+function scrollB(): HTMLElement {
+    return document.querySelector<HTMLElement>('#diff-b .mem-scroll')!;
 }
 
 /** Earlier suites may leave a synchronous rAF stub; the diff host falls back to a deferred
@@ -340,6 +354,23 @@ suite('HexScope Diff webview', () => {
         flushDiffRender();
     });
 
+    test('with Sync scroll off each pane keeps its own rendered rows', () => {
+        const tall = seg(0x1000, Array.from({ length: 2048 }, (_, i) => i & 0xff));
+        mount([tall], [tall]);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        clickButton('diff-sync');
+        scrollA.scrollTop = 1200;
+        dispatchScroll(scrollA);
+        flushDiffRender();
+
+        const aRows = rows('#diff-rows-a');
+        const bRows = rows('#diff-rows-b');
+        assert.ok(aRows.length > 0, 'the driver renders its own rows');
+        assert.ok(bRows.length > 0, 'the follower stays populated with its own rows');
+        assert.strictEqual(scrollB().scrollTop, 0, 'the follower does not move while sync is off');
+        assert.notStrictEqual(aRows[0].dataset.row, bRows[0].dataset.row, 'panes render different slices');
+    });
+
     test('next/previous walk the runs in address order and stop at the ends', () => {
         mount([seg(0x6000, [0x01]), seg(0x7000, [0x02])], [seg(0x6000, [0x09]), seg(0x7000, [0x08])]);
         const prev = document.getElementById('diff-prev') as HTMLButtonElement;
@@ -398,6 +429,31 @@ suite('HexScope Diff webview', () => {
         clickCell('#diff-rows-a', 0x3002, true);
         assert.ok(cell('#diff-rows-a', 0x3002)?.classList.contains('sel'), 'extended to the second address');
         assert.deepStrictEqual(copySelectionText()?.text, '11 22 33');
+    });
+
+    test('a search selection on a B-only address copies that pane\u2019s bytes', () => {
+        mount([seg(0x3000, [0x11])], [seg(0x3000, [0x11]), seg(0x4000, [0xDE, 0xAD])]);
+        scrollToDiff({ start: 0x4000, end: 0x4001 }, { selection: true });
+        assert.ok(cell('#diff-rows-b', 0x4000)?.classList.contains('sel'), 'B paints the mirrored selection');
+        assert.deepStrictEqual(
+            copySelectionText(),
+            { text: 'DE AD', label: '2 bytes' },
+            'copy reads B, the pane that maps the match',
+        );
+    });
+
+    test('a match on a hidden row in Show diff mode selects without scrolling', () => {
+        mount([seg(0x3000, [0x01, 0x02]), seg(0x4000, [0xDE, 0xAD])], [seg(0x3000, [0x01, 0xFF]), seg(0x4000, [0xDE, 0xAD])]);
+        clickButton('diff-show-diff');
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        scrollToDiff({ start: 0x4000, end: 0x4001 }, { selection: true });
+        assert.strictEqual(scrollA.scrollTop, 0, 'A does not scroll to a hidden row');
+        assert.strictEqual(scrollB().scrollTop, 0, 'B does not scroll to a hidden row');
+        assert.deepStrictEqual(
+            copySelectionText(),
+            { text: 'DE AD', label: '2 bytes' },
+            'the hidden match still sets a copyable selection',
+        );
     });
 
     test('address-gutter click selects the whole row', () => {
@@ -566,11 +622,38 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(dispatchDiffMessage({ type: 'nope' }, handlers), false);
         assert.strictEqual(dispatchDiffMessage(null, handlers), false);
         assert.strictEqual(dispatchDiffMessage({ type: 'diffError', message: 'x' }, handlers), true);
-        assert.strictEqual(dispatchDiffMessage({ type: 'diffInit', a: {}, b: {}, diff: {} }, handlers), true);
+        assert.strictEqual(dispatchDiffMessage(diffInitMessage(), handlers), true);
         assert.strictEqual(dispatchDiffMessage({ type: 'diffProgress', stage: 'read', completed: 1, total: 2 }, handlers), true);
         assert.strictEqual(error, 1);
         assert.strictEqual(init, 1);
         assert.strictEqual(progress, 1);
+    });
+
+    test('a malformed diffInit is rejected without throwing or running the handler', () => {
+        let init = 0;
+        const handlers = {
+            diffInit: () => { init++; },
+            diffError: () => { /* noop */ },
+            diffProgress: () => { /* noop */ },
+        };
+        const validA = side('a.hex', [seg(0x1000, [0x01])]);
+        const validB = side('b.hex', [seg(0x1000, [0x02])]);
+        const validDiff = computeByteDiff([seg(0x1000, [0x01])], [seg(0x1000, [0x02])]);
+        const malformed: unknown[] = [
+            { type: 'diffInit' },
+            { type: 'diffInit', a: {}, b: {}, diff: {} },
+            { type: 'diffInit', a: validA, b: validB, diff: { runs: [{ start: 0, end: 1, kind: 'nope' }] } },
+            { type: 'diffInit', a: validA, b: validB, diff: { runs: [{ start: 'x', end: 1, kind: 'changed' }] } },
+            { type: 'diffInit', a: { ...validA, parseResult: { recordCount: 'x', segments: [] } }, b: validB, diff: validDiff },
+            { type: 'diffInit', a: validA, b: { ...validB, labels: 'x' }, diff: validDiff },
+            { type: 'diffInit', a: validA, b: validB, diff: { runs: 'x' } },
+        ];
+        for (const message of malformed) {
+            assert.strictEqual(dispatchDiffMessage(message, handlers), false, `rejected ${JSON.stringify(message)}`);
+        }
+        assert.strictEqual(init, 0, 'no handler runs for a malformed diffInit');
+        assert.strictEqual(dispatchDiffMessage(diffInitMessage(), handlers), true, 'a structurally valid init still dispatches');
+        assert.strictEqual(init, 1);
     });
 
     test('repeat Enter navigates the completed query instead of re-running it', async () => {

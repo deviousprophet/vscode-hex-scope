@@ -24,7 +24,9 @@ import {
     type VirtualScrollLayout,
     type VirtualScrollState,
 } from '../render/virtualScroll';
-import { byteClass, esc } from '../utils';
+import { addMatchSpan } from '../render/matchSpans';
+import { buildHexCells, type CellDecoration } from '../render/hexCells';
+import { esc } from '../utils';
 import { buildDiffRows, diffClassForSide, diffKindAt, getSideByte, renderDiffErrorHtml, type DiffRow, type DiffSideData } from './diffModel';
 import type { DiffProgressMessage } from './diffMessages';
 
@@ -34,7 +36,6 @@ type DiffPane = 'a' | 'b';
 const FALLBACK_ROW_HEIGHT = 20.8;
 const FALLBACK_GAP_HEIGHT = 35.2;
 const BUFFER_SIZE = 10;
-const EMPTY_CELL: HexViewCell = { hex: ' ', char: ' ', cls: 'be' };
 
 interface DiffGridData {
     rows: DiffRow[];
@@ -51,8 +52,15 @@ let data: DiffGridData | null = null;
 let visibleRows: DiffRow[] = [];
 let viewA: HexView | null = null;
 let viewB: HexView | null = null;
-let vscroll: VirtualScrollState | null = null;
-let vscrollContainer: HTMLElement | null = null;
+
+interface ScrollPane {
+    state: VirtualScrollState;
+    container: HTMLElement;
+}
+
+let scrollPaneA: ScrollPane | null = null;
+let scrollPaneB: ScrollPane | null = null;
+let lastDriver: DiffPane = 'a';
 let selection: HexViewRange | null = null;
 let selectionPane: DiffPane = 'a';
 let selAnchor: number | null = null;
@@ -64,6 +72,23 @@ let syncingScroll = false;
 let hooks: DiffGridHooks = {};
 let lastRenderKey: string | null = null;
 let renderHandle: number | null = null;
+
+function paneView(pane: DiffPane): HexView | null {
+    return pane === 'a' ? viewA : viewB;
+}
+
+function paneScroll(pane: DiffPane): ScrollPane | null {
+    return pane === 'a' ? scrollPaneA : scrollPaneB;
+}
+
+function setPaneScroll(pane: DiffPane, value: ScrollPane | null): void {
+    if (pane === 'a') { scrollPaneA = value; return; }
+    scrollPaneB = value;
+}
+
+function followerOf(driver: DiffPane): DiffPane {
+    return driver === 'a' ? 'b' : 'a';
+}
 
 export function setDiffGridHooks(next: DiffGridHooks): void {
     hooks = next;
@@ -96,8 +121,9 @@ export function resetDiffGrid(): void {
     visibleRows = [];
     viewA = null;
     viewB = null;
-    vscroll = null;
-    vscrollContainer = null;
+    scrollPaneA = null;
+    scrollPaneB = null;
+    lastDriver = 'a';
     selection = null;
     selectionPane = 'a';
     selAnchor = null;
@@ -113,8 +139,9 @@ export function resetDiffGrid(): void {
 export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): void {
     data = { rows: buildDiffRows(a, b), a, b, diff };
     visibleRows = filterRows(data.rows);
-    vscroll = null;
-    vscrollContainer = null;
+    scrollPaneA = null;
+    scrollPaneB = null;
+    lastDriver = 'a';
     selection = null;
     selectionPane = 'a';
     selAnchor = null;
@@ -147,7 +174,20 @@ export function getSyncScroll(): boolean {
 }
 
 export function setSyncScroll(on: boolean): void {
+    if (on === syncScroll) { return; }
     syncScroll = on;
+    if (on) { alignFollowerToDriver(); }
+    renderDiffGrid();
+}
+
+/** Re-enabling sync snaps the follower onto the driver's current position. */
+function alignFollowerToDriver(): void {
+    const driver = paneScroll(lastDriver);
+    const follower = paneScroll(followerOf(lastDriver));
+    if (!driver || !follower) { return; }
+    follower.state.scrollTop = driver.state.scrollTop;
+    paneView(followerOf(lastDriver))?.setScrollTop(driver.container.scrollTop);
+    paneView(followerOf(lastDriver))?.setScrollLeft(driver.container.scrollLeft);
 }
 
 function filterRows(rows: readonly DiffRow[]): DiffRow[] {
@@ -189,6 +229,11 @@ function setSelection(side: DiffPane, range: HexViewRange): void {
 function applySelection(side: DiffPane, start: number, end: number): void {
     selection = { start: Math.min(start, end), end: Math.max(start, end) };
     selectionPane = side;
+    paintMirroredSelection();
+}
+
+/** Repaint the host-owned selection on both panes (read-only mirror). */
+function paintMirroredSelection(): void {
     viewA?.paintSelection(selection);
     viewB?.paintSelection(selection);
 }
@@ -259,98 +304,132 @@ export function setSearchMatches(addrs: readonly number[], active: number, lengt
     renderDiffGrid();
 }
 
-/** Match-highlight width follows the executed needle span (parity with memoryGrid.addMatchSpan). */
+/** Match-highlight width follows the executed needle span (shared with memoryGrid). */
 function matchSetWithSpans(addrs: readonly number[], span: number): ReadonlySet<number> {
     const set = new Set<number>();
-    for (const addr of addrs) {
-        for (let i = 0; i < span; i++) { set.add(addr + i); }
-    }
+    for (const addr of addrs) { addMatchSpan(set, addr, span); }
     return set;
 }
 
 // ── Render ────────────────────────────────────────────────────────
 
 function renderDiffGrid(): void {
-    const slice = currentSlice();
-    if (!slice) { return; }
-    lastRenderKey = sliceKey(slice);
-    drawSlice(slice);
+    const a = currentSlice('a');
+    const b = currentSlice('b');
+    if (!a || !b) { return; }
+    lastRenderKey = sliceKey(a, b);
+    drawSlice(a, b);
 }
 
 /** Scroll-driven render: coalesced to one frame and skipped when the visible slice is unchanged. */
 function renderScrollSlice(): void {
-    const slice = currentSlice();
-    if (!slice) { return; }
-    const key = sliceKey(slice);
+    const a = currentSlice('a');
+    const b = currentSlice('b');
+    if (!a || !b) { return; }
+    const key = sliceKey(a, b);
     if (key === lastRenderKey) { return; }
     lastRenderKey = key;
-    drawSlice(slice);
+    drawSlice(a, b);
 }
 
-interface RenderSlice {
-    ui: GridContainers;
+interface PaneSlice {
+    rows: HTMLElement;
     state: VirtualScrollState;
+    container: HTMLElement;
     start: number;
     end: number;
 }
 
-function currentSlice(): RenderSlice | null {
-    const ui = gridContainers();
-    if (!ui || !data) { return null; }
-    const state = ensureScrollState(ui.scroll);
+function currentSlice(pane: DiffPane): PaneSlice | null {
+    const rows = document.getElementById(rowsId(pane));
+    const container = scrollContainer(pane);
+    if (!rows || !container || !data) { return null; }
+    const state = ensureScrollState(pane, container);
     const [start, end] = calcVisibleRange(state);
-    return { ui, state, start, end };
+    return { rows, state, container, start, end };
 }
 
-function sliceKey({ state, start, end }: RenderSlice): string {
-    // containerHeight is part of the scroll-state identity (`isCurrentScrollState`), so a
-    // resize that keeps the row range must still re-apply the physical layout.
-    return `${state.heightVersion}|${state.containerHeight}|${visibleRows.length}|${viewMode}|${syncScroll}|${start}|${end}`;
+function rowsId(pane: DiffPane): string {
+    return pane === 'a' ? 'diff-rows-a' : 'diff-rows-b';
+}
+
+function sliceKey(a: PaneSlice, b: PaneSlice): string {
+    // Each pane's containerHeight is part of its scroll-state identity
+    // (`isCurrentScrollState`), so a resize must still re-apply the layout.
+    return `${a.state.heightVersion}|${a.state.containerHeight}|${b.state.containerHeight}|` +
+        `${visibleRows.length}|${viewMode}|${syncScroll}|${a.start}|${a.end}|${b.start}|${b.end}`;
 }
 
 function emptyMessage(): string {
     return viewMode === 'diff' ? 'No differences' : 'No data records found.';
 }
 
-function renderEmptyGrid(ui: GridContainers, message: string): void {
+function renderEmptyGrid(a: PaneSlice, b: PaneSlice, message: string): void {
     const emptyHtml = `<div class="diff-empty">${esc(message)}</div>`;
-    ui.a.innerHTML = emptyHtml;
-    ui.b.innerHTML = emptyHtml;
+    a.rows.innerHTML = emptyHtml;
+    b.rows.innerHTML = emptyHtml;
 }
 
-function drawSlice({ ui, state, start, end }: RenderSlice): void {
-    if (visibleRows.length === 0) { renderEmptyGrid(ui, emptyMessage()); return; }
+function drawSlice(a: PaneSlice, b: PaneSlice): void {
+    if (visibleRows.length === 0) { renderEmptyGrid(a, b, emptyMessage()); return; }
+    drawPane(a, 'a');
+    drawPane(b, 'b');
+}
+
+/** Render one pane from its own scroll state and container position. */
+function drawPane(slice: PaneSlice, side: DiffPane): void {
+    const { state, start, end } = slice;
     const layout = calcScrollLayout(state);
-    applyVirtualScrollLayout(ui.a, layout);
-    applyVirtualScrollLayout(ui.b, layout);
+    applyVirtualScrollLayout(slice.rows, layout);
     const topSpacer = calcRowOffset(start, state);
     const bottomSpacer = calcTotalHeight(state) - calcRowOffset(end, state);
     const sliceHeight = calcRowOffset(end, state) - calcRowOffset(start, state);
-    const windowTop = clampWindowTop(ui.scroll.scrollTop + topSpacer - state.scrollTop, layout.physicalHeight, sliceHeight);
-    ui.a.innerHTML = renderHexViewHtml(buildInput('a', start, end, layout, windowTop, topSpacer, bottomSpacer));
-    ui.b.innerHTML = renderHexViewHtml(buildInput('b', start, end, layout, windowTop, topSpacer, bottomSpacer));
+    const windowTop = clampWindowTop(slice.container.scrollTop + topSpacer - state.scrollTop, layout.physicalHeight, sliceHeight);
+    slice.rows.innerHTML = renderHexViewHtml(buildInput(side, start, end, layout, windowTop, topSpacer, bottomSpacer));
 }
 
 export function scrollToDiff(range: HexViewRange, options: { selection?: boolean } = {}): void {
-    if (!data || !vscroll) { return; }
+    if (!data) { return; }
+    applySelectionOption(range, options);
     const rowIndex = findRowIndexForAddress(range.start);
     if (rowIndex < 0) { return; }
-    applySelectionOption(range, options);
-    scrollToRow(rowIndex, vscroll);
+    scrollToRow(rowIndex);
 }
 
 function applySelectionOption(range: HexViewRange, options: { selection?: boolean }): void {
-    if (options.selection !== false) { selection = range; }
+    if (options.selection === false) { return; }
+    selection = range;
+    selectionPane = paneForAddress(range.start) ?? paneForAddress(range.end) ?? selectionPane;
+    paintMirroredSelection();
 }
 
-function scrollToRow(rowIndex: number, state: VirtualScrollState): void {
+/** The pane that maps `addr`, so search-driven copy reads a pane that actually owns the bytes. */
+function paneForAddress(addr: number): DiffPane | null {
+    if (!data) { return null; }
+    if (getSideByte(data.a, addr) !== undefined) { return 'a'; }
+    if (getSideByte(data.b, addr) !== undefined) { return 'b'; }
+    return null;
+}
+
+/** Scroll to a row: both panes when sync is on, else only the navigated pane. */
+function scrollToRow(rowIndex: number): void {
+    if (syncScroll) {
+        scrollPaneToRow('a', rowIndex);
+        scrollPaneToRow('b', rowIndex);
+    } else {
+        scrollPaneToRow(selectionPane, rowIndex);
+    }
+    renderDiffGrid();
+}
+
+function scrollPaneToRow(pane: DiffPane, rowIndex: number): void {
+    const scroll = paneScroll(pane);
+    if (!scroll) { return; }
+    const { state } = scroll;
     const desiredTop = Math.max(0, calcRowOffset(rowIndex, state) - state.getRowHeight(rowIndex) * 2);
     const top = Math.min(desiredTop, calcScrollLayout(state).logicalScrollable);
     state.scrollTop = top;
-    const physicalTop = logicalToPhysicalScroll(top, state);
-    viewA?.setScrollTop(physicalTop);
-    viewB?.setScrollTop(physicalTop);
-    renderDiffGrid();
+    paneView(pane)?.setScrollTop(logicalToPhysicalScroll(top, state));
 }
 
 export function showDiffError(message: string): void {
@@ -393,21 +472,29 @@ function progressPercent(message: DiffProgressMessage): number {
 
 // ── Scroll sync ───────────────────────────────────────────────────
 
-/** Re-slice the driver grid; mirror onto the follower only when sync is on. */
+/** Re-slice the driver pane; mirror onto the follower only when sync is on. */
 function syncFrom(driver: DiffPane, top: number, left: number): void {
-    if (isSyncBlocked()) { return; }
+    const driverScroll = activeDriverScroll(driver);
+    if (!driverScroll) { return; }
     syncingScroll = true;
     try {
-        vscroll!.scrollTop = physicalToLogicalScroll(top, vscroll!);
-        scheduleRender();
-        if (syncScroll) { mirrorToFollower(driver, top, left); }
+        applyDriverScroll(driver, driverScroll, top, left);
     } finally {
         syncingScroll = false;
     }
 }
 
-function isSyncBlocked(): boolean {
-    return syncingScroll || !data || !vscroll;
+function activeDriverScroll(driver: DiffPane): ScrollPane | null {
+    if (syncingScroll || !data) { return null; }
+    return paneScroll(driver);
+}
+
+function applyDriverScroll(driver: DiffPane, driverScroll: ScrollPane, top: number, left: number): void {
+    const logicalTop = physicalToLogicalScroll(top, driverScroll.state);
+    driverScroll.state.scrollTop = logicalTop;
+    lastDriver = driver;
+    if (syncScroll) { mirrorToFollower(driver, top, logicalTop, left); }
+    scheduleRender();
 }
 
 /** Coalesce scroll-driven re-renders to one per animation frame. */
@@ -442,14 +529,14 @@ export function flushDiffRender(): void {
     renderScrollSlice();
 }
 
-function mirrorToFollower(driver: DiffPane, top: number, left: number): void {
+/** Mirror the driver's physical position and derived logical window onto the follower. */
+function mirrorToFollower(driver: DiffPane, top: number, logicalTop: number, left: number): void {
     const follower = followerOf(driver);
-    follower?.setScrollTop(top);
-    follower?.setScrollLeft(left);
-}
-
-function followerOf(driver: DiffPane): HexView | null {
-    return driver === 'a' ? viewB : viewA;
+    const scroll = paneScroll(follower);
+    if (!scroll) { return; }
+    scroll.state.scrollTop = logicalTop;
+    paneView(follower)?.setScrollTop(top);
+    paneView(follower)?.setScrollLeft(left);
 }
 
 // ── Render input building ─────────────────────────────────────────
@@ -490,25 +577,12 @@ function toHexRow(row: DiffRow, side: DiffPane, sideData: DiffSideData): HexView
 }
 
 function buildCells(base: number, side: DiffPane, sideData: DiffSideData): HexViewCell[] {
-    const cells: HexViewCell[] = [];
-    for (let col = 0; col < BYTES_PER_ROW; col++) {
-        const addr = base + col;
-        const val = getSideByte(sideData, addr);
-        cells.push(val === undefined ? EMPTY_CELL : dataCell(val, side, addr));
-    }
-    return cells;
+    return buildHexCells(base, BYTES_PER_ROW, addr => getSideByte(sideData, addr), addr => diffDecoration(side, addr));
 }
 
-function dataCell(val: number, side: DiffPane, addr: number): HexViewCell {
-    const printable = val >= 0x20 && val < 0x7F;
+function diffDecoration(side: DiffPane, addr: number): CellDecoration {
     const diffCls = diffClassForSide(side, diffKindAt(data!.diff.runs, addr));
-    return {
-        hex: val.toString(16).toUpperCase().padStart(2, '0'),
-        char: printable ? esc(String.fromCharCode(val)) : '',
-        cls: byteClass(val) + diffCls,
-        charCls: (printable ? 'cp' : 'cd') + diffCls,
-        val,
-    };
+    return { hexCls: diffCls, charCls: diffCls };
 }
 
 // ── Virtual-scroll metrics ────────────────────────────────────────
@@ -522,34 +596,49 @@ function rowMetrics(): { rowHeight: number; gapHeight: number } {
     return { rowHeight: FALLBACK_ROW_HEIGHT, gapHeight: FALLBACK_GAP_HEIGHT };
 }
 
-function ensureScrollState(scrollEl: HTMLElement): VirtualScrollState {
+interface ScrollStateSeed {
+    version: string;
+    rowCount: number;
+    rowHeight: number;
+    gapHeight: number;
+}
+
+function ensureScrollState(pane: DiffPane, scrollEl: HTMLElement): VirtualScrollState {
     const { rowHeight, gapHeight } = rowMetrics();
     const version = `${rowHeight.toFixed(3)}:${gapHeight.toFixed(3)}`;
     const rowCount = visibleRows.length;
-    if (isCurrentScrollState(scrollEl, version, rowCount)) { return vscroll!; }
+    const current = paneScroll(pane);
+    if (current && isCurrentScrollState(current, scrollEl, version, rowCount)) { return current.state; }
 
-    const logicalTop = vscroll && vscrollContainer === scrollEl
-        ? physicalToLogicalScroll(scrollEl.scrollTop, vscroll)
-        : scrollEl.scrollTop;
-    vscroll = {
-        containerHeight: scrollEl.clientHeight,
-        scrollTop: logicalTop,
-        bufferSize: BUFFER_SIZE,
-        visibleRowIndices: [0, 0],
-        rowCount,
-        heightVersion: version,
-        getRowHeight: index => visibleRows[index]?.kind === 'gap' ? gapHeight : rowHeight,
-    };
-    vscrollContainer = scrollEl;
-    return vscroll;
+    const state = createScrollState(scrollEl, current, { version, rowCount, rowHeight, gapHeight });
+    setPaneScroll(pane, { state, container: scrollEl });
+    return state;
 }
 
-function isCurrentScrollState(scrollEl: HTMLElement, version: string, rowCount: number): boolean {
-    if (!vscroll || vscrollContainer !== scrollEl) { return false; }
+function createScrollState(scrollEl: HTMLElement, current: ScrollPane | null, seed: ScrollStateSeed): VirtualScrollState {
+    return {
+        containerHeight: scrollEl.clientHeight,
+        scrollTop: carriedLogicalTop(scrollEl, current),
+        bufferSize: BUFFER_SIZE,
+        visibleRowIndices: [0, 0],
+        rowCount: seed.rowCount,
+        heightVersion: seed.version,
+        getRowHeight: index => visibleRows[index]?.kind === 'gap' ? seed.gapHeight : seed.rowHeight,
+    };
+}
+
+/** Preserve the logical position across a state rebuild for the same container. */
+function carriedLogicalTop(scrollEl: HTMLElement, current: ScrollPane | null): number {
+    if (!current || current.container !== scrollEl) { return scrollEl.scrollTop; }
+    return physicalToLogicalScroll(scrollEl.scrollTop, current.state);
+}
+
+function isCurrentScrollState(current: ScrollPane, scrollEl: HTMLElement, version: string, rowCount: number): boolean {
+    if (current.container !== scrollEl) { return false; }
     return [
-        vscroll.heightVersion === version,
-        vscroll.rowCount === rowCount,
-        vscroll.containerHeight === scrollEl.clientHeight,
+        current.state.heightVersion === version,
+        current.state.rowCount === rowCount,
+        current.state.containerHeight === scrollEl.clientHeight,
     ].every(Boolean);
 }
 
@@ -572,20 +661,7 @@ function renderHeaders(): void {
     }
 }
 
-interface GridContainers {
-    a: HTMLElement;
-    b: HTMLElement;
-    scroll: HTMLElement;
-}
-
-function gridContainers(): GridContainers | null {
-    const a = document.getElementById('diff-rows-a');
-    const b = document.getElementById('diff-rows-b');
-    const scroll = scrollContainerA();
-    if (!a || !b || !scroll) { return null; }
-    return { a, b, scroll };
-}
-
-function scrollContainerA(): HTMLElement | null {
-    return document.getElementById('diff-a')?.querySelector<HTMLElement>('.mem-scroll') ?? null;
+function scrollContainer(pane: DiffPane): HTMLElement | null {
+    const rootId = pane === 'a' ? 'diff-a' : 'diff-b';
+    return document.getElementById(rootId)?.querySelector<HTMLElement>('.mem-scroll') ?? null;
 }
