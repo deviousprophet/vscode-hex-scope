@@ -192,8 +192,8 @@ export async function runCompare(
 ): Promise<boolean> {
     if (!pair) { deps.warn(hint); return false; }
     if (!(await bothComparable(pair, deps.validate))) { return false; }
-    onSuccess?.();
     await deps.open(pair[0], pair[1]);
+    onSuccess?.();
     return true;
 }
 

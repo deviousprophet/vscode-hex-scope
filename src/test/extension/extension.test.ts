@@ -256,6 +256,20 @@ suite('HexScope compare commands', () => {
         assert.strictEqual(cleared, false);
     });
 
+    test('Compare with the 1st file keeps the stash when opening the panel fails', async () => {
+        const deps: CompareCommandDeps = {
+            validate: async () => true,
+            open: async () => { throw new Error('panel failed'); },
+            warn: () => { /* noop */ },
+        };
+        let cleared = false;
+        await assert.rejects(
+            runCompare(stashedComparePair({ uri: a, name: 'a.hex' }, b), COMPARE_SELECT_HINT, deps, () => { cleared = true; }),
+            /panel failed/,
+        );
+        assert.strictEqual(cleared, false, 'a failed open must not clear the staged file');
+    });
+
     test('Set as 1st file stashes a supported file and names the next step', () => {
         const { stashed, warnings, infos, deps } = selectDeps();
         const result = selectAsFirst(a, deps);
