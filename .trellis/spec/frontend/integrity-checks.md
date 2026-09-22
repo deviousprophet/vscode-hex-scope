@@ -38,9 +38,9 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 - Start/end addresses are hexadecimal unsigned 32-bit and inclusive.
 - Every address in a range must be mapped unless it belongs to an explicitly excluded stored field.
 - Large byte collection and software integrity algorithms use the shared 24 ms work budget and yield cooperatively; SHA algorithms remain delegated to Web Crypto.
-- Every integrity algorithm may compare against stored bytes and supports selected stored byte order.
+- Every integrity algorithm may compare against stored bytes. Selected stored byte order (LE/BE) applies to checksums (CRC16/CRC32) only; MD5/SHA-1/SHA-256/SHA-512 are fixed byte sequences with no integer endianness and always use natural byte order (`isChecksumAlgorithm()` in `src/core/integrity.ts` is the single gate — see Wrong vs Correct).
 - If stored field overlaps calculated range, exclude its bytes from calculation.
-- Calculated value text is uppercase; conversion to stored bytes honors selected LE/BE.
+- Calculated value text is uppercase; conversion to stored bytes honors selected LE/BE for checksums and is always natural order for hashes. The stored pane shows an endian tag only for checksums (`Stored (LE)`/`Stored (BE)`); hash panes read plain `Stored`.
 - Checks use pending edited bytes through the shared reader.
 - Auto fix stages expected stored bytes through the edit transaction seam; suppression prevents an immediate recalculation loop from reapplying the same mismatch.
 - Fix all merges edits first and fails atomically on conflicting overlapping byte values.
@@ -65,7 +65,7 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 ### 5. Good/Base/Bad Cases
 
 - Base: SHA-256 over one mapped inclusive range shows digest and byte count; an optional full-digest stored field compares, highlights, and fixes.
-- Good: an integrity stored field overlaps range; bytes are excluded, expected value converted to selected byte order, mismatch is highlighted, fix is undoable.
+- Good: an integrity stored field overlaps range; bytes are excluded, expected value converted to selected byte order for checksums (natural order for hashes), mismatch is highlighted, fix is undoable.
 - Good: profile round-trip preserves `activeChecks` as normalized schema-v1 config inside the bound profile.
 - Bad: calculate across a gap by skipping missing bytes.
 - Bad: partially apply Fix all before discovering an overlap conflict.
@@ -92,5 +92,20 @@ const merged = mergeIntegrityEdits(fixes);
 if (!merged.ok) return showError(merged.error);
 stageIntegrityEditTransaction(merged.value);
 ```
+
+#### Wrong (byte order applied to every algorithm)
+
+```typescript
+check.expectedBytes = integrityValueToBytes(result.value, hooks.endian());
+```
+
+#### Correct
+
+```typescript
+const byteOrder = isChecksumAlgorithm(check.algorithm) ? hooks.endian() : 'be';
+check.expectedBytes = integrityValueToBytes(result.value, byteOrder);
+```
+
+Reversing a hash digest under LE makes byte-perfect matches report Mismatch and writes the reversed digest back through Auto fix / Fix all. `expectedBytes` feeds compare, highlight, and writeback, so the gate belongs exactly once at this seam. The same gate (and the checksum-only stored label) applies in `integrityResultRender.ts` for the stored pane.
 
 Core integrity module owns validation/algorithms; sidebar owns presentation and async scheduling.
