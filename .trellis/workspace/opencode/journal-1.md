@@ -189,3 +189,27 @@ Implemented and verified child hex-diff-spec-doc-reconcile: updated directory-st
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: DiffView scroll glitch: wrapper reposition, scroll anchoring, viewport overscan
+<!-- trellis-session: v=2 fp=1de6a80fe4510c64 -->
+
+**Date**: 2026-09-22
+**Task**: DiffView scroll glitch: wrapper reposition, scroll anchoring, viewport overscan
+**Branch**: `feat/hex-diff`
+
+### Summary
+
+Fixed the blank/jittery active-scroll pane in the hex diff view across three compounding causes. 1) renderScrollSlice skip path now repositions the compressed rows wrapper every frame (repositionPane) so the slice tracks native scrollTop, without rebuilding row HTML. 2) Disabled browser scroll anchoring on .mem-scroll (overflow-anchor: none) since the host owns scroll position and virtualization's per-frame DOM rewrites were being treated as layout shifts. 3) Made overscan viewport-scaled: overscanRowCount (shared in render/virtualScroll.ts) floors at 10 rows and grows to one full viewport per side; applied to the diff panes and the memory grid (at mount and, newly, on resize). Renamed VIRTUAL_SCROLL_CONFIG.bufferSize to minBufferSize. Added regression tests for wrapper repositioning and overscan; shared-helper unit test. tsc, lint, and npm test (1089 passing) all clean.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `59c3409` | fix(diff): reposition compressed rows wrapper on every scroll frame |
+| `5b13255` | fix(diff): disable scroll anchoring on the hex scroll container |
+| `ed75695` | refactor(vscroll): share viewport-scaled overscan across grid hosts |
+
+### Status
+
+[OK] **Completed**
