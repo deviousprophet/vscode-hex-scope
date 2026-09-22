@@ -213,3 +213,25 @@ Fixed the blank/jittery active-scroll pane in the hex diff view across three com
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: DiffView search latency: incremental paint + single-render jump
+<!-- trellis-session: v=2 fp=2d4613bff881f7a9 -->
+
+**Date**: 2026-09-22
+**Task**: DiffView search latency: incremental paint + single-render jump
+**Branch**: `feat/hex-diff`
+
+### Summary
+
+Cut DiffView search latency: streamed batches repaint matches incrementally via a new DiffView.paintMatch (no double-pane innerHTML rebuild), a jump is one setSearchMatches + one scrollToActive, and a one-shot programmatic-scroll guard suppresses the redundant poll render. Gates green (tsc, lint, npm test 1117, fallow 0, audit pass); diffSearch.ts untouched (R2 already held). Also in this session: DiffView component extraction (3f60400) and the Show diff separator line (8c7d9bf).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `68d6090` | perf(diff): incremental match paint and single-render search jump |
+
+### Status
+
+[OK] **Completed**
