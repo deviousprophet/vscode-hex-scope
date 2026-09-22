@@ -8,7 +8,6 @@
 // This module never imports the `S` global and never posts provider
 // messages.
 
-import type { IncomingFile } from '../../appModel';
 import { esc } from '../../utils';
 import './externalChange.css';
 
@@ -78,7 +77,7 @@ function createExternalErrorAction(canQuickRepair: boolean): HTMLButtonElement {
 
 export class ExternalChange {
     /** Renders into host-provided #app; each show replaces its own kind first. */
-    showConflict(incoming: IncomingFile, unsavedEditCount: number, onReload: (incoming: IncomingFile) => void): void {
+    showConflict<T>(incoming: T, unsavedEditCount: number, onReload: (incoming: T) => void): void {
         document.getElementById('ext-conflict-banner')?.remove();
 
         const banner = document.createElement('div');
@@ -94,7 +93,7 @@ export class ExternalChange {
         });
     }
 
-    showReload(incoming: IncomingFile, onReload: (incoming: IncomingFile) => void): void {
+    showReload<T>(incoming: T, onReload: (incoming: T) => void): void {
         document.getElementById('ext-reload-banner')?.remove();
 
         const banner = document.createElement('div');
