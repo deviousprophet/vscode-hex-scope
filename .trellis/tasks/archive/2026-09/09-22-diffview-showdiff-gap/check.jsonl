@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify Show diff separator behavior, row model, and Tests Required match the change"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Verify the gap row still renders its text in Show all and the line-only variant adds no regression"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Check host-vs-component boundary and no direct DOM writes"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Check the line style uses tokens and stays in the owning stylesheet"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Confirm gates and coverage for the new behavior + degenerate cases"}
+{"file": ".trellis/tasks/09-22-diffview-showdiff-gap/prd.md", "reason": "Acceptance criteria to verify against the diff"}
