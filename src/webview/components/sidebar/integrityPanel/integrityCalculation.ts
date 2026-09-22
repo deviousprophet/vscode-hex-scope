@@ -8,6 +8,7 @@
 import {
     calculateIntegrity,
     collectIntegrityBytesAsync,
+    integrityByteOrder,
     integrityValueToBytes,
     parseIntegrityAddress,
     readStoredIntegrityBytes,
@@ -140,7 +141,7 @@ function applyCalculatedResultIfCurrent(
 ): void {
     if (token !== check.token) { return; }
     check.result = result;
-    check.expectedBytes = integrityValueToBytes(result.value, hooks.endian());
+    check.expectedBytes = integrityValueToBytes(result.value, integrityByteOrder(check.algorithm, hooks.endian()));
     check.storedBytes = null;
     check.calculating = false;
     check.meta = formatByteCount(result.byteCount);

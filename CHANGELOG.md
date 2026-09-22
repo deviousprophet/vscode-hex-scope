@@ -9,6 +9,9 @@
 - A diff search bar that queries both files at once and matches the hex search behavior: repeat Enter on an unchanged completed query steps through matches, results stream in while searching, the active match is selected, and next/previous wrap at the ends
 - Diff comparisons read and parse both files in parallel worker threads, so a pair loads in roughly one file's parse time, behind the shared indeterminate loading card with progress that only advances
 
+### Fixed
+- Integrity checks with a stored MD5 or SHA value now compare and update correctly when the byte-order toggle is `LE`; hash digests stay in natural byte order and the stored pane no longer shows an `LE`/`BE` tag for hashes
+
 ## [2.24.0] - 2026-09-21
 
 ### Added
