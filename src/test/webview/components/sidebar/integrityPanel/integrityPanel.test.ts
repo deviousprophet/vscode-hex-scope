@@ -367,9 +367,98 @@ suite('IntegrityPanel results + auto fix', () => {
         await waitForCalculation();
         assert.ok(integrityCard().querySelector('.integrity-value-pane.stored')!.classList.contains('mismatch'));
         click(dom, document.getElementById('integrity-fix-all'));
-        const expected = integrityValueToBytes((await calculateIntegrity('sha-1', new Uint8Array([1, 2, 3, 4]))).value, 'le');
+        const expected = integrityValueToBytes((await calculateIntegrity('sha-1', new Uint8Array([1, 2, 3, 4]))).value, 'be');
         assert.deepStrictEqual(cb.staged[0], Array.from(expected, (byte, offset): [number, number] => [0x1004 + offset, byte]));
         assert.strictEqual(cb.staged[0].length, 20);
+    });
+
+    test('correct hash digest compares in natural byte order under endian=LE', async function () {
+        this.timeout(5_000);
+        harness.endian.value = 'le';
+        S.edits.clear();
+        const digest = (await calculateIntegrity('sha-256', new Uint8Array([1, 2, 3, 4]))).value;
+        const digestBytes = integrityValueToBytes(digest, 'be');
+        setBytesInSegment(0x1000, [1, 2, 3, 4, ...digestBytes]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'sha-256');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1003');
+        setDraftValue(form, 'stored', '1004');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        await waitForCalculation();
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Match');
+        assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.stored code')!.textContent, `0x${digest}`);
+        assert.strictEqual(cb.staged.length, 0, 'a correct digest must not stage an auto fix');
+        const autoFix = integrityCard().querySelector<HTMLInputElement>('[data-auto-fix]')!;
+        autoFix.checked = true;
+        autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual(cb.staged.length, 0, 'enabling Auto fix on a match must not stage edits');
+    });
+
+    test('wrong stored hash mismatches and Auto fix stages natural-order digest bytes', async function () {
+        this.timeout(5_000);
+        harness.endian.value = 'le';
+        S.edits.clear();
+        const digest = (await calculateIntegrity('sha-256', new Uint8Array([1, 2, 3, 4]))).value;
+        const digestBytes = integrityValueToBytes(digest, 'be');
+        setBytesInSegment(0x1000, [1, 2, 3, 4, ...Array(32).fill(0)]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'sha-256');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1003');
+        setDraftValue(form, 'stored', '1004');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        await waitForCalculation();
+        assert.ok(integrityCard().querySelector('.integrity-value-pane.stored')!.classList.contains('mismatch'));
+        const autoFix = integrityCard().querySelector<HTMLInputElement>('[data-auto-fix]')!;
+        autoFix.checked = true;
+        autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.deepStrictEqual(
+            cb.staged[0],
+            Array.from(digestBytes, (byte, offset): [number, number] => [0x1004 + offset, byte]),
+            'Auto fix writes the digest in natural order (not endian-reversed)',
+        );
+    });
+
+    test('stored pane endian tag is checksum-only', async function () {
+        this.timeout(5_000);
+        harness.endian.value = 'le';
+        S.edits.clear();
+        const digest = (await calculateIntegrity('sha-256', new Uint8Array([1, 2, 3, 4]))).value;
+        setBytesInSegment(0x1000, [1, 2, 3, 4, ...integrityValueToBytes(digest, 'be')]);
+        click(dom, document.getElementById('integrity-add-btn'));
+        let form = integrityForm('add');
+        setAlgorithm(dom, form, 'crc16-ccitt-false');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1001');
+        setDraftValue(form, 'stored', '1002');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        await waitForCalculation();
+        assert.strictEqual(
+            integrityCard(0).querySelector('.integrity-value-pane.stored .integrity-value-hdr span')!.textContent,
+            'Stored (LE)',
+            'checksum stored pane keeps the endian tag',
+        );
+        click(dom, document.getElementById('integrity-add-btn'));
+        form = integrityForm('add');
+        setAlgorithm(dom, form, 'sha-256');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1003');
+        setDraftValue(form, 'stored', '1004');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        assert.strictEqual(
+            integrityCard(1).querySelector('.integrity-value-pane.stored .integrity-value-hdr span')!.textContent,
+            'Stored',
+            'pending hash stored pane has no endian tag',
+        );
+        await waitForCalculation();
+        assert.strictEqual(
+            integrityCard(1).querySelector('.integrity-value-pane.stored .integrity-value-hdr span')!.textContent,
+            'Stored',
+            'calculated hash stored pane has no endian tag',
+        );
     });
 
     test('notifyEndianChanged re-decodes stored byte order', async function () {

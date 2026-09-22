@@ -8,6 +8,7 @@ import {
     integrityBytesEqual,
     integrityBytesToHex,
     integrityBytesToValueHex,
+    isChecksumAlgorithm,
     type IntegrityAlgorithm,
     type IntegrityResult,
 } from '../../../../core/integrity';
@@ -102,8 +103,9 @@ function pendingResultBodyHtml(check: IntegrityCheckState, deps: IntegrityResult
 }
 
 function pendingStoredResultHtml(check: IntegrityCheckState, deps: IntegrityResultRenderDeps): string {
+    const storedLabel = isChecksumAlgorithm(check.algorithm) ? `Stored (${deps.endian().toUpperCase()})` : 'Stored';
     return `<div class="integrity-value-pane stored unverified pending">
-    <div class="integrity-value-hdr"><span>Stored (${deps.endian().toUpperCase()})</span>${autoFixToggleHtml(check, deps.isAutoFixSuppressed(check))}</div>
+    <div class="integrity-value-hdr"><span>${storedLabel}</span>${autoFixToggleHtml(check, deps.isAutoFixSuppressed(check))}</div>
     <code>${formatHexHtml('0x—')}</code>
 </div>`;
 }
@@ -139,9 +141,11 @@ function storedResultHtml(check: IntegrityCheckState, deps: IntegrityResultRende
     if (!check.storedBytes) { return ''; }
     const state = highlightStatus(check);
     const raw = integrityBytesToHex(check.storedBytes);
-    const value = integrityBytesToValueHex(check.storedBytes, deps.endian());
+    const byteOrder = isChecksumAlgorithm(check.algorithm) ? deps.endian() : 'be';
+    const value = integrityBytesToValueHex(check.storedBytes, byteOrder);
+    const storedLabel = isChecksumAlgorithm(check.algorithm) ? `Stored (${deps.endian().toUpperCase()})` : 'Stored';
     return `<div class="integrity-value-pane stored ${state}">
-    <div class="integrity-value-hdr"><span>Stored (${deps.endian().toUpperCase()})</span>${autoFixToggleHtml(check, deps.isAutoFixSuppressed(check))}</div>
+    <div class="integrity-value-hdr"><span>${storedLabel}</span>${autoFixToggleHtml(check, deps.isAutoFixSuppressed(check))}</div>
     <code title="Raw bytes: 0x${raw}">${formatHexHtml(`0x${value}`)}</code>
 </div>`;
 }
