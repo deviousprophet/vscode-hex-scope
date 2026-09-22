@@ -37,6 +37,8 @@ type DiffPane = 'a' | 'b';
 const FALLBACK_ROW_HEIGHT = 20.8;
 const FALLBACK_GAP_HEIGHT = 35.2;
 const BUFFER_SIZE = 10;
+/** Poll frames of an unchanged driver `scrollTop` before the scroll is treated as settled. */
+const SETTLE_FRAMES = 2;
 
 interface DiffGridData {
     rows: DiffRow[];
@@ -73,6 +75,12 @@ let syncingScroll = false;
 let hooks: DiffGridHooks = {};
 let lastRenderKey: string | null = null;
 let renderHandle: number | null = null;
+let scrollPollHandle: number | null = null;
+let pollDriver: DiffPane | null = null;
+let lastPolledTop = 0;
+let stableFrames = 0;
+let paneTopA: number | null = null;
+let paneTopB: number | null = null;
 
 function paneView(pane: DiffPane): HexView | null {
     return pane === 'a' ? viewA : viewB;
@@ -134,6 +142,9 @@ export function resetDiffGrid(): void {
     syncScroll = true;
     syncingScroll = false;
     cancelPendingRender();
+    stopScrollPoll();
+    paneTopA = null;
+    paneTopB = null;
     lastRenderKey = null;
 }
 
@@ -151,6 +162,7 @@ export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     viewMode = 'all';
     syncScroll = true;
     cancelPendingRender();
+    stopScrollPoll();
     lastRenderKey = null;
     clearDiffError();
     renderHeaders();
@@ -168,6 +180,7 @@ export function applyReload(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     matchSet = new Set();
     activeMatch = null;
     cancelPendingRender();
+    stopScrollPoll();
     lastRenderKey = null;
     clearDiffError();
     renderHeaders();
@@ -275,6 +288,7 @@ export function getSyncScroll(): boolean {
 export function setSyncScroll(on: boolean): void {
     if (on === syncScroll) { return; }
     syncScroll = on;
+    stopScrollPoll();
     if (on) { alignFollowerToDriver(); }
     renderDiffGrid();
 }
@@ -425,17 +439,72 @@ function renderScrollSlice(): void {
     const a = currentSlice('a');
     const b = currentSlice('b');
     if (!a || !b) { return; }
-    const key = sliceKey(a, b);
-    if (key === lastRenderKey) {
-        repositionPane(a);
-        repositionPane(b);
-        return;
-    }
-    lastRenderKey = key;
-    drawSlice(a, b);
+    renderSlices(a, b, refreshSliceKey(a, b));
 }
 
-function repositionPane(slice: PaneSlice): void {
+/** Recompute the slice key; true when the visible slice changed since the last render. */
+function refreshSliceKey(a: PaneSlice, b: PaneSlice): boolean {
+    const key = sliceKey(a, b);
+    if (key === lastRenderKey) { return false; }
+    lastRenderKey = key;
+    return true;
+}
+
+function renderSlices(a: PaneSlice, b: PaneSlice, changed: boolean): void {
+    const driver = sliceFor(lastDriver, a, b);
+    const follower = sliceFor(followerOf(lastDriver), a, b);
+    if (isTrackingFrame(changed)) { trackFollower(driver, follower); return; }
+    reconcileSlices(a, b, changed);
+}
+
+function sliceFor(pane: DiffPane, a: PaneSlice, b: PaneSlice): PaneSlice {
+    return pane === 'a' ? a : b;
+}
+
+/** An active poll frame with no slice change: track visually, defer the real writes. */
+function isTrackingFrame(changed: boolean): boolean {
+    return syncScroll && pollDriver !== null && !changed;
+}
+
+function trackFollower(driver: PaneSlice, follower: PaneSlice): void {
+    repositionPane(driver, lastDriver);
+    applyFollowerVisual(driver, follower);
+}
+
+function reconcileSlices(a: PaneSlice, b: PaneSlice, changed: boolean): void {
+    const driverPane = lastDriver;
+    const followerPane = followerOf(driverPane);
+    const driver = sliceFor(driverPane, a, b);
+    const follower = sliceFor(followerPane, a, b);
+    if (syncScroll) { reconcileFollower(driver, follower); }
+    if (changed) { drawSlice(a, b); return; }
+    repositionPane(driver, driverPane);
+    if (syncScroll) { repositionPane(follower, followerPane); }
+}
+
+/** Per-frame visual tracking: shift the follower by the un-reconciled delta (compositor-only). */
+function applyFollowerVisual(driver: PaneSlice, follower: PaneSlice): void {
+    const delta = driver.container.scrollTop - follower.container.scrollTop;
+    follower.rows.style.transform = delta === 0 ? '' : `translateY(${-delta}px)`;
+}
+
+/** Real follower step: write the native position and drop the accumulated transform. */
+function reconcileFollower(driver: PaneSlice, follower: PaneSlice): void {
+    follower.container.scrollTop = driver.container.scrollTop;
+    follower.state.scrollTop = driver.state.scrollTop;
+    follower.rows.style.transform = '';
+}
+
+function lastPaneTop(pane: DiffPane): number | null {
+    return pane === 'a' ? paneTopA : paneTopB;
+}
+
+function setLastPaneTop(pane: DiffPane, top: number | null): void {
+    if (pane === 'a') { paneTopA = top; return; }
+    paneTopB = top;
+}
+
+function repositionPane(slice: PaneSlice, pane: DiffPane): void {
     const layout = calcScrollLayout(slice.state);
     if (!layout.isCompressed) { return; }
     const wrapper = slice.rows.firstElementChild as HTMLElement | null;
@@ -443,6 +512,8 @@ function repositionPane(slice: PaneSlice): void {
     const topSpacer = calcRowOffset(slice.start, slice.state);
     const sliceHeight = calcRowOffset(slice.end, slice.state) - topSpacer;
     const windowTop = clampWindowTop(slice.container.scrollTop + topSpacer - slice.state.scrollTop, layout.physicalHeight, sliceHeight);
+    if (lastPaneTop(pane) === windowTop) { return; }
+    setLastPaneTop(pane, windowTop);
     wrapper.style.top = `${windowTop}px`;
 }
 
@@ -485,6 +556,9 @@ function renderEmptyGrid(a: PaneSlice, b: PaneSlice, message: string): void {
 }
 
 function drawSlice(a: PaneSlice, b: PaneSlice): void {
+    // A real draw re-derives both wrappers, so no transform may survive it.
+    a.rows.style.transform = '';
+    b.rows.style.transform = '';
     if (visibleRows.length === 0) { renderEmptyGrid(a, b, emptyMessage()); return; }
     drawPane(a, 'a');
     drawPane(b, 'b');
@@ -500,6 +574,7 @@ function drawPane(slice: PaneSlice, side: DiffPane): void {
     const sliceHeight = calcRowOffset(end, state) - calcRowOffset(start, state);
     const windowTop = clampWindowTop(slice.container.scrollTop + topSpacer - state.scrollTop, layout.physicalHeight, sliceHeight);
     slice.rows.innerHTML = renderHexViewHtml(buildInput(side, start, end, layout, windowTop, topSpacer, bottomSpacer));
+    setLastPaneTop(side, layout.isCompressed ? windowTop : null);
 }
 
 export function scrollToDiff(range: HexViewRange, options: { selection?: boolean } = {}): void {
@@ -607,13 +682,82 @@ function applyDriverScroll(driver: DiffPane, driverScroll: ScrollPane, top: numb
     const logicalTop = physicalToLogicalScroll(top, driverScroll.state);
     driverScroll.state.scrollTop = logicalTop;
     lastDriver = driver;
-    if (syncScroll) { mirrorToFollower(driver, top, logicalTop, left); }
+    if (syncScroll) {
+        mirrorFollowerState(driver, logicalTop);
+        mirrorFollowerLeft(driver, left);
+        startScrollPoll(driver);
+    }
     scheduleRender();
 }
 
-/** Coalesce scroll-driven re-renders to one per animation frame. */
+/** The follower's logical window tracks the driver every frame; its native position waits for reconcile. */
+function mirrorFollowerState(driver: DiffPane, logicalTop: number): void {
+    const scroll = paneScroll(followerOf(driver));
+    if (scroll) { scroll.state.scrollTop = logicalTop; }
+}
+
+function mirrorFollowerLeft(driver: DiffPane, left: number): void {
+    paneView(followerOf(driver))?.setScrollLeft(left);
+}
+
+// ── Driver poll (live scrollTop per frame) ────────────────────────
+// The driver's native scrollTop is animated by the compositor and `scroll` events
+// are coalesced, so the follower is driven from a per-frame read instead.
+
+function startScrollPoll(driver: DiffPane): void {
+    if (!syncScroll || scrollPollHandle !== null) { return; }
+    pollDriver = driver;
+    stableFrames = 0;
+    lastPolledTop = paneScroll(driver)?.container.scrollTop ?? 0;
+    scrollPollHandle = requestFrame(pollFrame);
+}
+
+function pollFrame(): void {
+    scrollPollHandle = null;
+    const driver = pollDriver;
+    if (driver === null) { stopScrollPoll(); return; }
+    const scroll = paneScroll(driver);
+    if (!scroll) { stopScrollPoll(); return; }
+    if (reachedSettle(scroll)) { finalizeFollower(driver); return; }
+    drivePollState(driver);
+    renderScrollSlice();
+    scrollPollHandle = requestFrame(pollFrame);
+}
+
+/** Record this frame's driver position; true once it has held for `SETTLE_FRAMES` frames. */
+function reachedSettle(scroll: ScrollPane): boolean {
+    const physicalTop = scroll.container.scrollTop;
+    stableFrames = physicalTop === lastPolledTop ? stableFrames + 1 : 0;
+    lastPolledTop = physicalTop;
+    return stableFrames >= SETTLE_FRAMES;
+}
+
+function drivePollState(driver: DiffPane): void {
+    const scroll = paneScroll(driver);
+    if (!scroll) { return; }
+    const logicalTop = physicalToLogicalScroll(scroll.container.scrollTop, scroll.state);
+    scroll.state.scrollTop = logicalTop;
+    lastDriver = driver;
+    if (syncScroll) { mirrorFollowerState(driver, logicalTop); }
+}
+
+/** Settle: stop the poll, then reconcile the follower's real scrollTop and transform. */
+function finalizeFollower(driver: DiffPane): void {
+    stopScrollPoll();
+    drivePollState(driver);
+    renderScrollSlice();
+}
+
+function stopScrollPoll(): void {
+    if (scrollPollHandle !== null) { cancelFrame(scrollPollHandle); }
+    scrollPollHandle = null;
+    pollDriver = null;
+    stableFrames = 0;
+}
+
+/** Coalesce scroll-driven re-renders to one per animation frame (the poll owns frames while alive). */
 function scheduleRender(): void {
-    if (renderHandle !== null) { return; }
+    if (scrollPollHandle !== null || renderHandle !== null) { return; }
     renderHandle = requestFrame(() => {
         renderHandle = null;
         renderScrollSlice();
@@ -637,20 +781,10 @@ function cancelFrame(handle: number): void {
     clearTimeout(handle);
 }
 
-/** Test seam: render any pending scroll frame synchronously. */
+/** Test seam: complete any pending scroll frame synchronously, poll included. */
 export function flushDiffRender(): void {
     cancelPendingRender();
-    renderScrollSlice();
-}
-
-/** Mirror the driver's physical position and derived logical window onto the follower. */
-function mirrorToFollower(driver: DiffPane, top: number, logicalTop: number, left: number): void {
-    const follower = followerOf(driver);
-    const scroll = paneScroll(follower);
-    if (!scroll) { return; }
-    scroll.state.scrollTop = logicalTop;
-    paneView(follower)?.setScrollTop(top);
-    paneView(follower)?.setScrollLeft(left);
+    finalizeFollower(lastDriver);
 }
 
 // ── Render input building ─────────────────────────────────────────

@@ -184,6 +184,40 @@ function clearAnimationFrameStubs(): void {
     delete (globalThis as unknown as { cancelAnimationFrame?: unknown }).cancelAnimationFrame;
 }
 
+interface RafController {
+    /** Run every currently queued frame callback once (a poll frame may queue the next). */
+    step(): void;
+    pending(): number;
+}
+
+let rafController: RafController | null = null;
+
+/** Controllable rAF so the poll's per-frame work is deterministic in jsdom. */
+function installRafController(): RafController {
+    const queue = new Map<number, FrameRequestCallback>();
+    let nextId = 1;
+    const g = globalThis as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown };
+    g.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+        const id = nextId++;
+        queue.set(id, cb);
+        return id;
+    };
+    g.cancelAnimationFrame = (id: number): void => { queue.delete(id); };
+    rafController = {
+        step: () => {
+            const callbacks = [...queue.values()];
+            queue.clear();
+            callbacks.forEach(cb => cb(0));
+        },
+        pending: () => queue.size,
+    };
+    return rafController;
+}
+
+function runScrollFrames(count = 4): void {
+    for (let i = 0; i < count; i++) { rafController?.step(); }
+}
+
 /** Count innerHTML assignments on one element (render-probe seam for the scroll coalescing test). */
 function countInnerHtmlWrites(el: HTMLElement): { count: number } {
     const counter = { count: 0 };
@@ -200,16 +234,33 @@ function countInnerHtmlWrites(el: HTMLElement): { count: number } {
     return counter;
 }
 
+/** Count assignments to one inline style property (write-if-changed probe). */
+function countStyleWrites(el: HTMLElement, prop: string): { count: number } {
+    const counter = { count: 0 };
+    const style = new Proxy(el.style, {
+        set: (target, key, value) => {
+            if (key === prop) { counter.count++; }
+            return Reflect.set(target, key, value);
+        },
+    });
+    Object.defineProperty(el, 'style', { configurable: true, get: () => style });
+    return counter;
+}
+
 suite('HexScope Diff webview', () => {
     setup(() => {
         currentDom = installDom();
         clearAnimationFrameStubs();
+        rafController = null;
         resetDiffGrid();
         resetDiffSearch();
         mountDiffGrid();
     });
 
-    teardown(cleanupDom);
+    teardown(() => {
+        clearAnimationFrameStubs();
+        cleanupDom();
+    });
 
     test('both sides share the union row model and stay address-aligned', () => {
         mount([seg(0x1000, [0x01, 0x02])], [seg(0x1020, [0x03, 0x04])]);
@@ -324,21 +375,104 @@ suite('HexScope Diff webview', () => {
     });
 
     test('vertical and horizontal scroll stay synced between the two grids', () => {
+        installRafController();
         mount([seg(0x1000, [0x01, 0x02])], [seg(0x1000, [0x01, 0x02])]);
         const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
         const scrollB = document.querySelector<HTMLElement>('#diff-b .mem-scroll')!;
         scrollA.scrollTop = 200;
         scrollA.scrollLeft = 40;
         scrollA.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('scroll', { bubbles: true }));
-        assert.strictEqual(scrollB.scrollTop, 200, 'B follows A vertically');
-        assert.strictEqual(scrollB.scrollLeft, 40, 'B follows A horizontally');
+        assert.strictEqual(scrollB.scrollLeft, 40, 'B follows A horizontally on the event');
         assert.strictEqual(document.querySelector<HTMLElement>('#diff-header-b')!.scrollLeft, 40, 'B header stays aligned');
+        runScrollFrames();
+        assert.strictEqual(scrollB.scrollTop, 200, 'B follows A vertically once the frame settles');
         scrollB.scrollTop = 320;
         scrollB.scrollLeft = 12;
         scrollB.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('scroll', { bubbles: true }));
-        assert.strictEqual(scrollA.scrollTop, 320, 'A follows B vertically');
-        assert.strictEqual(scrollA.scrollLeft, 12, 'A follows B horizontally');
+        assert.strictEqual(scrollA.scrollLeft, 12, 'A follows B horizontally on the event');
+        runScrollFrames();
+        assert.strictEqual(scrollA.scrollTop, 320, 'A follows B vertically once the frame settles');
         flushDiffRender();
+    });
+
+    test('the poll tracks the driver per frame and settles without leftover state', () => {
+        document.documentElement.style.setProperty('--vscode-editor-font-size', '20px');
+        installRafController();
+        const wide = seg(0x1000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        const rowsB = document.getElementById('diff-rows-b')!;
+        const writes = countInnerHtmlWrites(rowsB);
+
+        scrollA.scrollTop = 10;
+        dispatchScroll(scrollA);
+        assert.strictEqual(rafController!.pending(), 1, 'a scroll event starts one poll frame');
+        rafController!.step();
+        assert.strictEqual(rowsB.style.transform, 'translateY(-10px)', 'a sub-row frame shifts the follower visually');
+        assert.strictEqual(scrollB().scrollTop, 0, 'a tracking frame does not write the follower scrollTop');
+        assert.strictEqual(writes.count, 0, 'a tracking frame does not rebuild rows');
+        assert.strictEqual(rafController!.pending(), 1, 'the poll keeps running while the position changes');
+
+        rafController!.step();
+        assert.strictEqual(rafController!.pending(), 0, 'the poll stops after the position settles');
+        assert.strictEqual(scrollB().scrollTop, 10, 'settling reconciles the real follower scrollTop');
+        assert.strictEqual(rowsB.style.transform, '', 'settling drops the tracking transform');
+        runScrollFrames(3);
+        assert.strictEqual(rafController!.pending(), 0, 'no idle background polling after settle');
+    });
+
+    test('a slice-change frame reconciles real positions and redraws', () => {
+        document.documentElement.style.setProperty('--vscode-editor-font-size', '20px');
+        installRafController();
+        const wide = seg(0x1000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        const rowsB = document.getElementById('diff-rows-b')!;
+        const writes = countInnerHtmlWrites(rowsB);
+
+        scrollA.scrollTop = 400;
+        dispatchScroll(scrollA);
+        rafController!.step();
+        assert.strictEqual(scrollB().scrollTop, 400, 'a slice change writes the follower real scrollTop');
+        assert.strictEqual(rowsB.style.transform, '', 'the reconciled frame carries no transform');
+        assert.strictEqual(writes.count, 1, 'the slice change rebuilds the follower rows once');
+    });
+
+    test('repeated gestures never leave a residual transform or drift the follower', () => {
+        document.documentElement.style.setProperty('--vscode-editor-font-size', '20px');
+        installRafController();
+        const wide = seg(0x1000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        const rowsB = document.getElementById('diff-rows-b')!;
+
+        for (const top of [10, 60, 130, 220]) {
+            scrollA.scrollTop = top;
+            dispatchScroll(scrollA);
+            rafController!.step();
+        }
+        runScrollFrames(3);
+        assert.strictEqual(rowsB.style.transform, '', 'the transform is cleared once the scroll settles');
+        assert.ok(Math.abs(scrollB().scrollTop - scrollA.scrollTop) < 0.001, 'the follower lands exactly on the driver position');
+        assert.strictEqual(rafController!.pending(), 0, 'the poll is not left running');
+    });
+
+    test('a one-shot navigation after a tracking frame is never double-offset', () => {
+        document.documentElement.style.setProperty('--vscode-editor-font-size', '20px');
+        installRafController();
+        const wide = seg(0x1000, Array.from({ length: 512 }, (_, i) => i & 0xff));
+        mount([wide], [wide]);
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        const rowsB = document.getElementById('diff-rows-b')!;
+
+        scrollA.scrollTop = 10;
+        dispatchScroll(scrollA);
+        rafController!.step();
+        assert.strictEqual(rowsB.style.transform, 'translateY(-10px)', 'a residual transform is active');
+
+        scrollToDiff({ start: 0x1000 + 20 * 16, end: 0x1000 + 20 * 16 });
+        assert.strictEqual(rowsB.style.transform, '', 'the one-shot scroll clears the residual delta');
+        assert.strictEqual(scrollB().scrollTop, scrollA.scrollTop, 'both panes land on the real position');
     });
 
     test('scroll re-renders coalesce to one frame and skip an unchanged slice', () => {
@@ -384,6 +518,12 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(writes.count, 1, 'the unchanged visible slice still skips the row rebuild');
         assert.ok(secondTop < firstTop, 'the compressed wrapper tracks the new scrollTop');
         assert.ok(secondTop >= 0, 'the repositioned wrapper stays inside the physical container');
+
+        const topWrites = countStyleWrites(wrapper, 'top');
+        dispatchScroll(scrollA);
+        flushDiffRender();
+        assert.strictEqual(writes.count, 1, 'a frame with an unchanged slice and position rebuilds nothing');
+        assert.strictEqual(topWrites.count, 0, 'an unchanged wrapper top is not rewritten');
     });
 
     test('diff pane overscan scales with the container height', () => {
@@ -406,6 +546,7 @@ suite('HexScope Diff webview', () => {
     });
 
     test('turning Sync scroll off lets the panes scroll independently', () => {
+        const raf = installRafController();
         mount([seg(0x1000, [0x01, 0x02])], [seg(0x1000, [0x01, 0x02])]);
         const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
         const scrollB = document.querySelector<HTMLElement>('#diff-b .mem-scroll')!;
@@ -413,11 +554,15 @@ suite('HexScope Diff webview', () => {
         scrollA.scrollTop = 240;
         scrollA.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('scroll', { bubbles: true }));
         assert.strictEqual(scrollB.scrollTop, 0, 'follower stays put while sync is off');
+        assert.strictEqual(raf.pending(), 1, 'sync off queues one coalesced render frame');
+        raf.step();
+        assert.strictEqual(raf.pending(), 0, 'sync off never starts a self-rescheduling poll');
         clickButton('diff-sync');
         scrollA.scrollTop = 300;
         scrollA.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('scroll', { bubbles: true }));
-        assert.strictEqual(scrollB.scrollTop, 300, 'follower resumes when sync is back on');
+        assert.strictEqual(scrollB.scrollTop, 240, 'the follower real position waits for the frame');
         flushDiffRender();
+        assert.strictEqual(scrollB.scrollTop, 300, 'follower resumes when sync is back on');
     });
 
     test('with Sync scroll off each pane keeps its own rendered rows', () => {
