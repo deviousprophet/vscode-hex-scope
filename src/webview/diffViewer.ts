@@ -11,9 +11,11 @@ import { refreshDiffSearchCount, resetDiffSearch } from './diff/diffSearch';
 import { setDiffSummary } from './diff/diffSummary';
 import { isCopyShortcut, isEditableTarget } from './components/hexView/hexViewPaint';
 import { dispatchDiffMessage, type DiffErrorMessage, type DiffInitMessage } from './diff/diffMessages';
+import { createDiffExternalChangeBanner } from './diff/diffExternalChange';
 
 const READY: DiffWebviewToProvider = { type: 'ready' };
 let sides: { a: DiffSideData; b: DiffSideData } | null = null;
+const externalChange = createDiffExternalChangeBanner(postProviderMessage);
 
 function renderDiffShellHtml(): string {
     return `<div class="diff-root" id="diff-root" hidden>` +
@@ -56,6 +58,8 @@ function applyDiffMessage(message: unknown): void {
         diffInit: applyDiffInit,
         diffError: applyDiffError,
         diffProgress: applyDiffProgress,
+        diffExternalChange: externalChange.applyChange,
+        diffExternalChangeError: externalChange.applyError,
     });
 }
 

@@ -3,23 +3,30 @@ import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import * as vscode from 'vscode';
 import { DisposableStore } from '../core/disposableStore';
-import type { HexScopeFormat } from '../core/document';
-import { computeByteDiff, type DiffModel } from '../core/diff';
+import { detectFormatFromParts, repairChecksums, type HexScopeFormat } from '../core/document';
+import { parseIntelHex } from '../core/parser/intelHexParser';
+import { parseSRec } from '../core/parser/srecParser';
 import { disambiguatedLabels } from '../core/diffLabels';
-import type { MemorySegment } from '../core/parser/types';
 import type { WireParseResult } from '../core/types';
 import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide, type DiffProgressStage } from '../diffProtocol';
 import { advanceFraction, combinedLoadProgress } from './loadProgress';
+import { buildDiffState, reloadIsStale, reloadState, sideDefects, type DiffReloadState, type DiffSideKey, type ParsedDiffSide } from './diffReload';
 import { fileName } from '../core/pathName';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
 /** Reading is fast and posts no intermediate progress, so it keeps only a small slice; the parse owns the rest. */
 const READ_SHARE = 0.05;
+/** Debounce external-change events (FS watchers emit several per write). */
+const RELOAD_DEBOUNCE_MS = 200;
+/** Ignore watcher events right after our own repair write, so it never reads as an external change. */
+const SELF_WRITE_HORIZON_MS = 1000;
 
-interface ParsedDiffFile {
-    format: HexScopeFormat;
-    wire: WireParseResult;
+type ParsedDiffFile = ParsedDiffSide;
+
+interface DiffSideRef {
+    name: string;
+    path: string;
 }
 
 /** Dedupes progress posts per stage; the parsers' batches are already rate-limited. */
@@ -59,6 +66,17 @@ export class DiffEditorPanel {
         const controller = new AbortController();
         let disposed = false;
         let generation = 0;
+        let current: DiffReloadState | null = null;
+        /** Per-side reload counter: a newer read of the *other* side must not stale this one out. */
+        const reloadGeneration: Record<DiffSideKey, number> = { a: 0, b: 0 };
+        let lastErrorUri: vscode.Uri | null = null;
+        let lastSelfWriteAt = 0;
+        let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+        const pendingSides = new Set<DiffSideKey>();
+
+        const markSelfWrite = (): void => { lastSelfWriteAt = Date.now(); };
+        const uriFor = (side: DiffSideKey): vscode.Uri => (side === 'a' ? baseUri : otherUri);
+        const refFor = (uri: vscode.Uri): DiffSideRef => ({ name: fileName(uri), path: uri.fsPath });
 
         resources.add(() => {
             disposed = true;
@@ -69,17 +87,93 @@ export class DiffEditorPanel {
 
         panel.webview.html = diffHtml(context, panel.webview, baseUri, otherUri);
 
-        resources.add(panel.webview.onDidReceiveMessage(message => {
-            const type = diffMessageType(message);
-            if (type === 'ready') {
-                void loadDiff();
+        /** Re-read + re-parse one side and refresh the webview; the other side is reused. */
+        const reloadSide = async (side: DiffSideKey): Promise<void> => {
+            if (disposed || !current) { return; }
+            await reloadFromDisk(side, uriFor(side), ++reloadGeneration[side]);
+        };
+
+        const reloadFromDisk = async (
+            side: DiffSideKey,
+            uri: vscode.Uri,
+            gen: number,
+        ): Promise<void> => {
+            try {
+                const parsed = await readAndParseSide(uri, controller.signal);
+                if (reloadIsStale(disposed, gen, reloadGeneration[side], current)) { return; }
+                await applyParsedSide(side, uri, parsed, gen);
+            } catch { /* file transiently unavailable; keep the last loaded bytes */ }
+        };
+
+        const applyParsedSide = async (
+            side: DiffSideKey,
+            uri: vscode.Uri,
+            parsed: ParsedDiffFile,
+            gen: number,
+        ): Promise<void> => {
+            const state = current;
+            if (!state) { return; }
+            const defects = sideDefects(parsed.wire);
+            if (defects) {
+                lastErrorUri = uri;
+                await DiffEditorPanel.post(panel, { type: 'diffExternalChangeError', generation: gen, side, ...defects });
                 return;
             }
-            const text = diffCopyText(message);
-            if (text !== null) {
-                void vscode.env.clipboard.writeText(text);
-            }
-        }));
+            lastErrorUri = null;
+            const next = reloadState(state, side, refFor(uri), parsed);
+            current = next;
+            await DiffEditorPanel.post(panel, { type: 'diffExternalChange', generation: gen, ...next });
+        };
+
+        const scheduleReload = (side: DiffSideKey): void => {
+            if (Date.now() - lastSelfWriteAt < SELF_WRITE_HORIZON_MS) { return; }
+            pendingSides.add(side);
+            if (reloadTimer) { clearTimeout(reloadTimer); }
+            reloadTimer = setTimeout(() => { void flushReloads(); }, RELOAD_DEBOUNCE_MS);
+        };
+
+        const flushReloads = async (): Promise<void> => {
+            reloadTimer = undefined;
+            const sides = [...pendingSides];
+            pendingSides.clear();
+            for (const side of sides) { await reloadSide(side); }
+        };
+
+        /** Repair the broken side's checksums, then reload it (self-write echo suppressed). */
+        const repairAndReload = async (): Promise<void> => {
+            const uri = lastErrorUri;
+            if (!uri || disposed) { return; }
+            try {
+                await repairChecksumsOnDisk(uri, markSelfWrite);
+                await reloadSide(sideOf(uri, baseUri));
+            } catch { /* unreadable; leave the error banner up */ }
+        };
+
+        const viewInNormalEditor = async (): Promise<void> => {
+            if (!lastErrorUri) { return; }
+            const doc = await vscode.workspace.openTextDocument(lastErrorUri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+        };
+
+        const handleWebviewMessage = (message: unknown): void => {
+            const type = diffMessageType(message);
+            if (type === 'ready') { void loadDiff(); return; }
+            if (type === 'repairAndReload') { void repairAndReload(); return; }
+            if (type === 'viewInNormalEditor') { void viewInNormalEditor(); return; }
+            writeClipboardText(message);
+        };
+
+        resources.add(panel.webview.onDidReceiveMessage(handleWebviewMessage));
+
+        const watchTargets: Array<[DiffSideKey, vscode.Uri]> = [['a', baseUri], ['b', otherUri]];
+        for (const [side, uri] of watchTargets) {
+            const watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(vscode.Uri.joinPath(uri, '..'), uri.path.split('/').pop()!)
+            );
+            watcher.onDidChange(() => scheduleReload(side));
+            watcher.onDidCreate(() => scheduleReload(side));
+            resources.add(watcher);
+        }
 
         const loadDiff = async (): Promise<void> => {
             const gen = ++generation;
@@ -88,6 +182,7 @@ export class DiffEditorPanel {
             try {
                 const loaded = await loadBothSides(baseUri, otherUri, controller.signal, progress, isStale);
                 if (!loaded) { return; }
+                current = loaded;
                 await DiffEditorPanel.post(panel, { type: 'diffInit', generation: gen, ...loaded });
             } catch (error) {
                 if (isStale()) { return; }
@@ -106,10 +201,30 @@ function staleDiff(disposed: boolean, gen: number, current: number): boolean {
     return disposed || gen !== current;
 }
 
-interface LoadedDiff {
-    a: DiffSide;
-    b: DiffSide;
-    diff: DiffModel;
+/** Read + parse one side (no progress reporting; used by the reload path). */
+async function readAndParseSide(uri: vscode.Uri, signal: AbortSignal): Promise<ParsedDiffFile> {
+    const bytes = await readDiffSource(uri);
+    return parseSideInWorker(uri, bytes, signal, () => {});
+}
+
+/** Repair the file's checksums in place (no-op when it has none) and report the self-write. */
+async function repairChecksumsOnDisk(uri: vscode.Uri, markSelfWrite: () => void): Promise<void> {
+    const raw = new TextDecoder('utf-8').decode(await readDiffSource(uri));
+    const format = detectFormatFromParts(extensionOf(uri), raw);
+    const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
+    const repaired = repairChecksums(raw, parseResult);
+    if (repaired === raw) { return; }
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(repaired));
+    markSelfWrite();
+}
+
+function sideOf(uri: vscode.Uri, baseUri: vscode.Uri): DiffSideKey {
+    return uri === baseUri ? 'a' : 'b';
+}
+
+function writeClipboardText(message: unknown): void {
+    const text = diffCopyText(message);
+    if (text !== null) { void vscode.env.clipboard.writeText(text); }
 }
 
 /** Read, parse, and diff both sides concurrently; `null` when the load was superseded or the panel is gone. */
@@ -119,7 +234,7 @@ async function loadBothSides(
     signal: AbortSignal,
     progress: DiffProgressReporter,
     isStale: () => boolean,
-): Promise<LoadedDiff | null> {
+): Promise<DiffReloadState | null> {
     const fractions = [0, 0];
     const report = (): void => {
         if (isStale()) { return; }
@@ -137,6 +252,7 @@ async function loadBothSides(
             fractions[index] = READ_SHARE + (1 - READ_SHARE) * running;
             report();
         });
+        assertNoParseDefects(uri, parsed.wire);
         fractions[index] = 1;
         report();
         return parsed;
@@ -145,9 +261,9 @@ async function loadBothSides(
     const [base, other] = await Promise.all([loadSide(baseUri, 0), loadSide(otherUri, 1)]);
     if (isStale() || !base || !other) { return null; }
     progress.post('diff', 0, 1);
-    const diff = computeByteDiff(sideSegments(base.wire), sideSegments(other.wire));
+    const loaded = buildDiffState(refOf(baseUri), base, refOf(otherUri), other);
     progress.post('diff', 1, 1);
-    return { a: diffSide(baseUri, base), b: diffSide(otherUri, other), diff };
+    return loaded;
 }
 
 async function readDiffSource(uri: vscode.Uri): Promise<Uint8Array> {
@@ -237,22 +353,11 @@ function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {
 
 function acceptParsedSide(uri: vscode.Uri, message: WorkerParseOut): ParsedDiffFile {
     if (!hasCompleteParse(message)) { throw new Error(`Failed to parse ${fileName(uri)}.`); }
-    assertNoParseDefects(uri, message.wire);
     return { format: message.format, wire: message.wire };
 }
 
-function sideSegments(wire: WireParseResult): MemorySegment[] {
-    return wire.segments.map(segment => ({ startAddress: segment.startAddress, data: new Uint8Array(segment.data) }));
-}
-
-function diffSide(uri: vscode.Uri, parsed: ParsedDiffFile): DiffSide {
-    return {
-        name: fileName(uri),
-        path: uri.fsPath,
-        format: parsed.format,
-        parseResult: parsed.wire,
-        labels: [],
-    };
+function refOf(uri: vscode.Uri): DiffSideRef {
+    return { name: fileName(uri), path: uri.fsPath };
 }
 
 function diffTitle(baseUri: vscode.Uri, otherUri: vscode.Uri): string {

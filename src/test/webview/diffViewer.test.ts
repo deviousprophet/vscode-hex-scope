@@ -7,12 +7,13 @@ import './cssImportHook';
 import { computeByteDiff } from '../../core/diff';
 import { SearchEngine, type SearchHandlers } from '../../core/search';
 import type { MemorySegment } from '../../core/parser/types';
-import type { DiffSide } from '../../diffProtocol';
+import type { DiffSide, DiffWebviewToProvider } from '../../diffProtocol';
 import { hydrateDiffSide, renderDiffErrorHtml, renderSideHeadHtml } from '../../webview/diff/diffModel';
-import { applyDiffProgress, copySelectionText, flushDiffRender, mountDiffGrid, resetDiffGrid, scrollToDiff, setDiffData, setSearchMatches, showDiffError } from '../../webview/diff/diffGrid';
+import { applyDiffProgress, copySelectionText, flushDiffRender, getViewMode, mountDiffGrid, resetDiffGrid, scrollToDiff, setDiffData, setSearchMatches, setViewMode, showDiffError } from '../../webview/diff/diffGrid';
 import { renderDiffSummaryHtml, setDiffSummary } from '../../webview/diff/diffSummary';
 import { resetDiffSearch } from '../../webview/diff/diffSearch';
-import { dispatchDiffMessage, type DiffProgressMessage } from '../../webview/diff/diffMessages';
+import { dispatchDiffMessage, type DiffExternalChangeErrorMessage, type DiffExternalChangeMessage, type DiffProgressMessage } from '../../webview/diff/diffMessages';
+import { createDiffExternalChangeBanner } from '../../webview/diff/diffExternalChange';
 
 let currentDom: JSDOM | null = null;
 
@@ -95,6 +96,27 @@ function diffInitMessage(a: MemorySegment[] = [seg(0x1000, [0x01])], b: MemorySe
         a: side('a.hex', a),
         b: side('b.hex', b),
         diff: computeByteDiff(a, b),
+    };
+}
+
+function externalChangeMessage(a: MemorySegment[], b: MemorySegment[]): DiffExternalChangeMessage {
+    return {
+        type: 'diffExternalChange',
+        generation: 7,
+        a: side('a.hex', a),
+        b: side('b.hex', b),
+        diff: computeByteDiff(a, b),
+    };
+}
+
+function externalChangeErrorMessage(sideKey: 'a' | 'b', canQuickRepair: boolean): DiffExternalChangeErrorMessage {
+    return {
+        type: 'diffExternalChangeError',
+        generation: 8,
+        side: sideKey,
+        checksumErrors: canQuickRepair ? 2 : 0,
+        malformedLines: canQuickRepair ? 0 : 3,
+        canQuickRepair,
     };
 }
 
@@ -592,6 +614,8 @@ suite('HexScope Diff webview', () => {
             diffInit: () => { /* noop */ },
             diffError: () => { /* noop */ },
             diffProgress: (message: DiffProgressMessage) => { stage = message.stage; },
+            diffExternalChange: () => { /* noop */ },
+            diffExternalChangeError: () => { /* noop */ },
         };
         assert.strictEqual(dispatchDiffMessage({ type: 'diffProgress', stage: 'parse', completed: 1, total: 2 }, handlers), true);
         assert.strictEqual(stage, 'parse');
@@ -618,6 +642,8 @@ suite('HexScope Diff webview', () => {
             diffInit: () => { init++; },
             diffError: () => { error++; },
             diffProgress: () => { progress++; },
+            diffExternalChange: () => { /* noop */ },
+            diffExternalChangeError: () => { /* noop */ },
         };
         assert.strictEqual(dispatchDiffMessage({ type: 'nope' }, handlers), false);
         assert.strictEqual(dispatchDiffMessage(null, handlers), false);
@@ -635,6 +661,8 @@ suite('HexScope Diff webview', () => {
             diffInit: () => { init++; },
             diffError: () => { /* noop */ },
             diffProgress: () => { /* noop */ },
+            diffExternalChange: () => { /* noop */ },
+            diffExternalChangeError: () => { /* noop */ },
         };
         const validA = side('a.hex', [seg(0x1000, [0x01])]);
         const validB = side('b.hex', [seg(0x1000, [0x02])]);
@@ -741,5 +769,113 @@ suite('HexScope Diff webview', () => {
         setDiffSummary(computeByteDiff(a, b));
         assert.strictEqual(matchCount(), '1 / 1', 'the count is re-pushed after the bar is re-injected');
         assert.strictEqual((document.getElementById('search-input') as HTMLInputElement).value, 'DE AD', 'the query is preserved');
+    });
+
+    test('the reload messages route through the dispatcher and reject malformed shapes', () => {
+        let changes = 0;
+        let errors = 0;
+        const handlers = {
+            diffInit: () => { /* noop */ },
+            diffError: () => { /* noop */ },
+            diffProgress: () => { /* noop */ },
+            diffExternalChange: () => { changes++; },
+            diffExternalChangeError: () => { errors++; },
+        };
+        assert.strictEqual(dispatchDiffMessage(externalChangeMessage([seg(0x1000, [0x01])], [seg(0x1000, [0x02])]), handlers), true);
+        assert.strictEqual(dispatchDiffMessage(externalChangeErrorMessage('a', true), handlers), true);
+        assert.strictEqual(changes, 1);
+        assert.strictEqual(errors, 1);
+
+        const malformed: unknown[] = [
+            { type: 'diffExternalChange' },
+            { type: 'diffExternalChange', generation: 1, a: {}, b: {}, diff: { runs: [] } },
+            { type: 'diffExternalChangeError' },
+            { type: 'diffExternalChangeError', generation: 1, side: 'c', checksumErrors: 1, malformedLines: 0, canQuickRepair: true },
+            { type: 'diffExternalChangeError', generation: 1, side: 'a', checksumErrors: 'x', malformedLines: 0, canQuickRepair: true },
+        ];
+        for (const message of malformed) {
+            assert.strictEqual(dispatchDiffMessage(message, handlers), false, `rejected ${JSON.stringify(message)}`);
+        }
+        assert.strictEqual(changes, 1, 'no handler ran for a malformed change');
+        assert.strictEqual(errors, 1, 'no handler ran for a malformed error');
+    });
+
+    test('an external change shows the reused reload banner; accept applies the pair and acknowledges', () => {
+        mount([seg(0x1000, [0x01])], [seg(0x1000, [0x01])]);
+        const posts: DiffWebviewToProvider[] = [];
+        const banner = createDiffExternalChangeBanner(message => { posts.push(message); });
+
+        banner.applyChange(externalChangeMessage([seg(0x1000, [0x01])], [seg(0x1000, [0x02])]));
+        const reload = document.getElementById('ext-reload-banner');
+        assert.ok(reload, 'the hex-view reload banner is reused');
+        assert.strictEqual(reload!.parentElement?.id, 'app', 'banner sits at the top of #app');
+        assert.strictEqual(document.querySelector('#ext-reload-banner .erb-msg')!.textContent, 'File changed externally. Reloading...');
+
+        clickButton('erb-reload');
+        assert.strictEqual(document.getElementById('ext-reload-banner'), null, 'banner removed on accept');
+        assert.deepStrictEqual(posts, [{ type: 'reloadAccepted' }]);
+        assert.ok(cell('#diff-rows-b', 0x1000)?.classList.contains('diff-chg'), 'the grid reflects the new bytes');
+        assert.ok(document.querySelector('#diff-summary .diff-stat')!.textContent!.includes('1 changed'), 'the summary follows the new diff');
+    });
+
+    test('a reload keeps view mode and scroll, and resets selection + search', () => {
+        const bytes = Array.from({ length: 40 * 16 }, (_, i) => i & 0xFF);
+        const a = [seg(0x1000, bytes)];
+        const b = [seg(0x1000, bytes.map((value, i) => (i % 16 === 0 ? value ^ 0xFF : value)))];
+        mount(a, b);
+        for (const pane of ['#diff-a', '#diff-b']) {
+            Object.defineProperty(document.querySelector(`${pane} .mem-scroll`)!, 'clientHeight', { value: 100, configurable: true });
+        }
+        setViewMode('diff');
+        setSearchMatches([0x1200], 0, 1);
+        scrollToDiff({ start: 0x1200, end: 0x1200 });
+        flushDiffRender();
+        const scrollA = document.querySelector<HTMLElement>('#diff-a .mem-scroll')!;
+        const before = scrollA.scrollTop;
+        assert.ok(before > 0, `pane A scrolled (${before})`);
+        assert.ok(document.querySelector('#diff-rows-a .amatch'), 'search match painted before the reload');
+
+        const posts: DiffWebviewToProvider[] = [];
+        const banner = createDiffExternalChangeBanner(message => { posts.push(message); });
+        const nextB = [seg(0x1000, bytes.map((value, i) => (i % 16 === 0 ? value ^ 0x11 : value)))];
+        banner.applyChange(externalChangeMessage(a, nextB));
+        clickButton('erb-reload');
+
+        assert.strictEqual(getViewMode(), 'diff', 'view mode survives the reload');
+        assert.ok(Math.abs(document.querySelector<HTMLElement>('#diff-a .mem-scroll')!.scrollTop - before) < 0.001, 'the scroll anchor survives');
+        assert.strictEqual(document.querySelector('#diff-rows-a .sel'), null, 'selection reset');
+        assert.strictEqual(document.querySelector('#diff-rows-a .amatch'), null, 'search matches reset');
+        assert.strictEqual(matchCount(), '', 'search count reset with a fresh empty query');
+        assert.strictEqual((document.getElementById('search-input') as HTMLInputElement).value, '', 'the stale query is cleared');
+    });
+
+    test('the error banner posts repair / view-text actions for a broken side', () => {
+        const posts: DiffWebviewToProvider[] = [];
+        const banner = createDiffExternalChangeBanner(message => { posts.push(message); });
+
+        banner.applyError(externalChangeErrorMessage('b', true));
+        assert.ok(document.getElementById('ext-error-banner'), 'the reused error banner is shown');
+        assert.strictEqual(document.querySelector('#ext-error-banner strong')!.textContent, '2 checksum errors');
+        clickButton('eeb-repair');
+        assert.deepStrictEqual(posts, [{ type: 'repairAndReload' }]);
+        assert.ok(document.getElementById('ext-error-banner'), 'banner stays until the host reload flow clears it');
+
+        banner.applyError(externalChangeErrorMessage('a', false));
+        clickButton('eeb-view-text');
+        assert.deepStrictEqual(posts, [{ type: 'repairAndReload' }, { type: 'viewInNormalEditor' }]);
+    });
+
+    test('a fresh reload clears the stale error banner and a broken side clears the stale reload banner', () => {
+        const banner = createDiffExternalChangeBanner(() => { /* noop */ });
+
+        banner.applyError(externalChangeErrorMessage('a', true));
+        assert.ok(document.getElementById('ext-error-banner'));
+        banner.applyChange(externalChangeMessage([seg(0x1000, [0x01])], [seg(0x1000, [0x02])]));
+        assert.strictEqual(document.getElementById('ext-error-banner'), null, 'the repaired reload drops the stale error banner');
+        assert.ok(document.getElementById('ext-reload-banner'));
+
+        banner.applyError(externalChangeErrorMessage('b', false));
+        assert.strictEqual(document.getElementById('ext-reload-banner'), null, 'a broken side supersedes a pending reload banner');
+        assert.ok(document.getElementById('ext-error-banner'));
     });
 });

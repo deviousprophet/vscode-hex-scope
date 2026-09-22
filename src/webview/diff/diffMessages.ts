@@ -4,11 +4,15 @@ import type { DiffProviderToWebview, DiffProgressStage, DiffSide } from '../../d
 export type DiffInitMessage = Extract<DiffProviderToWebview, { type: 'diffInit' }>;
 export type DiffErrorMessage = Extract<DiffProviderToWebview, { type: 'diffError' }>;
 export type DiffProgressMessage = Extract<DiffProviderToWebview, { type: 'diffProgress' }>;
+export type DiffExternalChangeMessage = Extract<DiffProviderToWebview, { type: 'diffExternalChange' }>;
+export type DiffExternalChangeErrorMessage = Extract<DiffProviderToWebview, { type: 'diffExternalChangeError' }>;
 
 export interface DiffMessageHandlers {
     diffInit: (message: DiffInitMessage) => void;
     diffError: (message: DiffErrorMessage) => void;
     diffProgress: (message: DiffProgressMessage) => void;
+    diffExternalChange: (message: DiffExternalChangeMessage) => void;
+    diffExternalChangeError: (message: DiffExternalChangeErrorMessage) => void;
 }
 
 const DIFF_PROGRESS_STAGES: readonly DiffProgressStage[] = ['read', 'parse', 'diff'];
@@ -109,10 +113,44 @@ function hasProgressCounts(value: DiffProgressShape): boolean {
     return typeof value.completed === 'number' && typeof value.total === 'number';
 }
 
+/** A reload carries the same side/model shape as an init, so it reuses `hasDiffInitSides`. */
+function isDiffExternalChange(message: unknown): message is DiffExternalChangeMessage {
+    const value = message as DiffInitShape | null;
+    if (!value || value.type !== 'diffExternalChange') { return false; }
+    return hasDiffInitSides(value);
+}
+
+interface DiffExternalChangeErrorShape {
+    type?: unknown;
+    side?: unknown;
+    checksumErrors?: unknown;
+    malformedLines?: unknown;
+    canQuickRepair?: unknown;
+}
+
+function isDiffExternalChangeError(message: unknown): message is DiffExternalChangeErrorMessage {
+    const value = message as DiffExternalChangeErrorShape | null;
+    if (!isExternalChangeErrorShape(value)) { return false; }
+    return typeof value.checksumErrors === 'number'
+        && typeof value.malformedLines === 'number'
+        && typeof value.canQuickRepair === 'boolean';
+}
+
+function isExternalChangeErrorShape(value: DiffExternalChangeErrorShape | null): value is DiffExternalChangeErrorShape {
+    if (!value || value.type !== 'diffExternalChangeError') { return false; }
+    return value.side === 'a' || value.side === 'b';
+}
+
 /** Dispatch a known diff provider message; unknown/malformed messages return false and run no handler. */
 export function dispatchDiffMessage(message: unknown, handlers: DiffMessageHandlers): boolean {
     if (isDiffInit(message)) { handlers.diffInit(message); return true; }
     if (isDiffError(message)) { handlers.diffError(message); return true; }
     if (isDiffProgress(message)) { handlers.diffProgress(message); return true; }
+    return dispatchExternalChange(message, handlers);
+}
+
+function dispatchExternalChange(message: unknown, handlers: DiffMessageHandlers): boolean {
+    if (isDiffExternalChange(message)) { handlers.diffExternalChange(message); return true; }
+    if (isDiffExternalChangeError(message)) { handlers.diffExternalChangeError(message); return true; }
     return false;
 }

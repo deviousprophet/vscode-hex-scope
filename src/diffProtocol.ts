@@ -15,11 +15,16 @@ export type DiffProgressStage = 'read' | 'parse' | 'diff';
 export type DiffProviderToWebview =
     | { type: 'diffInit'; generation: number; a: DiffSide; b: DiffSide; diff: DiffModel }
     | { type: 'diffError'; generation?: number; message: string }
-    | { type: 'diffProgress'; stage: DiffProgressStage; completed: number; total: number };
+    | { type: 'diffProgress'; stage: DiffProgressStage; completed: number; total: number }
+    | { type: 'diffExternalChange'; generation: number; a: DiffSide; b: DiffSide; diff: DiffModel }
+    | { type: 'diffExternalChangeError'; generation: number; side: 'a' | 'b'; checksumErrors: number; malformedLines: number; canQuickRepair: boolean };
 
 export type DiffWebviewToProvider =
     | { type: 'ready' }
-    | { type: 'copyText'; text: string; label?: string };
+    | { type: 'copyText'; text: string; label?: string }
+    | { type: 'reloadAccepted' }
+    | { type: 'repairAndReload' }
+    | { type: 'viewInNormalEditor' };
 
 export function diffMessageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

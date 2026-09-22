@@ -156,6 +156,104 @@ export function setDiffData(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     renderDiffGrid();
 }
 
+/** Apply a reloaded pair, keeping the view mode and each pane's anchor address (R5). */
+export function applyReload(a: DiffSideData, b: DiffSideData, diff: DiffModel): void {
+    const anchors = captureReloadAnchors();
+    data = { rows: buildDiffRows(a, b), a, b, diff };
+    visibleRows = filterRows(data.rows);
+    selection = null;
+    selectionPane = 'a';
+    selAnchor = null;
+    matchSet = new Set();
+    activeMatch = null;
+    cancelPendingRender();
+    lastRenderKey = null;
+    clearDiffError();
+    renderHeaders();
+    renderDiffGrid();
+    restoreReloadAnchors(anchors);
+    renderDiffGrid();
+}
+
+interface ReloadAnchor {
+    pane: DiffPane;
+    address: number | null;
+    offset: number;
+}
+
+/** Snapshot the top-address anchor of each pane before the row model is replaced. */
+function captureReloadAnchors(): ReloadAnchor[] {
+    if (!data) { return []; }
+    return (['a', 'b'] as DiffPane[]).flatMap(anchorForPane);
+}
+
+function anchorForPane(pane: DiffPane): ReloadAnchor[] {
+    const scroll = paneScroll(pane);
+    if (!scroll) { return []; }
+    const index = rowIndexAtOffset(scroll.state.scrollTop, scroll.state);
+    const row = visibleRows[index];
+    return [{
+        pane,
+        address: row ? row.address : null,
+        offset: scroll.state.scrollTop - calcRowOffset(index, scroll.state),
+    }];
+}
+
+function rowIndexAtOffset(offset: number, state: VirtualScrollState): number {
+    let lo = 0;
+    let hi = visibleRows.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (calcRowOffset(mid, state) <= offset) { lo = mid + 1; } else { hi = mid; }
+    }
+    return Math.max(0, lo - 1);
+}
+
+/** Re-anchor each pane to its old address (nearest row when it is gone), keeping the in-row offset. */
+function restoreReloadAnchors(anchors: readonly ReloadAnchor[]): void {
+    anchors.forEach(restoreAnchor);
+}
+
+function restoreAnchor(anchor: ReloadAnchor): void {
+    const scroll = paneScroll(anchor.pane);
+    if (!scroll) { return; }
+    const logicalTop = anchorLogicalTop(anchor, scroll);
+    if (logicalTop === null) { return; }
+    scroll.state.scrollTop = logicalTop;
+    paneView(anchor.pane)?.setScrollTop(logicalToPhysicalScroll(logicalTop, scroll.state));
+}
+
+function anchorLogicalTop(anchor: ReloadAnchor, scroll: ScrollPane): number | null {
+    const index = anchor.address === null ? -1 : nearestRowIndex(anchor.address);
+    if (index < 0) { return null; }
+    return Math.max(0, calcRowOffset(index, scroll.state) + anchor.offset);
+}
+
+/** Index of the row nearest `address` (exact match preferred); -1 only when there are no rows. */
+function nearestRowIndex(address: number): number {
+    const lo = lowerBoundRow(address);
+    if (lo === 0) { return visibleRows.length > 0 ? 0 : -1; }
+    if (lo >= visibleRows.length) { return visibleRows.length - 1; }
+    return closerRowIndex(lo, address);
+}
+
+function lowerBoundRow(address: number): number {
+    let lo = 0;
+    let hi = visibleRows.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (visibleRows[mid].address < address) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo;
+}
+
+function closerRowIndex(lo: number, address: number): number {
+    const after = visibleRows[lo];
+    const before = visibleRows[lo - 1];
+    if (after.address === address) { return lo; }
+    return address - before.address <= after.address - address ? lo - 1 : lo;
+}
+
 // ── View mode ─────────────────────────────────────────────────────
 
 export function getViewMode(): DiffViewMode {
