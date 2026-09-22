@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Integrity checks with a stored MD5 or SHA value now compare and update correctly when the byte-order toggle is `LE`; hash digests stay in natural byte order and the stored pane no longer shows an `LE`/`BE` tag for hashes
+
 ## [2.24.0] - 2026-09-21
 
 ### Added
