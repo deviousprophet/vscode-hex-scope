@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~237 | Active |
+| `journal-1.md` | ~262 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-09-22 | Share the parse worker with the hex editor | `3de465b`, `7c8a188`, `f742b99`, `930b6db` | `feat/shared-parse-worker` |
 | 8 | 2026-09-22 | DiffView search latency: incremental paint + single-render jump | `68d6090` | `feat/hex-diff` |
 | 7 | 2026-09-22 | DiffView scroll glitch: wrapper reposition, scroll anchoring, viewport overscan | `59c3409`, `5b13255`, `ed75695` | `feat/hex-diff` |
 | 6 | 2026-09-22 | Hex diff spec/doc reconciliation | `5820f89`, `35d3a51`, `13d4235`, `d776390` | `feat/hex-diff` |
