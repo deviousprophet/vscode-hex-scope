@@ -138,3 +138,29 @@ Implemented and verified child hex-diff-surface-correctness: shared match-span/h
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Hex diff external-change reload
+<!-- trellis-session: v=2 fp=23c6c27eedc2b0fc -->
+
+**Date**: 2026-09-22
+**Task**: Hex diff external-change reload
+**Branch**: `feat/hex-diff`
+
+### Summary
+
+Implemented and verified child hex-diff-external-change (C6/R8): ExternalChange banners made generic so the isolated diff bundle reuses them; new diffProtocol messages (diffExternalChange/diffExternalChangeError/reloadAccepted/repairAndReload/viewInNormalEditor); DiffEditorPanel watches both compared URIs (200ms debounce, per-side reload, stale-generation guard, repair + view-in-editor); diffGrid.applyReload preserves viewMode + per-pane scroll, resets selection/search; new diffReload.ts + tests. Merged origin/feat/hex-diff (latest main + integrity fix); resolved journal index conflict. Gates post-merge: check-types, lint, 1086 tests, fallow audit 0 issues. R7 label-context child deleted per user decision.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fc7e68a` | refactor(webview): make ExternalChange banners generic over the incoming payload |
+| `c92319a` | feat(diff): reload the diff view on external file changes (C6, R8) |
+| `7055939` | docs(spec): capture diff external-change reload contract |
+| `16bb03d` | chore(task): plan hex-diff external-change reload and record R7 drop |
+| `abc6073` | Merge branch 'feat/hex-diff' of https://github.com/deviousprophet/vscode-hex-scope into feat/hex-diff |
+
+### Status
+
+[OK] **Completed**
