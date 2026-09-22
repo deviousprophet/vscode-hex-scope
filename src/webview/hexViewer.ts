@@ -3,7 +3,7 @@
 
 import { S, BPR }                                       from './state';
 import { postProviderMessage, vscode }                from './vscodeApi';
-import { esc } from './utils';
+import { esc, loadingProgressLabel } from './utils';
 import { rerender }                                   from './render/registry';
 import { parsePasteText, pasteOverflowNotice } from './pasteUtils';
 import {
@@ -938,13 +938,12 @@ function handleLoadProgressMessage(msg: WebviewMessageByType<'loadProgress'>): v
 }
 
 function loadProgressLabel(msg: WebviewMessageByType<'loadProgress'>): string {
-    if (!msg.total || msg.total <= 0) { return msg.stage; }
-    return `${msg.stage} ${Math.floor((msg.completed / msg.total) * 100)}%`;
+    return loadingProgressLabel(msg.stage, msg.completed, msg.total);
 }
 
 function renderInitialLoadProgress(label: string): void {
     const text = document.querySelector('.loading-text');
-    if (text) { text.textContent = `Loading ${label}…`; }
+    if (text) { text.textContent = label; }
 }
 
 function renderActiveLoadProgress(label: string): void {
@@ -956,7 +955,7 @@ function renderActiveLoadProgress(label: string): void {
     }
     const text = document.getElementById('load-progress');
     if (text) {
-        text.textContent = `Loading ${label}…`;
+        text.textContent = label;
         text.removeAttribute('hidden');
     }
 }

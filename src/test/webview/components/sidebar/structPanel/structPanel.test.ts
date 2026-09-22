@@ -7,7 +7,7 @@ import type { StructPanel } from '../../../../../webview/components/sidebar/stru
 import { S } from '../../../../../webview/state';
 import { getByte } from '../../../../../webview/memory/memoryData';
 import type { StructDef, StructPin } from '../../../../../core/types';
-import { setBytesInSegment } from '../../../../shared/structTestHelpers';
+import { setBytesInSegment } from '../../../structStateHelpers';
 
 function resetStructState(): void {
     S.structs = [];

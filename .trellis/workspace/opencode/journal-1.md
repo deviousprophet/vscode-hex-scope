@@ -235,3 +235,28 @@ Cut DiffView search latency: streamed batches repaint matches incrementally via 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: Share the parse worker with the hex editor
+<!-- trellis-session: v=2 fp=11eaa4b3602b2b3e -->
+
+**Date**: 2026-09-22
+**Task**: Share the parse worker with the hex editor
+**Branch**: `feat/shared-parse-worker`
+
+### Summary
+
+One parse worker (src/parse/parseWorker.ts) now dispatches diffParse | hexParse; hex initial load + external change parse off the extension-host thread via a shared runParseJob client, with cloneable serialize/hydrate of CompactParseResult. Loading-card CSS deduped onto base.css and the label formatter moved to webview utils (no UI in core). Decoupled core struct tests from webview state. All gates green: 1127 tests, fallow clean.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3de465b` | feat(parse): share the parse worker with the hex editor |
+| `7c8a188` | refactor(webview): dedupe the loading-card label and CSS |
+| `f742b99` | test: decouple core struct tests from webview state |
+| `930b6db` | docs(spec): document the shared parse worker and loading-card layout |
+
+### Status
+
+[OK] **Completed**

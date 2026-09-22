@@ -1,5 +1,6 @@
 import type { DiffModel } from '../../core/diff';
 import { computeByteDiff } from '../../core/diff';
+import { loadingProgressLabel } from '../utils';
 import type { MemorySegment } from '../../core/parser/types';
 import { formatCopyCommand } from '../../core/byteTools/copyFormatters';
 import { DiffView, type DiffPane, type DiffViewCallbacks } from '../components/diffView/diffView';
@@ -680,13 +681,7 @@ function showDiffRoot(): void {
 /** Update the loading card from a host `diffProgress` message (indeterminate bar; progress lives in the text). */
 export function applyDiffProgress(message: DiffProgressMessage): void {
     const text = document.querySelector<HTMLElement>('#diff-loading .loading-text');
-    if (text) { text.textContent = `Loading ${message.stage} ${progressPercent(message)}%…`; }
-}
-
-function progressPercent(message: DiffProgressMessage): number {
-    return message.total > 0
-        ? Math.max(0, Math.min(100, Math.floor((message.completed / message.total) * 100)))
-        : 0;
+    if (text) { text.textContent = loadingProgressLabel(message.stage, message.completed, message.total); }
 }
 
 // ── Scroll sync ───────────────────────────────────────────────────

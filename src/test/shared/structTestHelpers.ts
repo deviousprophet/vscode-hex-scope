@@ -1,14 +1,7 @@
-import { initFlatBytes } from '../../webview/memory/memoryData';
-import { S } from '../../webview/state';
+let bytes = new Map<number, number>();
 
-export function setBytesInSegment(baseAddr: number, bytes: number[]): void {
-    S.parseResult = {
-        records: [],
-        segments: [{ startAddress: baseAddr, data: bytes }],
-        totalDataBytes: bytes.length,
-        checksumErrors: 0,
-        malformedLines: 0,
-        format: 'ihex',
-    };
-    initFlatBytes();
+export function setBytesInSegment(baseAddr: number, data: number[]): void {
+    bytes = new Map(data.map((value, index) => [baseAddr + index, value]));
 }
+
+export function getByte(addr: number): number | undefined { return bytes.get(addr); }

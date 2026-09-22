@@ -1,9 +1,7 @@
 import * as crypto from 'crypto';
-import * as path from 'node:path';
-import { Worker } from 'node:worker_threads';
 import * as vscode from 'vscode';
 import { DisposableStore } from '../core/disposableStore';
-import { detectFormatFromParts, repairChecksums, type HexScopeFormat } from '../core/document';
+import { detectFormatFromParts, repairChecksums } from '../core/document';
 import { parseIntelHex } from '../core/parser/intelHexParser';
 import { parseSRec } from '../core/parser/srecParser';
 import { disambiguatedLabels } from '../core/diffLabels';
@@ -11,7 +9,8 @@ import type { WireParseResult } from '../core/types';
 import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide, type DiffProgressStage } from '../diffProtocol';
 import { advanceFraction, combinedLoadProgress } from './loadProgress';
 import { buildDiffState, reloadIsStale, reloadState, sideDefects, type DiffReloadState, type DiffSideKey, type ParsedDiffSide } from './diffReload';
-import { fileName } from '../core/pathName';
+import { fileExtension, fileName } from '../core/pathName';
+import { runParseJob, type WorkerResultOut } from '../parse/parseWorkerClient';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
@@ -210,7 +209,7 @@ async function readAndParseSide(uri: vscode.Uri, signal: AbortSignal): Promise<P
 /** Repair the file's checksums in place (no-op when it has none) and report the self-write. */
 async function repairChecksumsOnDisk(uri: vscode.Uri, markSelfWrite: () => void): Promise<void> {
     const raw = new TextDecoder('utf-8').decode(await readDiffSource(uri));
-    const format = detectFormatFromParts(extensionOf(uri), raw);
+    const format = detectFormatFromParts(fileExtension(uri), raw);
     const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
     const repaired = repairChecksums(raw, parseResult);
     if (repaired === raw) { return; }
@@ -270,34 +269,6 @@ async function readDiffSource(uri: vscode.Uri): Promise<Uint8Array> {
     return vscode.workspace.fs.readFile(uri);
 }
 
-interface WorkerParseOut {
-    type?: string;
-    fraction?: number;
-    format?: HexScopeFormat;
-    wire?: WireParseResult;
-    message?: string;
-}
-
-interface WorkerMessageContext {
-    onFraction: (fraction: number) => void;
-    settle: (action: () => void) => void;
-    accept: (message: WorkerParseOut) => void;
-    reject: (error: unknown) => void;
-}
-
-type WorkerMessageHandler = (message: WorkerParseOut, ctx: WorkerMessageContext) => void;
-
-const WORKER_MESSAGE_HANDLERS: Record<string, WorkerMessageHandler> = {
-    progress: (message, ctx) => ctx.onFraction(message.fraction ?? 0),
-    result: (message, ctx) => ctx.accept(message),
-    error: (message, ctx) => ctx.settle(() => ctx.reject(new Error(message.message ?? 'Failed to parse file.'))),
-};
-
-/** Route one worker message to its handler; unknown types are ignored. */
-function handleWorkerMessage(message: WorkerParseOut, ctx: WorkerMessageContext): void {
-    WORKER_MESSAGE_HANDLERS[message.type ?? '']?.(message, ctx);
-}
-
 /** Parse one file in its own worker thread, relaying the worker's monotonic fraction. */
 function parseSideInWorker(
     uri: vscode.Uri,
@@ -305,44 +276,15 @@ function parseSideInWorker(
     signal: AbortSignal,
     onFraction: (fraction: number) => void,
 ): Promise<ParsedDiffFile> {
-    return new Promise<ParsedDiffFile>((resolve, reject) => {
-        const buffer = bytes.buffer as ArrayBuffer;
-        const worker = new Worker(path.join(__dirname, 'diffParseWorker.js'), {
-            workerData: { kind: 'diffParse', bytes: buffer, extension: extensionOf(uri) },
-            transferList: [buffer],
-        });
-        let settled = false;
-        const settle = (action: () => void): void => {
-            if (settled) { return; }
-            settled = true;
-            signal.removeEventListener('abort', onAbort);
-            void worker.terminate();
-            action();
-        };
-        const onAbort = (): void => settle(() => reject(new Error('Compare cancelled')));
-        signal.addEventListener('abort', onAbort, { once: true });
-        const accept = (message: WorkerParseOut): void => {
-            let parsed: ParsedDiffFile;
-            try {
-                parsed = acceptParsedSide(uri, message);
-            } catch (error) {
-                settle(() => reject(error));
-                return;
-            }
-            settle(() => resolve(parsed));
-        };
-        worker.on('message', message => handleWorkerMessage(message, { onFraction, settle, accept, reject }));
-        worker.on('error', error => settle(() => reject(error)));
+    const buffer = bytes.buffer as ArrayBuffer;
+    return runParseJob({
+        job: { kind: 'diffParse', bytes: buffer, extension: fileExtension(uri) },
+        signal,
+        transferList: [buffer],
+        abortMessage: 'Compare cancelled',
+        onProgress: message => { if ('fraction' in message) { onFraction(message.fraction); } },
+        onResult: message => acceptParsedSide(uri, message),
     });
-}
-
-interface CompleteParse extends WorkerParseOut {
-    format: HexScopeFormat;
-    wire: WireParseResult;
-}
-
-function hasCompleteParse(message: WorkerParseOut): message is CompleteParse {
-    return Boolean(message.format && message.wire);
 }
 
 function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {
@@ -351,8 +293,8 @@ function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {
     }
 }
 
-function acceptParsedSide(uri: vscode.Uri, message: WorkerParseOut): ParsedDiffFile {
-    if (!hasCompleteParse(message)) { throw new Error(`Failed to parse ${fileName(uri)}.`); }
+function acceptParsedSide(uri: vscode.Uri, message: WorkerResultOut): ParsedDiffFile {
+    if (!('wire' in message)) { throw new Error(`Failed to parse ${fileName(uri)}.`); }
     return { format: message.format, wire: message.wire };
 }
 
@@ -367,10 +309,6 @@ function diffTitle(baseUri: vscode.Uri, otherUri: vscode.Uri): string {
 
 function labelInput(uri: vscode.Uri): { name: string; path: string } {
     return { name: fileName(uri), path: uri.fsPath };
-}
-
-function extensionOf(uri: vscode.Uri): string {
-    return uri.path.split('.').pop()?.toLowerCase() ?? '';
 }
 
 function diffErrorMessage(error: unknown): string {

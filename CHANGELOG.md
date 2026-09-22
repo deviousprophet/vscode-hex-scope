@@ -11,6 +11,9 @@
 - Explorer `HexScope` compare actions: `Set as 1st file to compare`, `Compare with the 1st file`, and `Compare Two Files`
 - Diff comparisons read and parse both files in parallel worker threads (roughly one file's parse time), behind the shared indeterminate loading card, and reload when either file changes on disk
 
+### Changed
+- The HexScope editor parses firmware files in a background worker, so opening or reloading a large Intel HEX/SREC file no longer blocks the editor host
+
 ### Fixed
 - Integrity checks with a stored MD5 or SHA value now compare and update correctly when the byte-order toggle is `LE`; hash digests stay in natural byte order and the stored pane no longer shows an `LE`/`BE` tag for hashes
 

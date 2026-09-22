@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gate: check-types, lint, test, fallow, and coverage expectations per change type"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify no host file imports src/webview/ and the new seams keep dependency direction"}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Verify worker abort/dispose, stale-generation no-post, and unknown-message handling"}
+{"file": ".trellis/spec/frontend/document-formats.md", "reason": "Verify parse/edit/repair parity with zero new checksum errors after serialize/hydrate"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Worker payload changes cross host/worker/webview layers; check every consumer"}

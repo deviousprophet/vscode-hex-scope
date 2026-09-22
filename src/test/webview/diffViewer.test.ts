@@ -854,7 +854,7 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(fill.style.width, '', 'the bar is indeterminate — never width-driven');
         assert.strictEqual(fill.classList.contains('det'), false, 'the determinate variant class is gone');
         applyDiffProgress({ type: 'diffProgress', stage: 'diff', completed: 0, total: 0 });
-        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Loading diff 0%…');
+        assert.strictEqual(loading.querySelector('.loading-text')!.textContent, 'Loading diff…', 'a zero total drops the percent');
         assert.strictEqual(fill.style.width, '', 'a zero total never drives the bar width');
     });
 

@@ -5,7 +5,7 @@ import { canUseSegmentRecord, collectSegmentRanges, type SegmentRange } from './
 const RECORD_PAGE_CAPACITY = 65_536;
 const COMPACTION_BATCH_SIZE = 2_048;
 
-interface RecordMetadataPage {
+export interface SerializedCompactPage {
     length: number;
     sourceStart: Uint32Array;
     sourceEnd: Uint32Array;
@@ -25,6 +25,59 @@ export interface CompactParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
+}
+
+/** Cloneable compact result: record-metadata pages + exact segment buffers, worker-transferable. */
+export interface SerializedCompactParseResult {
+    recordCount: number;
+    pages: SerializedCompactPage[];
+    segments: Array<{ startAddress: number; data: ArrayBuffer }>;
+    totalDataBytes: number;
+    checksumErrors: number;
+    malformedLines: number;
+    startAddress?: number;
+}
+
+/** Wire-shape segment projection: exact `ArrayBuffer` slices, safe to transfer zero-copy. */
+export function wireSegments(segments: MemorySegment[]): Array<{ startAddress: number; data: ArrayBuffer }> {
+    return segments.map(s => ({
+        startAddress: s.startAddress,
+        data: s.data.buffer.slice(s.data.byteOffset, s.data.byteOffset + s.data.byteLength) as ArrayBuffer,
+    }));
+}
+
+/** Serialize a compact parse result into transferable buffers (mirrors `serializeParseResult`). */
+export function serializeCompactParseResult(result: CompactParseResult): SerializedCompactParseResult {
+    return {
+        recordCount: result.records.length,
+        pages: result.records.serializePages(),
+        segments: wireSegments(result.segments),
+        totalDataBytes: result.totalDataBytes,
+        checksumErrors: result.checksumErrors,
+        malformedLines: result.malformedLines,
+        startAddress: result.startAddress,
+    };
+}
+
+/** Rebuild a compact parse result from its serialized form (segment buffers wrap back into views). */
+export function hydrateCompactParseResult(payload: SerializedCompactParseResult): CompactParseResult {
+    return {
+        records: CompactRecordStore.fromSerialized(payload.pages, payload.recordCount),
+        segments: payload.segments.map(s => ({ startAddress: s.startAddress, data: new Uint8Array(s.data) })),
+        totalDataBytes: payload.totalDataBytes,
+        checksumErrors: payload.checksumErrors,
+        malformedLines: payload.malformedLines,
+        startAddress: payload.startAddress,
+    };
+}
+
+/** Every metadata-page + segment buffer of a serialized result, for zero-copy transfer. */
+export function compactTransferList(payload: SerializedCompactParseResult): ArrayBuffer[] {
+    const pageBuffers = payload.pages.flatMap(page => [
+        page.sourceStart, page.sourceEnd, page.lineNumber, page.address, page.resolvedAddress,
+        page.byteCount, page.recordType, page.checksum, page.flags,
+    ].map(view => view.buffer as ArrayBuffer));
+    return [...pageBuffers, ...payload.segments.map(segment => segment.data)];
 }
 
 function advanceSegCursor(cursor: number, ranges: SegmentRange[], recordIndex: number): number {
@@ -68,7 +121,7 @@ export async function createCompactParseResult(
     };
 }
 
-function page(): RecordMetadataPage {
+function page(): SerializedCompactPage {
     return {
         length: 0,
         sourceStart: new Uint32Array(RECORD_PAGE_CAPACITY),
@@ -116,11 +169,23 @@ class CompactionWork {
 }
 
 export class CompactRecordStore {
-    private readonly pages: RecordMetadataPage[] = [];
+    private readonly pages: SerializedCompactPage[] = [];
     public readonly length: number;
 
     private constructor(length: number) {
         this.length = length;
+    }
+
+    /** The internal metadata pages, exposed for worker serialization. */
+    public serializePages(): SerializedCompactPage[] {
+        return this.pages;
+    }
+
+    /** Rebuild a store from transferred metadata pages (static so it can call the private constructor). */
+    public static fromSerialized(pages: SerializedCompactPage[], recordCount: number): CompactRecordStore {
+        const store = new CompactRecordStore(recordCount);
+        store.pages.push(...pages);
+        return store;
     }
 
     public static async create(
@@ -157,7 +222,7 @@ export class CompactRecordStore {
         target.flags[i] = recordFlags(record);
     }
 
-    private pageAt(pageIndex: number): RecordMetadataPage {
+    private pageAt(pageIndex: number): SerializedCompactPage {
         const existing = this.pages[pageIndex];
         if (existing) { return existing; }
         const created = page();

@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { parseIntelHex, parseIntelHexCompact, parseIntelHexLine } from '../../../core/parser/intelHexParser';
 import { parseSRec, parseSRecCompact, parseSRecRecordLine } from '../../../core/parser/srecParser';
-import { CompactRecordStore, createCompactParseResult } from '../../../core/parser/compact';
+import { CompactRecordStore, compactTransferList, createCompactParseResult, hydrateCompactParseResult, serializeCompactParseResult } from '../../../core/parser/compact';
 import { collectSegmentRanges } from '../../../core/parser/segments';
 import type { HexRecord } from '../../../core/parser/types';
 
@@ -147,5 +147,48 @@ suite('compact async parsers', () => {
             actual.segments.map(s => Array.from(s.data)),
             expected.segments.map(s => Array.from(s.data)),
         );
+    });
+
+    test('IHEX serialize → transfer → hydrate round-trips records and segments', async () => {
+        const source = ':0400000001020304F2\n:0400100005060708D2\n:00000001FF\n';
+        const expected = parseIntelHex(source);
+        const serialized = serializeCompactParseResult(await parseIntelHexCompact(source));
+        const cloned = structuredClone(serialized, { transfer: compactTransferList(serialized) });
+        const hydrated = hydrateCompactParseResult(cloned);
+
+        assert.deepStrictEqual(
+            hydrated.segments.map(s => Array.from(s.data)),
+            expected.segments.map(s => Array.from(s.data)),
+        );
+        assert.strictEqual(hydrated.records.length, expected.records.length);
+        for (let index = 0; index < expected.records.length; index++) {
+            assert.deepStrictEqual(
+                hydrated.records.materialize(index, source, parseIntelHexLine),
+                expected.records[index],
+            );
+        }
+        assert.strictEqual(hydrated.totalDataBytes, expected.totalDataBytes);
+        assert.strictEqual(hydrated.checksumErrors, 0);
+        assert.strictEqual(hydrated.malformedLines, 0);
+    });
+
+    test('SREC serialize → transfer → hydrate round-trips records and segments', async () => {
+        const source = 'S107000001020304EE\nS107001005060708CE\nS9030000FC\n';
+        const expected = parseSRec(source);
+        const serialized = serializeCompactParseResult(await parseSRecCompact(source));
+        const hydrated = hydrateCompactParseResult(structuredClone(serialized, { transfer: compactTransferList(serialized) }));
+
+        assert.deepStrictEqual(
+            hydrated.segments.map(s => Array.from(s.data)),
+            expected.segments.map(s => Array.from(s.data)),
+        );
+        for (let index = 0; index < expected.records.length; index++) {
+            assert.deepStrictEqual(
+                hydrated.records.materialize(index, source, parseSRecRecordLine),
+                expected.records[index],
+            );
+        }
+        assert.strictEqual(hydrated.checksumErrors, 0);
+        assert.strictEqual(hydrated.malformedLines, 0);
     });
 });
