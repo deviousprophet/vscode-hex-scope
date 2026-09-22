@@ -81,3 +81,30 @@ Completed the last two execution phases of the read-only two-file hex diff edito
 ### Next Steps
 
 - Open a PR from feat/hex-diff; the changelog entry sits under `[Unreleased]` (main == v2.24.0).
+
+
+## Session 3: Hex diff surface correctness fixes
+<!-- trellis-session: v=2 fp=82c170fac3a631b5 -->
+
+**Date**: 2026-09-22
+**Task**: Hex diff surface correctness fixes
+**Branch**: `feat/hex-diff`
+
+### Summary
+
+Implemented and verified child hex-diff-surface-correctness: shared match-span/hex-cell/file-name helpers (S3,S9); structural diffInit validation + dropped fabricated records (S5,S6); search selection pane, hidden-row navigation, per-pane independent scroll (C1,C4,C5); stash clears only on successful open (C2). Updated component-diff-view/editor-lifecycle/memory-navigation/type-safety specs. Also added C5 finding to parent PRD and created three child tasks under 09-21-hex-diff-review-followups. Gates green: check-types, lint, 1070 tests, fallow audit pass.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d27f9f0` | refactor(webview): share match-span, hex-cell and file-name helpers (S3, S9) |
+| `5f1a61a` | fix(diff): validate diffInit structurally and drop the fabricated records field (S5, S6) |
+| `bfdce0f` | fix(diff): copy from the mapping pane, navigate hidden rows, keep both panes populated (C1, C4, C5) |
+| `f14a4de` | fix(extension): clear the compare stash only after a successful open (C2) |
+| `63a7be9` | docs(spec): capture diff per-pane scroll, boundary validation, stash-clear contracts |
+| `18d3521` | docs(task): plan hex-diff review follow-ups as parent + children |
+
+### Status
+
+[OK] **Completed**
