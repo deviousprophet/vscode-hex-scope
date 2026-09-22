@@ -5,6 +5,7 @@
 // take the state they need as params — no class member access.
 
 import {
+    integrityByteOrder,
     integrityBytesEqual,
     integrityBytesToHex,
     integrityBytesToValueHex,
@@ -31,6 +32,10 @@ export interface IntegrityResultRenderDeps {
 
 export function algorithmLabel(algorithm: IntegrityAlgorithm): string {
     return ALGORITHM_LABELS.find(([value]) => value === algorithm)?.[1] ?? algorithm;
+}
+
+function storedPaneLabel(algorithm: IntegrityAlgorithm, endian: 'le' | 'be'): string {
+    return isChecksumAlgorithm(algorithm) ? `Stored (${endian.toUpperCase()})` : 'Stored';
 }
 
 function checkRangeSummary(check: IntegrityCheckState): string {
@@ -103,7 +108,7 @@ function pendingResultBodyHtml(check: IntegrityCheckState, deps: IntegrityResult
 }
 
 function pendingStoredResultHtml(check: IntegrityCheckState, deps: IntegrityResultRenderDeps): string {
-    const storedLabel = isChecksumAlgorithm(check.algorithm) ? `Stored (${deps.endian().toUpperCase()})` : 'Stored';
+    const storedLabel = storedPaneLabel(check.algorithm, deps.endian());
     return `<div class="integrity-value-pane stored unverified pending">
     <div class="integrity-value-hdr"><span>${storedLabel}</span>${autoFixToggleHtml(check, deps.isAutoFixSuppressed(check))}</div>
     <code>${formatHexHtml('0x—')}</code>
@@ -141,9 +146,9 @@ function storedResultHtml(check: IntegrityCheckState, deps: IntegrityResultRende
     if (!check.storedBytes) { return ''; }
     const state = highlightStatus(check);
     const raw = integrityBytesToHex(check.storedBytes);
-    const byteOrder = isChecksumAlgorithm(check.algorithm) ? deps.endian() : 'be';
+    const byteOrder = integrityByteOrder(check.algorithm, deps.endian());
     const value = integrityBytesToValueHex(check.storedBytes, byteOrder);
-    const storedLabel = isChecksumAlgorithm(check.algorithm) ? `Stored (${deps.endian().toUpperCase()})` : 'Stored';
+    const storedLabel = storedPaneLabel(check.algorithm, deps.endian());
     return `<div class="integrity-value-pane stored ${state}">
     <div class="integrity-value-hdr"><span>${storedLabel}</span>${autoFixToggleHtml(check, deps.isAutoFixSuppressed(check))}</div>
     <code title="Raw bytes: 0x${raw}">${formatHexHtml(`0x${value}`)}</code>

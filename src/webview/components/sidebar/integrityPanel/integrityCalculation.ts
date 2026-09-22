@@ -8,8 +8,8 @@
 import {
     calculateIntegrity,
     collectIntegrityBytesAsync,
+    integrityByteOrder,
     integrityValueToBytes,
-    isChecksumAlgorithm,
     parseIntegrityAddress,
     readStoredIntegrityBytes,
     validateIntegrityRange,
@@ -141,8 +141,7 @@ function applyCalculatedResultIfCurrent(
 ): void {
     if (token !== check.token) { return; }
     check.result = result;
-    const byteOrder = isChecksumAlgorithm(check.algorithm) ? hooks.endian() : 'be';
-    check.expectedBytes = integrityValueToBytes(result.value, byteOrder);
+    check.expectedBytes = integrityValueToBytes(result.value, integrityByteOrder(check.algorithm, hooks.endian()));
     check.storedBytes = null;
     check.calculating = false;
     check.meta = formatByteCount(result.byteCount);
