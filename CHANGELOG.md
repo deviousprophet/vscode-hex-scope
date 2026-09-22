@@ -16,6 +16,7 @@
 
 ### Fixed
 - Integrity checks with a stored MD5 or SHA value now compare and update correctly when the byte-order toggle is `LE`; hash digests stay in natural byte order and the stored pane no longer shows an `LE`/`BE` tag for hashes
+- Copying a firmware file in the workspace no longer makes the copy auto-open with a spurious external-change banner
 
 ## [2.24.0] - 2026-09-21
 
