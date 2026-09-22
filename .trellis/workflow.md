@@ -551,6 +551,7 @@ The check agent's job:
 - Review code changes against `prd.md`, `design.md` if present, and `implement.md` if present
 - Auto-fix issues it finds
 - Run lint and typecheck to verify
+- Run `/fallow-fix` as a required quality gate: full Fallow scan, then fix every finding via the `fallow-fix` skill (refactor source; never suppression comments or config edits)
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
@@ -560,6 +561,7 @@ Load the `trellis-check` skill and verify the code per its guidance:
 - Spec compliance
 - lint / type-check / tests
 - Cross-layer consistency (when changes span layers)
+- `/fallow-fix` gate: full Fallow scan, fix findings via the `fallow-fix` skill
 
 If issues are found → fix → re-check, until green.
 

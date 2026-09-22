@@ -7,8 +7,9 @@ import { parseIntelHexCompact, parseIntelHexLine } from './core/parser/intelHexP
 import { parseSRecCompact, parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment } from './core/parser/types';
 import type { CompactParseResult } from './core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, StructPin, WireParseResult } from './core/types';
+import type { SegmentLabel, SerializedRecord, StructDef, StructPin } from './core/types';
 import { buildSplicePlan, detectFormatFromParts, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { serializeParseResult } from './core/wire';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
@@ -1578,21 +1579,6 @@ async function readBindingsTable(root: string): Promise<Binding[] | null> {
     const read = await readJson(bindingsJsonUri(root));
     if (read.status !== 'ok') { return null; }
     return normalizeBindings(read.value).value;
-}
-
-function serializeParseResult(result: CompactParseResult, format: HexScopeFormat): WireParseResult {
-    return {
-        recordCount: result.records.length,
-        segments: result.segments.map(s => ({
-            startAddress: s.startAddress,
-            data: s.data.buffer.slice(s.data.byteOffset, s.data.byteOffset + s.data.byteLength) as ArrayBuffer,
-        })),
-        totalDataBytes: result.totalDataBytes,
-        checksumErrors: result.checksumErrors,
-        malformedLines: result.malformedLines,
-        startAddress: result.startAddress,
-        format,
-    };
 }
 
 /** Detect whether raw content is Intel HEX or Motorola SREC. */

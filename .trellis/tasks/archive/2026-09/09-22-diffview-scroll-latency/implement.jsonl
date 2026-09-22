@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Owning component spec: scroll-sync per-pane state, scroll stability, Tests Required, Validation matrix this task changes"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Reused HexView contract: .mem-scroll/.mem-rows ownership, setScrollTop/setScrollLeft, overscan, scroll-anchoring-off rules"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Direct-DOM webview interaction/listener conventions; host never writes component DOM, rerender/coalescing rules"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required checks, test placement, and fallow-fix gate before finishing"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module placement and dependency direction for the diff host + shared render layer"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Rules for any .mem-rows transform/will-change CSS touch"}

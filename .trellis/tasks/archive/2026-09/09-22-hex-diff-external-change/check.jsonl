@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/components/component-external-change.md", "reason": "Verify the reused component stayed markup/behavior-identical and its generic signature is clean."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify the diff external-change protocol + reload view-state contract."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Verify watcher lifecycle/dispose and generation handling in the diff panel."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify the new message guards reject malformed payloads without throwing."}

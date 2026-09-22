@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Boundary Pattern: normalize-once from unknown; drives the diffInit validation fix (S5) and the fabricated-field removal (S6)."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Zero clone-group requirement for the S3/S9 de-duplication."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Diff surface contract: selection/copy, Show diff filtering, scroll sync (C1, C4, C5)."}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "HexView scroll-left seam and root-scoped contract reused by the per-pane scroll fix (C5)."}
+{"file": ".trellis/spec/frontend/memory-navigation.md", "reason": "Virtual-scroll, gap-row, and BPR alignment contracts the diff grid reuses (C5, S9)."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Compare command lifecycle and staged-file clearing contract (C2)."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Shared-helper rationale for S3/S9."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Host/webview boundary discipline for S5/S6 and C2."}

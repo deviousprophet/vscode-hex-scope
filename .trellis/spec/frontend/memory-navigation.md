@@ -82,3 +82,65 @@ scrollContainer.scrollTop = logicalToPhysicalScroll(logicalTop, state);
 ```
 
 Compressed scroll coordinates are a boundary contract: preserve logical position across rerenders.
+
+## Scenario: Diff row model across two address spaces
+
+### 1. Scope / Trigger
+
+Applies to `src/webview/diff/diffModel.ts` and `src/webview/diff/diffGrid.ts` — the two-grid diff editor's row model and virtual scroll.
+
+### 2. Signatures
+
+```typescript
+function buildDiffRows(a: DiffSideData, b: DiffSideData): DiffRow[];
+function getSideByte(side: DiffSideData, addr: number): number | undefined;
+function diffKindAt(runs: readonly DiffRun[], addr: number): DiffKind | undefined;
+function diffClassForSide(side: 'a' | 'b', kind: DiffKind | undefined): string;
+
+interface DiffRow { address: number; kind: 'data' | 'gap'; gap?: { from: number; to: number; bytes: number } }
+```
+
+### 3. Contracts
+
+- One row model is shared by both grids: the union of mapped 16-byte-aligned blocks from both sides, ascending. A block is `data` when either side maps any byte in it; `gap` only when neither side maps it.
+- `getSideByte` returns `undefined` for an address a side does not map — never a synthetic zero. A side renders an empty (`be`) cell there.
+- `diffKindAt` is a binary search over `DiffModel.runs`; `diffClassForSide` marks `changed` on both sides, `added` on B only, `removed` on A only.
+- Both grids render their own address column (no hidden-address variant) and identical row order.
+- Diff grids render hex only (`showAscii:false`).
+- Each pane owns its own `VirtualScrollState` (`scrollPaneA`/`scrollPaneB`) so two scroll positions are representable; the driving grid reports `onVisibleWindowChange(top, left)` and the host re-slices that pane's window. `Sync scroll` ON additionally mirrors `setScrollTop`/`setScrollLeft` onto the follower with a re-entrancy guard; OFF leaves the follower at its own position, still rendering its own rows. Scroll-driven renders coalesce to one per animation frame and skip an unchanged slice.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Neither side maps an address | Gap row (when a whole aligned block is unmapped) — never allocated per address. |
+| One side maps an address | Data row; mapped side shows the byte, unmapped side shows an empty cell. |
+| Identical files | Rows render; no cell carries a `diff-*` class. |
+| Same block mapped on both sides | One shared row; both grids render it. |
+| Scroll driven by either grid | Logical scroll position preserved; with `Sync scroll` on the follower mirrors vertical + horizontal; with it off each pane keeps its own position and rows. |
+
+### 5. Good/Base/Bad Cases
+
+- Base: one mapped byte at 0x1000 on A, one at 0x1020 on B → two data rows plus one gap row; both sides keep the same `data-row` order.
+- Good: added range → empty cells on A, `diff-add` cells on B.
+- Bad: zero-filling unmapped bytes, or building one row per missing address.
+
+### 6. Tests Required
+
+- `src/test/core/diff.test.ts`: `computeByteDiff` run semantics.
+- `src/test/webview/diffViewer.test.ts`: shared `data-row` order across sides, gap row between distant blocks, added/removed empty-vs-value, changed marking, summary counts, prev/next, vertical + horizontal scroll sync, decoded-text hidden, error card, unknown-message rejection.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const val = getSideByte(side, addr) ?? 0;   // synthetic zero becomes a false difference
+```
+
+#### Correct
+
+```typescript
+const val = getSideByte(side, addr);
+cells.push(val === undefined ? EMPTY_CELL : dataCell(val, side, addr));
+```

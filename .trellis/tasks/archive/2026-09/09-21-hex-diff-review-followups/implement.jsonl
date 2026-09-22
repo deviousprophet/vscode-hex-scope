@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/archive/2026-09/09-21-hex-diff/prd.md", "reason": "Originating task requirements R1-R32 / AC1-AC34; the source requirement set for these follow-ups (parent context)."}
+{"file": ".trellis/tasks/archive/2026-09/09-21-hex-diff/design.md", "reason": "Originating technical design and round-by-round decisions the review findings reference (Phase B labels, scroll stability)."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Diff surface contract; integration review checks the fixes against it."}

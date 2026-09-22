@@ -40,6 +40,8 @@ Read the specific guideline files referenced — the index is a pointer, not the
 
 Run the project's lint, type-check, and test commands. Fix any failures before proceeding.
 
+Then run the required `/fallow-fix` gate: run the full Fallow scan and fix every finding using the `fallow-fix` skill (`.agents/skills/fallow-fix/SKILL.md`). Refactor source code — never add suppression comments or edit fallow config to silence a finding.
+
 ## Step 4: Review Against Checklist
 
 ### Code Quality

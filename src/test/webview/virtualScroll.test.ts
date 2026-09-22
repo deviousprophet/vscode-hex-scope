@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 
-import { clampWindowTop } from '../../webview/render/virtualScroll';
+import { clampWindowTop, overscanRowCount } from '../../webview/render/virtualScroll';
 
 suite('webview virtualScroll clampWindowTop', () => {
     test('windowTop is clamped so the slice never overflows physicalHeight', () => {
@@ -25,5 +25,13 @@ suite('webview virtualScroll clampWindowTop', () => {
         const sliceHeight = 800;
         assert.strictEqual(clampWindowTop(-50, physicalHeight, sliceHeight), 0);
         assert.strictEqual(clampWindowTop(9999, physicalHeight, sliceHeight), 200);
+    });
+});
+
+suite('webview virtualScroll overscanRowCount', () => {
+    test('floors at minBufferSize for a small container, scales to a viewport, falls back for a bad row height', () => {
+        assert.strictEqual(overscanRowCount(100, 20, 10), 10);
+        assert.strictEqual(overscanRowCount(1000, 20, 10), 50);
+        assert.strictEqual(overscanRowCount(1000, 0, 10), 10);
     });
 });

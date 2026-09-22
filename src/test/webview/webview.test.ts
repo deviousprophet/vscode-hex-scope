@@ -399,9 +399,9 @@ suite('Memory View rerender stability', () => {
     setup(() => {
         resetState();
         dom = installWebviewDom(`<!doctype html><html style="--vscode-editor-font-size:12.5px"><body>
-            <div id="memory-view">
-                <div id="mem-header"></div>
-                <div id="mem-scroll"><div id="mem-rows"></div></div>
+            <div id="memory-view" class="memory-view">
+                <div id="mem-header" class="mem-header"></div>
+                <div id="mem-scroll" class="mem-scroll"><div id="mem-rows" class="mem-rows"></div></div>
             </div>
         </body></html>`);
         Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
@@ -452,9 +452,9 @@ suite('Memory View navigation', () => {
     setup(() => {
         resetState();
         dom = installWebviewDom(`<!doctype html><html><body>
-            <div id="memory-view">
-                <div id="mem-header"></div>
-                <div id="mem-scroll"><div id="mem-rows"></div></div>
+            <div id="memory-view" class="memory-view">
+                <div id="mem-header" class="mem-header"></div>
+                <div id="mem-scroll" class="mem-scroll"><div id="mem-rows" class="mem-rows"></div></div>
             </div>
         </body></html>`);
         Object.defineProperty(document.getElementById('mem-scroll')!, 'clientHeight', {
@@ -1354,7 +1354,7 @@ suite('memory grid container-resize handling (regression B1)', () => {
     test('a container height change re-renders the visible slice via ResizeObserver', async () => {
         resetState();
         const dom = installWebviewDom(`<!doctype html><html><body>
-            <div id="memory-view"><div id="mem-header"></div><div id="mem-scroll"><div id="mem-rows"></div></div></div>
+            <div id="memory-view" class="memory-view"><div id="mem-header" class="mem-header"></div><div id="mem-scroll" class="mem-scroll"><div id="mem-rows" class="mem-rows"></div></div></div>
         </body></html>`);
         try {
             (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver;
@@ -1457,7 +1457,7 @@ suite('edit refresh gate (C1)', () => {
     test('refreshAfterLocalEdit re-renders the grid only in memory view', async () => {
         resetState();
         const dom = installWebviewDom(`<!doctype html><html><body><div id="app">
-            <div id="memory-view"><div id="mem-header"></div><div id="mem-scroll"><div id="mem-rows"></div></div></div>
+            <div id="memory-view" class="memory-view"><div id="mem-header" class="mem-header"></div><div id="mem-scroll" class="mem-scroll"><div id="mem-rows" class="mem-rows"></div></div></div>
         </div></body></html>`);
         try {
             S.parseResult = {

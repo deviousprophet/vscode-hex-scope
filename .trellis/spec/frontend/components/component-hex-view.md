@@ -36,7 +36,7 @@ interface HexViewRow {
     address: number;
     kind: 'data' | 'gap';
     cells: HexViewCell[];         // data rows only; one per byte
-    gap?: { from: number; to: number; bytes: number };  // gap rows only
+    gap?: { from: number; to: number; bytes: number; line?: boolean };  // gap rows only; `line` = bare `Show diff` separator (empty `.gap-line`, same box height)
     banners?: HexViewBanner[];    // segment labels above the row
 }
 interface HexViewRange { start: number; end: number }
@@ -64,7 +64,7 @@ interface HexViewCallbacks {
     onCellClick?: (addr: number, shift: boolean, column: 'hex' | 'char') => void;
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
-    onVisibleWindowChange?: (scrollTop: number) => void;      // scroll → host recomputes slice
+    onVisibleWindowChange?: (scrollTop: number, scrollLeft: number) => void;  // scroll → host recomputes slice + can mirror
     onAddressRowClick?: (rowBase: number, shift: boolean) => void;  // address-gutter click → select row
 }
 
@@ -76,6 +76,7 @@ export class HexView {
     setCallbacks(cb: HexViewCallbacks): void;
     setScrollTop(top: number): void;     // drive scroll container (physical)
     getScrollTop(): number;
+    setScrollLeft(left: number): void;   // drive horizontal offset + resync header scrollLeft
     scrollTo(addr: number): void;
     paintSelection(range: HexViewRange | null): void;      // incremental class paint
     paintMatch(matchAddrs: readonly number[], index: number, length: number): void;
@@ -95,10 +96,14 @@ export class HexView {
 - **Container-wrapper positioning (current parity):** rows container full virtual height + inner wrapper `top: windowTop`; no per-row absolute. Gap rows + banners in-flow.
 - **Compressed mode emits NO spacers:** `windowTop` already equals `physicalScrollTop + topSpacer - logicalScrollTop`, so the wrapper subsumes the top offset. Emitting top/bottom spacers inside the wrapper would double-offset and grow blank space above rows as the user scrolls down. Spacers are rendered only in uncompressed (in-flow) mode.
 - **Virtualization:** component owns scroll listener → `onVisibleWindowChange(scrollTop)`; host computes slice via `render/virtualScroll.ts` (shared with record view) and feeds new render input. Component does not import virtualScroll math.
+- **Viewport-scaled overscan:** every host derives `VirtualScrollState.bufferSize` from the shared `overscanRowCount(containerHeight, rowHeight, minBufferSize)` in `render/virtualScroll.ts` — a `minBufferSize` floor (10) that grows to one full viewport of extra rows per side, so a fast/inertial fling cannot expose un-rendered DOM before the next frame; a non-finite/non-positive `rowHeight` falls back to the floor. The single-file grid re-derives it on mount (`initializeMemoryScrollState`) and on resize (`syncVirtualScrollMetrics`); the diff host re-derives it whenever `ensureScrollState` rebuilds the pane state.
+- **Scroll anchoring off:** `.mem-scroll` (the `overflow: auto` container) declares `overflow-anchor: none`; the host owns scroll position. Virtualization rewrites `.mem-rows` children every scroll-driven frame, and the browser's default scroll anchoring would treat those deliberate updates as layout shifts and rewrite `scrollTop` on top of native/inertial scrolling and the host's own bookkeeping / mirrored follower `setScrollTop` — blanking and jittering the actively scrolled driver pane. Shared by the diff view and the single-file hex view, so both are covered.
 - **Header:** component renders it (hidden addr gutter + 00..0F hex cells always + "Decoded text" gated by `showAscii`); header scrollLeft sync is component-internal.
 - **Zero size math:** all sizing from CSS (`--cell-size`, `--text-cell-width`, `.cell-group` `4n+1` gaps, `.data-row` height). No width/height computation in TS. Positioning attributes (`top: windowTop` on the wrapper, spacer heights) are host-computed values emitted as inline `style` — pre-existing parity, not size math.
 - **CSS debt (documented, not new):** `hexView.css` carries ~10 `!important` rules (integrity/match/sel/col-hi overlap precedence) moved verbatim from `memory-view.css`; this exceeds css-guidelines.md's documented exception (`scripts-toolbar::before`). Known debt; dedupe/cleanup is out of scope for the parity refactor.
-- **Root-scoped (single-instance today):** constructor takes `rootSelector`; the component queries only within its root. Note the shell still uses the pre-existing global ids `#memory-view`/`#mem-header`/`#mem-scroll` (single-instance webview). Diff-view two-panel reuse will need those ids turned into class-scoped root markup (a future diff task).
+- **Root-scoped, multi-instance:** constructor takes `rootSelector`; the component queries only within its root and never by global id — internal lookups use `.mem-header` / `.mem-scroll` class selectors, so two instances coexist in the diff editor without collisions. The single-file shell keeps its legacy ids (`#memory-view`/`#mem-header`/`#mem-scroll`) alongside the new classes so `memoryGrid.ts`/`hexViewer.ts` `getElementById` callers still work.
+- **Scroll seam:** the scroll listener reports both `scrollTop` and `scrollLeft`; `setScrollLeft` drives the horizontal offset and re-syncs the header `scrollLeft` (programmatic scroll fires no scroll event). The diff host uses these to mirror one grid onto the other.
+- **Diff host reuse:** the diff bundle wires `onVisibleWindowChange`, `onCellClick`, `onSelectionChange`, `onAddressRowClick`, and `onAddressRowDrag` (mirrored read-only selection repainted through `paintSelection`); it does not wire `onHover`/`onColumnHover` (the component paints `.col-hi` itself) nor `onCopy` — the drag-time Ctrl+C copy is handled by the diff document keydown handler, which still runs because the component only calls `stopPropagation()`, not `stopImmediatePropagation()`.
 - **Host never writes component DOM directly:** nibble-edit preview via `paintCell(addr, text|null)`; struct-field highlight via `paintStructHighlight(addrs, cls)` / `paintClearStructHighlight(cls)` (root-scoped, class-wide clear); label-form draft tint via `paintLabelDraft(range|null, color)` — it sets `--lf-draft-color` on the root and toggles `.lf-draft` on mapped cells by iterating visible `[data-addr]` cells **once** (O(visible), not O(rangeLen), so huge draft ranges stay cheap); selection-edit session tint via `paintSelEdit(range|null)` toggling `.sel-edit` the same root-scoped way (distinct amber tint vs plain selection). Component owns `.editing` class + `textContent`, restores from own `data-val`. No host `querySelectorAll('[data-addr]')` pokes.
 - **showAscii boolean** (default true = byte-identical current); `false` gates only char cells + "Decoded text" header label.
 - Untrusted text escaped with `esc()`.
@@ -123,10 +128,12 @@ export class HexView {
 | Unmapped byte (`be`) | Empty cell, no data-addr/data-val, aria-hidden; excluded from match/sel/hover/drag. |
 | `showAscii:false` | Hex + addr only; char cells + "Decoded text" header omitted. |
 | Compressed (huge file) | Container full physical height + wrapper `top: windowTop` + spacers; slice rerender on scroll. |
+| Scroll while compressed | Scroll anchoring is off (`.mem-scroll { overflow-anchor: none }`) so the browser never rewrites `scrollTop` to compensate for the slice rerender; the driver pane tracks its own native scroll without blanking. |
 | Scroll during selection | Selection repainted from host state after slice rerender (`activeMatch` preserves `.amatch`). |
 | Scroll past the end (compressed) | `windowTop` is clamped to `physicalHeight − sliceHeight` so the slice never overflows the fixed-height container; otherwise the scroll area grows and the scroll handler fights the browser clamp (end-of-scroll shaking). |
 | Nibble preview active | `paintCell(addr, text)` shows preview; `paintCell(addr, null)` restores from own data-val. |
-| Two instances (future diff) | Root-scoped listeners filter by selector; no id collisions. |
+| Two instances (diff) | Both grids are root-scoped (class queries, no ids); independent scroll containers, host mirrors via `onVisibleWindowChange` + `setScrollTop`/`setScrollLeft`. |
+| Diff grid wants hex only | Host passes `showAscii:false`; header omits `.mem-hdr-decoded` and rows omit char cells + `.col-decoded`. |
 
 ## Tests Required
 
@@ -139,4 +146,4 @@ export class HexView {
 - Global DOM-id queries inside the component.
 - Size/layout math in TS instead of CSS.
 - Virtual-scroll math imported into the component (stays host/shared).
-- Diff-view features (side, mirror, per-row absolute) added before the diff task exists.
+- Diff layout (side, mirror toggle, per-row absolute, shared address column) added here; it belongs to the diff component (`components/diffView/`) and its host (`diff/diffGrid.ts`).

@@ -36,9 +36,9 @@ function emptyLog(): CallLog {
 
 function installDom(): JSDOM {
     const dom = new JSDOM(`<!doctype html><html><body>
-        <div id="memory-view" tabindex="0">
-            <div id="mem-header"></div>
-            <div id="mem-scroll"><div id="mem-rows"></div></div>
+        <div id="memory-view" class="memory-view" tabindex="0">
+            <div id="mem-header" class="mem-header"></div>
+            <div id="mem-scroll" class="mem-scroll"><div id="mem-rows" class="mem-rows"></div></div>
         </div>
     </body></html>`, { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as { window: Window; document: Document };
@@ -270,6 +270,19 @@ suite('HexView body render', () => {
         assert.ok(html.includes('<span class="gap-dots"></span>'));
         assert.ok(html.includes('<span class="gap-range">0x00001010  0x0000101F</span>'));
         assert.ok(html.includes('<span class="gap-size">16 B unmapped</span>'));
+    });
+
+    test('a gap row marked as a line renders a bare, inert separator', () => {
+        const html = renderHexViewHtml(standardInput({
+            rows: [{
+                address: 0x1010, kind: 'gap',
+                cells: [],
+                gap: { from: 0x1010, to: 0x101F, bytes: 16, line: true },
+            }],
+        }));
+        assert.ok(html.includes('<div class="gap-row gap-line" aria-hidden="true"></div>'));
+        assert.ok(!html.includes('gap-dots'), 'no gap text on a line separator');
+        assert.ok(!html.includes('unmapped'), 'no byte count on a line separator');
     });
 
     test('segment banner renders above the row with escaped name and color style', () => {
@@ -555,8 +568,10 @@ suite('HexView interactions', () => {
         renderGrid(standardInput());
         const scrollEl = document.getElementById('mem-scroll')!;
         scrollEl.scrollTop = 123;
+        scrollEl.scrollLeft = 40;
         scrollEl.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('scroll', { bubbles: true }));
         assert.deepStrictEqual(log.windows, [123]);
+        assert.strictEqual(document.getElementById('mem-header')!.scrollLeft, 40, 'header scrollLeft follows the grid');
     });
 
     test('mount is idempotent — a second mount does not duplicate reports', () => {
@@ -627,6 +642,9 @@ suite('HexView paint methods', () => {
         renderGrid(standardInput());
         hex.setScrollTop(77);
         assert.strictEqual(hex.getScrollTop(), 77);
+        hex.setScrollLeft(40);
+        assert.strictEqual(document.getElementById('mem-scroll')!.scrollLeft, 40);
+        assert.strictEqual(document.getElementById('mem-header')!.scrollLeft, 40, 'programmatic scrollLeft keeps the header aligned');
         hex.scrollTo(ADDR_BASE); // rendered row — no throw (scrollIntoView stubbed)
         hex.scrollTo(0x0BADF00D); // unrendered row — no throw
     });

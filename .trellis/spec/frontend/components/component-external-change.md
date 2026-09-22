@@ -22,12 +22,10 @@ src/test/webview/components/externalChange.test.ts  (mocha + jsdom)
 ## Contract
 
 ```typescript
-import type { IncomingFile } from '../appModel';
-
 export class ExternalChange {
     constructor();   // renders into host-provided #app
-    showConflict(incoming: IncomingFile, unsavedEditCount: number, onReload: (incoming: IncomingFile) => void): void;
-    showReload(incoming: IncomingFile, onReload: (incoming: IncomingFile) => void): void;
+    showConflict<T>(incoming: T, unsavedEditCount: number, onReload: (incoming: T) => void): void;
+    showReload<T>(incoming: T, onReload: (incoming: T) => void): void;
     showError(
         checksumErrors: number,
         malformedLines: number,
@@ -39,6 +37,8 @@ export class ExternalChange {
     clearError(): void; // remove only the error banner
 }
 ```
+
+`showConflict`/`showReload` are generic over the incoming payload: the component only forwards `incoming` to its `onReload` callback and never inspects it, so it carries no `appModel`/`IncomingFile`/`state.ts` dependency. The single-file host passes an `IncomingFile`; the isolated diff bundle passes its own `diffExternalChange` message (see `diffExternalChange.ts`).
 
 ## Rules
 
@@ -66,7 +66,7 @@ export class ExternalChange {
 
 ## Tests Required
 
-`src/test/webview/components/externalChange.test.ts` (mocha + jsdom + cssImportHook): render parity per banner (ids/classes/text incl entity icons), dismiss wiring (conflict/reload remove + callback; error callback-only), show-replaces-same-kind, clearAll removes all three, clearError removes only error, lock.ts disable/enable round-trip. Existing `webview.test.ts` external-change assertions pass unchanged (parity gate).
+`src/test/webview/components/externalChange.test.ts` (mocha + jsdom + cssImportHook): render parity per banner (ids/classes/text incl entity icons), dismiss wiring (conflict/reload remove + callback; error callback-only), show-replaces-same-kind, clearAll removes all three, clearError removes only error, a generic non-`IncomingFile` payload round-trip, lock.ts disable/enable round-trip. Existing `webview.test.ts` external-change assertions pass unchanged (parity gate).
 
 ## Anti-patterns
 

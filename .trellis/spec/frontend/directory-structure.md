@@ -19,7 +19,14 @@ src/
 ├── hexEditorSession.ts       per-provider document/session orchestration (3 profile stores, watcher)
 ├── hexScopeStorage.ts        .hexscope/ firmware-profile I/O + per-slot JsonStore (host adapter, no Memento)
 ├── hexScopeMigration.ts      one-time legacy Memento → profile transfer
-├── webviewProtocol.ts        typed extension-host <-> webview seam
+├── webviewProtocol.ts        typed extension-host <-> webview seam (single-file editor)
+├── diffProtocol.ts           typed diff-panel <-> diff-webview seam (second cross-runtime union)
+├── diff/                     second editor surface (read-only compare); does not reuse HexEditorSession
+│   ├── compareSelection.ts   session-only compare-selection store (no Memento)
+│   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, worker spawn
+│   ├── diffParseWorker.ts    Node worker: decode + format detect + compact parse (one per file)
+│   ├── diffReload.ts         host reload decisions (sideDefects/buildDiffState/reloadState)
+│   └── loadProgress.ts       combined per-file load fraction summing
 ├── core/
 │   ├── parser/               IHEX/SREC line parsing and segment construction
 │   ├── document.ts           format detection, serialization, checksum repair
@@ -28,16 +35,25 @@ src/
 │   ├── integrity.ts          validation, algorithms, stored-value conversion
 │   ├── structCodec.ts        struct layout, parse/export, decode
 │   ├── structMigration.ts    struct-def migration + dedupe (session, migration, tests)
+│   ├── diff.ts               byte-diff runs for the compare surface (DiffModel)
+│   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
+│   ├── pathName.ts           shared basename helper (compare selection + diff panel)
+│   ├── wire.ts               ParseResult -> SerializedParseResult wire projection
 │   └── byteTools/            pure copy/analyze/format helpers
 └── webview/
-    ├── hexViewer.ts          composition root and DOM effect wiring
+    ├── hexViewer.ts          single-file composition root and DOM effect wiring
+    ├── diffViewer.ts         diff composition root (isolated bundle; no single-file shell)
     ├── appModel.ts           authoritative UI model transitions
     ├── state.ts              state shape/defaults only
     ├── webviewMessage*.ts    provider dispatch and typed model updates
-    ├── memory/  search/  render/   view-specific modules
+    ├── memory/               memory view + selection modules
+    ├── search/               search engine + shared navigation decisions (searchNavigation.ts)
+    ├── render/               shared render helpers (virtualScroll, matchSpans, hexCells, registry)
+    ├── diff/                 isolated diff surface (diffModel/diffGrid/diffSummary/diffSearch/diffMessages/diffExternalChange/diff.css — host + chrome; grid surface in components/diffView)
     └── components/           self-contained UI components
         ├── searchBar/        searchBar.ts + searchBarRender.ts + searchBar.css
         ├── hexView/          hexView.ts + hexViewRender.ts + hexViewPaint.ts + hexView.css
+        ├── diffView/         diffView.ts + diffViewRender.ts + diffView.css (two-pane diff grid surface; owns the two HexView instances)
         ├── toolbar/          toolbar.ts + toolbar.css
         ├── externalChange/   externalChange.ts + externalChange.css
         ├── recordView/       recordView.ts + recordView.css
@@ -55,7 +71,7 @@ schemas/                          JSON Schemas for .hexscope/ on-disk shapes (in
 
 - Put source-format rules in `src/core/parser/` or `src/core/document.ts`; UI code consumes `ParseResult`/`SerializedParseResult`, never reparses records.
 - Put extension-host filesystem, VS Code storage, clipboard, and watcher effects in `HexEditorSession` or the smallest host adapter.
-- Add cross-runtime messages only in `src/webviewProtocol.ts`, then update both session handling and webview dispatch/model handling.
+- Add cross-runtime messages in the owning runtime union: `src/webviewProtocol.ts` for the single-file editor, `src/diffProtocol.ts` (the diff carve-out) for the isolated diff panel/webview. Then update both session handling and webview dispatch/model handling for the affected seam.
 - Put shared state mutation in `appModel.ts`; feature modules may own transient UI state when it has one owner, as integrity and struct modules do.
 - Self-contained UI components live in `src/webview/components/<Name>/<Name>.ts` + `<Name>.css`. A component owns its markup, UI state, input behaviours, and styles; the host (`hexViewer.ts`) owns execution, data, and feedback. A component never reads/writes the `S` global — it is seeded on construction and reports through callbacks. See [SearchBar Component](./components/component-search-bar.md) for the contract.
 - Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) so esbuild emits a bundled `dist/webview.css`; `styles/*.css` holds only shared/global concerns (tokens, resets, layout) during the transition.
@@ -68,7 +84,8 @@ schemas/                          JSON Schemas for .hexscope/ on-disk shapes (in
 - `src/core/search.ts` hides debounce, chunking, cancellation tokens, and match parsing behind `SearchEngine`.
 - `src/core/integrity.ts` owns validation and algorithms; DOM code does not reproduce them.
 - `src/core/structCodec.ts` owns struct syntax/layout/decode; render code consumes decoded rows.
-- `src/webviewProtocol.ts` is the interface between host and browser runtimes.
+- `src/webviewProtocol.ts` is the interface between host and browser runtimes (single-file editor).
+- `src/diffProtocol.ts` is the interface between the diff host panel and the isolated diff webview (`diffViewer.ts`); it does not share the single-file union.
 
 Preserve these seams. Applying the deletion test, removing a forwarding adapter is useful only if it concentrates complexity behind an existing owner; do not scatter its behavior into callers.
 

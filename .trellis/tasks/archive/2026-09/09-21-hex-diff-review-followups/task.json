@@ -1,0 +1,30 @@
+{
+  "id": "hex-diff-review-followups",
+  "name": "hex-diff-review-followups",
+  "title": "Hex Diff View — code review follow-ups",
+  "description": "Fix the Standards and Spec findings from the two-axis review of feat/hex-diff vs main (PR #247).",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "opencode",
+  "assignee": "opencode",
+  "createdAt": "2026-09-21",
+  "completedAt": "2026-09-22",
+  "branch": "feat/hex-diff",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-22-hex-diff-spec-doc-reconcile",
+    "09-22-hex-diff-surface-correctness",
+    "09-22-hex-diff-external-change"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

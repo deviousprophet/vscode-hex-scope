@@ -30,7 +30,7 @@ VS Code/file/storage
   -> hexViewer DOM effects
 ```
 
-Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The discriminated unions in `src/webviewProtocol.ts` are the single contract owner.
+Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The discriminated unions in `src/webviewProtocol.ts` are the single contract owner for the single-file editor; the isolated diff surface owns its own host↔webview union in `src/diffProtocol.ts`.
 
 ## Persistence Scope
 

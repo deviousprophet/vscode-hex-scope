@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify the updated Module Ownership tree covers every new owner."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify S7/S8/S10 are fixed against a token/document or waived with a reason."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify the B1-B4 decisions are recorded."}

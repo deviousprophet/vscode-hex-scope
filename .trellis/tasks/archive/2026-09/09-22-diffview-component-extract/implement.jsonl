@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Reference component/host split to mirror: component owns markup/interaction/paint/styles; host owns data, virtual-scroll math, render loop, rows-wrapper DOM"}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Owning spec to reconcile: Layout, Contract, Rules, Tests Required, and the contradictory diff-layout anti-pattern"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Self-contained component contract (toHtml/mount/callbacks/no S), listener ownership, host-vs-component boundary"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module placement rules and the tree to update with components/diffView"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Component CSS colocated + imported by the component .ts; file placement and selector rules for the diff.css split"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates, test placement (component suites vs host suites), fallow-fix gate"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "DiffPane union ownership/export and boundary typing when moving the component interface"}

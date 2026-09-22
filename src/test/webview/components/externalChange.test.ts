@@ -188,6 +188,18 @@ suite('webview ExternalChange component', () => {
         assert.deepStrictEqual(reloads, [incoming]);
     });
 
+    test('reload/conflict accept a generic payload (diff bundle reuses the component)', () => {
+        const { dom, banner } = createHarness();
+        const reloadPayload = { kind: 'diff', generation: 12 };
+        const conflictPayload = { kind: 'diff', generation: 13 };
+        const seen: unknown[] = [];
+        banner.showReload(reloadPayload, inc => { seen.push(inc); });
+        click(dom, 'erb-reload');
+        banner.showConflict(conflictPayload, 1, inc => { seen.push(inc); });
+        click(dom, 'ecb-reload');
+        assert.deepStrictEqual(seen, [reloadPayload, conflictPayload]);
+    });
+
     test('error repair click calls onRepair without removing banner', () => {
         const { dom, banner } = createHarness();
         let repairs = 0;

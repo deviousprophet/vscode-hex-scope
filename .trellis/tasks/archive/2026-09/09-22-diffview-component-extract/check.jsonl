@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Verify the extraction truly mirrors the hexView precedent (component vs host responsibilities, rows-DOM ownership)"}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Verify spec now matches the real folder/component contract and the anti-pattern was removed, not contradicted"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Check component self-containment, no S/host imports, idempotent mount, listener ownership"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Confirm placement/dependency direction (component imports component + shared render; host imports component; no reverse edge)"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Confirm CSS split keeps component rules in the component file, disjoint from host rules; no visual regression"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Confirm full gate + test placement; new component suite exists and host parity count is unchanged"}
+{"file": ".trellis/tasks/09-22-diffview-component-extract/design.md", "reason": "Review gate source: boundary table, CSS split decision, behavior-preservation strategy, rollback points to verify against the diff"}

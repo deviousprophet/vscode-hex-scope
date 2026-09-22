@@ -1203,9 +1203,9 @@ function render(): void {
         <div id="stats-bar"></div>
         <div id="main-area">
             <div id="content-pane">
-                <div id="memory-view" class="${visibleClass(mem)}" tabindex="0" aria-label="Hex editor grid">
-                    <div id="mem-header"></div>
-                    <div id="mem-scroll"><div id="mem-rows"></div></div>
+                <div id="memory-view" class="memory-view ${visibleClass(mem)}" tabindex="0" aria-label="Hex editor grid">
+                    <div id="mem-header" class="mem-header"></div>
+                    <div id="mem-scroll" class="mem-scroll"><div id="mem-rows" class="mem-rows"></div></div>
                 </div>
                 <div id="record-view" class="${visibleClass(S.currentView === 'record')}"></div>
             </div>

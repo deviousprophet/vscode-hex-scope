@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Quality/verification bar for the frontend layer"}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Diff view invariants to verify after the change"}

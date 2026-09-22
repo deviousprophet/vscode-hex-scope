@@ -17,7 +17,7 @@ npx -y fallow --format json --quiet --explain
 npx -y fallow audit --base origin/main --gate all --format json --quiet --explain
 ```
 
-Both reports must contain zero dead-code issues, clone groups, health findings, and refactor targets. Fix findings using the [`fallow-fix` skill](../../.agents/skills/custom/fallow-fix/SKILL.md) — refactors source code, never uses suppression comments or config edits.
+Both reports must contain zero dead-code issues, clone groups, health findings, and refactor targets. `/fallow-fix` is a required quality gate for every task, not only at PR time: complete it using the [`fallow-fix` skill](../../../.agents/skills/fallow-fix/SKILL.md) — it refactors source code, and never uses suppression comments or config edits.
 
 `npm test` compiles tests/extension, bundles the webview, launches VS Code, and runs core, webview, fixture, and extension suites.
 

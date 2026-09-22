@@ -27,7 +27,7 @@ export interface HexViewCallbacks {
     onCellContext?: (addr: number, x: number, y: number) => void;
     onCopy?: (range: HexViewRange) => void;
     /** Scroll → host recomputes the visible slice and feeds a new render input. */
-    onVisibleWindowChange?: (scrollTop: number) => void;
+    onVisibleWindowChange?: (scrollTop: number, scrollLeft: number) => void;
     /** Address-gutter click on a data row → select that row. */
     onAddressRowClick?: (rowBase: number, shift: boolean) => void;
 }
@@ -74,6 +74,15 @@ export class HexView {
         if (el) { el.scrollTop = top; }
     }
 
+    /** Drive the scroll container to a physical scrollLeft (diff-view sync). */
+    setScrollLeft(left: number): void {
+        const el = this.scrollEl();
+        if (!el) { return; }
+        el.scrollLeft = left;
+        // Programmatic scroll fires no scroll event, so keep the header aligned here.
+        this.syncHeaderScroll(el);
+    }
+
     getScrollTop(): number {
         return this.scrollEl()?.scrollTop ?? 0;
     }
@@ -91,7 +100,7 @@ export class HexView {
         const root = this.rootEl();
         if (!root) { return; }
         root.querySelectorAll<HTMLElement>('.data-row.row-sel').forEach(el => el.classList.remove('row-sel'));
-        root.querySelectorAll<HTMLElement>('#mem-header .data-cell.sel-col').forEach(el => el.classList.remove('sel-col'));
+        this.headerEl()?.querySelectorAll<HTMLElement>('.data-cell.sel-col').forEach(el => el.classList.remove('sel-col'));
         const cells = root.querySelectorAll<HTMLElement>('[data-addr]');
         if (range === null) {
             cells.forEach(el => el.classList.remove('sel'));
@@ -107,7 +116,7 @@ export class HexView {
             }
         });
         selectedColumns(range.start, range.end).forEach(col => {
-            root.querySelectorAll<HTMLElement>(`#mem-header .data-cell[data-col="${col}"]`).forEach(el => el.classList.add('sel-col'));
+            this.headerEl()?.querySelectorAll<HTMLElement>(`.data-cell[data-col="${col}"]`).forEach(el => el.classList.add('sel-col'));
         });
     }
 
@@ -188,8 +197,12 @@ export class HexView {
         const root = this.rootEl();
         if (!root) { return null; }
         if (this.cachedScrollUsable(root)) { return this.cachedScrollEl; }
-        this.cachedScrollEl = root.querySelector<HTMLElement>('#mem-scroll');
+        this.cachedScrollEl = root.querySelector<HTMLElement>('.mem-scroll');
         return this.cachedScrollEl;
+    }
+
+    private headerEl(): HTMLElement | null {
+        return this.rootEl()?.querySelector<HTMLElement>('.mem-header') ?? null;
     }
 
     private cellElement(addr: number): HTMLElement | null {
@@ -202,11 +215,11 @@ export class HexView {
         const scrollEl = this.scrollEl();
         if (!scrollEl || e.target !== scrollEl) { return; }
         this.syncHeaderScroll(scrollEl);
-        this.cb.onVisibleWindowChange?.(scrollEl.scrollTop);
+        this.cb.onVisibleWindowChange?.(scrollEl.scrollTop, scrollEl.scrollLeft);
     };
 
     private syncHeaderScroll(scrollEl: HTMLElement): void {
-        const header = this.rootEl()?.querySelector<HTMLElement>('#mem-header');
+        const header = this.headerEl();
         if (header) { header.scrollLeft = scrollEl.scrollLeft; }
     }
 

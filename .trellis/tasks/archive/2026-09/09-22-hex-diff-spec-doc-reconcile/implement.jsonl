@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module Ownership tree (S1) and the single cross-runtime protocol-union statement (S2) must be updated."}
+{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Owns the diffProtocol carve-out (L141) and the read-host/parse-worker wording (R30, A3)."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Records the B1-B4 keep decisions and the CSS/type-floor exceptions."}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Color-token and type-floor rules for the S7/S8/S10 fix-or-waive decisions."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Zero clone-group requirement the sibling child must clear."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "De-duplication rationale for the sibling child's S3/S9 fixes."}

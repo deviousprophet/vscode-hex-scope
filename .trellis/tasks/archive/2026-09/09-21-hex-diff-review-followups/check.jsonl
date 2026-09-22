@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/archive/2026-09/09-21-hex-diff/prd.md", "reason": "R1-R32 / AC1-AC34 acceptance the integrated branch must still satisfy."}
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Integrated diff surface contract for the final cross-child review."}

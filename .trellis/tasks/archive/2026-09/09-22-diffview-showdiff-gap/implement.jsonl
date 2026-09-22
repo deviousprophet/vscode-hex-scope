@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/components/component-diff-view.md", "reason": "Owning spec: Show diff filtering, row model, validation matrix, and Tests Required this task extends"}
+{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Gap row rendering + row-height contract in the shared render layer that gains the line-only variant"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Host builds render input / component renders markup; no direct DOM writes; escaping"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Rules for the thin separator-line style and token use"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates and test placement"}

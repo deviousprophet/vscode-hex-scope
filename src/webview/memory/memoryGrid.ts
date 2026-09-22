@@ -8,18 +8,22 @@ import { S, BPR } from '../state';
 import { getByte } from './memoryData';
 import { integrityHighlightClass } from './integrityHighlight';
 import { currentSelectionRange } from './selection';
-import { esc, byteClass, lowerBound } from '../utils';
+import { lowerBound } from '../utils';
+import { buildHexCells, isPrintableByte, type CellDecoration } from '../render/hexCells';
 import {
+    applyVirtualScrollLayout,
     calcScrollLayout,
     calcRowOffset,
     calcTotalHeight,
     calcVisibleRange,
     clampWindowTop,
     logicalToPhysicalScroll,
+    overscanRowCount,
     physicalToLogicalScroll,
     type VirtualScrollLayout,
     type VirtualScrollState,
 } from '../render/virtualScroll';
+import { addMatchSpan } from '../render/matchSpans';
 import {
     HexView,
     type HexViewCallbacks,
@@ -37,7 +41,7 @@ import type { MemRow, SegmentLabel } from '../../core/types';
 const VIRTUAL_SCROLL_CONFIG = {
     fallbackRowHeight: 20.8,  // CSS fallback: 13px * 1.6
     fallbackGapHeight: 35.2,  // CSS fallback: row * 1.5 + 2px vertical margins
-    bufferSize: 10,           // render 10 rows above/below viewport
+    minBufferSize: 10,        // floor; overscan grows to a full viewport of extra rows above/below
 };
 
 let hexView: HexView | null = null;
@@ -174,7 +178,7 @@ function renderMemoryGrid(scrollContainer: HTMLElement): void {
     if (shouldSkipMemoryRender(layout.isCompressed, startIdx, endIdx)) { return; }
     vscrollRenderedRange = [startIdx, endIdx];
     const container = document.getElementById('mem-rows')!;
-    applyMemoryContainerLayout(container, layout);
+    applyVirtualScrollLayout(container, layout);
     container.innerHTML = renderHexViewHtml(buildHexViewInput(startIdx, endIdx, layout, state, scrollContainer));
     // Selection/matches composite declaratively; the draft tint is class-painted → repaint after rebuild.
     paintMemoryLabelDraft();
@@ -182,16 +186,6 @@ function renderMemoryGrid(scrollContainer: HTMLElement): void {
 
 function shouldSkipMemoryRender(compressed: boolean, startIdx: number, endIdx: number): boolean {
     return !compressed && startIdx === vscrollRenderedRange[0] && endIdx === vscrollRenderedRange[1];
-}
-
-function applyMemoryContainerLayout(container: HTMLElement, layout: VirtualScrollLayout): void {
-    if (layout.isCompressed) {
-        container.style.position = 'relative';
-        container.style.height = `${layout.physicalHeight}px`;
-        return;
-    }
-    container.style.position = '';
-    container.style.height = '';
 }
 
 function buildHexViewInput(
@@ -271,10 +265,6 @@ function buildVisibleMatchSet(length: number, visibleMin: number, visibleMax: nu
     return matchSet;
 }
 
-function addMatchSpan(matchSet: Set<number>, base: number, length: number): void {
-    for (let i = 0; i < length; i++) { matchSet.add(base + i); }
-}
-
 function buildActiveMatch(length: number | null): HexViewRange | null {
     if (!length || S.matchIdx < 0 || S.matchIdx >= S.matchAddrs.length) { return null; }
     const base = S.matchAddrs[S.matchIdx];
@@ -306,43 +296,34 @@ function memRowToHexRow(row: MemRow, labelMap: Map<number, SegmentLabel[]>): Hex
 }
 
 function buildRowCells(base: number): HexViewCell[] {
-    const cells: HexViewCell[] = [];
-    for (let col = 0; col < BPR; col++) {
-        const addr = base + col;
-        const val = getByte(addr);
-        cells.push(val === undefined ? emptyCell() : dataCell(addr, val));
-    }
-    return cells;
+    return buildHexCells(base, BPR, getByte, decorateMemoryCell);
 }
 
-function emptyCell(): HexViewCell {
-    return { hex: ' ', char: ' ', cls: 'be' };
-}
-
-function dataCell(addr: number, val: number): HexViewCell {
-    const dirty = S.edits.has(addr) ? ' dirty' : '';
+function decorateMemoryCell(addr: number, val: number): CellDecoration {
+    const dirty = dirtySuffix(addr);
     const integrity = integrityHighlightClass(addr);
-    const charCls = charCellClass(val) + (S.editMode && !isPrintableMemoryByte(val) ? ' edit-placeholder' : '');
+    const placeholder = isEditPlaceholder(val);
     return {
-        hex: val.toString(16).toUpperCase().padStart(2, '0'),
-        char: charCellText(val),
-        cls: byteClass(val) + dirty + integrity,
-        charCls: charCls + dirty + integrity,
-        val,
+        hexCls: dirty + integrity,
+        charCls: placeholderSuffix(placeholder) + dirty + integrity,
+        char: placeholderChar(placeholder),
     };
 }
 
-function isPrintableMemoryByte(val: number): boolean {
-    return val >= 0x20 && val < 0x7F;
+function dirtySuffix(addr: number): string {
+    return S.edits.has(addr) ? ' dirty' : '';
 }
 
-function charCellClass(val: number): string {
-    return isPrintableMemoryByte(val) ? 'cp' : 'cd';
+function isEditPlaceholder(val: number): boolean {
+    return S.editMode && !isPrintableByte(val);
 }
 
-function charCellText(val: number): string {
-    if (isPrintableMemoryByte(val)) { return esc(String.fromCharCode(val)); }
-    return S.editMode ? '·' : '';
+function placeholderSuffix(placeholder: boolean): string {
+    return placeholder ? ' edit-placeholder' : '';
+}
+
+function placeholderChar(placeholder: boolean): string | undefined {
+    return placeholder ? '·' : undefined;
 }
 
 function buildLabelMap(): Map<number, SegmentLabel[]> {
@@ -426,6 +407,7 @@ function syncVirtualScrollMetrics(scrollContainer: HTMLElement): void {
     vscrollState.containerHeight = containerHeight;
     vscrollState.rowCount = S.memRows.length;
     vscrollState.heightVersion = heightVersion;
+    vscrollState.bufferSize = overscanRowCount(containerHeight, rowHeight, VIRTUAL_SCROLL_CONFIG.minBufferSize);
     vscrollState.getRowHeight = memoryRowHeightGetter(rowHeight, gapHeight);
     vscrollRenderedRange = [-1, -1];
 }
@@ -438,7 +420,7 @@ function initializeMemoryScrollState(scrollContainer: HTMLElement): void {
     vscrollState = {
         containerHeight: scrollContainer.clientHeight,
         scrollTop: logicalScrollTop,
-        bufferSize: VIRTUAL_SCROLL_CONFIG.bufferSize,
+        bufferSize: overscanRowCount(scrollContainer.clientHeight, rowHeight, VIRTUAL_SCROLL_CONFIG.minBufferSize),
         visibleRowIndices: [0, 0],
         rowCount: S.memRows.length,
         heightVersion: virtualScrollHeightVersion(rowHeight, gapHeight),

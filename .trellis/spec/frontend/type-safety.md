@@ -4,7 +4,8 @@
 
 - `src/core/parser/types.ts`: host-side `HexRecord`, `MemorySegment`, `ParseResult`.
 - `src/core/types.ts`: hydrated webview records/segments, `WireParseResult` binary boundary types, labels, search, memory rows, and struct types.
-- `src/webviewProtocol.ts`: exhaustive cross-runtime message unions.
+- `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor).
+- `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText` parsers.
 - Feature core modules own feature-specific unions/results: `IntegrityValidation<T>`, `SearchMode`, `PointerDerefTarget`, and struct parse results.
 
 ## Boundary Pattern
@@ -14,6 +15,7 @@ External/persisted values start as `unknown`, are normalized once, then become t
 - `normalizeIntegrityProfiles(value: unknown)`
 - `normalizeIntegrityCheckSet(value: unknown)`
 - `messageType(message: unknown)` plus `dispatchProviderMessage`
+- `isDiffSide` / `isDiffModel` / `isDiffInit` for the diff protocol (structural, shallow — enough that hydration never throws on a malformed payload)
 - struct-definition migration helpers in `HexEditorSession`
 - `isCopyCommand` and `isAnalyzeCommand` for command strings
 
