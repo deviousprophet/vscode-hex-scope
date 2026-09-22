@@ -107,7 +107,7 @@ interface DiffRow { address: number; kind: 'data' | 'gap'; gap?: { from: number;
 - `diffKindAt` is a binary search over `DiffModel.runs`; `diffClassForSide` marks `changed` on both sides, `added` on B only, `removed` on A only.
 - Both grids render their own address column (no hidden-address variant) and identical row order.
 - Diff grids render hex only (`showAscii:false`).
-- Both instances share `VirtualScrollState`; the driving grid reports `onVisibleWindowChange(top, left)`, the host re-slices and mirrors `setScrollTop`/`setScrollLeft` onto the follower with a re-entrancy guard. Scroll-driven renders coalesce to one per animation frame and skip an unchanged visible slice.
+- Each pane owns its own `VirtualScrollState` (`scrollPaneA`/`scrollPaneB`) so two scroll positions are representable; the driving grid reports `onVisibleWindowChange(top, left)` and the host re-slices that pane's window. `Sync scroll` ON additionally mirrors `setScrollTop`/`setScrollLeft` onto the follower with a re-entrancy guard; OFF leaves the follower at its own position, still rendering its own rows. Scroll-driven renders coalesce to one per animation frame and skip an unchanged slice.
 
 ### 4. Validation & Error Matrix
 
@@ -117,7 +117,7 @@ interface DiffRow { address: number; kind: 'data' | 'gap'; gap?: { from: number;
 | One side maps an address | Data row; mapped side shows the byte, unmapped side shows an empty cell. |
 | Identical files | Rows render; no cell carries a `diff-*` class. |
 | Same block mapped on both sides | One shared row; both grids render it. |
-| Scroll driven by either grid | Logical scroll position preserved; follower mirrors vertical + horizontal. |
+| Scroll driven by either grid | Logical scroll position preserved; with `Sync scroll` on the follower mirrors vertical + horizontal; with it off each pane keeps its own position and rows. |
 
 ### 5. Good/Base/Bad Cases
 

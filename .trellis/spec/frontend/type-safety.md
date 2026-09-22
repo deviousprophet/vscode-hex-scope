@@ -14,6 +14,7 @@ External/persisted values start as `unknown`, are normalized once, then become t
 - `normalizeIntegrityProfiles(value: unknown)`
 - `normalizeIntegrityCheckSet(value: unknown)`
 - `messageType(message: unknown)` plus `dispatchProviderMessage`
+- `isDiffSide` / `isDiffModel` / `isDiffInit` for the diff protocol (structural, shallow — enough that hydration never throws on a malformed payload)
 - struct-definition migration helpers in `HexEditorSession`
 - `isCopyCommand` and `isAnalyzeCommand` for command strings
 
