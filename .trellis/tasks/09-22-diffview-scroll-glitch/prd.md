@@ -18,21 +18,30 @@ if (key === lastRenderKey) { return; }
 
 The follower pane is unaffected: its `scrollTop` is only set by script in the same JS turn that schedules the render, so there is no untracked native motion to fall behind.
 
+## Second cause — CSS scroll anchoring
+
+The wrapper-repositioning fix above (landed as `59c3409`) was correct but insufficient; the glitch persisted.
+
+`.mem-scroll` (`src/webview/components/hexView/hexView.css`) is the real `overflow: auto` scrollable element; `.mem-rows` — the element whose `innerHTML` we replace every render — lives inside it. Browsers ship **scroll anchoring** (on by default) that watches for DOM mutations above the viewport and silently adjusts `scrollTop` to keep the content the user is looking at from visually jumping. Virtual scrolling deliberately mutates `.mem-rows` children every scroll-driven frame, so the browser mistakes our legitimate scroll-position-driven updates for layout shifts and adjusts `scrollTop` on top of the user's native/inertial scrolling and our own `state.scrollTop` bookkeeping / mirrored `setScrollTop`. Two independent things fighting over the same `scrollTop` produced the residual blank flash / jitter.
+
 ## Requirements
 
 - Decouple row-HTML rebuild (expensive; keep gated by `sliceKey`) from compressed-wrapper repositioning (cheap; must run every scroll-driven frame).
 - Reposition must track the pane's real `scrollTop` and use existing `clampWindowTop` semantics.
 - No behavior change in uncompressed mode (native document flow already keeps content aligned).
+- Disable CSS scroll anchoring on the scroll container (`.mem-scroll`) since the host owns scroll position; applies to both the diff view and the single-file hex view (shared stylesheet).
 
 ## Acceptance Criteria
 
-- [ ] On the skip path in `renderScrollSlice()`, both panes' compressed wrappers are repositioned instead of returning early.
-- [ ] Uncompressed panes are a no-op (no style writes / no position change).
-- [ ] Repositioned `top` clamps within `[0, physicalHeight - sliceHeight]`.
-- [ ] Row HTML is not rebuilt when `sliceKey` is unchanged.
-- [ ] `npx tsc --noEmit -p .` clean.
-- [ ] `npm test` (compile-tests, check-types, lint) clean.
+- [x] On the skip path in `renderScrollSlice()`, both panes' compressed wrappers are repositioned instead of returning early.
+- [x] Uncompressed panes are a no-op (no style writes / no position change).
+- [x] Repositioned `top` clamps within `[0, physicalHeight - sliceHeight]`.
+- [x] Row HTML is not rebuilt when `sliceKey` is unchanged.
+- [x] `.mem-scroll` declares `overflow-anchor: none`.
+- [x] `npx tsc --noEmit -p .` clean.
+- [x] `npm run lint` clean.
+- [x] `npm test` (compile-tests, check-types, lint) clean.
 
 ## Notes
 
-- Lightweight task; PRD-only. Single-file change in `src/webview/diff/diffGrid.ts`.
+- Lightweight task; PRD-only. Changes in `src/webview/diff/diffGrid.ts` (done, `59c3409`) and `src/webview/components/hexView/hexView.css`.

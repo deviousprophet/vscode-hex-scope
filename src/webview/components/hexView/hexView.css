@@ -26,7 +26,7 @@
 }
 
 /* ── Scroll viewport ─────────────────────────────────────────── */
-.mem-scroll { flex: 1; min-height: 0; overflow: auto; }
+.mem-scroll { flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; }
 .mem-rows   { padding: 2px 0; width: fit-content; min-width: 100%; }
 
 /* ── Data row (mirrors vscode-hexeditor DataRow) ─────────────── */
