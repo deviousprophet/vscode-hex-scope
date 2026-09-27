@@ -282,3 +282,41 @@ Copied hex files auto-opened with a spurious external-change banner: the per-doc
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: Reusable bit-field types
+<!-- trellis-session: v=2 fp=8f99cce91611427f -->
+
+**Date**: 2026-09-27
+**Task**: Reusable bit-field types
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Added a kind discriminator (struct/bitfield/enum) to the struct pool: bitfield defs own baseType + children, fields reference via type:'bitfield' + refStructId, and a single materialize seam rewrites refs to inline containers at the decode/size/C entry points so output stays byte-identical. Inlined rendering, pin-safe delete with orphan stripping, bit-field authoring form + kind badge + picker.
+
+### Main Changes
+
+- StructDef gains kind/baseType/bitFields; StructFieldType widens with 'bitfield'; schema + normalizer + validator updated.
+- materializeBitFieldRefs seam applied at decodeStruct/structByteSize/structToC/resolveStructFieldByPath; validation runs on the authored form.
+- Instance view inlines referenced children with no extra level; field picker Bit-field group; bit-field form (base width + child rows) + kind badge; pin-safe delete strips orphan refs.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eacf2cd` | feat(struct): reusable bit-field types |
+| `f7930c4` | docs(spec): document reusable bit-field types and the materialize seam |
+| `2135ea2` | docs(task): plan the struct overlay type children |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests && npm test -> 1166 passing, 0 failing.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Implement child 09-27-enum-types.

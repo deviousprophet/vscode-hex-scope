@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-09-22
+- **Total Sessions**: 11
+- **Last Active**: 2026-09-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~284 | Active |
+| `journal-1.md` | ~322 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-09-27 | Reusable bit-field types | `eacf2cd`, `f7930c4`, `2135ea2` | `feat/struct-overlay-types` |
 | 10 | 2026-09-22 | Fix spurious external-change banner on hex file copy | `0d6414e` | `fix/copy-external-change` |
 | 9 | 2026-09-22 | Share the parse worker with the hex editor | `3de465b`, `7c8a188`, `f742b99`, `930b6db` | `feat/shared-parse-worker` |
 | 8 | 2026-09-22 | DiffView search latency: incremental paint + single-render jump | `68d6090` | `feat/hex-diff` |
