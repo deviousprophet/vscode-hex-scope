@@ -4,6 +4,7 @@
 import type {
     BitFieldAllocation,
     BitFieldChild,
+    EnumEntry,
     StructBaseType,
     StructDef,
     StructDefKind,
@@ -56,6 +57,48 @@ function isUnsignedBaseType(type: string | undefined): type is StructBaseType {
 export function structDefKind(def: StructDef): StructDefKind {
     return def.kind === 'bitfield' || def.kind === 'enum' ? def.kind : 'struct';
 }
+
+/**
+ * Resolve a `kind: 'enum'` target from a reference id. Returns null when the
+ * reference is absent or does not point at an enum def.
+ */
+export function enumDefById(refStructId: string | undefined, byId: Map<string, StructDef>): StructDef | null {
+    if (!refStructId) { return null; }
+    const target = byId.get(refStructId);
+    return target && structDefKind(target) === 'enum' ? target : null;
+}
+
+/** Resolve the enum def referenced by a scalar `type: 'enum'` field (non-pointer only). */
+function referencedEnumDef(field: StructField, map: Map<string, StructDef>): StructDef | null {
+    if (field.type !== 'enum' || field.isPointer) { return null; }
+    return enumDefById(field.refStructId, map);
+}
+
+/** Unsigned base width of an enum def (defaults to uint8 when unspecified/invalid). */
+function enumBaseType(def: StructDef): UnsignedScalarType {
+    return isUnsignedBaseType(def.baseType) ? def.baseType : 'uint8';
+}
+
+/** First entry whose value matches, or undefined when the value is unmatched. */
+export function matchEnumEntry(def: StructDef, value: bigint): EnumEntry | undefined {
+    for (const entry of def.entries ?? []) {
+        if (Number.isInteger(entry.value) && entry.value >= 0 && BigInt(entry.value) === value) {
+            return entry;
+        }
+    }
+    return undefined;
+}
+
+/** Canonical enum value label: `NAME (0xNN)`; `hexDigits` sizes the numeric part. */
+export function formatEnumLabel(label: string, value: bigint, hexDigits: number): string {
+    return `${label} (0x${value.toString(16).toUpperCase().padStart(hexDigits, '0')})`;
+}
+
+/** Hexadecimal digit count for an enum/bit value of `width` bits. */
+export function enumHexDigits(width: number): number {
+    return Math.max(1, Math.ceil(width / 4));
+}
+
 
 export function normalizeStructField(field: StructField): StructField {
     return LEGACY_POINTER_NORMALIZERS[field.type]?.(field) ?? normalizePointerModifierField(field);
@@ -169,13 +212,15 @@ function referencedStruct(field: StructField, map: Map<string, StructDef>): Stru
 
 function fieldSizeWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
     field = normalizeStructField(field);
+    const enumTarget = referencedEnumDef(field, map);
+    if (enumTarget) { return fieldByteSize(enumBaseType(enumTarget)); }
     const scalarSize = scalarOrPointerFieldSize(field);
     return scalarSize ?? nestedStructFieldSize(field, map, depth);
 }
 
 function scalarOrPointerFieldSize(field: StructField): number | null {
     if (field.isPointer) { return POINTER_BYTE_SIZE; }
-    if (field.type === 'struct' || field.type === 'bitfield') { return null; }
+    if (field.type === 'struct' || field.type === 'bitfield' || field.type === 'enum') { return null; }
     return fieldByteSize(field.type);
 }
 
@@ -187,13 +232,15 @@ function nestedStructFieldSize(field: StructField, map: Map<string, StructDef>, 
 
 function fieldAlignWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
     field = normalizeStructField(field);
+    const enumTarget = referencedEnumDef(field, map);
+    if (enumTarget) { return fieldAlignment(enumBaseType(enumTarget)); }
     const scalarAlign = scalarOrPointerFieldAlign(field);
     return scalarAlign ?? nestedStructFieldAlign(field, map, depth);
 }
 
 function scalarOrPointerFieldAlign(field: StructField): number | null {
     if (field.isPointer) { return POINTER_BYTE_SIZE; }
-    if (field.type === 'struct' || field.type === 'bitfield') { return null; }
+    if (field.type === 'struct' || field.type === 'bitfield' || field.type === 'enum') { return null; }
     return fieldAlignment(field.type);
 }
 
@@ -249,7 +296,11 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
         validateStructDefKind(d, errors);
         validateDuplicateFieldNames(d, errors);
         if (structDefKind(d) === 'bitfield') {
-            validateBitFieldDefShape(d, errors);
+            validateBitFieldDefShape(d, byId, errors);
+            continue;
+        }
+        if (structDefKind(d) === 'enum') {
+            validateEnumDefShape(d, errors);
             continue;
         }
         for (const f of d.fields) {
@@ -257,7 +308,7 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
 
             // ── New bitFields container validation ──────────────────────────────
             if (isBitFieldContainer(f)) {
-                validateBitFieldContainer(d, f, errors);
+                validateBitFieldContainer(d, f, byId, errors);
                 continue;
             }
         }
@@ -276,7 +327,7 @@ function validateStructDefKind(def: StructDef, errors: string[]): void {
 }
 
 /** Shape check for a standalone `kind: 'bitfield'` def (unsigned base, children in range, no nesting). */
-function validateBitFieldDefShape(def: StructDef, errors: string[]): void {
+function validateBitFieldDefShape(def: StructDef, byId: Map<string, StructDef>, errors: string[]): void {
     const ctx = `Struct "${def.name}"`;
     if (def.fields.length > 0) {
         errors.push(`${ctx}: bit-field type cannot contain fields.`);
@@ -287,6 +338,7 @@ function validateBitFieldDefShape(def: StructDef, errors: string[]): void {
         return;
     }
     const totalBits = validateBitFieldChildWidths(def.name, children, errors);
+    validateBitChildEnumRefs(def.name, children, byId, errors);
     if (!isUnsignedBaseType(def.baseType)) {
         errors.push(`${ctx}: bit-field type must declare an unsigned base type.`);
         return;
@@ -294,6 +346,49 @@ function validateBitFieldDefShape(def: StructDef, errors: string[]): void {
     const unitBits = fieldByteSize(def.baseType) * 8;
     if (totalBits > unitBits) {
         errors.push(`${ctx}: children total ${totalBits} bits exceeds ${unitBits}-bit base.`);
+    }
+}
+
+/** Exclusive upper bound implied by an enum def's base width (defaults to 8 bits). */
+export function enumValueBound(baseType: string | undefined): number {
+    const bits = isUnsignedBaseType(baseType) ? fieldByteSize(baseType) * 8 : 8;
+    return 2 ** bits;
+}
+
+/** Shape check for a standalone `kind: 'enum'` def (unsigned base, entries within range, no fields). */
+function validateEnumDefShape(def: StructDef, errors: string[]): void {
+    const ctx = `Struct "${def.name}"`;
+    if (def.fields.length > 0) {
+        errors.push(`${ctx}: enum type cannot contain fields.`);
+    }
+    const baseType = isUnsignedBaseType(def.baseType) ? def.baseType : null;
+    if (!baseType) {
+        errors.push(`${ctx}: enum type must declare an unsigned base type.`);
+        return;
+    }
+    const bound = enumValueBound(baseType);
+    for (const entry of def.entries ?? []) {
+        if (!Number.isInteger(entry.value) || entry.value < 0 || entry.value >= bound) {
+            errors.push(`${ctx}: enum entry "${entry.name}" value ${entry.value} does not fit ${baseType}.`);
+        }
+    }
+}
+
+/** Reject bit-field children whose enum reference does not resolve to an enum def. */
+function validateBitChildEnumRefs(
+    defName: string,
+    children: readonly BitFieldChild[],
+    byId: Map<string, StructDef>,
+    errors: string[],
+): void {
+    for (const child of children) {
+        if (child.refStructId === undefined) { continue; }
+        const target = byId.get(child.refStructId);
+        if (!target) {
+            errors.push(`Struct "${defName}": bit-field child "${child.name}" references an unknown enum type.`);
+        } else if (structDefKind(target) !== 'enum') {
+            errors.push(`Struct "${defName}": bit-field child "${child.name}" references "${target.name}", which is not an enum type.`);
+        }
     }
 }
 
@@ -344,6 +439,10 @@ function validateStructReference(
         validateBitFieldReference(def, field, byId, errors);
         return;
     }
+    if (field.type === 'enum') {
+        validateEnumReference(def, field, byId, errors);
+        return;
+    }
     if (field.type !== 'struct') { return; }
 
     if (!field.refStructId) {
@@ -383,7 +482,32 @@ function validateBitFieldReference(
     }
 }
 
-function validateBitFieldContainer(def: StructDef, field: StructField, errors: string[]): void {
+function validateEnumReference(
+    def: StructDef,
+    field: StructField,
+    byId: Map<string, StructDef>,
+    errors: string[],
+): void {
+    const ctx = `Struct "${def.name}": field "${field.name}"`;
+    if (field.isPointer) {
+        errors.push(`${ctx} cannot be an enum pointer.`);
+        return;
+    }
+    if (!field.refStructId) {
+        errors.push(`${ctx} is missing a referenced enum.`);
+        return;
+    }
+    const target = byId.get(field.refStructId);
+    if (!target) {
+        errors.push(`${ctx} references an unknown enum type.`);
+        return;
+    }
+    if (structDefKind(target) !== 'enum') {
+        errors.push(`${ctx} references "${target.name}", which is not an enum type.`);
+    }
+}
+
+function validateBitFieldContainer(def: StructDef, field: StructField, byId: Map<string, StructDef>, errors: string[]): void {
     if (isPointerField(field)) {
         errors.push(`Struct "${def.name}": field "${field.name}" cannot combine pointer and bit-field details.`);
         return;
@@ -395,6 +519,7 @@ function validateBitFieldContainer(def: StructDef, field: StructField, errors: s
 
     const unitBits = fieldByteSize(field.type as UnsignedScalarType) * 8;
     const totalBits = validateBitFieldChildren(def, field, errors);
+    validateBitChildEnumRefs(def.name, field.bitFields ?? [], byId, errors);
     if (totalBits > unitBits) {
         errors.push(`Struct "${def.name}": field "${field.name}" children total ${totalBits} bits exceeds ${unitBits}-bit container.`);
     }
@@ -507,6 +632,8 @@ export interface DecodedField {
     bitOffset?: number;
     bitStorageByteSize?: number;
     bitValueUnsigned?: string;
+    /** Resolved enum entry name when this row's value matches an enum entry (label reference only). */
+    enumLabel?: string;
     /** Resolved effective byte order for this row (field beats struct beats nested parents beats global). */
     endian?: 'le' | 'be';
     /** Resolved effective bit allocation for this row (only meaningful for bit-field rows/units). */
@@ -760,6 +887,8 @@ function bitFieldChildRow(
         ? extractBitFieldValue(unit.value, unitBits, bitPos, child.bitWidth, allocation)
         : 0n;
     const valueText = bitFieldDecodedText(unit.hasData, unsignedValue, child.bitWidth);
+    const enumDef = enumDefById(child.refStructId, ctx.map);
+    const enumLabel = enumDef && unit.hasData ? matchEnumEntry(enumDef, unsignedValue)?.name : undefined;
     return {
         fieldName: `${fieldPath}.${child.name || `bit${bitPos}`}`,
         type: field.type as UnsignedScalarType,
@@ -773,6 +902,7 @@ function bitFieldChildRow(
         bitOffset: bitPos,
         bitStorageByteSize: unitBytes,
         bitValueUnsigned: bitFieldUnsignedText(unit.hasData, unsignedValue),
+        enumLabel,
         endian,
         allocation,
     };
@@ -832,6 +962,10 @@ function pointerTargetByteSize(field: StructField, map: Map<string, StructDef>, 
         return child ? structByteSizeWithDefs(child, map, depth + 1) : 1;
     }
     if (field.type === 'bitfield') { return 1; }
+    if (field.type === 'enum') {
+        const target = enumDefById(field.refStructId, map);
+        return target ? fieldByteSize(enumBaseType(target)) : 1;
+    }
     return fieldByteSize(field.type);
 }
 
@@ -853,7 +987,7 @@ function decodePointerElements(
         const hasData = raw.every(v => v >= 0);
         ctx.rows.push({
             fieldName: fieldPath,
-            type: field.type === 'struct' || field.type === 'bitfield' ? 'void' : field.type,
+            type: field.type === 'struct' || field.type === 'bitfield' || field.type === 'enum' ? 'void' : field.type,
             pointerTargetType: field.type,
             pointerTargetStructId: field.refStructId,
             pointerTargetStructName: pointerTargetStructName(field, ctx.map),
@@ -882,16 +1016,21 @@ function decodeScalarFieldElement(
 ): void {
     field = normalizeStructField(field);
     if (field.type === 'struct' || field.type === 'bitfield') { return; }
+    const enumDef = referencedEnumDef(field, ctx.map);
+    if (field.type === 'enum' && !enumDef) { return; }
+    const decodeType: StructScalarFieldType = enumDef ? enumBaseType(enumDef) : (field.type as StructScalarFieldType);
     const raw = readFieldBytes(ctx, absOffset, elemSize);
     const hasData = raw.every(v => v >= 0);
+    const enumLabel = enumDef && hasData ? matchEnumEntry(enumDef, bytesToBigUint(raw, endian))?.name : undefined;
     ctx.rows.push({
         fieldName: fieldPath,
-        type: field.type,
+        type: decodeType,
         arrayIdx,
         byteOffset: absOffset,
         bytesHex: bytesToHex(raw),
-        decoded: hasData ? decodeField(raw, field.type, endian) : '??',
+        decoded: hasData ? decodeField(raw, decodeType, endian) : '??',
         hasData,
+        enumLabel,
         endian,
         allocation,
     });
@@ -1101,9 +1240,23 @@ function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): str
 }
 
 function fieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
+    if (field.type === 'enum') { return enumFieldBaseTypeToC(field, defsById); }
     return field.type === 'struct' || field.type === 'bitfield'
         ? structFieldBaseTypeToC(field, defsById)
         : TYPE_TO_C[field.type];
+}
+
+/** An enum-typed field is emitted as its unsigned base-width integer (size/offset faithful). */
+function enumFieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
+    const target = enumDefById(field.refStructId, defsById);
+    const base = target ? enumBaseType(target) : 'uint8';
+    return TYPE_TO_C[base];
+}
+
+/** `  enum <Name>` comment suffix for an enum-typed field, or '' otherwise. */
+function enumFieldNote(field: StructField, defsById: Map<string, StructDef>): string {
+    const target = enumDefById(field.refStructId, defsById);
+    return field.type === 'enum' && target ? `  enum ${target.name}` : '';
 }
 
 function structFieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
@@ -1463,7 +1616,7 @@ function emitScalarStructFieldC(f: StructField, fieldIndex: number, state: Struc
     const fieldBytes = fieldSize * f.count;
     state.lines.push(
         `    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
-        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B */`
+        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B${enumFieldNote(f, state.byId)} */`
     );
     state.offset += fieldBytes;
 }
@@ -1521,6 +1674,7 @@ function structCAlignNote(def: StructDef, maxAlign: number): string {
 export function structToC(def: StructDef, defs: readonly StructDef[] = []): string {
     const { def: resolved, map: byId } = materializedDefsMap(def, defs);
     if (structDefKind(resolved) === 'bitfield') { return bitFieldDefToC(resolved); }
+    if (structDefKind(resolved) === 'enum') { return enumDefToC(resolved); }
 
     const attr = resolved.packed ? ' __attribute__((packed))' : '';
     const lines: string[] = [];
@@ -1549,5 +1703,18 @@ function bitFieldDefToC(def: StructDef): string {
     const container: StructField = { name: def.name || 'bitfield', type: baseType, count: 1, bitFields: def.bitFields ?? [] };
     appendBitFieldChildrenC(container, TYPE_TO_C[baseType], lines);
     lines.push(`} ${def.name || 'MyBitField'};`.padEnd(44) + `/* ${fieldByteSize(baseType)}B */`);
+    return lines.join('\n');
+}
+
+/** Render a standalone `kind: 'enum'` def as a C enum typedef sized to its base width. */
+function enumDefToC(def: StructDef): string {
+    const baseType = enumBaseType(def);
+    const entries = def.entries ?? [];
+    const nameWidth = entries.reduce((max, entry) => Math.max(max, entry.name.length), 0);
+    const lines: string[] = ['typedef enum {'];
+    for (const entry of entries) {
+        lines.push(`    ${entry.name.padEnd(nameWidth)} = 0x${entry.value.toString(16).toUpperCase()},`);
+    }
+    lines.push(`} ${def.name || 'MyEnum'};`.padEnd(44) + `/* ${fieldByteSize(baseType)}B */`);
     return lines.join('\n');
 }

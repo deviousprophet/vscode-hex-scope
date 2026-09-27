@@ -94,6 +94,26 @@ suite('struct pin model', () => {
         assert.strictEqual(result.structs[0], structs[1]);
     });
 
+    test('strips scalar enum fields and clears bit-child enum refs to a deleted enum', () => {
+        const structs: StructDef[] = [
+            { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'ON', value: 1 }] },
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'mode' }, { name: 'hi', bitWidth: 4 }] },
+            { id: 'user', name: 'User', fields: [
+                { name: 'state', type: 'enum', refStructId: 'mode', count: 1 },
+                { name: 'ctl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'mode' }] },
+                { name: 'keep', type: 'uint8', count: 1 },
+            ] },
+        ];
+
+        const result = withoutStructDefinition(structs, [], 'mode');
+
+        assert.deepStrictEqual(result.structs.map(d => d.id), ['bits', 'user']);
+        assert.deepStrictEqual(result.structs[0].bitFields!.map(c => c.refStructId), [undefined, undefined]);
+        assert.deepStrictEqual(result.structs[1].fields.map(f => f.name), ['ctl', 'keep']);
+        assert.strictEqual(result.structs[1].fields[0].bitFields![0].refStructId, undefined);
+        assert.strictEqual(result.structs[1].fields[0].bitFields![0].bitWidth, 4);
+    });
+
     test('adds pointer source to existing target pin once', () => {
         const pins: StructPin[] = [
             { id: 'target', structId: 'child', addr: 0x200, name: 'child' },

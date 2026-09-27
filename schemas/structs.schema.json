@@ -65,6 +65,12 @@
             "$ref": "#/definitions/bitFieldChild"
           }
         },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/enumEntry"
+          }
+        },
         "packed": {
           "type": "boolean"
         },
@@ -142,6 +148,25 @@
         },
         "bitWidth": {
           "type": "number"
+        },
+        "refStructId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "enumEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
         }
       },
       "additionalProperties": false
@@ -163,7 +188,8 @@
         "float64",
         "pointer",
         "struct",
-        "bitfield"
+        "bitfield",
+        "enum"
       ]
     }
   }

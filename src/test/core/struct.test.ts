@@ -3,7 +3,7 @@ import * as assert from 'assert';
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
-    structDefKind, materializeBitFieldRefs,
+    structDefKind, materializeBitFieldRefs, formatEnumLabel, matchEnumEntry,
 } from '../../core/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
@@ -1445,4 +1445,190 @@ suite('reusable bit-field validation', () => {
         assert.ok(validateStructs([def]).some(e => e.includes('invalid kind')));
     });
 });
+
+// ── Enums (kind: 'enum' + type: 'enum' refs) ──────────────────────
+
+function enumModeDef(): StructDef {
+    return {
+        id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [],
+        entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }],
+    };
+}
+
+function enumUserDef(): StructDef {
+    return {
+        id: 'user', name: 'User', packed: true,
+        fields: [
+            { name: 'state', type: 'enum', refStructId: 'mode', count: 1 },
+            { name: 'after', type: 'uint8', count: 1 },
+        ],
+    };
+}
+
+function enumBitsDef(): StructDef {
+    return {
+        id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+        bitFields: [{ name: 'mode', bitWidth: 2, refStructId: 'mode' }, { name: 'code', bitWidth: 6 }],
+    };
+}
+
+function enumHolderDef(): StructDef {
+    return {
+        id: 'holder', name: 'Holder', packed: true,
+        fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', count: 1 }],
+    };
+}
+
+suite('enum label formatting', () => {
+    test('formats a matched label as NAME (0xNN)', () => {
+        assert.strictEqual(formatEnumLabel('ON', 1n, 2), 'ON (0x01)');
+        assert.strictEqual(formatEnumLabel('MODE_LONG', 0x1234n, 4), 'MODE_LONG (0x1234)');
+    });
+
+    test('matches the first entry by numeric value', () => {
+        const mode = enumModeDef();
+        assert.strictEqual(matchEnumEntry(mode, 0n)?.name, 'OFF');
+        assert.strictEqual(matchEnumEntry(mode, 1n)?.name, 'ON');
+    });
+
+    test('an unmatched value has no label (numeric fallback)', () => {
+        assert.strictEqual(matchEnumEntry(enumModeDef(), 5n), undefined);
+    });
+});
+
+suite('enum sizing / alignment', () => {
+    test('a scalar enum sizes/aligns exactly like its base integer field', () => {
+        const mode = enumModeDef();
+        const enumUser = enumUserDef();
+        const intUser: StructDef = {
+            id: 'user', name: 'User', packed: true,
+            fields: [{ name: 'state', type: 'uint8', count: 1 }, { name: 'after', type: 'uint8', count: 1 }],
+        };
+        assert.strictEqual(structByteSize(enumUser, [mode, enumUser]), structByteSize(intUser));
+    });
+
+    test('a wider base width drives size (uint32 base = 4 bytes)', () => {
+        const wide: StructDef = { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint32', fields: [], entries: [{ name: 'A', value: 1 }] };
+        const def: StructDef = { id: 'd', name: 'D', packed: true, fields: [{ name: 'm', type: 'enum', refStructId: 'mode', count: 1 }] };
+        assert.strictEqual(structByteSize(def, [wide, def]), 4);
+    });
+});
+
+suite('enum decode', () => {
+    test('carries the matched label without changing bytes/offset/decoded numerics', () => {
+        const mode = enumModeDef();
+        const user = enumUserDef();
+        setBytesInSegment(0, [0x01, 0x34]);
+        const rows = decodeStruct(user, 0, getByte, 'le', 'msb', [mode, user]);
+        assert.deepStrictEqual(rows.map(r => r.fieldName), ['state', 'after']);
+        assert.strictEqual(rows[0].type, 'uint8');
+        assert.strictEqual(rows[0].enumLabel, 'ON');
+        assert.strictEqual(rows[0].byteOffset, 0);
+        assert.strictEqual(rows[0].bytesHex, '01');
+        assert.strictEqual(rows[0].decoded, decodeField([0x01], 'uint8', 'le'));
+    });
+
+    test('an unmatched value carries no label', () => {
+        const mode = enumModeDef();
+        const user = enumUserDef();
+        setBytesInSegment(0, [0x05, 0x00]);
+        const rows = decodeStruct(user, 0, getByte, 'le', 'msb', [mode, user]);
+        assert.strictEqual(rows[0].enumLabel, undefined);
+        assert.strictEqual(rows[0].decoded, decodeField([0x05], 'uint8', 'le'));
+    });
+
+    test('a bit-field child with an enum ref carries a label per element', () => {
+        const mode = enumModeDef();
+        const bits = enumBitsDef();
+        const holder = enumHolderDef();
+        setBytesInSegment(0, [0x40]); // msb allocation: mode = 0b01
+        const rows = decodeStruct(holder, 0, getByte, 'le', 'msb', [mode, bits, holder]);
+        assert.deepStrictEqual(rows.map(r => r.fieldName), ['ctl.mode', 'ctl.code']);
+        assert.strictEqual(rows[0].enumLabel, 'ON');
+        assert.strictEqual(rows[1].enumLabel, undefined);
+        assert.strictEqual(rows[0].bytesHex, '40');
+        assert.strictEqual(rows[0].bitOffset, 0);
+    });
+
+    test('a bit-field child without an enum ref never carries a label', () => {
+        const bits = enumBitsDef();
+        const holder = enumHolderDef();
+        setBytesInSegment(0, [0x40]);
+        const rows = decodeStruct(holder, 0, getByte, 'le', 'msb', [bits, holder]);
+        assert.strictEqual(rows[0].enumLabel, undefined);
+        assert.strictEqual(rows[1].enumLabel, undefined);
+    });
+});
+
+suite('enum C preview', () => {
+    test('an enum def previews as a typedef enum sized to its base width', () => {
+        const text = structToC(enumModeDef(), [enumModeDef()]);
+        assert.ok(text.includes('typedef enum {'), text);
+        assert.ok(text.includes('OFF = 0x0,'), text);
+        assert.ok(text.includes('ON  = 0x1,'), text);
+        assert.ok(text.includes('} Mode;'), text);
+        assert.ok(text.includes('/* 1B */'), text);
+    });
+
+    test('an enum-typed field keeps the integer layout (offsets/sizes unchanged)', () => {
+        const mode = enumModeDef();
+        const user = enumUserDef();
+        const intUser: StructDef = {
+            id: 'user', name: 'User', packed: true,
+            fields: [{ name: 'state', type: 'uint8', count: 1 }, { name: 'after', type: 'uint8', count: 1 }],
+        };
+        const enumC = structToC(user, [mode, user]);
+        const intC = structToC(intUser);
+        assert.strictEqual(enumC.replace('  enum Mode', ''), intC, 'enum field comment/layout must match an integer field');
+        assert.ok(enumC.includes('/* +  0  1B  enum Mode */'), enumC);
+        assert.ok(enumC.includes('/* 2B, packed */'), enumC);
+    });
+});
+
+suite('enum validation', () => {
+    test('accepts an enum def referenced by a scalar field and a bit child', () => {
+        const defs = [enumModeDef(), enumBitsDef(), enumUserDef(), enumHolderDef()];
+        assert.deepStrictEqual(validateStructs(defs), []);
+    });
+
+    test('rejects an unknown / non-enum / missing scalar enum reference', () => {
+        const mode = enumModeDef();
+        const unknown: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', refStructId: 'nope', count: 1 }] };
+        assert.ok(validateStructs([mode, unknown]).some(e => e.includes('unknown enum type')));
+        const plain: StructDef = { id: 'plain', name: 'Plain', fields: [] };
+        const notEnum: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', refStructId: 'plain', count: 1 }] };
+        assert.ok(validateStructs([plain, notEnum]).some(e => e.includes('not an enum type')));
+        const missing: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', count: 1 }] };
+        assert.ok(validateStructs([mode, missing]).some(e => e.includes('missing a referenced enum')));
+        const pointer: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', refStructId: 'mode', isPointer: true, count: 1 }] };
+        assert.ok(validateStructs([mode, pointer]).some(e => e.includes('cannot be an enum pointer')));
+    });
+
+    test('rejects enum entries that do not fit the base width', () => {
+        const bad: StructDef = { id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'BIG', value: 256 }] };
+        assert.ok(validateStructs([bad]).some(e => e.includes('does not fit uint8')), validateStructs([bad]).join('; '));
+    });
+
+    test('rejects an enum def with a non-unsigned base or fields', () => {
+        const badBase = { id: 'e', name: 'E', kind: 'enum', baseType: 'int8', fields: [], entries: [] } as unknown as StructDef;
+        assert.ok(validateStructs([badBase]).some(e => e.includes('unsigned base type')));
+        const withFields: StructDef = { id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [{ name: 'a', type: 'uint8', count: 1 }], entries: [] };
+        assert.ok(validateStructs([withFields]).some(e => e.includes('cannot contain fields')));
+    });
+
+    test('rejects a bit-field child referencing an unknown or non-enum type', () => {
+        const bits: StructDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'nope' }],
+        };
+        assert.ok(validateStructs([bits]).some(e => e.includes('references an unknown enum type')));
+        const plain: StructDef = { id: 'plain', name: 'Plain', fields: [] };
+        const bits2: StructDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'plain' }],
+        };
+        assert.ok(validateStructs([plain, bits2]).some(e => e.includes('not an enum type')));
+    });
+});
+
 

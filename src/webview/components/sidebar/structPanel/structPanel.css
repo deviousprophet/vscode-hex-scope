@@ -275,6 +275,34 @@
     font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
 }
 .sfe-bf-del-child:hover { color: var(--err); }
+.sfe-bf-child-enum {
+    flex-shrink: 0; max-width: 90px; min-width: 0;
+    font-size: 10px; font-family: var(--font-ui);
+    background: var(--input-bg, transparent); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* -- Enum entry rows -------------------------------------------- */
+.sfe-enum-entries {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 3px 0 0 0; margin: 0;
+}
+.sfe-enum-entry-row {
+    display: flex; align-items: center; gap: 3px;
+    padding: 1px 4px 1px 8px;
+}
+.sfe-enum-entry-name {
+    flex: 1; min-width: 0; width: 60px;
+}
+.sfe-enum-entry-value {
+    flex-shrink: 0; width: 56px; text-align: right;
+}
+.sfe-enum-del-entry {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.sfe-enum-del-entry:hover { color: var(--err); }
 
 .sfe-move-btns {
     display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1px;

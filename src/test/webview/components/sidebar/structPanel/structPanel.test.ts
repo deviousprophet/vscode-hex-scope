@@ -3020,4 +3020,185 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(row.querySelector('.sfe-alloc-sel'), 'bit-field reference row should offer an allocation override');
         assert.ok((row.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
     });
+
+    // ── Enums ─────────────────────────────────────────────────────
+
+    const enumModeDef = (): StructDef => ({
+        id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [],
+        entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }],
+    });
+
+    const enumUserDef = (): StructDef => ({
+        id: 'user', name: 'User', packed: true,
+        fields: [{ name: 'state', type: 'enum', refStructId: 'mode', count: 1 }],
+    });
+
+    const enumBitsDef = (): StructDef => ({
+        id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+        bitFields: [{ name: 'mode', bitWidth: 2, refStructId: 'mode' }, { name: 'code', bitWidth: 6 }],
+    });
+
+    const enumHolderDef = (): StructDef => ({
+        id: 'holder', name: 'Holder', packed: true,
+        fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', count: 1 }],
+    });
+
+    test('an enum-typed scalar field renders NAME (0xNN) for a matched value', async () => {
+        S.structs = [enumModeDef(), enumUserDef()];
+        S.structPins = [{ id: 'pin_enum', structId: 'user', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x01]);
+
+        await renderPinsAndExpandCard();
+
+        const row = document.querySelector<HTMLElement>('.si-fields > .si-field')!;
+        assert.strictEqual(elementText(row.querySelector('.si-f-name')), 'state');
+        assert.strictEqual(elementText(row.querySelector('.si-f-val')), 'ON (0x01)');
+    });
+
+    test('an unmatched enum value falls back to the plain numeric rendering', async () => {
+        S.structs = [enumModeDef(), enumUserDef()];
+        S.structPins = [{ id: 'pin_enum2', structId: 'user', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x05]);
+
+        await renderPinsAndExpandCard();
+
+        assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), '0x05');
+    });
+
+    test('a bit-field child with an enum ref renders the label for its value', async () => {
+        S.structs = [enumModeDef(), enumBitsDef(), enumHolderDef()];
+        S.structPins = [{ id: 'pin_bits_enum', structId: 'holder', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x40]); // msb allocation: mode = 0b01
+
+        await renderPinsAndExpandCard();
+        const hdr = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr')!;
+        hdr.querySelector<HTMLElement>('.si-arr-exp-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+        const children = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field'));
+        assert.deepStrictEqual(children.map(c => elementText(c.querySelector('.si-f-name'))), ['mode', 'code']);
+        assert.strictEqual(elementText(children[0].querySelector('.si-f-val')), 'ON (0x1)');
+        assert.ok(!elementText(children[1].querySelector('.si-f-val')).includes('('), 'unlabeled child stays numeric');
+    });
+
+    test('field type picker offers the enum reference and a def picker', async () => {
+        S.structs = [enumModeDef(), enumUserDef()];
+
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+
+        const sel = document.querySelector<HTMLSelectElement>('#se-fields .sfe-type-sel')!;
+        const opt = sel.querySelector<HTMLOptionElement>('option[value="enum:mode"]');
+        assert.ok(opt, 'type picker should offer the enum reference option');
+        assert.strictEqual(opt!.textContent, 'enum Mode');
+        const groupLabels = Array.from(sel.querySelectorAll('optgroup')).map(g => g.getAttribute('label'));
+        assert.ok(groupLabels.includes('Enum'), 'type picker should have an Enum optgroup');
+    });
+
+    test('an enum-typed field row blocks the pointer toggle and shows no alloc override', async () => {
+        S.structs = [enumModeDef(), enumUserDef()];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
+
+        const row = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
+        assert.strictEqual((row.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'enum:mode');
+        assert.ok((row.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'enum field cannot be a pointer');
+        assert.strictEqual(row.querySelector('.sfe-alloc-sel'), null, 'enum field shows no allocation override');
+    });
+
+    test('enum def editor saves base width + entries and lists a kind badge', async () => {
+        S.structs = [];
+
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-enum-btn'));
+
+        assert.ok(document.getElementById('se-enum-base-type'), 'enum form should render a base width select');
+        assert.strictEqual((document.getElementById('se-enum-base-type') as HTMLSelectElement).value, 'uint8');
+        assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 1, 'seeded with one entry row');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no struct field grid in the enum form');
+
+        (document.getElementById('se-name') as HTMLInputElement).value = 'Mode';
+        click(dom, document.getElementById('se-enum-add'));
+        const rows = document.querySelectorAll<HTMLElement>('#se-enum-entries .sfe-enum-entry-row');
+        assert.strictEqual(rows.length, 2, 'Add entry appends a row');
+        (rows[0].querySelector('.sfe-enum-entry-name') as HTMLInputElement).value = 'OFF';
+        (rows[0].querySelector('.sfe-enum-entry-value') as HTMLInputElement).value = '0';
+        (rows[1].querySelector('.sfe-enum-entry-name') as HTMLInputElement).value = 'ON';
+        (rows[1].querySelector('.sfe-enum-entry-value') as HTMLInputElement).value = '0x1';
+
+        click(dom, document.getElementById('se-save'));
+
+        const saved = S.structs.find(d => d.kind === 'enum');
+        assert.ok(saved, 'enum def should be saved');
+        assert.strictEqual(saved!.name, 'Mode');
+        assert.strictEqual(saved!.baseType, 'uint8');
+        assert.deepStrictEqual(saved!.fields, []);
+        assert.deepStrictEqual(saved!.entries, [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }]);
+        assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'enum', 'type list should show an enum kind badge');
+    });
+
+    test('enum def editor rejects an entry that does not fit the base width', async () => {
+        S.structs = [];
+
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-enum-btn'));
+        (document.getElementById('se-name') as HTMLInputElement).value = 'Mode';
+        (document.querySelector('#se-enum-entries .sfe-enum-entry-value') as HTMLInputElement).value = '0x100';
+
+        click(dom, document.getElementById('se-save'));
+
+        assert.ok(document.querySelector('.se-error'), 'oversized entry should surface an inline error');
+        assert.strictEqual(S.structs.length, 0, 'no def is committed while invalid');
+    });
+
+    test('bit-field def editor exposes an enum picker per child and saves the ref', async () => {
+        S.structs = [enumModeDef()];
+
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-bitfield-btn'));
+
+        const enumSel = document.querySelector<HTMLSelectElement>('#se-bf-def-children .sfe-bf-child-enum');
+        assert.ok(enumSel, 'bit-field child row should offer an enum picker');
+        assert.ok(enumSel!.querySelector('option[value="mode"]'), 'picker should list the enum def');
+        enumSel!.value = 'mode';
+        enumSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        (document.getElementById('se-name') as HTMLInputElement).value = 'Bits';
+        click(dom, document.getElementById('se-save'));
+
+        const saved = S.structs.find(d => d.kind === 'bitfield');
+        assert.ok(saved, 'bit-field def should save');
+        assert.strictEqual(saved!.bitFields![0].refStructId, 'mode');
+    });
+
+    test('editing an enum re-renders referencing instances with the new label', async () => {
+        S.structs = [enumModeDef(), enumUserDef()];
+        S.structPins = [{ id: 'pin_enum_edit', structId: 'user', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00]);
+
+        await renderPinsAndExpandCard();
+        assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), 'OFF (0x00)');
+
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="mode"]'));
+        const entryName = document.querySelector<HTMLInputElement>('#se-enum-entries .sfe-enum-entry-name')!;
+        entryName.value = 'OFFLINE';
+        entryName.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        click(dom, document.getElementById('se-save'));
+
+        assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), 'OFFLINE (0x00)');
+    });
+
+    test('deleting a referenced enum strips orphan scalar + bit-child refs (pin-safe)', async () => {
+        S.structs = [enumModeDef(), enumBitsDef(), enumUserDef()];
+        S.structPins = [];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-del[data-struct-id="mode"]'));
+        confirmDelete(dom);
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        assert.deepStrictEqual(S.structs.map(d => d.id), ['bits', 'user']);
+        assert.strictEqual(S.structs[0].bitFields![0].refStructId, undefined);
+        assert.deepStrictEqual(S.structs[1].fields, []);
+    });
 });

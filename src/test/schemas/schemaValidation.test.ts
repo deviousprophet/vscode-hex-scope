@@ -187,6 +187,28 @@ suite('hexScope schemas — negative cases', () => {
         );
     });
 
+    test('structs.json accepts a named enum, its referencing field, and a bit-child ref', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        const data = [
+            { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }] },
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'mode' }] },
+            { id: 's1', name: 'S1', fields: [{ name: 'state', type: 'enum', refStructId: 'mode', count: 1 }] },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+    });
+
+    test('structs.json rejects a malformed enum entry and a non-string child ref', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, structsEnvelope([{ id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'A' }] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, structsEnvelope([{ id: 'b', name: 'B', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 7 }] }])),
+            [],
+        );
+    });
+
     test('invalid endian/allocation enums fail structs.json', () => {
         const { schema } = loadSchema('structs.schema.json');
         assert.notDeepStrictEqual(

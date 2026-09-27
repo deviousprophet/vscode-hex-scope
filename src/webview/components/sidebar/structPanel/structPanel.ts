@@ -20,10 +20,10 @@ import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeField, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
-    normalizeStructField, structDefKind,
+    normalizeStructField, structDefKind, formatEnumLabel, enumHexDigits,
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
-import type { BitFieldAllocation, BitFieldChild, StructBaseType, StructDef, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
+import type { BitFieldAllocation, BitFieldChild, EnumEntry, StructBaseType, StructDef, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import { menuController } from '../../menuController/menuController';
 import { showToast } from '../../toast';
@@ -324,6 +324,8 @@ mount(root: HTMLElement): void {
         if (addType) { addType.disabled = disabled; }
         const addBitField = root.querySelector<HTMLButtonElement>('#sm-add-bitfield-btn');
         if (addBitField) { addBitField.disabled = disabled; }
+        const addEnum = root.querySelector<HTMLButtonElement>('#sm-add-enum-btn');
+        if (addEnum) { addEnum.disabled = disabled; }
     }
 
     private noStructTypes(): boolean {
@@ -353,7 +355,7 @@ private mountInstancesAction(root: HTMLElement): void {
     root.appendChild(add);
 }
 
-/** Types header action: ＋ Add (plain struct) / ＋ bitfield — both open their kind's editor, disabled while an editor is open. */
+/** Types header action: ＋ Add (plain struct) / ＋ bitfield / ＋ enum — each opens its kind's editor, disabled while an editor is open. */
 private mountTypesAction(root: HTMLElement): void {
     const addBitField = document.createElement('button');
     addBitField.id = 'sm-add-bitfield-btn';
@@ -377,6 +379,29 @@ private mountTypesAction(root: HTMLElement): void {
         this.render();
     });
     root.appendChild(addBitField);
+
+    const addEnum = document.createElement('button');
+    addEnum.id = 'sm-add-enum-btn';
+    addEnum.className = 'sb-btn sb-btn-add sb-section-action';
+    addEnum.textContent = '\uff0b enum';
+    addEnum.title = 'New enum type';
+    addEnum.addEventListener('click', () => {
+        this._editorError = null;
+        this._editingType = {
+            draft: {
+                id: `user_${Date.now()}`,
+                name: '',
+                kind: 'enum',
+                baseType: 'uint8',
+                fields: [],
+                entries: [{ name: 'VALUE0', value: 0 }],
+            },
+            existing: null,
+            fromManage: true,
+        };
+        this.render();
+    });
+    root.appendChild(addEnum);
 
     const add = document.createElement('button');
     add.id = 'sm-add-btn';
@@ -767,9 +792,14 @@ private fieldTypeOptionsHtml(f: StructField, draftId: string): string {
         .filter(d => structDefKind(d) === 'bitfield' && d.id !== draftId)
         .map(d => this.bitFieldOptionHtml(f, d))
         .join('');
+    const enumOptions = allStructs(this._structs)
+        .filter(d => structDefKind(d) === 'enum' && d.id !== draftId)
+        .map(d => this.enumOptionHtml(f, d))
+        .join('');
     return `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
         (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '') +
-        (bitFieldOptions ? `<optgroup label="Bit-field">${bitFieldOptions}</optgroup>` : '');
+        (bitFieldOptions ? `<optgroup label="Bit-field">${bitFieldOptions}</optgroup>` : '') +
+        (enumOptions ? `<optgroup label="Enum">${enumOptions}</optgroup>` : '');
 }
 
 private structOptionHtml(f: StructField, d: StructDef): string {
@@ -789,6 +819,16 @@ private bitFieldOptionHtml(f: StructField, d: StructDef): string {
     const val = `bitfield:${d.id}`;
     const selected = f.type === 'bitfield' && f.refStructId === d.id;
     const full = `bitfield ${d.name}`;
+    const label = this.truncatedStructOptionLabel(full);
+    const titleAttr = this.structOptionTitleAttr(label, full);
+    return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
+}
+
+private enumOptionHtml(f: StructField, d: StructDef): string {
+    f = normalizeStructField(f);
+    const val = `enum:${d.id}`;
+    const selected = f.type === 'enum' && f.refStructId === d.id;
+    const full = `enum ${d.name}`;
     const label = this.truncatedStructOptionLabel(full);
     const titleAttr = this.structOptionTitleAttr(label, full);
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
@@ -818,6 +858,12 @@ private isBitContainerField(f: StructField): boolean {
 private isBitFieldRefField(f: StructField): boolean {
     f = normalizeStructField(f);
     return f.type === 'bitfield' && f.isPointer !== true;
+}
+
+/** A field that references a standalone `kind: 'enum'` def. */
+private isEnumRefField(f: StructField): boolean {
+    f = normalizeStructField(f);
+    return f.type === 'enum' && f.isPointer !== true;
 }
 
 private bitChildrenHtml(f: StructField, isBitContainer: boolean): string {
@@ -963,8 +1009,9 @@ private fieldRowHtml(
     const typeOpts = this.fieldTypeOptionsHtml(f, draftId);
     const isBitContainer = this.isBitContainerField(f);
     const isBitRef = this.isBitFieldRefField(f);
+    const isEnumRef = this.isEnumRefField(f);
     const showsAlloc = isBitContainer || isBitRef;
-    const blocksPointer = isBitContainer || isBitRef;
+    const blocksPointer = isBitContainer || isBitRef || isEnumRef;
     const delCell = this.deleteFieldCellHtml(isOnly);
     const childrenHtml = this.bitChildrenHtml(f, isBitContainer);
     const inheritedEndian = this.editorInheritedEndian();
@@ -1005,6 +1052,7 @@ private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): stri
         `<input class="sfe-bf-child-width sb-input sb-input-sm" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
                `placeholder="N" maxlength="2">` +
         `<span class="sfe-bf-child-unit">bit</span>` +
+        this.bitChildEnumSelectHtml(child) +
         `<div class="sfe-bf-child-move">` +
         `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
         `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
@@ -1012,6 +1060,17 @@ private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): stri
         delCell +
         `</div>`
     );
+}
+
+/** Optional enum ref for a bit-field child: labels this bit value with the def's entries. */
+private bitChildEnumSelectHtml(child: BitFieldChild): string {
+    const enums = allStructs(this._structs).filter(d => structDefKind(d) === 'enum');
+    const options = [`<option value="">\u2014</option>`]
+        .concat(enums.map(d =>
+            `<option value="${esc(d.id)}"${child.refStructId === d.id ? ' selected' : ''}>${esc(this.truncatedStructOptionLabel(d.name))}</option>`
+        ))
+        .join('');
+    return `<select class="sfe-bf-child-enum" title="Enum labels for this bit value" aria-label="Enum labels for this bit value">${options}</select>`;
 }
 
 /** Check if a field type is an unsigned scalar (eligible for bit-field container). */
@@ -1026,7 +1085,7 @@ private getParentBitCapacity(type: import('../../../../core/types').StructFieldT
 
 // ── C syntax-highlighted struct preview ─────────────────────────────────────
 
-private readonly SC_KW   = /\b(typedef|struct)\b/g;
+private readonly SC_KW   = /\b(typedef|struct|enum)\b/g;
 private readonly SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
 private buildStructCPreviewNodes(def: StructDef): DocumentFragment {
@@ -1128,7 +1187,7 @@ private appendPreviewText(parent: DocumentFragment | HTMLElement, text: string):
 
 private structCodeTokenClass(tok: string): string {
     if (tok === '__attribute__((packed))') { return 'sc-attr'; }
-    if (tok === 'typedef' || tok === 'struct') { return 'sc-kw'; }
+    if (tok === 'typedef' || tok === 'struct' || tok === 'enum') { return 'sc-kw'; }
     return 'sc-type';
 }
 
@@ -1153,9 +1212,10 @@ private hydrateStructPreviews(root: HTMLElement): void {
 
 /** Dispatch the type editor form by the draft's kind (absent = plain struct). */
 private editorHtml(draft: StructDef, existing: StructDef | null): string {
-    return structDefKind(draft) === 'bitfield'
-        ? this.bitFieldDefEditorHtml(draft)
-        : this.structEditorHtml(draft, existing);
+    const kind = structDefKind(draft);
+    if (kind === 'bitfield') { return this.bitFieldDefEditorHtml(draft); }
+    if (kind === 'enum') { return this.enumDefEditorHtml(draft); }
+    return this.structEditorHtml(draft, existing);
 }
 
 private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
@@ -1292,6 +1352,11 @@ private wireBitFieldDefChildRows(sec: HTMLElement, draft: StructDef): void {
             this.refreshEditorPreview(sec, draft);
             this.refreshBitFieldDefAddButton(sec, draft);
         }));
+    container.querySelectorAll<HTMLSelectElement>('.sfe-bf-child-enum').forEach(sel =>
+        sel.addEventListener('change', () => {
+            this.syncBitFieldDefDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        }));
     this.wireClicks(container, '.sfe-bf-del-child', btn => {
         const ci = this.bitFieldChildIndex(btn);
         if (ci === null) { return; }
@@ -1345,6 +1410,166 @@ private bitFieldDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef 
     };
 }
 
+/** Enum type form: name + base unsigned width + name/value entry rows (no struct fields). */
+private enumDefEditorHtml(draft: StructDef): string {
+    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
+    return (
+        `<div class="si-editor-wrap">` +
+        this.editorTabsHtml() +
+        `<div class="se-view" data-se-view="edit">` +
+        `<div class="se-form">` +
+        `<label class="se-name-lbl" for="se-name">Type name</label>` +
+        `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
+               `maxlength="64" placeholder="MyEnum" spellcheck="false" autocomplete="off">` +
+        `<div class="se-struct-default-row">` +
+        `<span class="se-kind-badge">enum</span>` +
+        `<span class="se-struct-default-ptr"></span>` +
+        `<span class="se-struct-default-lbl">base width</span>` +
+        `<select id="se-enum-base-type" class="se-struct-default-sel" aria-label="Enum base width">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
+        `</div>` +
+        `<div id="se-enum-entries" class="sfe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>` +
+        `<button id="se-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>` +
+        errorHtml +
+        `<div class="se-btns">` +
+        `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
+        `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
+        `</div>` +
+        `</div>` +
+        `</div>` +
+        `<div class="se-view" data-se-view="preview" hidden>` +
+        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
+        `</div>` +
+        `</div>`
+    );
+}
+
+private enumEntryRowsHtml(draft: StructDef): string {
+    const entries = draft.entries ?? [];
+    return entries.map((entry, i) => this.enumEntryRowHtml(entry, i, entries.length)).join('');
+}
+
+private enumEntryRowHtml(entry: EnumEntry, i: number, total: number): string {
+    const upDis = i === 0 ? ' disabled' : '';
+    const dnDis = i === total - 1 ? ' disabled' : '';
+    const delCell = total <= 1
+        ? `<span class="sfe-del-placeholder"></span>`
+        : `<button class="sfe-enum-del-entry" title="Remove entry" aria-label="Remove entry">\u2715</button>`;
+    return (
+        `<div class="sfe-enum-entry-row" data-entry-idx="${i}">` +
+        `<span class="sfe-bf-child-indent"></span>` +
+        `<input class="sfe-enum-entry-name sb-input sb-input-sm" type="text" value="${esc(entry.name)}" maxlength="64" ` +
+               `placeholder="ENTRY${i}" spellcheck="false" autocomplete="off">` +
+        `<span class="sfe-bf-child-unit">=</span>` +
+        `<input class="sfe-enum-entry-value sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+               `value="${esc(this.enumEntryValueText(entry.value))}" placeholder="0" spellcheck="false" autocomplete="off">` +
+        `<div class="sfe-bf-child-move">` +
+        `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
+        `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
+        `</div>` +
+        delCell +
+        `</div>`
+    );
+}
+
+private enumEntryValueText(value: number): string {
+    return `0x${value.toString(16).toUpperCase()}`;
+}
+
+private enumEntryIndex(btn: HTMLElement): number | null {
+    const row = btn.closest<HTMLElement>('.sfe-enum-entry-row');
+    const idx = this.parseDatasetInt(row?.dataset.entryIdx);
+    return idx === null ? null : idx;
+}
+
+private refreshEnumDefRows(sec: HTMLElement, draft: StructDef): void {
+    const container = sec.querySelector<HTMLElement>('#se-enum-entries');
+    if (!container) { return; }
+    container.innerHTML = this.enumEntryRowsHtml(draft);
+    this.wireEnumDefEntryRows(sec, draft);
+    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    if (pre) { this.renderStructCPreview(pre, draft); }
+}
+
+private wireEnumDefEntryRows(sec: HTMLElement, draft: StructDef): void {
+    const container = sec.querySelector<HTMLElement>('#se-enum-entries');
+    if (!container) { return; }
+    container.querySelectorAll<HTMLInputElement>('.sfe-enum-entry-name').forEach(inp => {
+        inp.addEventListener('input', () => { this.syncEnumDefDraft(sec, draft); this.refreshEditorPreview(sec, draft); });
+        inp.addEventListener('blur', () => {
+            const clean = this.sanitizeCIdent(inp.value);
+            if (clean !== inp.value) { inp.value = clean; }
+            this.syncEnumDefDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+    container.querySelectorAll<HTMLInputElement>('.sfe-enum-entry-value').forEach(inp =>
+        inp.addEventListener('input', () => { this.syncEnumDefDraft(sec, draft); this.refreshEditorPreview(sec, draft); }));
+    this.wireClicks(container, '.sfe-enum-del-entry', btn => {
+        const i = this.enumEntryIndex(btn);
+        if (i === null) { return; }
+        this.syncEnumDefDraft(sec, draft);
+        draft.entries!.splice(i, 1);
+        if (draft.entries!.length === 0) { draft.entries!.push({ name: 'VALUE0', value: 0 }); }
+        this.refreshEnumDefRows(sec, draft);
+    });
+    this.wireClicks(container, '.sfe-enum-entry-row .sfe-move-up', btn => {
+        const i = this.enumEntryIndex(btn);
+        if (i === null) { return; }
+        this.syncEnumDefDraft(sec, draft);
+        if (i > 0) {
+            [draft.entries![i - 1], draft.entries![i]] = [draft.entries![i], draft.entries![i - 1]];
+            this.refreshEnumDefRows(sec, draft);
+        }
+    });
+    this.wireClicks(container, '.sfe-enum-entry-row .sfe-move-dn', btn => {
+        const i = this.enumEntryIndex(btn);
+        if (i === null) { return; }
+        this.syncEnumDefDraft(sec, draft);
+        if (i < draft.entries!.length - 1) {
+            [draft.entries![i], draft.entries![i + 1]] = [draft.entries![i + 1], draft.entries![i]];
+            this.refreshEnumDefRows(sec, draft);
+        }
+    });
+}
+
+private syncEnumDefDraft(sec: HTMLElement, draft: StructDef): void {
+    draft.name = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
+    draft.baseType = this.readBaseType(this.selectValue(sec, '#se-enum-base-type'));
+    draft.fields = [];
+    const rows = sec.querySelectorAll<HTMLElement>('#se-enum-entries .sfe-enum-entry-row');
+    draft.entries = Array.from(rows).map(row => this.readEditorEnumEntry(row));
+}
+
+private readEditorEnumEntry(row: HTMLElement): EnumEntry {
+    const idx = row.dataset.entryIdx ?? '0';
+    const name = this.sanitizeCIdent(
+        (row.querySelector('.sfe-enum-entry-name') as HTMLInputElement).value
+    ) || `VALUE${idx}`;
+    const value = this.parseEnumEntryValue((row.querySelector('.sfe-enum-entry-value') as HTMLInputElement).value);
+    return { name, value };
+}
+
+private parseEnumEntryValue(raw: string): number {
+    const text = raw.trim();
+    if (text === '') { return 0; }
+    const hex = text.replace(/^0x/i, '');
+    const value = /^[0-9a-fA-F]+$/.test(hex) && /^0x/i.test(text)
+        ? Number.parseInt(hex, 16)
+        : Number.parseInt(text, 10);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+private enumDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
+    return {
+        id: draft.id,
+        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextStructName(draft.id),
+        kind: 'enum',
+        baseType: draft.baseType ?? 'uint8',
+        entries: (draft.entries ?? [{ name: 'VALUE0', value: 0 }]).map(entry => ({ ...entry })),
+        fields: [],
+    };
+}
+
 private tabNavKey(key: string): boolean {
     return key === 'ArrowLeft' || key === 'ArrowRight';
 }
@@ -1393,7 +1618,9 @@ private refreshFieldRows(sec: HTMLElement, draft: StructDef): void {
 
 /** Re-render the live C preview as the user edits the draft. */
 private refreshEditorPreview(sec: HTMLElement, draft: StructDef): void {
-    if (structDefKind(draft) === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
+    const kind = structDefKind(draft);
+    if (kind === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
+    else if (kind === 'enum') { this.syncEnumDefDraft(sec, draft); }
     else { this.syncEditorDraft(sec, draft); }
     const pre = sec.querySelector<HTMLElement>('#se-preview pre');
     if (pre) { this.renderStructCPreview(pre, draft); }
@@ -1616,6 +1843,13 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
             );
         });
     });
+
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-bf-child-enum').forEach(sel => {
+        sel.addEventListener('change', () => {
+            this.syncEditorDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
 }
 
 /**
@@ -1733,11 +1967,12 @@ private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStruc
 private parseEditorFieldType(rawType: string): { type: StructFieldType; refStructId: string | undefined } {
     if (rawType.startsWith('struct:')) { return { type: 'struct', refStructId: rawType.slice('struct:'.length) }; }
     if (rawType.startsWith('bitfield:')) { return { type: 'bitfield', refStructId: rawType.slice('bitfield:'.length) }; }
+    if (rawType.startsWith('enum:')) { return { type: 'enum', refStructId: rawType.slice('enum:'.length) }; }
     return { type: rawType as StructFieldType, refStructId: undefined };
 }
 
 private isUnsignedEditorParsedType(parsed: { type: StructFieldType; refStructId: string | undefined }): boolean {
-    return parsed.type !== 'struct' && parsed.type !== 'bitfield' && this.isUnsignedScalarType(parsed.type);
+    return parsed.type !== 'struct' && parsed.type !== 'bitfield' && parsed.type !== 'enum' && this.isUnsignedScalarType(parsed.type);
 }
 
 private readEditorBitFields(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): BitFieldChild[] | undefined {
@@ -1758,10 +1993,13 @@ private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
     ) || `bit${childRow.dataset.childIdx || '0'}`;
     const childWidthRaw = (childRow.querySelector('.sfe-bf-child-width') as HTMLInputElement).value;
     const childWidth = parseInt(childWidthRaw, 10);
-    return {
+    const enumRef = (childRow.querySelector('.sfe-bf-child-enum') as HTMLSelectElement | null)?.value;
+    const child: BitFieldChild = {
         name: childName,
         bitWidth: childWidth > 0 ? Math.min(childWidth, 64) : 1,
     };
+    if (enumRef) { child.refStructId = enumRef; }
+    return child;
 }
 
 private readEditorArrayCount(row: HTMLElement): number {
@@ -1781,6 +2019,7 @@ private wireEditorInSec(sec: HTMLElement): void {
     if (!this._editingType) { return; }
     const { draft } = this._editingType;
     if (structDefKind(draft) === 'bitfield') { this.wireBitFieldDefEditor(sec, draft); return; }
+    if (structDefKind(draft) === 'enum') { this.wireEnumDefEditor(sec, draft); return; }
     this.wireStructEditor(sec, draft);
 }
 
@@ -1798,6 +2037,24 @@ private wireBitFieldDefEditor(sec: HTMLElement, draft: StructDef): void {
         if (!draft.bitFields) { draft.bitFields = []; }
         draft.bitFields.push({ name: `bit${draft.bitFields.length}`, bitWidth: 1 });
         this.refreshBitFieldDefRows(sec, draft);
+    });
+    this.wireEditorNameInput(sec, draft);
+    this.wireEditorSaveCancel(sec, draft);
+}
+
+private wireEnumDefEditor(sec: HTMLElement, draft: StructDef): void {
+    this.wireEditorTabs(sec);
+    this.wireEnumDefEntryRows(sec, draft);
+
+    sec.querySelector<HTMLSelectElement>('#se-enum-base-type')?.addEventListener('change', () => {
+        this.syncEnumDefDraft(sec, draft);
+        this.refreshEditorPreview(sec, draft);
+    });
+    sec.querySelector('#se-enum-add')?.addEventListener('click', () => {
+        this.syncEnumDefDraft(sec, draft);
+        if (!draft.entries) { draft.entries = []; }
+        draft.entries.push({ name: `VALUE${draft.entries.length}`, value: draft.entries.length });
+        this.refreshEnumDefRows(sec, draft);
     });
     this.wireEditorNameInput(sec, draft);
     this.wireEditorSaveCancel(sec, draft);
@@ -1908,6 +2165,11 @@ private saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
         this.commitEditorDraft(this.bitFieldDraftToStructDef(sec, draft));
         return;
     }
+    if (structDefKind(draft) === 'enum') {
+        this.syncEnumDefDraft(sec, draft);
+        this.commitEditorDraft(this.enumDraftToStructDef(sec, draft));
+        return;
+    }
     this.syncEditorDraft(sec, draft);
     if (draft.fields.length === 0) { return; }
     this.commitEditorDraft(this.editorDraftToStructDef(sec, draft));
@@ -1979,7 +2241,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
     if (!row) { return; }
     const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
     if (sel.value === 'void') { row.dataset.ptr = '1'; }
-    if (sel.value.startsWith('bitfield:')) { row.dataset.ptr = ''; }
+    if (sel.value.startsWith('bitfield:') || sel.value.startsWith('enum:')) { row.dataset.ptr = ''; }
     const isPointer = this.editorRowIsPointer(row);
     const isUnsigned = this.isUnsignedEditorType(sel.value) && !isPointer;
     this.setBitButtonEnabled(bitBtn, isUnsigned);
@@ -2005,7 +2267,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
 }
 
     private cannotPointTo(field: StructField, want: boolean): boolean {
-        return want && (this.isBitContainerField(field) || this.isBitFieldRefField(field));
+        return want && (this.isBitContainerField(field) || this.isBitFieldRefField(field) || this.isEnumRefField(field));
     }
 
     private setFieldPointerFlag(field: StructField, row: HTMLElement, want: boolean): void {
@@ -2030,8 +2292,8 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
         if (this.editorRowIsPointer(row)) {
             return this.menuItemHtml('field-ptr-off', 'Clear pointer', 'Revert to a plain (non-pointer) field');
         }
-        if (this.isBitContainerField(field) || this.isBitFieldRefField(field)) {
-            return this.disabledMenuItemHtml('Attach pointer', 'Bit-field fields cannot be pointers');
+        if (this.isBitContainerField(field) || this.isBitFieldRefField(field) || this.isEnumRefField(field)) {
+            return this.disabledMenuItemHtml('Attach pointer', 'Bit-field / enum fields cannot be pointers');
         }
         return this.menuItemHtml('field-ptr-on', 'Attach pointer', 'Mark this field as a pointer (field ↔ address)');
     }
@@ -2115,8 +2377,12 @@ private typeRowsHtml(all: StructDef[]): string {
 
 private structTypeRowHtml(def: StructDef): string {
     const kind = structDefKind(def);
-    const meta = kind === 'bitfield' ? this.bitFieldDefMeta(def) : this.structDefMeta(def);
-    const badge = kind === 'bitfield' ? `<span class="sd-kind">bitfield</span>` : '';
+    const meta = kind === 'bitfield'
+        ? this.bitFieldDefMeta(def)
+        : kind === 'enum'
+            ? this.enumDefMeta(def)
+            : this.structDefMeta(def);
+    const badge = kind === 'struct' ? '' : `<span class="sd-kind">${kind}</span>`;
     return (
         `<div class="sd-row">` +
         `<span class="sd-name">${esc(def.name)}</span>` +
@@ -2135,6 +2401,11 @@ private structDefMeta(def: StructDef): string {
 private bitFieldDefMeta(def: StructDef): string {
     const childCount = (def.bitFields ?? []).length;
     return `${def.baseType ?? 'uint8'} \u00b7 ${childCount} child${childCount !== 1 ? 'ren' : ''}`;
+}
+
+private enumDefMeta(def: StructDef): string {
+    const entryCount = (def.entries ?? []).length;
+    return `${def.baseType ?? 'uint8'} \u00b7 ${entryCount} entr${entryCount !== 1 ? 'ies' : 'y'}`;
 }
 
 private addStructPinFormHtml(all: StructDef[]): string {
@@ -2268,6 +2539,7 @@ private wireStructPinsPanel(sec: HTMLElement): void {
                     endian: existing.endian, allocation: existing.allocation,
                     fields: existing.fields.map(f => ({ ...f })),
                     bitFields: existing.bitFields?.map(c => ({ ...c })),
+                    entries: existing.entries?.map(e => ({ ...e })),
                 },
                 existing,
                 fromManage: true,
@@ -2411,6 +2683,8 @@ private makePinId(): string {
 /** Get a display string for a field given the requested column display type. */
 private getValForType(r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
+    const enumLabel = this.renderEnumLabelValue(r, valType);
+    if (enumLabel !== null) { return enumLabel; }
     if (this.isBitFieldRow(r)) { return this.renderBitFieldValue(r, valType); }
 
     const bytes = this.fieldBytes(r);
@@ -2420,6 +2694,37 @@ private getValForType(r: DecodedField, valType: ColType): string {
     const endian = r.endian ?? this._endian;
     const dv = this.dataViewForBytes(bytes);
     return this.renderScalarValue(r, valType, bytes, dv, endian);
+}
+
+/**
+ * Matched enum rows render `NAME (0xNN)` in their default value mode; unmatched
+ * values (and non-default view modes) fall through to the numeric rendering.
+ * Uses the shared `formatEnumLabel` for scalar enum fields and enum-ref bit children.
+ */
+private renderEnumLabelValue(r: DecodedField, valType: ColType): string | null {
+    if (r.enumLabel === undefined || valType !== this.defaultValueTypeForRow(r)) { return null; }
+    const view = this.enumNumericView(r);
+    return view ? esc(formatEnumLabel(r.enumLabel, view.value, view.hexDigits)) : null;
+}
+
+private enumNumericView(r: DecodedField): { value: bigint; hexDigits: number } | null {
+    if (this.isBitFieldRow(r)) {
+        return { value: BigInt(r.bitValueUnsigned ?? '0'), hexDigits: enumHexDigits(r.bitWidth ?? 1) };
+    }
+    const bytes = this.fieldBytes(r);
+    if (bytes.length === 0 || bytes.some(b => Number.isNaN(b))) { return null; }
+    return { value: this.unsignedValueFromBytes(bytes, r.endian ?? this._endian), hexDigits: bytes.length * 2 };
+}
+
+private unsignedValueFromBytes(bytes: number[], endian: 'le' | 'be'): bigint {
+    if (endian === 'le') {
+        let v = 0n;
+        for (let i = 0; i < bytes.length; i++) { v |= BigInt(bytes[i]) << BigInt(i * 8); }
+        return v;
+    }
+    let v = 0n;
+    for (const b of bytes) { v = (v << 8n) | BigInt(b); }
+    return v;
 }
 
 private fieldBytes(r: DecodedField): number[] {
@@ -3943,7 +4248,7 @@ private structPointerTargetSummary(
 
 private scalarPointerTargetType(row: DecodedField): StructScalarFieldType | null {
     const targetType = row.pointerTargetType;
-    if (targetType === undefined || targetType === 'struct' || targetType === 'bitfield') { return null; }
+    if (targetType === undefined || targetType === 'struct' || targetType === 'bitfield' || targetType === 'enum') { return null; }
     return targetType;
 }
 

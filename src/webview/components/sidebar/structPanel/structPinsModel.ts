@@ -1,4 +1,4 @@
-import type { StructDef, StructPin, StructPointerSource } from '../../../../core/types';
+import type { BitFieldChild, StructDef, StructField, StructPin, StructPointerSource } from '../../../../core/types';
 
 export type PinIdFactory = () => string;
 
@@ -74,10 +74,36 @@ export function withoutStructDefinition(
     };
 }
 
-/** Strip fields that reference a deleted type so no orphan reference survives. */
+/** Strip references to a deleted type so no orphan reference survives. */
 function withoutStructFieldRefs(def: StructDef, structId: string): StructDef {
-    if (!def.fields.some(f => f.refStructId === structId)) { return def; }
-    return { ...def, fields: def.fields.filter(f => f.refStructId !== structId) };
+    let next = def;
+    const fields = next.fields.filter(f => f.refStructId !== structId);
+    if (fields.length !== next.fields.length) { next = { ...next, fields }; }
+
+    const cleanedFields = next.fields.map(f => withoutStructChildRefs(f, structId));
+    if (cleanedFields.some((f, i) => f !== next.fields[i])) { next = { ...next, fields: cleanedFields }; }
+
+    if (next.bitFields) {
+        const cleanedDefChildren = next.bitFields.map(child => withoutBitChildRef(child, structId));
+        if (cleanedDefChildren.some((c, i) => c !== next.bitFields![i])) {
+            next = { ...next, bitFields: cleanedDefChildren };
+        }
+    }
+    return next;
+}
+
+/** Clear an inline bit-field child's reference to the deleted type (the child itself stays). */
+function withoutStructChildRefs(field: StructField, structId: string): StructField {
+    const children = field.bitFields;
+    if (!children || children.length === 0) { return field; }
+    const cleaned = children.map(child => withoutBitChildRef(child, structId));
+    return cleaned.some((c, i) => c !== children[i]) ? { ...field, bitFields: cleaned } : field;
+}
+
+function withoutBitChildRef(child: BitFieldChild, structId: string): BitFieldChild {
+    if (child.refStructId !== structId) { return child; }
+    const { refStructId: _ref, ...rest } = child;
+    return rest;
 }
 
 export function uniqueStructPinName(
