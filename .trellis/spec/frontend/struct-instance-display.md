@@ -521,6 +521,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Bitfield container (single bitfield parent field)
 
 - A field that references a named `kind: 'bitfield'` type resolves at the decode boundary to the **same group shape an inline container produces today**: the field's own bitunit header is the container row, its children are the def's children, and there is no extra wrapper/nested-struct level. Arrays (`count > 1`) render one bitunit group per element. Field-level endian/allocation overrides apply exactly as on an inline container.
+- An enum-typed scalar field, or a bit-field child carrying an enum ref, renders a matched value as `NAME (0xNN)` in the value cell; an unmatched value (or a non-default display mode) falls back to the plain numeric rendering. Enum is presentation-only: offset/endianness/allocation/bytes are unchanged, and per-element labels apply for scalar arrays and bit-container arrays. `Copy as` stays numeric.
 
 - Render shape:
   - Scalar-like collapsible header row (`.si-bitunit-hdr.si-field`) with type/name/value columns.
