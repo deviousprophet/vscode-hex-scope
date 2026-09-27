@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Quality bar and verification expectations"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Verify model invariants and validation"}
+{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Verify rendering matches spec"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify type/union widening is sound"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify shared resolvers/formatters, no duplication"}
