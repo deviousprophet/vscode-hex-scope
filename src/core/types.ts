@@ -78,7 +78,7 @@ export type StructScalarFieldType =
     | 'float32' | 'float64'
     | 'pointer';
 
-export type StructFieldType = StructScalarFieldType | 'struct';
+export type StructFieldType = StructScalarFieldType | 'struct' | 'bitfield';
 
 /** Runtime list mirroring StructFieldType — the JSON-schema enum drift guard. */
 export const STRUCT_FIELD_TYPES: readonly StructFieldType[] = [
@@ -86,7 +86,7 @@ export const STRUCT_FIELD_TYPES: readonly StructFieldType[] = [
     'uint8', 'uint16', 'uint32', 'uint64',
     'int8', 'int16', 'int32', 'int64',
     'float32', 'float64',
-    'pointer', 'struct',
+    'pointer', 'struct', 'bitfield',
 ];
 
 /** A single named child of a BitField container field. */
@@ -94,6 +94,12 @@ export interface BitFieldChild {
     name: string;
     bitWidth: number;
 }
+
+/** Unsigned integer widths usable as a bit-field storage base. */
+export type StructBaseType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
+
+/** Named-type discriminator; absent = plain struct. */
+export type StructDefKind = 'struct' | 'bitfield' | 'enum';
 
 export interface StructField {
     name: string;
@@ -122,6 +128,12 @@ export interface StructDef {
     id: string;
     name: string;
     fields: StructField[];
+    /** Named-type discriminator. Absent = plain struct (`'struct'`). */
+    kind?: StructDefKind;
+    /** Storage width for a `kind: 'bitfield'` def (uint8/uint16/uint32/uint64). */
+    baseType?: StructBaseType;
+    /** Named bit-field children for a `kind: 'bitfield'` def (its `fields` is empty). */
+    bitFields?: BitFieldChild[];
     /** When true: no padding between fields (GCC __attribute__((packed))).
      *  When false/absent: fields are naturally aligned (default). */
     packed?: boolean;

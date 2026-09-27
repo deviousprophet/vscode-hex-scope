@@ -67,9 +67,17 @@ export function withoutStructDefinition(
     structId: string,
 ): { structs: StructDef[]; pins: StructPin[] } {
     return {
-        structs: structs.filter(d => d.id !== structId),
+        structs: structs
+            .filter(d => d.id !== structId)
+            .map(d => withoutStructFieldRefs(d, structId)),
         pins: pins.filter(p => p.structId !== structId),
     };
+}
+
+/** Strip fields that reference a deleted type so no orphan reference survives. */
+function withoutStructFieldRefs(def: StructDef, structId: string): StructDef {
+    if (!def.fields.some(f => f.refStructId === structId)) { return def; }
+    return { ...def, fields: def.fields.filter(f => f.refStructId !== structId) };
 }
 
 export function uniqueStructPinName(

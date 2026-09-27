@@ -41,6 +41,28 @@
     font-family: var(--font-editor); white-space: nowrap;
 }
 
+/* Named-type discriminator badge in the type list (bit-field / enum kinds). */
+.sd-kind {
+    flex-shrink: 0;
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; line-height: 1.5;
+    color: var(--addr-fg);
+    border: 1px solid var(--border);
+    border-radius: 2px; padding: 0 3px;
+    font-family: var(--font-ui);
+}
+
+/* Kind badge inside the type editor's default row. */
+.se-kind-badge {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; line-height: 1.5;
+    color: var(--addr-fg);
+    border: 1px solid var(--border);
+    border-radius: 2px; padding: 0 3px;
+    font-family: var(--font-ui);
+    justify-self: start;
+}
+
 /* -- Struct form editor (#s-struct when editing) ----------------- */
 
 /* The section body (.sb-pane .sb-body) stays the only scroll container for

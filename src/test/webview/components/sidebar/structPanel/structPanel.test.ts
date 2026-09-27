@@ -2886,4 +2886,138 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual((document.getElementById('se-name') as HTMLInputElement).value, 'Widget', 'draft name preserved across tab switch');
         assert.strictEqual(document.getElementById('se-preview'), previewNode, 'preview node is not re-rendered by tab switching');
     });
+
+    // ── Reusable bit-field types ──────────────────────────────────
+
+    const reusableBitsDef = (): StructDef => ({
+        id: 'bits',
+        name: 'Bits',
+        kind: 'bitfield',
+        baseType: 'uint8',
+        fields: [],
+        bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }],
+    });
+
+    const referencedBitFieldUserDef = (): StructDef => ({
+        id: 'user',
+        name: 'User',
+        packed: true,
+        fields: [
+            { name: 'control', type: 'bitfield', refStructId: 'bits', count: 1 },
+            { name: 'after', type: 'uint8', count: 1 },
+        ],
+    });
+
+    test('referenced bit-field renders inline with one row per child and no wrapper level', async () => {
+        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+        S.structPins = [{ id: 'pin_ref_bits', structId: 'user', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0b1010_1100, 0x34]);
+
+        await renderPinsAndExpandCard();
+
+        const groups = document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp');
+        assert.strictEqual(groups.length, 1, 'referenced bit-field should render one top-level group');
+        const hdr = groups[0].querySelector<HTMLElement>('.si-arr-grp-hdr')!;
+        assert.ok(hdr.classList.contains('si-bitunit-hdr'), 'group header should be a bitunit header');
+        assert.strictEqual(elementText(hdr.querySelector('.si-f-name')), 'control', 'header should use the local field name');
+        assert.strictEqual(elementText(hdr.querySelector('.si-f-type')), 'u8', 'header should use the referenced base type');
+        assert.strictEqual(hdr.querySelector('.si-bitunit-hdr'), null, 'no nested wrapper header');
+        assert.strictEqual(groups[0].querySelector('.si-arr-grp'), null, 'no extra hierarchy level');
+
+        hdr.querySelector<HTMLElement>('.si-arr-exp-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')).map(elementText);
+        assert.deepStrictEqual(childNames, ['mode', 'code'], 'one child row per referenced bit-field child, no wrapper row');
+        assert.strictEqual(elementText(document.querySelector<HTMLElement>('.si-fields > .si-field .si-f-name')), 'after', 'sibling scalar field still renders');
+    });
+
+    test('referenced bit-field array renders one group per element', async () => {
+        const bits = reusableBitsDef();
+        const user: StructDef = {
+            id: 'user_arr', name: 'UserArr', packed: true,
+            fields: [{ name: 'regs', type: 'bitfield', refStructId: 'bits', count: 2 }],
+        };
+        S.structs = [bits, user];
+        S.structPins = [{ id: 'pin_ref_arr', structId: 'user_arr', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0b1010_1100, 0b0011_0101]);
+
+        await renderPinsAndExpandCard();
+
+        const elementHeaders = document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-name');
+        assert.deepStrictEqual(Array.from(elementHeaders).map(elementText), ['[0]', '[1]']);
+    });
+
+    test('field type picker offers the bit-field reference', async () => {
+        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-btn'));
+
+        const sel = document.querySelector<HTMLSelectElement>('#se-fields .sfe-type-sel')!;
+        assert.ok(sel, 'editor field type select should render');
+        const opt = sel.querySelector<HTMLOptionElement>('option[value="bitfield:bits"]');
+        assert.ok(opt, 'type picker should offer the bitfield reference option');
+        assert.strictEqual(opt!.textContent, 'bitfield Bits');
+        const groupLabels = Array.from(sel.querySelectorAll('optgroup')).map(g => g.getAttribute('label'));
+        assert.ok(groupLabels.includes('Bit-field'), 'type picker should have a Bit-field optgroup');
+    });
+
+    test('bit-field def editor saves base width + children and lists a kind badge', async () => {
+        S.structs = [];
+
+        await createMountedPanel();
+        click(dom, document.getElementById('sm-add-bitfield-btn'));
+
+        assert.ok(document.getElementById('se-base-type'), 'bit-field form should render a base width select');
+        assert.strictEqual((document.getElementById('se-base-type') as HTMLSelectElement).value, 'uint8');
+        assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 1, 'seeded with one child row');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no struct field grid in the bit-field form');
+        assert.strictEqual(document.getElementById('se-endian'), null, 'bit-field form edits name + base width + child rows only (no endian select)');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'bit-field form edits name + base width + child rows only (no alloc select)');
+
+        (document.getElementById('se-name') as HTMLInputElement).value = 'Flags';
+        (document.getElementById('se-base-type') as HTMLSelectElement).value = 'uint16';
+        click(dom, document.getElementById('se-bf-def-add'));
+        const rows = document.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
+        assert.strictEqual(rows.length, 2, 'Add bit appends a child row');
+        (rows[0].querySelector('.sfe-bf-child-name') as HTMLInputElement).value = 'a';
+        (rows[0].querySelector('.sfe-bf-child-width') as HTMLInputElement).value = '4';
+        (rows[1].querySelector('.sfe-bf-child-name') as HTMLInputElement).value = 'b';
+        (rows[1].querySelector('.sfe-bf-child-width') as HTMLInputElement).value = '5';
+
+        click(dom, document.getElementById('se-save'));
+
+        const saved = S.structs.find(d => d.kind === 'bitfield');
+        assert.ok(saved, 'bit-field def should be saved');
+        assert.strictEqual(saved!.name, 'Flags');
+        assert.strictEqual(saved!.baseType, 'uint16');
+        assert.deepStrictEqual(saved!.fields, []);
+        assert.deepStrictEqual(saved!.bitFields, [{ name: 'a', bitWidth: 4 }, { name: 'b', bitWidth: 5 }]);
+        assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'bitfield', 'type list should show a kind badge');
+    });
+
+    test('deleting a referenced bit-field strips orphan field references', async () => {
+        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+        S.structPins = [];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-del[data-struct-id="bits"]'));
+        confirmDelete(dom);
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        assert.deepStrictEqual(S.structs.map(d => d.id), ['user']);
+        assert.deepStrictEqual(S.structs[0].fields.map(f => f.name), ['after']);
+    });
+
+    test('editing a struct with a bit-field reference shows the alloc override and a disabled pointer toggle', async () => {
+        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
+
+        const row = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
+        assert.ok(row, 'editor should render the referencing field row');
+        assert.strictEqual((row.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'bitfield:bits', 'reference should be selected');
+        assert.ok(row.querySelector('.sfe-alloc-sel'), 'bit-field reference row should offer an allocation override');
+        assert.ok((row.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
+    });
 });

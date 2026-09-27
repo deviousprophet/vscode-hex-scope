@@ -44,6 +44,27 @@
             "$ref": "#/definitions/structField"
           }
         },
+        "kind": {
+          "enum": [
+            "struct",
+            "bitfield",
+            "enum"
+          ]
+        },
+        "baseType": {
+          "enum": [
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64"
+          ]
+        },
+        "bitFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/bitFieldChild"
+          }
+        },
         "packed": {
           "type": "boolean"
         },
@@ -141,7 +162,8 @@
         "float32",
         "float64",
         "pointer",
-        "struct"
+        "struct",
+        "bitfield"
       ]
     }
   }

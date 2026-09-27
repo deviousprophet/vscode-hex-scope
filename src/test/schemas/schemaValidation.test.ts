@@ -166,6 +166,27 @@ suite('hexScope schemas — negative cases', () => {
         assert.notDeepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
     });
 
+    test('structs.json accepts a named bit-field type and its referencing field', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        const data = [
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }] },
+            { id: 's1', name: 'S1', fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', count: 1 }] },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+    });
+
+    test('structs.json rejects an unknown kind / baseType / field kind', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, structsEnvelope([{ id: 'b', name: 'B', kind: 'sideways', fields: [] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, structsEnvelope([{ id: 'b', name: 'B', kind: 'bitfield', baseType: 'int8', fields: [] }])),
+            [],
+        );
+    });
+
     test('invalid endian/allocation enums fail structs.json', () => {
         const { schema } = loadSchema('structs.schema.json');
         assert.notDeepStrictEqual(

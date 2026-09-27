@@ -20,10 +20,10 @@ import {
     FIELD_TYPES,
     fieldByteSize, structByteSize, decodeField, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
-    normalizeStructField,
+    normalizeStructField, structDefKind,
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
-import type { BitFieldAllocation, BitFieldChild, StructDef, StructField, StructFieldType, StructPin } from '../../../../core/types';
+import type { BitFieldAllocation, BitFieldChild, StructBaseType, StructDef, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import { menuController } from '../../menuController/menuController';
 import { showToast } from '../../toast';
@@ -261,8 +261,8 @@ mount(root: HTMLElement): void {
     this.render();
 }
 
-    private addPinFormOrEmpty(all: StructDef[]): string {
-        return (this._addingPin || this._editingPinId) ? this.addStructPinFormHtml(all) : '';
+    private addPinFormOrEmpty(): string {
+        return (this._addingPin || this._editingPinId) ? this.addStructPinFormHtml(this.pinnableStructs()) : '';
     }
 
     /** Re-renders the whole panel from pushed state (was renderStructPins). No-op until mounted. */
@@ -271,13 +271,13 @@ mount(root: HTMLElement): void {
         if (!sec || !this.sections) { return; }
 
         const all = allStructs(this._structs);
-        this.prepareStructPanelState(all);
+        this.prepareStructPanelState();
 
         if (this.isEditorOpen()) { this.sections.setCollapsed('types', false); }
 
         this.sections.setLabel('types', this.typePanelTitle());
         this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
-            this.addPinFormOrEmpty(all),
+            this.addPinFormOrEmpty(),
             this.instanceCardsHtml(),
         );
         this.sections.body('types')!.innerHTML = this.typePanelBodyHtml(this.typeRowsHtml(all));
@@ -319,12 +319,20 @@ mount(root: HTMLElement): void {
     }
 
     private syncTypeAddButton(root: HTMLElement): void {
+        const disabled = this.isEditorOpen();
         const addType = root.querySelector<HTMLButtonElement>('#sm-add-btn');
-        if (addType) { addType.disabled = this.isEditorOpen(); }
+        if (addType) { addType.disabled = disabled; }
+        const addBitField = root.querySelector<HTMLButtonElement>('#sm-add-bitfield-btn');
+        if (addBitField) { addBitField.disabled = disabled; }
     }
 
     private noStructTypes(): boolean {
-        return allStructs(this._structs).length === 0;
+        return this.pinnableStructs().length === 0;
+    }
+
+    /** Plain-struct defs eligible as Struct Instances (bit-field/enum defs are not pinnable). */
+    private pinnableStructs(): StructDef[] {
+        return this._structs.filter(d => structDefKind(d) === 'struct');
     }
 
     private instanceAddBusy(): boolean {
@@ -345,8 +353,31 @@ private mountInstancesAction(root: HTMLElement): void {
     root.appendChild(add);
 }
 
-/** Types header action: ＋ Add — opens the new-type editor (disabled while an editor is open). */
+/** Types header action: ＋ Add (plain struct) / ＋ bitfield — both open their kind's editor, disabled while an editor is open. */
 private mountTypesAction(root: HTMLElement): void {
+    const addBitField = document.createElement('button');
+    addBitField.id = 'sm-add-bitfield-btn';
+    addBitField.className = 'sb-btn sb-btn-add sb-section-action';
+    addBitField.textContent = '\uff0b bitfield';
+    addBitField.title = 'New bit-field type';
+    addBitField.addEventListener('click', () => {
+        this._editorError = null;
+        this._editingType = {
+            draft: {
+                id: `user_${Date.now()}`,
+                name: '',
+                kind: 'bitfield',
+                baseType: 'uint8',
+                fields: [],
+                bitFields: [{ name: 'bit0', bitWidth: 1 }],
+            },
+            existing: null,
+            fromManage: true,
+        };
+        this.render();
+    });
+    root.appendChild(addBitField);
+
     const add = document.createElement('button');
     add.id = 'sm-add-btn';
     add.className = 'sb-btn sb-btn-add sb-section-action';
@@ -729,11 +760,16 @@ private fieldTypeOptionsHtml(f: StructField, draftId: string): string {
         `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`
     ).join('');
     const structOptions = allStructs(this._structs)
-        .filter(d => d.id !== draftId)
+        .filter(d => structDefKind(d) === 'struct' && d.id !== draftId)
         .map(d => this.structOptionHtml(f, d))
         .join('');
+    const bitFieldOptions = allStructs(this._structs)
+        .filter(d => structDefKind(d) === 'bitfield' && d.id !== draftId)
+        .map(d => this.bitFieldOptionHtml(f, d))
+        .join('');
     return `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
-        (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '');
+        (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '') +
+        (bitFieldOptions ? `<optgroup label="Bit-field">${bitFieldOptions}</optgroup>` : '');
 }
 
 private structOptionHtml(f: StructField, d: StructDef): string {
@@ -743,6 +779,16 @@ private structOptionHtml(f: StructField, d: StructDef): string {
     const full = `struct ${d.name}`;
     // Truncate very long nested-struct names in the type select; the full
     // name stays available via the option's title tooltip.
+    const label = this.truncatedStructOptionLabel(full);
+    const titleAttr = this.structOptionTitleAttr(label, full);
+    return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
+}
+
+private bitFieldOptionHtml(f: StructField, d: StructDef): string {
+    f = normalizeStructField(f);
+    const val = `bitfield:${d.id}`;
+    const selected = f.type === 'bitfield' && f.refStructId === d.id;
+    const full = `bitfield ${d.name}`;
     const label = this.truncatedStructOptionLabel(full);
     const titleAttr = this.structOptionTitleAttr(label, full);
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
@@ -766,6 +812,12 @@ private isBitContainerField(f: StructField): boolean {
     f = normalizeStructField(f);
     if (f.isPointer) { return false; }
     return this.isUnsignedScalarType(f.type) && Array.isArray(f.bitFields) && f.bitFields.length > 0;
+}
+
+/** A field that references a standalone `kind: 'bitfield'` def. */
+private isBitFieldRefField(f: StructField): boolean {
+    f = normalizeStructField(f);
+    return f.type === 'bitfield' && f.isPointer !== true;
 }
 
 private bitChildrenHtml(f: StructField, isBitContainer: boolean): string {
@@ -910,6 +962,9 @@ private fieldRowHtml(
 ): string {
     const typeOpts = this.fieldTypeOptionsHtml(f, draftId);
     const isBitContainer = this.isBitContainerField(f);
+    const isBitRef = this.isBitFieldRefField(f);
+    const showsAlloc = isBitContainer || isBitRef;
+    const blocksPointer = isBitContainer || isBitRef;
     const delCell = this.deleteFieldCellHtml(isOnly);
     const childrenHtml = this.bitChildrenHtml(f, isBitContainer);
     const inheritedEndian = this.editorInheritedEndian();
@@ -919,11 +974,11 @@ private fieldRowHtml(
         `<div class="struct-field-row${this.fieldRowClassAttr(isBitContainer)}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
         `<button class="sfe-ptr-btn${this.activeClassAttr(this.fieldIsPointerActive(f))}" ` +
-               `title="Toggle pointer field" aria-label="Toggle pointer field"${this.disabledAttr(isBitContainer)}>*</button>` +
+               `title="Toggle pointer field" aria-label="Toggle pointer field"${this.disabledAttr(blocksPointer)}>*</button>` +
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
         this.overrideSelectHtml(f.endian, 'endian', 'sfe-endian-sel', undefined, inheritedEndian) +
-        (isBitContainer
+        (showsAlloc
             ? this.overrideSelectHtml(f.allocation, 'allocation', 'sfe-alloc-sel', undefined, inheritedAlloc)
             : `<span class="sfe-alloc-placeholder"></span>`) +
         this.fieldBitToggleHtml(f, isBitContainer) +
@@ -1096,7 +1151,14 @@ private hydrateStructPreviews(root: HTMLElement): void {
     });
 }
 
+/** Dispatch the type editor form by the draft's kind (absent = plain struct). */
 private editorHtml(draft: StructDef, existing: StructDef | null): string {
+    return structDefKind(draft) === 'bitfield'
+        ? this.bitFieldDefEditorHtml(draft)
+        : this.structEditorHtml(draft, existing);
+}
+
+private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
     const fieldRows = this.fieldRowsHtml(draft);
     const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
     return (
@@ -1140,6 +1202,147 @@ private editorTabsHtml(): string {
         `<button type="button" class="se-tab" role="tab" aria-selected="false" data-se-view="preview">Preview</button>` +
         `</div>`
     );
+}
+
+/** Bit-field type form: name + base unsigned width + name/width child rows (no struct fields/nesting). */
+private bitFieldDefEditorHtml(draft: StructDef): string {
+    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
+    const remainingBits = this.availableBitFieldDefBits(draft);
+    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(remainingBits);
+    return (
+        `<div class="si-editor-wrap">` +
+        this.editorTabsHtml() +
+        `<div class="se-view" data-se-view="edit">` +
+        `<div class="se-form">` +
+        `<label class="se-name-lbl" for="se-name">Type name</label>` +
+        `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
+               `maxlength="64" placeholder="MyBitField" spellcheck="false" autocomplete="off">` +
+        `<div class="se-struct-default-row">` +
+        `<span class="se-kind-badge">bitfield</span>` +
+        `<span class="se-struct-default-ptr"></span>` +
+        `<span class="se-struct-default-lbl">base width</span>` +
+        `<select id="se-base-type" class="se-struct-default-sel" aria-label="Bit-field base width">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
+        `</div>` +
+        `<div id="se-bf-def-children" class="sfe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>` +
+        `<button id="se-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
+        errorHtml +
+        `<div class="se-btns">` +
+        `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
+        `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
+        `</div>` +
+        `</div>` +
+        `</div>` +
+        `<div class="se-view" data-se-view="preview" hidden>` +
+        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
+        `</div>` +
+        `</div>`
+    );
+}
+
+private baseTypeOptionsHtml(selected: StructBaseType | undefined): string {
+    const value = selected ?? 'uint8';
+    return (['uint8', 'uint16', 'uint32', 'uint64'] as StructBaseType[])
+        .map(t => `<option value="${t}"${t === value ? ' selected' : ''}>${t}</option>`)
+        .join('');
+}
+
+private availableBitFieldDefBits(def: StructDef): number {
+    const baseType = def.baseType ?? 'uint8';
+    const usedBits = (def.bitFields ?? []).reduce((sum, child) => sum + child.bitWidth, 0);
+    return fieldByteSize(baseType) * 8 - usedBits;
+}
+
+private refreshBitFieldDefRows(sec: HTMLElement, draft: StructDef): void {
+    const container = sec.querySelector<HTMLElement>('#se-bf-def-children');
+    if (!container) { return; }
+    container.innerHTML = this.bitFieldDefChildRowsHtml(draft);
+    this.wireBitFieldDefChildRows(sec, draft);
+    this.refreshBitFieldDefAddButton(sec, draft);
+    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    if (pre) { this.renderStructCPreview(pre, draft); }
+}
+
+private bitFieldDefChildRowsHtml(draft: StructDef): string {
+    const children = draft.bitFields ?? [];
+    return children.map((child, ci) => this.childFieldRowHtml(child, ci, children.length)).join('');
+}
+
+private refreshBitFieldDefAddButton(sec: HTMLElement, draft: StructDef): void {
+    const btn = sec.querySelector<HTMLButtonElement>('#se-bf-def-add');
+    if (!btn) { return; }
+    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
+    btn.disabled = addBtnDisabled !== '';
+    btn.title = addBtnTitle;
+}
+
+private bitFieldChildIndex(btn: HTMLElement): number | null {
+    const row = btn.closest<HTMLElement>('.sfe-bf-child-row');
+    const idx = this.parseDatasetInt(row?.dataset.childIdx);
+    return idx === null ? null : idx;
+}
+
+private wireBitFieldDefChildRows(sec: HTMLElement, draft: StructDef): void {
+    const container = sec.querySelector<HTMLElement>('#se-bf-def-children');
+    if (!container) { return; }
+    container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name').forEach(inp =>
+        inp.addEventListener('input', () => this.refreshEditorPreview(sec, draft)));
+    container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width').forEach(inp =>
+        inp.addEventListener('input', () => {
+            this.syncBitFieldDefDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+            this.refreshBitFieldDefAddButton(sec, draft);
+        }));
+    this.wireClicks(container, '.sfe-bf-del-child', btn => {
+        const ci = this.bitFieldChildIndex(btn);
+        if (ci === null) { return; }
+        this.syncBitFieldDefDraft(sec, draft);
+        draft.bitFields!.splice(ci, 1);
+        if (draft.bitFields!.length === 0) { draft.bitFields!.push({ name: 'bit0', bitWidth: 1 }); }
+        this.refreshBitFieldDefRows(sec, draft);
+    });
+    this.wireClicks(container, '.sfe-bf-child-row .sfe-move-up', btn => {
+        const ci = this.bitFieldChildIndex(btn);
+        if (ci === null) { return; }
+        this.syncBitFieldDefDraft(sec, draft);
+        if (ci > 0) {
+            [draft.bitFields![ci - 1], draft.bitFields![ci]] = [draft.bitFields![ci], draft.bitFields![ci - 1]];
+            this.refreshBitFieldDefRows(sec, draft);
+        }
+    });
+    this.wireClicks(container, '.sfe-bf-child-row .sfe-move-dn', btn => {
+        const ci = this.bitFieldChildIndex(btn);
+        if (ci === null) { return; }
+        this.syncBitFieldDefDraft(sec, draft);
+        if (ci < draft.bitFields!.length - 1) {
+            [draft.bitFields![ci], draft.bitFields![ci + 1]] = [draft.bitFields![ci + 1], draft.bitFields![ci]];
+            this.refreshBitFieldDefRows(sec, draft);
+        }
+    });
+}
+
+private syncBitFieldDefDraft(sec: HTMLElement, draft: StructDef): void {
+    draft.name = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
+    draft.baseType = this.readBaseType(this.selectValue(sec, '#se-base-type'));
+    draft.fields = [];
+    const rows = sec.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
+    draft.bitFields = Array.from(rows).map(row => this.readEditorBitFieldChild(row));
+}
+
+private readBaseType(value: string | undefined): StructBaseType {
+    return value !== undefined && this.isUnsignedScalarType(value as StructFieldType)
+        ? value as StructBaseType
+        : 'uint8';
+}
+
+private bitFieldDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
+    return {
+        id: draft.id,
+        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextStructName(draft.id),
+        kind: 'bitfield',
+        baseType: draft.baseType ?? 'uint8',
+        bitFields: (draft.bitFields ?? [{ name: 'bit0', bitWidth: 1 }]).map(child => ({ ...child })),
+        fields: [],
+    };
 }
 
 private tabNavKey(key: string): boolean {
@@ -1190,7 +1393,8 @@ private refreshFieldRows(sec: HTMLElement, draft: StructDef): void {
 
 /** Re-render the live C preview as the user edits the draft. */
 private refreshEditorPreview(sec: HTMLElement, draft: StructDef): void {
-    this.syncEditorDraft(sec, draft);
+    if (structDefKind(draft) === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
+    else { this.syncEditorDraft(sec, draft); }
     const pre = sec.querySelector<HTMLElement>('#se-preview pre');
     if (pre) { this.renderStructCPreview(pre, draft); }
 }
@@ -1527,13 +1731,13 @@ private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStruc
 }
 
 private parseEditorFieldType(rawType: string): { type: StructFieldType; refStructId: string | undefined } {
-    return rawType.startsWith('struct:')
-        ? { type: 'struct', refStructId: rawType.slice('struct:'.length) }
-        : { type: rawType as StructFieldType, refStructId: undefined };
+    if (rawType.startsWith('struct:')) { return { type: 'struct', refStructId: rawType.slice('struct:'.length) }; }
+    if (rawType.startsWith('bitfield:')) { return { type: 'bitfield', refStructId: rawType.slice('bitfield:'.length) }; }
+    return { type: rawType as StructFieldType, refStructId: undefined };
 }
 
 private isUnsignedEditorParsedType(parsed: { type: StructFieldType; refStructId: string | undefined }): boolean {
-    return parsed.type !== 'struct' && this.isUnsignedScalarType(parsed.type);
+    return parsed.type !== 'struct' && parsed.type !== 'bitfield' && this.isUnsignedScalarType(parsed.type);
 }
 
 private readEditorBitFields(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): BitFieldChild[] | undefined {
@@ -1576,7 +1780,30 @@ private applyEditorBitFields(result: StructField, bitFields: BitFieldChild[] | u
 private wireEditorInSec(sec: HTMLElement): void {
     if (!this._editingType) { return; }
     const { draft } = this._editingType;
+    if (structDefKind(draft) === 'bitfield') { this.wireBitFieldDefEditor(sec, draft); return; }
+    this.wireStructEditor(sec, draft);
+}
 
+private wireBitFieldDefEditor(sec: HTMLElement, draft: StructDef): void {
+    this.wireEditorTabs(sec);
+    this.wireBitFieldDefChildRows(sec, draft);
+
+    sec.querySelector<HTMLSelectElement>('#se-base-type')?.addEventListener('change', () => {
+        this.syncBitFieldDefDraft(sec, draft);
+        this.refreshEditorPreview(sec, draft);
+        this.refreshBitFieldDefAddButton(sec, draft);
+    });
+    sec.querySelector('#se-bf-def-add')?.addEventListener('click', () => {
+        this.syncBitFieldDefDraft(sec, draft);
+        if (!draft.bitFields) { draft.bitFields = []; }
+        draft.bitFields.push({ name: `bit${draft.bitFields.length}`, bitWidth: 1 });
+        this.refreshBitFieldDefRows(sec, draft);
+    });
+    this.wireEditorNameInput(sec, draft);
+    this.wireEditorSaveCancel(sec, draft);
+}
+
+private wireStructEditor(sec: HTMLElement, draft: StructDef): void {
     const packedBtn = sec.querySelector<HTMLButtonElement>('#se-packed')!;
     packedBtn.addEventListener('click', () => {
         const nowPacked = !packedBtn.classList.contains('active');
@@ -1590,8 +1817,63 @@ private wireEditorInSec(sec: HTMLElement): void {
     // mounted once and kept across those rebuilds.
     this.wireFieldRows(sec.querySelector<HTMLElement>('#se-fields')!, sec, draft);
 
-    // Edit/Preview tab switch: attribute-only toggling (no re-render), so the
-    // draft and the section-body scroll keep their state when switching views.
+    this.wireEditorTabs(sec);
+
+    sec.querySelector('#se-add')!.addEventListener('click', () => {
+        this.syncEditorDraft(sec, draft);
+        this._editorError = null;
+        const lastIdx = draft.fields.length;
+        draft.fields.push({ name: `field${lastIdx}`, type: 'uint8', count: 1 });
+        this.refreshFieldRows(sec, draft);
+        this.scrollEditorRowIntoView(sec, lastIdx);
+        sec.querySelectorAll<HTMLInputElement>('.struct-field-row .sfe-name-inp')[lastIdx]?.focus();
+    });
+
+    // Struct-level endian/alloc change: sync the draft, refresh per-field "Auto"
+    // tooltips in place (no rebuild — the pane keeps its height/scroll), and
+    // re-render the preview.
+    this.wireStructLevelOverrideSelects(sec);
+    this.wireEditorNameInput(sec, draft);
+    this.wireEditorSaveCancel(sec, draft);
+}
+
+private wireStructLevelOverrideSelects(sec: HTMLElement): void {
+    sec.querySelectorAll<HTMLSelectElement>('#se-endian, #se-alloc').forEach(sel => {
+        sel.addEventListener('change', () => {
+            if (!this._editingType) { return; }
+            const { draft } = this._editingType;
+            if (structDefKind(draft) === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
+            else { this.syncEditorDraft(sec, draft); this.updateEditorOverrideTitles(sec); }
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+}
+
+private wireEditorNameInput(sec: HTMLElement, draft: StructDef): void {
+    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
+        this.refreshEditorPreview(sec, draft);
+    });
+    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('blur', e => {
+        const inp = e.target as HTMLInputElement;
+        const clean = this.sanitizeCIdent(inp.value);
+        if (clean !== inp.value) { inp.value = clean; }
+        this.refreshEditorPreview(sec, draft);
+    });
+}
+
+private wireEditorSaveCancel(sec: HTMLElement, draft: StructDef): void {
+    sec.querySelector('#se-save')!.addEventListener('click', () => {
+        this.saveEditorDraft(sec, draft);
+    });
+    sec.querySelector('#se-cancel')!.addEventListener('click', () => {
+        this._editorError = null;
+        this._editingType = null;
+        this.render();
+    });
+}
+
+/** Edit/Preview tab switch: attribute-only toggling (no re-render), so the draft and the section-body scroll keep their state when switching views. */
+private wireEditorTabs(sec: HTMLElement): void {
     const tabButtons = sec.querySelectorAll<HTMLButtonElement>('.se-tab');
     const setEditorView = (view: string): void => {
         tabButtons.forEach(btn => {
@@ -1618,54 +1900,20 @@ private wireEditorInSec(sec: HTMLElement): void {
             }
         });
     });
-
-    sec.querySelector('#se-add')!.addEventListener('click', () => {
-        this.syncEditorDraft(sec, draft);
-        this._editorError = null;
-        const lastIdx = draft.fields.length;
-        draft.fields.push({ name: `field${lastIdx}`, type: 'uint8', count: 1 });
-        this.refreshFieldRows(sec, draft);
-        this.scrollEditorRowIntoView(sec, lastIdx);
-        sec.querySelectorAll<HTMLInputElement>('.struct-field-row .sfe-name-inp')[lastIdx]?.focus();
-    });
-
-    // Struct-level endian/alloc change: sync the draft, refresh per-field "Auto"
-    // tooltips in place (no rebuild — the pane keeps its height/scroll), and
-    // re-render the preview.
-    sec.querySelectorAll<HTMLSelectElement>('#se-endian, #se-alloc').forEach(sel => {
-        sel.addEventListener('change', () => {
-            this.syncEditorDraft(sec, draft);
-            this.updateEditorOverrideTitles(sec);
-            this.refreshEditorPreview(sec, draft);
-        });
-    });
-
-    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
-        this.refreshEditorPreview(sec, draft);
-    });
-    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('blur', e => {
-        const inp = e.target as HTMLInputElement;
-        const clean = this.sanitizeCIdent(inp.value);
-        if (clean !== inp.value) { inp.value = clean; }
-        this.refreshEditorPreview(sec, draft);
-    });
-
-    sec.querySelector('#se-save')!.addEventListener('click', () => {
-        this.saveEditorDraft(sec, draft);
-    });
-
-    sec.querySelector('#se-cancel')!.addEventListener('click', () => {
-        this._editorError = null;
-        this._editingType = null;
-        this.render();
-    });
 }
 
 private saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
+    if (structDefKind(draft) === 'bitfield') {
+        this.syncBitFieldDefDraft(sec, draft);
+        this.commitEditorDraft(this.bitFieldDraftToStructDef(sec, draft));
+        return;
+    }
     this.syncEditorDraft(sec, draft);
     if (draft.fields.length === 0) { return; }
+    this.commitEditorDraft(this.editorDraftToStructDef(sec, draft));
+}
 
-    const def = this.editorDraftToStructDef(sec, draft);
+private commitEditorDraft(def: StructDef): void {
     const validationErrors = validateStructs(this.upsertStructList(this._structs, def), MAX_NESTED_DEPTH);
     if (validationErrors.length > 0) {
         this._editorError = validationErrors[0];
@@ -1731,6 +1979,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
     if (!row) { return; }
     const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
     if (sel.value === 'void') { row.dataset.ptr = '1'; }
+    if (sel.value.startsWith('bitfield:')) { row.dataset.ptr = ''; }
     const isPointer = this.editorRowIsPointer(row);
     const isUnsigned = this.isUnsignedEditorType(sel.value) && !isPointer;
     this.setBitButtonEnabled(bitBtn, isUnsigned);
@@ -1756,7 +2005,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
 }
 
     private cannotPointTo(field: StructField, want: boolean): boolean {
-        return want && this.isBitContainerField(field);
+        return want && (this.isBitContainerField(field) || this.isBitFieldRefField(field));
     }
 
     private setFieldPointerFlag(field: StructField, row: HTMLElement, want: boolean): void {
@@ -1781,7 +2030,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
         if (this.editorRowIsPointer(row)) {
             return this.menuItemHtml('field-ptr-off', 'Clear pointer', 'Revert to a plain (non-pointer) field');
         }
-        if (this.isBitContainerField(field)) {
+        if (this.isBitContainerField(field) || this.isBitFieldRefField(field)) {
             return this.disabledMenuItemHtml('Attach pointer', 'Bit-field fields cannot be pointers');
         }
         return this.menuItemHtml('field-ptr-on', 'Attach pointer', 'Mark this field as a pointer (field ↔ address)');
@@ -1849,8 +2098,8 @@ private clearDraftBitFields(draft: StructDef, row: HTMLElement): void {
     }
 }
 
-private prepareStructPanelState(all: StructDef[]): void {
-    this._applyStructId = this.nextApplyStructId(all);
+private prepareStructPanelState(): void {
+    this._applyStructId = this.nextApplyStructId(this.pinnableStructs());
 }
 
 private nextApplyStructId(all: StructDef[]): string | null {
@@ -1865,15 +2114,27 @@ private typeRowsHtml(all: StructDef[]): string {
 }
 
 private structTypeRowHtml(def: StructDef): string {
-    const fieldCount = def.fields.length;
-    const meta = `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
+    const kind = structDefKind(def);
+    const meta = kind === 'bitfield' ? this.bitFieldDefMeta(def) : this.structDefMeta(def);
+    const badge = kind === 'bitfield' ? `<span class="sd-kind">bitfield</span>` : '';
     return (
         `<div class="sd-row">` +
         `<span class="sd-name">${esc(def.name)}</span>` +
+        badge +
         `<span class="sd-meta">${meta}</span>` +
         actionBtnsHtml(`data-struct-id="${esc(def.id)}"`, `data-struct-id="${esc(def.id)}"`) +
         `</div>`
     );
+}
+
+private structDefMeta(def: StructDef): string {
+    const fieldCount = def.fields.length;
+    return `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
+}
+
+private bitFieldDefMeta(def: StructDef): string {
+    const childCount = (def.bitFields ?? []).length;
+    return `${def.baseType ?? 'uint8'} \u00b7 ${childCount} child${childCount !== 1 ? 'ren' : ''}`;
 }
 
 private addStructPinFormHtml(all: StructDef[]): string {
@@ -1946,7 +2207,7 @@ private instanceCardsHtml(): string {
     if (this._pins.length > 0) {
         return this._pins.map((pin, i) => this.buildInstanceCard(pin, i)).join('');
     }
-    const msg = allStructs(this._structs).length === 0
+    const msg = this.pinnableStructs().length === 0
         ? 'Define a struct type first.'
         : 'No instances yet. Click [\uff0b Add] to create one.';
     return `<div class="sb-empty">${msg}</div>`;
@@ -2002,8 +2263,11 @@ private wireStructPinsPanel(sec: HTMLElement): void {
             this._editingType = {
                 draft: {
                     id: existing.id, name: existing.name, packed: existing.packed ?? false,
+                    kind: structDefKind(existing),
+                    baseType: existing.baseType,
                     endian: existing.endian, allocation: existing.allocation,
                     fields: existing.fields.map(f => ({ ...f })),
+                    bitFields: existing.bitFields?.map(c => ({ ...c })),
                 },
                 existing,
                 fromManage: true,
@@ -3677,14 +3941,15 @@ private structPointerTargetSummary(
     return `${row.pointerTargetStructName ?? def.name} @ ${formatHex(addr, 8)}`;
 }
 
-private scalarPointerTargetType(row: DecodedField): Exclude<StructFieldType, 'struct'> | null {
+private scalarPointerTargetType(row: DecodedField): StructScalarFieldType | null {
     const targetType = row.pointerTargetType;
-    return targetType === undefined || targetType === 'struct' ? null : targetType;
+    if (targetType === undefined || targetType === 'struct' || targetType === 'bitfield') { return null; }
+    return targetType;
 }
 
 private readScalarPointerTargetBytes(
     row: DecodedField,
-    targetType: Exclude<StructFieldType, 'struct'>,
+    targetType: StructScalarFieldType,
     addr: number,
 ): number[] | null {
     const size = Math.max(1, row.pointerTargetByteSize ?? fieldByteSize(targetType));
@@ -3697,7 +3962,7 @@ private readScalarPointerTargetBytes(
     return bytes;
 }
 
-private scalarPointerTargetRow(row: DecodedField, targetType: Exclude<StructFieldType, 'struct'>, bytes: number[]): DecodedField {
+private scalarPointerTargetRow(row: DecodedField, targetType: StructScalarFieldType, bytes: number[]): DecodedField {
     return {
         fieldName: `${row.fieldName}.*`,
         type: targetType,
