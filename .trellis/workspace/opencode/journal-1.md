@@ -320,3 +320,40 @@ Added a kind discriminator (struct/bitfield/enum) to the struct pool: bitfield d
 ### Next Steps
 
 - Implement child 09-27-enum-types.
+
+
+## Session 12: Enum support for fields and bit values
+<!-- trellis-session: v=2 fp=20d74e7b6126cf1a -->
+
+**Date**: 2026-09-27
+**Task**: Enum support for fields and bit values
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Added kind:'enum' defs (baseType + name/value entries) to the struct pool; scalar fields reference via type:'enum' + refStructId, bit-field children via refStructId. Decode is presentation-only (additive enumLabel; bytes/offset/endianness/allocation unchanged vs an integer of the base width) and one shared formatter renders NAME (0xNN) with numeric fallback for scalar rows and enum-ref bit children.
+
+### Main Changes
+
+- types.ts + schema: StructFieldType 'enum', EnumEntry, StructDef.entries, BitFieldChild.refStructId, STRUCT_FIELD_TYPES drift guard.
+- structCodec: enum sizing via the materialize seam, validateEnumDefShape/validateEnumReference, presentation-only decode with enumLabel, matchEnumEntry/formatEnumLabel/enumHexDigits/enumValueBound, enum C preview; structNormalization sanitizes entries + dangling refs identity-preservingly.
+- structPanel: enum badge + form (base width + entry rows with range validation), enum field picker, per-bit-child enum picker; pin-safe delete strips scalar enum fields and clears bit-child refs.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ed9ace9` | feat(struct): enum labels for fields and bit values |
+| `673c557` | docs(spec): document enum types and label formatting |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests && npm test -> 1201 passing, 0 failing.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Implement remaining children: 09-27-hidden-struct-fields, 09-27-type-kind-creation.
