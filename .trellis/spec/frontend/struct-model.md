@@ -11,17 +11,22 @@ Applies to shared struct types, `core/structCodec.ts`, struct editor/import/expo
 ```typescript
 interface StructField {
     name: string;
-    type: StructFieldType;
+    type: StructFieldType;          // scalar | 'struct' | 'bitfield'
     isPointer?: boolean;
-    refStructId?: string;
-    bitFields?: BitFieldChild[];
+    refStructId?: string;           // target def for 'struct' and 'bitfield' fields
+    bitFields?: BitFieldChild[];    // inline container children (authored form)
     count: number;
     endian?: 'le' | 'be';        // override; absent = inherit
     allocation?: 'lsb' | 'msb';  // override; absent = inherit (bit-field units)
 }
-interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; endian?: 'le' | 'be'; allocation?: 'lsb' | 'msb'; }
+interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; endian?: 'le' | 'be'; allocation?: 'lsb' | 'msb';
+                      kind?: 'struct' | 'bitfield' | 'enum'; // absent = plain struct
+                      baseType?: 'uint8'|'uint16'|'uint32'|'uint64'; // kind:'bitfield' storage
+                      bitFields?: BitFieldChild[]; }              // kind:'bitfield' children (fields is [])
 interface StructPin { id: string; structId: string; addr: number; name: string; pointerSources?: StructPointerSource[]; }
 
+function structDefKind(def: StructDef): 'struct' | 'bitfield' | 'enum';  // absent kind = 'struct'
+function materializeBitFieldRefs(def: StructDef, defs?: readonly StructDef[]): StructDef;
 function validateStructs(defs: StructDef[], maxDepth = 32): string[];
 function structByteSize(def: StructDef, defs?: readonly StructDef[]): number;
 function decodeStruct(def, baseAddr, getByte, endian, bitAllocation?, defs?): DecodedField[];
@@ -33,6 +38,10 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 ### 3. Contracts
 
 - Struct definitions are global/shared; pins are per file/address.
+- Named types carry a `kind` discriminator on the def (`'struct'` default, `'bitfield'`, `'enum'`); a def without `kind` is a plain struct and loads/sizes/decodes exactly as before. A `kind: 'bitfield'` def owns `baseType` (unsigned) + `bitFields[]` and has `fields: []`. A field references it with `type: 'bitfield'` + `refStructId`; the children/base width come from the def. Bit-field-in-bit-field nesting and bitfield pointers are rejected by validation.
+- **Materialize seam**: authored defs keep the reference; `decodeStruct` / `structByteSize` / `structToC` (and `resolveStructFieldByPath`) rewrite every `type: 'bitfield'` field into its inline container form (`baseType` + copied children, `refStructId` cleared) via `materializeBitFieldRefs` before the size/decode/C paths run. Sizing, alignment, decoding, and C output are therefore byte-identical to the equivalent inline container; validation runs on the authored (referenced) form.
+
+> **Gotcha**: a `kind: 'bitfield'` def's own optional `endian`/`allocation` keys pass schema/validation but are **not** applied by `materializeBitFieldRefs` — usage-scoped overrides live on the referencing `StructField`. Do not add def-level bitfield defaults without defining precedence. Also, sizing a `kind: 'bitfield'` def **directly** returns `0` (its `fields` is `[]`): always size/decode through a referencing field, and keep non-`'struct'` kinds out of `pinnableStructs()` / pin-card creation.
 - Field `count` is at least one and has **no upper cap** — the struct editor accepts any positive integer (element count is layout metadata, never allocated up front). Validators only reject `count < 1` / non-integer. Keep it that way: do not reintroduce a hard clamp (e.g. `Math.min(v, 256)`) in editor or parser paths. `isPointer` changes storage to pointer-width/address semantics while `type`/`refStructId` describe target.
 - `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped).
 - `decodeStruct` resolves both concerns per field as `field.<x> ?? containing-struct.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats struct beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
@@ -56,6 +65,9 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 | Recursive/cyclic nesting or depth > 32 | Validation error. |
 | Invalid count / duplicate or empty names | Validation error. |
 | Bit width exceeds/overflows unsigned storage | Validation error. |
+| Bitfield ref to unknown/non-bitfield type, bitfield pointer, bitfield + inline children | Validation error. |
+| `kind: 'bitfield'` def with non-unsigned base, empty children, over-width children, or non-empty `fields` | Validation error. |
+| Deleting a referenced type | Pin-safe flow; orphan pins removed and referencing fields stripped. |
 | `endian` / `allocation` value outside `'le'/'be'` / `'lsb'/'msb'` | Validation error (field or def); schema enum. |
 | Bitfield array in C text | Parse error. |
 | Unknown pointer target | Normalize as `void*`. |

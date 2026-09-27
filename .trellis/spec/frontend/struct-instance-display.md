@@ -520,6 +520,8 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 
 ### Bitfield container (single bitfield parent field)
 
+- A field that references a named `kind: 'bitfield'` type resolves at the decode boundary to the **same group shape an inline container produces today**: the field's own bitunit header is the container row, its children are the def's children, and there is no extra wrapper/nested-struct level. Arrays (`count > 1`) render one bitunit group per element. Field-level endian/allocation overrides apply exactly as on an inline container.
+
 - Render shape:
   - Scalar-like collapsible header row (`.si-bitunit-hdr.si-field`) with type/name/value columns.
   - Expanded body shows bitfield child rows.
