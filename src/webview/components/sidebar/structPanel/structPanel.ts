@@ -23,7 +23,7 @@ import {
     normalizeStructField, structDefKind, formatEnumLabel, enumHexDigits,
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
-import type { BitFieldAllocation, BitFieldChild, EnumEntry, StructBaseType, StructDef, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
+import type { BitFieldAllocation, BitFieldChild, EnumEntry, StructBaseType, StructDef, StructDefKind, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import { menuController } from '../../menuController/menuController';
 import { showToast } from '../../toast';
@@ -241,6 +241,8 @@ private _editingPinDraftStructId: string | null = null;
  * `fromManage` is true when opened from the manage-types list.
  */
 private _editingType: { draft: StructDef; existing: StructDef | null; fromManage: boolean } | null = null;
+/** True while the Types `＋ Add` action is showing the kind picker (struct / bit-field / enum). */
+private _choosingKind = false;
 private _editorError: string | null = null;
 
 constructor(cb: StructCallbacks) {
@@ -273,7 +275,7 @@ mount(root: HTMLElement): void {
         const all = allStructs(this._structs);
         this.prepareStructPanelState();
 
-        if (this.isEditorOpen()) { this.sections.setCollapsed('types', false); }
+        if (this.isEditorOpen() || this._choosingKind) { this.sections.setCollapsed('types', false); }
 
         this.sections.setLabel('types', this.typePanelTitle());
         this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
@@ -319,13 +321,9 @@ mount(root: HTMLElement): void {
     }
 
     private syncTypeAddButton(root: HTMLElement): void {
-        const disabled = this.isEditorOpen();
+        const disabled = this.isEditorOpen() || this._choosingKind;
         const addType = root.querySelector<HTMLButtonElement>('#sm-add-btn');
         if (addType) { addType.disabled = disabled; }
-        const addBitField = root.querySelector<HTMLButtonElement>('#sm-add-bitfield-btn');
-        if (addBitField) { addBitField.disabled = disabled; }
-        const addEnum = root.querySelector<HTMLButtonElement>('#sm-add-enum-btn');
-        if (addEnum) { addEnum.disabled = disabled; }
     }
 
     private noStructTypes(): boolean {
@@ -355,66 +353,17 @@ private mountInstancesAction(root: HTMLElement): void {
     root.appendChild(add);
 }
 
-/** Types header action: ＋ Add (plain struct) / ＋ bitfield / ＋ enum — each opens its kind's editor, disabled while an editor is open. */
+/** Types header action: one ＋ Add entry point that opens the kind picker (struct / bit-field / enum). */
 private mountTypesAction(root: HTMLElement): void {
-    const addBitField = document.createElement('button');
-    addBitField.id = 'sm-add-bitfield-btn';
-    addBitField.className = 'sb-btn sb-btn-add sb-section-action';
-    addBitField.textContent = '\uff0b bitfield';
-    addBitField.title = 'New bit-field type';
-    addBitField.addEventListener('click', () => {
-        this._editorError = null;
-        this._editingType = {
-            draft: {
-                id: `user_${Date.now()}`,
-                name: '',
-                kind: 'bitfield',
-                baseType: 'uint8',
-                fields: [],
-                bitFields: [{ name: 'bit0', bitWidth: 1 }],
-            },
-            existing: null,
-            fromManage: true,
-        };
-        this.render();
-    });
-    root.appendChild(addBitField);
-
-    const addEnum = document.createElement('button');
-    addEnum.id = 'sm-add-enum-btn';
-    addEnum.className = 'sb-btn sb-btn-add sb-section-action';
-    addEnum.textContent = '\uff0b enum';
-    addEnum.title = 'New enum type';
-    addEnum.addEventListener('click', () => {
-        this._editorError = null;
-        this._editingType = {
-            draft: {
-                id: `user_${Date.now()}`,
-                name: '',
-                kind: 'enum',
-                baseType: 'uint8',
-                fields: [],
-                entries: [{ name: 'VALUE0', value: 0 }],
-            },
-            existing: null,
-            fromManage: true,
-        };
-        this.render();
-    });
-    root.appendChild(addEnum);
-
     const add = document.createElement('button');
     add.id = 'sm-add-btn';
     add.className = 'sb-btn sb-btn-add sb-section-action';
     add.textContent = '\uff0b Add';
+    add.title = 'New type';
     add.addEventListener('click', () => {
         this._editorError = null;
-        const draftId = `user_${Date.now()}`;
-        this._editingType = {
-            draft: { id: draftId, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] },
-            existing: null,
-            fromManage: true,
-        };
+        this._editingType = null;
+        this._choosingKind = true;
         this.render();
     });
     root.appendChild(add);
@@ -456,6 +405,7 @@ setTabActive(active: boolean): void {
 /** Resets all transient view state and re-renders. Call when switching away and back (was resetStructViewState). */
 resetViewState(): void {
     this._editingType             = null;
+    this._choosingKind            = false;
     this._addingPin               = false;
     this._editingPinId            = null;
     this._editingPinDraftStructId = null;
@@ -475,23 +425,6 @@ private sanitizeCIdent(raw: string): string {
 
 private isBitFieldRow(r: DecodedField): boolean {
     return r.isBitField === true && typeof r.bitWidth === 'number';
-}
-
-/** Calculate total bits used by all children in a bit-field container. */
-private usedBitsInContainer(f: import('../../../../core/types').StructField): number {
-    if (!Array.isArray(f.bitFields)) {
-        return 0;
-    }
-    return f.bitFields.reduce((sum, child) => sum + child.bitWidth, 0);
-}
-
-/** Calculate available bits remaining in a bit-field container. */
-private availableBitsInContainer(f: import('../../../../core/types').StructField): number {
-    if (!this.isUnsignedScalarType(f.type)) { return 0; }
-    const typeBytes = fieldByteSize(f.type);
-    const totalBits = typeBytes * 8;
-    const usedBits = this.usedBitsInContainer(f);
-    return totalBits - usedBits;
 }
 
 private renderBitSpan(bit: string, idx: number, selected: boolean): string {
@@ -866,36 +799,11 @@ private isEnumRefField(f: StructField): boolean {
     return f.type === 'enum' && f.isPointer !== true;
 }
 
-private bitChildrenHtml(f: StructField, isBitContainer: boolean): string {
-    if (!isBitContainer) { return ''; }
-    const bitFields = f.bitFields ?? [];
-    const childRows = bitFields.map((child, ci) => this.childFieldRowHtml(child, ci, bitFields.length)).join('');
-    const remainingBits = this.availableBitsInContainer(f);
-    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(remainingBits);
-    return (
-        `<div class="sfe-bf-children"${f.bitFieldsCollapsed === true ? ' style="display:none"' : ''}>` +
-        childRows +
-        `<button class="sfe-bf-add-child sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
-        `</div>`
-    );
-}
-
 private bitChildButtonState(remainingBits: number): { addBtnDisabled: string; addBtnTitle: string } {
     return {
         addBtnDisabled: remainingBits > 0 ? '' : ' disabled',
         addBtnTitle: remainingBits > 0 ? 'Add bit-field child' : 'No bits remaining in parent',
     };
-}
-
-/** Update the "+ Add bit" button of a bit-field parent row in place after a child-width edit. */
-private refreshBitChildAddButton(draft: StructDef, row: HTMLElement | null): void {
-    const btn = row?.querySelector<HTMLButtonElement>('.sfe-bf-add-child');
-    if (!btn) { return; }
-    const field = draft.fields[parseInt(row!.dataset.idx!)];
-    if (!field) { return; }
-    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitsInContainer(field));
-    btn.disabled = addBtnDisabled !== '';
-    btn.title = addBtnTitle;
 }
 
 private deleteFieldCellHtml(isOnly: boolean): string {
@@ -928,13 +836,6 @@ private activeClassAttr(isActive: boolean): string {
         );
     }
 
-private fieldBitToggleHtml(f: StructField, isBitContainer: boolean): string {
-    f = normalizeStructField(f);
-    const isUnsigned = this.isUnsignedScalarType(f.type);
-    const bitBtnClass = isUnsigned && isBitContainer ? ' sfe-bit-btn-on' : '';
-    return `<button class="sfe-bit-btn${bitBtnClass}" title="Toggle bit-field details" aria-label="Toggle bit-field details"${this.disabledAttr(!isUnsigned || f.isPointer === true)}>:N</button>`;
-}
-
 /** Pointer declaration is exposed via the per-field `*` button and context menu (see wireEditorInSec). */
 
 private fieldMoveButtonsHtml(i: number, total: number): string {
@@ -947,8 +848,7 @@ private fieldMoveButtonsHtml(i: number, total: number): string {
 }
 
 private overrideSelectHtml(
-    value: 'le' | 'be' | 'lsb' | 'msb' | undefined,
-    kind: 'endian' | 'allocation',
+    value: 'le' | 'be' | undefined,
     cls: string,
     id?: string,
     inherited?: string,
@@ -956,21 +856,19 @@ private overrideSelectHtml(
     // Auto = inherit: the Auto option's title (and the select's when Auto is
     // selected) shows the effective inherited source, e.g. "Auto — inherits BE".
     const autoTitle = this.overrideAutoTitle(value, inherited);
-    const options = this.overrideLabels(kind)
+    const options = this.endianOverrideLabels()
         .map(([val, label]) => this.overrideOptionHtml(val, label, value, autoTitle))
         .join('');
     const idAttr = id ? ` id="${id}"` : '';
-    const title = autoTitle ?? this.overrideHelpTitle(kind);
+    const title = autoTitle ?? this.overrideHelpTitle();
     return `<select class="${cls}"${idAttr} title="${title}" aria-label="${title}">${options}</select>`;
 }
 
-private overrideLabels(kind: 'endian' | 'allocation'): Array<[string, string]> {
-    return kind === 'endian'
-        ? [['', 'Auto'], ['le', 'LE'], ['be', 'BE']]
-        : [['', 'Auto'], ['lsb', 'LSB'], ['msb', 'MSB']];
+private endianOverrideLabels(): Array<[string, string]> {
+    return [['', 'Auto'], ['le', 'LE'], ['be', 'BE']];
 }
 
-private overrideAutoTitle(value: 'le' | 'be' | 'lsb' | 'msb' | undefined, inherited?: string): string | undefined {
+private overrideAutoTitle(value: 'le' | 'be' | undefined, inherited?: string): string | undefined {
     if (value !== undefined || !inherited) { return undefined; }
     return `Auto \u2014 inherits ${inherited}`;
 }
@@ -978,25 +876,19 @@ private overrideAutoTitle(value: 'le' | 'be' | 'lsb' | 'msb' | undefined, inheri
 private overrideOptionHtml(
     val: string,
     label: string,
-    value: 'le' | 'be' | 'lsb' | 'msb' | undefined,
+    value: 'le' | 'be' | undefined,
     autoTitle?: string,
 ): string {
     const titleAttr = val === '' && autoTitle ? ` title="${esc(autoTitle)}"` : '';
     return `<option value="${val}"${value === val ? ' selected' : ''}${titleAttr}>${label}</option>`;
 }
 
-private overrideHelpTitle(kind: 'endian' | 'allocation'): string {
-    return kind === 'endian'
-        ? 'Byte order for this field (first explicit value up the chain wins)'
-        : 'Bit allocation for this field (first explicit value up the chain wins)';
+private overrideHelpTitle(): string {
+    return 'Byte order for this field (first explicit value up the chain wins)';
 }
 
 private fieldIsPointerActive(f: StructField): boolean {
     return f.isPointer === true || f.type === 'void';
-}
-
-private fieldRowClassAttr(isBitContainer: boolean): string {
-    return isBitContainer ? ' has-bit-children' : '';
 }
 
 private fieldRowHtml(
@@ -1007,32 +899,21 @@ private fieldRowHtml(
     draftId: string,
 ): string {
     const typeOpts = this.fieldTypeOptionsHtml(f, draftId);
-    const isBitContainer = this.isBitContainerField(f);
-    const isBitRef = this.isBitFieldRefField(f);
-    const isEnumRef = this.isEnumRefField(f);
-    const showsAlloc = isBitContainer || isBitRef;
-    const blocksPointer = isBitContainer || isBitRef || isEnumRef;
+    const blocksPointer = this.isBitContainerField(f) || this.isBitFieldRefField(f) || this.isEnumRefField(f);
     const delCell = this.deleteFieldCellHtml(isOnly);
-    const childrenHtml = this.bitChildrenHtml(f, isBitContainer);
     const inheritedEndian = this.editorInheritedEndian();
-    const inheritedAlloc = this.editorInheritedAlloc();
 
     return (
-        `<div class="struct-field-row${this.fieldRowClassAttr(isBitContainer)}" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
+        `<div class="struct-field-row" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
         `<select class="sfe-type-sel">${typeOpts}</select>` +
         `<button class="sfe-ptr-btn${this.activeClassAttr(this.fieldIsPointerActive(f))}" ` +
                `title="Toggle pointer field" aria-label="Toggle pointer field"${this.disabledAttr(blocksPointer)}>*</button>` +
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
-        this.overrideSelectHtml(f.endian, 'endian', 'sfe-endian-sel', undefined, inheritedEndian) +
-        (showsAlloc
-            ? this.overrideSelectHtml(f.allocation, 'allocation', 'sfe-alloc-sel', undefined, inheritedAlloc)
-            : `<span class="sfe-alloc-placeholder"></span>`) +
-        this.fieldBitToggleHtml(f, isBitContainer) +
+        this.overrideSelectHtml(f.endian, 'sfe-endian-sel', undefined, inheritedEndian) +
         this.fieldArrayCellHtml(f) +
         this.fieldMoveButtonsHtml(i, total) +
         delCell +
-        childrenHtml +
         `</div>`
     );
 }
@@ -1076,11 +957,6 @@ private bitChildEnumSelectHtml(child: BitFieldChild): string {
 /** Check if a field type is an unsigned scalar (eligible for bit-field container). */
 private isUnsignedScalarType(type: import('../../../../core/types').StructFieldType): type is import('../../../../core/types').StructScalarFieldType {
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
-}
-
-/** Get bit capacity for a parent field type. */
-private getParentBitCapacity(type: import('../../../../core/types').StructFieldType): number {
-    return fieldByteSize(type as any) * 8;
 }
 
 // ── C syntax-highlighted struct preview ─────────────────────────────────────
@@ -1234,10 +1110,9 @@ private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
         `<span class="se-struct-default-ptr"></span>` +
         `<span class="se-struct-default-lbl">struct default</span>` +
-        this.overrideSelectHtml(draft.endian, 'endian', 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
-        this.overrideSelectHtml(draft.allocation, 'allocation', 'se-struct-default-sel', 'se-alloc', this._bitFieldAllocation.toUpperCase()) +
+        this.overrideSelectHtml(draft.endian, 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
         `</div>` +
-        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Bits</span><span>[ ]</span><span></span><span></span></div>` +
+        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
@@ -1588,10 +1463,6 @@ private editorInheritedEndian(): string {
     return (this._editingType?.draft.endian ?? this._endian).toUpperCase();
 }
 
-private editorInheritedAlloc(): string {
-    return (this._editingType?.draft.allocation ?? this._bitFieldAllocation).toUpperCase();
-}
-
 /**
  * Rows markup for the current draft fields — shared by the full editor render
  * and the incremental `#se-fields` rebuild (so the two never diverge).
@@ -1637,17 +1508,6 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
         this.syncEditorDraft(sec, draft);
         const idx = parseInt(row.dataset.idx!);
         return { row, idx, field: draft.fields[idx] };
-    };
-
-    type StructFieldWithBits = StructField & { bitFields: NonNullable<StructField['bitFields']> };
-    const syncedBitFieldChild = (btn: HTMLElement): { childRow: HTMLElement; field: StructFieldWithBits; childIdx: number } | null => {
-        const childRow = btn.closest<HTMLElement>('.sfe-bf-child-row')!;
-        const parentRow = childRow.closest<HTMLElement>('.struct-field-row')!;
-        this.syncEditorDraft(sec, draft);
-        const idx = parseInt(parentRow.dataset.idx!);
-        const field = draft.fields[idx];
-        if (!field?.bitFields) { return null; }
-        return { childRow, field: field as StructFieldWithBits, childIdx: parseInt(childRow.dataset.childIdx!) };
     };
 
     fieldsEl.querySelectorAll<HTMLElement>('.sfe-del-btn').forEach(btn => {
@@ -1732,78 +1592,6 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLElement>('.sfe-bit-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const { row, field: f } = syncedFieldForButton(btn);
-            if (!f) { return; }
-            const isOn = btn.classList.contains('sfe-bit-btn-on');
-            if (isOn) {
-                btn.classList.remove('sfe-bit-btn-on');
-                delete f.bitFields;
-                delete f.bitFieldsCollapsed;
-                const children = row.querySelector<HTMLElement>('.sfe-bf-children');
-                if (children) { children.remove(); }
-                row.classList.remove('has-bit-children');
-            } else {
-                btn.classList.add('sfe-bit-btn-on');
-                row.classList.add('has-bit-children');
-                f.bitFields = [{ name: 'bit0', bitWidth: 1 }];
-                f.bitFieldsCollapsed = undefined;
-            }
-            this.renderBitFieldTogglePreview(sec, draft);
-            this.refreshFieldRows(sec, draft);
-            this.scrollEditorRowIntoView(sec, parseInt(row.dataset.idx!));
-        });
-    });
-
-    this.wireClicks(fieldsEl, '.sfe-bf-add-child', btn => {
-        const parentIdx = this.parentFieldIndex(btn);
-        const { field: f } = syncedFieldForButton(btn);
-        if (!f) { return; }
-        if (!f.bitFields) { f.bitFields = []; }
-        const nextIdx = f.bitFields.length;
-        f.bitFields.push({ name: `bit${nextIdx}`, bitWidth: 1 });
-        this.refreshFieldRows(sec, draft);
-        this.scrollBitChildIntoView(sec, parentIdx, nextIdx);
-    });
-
-    this.wireClicks(fieldsEl, '.sfe-bf-del-child', btn => {
-        const parentIdx = this.parentFieldIndex(btn);
-        const child = syncedBitFieldChild(btn);
-        if (!child) { return; }
-        const { field: f, childIdx: ci } = child;
-        f.bitFields.splice(ci, 1);
-        if (f.bitFields.length === 0) {
-            f.bitFields.push({ name: 'bit0', bitWidth: 1 });
-        }
-        this.refreshFieldRows(sec, draft);
-        this.scrollBitChildIntoView(sec, parentIdx, Math.max(0, ci - 1));
-    });
-
-    this.wireClicks(fieldsEl, '.sfe-bf-child-row .sfe-move-up', btn => {
-        const parentIdx = this.parentFieldIndex(btn);
-        const child = syncedBitFieldChild(btn);
-        if (!child) { return; }
-        const { field: f, childIdx: ci } = child;
-        if (ci > 0) {
-            [f.bitFields[ci - 1], f.bitFields[ci]] = [f.bitFields[ci], f.bitFields[ci - 1]];
-            this.refreshFieldRows(sec, draft);
-            this.scrollBitChildIntoView(sec, parentIdx, ci - 1);
-        }
-    });
-
-    this.wireClicks(fieldsEl, '.sfe-bf-child-row .sfe-move-dn', btn => {
-        const parentIdx = this.parentFieldIndex(btn);
-        const child = syncedBitFieldChild(btn);
-        if (!child) { return; }
-        const { field: f, childIdx: ci } = child;
-        if (ci < f.bitFields.length - 1) {
-            [f.bitFields[ci], f.bitFields[ci + 1]] = [f.bitFields[ci + 1], f.bitFields[ci]];
-            this.refreshFieldRows(sec, draft);
-            this.scrollBitChildIntoView(sec, parentIdx, ci + 1);
-        }
-    });
-
     fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-name-inp').forEach(inp => {
         inp.addEventListener('input', () => { this.refreshEditorPreview(sec, draft); });
         inp.addEventListener('blur', () => {
@@ -1815,36 +1603,12 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
 
     fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
         sel.addEventListener('change', () => {
-            this.handleFieldTypeChange(sec, draft, sel);
+            this.handleFieldTypeChange(sel);
             this.refreshEditorPreview(sec, draft);
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel, .sfe-alloc-sel').forEach(sel => {
-        sel.addEventListener('change', () => {
-            this.syncEditorDraft(sec, draft);
-            this.refreshEditorPreview(sec, draft);
-        });
-    });
-
-    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name').forEach(inp => {
-        inp.addEventListener('input', () => {
-            this.refreshEditorPreview(sec, draft);
-        });
-    });
-
-    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width').forEach(inp => {
-        inp.addEventListener('input', () => {
-            this.syncEditorDraft(sec, draft);
-            this.refreshEditorPreview(sec, draft);
-            this.refreshBitChildAddButton(
-                draft,
-                inp.closest<HTMLElement>('.struct-field-row'),
-            );
-        });
-    });
-
-    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-bf-child-enum').forEach(sel => {
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel').forEach(sel => {
         sel.addEventListener('change', () => {
             this.syncEditorDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
@@ -1854,38 +1618,28 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
 
 /**
  * Refresh the "Auto — inherits <X>" titles (select + its Auto option) on all
- * endian/alloc override selects after the struct default changed — in place,
+ * endian override selects after the struct default changed — in place,
  * no editor rebuild (mirrors the tooltip text fieldRowHtml/editorHtml render
  * on mount).
  */
 private updateEditorOverrideTitles(sec: HTMLElement): void {
     const endianInherit = this.editorInheritedEndian();
-    const allocInherit = this.editorInheritedAlloc();
     sec.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel').forEach(sel =>
-        this.setOverrideSelectTitles(sel, 'endian', endianInherit));
-    sec.querySelectorAll<HTMLSelectElement>('.sfe-alloc-sel').forEach(sel =>
-        this.setOverrideSelectTitles(sel, 'allocation', allocInherit));
+        this.setOverrideSelectTitles(sel, endianInherit));
     const structEndian = sec.querySelector<HTMLSelectElement>('#se-endian');
-    if (structEndian) { this.setOverrideSelectTitles(structEndian, 'endian', this._endian.toUpperCase()); }
-    const structAlloc = sec.querySelector<HTMLSelectElement>('#se-alloc');
-    if (structAlloc) { this.setOverrideSelectTitles(structAlloc, 'allocation', this._bitFieldAllocation.toUpperCase()); }
+    if (structEndian) { this.setOverrideSelectTitles(structEndian, this._endian.toUpperCase()); }
 }
 
-private overrideSelectValue(sel: HTMLSelectElement, kind: 'endian' | 'allocation'): 'le' | 'be' | 'lsb' | 'msb' | undefined {
-    return kind === 'endian' ? this.readEndianOverride(sel.value) : this.readAllocationOverride(sel.value);
+private overrideSelectValue(sel: HTMLSelectElement): 'le' | 'be' | undefined {
+    return this.readEndianOverride(sel.value);
 }
 
-private setOverrideSelectTitles(sel: HTMLSelectElement, kind: 'endian' | 'allocation', inherited: string): void {
-    const autoTitle = this.overrideAutoTitle(this.overrideSelectValue(sel, kind), inherited);
-    const fallbackTitle = this.overrideHelpTitle(kind);
+private setOverrideSelectTitles(sel: HTMLSelectElement, inherited: string): void {
+    const autoTitle = this.overrideAutoTitle(this.overrideSelectValue(sel), inherited);
+    const fallbackTitle = this.overrideHelpTitle();
     sel.title = autoTitle ?? fallbackTitle;
     const opt = sel.options[0];
     if (opt) { opt.title = autoTitle ?? ''; }
-}
-
-/** Row index of the struct field that owns the clicked control. */
-private parentFieldIndex(btn: HTMLElement): number {
-    return parseInt(btn.closest<HTMLElement>('.struct-field-row')!.dataset.idx!);
 }
 
 /** Attach a click handler to every element matching `selector` under `root`. */
@@ -1899,18 +1653,10 @@ private scrollEditorRowIntoView(sec: HTMLElement, idx: number): void {
     if (row && typeof row.scrollIntoView === 'function') { row.scrollIntoView({ block: 'nearest' }); }
 }
 
-/** Scroll a bit-field child at `childIdx` of the field row `parentIdx` into (near) viewport. */
-private scrollBitChildIntoView(sec: HTMLElement, parentIdx: number, childIdx: number): void {
-    const parentRow = sec.querySelector<HTMLElement>(`.struct-field-row[data-idx="${parentIdx}"]`);
-    const child = parentRow?.querySelector<HTMLElement>(`.sfe-bf-child-row[data-child-idx="${childIdx}"]`);
-    if (child && typeof child.scrollIntoView === 'function') { child.scrollIntoView({ block: 'nearest' }); }
-}
-
 private syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
     draft.name   = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
     draft.packed = this.inputActive(sec, '#se-packed');
     draft.endian = this.readEndianOverride(this.selectValue(sec, '#se-endian'));
-    draft.allocation = this.readAllocationOverride(this.selectValue(sec, '#se-alloc'));
     const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
     draft.fields = Array.from(rows).map(row => {
         return this.readEditorFieldRow(row);
@@ -1931,35 +1677,26 @@ private selectValue(sec: HTMLElement, sel: string): string | undefined {
 
 private readEditorFieldRow(row: HTMLElement): StructField {
     const typeInfo = this.readEditorFieldType(row);
-    const childrenContainer = row.querySelector<HTMLElement>('.sfe-bf-children');
-    const result: StructField = {
+    return {
         name: this.sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value),
         type: typeInfo.type,
         refStructId: typeInfo.refStructId,
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
         endian: this.readEndianOverride((row.querySelector('.sfe-endian-sel') as HTMLSelectElement | null)?.value),
-        allocation: this.readAllocationOverride((row.querySelector('.sfe-alloc-sel') as HTMLSelectElement | null)?.value),
     };
-    this.applyEditorBitFields(result, this.readEditorBitFields(row, typeInfo.isUnsigned, childrenContainer), childrenContainer);
-    return result;
 }
 
 private readEndianOverride(value: string | undefined): 'le' | 'be' | undefined {
     return value === 'le' || value === 'be' ? value : undefined;
 }
 
-private readAllocationOverride(value: string | undefined): 'lsb' | 'msb' | undefined {
-    return value === 'lsb' || value === 'msb' ? value : undefined;
-}
-
-private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isUnsigned: boolean; isPointer: boolean } {
+private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isPointer: boolean } {
     const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
     const parsed = this.parseEditorFieldType(rawType);
     const ptrActive = row.dataset.ptr === '1';
     return {
         ...parsed,
-        isUnsigned: this.isUnsignedEditorParsedType(parsed),
         isPointer: ptrActive || parsed.type === 'void',
     };
 }
@@ -1971,22 +1708,7 @@ private parseEditorFieldType(rawType: string): { type: StructFieldType; refStruc
     return { type: rawType as StructFieldType, refStructId: undefined };
 }
 
-private isUnsignedEditorParsedType(parsed: { type: StructFieldType; refStructId: string | undefined }): boolean {
-    return parsed.type !== 'struct' && parsed.type !== 'bitfield' && parsed.type !== 'enum' && this.isUnsignedScalarType(parsed.type);
-}
-
-private readEditorBitFields(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): BitFieldChild[] | undefined {
-    if (!this.isEditorBitFieldEnabled(row, isUnsigned, childrenContainer)) { return undefined; }
-    const childRows = childrenContainer.querySelectorAll<HTMLElement>('.sfe-bf-child-row');
-    const childArray = Array.from(childRows).map(childRow => this.readEditorBitFieldChild(childRow));
-    return childArray.length > 0 ? childArray : [{ name: 'bit0', bitWidth: 1 }];
-}
-
-private isEditorBitFieldEnabled(row: HTMLElement, isUnsigned: boolean, childrenContainer: HTMLElement | null): childrenContainer is HTMLElement {
-    if (!isUnsigned || !childrenContainer) { return false; }
-    return row.querySelector('.sfe-bit-btn')?.classList.contains('sfe-bit-btn-on') ?? false;
-}
-
+/** Read a bit-field child row (used by the standalone bit-field def editor). */
 private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
     const childName = this.sanitizeCIdent(
         (childRow.querySelector('.sfe-bf-child-name') as HTMLInputElement).value
@@ -2007,12 +1729,6 @@ private readEditorArrayCount(row: HTMLElement): number {
     if (!cell.classList.contains('is-array')) { return 1; }
     const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
     return isNaN(v) || v < 1 ? 1 : v;
-}
-
-private applyEditorBitFields(result: StructField, bitFields: BitFieldChild[] | undefined, childrenContainer: HTMLElement | null): void {
-    if (!bitFields || bitFields.length === 0) { return; }
-    result.bitFields = bitFields;
-    if (childrenContainer?.style.display === 'none') { result.bitFieldsCollapsed = true; }
 }
 
 private wireEditorInSec(sec: HTMLElement): void {
@@ -2086,7 +1802,7 @@ private wireStructEditor(sec: HTMLElement, draft: StructDef): void {
         sec.querySelectorAll<HTMLInputElement>('.struct-field-row .sfe-name-inp')[lastIdx]?.focus();
     });
 
-    // Struct-level endian/alloc change: sync the draft, refresh per-field "Auto"
+    // Struct-level endian change: sync the draft, refresh per-field "Auto"
     // tooltips in place (no rebuild — the pane keeps its height/scroll), and
     // re-render the preview.
     this.wireStructLevelOverrideSelects(sec);
@@ -2095,14 +1811,12 @@ private wireStructEditor(sec: HTMLElement, draft: StructDef): void {
 }
 
 private wireStructLevelOverrideSelects(sec: HTMLElement): void {
-    sec.querySelectorAll<HTMLSelectElement>('#se-endian, #se-alloc').forEach(sel => {
-        sel.addEventListener('change', () => {
-            if (!this._editingType) { return; }
-            const { draft } = this._editingType;
-            if (structDefKind(draft) === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
-            else { this.syncEditorDraft(sec, draft); this.updateEditorOverrideTitles(sec); }
-            this.refreshEditorPreview(sec, draft);
-        });
+    sec.querySelector<HTMLSelectElement>('#se-endian')?.addEventListener('change', () => {
+        if (!this._editingType) { return; }
+        const { draft } = this._editingType;
+        this.syncEditorDraft(sec, draft);
+        this.updateEditorOverrideTitles(sec);
+        this.refreshEditorPreview(sec, draft);
     });
 }
 
@@ -2236,16 +1950,11 @@ private upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
         this._editingType = null;
     }
 
-private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
+private handleFieldTypeChange(sel: HTMLSelectElement): void {
     const row = sel.closest<HTMLElement>('.struct-field-row');
     if (!row) { return; }
-    const bitBtn = row.querySelector<HTMLElement>('.sfe-bit-btn');
     if (sel.value === 'void') { row.dataset.ptr = '1'; }
     if (sel.value.startsWith('bitfield:') || sel.value.startsWith('enum:')) { row.dataset.ptr = ''; }
-    const isPointer = this.editorRowIsPointer(row);
-    const isUnsigned = this.isUnsignedEditorType(sel.value) && !isPointer;
-    this.setBitButtonEnabled(bitBtn, isUnsigned);
-    this.clearInvalidBitChildren(sec, draft, row, bitBtn, isUnsigned);
 }
 
     /** F10 / Shift+F10 and Enter/Space (when the row itself is focused) open the pointer menu. */
@@ -2282,7 +1991,6 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
         if (this.cannotPointTo(field, want)) { return; }
         this._editorError = null;
         this.setFieldPointerFlag(field, row, want);
-        if (want) { this.clearPointerBitChildren(sec, draft, row); }
         this.refreshFieldRows(sec, draft);
         const idx = parseInt(row.dataset.idx!);
         this.scrollEditorRowIntoView(sec, idx);
@@ -2322,43 +2030,6 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
             this.onFieldMenuCommand(sec, draft, row, cmd);
         });
     }
-
-private clearPointerBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement): void {
-    this.clearBitFieldChildren(sec, draft, row, row.querySelector<HTMLElement>('.sfe-bit-btn'));
-}
-
-private setBitButtonEnabled(bitBtn: HTMLElement | null, isUnsigned: boolean): void {
-    if (bitBtn) { (bitBtn as HTMLButtonElement).disabled = !isUnsigned; }
-}
-
-private clearInvalidBitChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement, bitBtn: HTMLElement | null, isUnsigned: boolean): void {
-    if (this.shouldClearBitChildren(bitBtn, isUnsigned)) { this.clearBitFieldChildren(sec, draft, row, bitBtn); }
-}
-
-private isUnsignedEditorType(rawType: string): boolean {
-    return !rawType.startsWith('struct:') && this.isUnsignedScalarType(rawType as import('../../../../core/types').StructFieldType);
-}
-
-private shouldClearBitChildren(bitBtn: HTMLElement | null, isUnsigned: boolean): boolean {
-    return !isUnsigned && Boolean(bitBtn?.classList.contains('sfe-bit-btn-on'));
-}
-
-private clearBitFieldChildren(sec: HTMLElement, draft: StructDef, row: HTMLElement, bitBtn: HTMLElement | null): void {
-    bitBtn?.classList.remove('sfe-bit-btn-on');
-    row.classList.remove('has-bit-children');
-    row.querySelector<HTMLElement>('.sfe-bf-children')?.remove();
-    this.syncEditorDraft(sec, draft);
-    this.clearDraftBitFields(draft, row);
-}
-
-private clearDraftBitFields(draft: StructDef, row: HTMLElement): void {
-    const idx = parseInt(row.dataset.idx!);
-    const field = draft.fields[idx];
-    if (field) {
-        delete field.bitFields;
-        delete field.bitFieldsCollapsed;
-    }
-}
 
 private prepareStructPanelState(): void {
     this._applyStructId = this.nextApplyStructId(this.pinnableStructs());
@@ -2506,13 +2177,71 @@ private bitLayoutToggleHtml(): string {
 }
 
     private typePanelTitle(): string {
+        if (this._choosingKind) { return 'New Type'; }
         if (!this._editingType) { return 'Struct Types'; }
         return this._editingType.existing ? 'Edit Type' : 'New Type';
     }
 
     private typePanelBodyHtml(typeRows: string): string {
+        if (this._choosingKind) { return this.kindChooserHtml(); }
         if (this._editingType) { return this.editorHtml(this._editingType.draft, this._editingType.existing); }
         return `<div id="sm-list">${typeRows}</div>`;
+    }
+
+    /** Three-tile kind picker shown in the Types body after the single `＋ Add` entry point. */
+    private kindChooserHtml(): string {
+        return (
+            `<div id="sm-kind-picker" class="sm-kind-picker">` +
+            `<div class="sm-kind-hdr">New type</div>` +
+            `<div class="sm-kind-tiles">` +
+            this.kindTileHtml('struct', 'Struct', 'A C-like layout of named fields') +
+            this.kindTileHtml('bitfield', 'Bit-field', 'A reusable unsigned storage unit split into named bits') +
+            this.kindTileHtml('enum', 'Enum', 'A named set of integer values') +
+            `</div>` +
+            `<div class="se-btns"><button id="sm-kind-cancel" class="sb-btn sb-btn-secondary">Cancel</button></div>` +
+            `</div>`
+        );
+    }
+
+    private kindTileHtml(kind: StructDefKind, label: string, hint: string): string {
+        return (
+            `<button class="sm-kind-tile" data-kind="${kind}" title="${esc(hint)}">` +
+            `<span class="sm-kind-tile-name">${esc(label)}</span>` +
+            `<span class="sm-kind-tile-hint">${esc(hint)}</span>` +
+            `</button>`
+        );
+    }
+
+    private pickKind(kind: StructDefKind): void {
+        this._choosingKind = false;
+        this._editorError = null;
+        const id = `user_${Date.now()}`;
+        this._editingType = { draft: this.newDraftForKind(kind, id), existing: null, fromManage: true };
+        this.render();
+    }
+
+    private newDraftForKind(kind: StructDefKind, id: string): StructDef {
+        if (kind === 'bitfield') {
+            return { id, name: '', kind: 'bitfield', baseType: 'uint32', fields: [], bitFields: [{ name: 'bit0', bitWidth: 1 }] };
+        }
+        if (kind === 'enum') {
+            return { id, name: '', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'VALUE0', value: 0 }] };
+        }
+        return { id, name: '', packed: false, fields: [{ name: 'field0', type: 'uint32', count: 1 }] };
+    }
+
+    private wireKindChooser(typesPanel: HTMLElement): void {
+        if (!this._choosingKind) { return; }
+        typesPanel.querySelectorAll<HTMLElement>('.sm-kind-tile').forEach(tile => {
+            tile.addEventListener('click', () => {
+                const kind = tile.dataset.kind;
+                if (kind === 'struct' || kind === 'bitfield' || kind === 'enum') { this.pickKind(kind); }
+            });
+        });
+        typesPanel.querySelector('#sm-kind-cancel')?.addEventListener('click', () => {
+            this._choosingKind = false;
+            this.render();
+        });
     }
 
 private wireStructPinsPanel(sec: HTMLElement): void {
@@ -2523,6 +2252,7 @@ private wireStructPinsPanel(sec: HTMLElement): void {
 
     private wireTypesPanelControls(sec: HTMLElement): void {
         const typesPanel = sec.querySelector<HTMLElement>('#si-types-body')!;
+        this.wireKindChooser(typesPanel);
     wireActionBtns(
         typesPanel,
         '.act-btn-edit',
@@ -2740,11 +2470,6 @@ private dataViewForBytes(bytes: number[]): DataView {
 
 private isBinaryDisplay(valType: ColType): boolean {
     return valType === 'bin' || valType === 'bin-sliced';
-}
-
-private renderBitFieldTogglePreview(sec: HTMLElement, draft: StructDef): void {
-    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
-    if (pre) { this.renderStructCPreview(pre, draft); }
 }
 
 private bitFieldDisplaySource(r: DecodedField): { width: number; value: bigint } {

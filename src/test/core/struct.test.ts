@@ -3,7 +3,7 @@ import * as assert from 'assert';
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
-    structDefKind, materializeBitFieldRefs, formatEnumLabel, matchEnumEntry,
+    structDefKind, materializeBitFieldRefs, migrateInlineBitFields, formatEnumLabel, matchEnumEntry,
 } from '../../core/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
@@ -1279,6 +1279,39 @@ suite('materializeBitFieldRefs()', () => {
     test('an unresolvable reference passes through untouched', () => {
         const def: StructDef = { id: 'r', name: 'R', fields: [{ name: 'control', type: 'bitfield', refStructId: 'missing', count: 1 }] };
         assert.strictEqual(materializeBitFieldRefs(def, [def]).fields[0].type, 'bitfield');
+    });
+});
+
+suite('migrateInlineBitFields()', () => {
+    test('a migrated pool decodes / sizes / emits C byte-identically to the inline form', () => {
+        const inline = inlineContainerDef();
+        setBytesInSegment(0, [0xAC, 0x35, 0x00, 0x00]);
+
+        const before = decodeStruct(inline, 0, getByte, 'le', 'msb', [inline]);
+        const beforeSize = structByteSize(inline, [inline]);
+        const beforeC = structToC(inline, [inline]);
+
+        const migrated = migrateInlineBitFields([inline]);
+        assert.strictEqual(migrated.changed, true);
+        const pool = migrated.defs;
+        const migratedDef = pool.find(d => d.id === 'inline')!;
+        assert.strictEqual(migratedDef.fields[0].type, 'bitfield');
+        assert.strictEqual(migratedDef.fields[0].refStructId, 'migrated_bitfield_1');
+
+        assert.deepStrictEqual(decodeStruct(migratedDef, 0, getByte, 'le', 'msb', pool), before, 'decode is unchanged');
+        assert.strictEqual(structByteSize(migratedDef, pool), beforeSize, 'size is unchanged');
+        assert.strictEqual(structToC(migratedDef, pool), beforeC, 'C preview is unchanged');
+        assert.deepStrictEqual(validateStructs(pool), [], 'migrated pool validates cleanly');
+    });
+
+    test('leaves a pool with no inline containers untouched (same array, changed false)', () => {
+        const pool: StructDef[] = [
+            bitFieldDef(),
+            { id: 'leaf', name: 'Leaf', fields: [{ name: 'b', type: 'bitfield', refStructId: 'bits', count: 1 }] },
+        ];
+        const result = migrateInlineBitFields(pool);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.defs, pool);
     });
 });
 

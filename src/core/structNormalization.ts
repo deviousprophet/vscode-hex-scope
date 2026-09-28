@@ -4,7 +4,7 @@
  */
 
 import type { BitFieldChild, EnumEntry, StructDef, StructField } from './types';
-import { enumValueBound } from './structCodec';
+import { enumValueBound, migrateInlineBitFields } from './structCodec';
 import { hasSeenStructDefIdentity, rememberStructDefIdentity, structDefIdentity } from './structIdentities';
 
 export type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
@@ -19,8 +19,11 @@ export function normalizeStructDefsValue(value: unknown): StructDefsNormalizatio
     for (const item of value) {
         changed = !appendUniqueStructDef(item, out, seenIds, seenNames) || changed;
     }
-    const sanitized = sanitizeEnumDefs(out);
-    return { defs: sanitized.defs, changed: changed || sanitized.changed };
+    // Legacy inline bit-field containers migrate before enum sanitization so the
+    // generated `kind: 'bitfield'` defs' child enum refs are cleaned too.
+    const migrated = migrateInlineBitFields(out);
+    const sanitized = sanitizeEnumDefs(migrated.defs);
+    return { defs: sanitized.defs, changed: changed || migrated.changed || sanitized.changed };
 }
 
 function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {

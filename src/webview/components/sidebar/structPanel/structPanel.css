@@ -15,7 +15,6 @@
 .sa-row .sb-select { flex: 1; min-width: 0; }
 /* Add Field: compact, centered in the form, not full-width. */
 .se-form > .sb-btn-add { align-self: center; width: auto; padding: 3px 12px; }
-.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px auto; align-self: center; }
 #si-add-btn { flex-shrink: 0; }
 #sm-close-btn { flex-shrink: 0; }
 
@@ -106,10 +105,10 @@
     color: var(--addr-fg); font-family: var(--font-ui);
 }
 
-/* Struct-default row: grid-aligned so Endian/Alloc share the field grid columns */
+/* Struct-default row: grid-aligned so Endian shares the field grid column */
 .se-struct-default-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
     margin-top: 3px;
 }
@@ -121,11 +120,10 @@
     flex: 1; min-width: 0;
 }
 
-/* Shared select control: appearance, caret, spacing — struct-default, type, endian, alloc */
+/* Shared select control: appearance, caret, spacing — struct-default, type, endian */
 .se-struct-default-sel,
 .sfe-type-sel,
-.sfe-endian-sel,
-.sfe-alloc-sel {
+.sfe-endian-sel {
     appearance: none;
     background-color: var(--input-bg);
     background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
@@ -137,12 +135,11 @@
 }
 .se-struct-default-sel:focus,
 .sfe-type-sel:focus,
-.sfe-endian-sel:focus,
-.sfe-alloc-sel:focus { border-color: var(--focus-bdr); }
+.sfe-endian-sel:focus { border-color: var(--focus-bdr); }
 
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -152,7 +149,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 .struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
@@ -162,8 +159,7 @@
 }
 
 .sfe-type-sel,
-.sfe-endian-sel,
-.sfe-alloc-sel { width: 100%; }
+.sfe-endian-sel { width: 100%; }
 
 /* Pointer toggle button (*): fills its grid cell between Type and Name */
 .sfe-ptr-btn {
@@ -179,9 +175,6 @@
 .sfe-ptr-btn.active:hover                { border-color: var(--err); color: var(--err);
                                            background: rgba(255,80,80,.08); }
 .sfe-ptr-btn:disabled                    { opacity: .35; cursor: not-allowed; }
-
-/* Empty cell kept so plain/pointer/nested rows stay grid-aligned with bit-field rows */
-.sfe-alloc-placeholder { display: block; }
 
 /* Array cell */
 .sfe-arr-cell {
@@ -216,21 +209,6 @@
 .sfe-del-btn:hover { color: var(--err); }
 .sfe-del-placeholder { display: block; width: 18px; }
 
-/* -- Bit-field toggle button (:N) ------------------------------- */
-.sfe-bit-btn {
-    width: 28px; flex-shrink: 0; text-align: center;
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 10px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
-    white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
-}
-.sfe-bit-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
-.sfe-bit-btn.sfe-bit-btn-on              { border-style: solid; border-color: var(--high-color);
-                                            color: var(--high-color); background: rgba(79,195,247,.1); }
-.sfe-bit-btn.sfe-bit-btn-on:hover        { border-color: var(--err); color: var(--err);
-                                            background: rgba(255,80,80,.08); }
-.sfe-bit-btn:disabled                    { opacity: .35; cursor: not-allowed; }
-
 .si-f-ptr-note {
     color: var(--addr-fg);
     opacity: .8;
@@ -245,10 +223,6 @@
     padding: 3px 0 0 0; margin: 0;
     border-top: 1px solid rgba(255,255,255,.06);
     background: rgba(0,0,0,.1);
-}
-.struct-field-row.has-bit-children {
-    border-bottom: none;
-    margin-bottom: 0;
 }
 .sfe-bf-child-row {
     display: flex; align-items: center; gap: 3px;
@@ -323,6 +297,24 @@
     font-size: 11px;
     line-height: 1.3;
 }
+
+/* Type-kind picker (shown in the Types body after the single ＋ Add action) */
+.sm-kind-picker { display: flex; flex-direction: column; gap: 8px; }
+.sm-kind-hdr {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.sm-kind-tiles { display: flex; flex-direction: column; gap: 6px; }
+.sm-kind-tile {
+    display: flex; flex-direction: column; gap: 2px; text-align: left;
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 6px 8px; cursor: pointer;
+    transition: border-color .1s, background .1s;
+}
+.sm-kind-tile:hover { border-color: var(--high-color); background: rgba(79,195,247,.08); }
+.sm-kind-tile-name { font-size: 11px; font-weight: 600; font-family: var(--font-ui); }
+.sm-kind-tile-hint { font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui); }
 
 /* Header row: body controls below the framework section header */
 .si-hdr-row {

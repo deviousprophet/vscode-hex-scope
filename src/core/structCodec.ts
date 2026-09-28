@@ -204,6 +204,108 @@ export function materializeBitFieldRefs(def: StructDef, defs: readonly StructDef
     return materializedDefsMap(def, defs).def;
 }
 
+/**
+ * Legacy migration: rewrite every inline bit-field container (`unsigned type` +
+ * `bitFields[]`) into a reference to a standalone `kind: 'bitfield'` def.
+ *
+ * Pool-wide dedupe collapses identical containers (same base width + ordered
+ * child name/width list) onto one shared type. Generated defs get the lowest
+ * unused `migrated_bitfield_<n>` id and a unique name derived from the first
+ * matching field. Usage-scoped overrides (`count`/`endian`/`allocation`/`name`,
+ * plus any extra keys a legacy pool carries) stay on the referencing field;
+ * `bitFields`/`bitFieldsCollapsed` are cleared. Idempotent: a second run over
+ * migrated defs returns `changed: false` and the same def array reference.
+ */
+export function migrateInlineBitFields(defs: StructDef[]): { defs: StructDef[]; changed: boolean } {
+    const bySignature = new Map<string, StructDef>();
+    const usedIds = new Set<string>();
+    const usedNames = new Set<string>();
+    for (const def of defs) {
+        if (!def) { continue; }
+        if (typeof def.id === 'string') { usedIds.add(def.id); }
+        if (typeof def.name === 'string') { usedNames.add(def.name); }
+        if (structDefKind(def) === 'bitfield') {
+            const signature = bitFieldContainerSignature(def.baseType, def.bitFields ?? []);
+            if (!bySignature.has(signature)) { bySignature.set(signature, def); }
+        }
+    }
+
+    const generated: StructDef[] = [];
+    let changed = false;
+    const next = defs.map(def => {
+        if (!def || structDefKind(def) === 'bitfield') { return def; }
+        const fields = Array.isArray(def.fields) ? def.fields : [];
+        let defChanged = false;
+        const migratedFields = fields.map(field => {
+            if (!isBitFieldContainer(field)) { return field; }
+            const signature = bitFieldContainerSignature(field.type, field.bitFields ?? []);
+            let target = bySignature.get(signature);
+            if (!target) {
+                target = createMigratedBitFieldDef(field, usedIds, usedNames);
+                bySignature.set(signature, target);
+                generated.push(target);
+            }
+            defChanged = true;
+            return referencingBitField(field, target.id);
+        });
+        if (!defChanged) { return def; }
+        changed = true;
+        return { ...def, fields: migratedFields };
+    });
+
+    if (!changed) { return { defs, changed: false }; }
+    return { defs: [...next, ...generated], changed: true };
+}
+
+/**
+ * Signature of an inline bit-field container: unsigned base + ordered child
+ * name/width list + each child's optional enum ref. Two containers that differ
+ * only by a child enum label are not identical, so they must not collapse onto
+ * one def (that would drop the other container's labels).
+ */
+function bitFieldContainerSignature(baseType: string | undefined, children: readonly BitFieldChild[]): string {
+    return JSON.stringify([baseType ?? 'uint8', children.map(child => [child.name, child.bitWidth, child.refStructId ?? null])]);
+}
+
+/** Copy a container field into the referenced form, keeping every usage-scoped override. */
+function referencingBitField(field: StructField, refStructId: string): StructField {
+    const { bitFields: _children, bitFieldsCollapsed: _collapsed, ...rest } = field;
+    return { ...rest, type: 'bitfield', refStructId };
+}
+
+function createMigratedBitFieldDef(field: StructField, usedIds: Set<string>, usedNames: Set<string>): StructDef {
+    const id = nextMigratedBitFieldId(usedIds);
+    usedIds.add(id);
+    const name = uniqueMigratedBitFieldName(field.name, usedNames);
+    usedNames.add(name);
+    return {
+        id,
+        name,
+        kind: 'bitfield',
+        baseType: isUnsignedBaseType(field.type) ? field.type : 'uint8',
+        bitFields: (field.bitFields ?? []).map(child => ({ ...child })),
+        fields: [],
+    };
+}
+
+function nextMigratedBitFieldId(usedIds: Set<string>): string {
+    let n = 1;
+    while (usedIds.has(`migrated_bitfield_${n}`)) { n++; }
+    return `migrated_bitfield_${n}`;
+}
+
+function uniqueMigratedBitFieldName(rawName: string, usedNames: Set<string>): string {
+    const base = sanitizeStructIdentifier(rawName) || 'bitfield';
+    if (!usedNames.has(base)) { return base; }
+    let n = 1;
+    while (usedNames.has(`${base}_${n}`)) { n++; }
+    return `${base}_${n}`;
+}
+
+function sanitizeStructIdentifier(raw: string): string {
+    return (raw ?? '').replace(/[^A-Za-z0-9_]/g, '').replace(/^(\d)/, '_$1');
+}
+
 function referencedStruct(field: StructField, map: Map<string, StructDef>): StructDef | null {
     field = normalizeStructField(field);
     if (field.type !== 'struct' || !field.refStructId) { return null; }

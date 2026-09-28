@@ -127,6 +127,18 @@ suite('StructPanel deep-render harness', () => {
         return panel;
     }
 
+    /** Open the single `＋ Add` entry point's kind picker. */
+    function openKindPicker(): void {
+        click(dom, document.getElementById('sm-add-btn'));
+        assert.ok(document.getElementById('sm-kind-picker'), 'kind picker should render after ＋ Add');
+    }
+
+    /** Open a kind's creation form through the picker tile. */
+    function openKindEditor(kind: 'struct' | 'bitfield' | 'enum'): void {
+        openKindPicker();
+        click(dom, document.querySelector<HTMLElement>(`.sm-kind-tile[data-kind="${kind}"]`));
+    }
+
     async function renderPinsAndExpandCard(): Promise<StructPanel> {
         const panel = await createMountedPanel();
         const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
@@ -2152,9 +2164,49 @@ suite('StructPanel deep-render harness', () => {
         assert.match(elementText(document.querySelector('.si-field .si-f-val')!), /0x3412/);
     });
 
+    test('＋ Add opens a three-tile kind picker; cancel creates nothing', async () => {
+        await createMountedPanel();
+
+        // The standalone bit-field / enum actions from the child tasks are gone.
+        assert.strictEqual(document.getElementById('sm-add-bitfield-btn'), null, 'no standalone bit-field action');
+        assert.strictEqual(document.getElementById('sm-add-enum-btn'), null, 'no standalone enum action');
+
+        click(dom, document.getElementById('sm-add-btn'));
+        const picker = document.getElementById('sm-kind-picker');
+        assert.ok(picker, 'kind picker should render in the Types body');
+        const tiles = Array.from(picker!.querySelectorAll<HTMLElement>('.sm-kind-tile'));
+        assert.deepStrictEqual(tiles.map(t => t.dataset.kind), ['struct', 'bitfield', 'enum'], 'three kind tiles');
+        assert.strictEqual(document.getElementById('se-name'), null, 'no editor opens before a tile is picked');
+        assert.strictEqual(document.getElementById('sm-list'), null, 'the type list is replaced by the picker');
+
+        click(dom, document.getElementById('sm-kind-cancel'));
+        assert.strictEqual(document.getElementById('sm-kind-picker'), null, 'cancel returns to the list');
+        assert.ok(document.getElementById('sm-list'), 'cancel shows the type list again');
+        assert.strictEqual(S.structs.length, 0, 'cancel creates nothing');
+    });
+
+    test('each kind tile opens that kind’s own form', async () => {
+        await createMountedPanel();
+
+        openKindPicker();
+        click(dom, document.querySelector<HTMLElement>('.sm-kind-tile[data-kind="struct"]'));
+        assert.ok(document.querySelector('.se-field-hdr'), 'Struct tile opens the field grid');
+        assert.strictEqual(document.getElementById('se-base-type'), null, 'struct form has no bit-field base select');
+
+        click(dom, document.getElementById('se-cancel'));
+        openKindEditor('bitfield');
+        assert.ok(document.getElementById('se-base-type'), 'Bit-field tile opens the base width select');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'bit-field form has no struct field grid');
+
+        click(dom, document.getElementById('se-cancel'));
+        openKindEditor('enum');
+        assert.ok(document.getElementById('se-enum-base-type'), 'Enum tile opens the enum base width select');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'enum form has no struct field grid');
+    });
+
     test('new type editor saves and renders C preview', async () => {
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         assert.ok(document.getElementById('se-name'));
         assert.ok(document.getElementById('se-preview'));
 
@@ -2284,7 +2336,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         let row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row, 'editor field row should render');
         const ptrBtn = row!.querySelector<HTMLElement>('.sfe-ptr-btn');
@@ -2323,7 +2375,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [scalarDef];
         S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
 
         let row = document.querySelector<HTMLElement>('.struct-field-row');
@@ -2363,15 +2415,15 @@ suite('StructPanel deep-render harness', () => {
             name: 'VoidBit',
             fields: [
                 { name: 'raw', type: 'void', count: 1 },
-                { name: 'ctl', type: 'uint16', count: 1 },
+                { name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 },
             ],
         };
-        S.structs = [voidBitDef];
+        S.structs = [reusableBitsDef(), voidBitDef];
         S.structPins = [];
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="vbd"]'));
 
-        let rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
         // void-typed field renders pointer active (void is always a pointer).
         const voidBtn = rowByName('raw').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
@@ -2379,16 +2431,14 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(voidBtn!.classList.contains('active'), 'void-typed field renders pointer button active');
         assert.strictEqual(voidBtn!.disabled, false, 'void field pointer button is enabled');
 
-        // Bit-field container rows render the button disabled.
-        click(dom, rowByName('ctl').querySelector<HTMLElement>('.sfe-bit-btn'));
-        rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
-        const ctlBtn = rowByName('ctl').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
-        assert.ok(ctlBtn, 'bit-field container row renders a pointer button');
-        assert.strictEqual(ctlBtn!.disabled, true, 'bit-field container rows show the * button disabled');
-        assert.ok(!ctlBtn!.classList.contains('active'), 'bit-field container pointer button is not active');
+        // Bit-field reference rows render the button disabled.
+        const ctlBtn = rowByName('flags').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
+        assert.ok(ctlBtn, 'bit-field reference row renders a pointer button');
+        assert.strictEqual(ctlBtn!.disabled, true, 'bit-field reference rows show the * button disabled');
+        assert.ok(!ctlBtn!.classList.contains('active'), 'bit-field reference pointer button is not active');
     });
 
-    test('editor grid shares 9 columns: Ptr header maps the pointer button cell', async () => {
+    test('editor grid shares 7 columns without bit / alloc columns', async () => {
         const inner: StructDef = {
             id: 'inner',
             name: 'Inner',
@@ -2401,16 +2451,10 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'plain', type: 'uint16', count: 1 },
                 { name: 'p', type: 'void', isPointer: true, count: 1 },
                 { name: 'nested', type: 'struct', refStructId: 'inner', count: 1 },
-                {
-                    name: 'ctl', type: 'uint16', count: 1,
-                    bitFields: [
-                        { name: 'a', bitWidth: 4 },
-                        { name: 'b', bitWidth: 12 },
-                    ],
-                },
+                { name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 },
             ],
         };
-        S.structs = [inner, outer];
+        S.structs = [inner, reusableBitsDef(), outer];
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
 
@@ -2423,145 +2467,109 @@ suite('StructPanel deep-render harness', () => {
         styleEl.textContent = css;
         document.head.appendChild(styleEl);
 
-        const TEMPLATE = '96px 26px 1fr 58px 52px 40px 72px 30px 18px';
+        const TEMPLATE = '96px 26px 1fr 58px 72px 30px 18px';
 
-        // Header: Ptr column sits right after Type.
+        // Header: no Alloc / Bits columns.
         const header = document.querySelector<HTMLElement>('.se-field-hdr');
         assert.ok(header, 'field header should render');
         assert.deepStrictEqual(
             Array.from(header!.querySelectorAll<HTMLElement>(':scope > span')).map(s => s.textContent),
-            ['Type', 'Ptr', 'Name', 'Endian', 'Alloc', 'Bits', '[ ]', '', ''],
-            'header columns Type Ptr Name Endian Alloc Bits [ ] move del',
+            ['Type', 'Ptr', 'Name', 'Endian', '[ ]', '', ''],
+            'header columns Type Ptr Name Endian [ ] move del',
         );
+        assert.strictEqual(header!.querySelectorAll(':scope > span').length, 7, 'seven field columns');
         assert.strictEqual(
             dom.window.getComputedStyle(header!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'field header uses the 9-column shared grid',
+            'field header uses the 7-column shared grid',
         );
 
-        // Struct-default row shares the same 9-column grid.
+        // Struct-default row shares the same 7-column grid.
         const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
         assert.ok(defaultRow, 'struct-default row should render');
         assert.strictEqual(
             dom.window.getComputedStyle(defaultRow!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'struct-default row shares the 9-column grid',
+            'struct-default row shares the 7-column grid',
         );
 
-        // Every field row: 9-column grid, second cell is the pointer button.
+        // No bit-field authoring / alloc controls remain in the pure-struct form.
+        assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no per-field bit toggle');
+        assert.strictEqual(document.querySelector('.sfe-alloc-sel'), null, 'no per-field alloc select');
+        assert.strictEqual(document.querySelector('.sfe-alloc-placeholder'), null, 'no alloc placeholder cell');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level alloc select');
+
+        // Every field row: 7-column grid, second cell is the pointer button.
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         assert.strictEqual(rows.length, 4, 'all four field rows render');
         for (const row of rows) {
             assert.strictEqual(
                 dom.window.getComputedStyle(row).getPropertyValue('grid-template-columns'),
                 TEMPLATE,
-                'field row uses the 9-column grid',
+                'field row uses the 7-column grid',
             );
+            assert.strictEqual(row.children.length, 7, 'field row renders seven cells');
             const btn = row.querySelector<HTMLElement>('.sfe-ptr-btn');
             assert.ok(btn, 'every field row renders the pointer toggle button');
             assert.strictEqual(Array.from(row.children).indexOf(btn!), 1, 'pointer button occupies the second (Ptr) cell');
         }
     });
 
-    test('pointer attach is disabled for bit-field container fields', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [];
-        await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
-        const bitBtn = document.querySelector<HTMLElement>('.sfe-bit-btn');
-        assert.ok(bitBtn, 'bit toggle should render');
-        click(dom, bitBtn);
-        const row = document.querySelector<HTMLElement>('.struct-field-row');
-        assert.ok(row, 'editor field row should re-render after bit toggle');
-        row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const attach = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]');
-        assert.ok(!attach, 'attach pointer should be hidden for bit-field containers');
-        assert.ok(document.querySelector<HTMLElement>('.si-field-menu .menu-item.menu-disabled')?.textContent?.includes('Attach pointer'), 'disabled item should explain bit-field conflict');
-    });
-
-    // ── per-field / per-struct endian + allocation overrides ──
+    // ── per-field / per-struct endian overrides ──
 
     const overrideChange = (dom: JSDOM, sel: HTMLSelectElement): void => {
         sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     };
 
-    test('editor override selects render with Auto option + inherited-source tooltip', async () => {
+    test('editor endian selects render with Auto option + inherited-source tooltip', async () => {
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         const endianSel = document.getElementById('se-endian') as HTMLSelectElement | null;
-        const allocSel = document.getElementById('se-alloc') as HTMLSelectElement | null;
-        assert.ok(endianSel && allocSel, 'struct-level override selects should render');
-        assert.ok(
-            endianSel!.closest('.se-struct-default-row') && allocSel!.closest('.se-struct-default-row'),
-            'struct-level selects live in the grid-aligned struct-default row',
-        );
+        assert.ok(endianSel, 'struct-level endian select should render');
+        assert.ok(endianSel!.closest('.se-struct-default-row'), 'struct-level endian lives in the grid-aligned struct-default row');
         assert.strictEqual(endianSel!.value, '', 'struct endian defaults to inherited');
-        assert.strictEqual(allocSel!.value, '', 'struct allocation defaults to inherited');
         assert.ok(endianSel!.options[0] && endianSel!.options[2], 'struct endian tri-state Auto/LE/BE should render');
         assert.strictEqual(endianSel!.options[0].textContent, 'Auto', 'struct endian Auto option label');
         assert.strictEqual(endianSel!.options[1].textContent, 'LE', 'struct endian LE option label');
         assert.strictEqual(endianSel!.options[2].textContent, 'BE', 'struct endian BE option label');
         assert.strictEqual(endianSel!.options[0].title, 'Auto — inherits LE', 'struct endian Auto tooltip shows global source');
-        assert.strictEqual(allocSel!.options[0].title, 'Auto — inherits MSB', 'struct allocation Auto tooltip shows global source');
         assert.ok(!endianSel!.classList.contains('is-explicit'), 'inherited struct endian is not tinted');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level allocation select');
 
-        // Plain scalar row: field endian select renders, allocation select does not.
+        // Plain row: field endian select renders; no allocation select anywhere.
         const plainRow = document.querySelector<HTMLElement>('.struct-field-row')!;
         const fieldEndian = plainRow.querySelector<HTMLSelectElement>('.sfe-endian-sel');
-        assert.ok(fieldEndian, 'plain scalar row keeps the field endian select');
-        assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain scalar row renders no field allocation select');
-        assert.ok(plainRow.querySelector('.sfe-alloc-placeholder'), 'plain scalar row keeps an empty alloc cell for grid alignment');
+        assert.ok(fieldEndian, 'plain row keeps the field endian select');
+        assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain row renders no field allocation select');
         assert.strictEqual(fieldEndian!.options[0].textContent, 'Auto', 'field endian Auto option label');
         assert.strictEqual(fieldEndian!.options[0].title, 'Auto — inherits LE', 'field endian Auto tooltip shows global when struct has none');
-
-        // Bit-field container row: allocation select renders with the tri-state options.
-        click(dom, plainRow.querySelector<HTMLElement>('.sfe-bit-btn'));
-        const bitRow = document.querySelector<HTMLElement>('.struct-field-row')!;
-        const fieldAlloc = bitRow.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
-        assert.ok(fieldAlloc, 'bit-field container row renders the field allocation select');
-        assert.strictEqual(fieldAlloc!.options[2].textContent, 'MSB', 'field allocation MSB option label');
     });
 
-    test('editor override selects save per-struct and per-field overrides', async () => {
+    test('editor endian selects save per-struct and per-field overrides', async () => {
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         const structEndian = document.getElementById('se-endian') as HTMLSelectElement;
-        const structAlloc = document.getElementById('se-alloc') as HTMLSelectElement;
         structEndian.value = 'be';
-        structAlloc.value = 'msb';
         overrideChange(dom, structEndian);
-        overrideChange(dom, structAlloc);
-        // Struct-level change re-renders the editor — re-query the fresh selects.
+        // Struct-level change re-renders the editor — re-query the fresh select.
         const freshEndian = document.getElementById('se-endian') as HTMLSelectElement;
-        const freshAlloc = document.getElementById('se-alloc') as HTMLSelectElement;
         assert.ok(!freshEndian.classList.contains('is-explicit'), 'explicit struct endian does not tint the select');
-        assert.ok(!freshAlloc.classList.contains('is-explicit'), 'explicit struct allocation does not tint the select');
         // Field endian select shows the struct-level effective source.
         const fieldEndian = document.querySelector<HTMLSelectElement>('.sfe-endian-sel')!;
         assert.strictEqual(fieldEndian.options[0].title, 'Auto — inherits BE', 'field endian Auto tooltip shows struct override');
-        // The allocation select only renders on bit-field containers — make field 0 one.
-        click(dom, document.querySelector<HTMLElement>('.sfe-bit-btn'));
-        const freshFieldEndian = document.querySelector<HTMLSelectElement>('.sfe-endian-sel')!;
-        const fieldAlloc = document.querySelector<HTMLSelectElement>('.sfe-alloc-sel')!;
-        assert.ok(fieldAlloc, 'bit-field container row renders the field allocation select');
-        assert.strictEqual(fieldAlloc.options[0].title, 'Auto — inherits MSB', 'field allocation Auto tooltip shows struct override');
-        freshFieldEndian.value = 'le';
-        fieldAlloc.value = 'lsb';
-        overrideChange(dom, freshFieldEndian);
-        overrideChange(dom, fieldAlloc);
-        assert.ok(!freshFieldEndian.classList.contains('is-explicit'), 'explicit field endian does not tint the select');
-        assert.ok(!fieldAlloc.classList.contains('is-explicit'), 'explicit field allocation does not tint the select');
+        fieldEndian.value = 'le';
+        overrideChange(dom, fieldEndian);
+        assert.ok(!fieldEndian.classList.contains('is-explicit'), 'explicit field endian does not tint the select');
         (document.getElementById('se-name') as HTMLInputElement).value = 'Mixed';
         click(dom, document.getElementById('se-save'));
         const saved = S.structs.find(d => d.name === 'Mixed');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.endian, 'be');
-        assert.strictEqual(saved!.allocation, 'msb');
         assert.strictEqual(saved!.fields[0].endian, 'le');
-        assert.strictEqual(saved!.fields[0].allocation, 'lsb');
+        assert.strictEqual(saved!.fields[0].allocation, undefined, 'pure struct no longer authors field allocation');
     });
 
-    test('struct-default row is grid-aligned; field Alloc select only on bit-field containers', async () => {
+    test('struct-default row is grid-aligned and has no allocation select', async () => {
         const inner: StructDef = {
             id: 'inner',
             name: 'Inner',
@@ -2587,7 +2595,7 @@ suite('StructPanel deep-render harness', () => {
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
 
-        // Struct-default row: one grid row sharing the field grid; packed/endian/alloc slots.
+        // Struct-default row: packed + endian slots; no allocation select.
         const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
         assert.ok(defaultRow, 'struct-default row should render');
         assert.ok(defaultRow!.querySelector('#se-packed'), 'packed toggle sits in the Type column of the struct-default row');
@@ -2597,17 +2605,18 @@ suite('StructPanel deep-render harness', () => {
             'struct-default label sits in the Name column',
         );
         assert.ok(defaultRow!.querySelector('#se-endian'), 'struct endian select sits in the Endian column');
-        assert.ok(defaultRow!.querySelector('#se-alloc'), 'struct allocation select sits in the Alloc column');
+        assert.strictEqual(defaultRow!.querySelector('#se-alloc'), null, 'struct-default row has no allocation select');
         assert.strictEqual(document.querySelector('.se-override-row'), null, 'legacy flex override strip removed');
 
-        // Field rows: allocation select renders only on bit-field container rows; other rows keep an empty cell.
+        // Field rows: no allocation select or placeholder cell anywhere.
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
-        assert.ok(rowByName('plain').querySelector('.sfe-alloc-placeholder'), 'plain scalar row keeps an empty alloc cell');
+        assert.strictEqual(rowByName('plain').querySelector('.sfe-alloc-placeholder'), null, 'no empty alloc cell');
         assert.strictEqual(rowByName('plain').querySelector('.sfe-alloc-sel'), null, 'plain scalar row has no allocation select');
         assert.strictEqual(rowByName('p').querySelector('.sfe-alloc-sel'), null, 'pointer row has no allocation select');
-        assert.strictEqual(rowByName('nested').querySelector('.sfe-alloc-sel'), null, 'nested-struct row has no allocation select (the nested StructDef owns bitfield allocation)');
-        assert.ok(rowByName('ctl').querySelector('.sfe-alloc-sel'), 'bit-field container row renders the allocation select');
+        assert.strictEqual(rowByName('nested').querySelector('.sfe-alloc-sel'), null, 'nested-struct row has no allocation select');
+        assert.strictEqual(rowByName('ctl').querySelector('.sfe-alloc-sel'), null, 'former inline container row has no allocation select');
+        assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no field bit toggle anywhere');
     });
 
     test('decoded rows badge explicit endian/allocation overrides', async () => {
@@ -2710,16 +2719,15 @@ suite('StructPanel deep-render harness', () => {
         assert.match(hdrVal, /0x7856/, 'bit-unit header overall value must render with the effective BE override');
     });
 
-    test('invalid editor bit-field width shows inline error and does not save', async () => {
+    test('invalid struct save shows an inline error and does not save', async () => {
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
-        const typeSel = document.querySelector<HTMLSelectElement>('.sfe-type-sel')!;
-        typeSel.value = 'uint8';
-        overrideChange(dom, typeSel);
-        const bitBtn = document.querySelector<HTMLElement>('.sfe-bit-btn');
-        click(dom, bitBtn);
-        const widthInp = document.querySelector<HTMLInputElement>('.sfe-bf-child-width')!;
-        widthInp.value = '9';
+        openKindEditor('struct');
+        // Two same-named fields are rejected by validation.
+        const nameInps = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-name-inp'));
+        nameInps[0].value = 'dup';
+        click(dom, document.getElementById('se-add'));
+        const afterAdd = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-name-inp'));
+        afterAdd[afterAdd.length - 1].value = 'dup';
         (document.getElementById('se-name') as HTMLInputElement).value = 'Bad';
         click(dom, document.getElementById('se-save'));
         assert.ok(document.querySelector('.se-error'), 'inline error should render on invalid save');
@@ -2730,7 +2738,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [];
         S.structPins = [];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
 
         const setCount = (value: string): void => {
             const row = document.querySelector<HTMLElement>('.struct-field-row')!;
@@ -2752,7 +2760,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [];
         S.structPins = [];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         const row = document.querySelector<HTMLElement>('.struct-field-row')!;
         click(dom, row.querySelector<HTMLElement>('.sfe-arr-toggle'));
         const countInp = document.querySelector<HTMLInputElement>('.sfe-count-inp')!;
@@ -2763,39 +2771,32 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(S.structs[0].fields[0].count, 123456, 'count is preserved, not truncated to 3 digits');
     });
 
-    test('editing bit child width in place refreshes the + Add bit disabled state', async () => {
+    test('bit-field def editor disables Add bit when the base width is fully allocated', async () => {
         S.structs = [];
         S.structPins = [];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
-        const typeSel = document.querySelector<HTMLSelectElement>('.sfe-type-sel')!;
-        typeSel.value = 'uint8';
-        overrideChange(dom, typeSel);
-        click(dom, document.querySelector<HTMLElement>('.sfe-bit-btn'));
+        openKindEditor('bitfield');
 
         const setWidth = (inp: HTMLInputElement, value: string): void => {
             inp.value = value;
             inp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
         };
-        const addBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('.sfe-bf-add-child')!;
+        const addBtn = (): HTMLButtonElement => document.getElementById('se-bf-def-add') as HTMLButtonElement;
 
-        let widths = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width'));
-        setWidth(widths[0]!, '3');
-        click(dom, document.querySelector<HTMLElement>('.sfe-bf-add-child'));
-        widths = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width'));
-        setWidth(widths[1]!, '5');
+        // Seed is uint32 with one child (1 bit) → room remains.
+        assert.strictEqual(addBtn().disabled, false, 'uint32 seed has room for more bits');
 
-        assert.strictEqual(addBtn().disabled, true, '3 + 5 fills the u8 container, add bit disabled');
+        const baseSel = document.getElementById('se-base-type') as HTMLSelectElement;
+        baseSel.value = 'uint8';
+        baseSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        setWidth(document.querySelector<HTMLInputElement>('.sfe-bf-child-width')!, '8');
+        assert.strictEqual(addBtn().disabled, true, '8/8 bits allocated disables Add bit');
 
-        setWidth(widths[0]!, '1');
-        assert.strictEqual(
-            addBtn().disabled,
-            false,
-            '1 + 5 = 6 frees bits, add bit re-enabled without save/reopen',
-        );
+        setWidth(document.querySelector<HTMLInputElement>('.sfe-bf-child-width')!, '1');
+        assert.strictEqual(addBtn().disabled, false, 'freeing bits re-enables Add bit without save/reopen');
     });
 
-    test('editing existing struct preserves predefined endian and allocation', async () => {
+    test('editing a struct preserves a legacy struct allocation it can no longer edit', async () => {
         const preset: StructDef = {
             id: 'preset', name: 'Preset', packed: true, endian: 'be', allocation: 'msb',
             fields: [{ name: 'w', type: 'uint16', count: 1 }],
@@ -2805,22 +2806,21 @@ suite('StructPanel deep-render harness', () => {
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="preset"]'));
         const seEndian = document.getElementById('se-endian') as HTMLSelectElement;
-        const seAlloc = document.getElementById('se-alloc') as HTMLSelectElement;
-        assert.ok(seEndian && seAlloc, 'struct default selects render in editor');
+        assert.ok(seEndian, 'struct endian select renders in editor');
         assert.strictEqual(seEndian.value, 'be', 'predefined struct endian shows in editor');
-        assert.strictEqual(seAlloc.value, 'msb', 'predefined struct allocation shows in editor');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'struct allocation is no longer editable');
         click(dom, document.getElementById('se-save'));
         const saved = S.structs.find(d => d.id === 'preset');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.endian, 'be', 'struct endian persists after save');
-        assert.strictEqual(saved!.allocation, 'msb', 'struct allocation persists after save');
+        assert.strictEqual(saved!.allocation, 'msb', 'legacy struct allocation is preserved through save');
     });
 
-    test('Add Field and Add bit mutate rows in place without replacing the editor container', async () => {
+    test('Add Field mutates rows in place without replacing the editor container', async () => {
         S.structs = [];
         S.structPins = [];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
         const fieldsEl = document.getElementById('se-fields');
         const formEl = document.getElementById('si-types-body');
         const nameInp = document.getElementById('se-name');
@@ -2838,14 +2838,7 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(document.getElementById('se-name'), nameInp, 'Add Field does not replace the name input');
         assert.strictEqual(document.getElementById('se-packed'), packedBtn, 'Add Field does not replace the packed toggle');
         assert.strictEqual(formEl!.scrollTop, 120, 'Add Field keeps the scroll position');
-
-        const bitBtn = document.querySelector<HTMLElement>('.sfe-bit-btn');
-        assert.ok(bitBtn, 'field row first field offers bit toggle');
-        click(dom, bitBtn);
-        assert.strictEqual(document.getElementById('se-fields'), fieldsEl, 'Add bit does not replace #se-fields');
-        assert.strictEqual(document.getElementById('si-types-body'), formEl, 'Add bit does not replace the scroll container');
-        assert.strictEqual(formEl!.scrollTop, 120, 'Add bit keeps the scroll position');
-        assert.ok(document.querySelector('.sfe-bf-child-row'), 'bit child row appended in place');
+        assert.strictEqual(document.querySelectorAll('.struct-field-row').length, 2, 'Add Field appends a row');
         assert.ok(document.querySelector('.se-preview'), 'preview stays mounted after incremental edits');
     });
 
@@ -2853,7 +2846,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [];
         S.structPins = [];
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
 
         // Opens on Edit by default.
         const editView = document.querySelector<HTMLElement>('.se-view[data-se-view="edit"]');
@@ -2950,7 +2943,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
 
         const sel = document.querySelector<HTMLSelectElement>('#se-fields .sfe-type-sel')!;
         assert.ok(sel, 'editor field type select should render');
@@ -2965,10 +2958,10 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [];
 
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-bitfield-btn'));
+        openKindEditor('bitfield');
 
         assert.ok(document.getElementById('se-base-type'), 'bit-field form should render a base width select');
-        assert.strictEqual((document.getElementById('se-base-type') as HTMLSelectElement).value, 'uint8');
+        assert.strictEqual((document.getElementById('se-base-type') as HTMLSelectElement).value, 'uint32');
         assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 1, 'seeded with one child row');
         assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no struct field grid in the bit-field form');
         assert.strictEqual(document.getElementById('se-endian'), null, 'bit-field form edits name + base width + child rows only (no endian select)');
@@ -3008,7 +3001,7 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(S.structs[0].fields.map(f => f.name), ['after']);
     });
 
-    test('editing a struct with a bit-field reference shows the alloc override and a disabled pointer toggle', async () => {
+    test('editing a struct with a bit-field reference blocks the pointer toggle and shows no alloc override', async () => {
         S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
@@ -3017,7 +3010,7 @@ suite('StructPanel deep-render harness', () => {
         const row = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
         assert.ok(row, 'editor should render the referencing field row');
         assert.strictEqual((row.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'bitfield:bits', 'reference should be selected');
-        assert.ok(row.querySelector('.sfe-alloc-sel'), 'bit-field reference row should offer an allocation override');
+        assert.strictEqual(row.querySelector('.sfe-alloc-sel'), null, 'pure-struct form authors no allocation override');
         assert.ok((row.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
     });
 
@@ -3084,7 +3077,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [enumModeDef(), enumUserDef()];
 
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-btn'));
+        openKindEditor('struct');
 
         const sel = document.querySelector<HTMLSelectElement>('#se-fields .sfe-type-sel')!;
         const opt = sel.querySelector<HTMLOptionElement>('option[value="enum:mode"]');
@@ -3110,7 +3103,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [];
 
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-enum-btn'));
+        openKindEditor('enum');
 
         assert.ok(document.getElementById('se-enum-base-type'), 'enum form should render a base width select');
         assert.strictEqual((document.getElementById('se-enum-base-type') as HTMLSelectElement).value, 'uint8');
@@ -3141,7 +3134,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [];
 
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-enum-btn'));
+        openKindEditor('enum');
         (document.getElementById('se-name') as HTMLInputElement).value = 'Mode';
         (document.querySelector('#se-enum-entries .sfe-enum-entry-value') as HTMLInputElement).value = '0x100';
 
@@ -3155,7 +3148,7 @@ suite('StructPanel deep-render harness', () => {
         S.structs = [enumModeDef()];
 
         await createMountedPanel();
-        click(dom, document.getElementById('sm-add-bitfield-btn'));
+        openKindEditor('bitfield');
 
         const enumSel = document.querySelector<HTMLSelectElement>('#se-bf-def-children .sfe-bf-child-enum');
         assert.ok(enumSel, 'bit-field child row should offer an enum picker');
