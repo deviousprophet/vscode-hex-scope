@@ -2,23 +2,23 @@
 
 Ordered checklist. Run the quality gate after each significant step.
 
-- [ ] 1. Add `hidden?: boolean` to `StructField` in `src/core/types.ts`; add
+- [x] 1. Add `hidden?: boolean` to `StructField` in `src/core/types.ts`; add
       the property to `schemas/structs.schema.json` `structField`.
-- [ ] 2. Preserve/drop `hidden` in the struct normalizer consistently with
+- [x] 2. Preserve/drop `hidden` in the struct normalizer consistently with
       existing optional flags.
-- [ ] 3. Add the "Hidden" checkbox to the Struct Types field editor row; wire
+- [x] 3. Add the "Hidden" checkbox to the Struct Types field editor row; wire
       draft read (on save) and draft write (on load/edit).
-- [ ] 4. Add `showHiddenFields` to `ProfileRecord` (empty default false +
+- [x] 4. Add `showHiddenFields` to `ProfileRecord` (empty default false +
       normalizer) and `schemas/profiles.schema.json`.
-- [ ] 5. Thread `showHiddenFields` through `showHiddenFieldsOrDefault`, the
+- [x] 5. Thread `showHiddenFields` through `showHiddenFieldsOrDefault`, the
       `init` + `perFileDataChange` messages, `S.showHiddenFields`,
       `appModel`/`webviewMessageModel`, a `saveShowHiddenFields` message + host
       handler, a panel setter, and a `showHiddenFieldsChanged` invalidation
       effect.
-- [ ] 6. Add the global "show hidden fields" toggle to the Struct Instances
+- [x] 6. Add the global "show hidden fields" toggle to the Struct Instances
       header; report the change and re-render instances without reopening the
       editor.
-- [ ] 7. Filter hidden fields at the decode-to-render seam for leaf, composite,
+- [x] 7. Filter hidden fields at the decode-to-render seam for leaf, composite,
       array, and bit-unit groups; skip hidden containers with their subtree.
 
 ## Validation
