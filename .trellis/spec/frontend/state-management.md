@@ -46,7 +46,7 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 - Repositories are never read from browser feature logic — the webview only consumes typed `ProviderToWebviewMessage` slices.
 - Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer and `bitAllocationOrDefault` the single shared bit-field allocation normalizer (session + webview model); `normalizeProfilesRegistry` in `src/hexScopeStorage.ts` is the single registry normalizer.
-- Struct migration/deduplication belongs in `src/core/structMigration.ts` (`migrateStructDefinitions`, `normalizeStructDefsValue`, `mergeLegacyStructDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code.
+- Struct migration/deduplication belongs in `src/core/structMigration.ts` (`migrateStructDefinitions`, `normalizeStructDefsValue`, `mergeLegacyStructDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code. `normalizeStructDefsValue` additionally runs `migrateInlineBitFields` (from `src/core/structCodec.ts`) after identity dedupe, converting legacy inline bit-fields into reusable `kind:'bitfield'` defs and self-healing the pool once.
 - Legacy Memento keys (global structs v2/v1 + per-file keys, integrity profiles, per-file labels/names/pins/checks/endian) are migrated once per workspace root by `src/hexScopeMigration.ts` and then hard-deleted; the per-dir `profiles/<id>/` registry merges into `profiles.json` once (Memento marker).
 
 ## WebviewToProviderMessage additions (profile actions)
