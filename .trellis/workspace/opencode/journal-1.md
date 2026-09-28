@@ -394,3 +394,40 @@ One New Type chooser with three kinds (struct/bit-field/enum) replacing the stan
 ### Next Steps
 
 - Implement the remaining child 09-27-hidden-struct-fields, then the parent struct-overlay-types integration review.
+
+
+## Session 14: Hide struct fields in the instance view
+<!-- trellis-session: v=2 fp=211318045704c2d5 -->
+
+**Date**: 2026-09-28
+**Task**: Hide struct fields in the instance view
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Added StructField.hidden (persisted, editor Hide checkbox, false omitted) plus a per-profile showHiddenFields toggle in the Struct Instances header. Hidden fields are filtered at the decode-to-render seam by resolving the declared field by path (leaf/composite/nested/array/bit-unit), so containers drop their subtree; decode, offsets, and the C preview are unchanged.
+
+### Main Changes
+
+- types.ts + structs.schema.json: hidden?: boolean; normalizeOptionalFieldFlags preserves true and drops explicit false (identity-preserving, no spurious self-heal).
+- profiles.schema.json + ProfileRecord.showHiddenFields (default false) threaded through showHiddenFieldsOrDefault, init/perFileDataChange, S, appModel/webviewMessageModel, saveShowHiddenFields + host handler, panel setter, and a showHiddenFieldsChanged invalidation effect.
+- structPanel editor Hide checkbox (grid 7->8 columns); global Show hidden toggle re-renders instances without reloading an open editor draft. Specs/docs updated: struct-model, struct-instance-display, type-safety, hexscope-storage, state-management, component-sidebar-struct-panel, docs/HEXSCOPE_STORAGE.md.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `22c67e5` | feat(struct): hide fields in the instance view |
+| `63ec80a` | docs(spec): document hidden fields and the show-hidden toggle |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests && npm test -> 1228 passing, 0 failing.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Parent 09-27-struct-overlay-types integration review (all 4 children archived), then finish-work on the parent.
