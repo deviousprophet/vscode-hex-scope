@@ -424,6 +424,27 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         assert.strictEqual((onDisk as { data: Array<{ bitAllocation: string }> }).data[0].bitAllocation, 'lsb');
     });
 
+    test('profiles default showHiddenFields to false and normalize bad values', () => {
+        assert.strictEqual(emptyProfileRecord('x', 'X').showHiddenFields, false, 'empty record defaults to false');
+        const raw = [
+            { ...emptyProfileRecord('profile_1', 'Boot') },
+            { ...emptyProfileRecord('profile_2', 'App'), showHiddenFields: true },
+            { ...emptyProfileRecord('profile_3', 'Cfg'), showHiddenFields: 'yes' as never },
+        ];
+        const { value } = normalizeProfilesRegistry(raw);
+        assert.strictEqual(value[0].showHiddenFields, false, 'absent showHiddenFields normalizes to false');
+        assert.strictEqual(value[1].showHiddenFields, true);
+        assert.strictEqual(value[2].showHiddenFields, false, 'non-boolean showHiddenFields normalizes to false');
+    });
+
+    test('writeProfileRecord persists showHiddenFields and round-trips through the registry', async () => {
+        await writeProfileRecord(testRoot, { ...emptyProfileRecord('profile_1', 'Boot'), showHiddenFields: true });
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs[0].showHiddenFields, true);
+        const onDisk = await readJsonValue(profilesJsonUri(testRoot));
+        assert.strictEqual((onDisk as { data: Array<{ showHiddenFields: boolean }> }).data[0].showHiddenFields, true);
+    });
+
     test('writeProfileRecord upserts; removeProfileRecord deletes; renameProfileRecord renames', async () => {
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_2', 'App'));

@@ -121,6 +121,9 @@
         "bitFieldsCollapsed": {
           "type": "boolean"
         },
+        "hidden": {
+          "type": "boolean"
+        },
         "endian": {
           "enum": [
             "le",

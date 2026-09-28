@@ -73,6 +73,10 @@
             "msb"
           ]
         },
+        "showHiddenFields": {
+          "type": "boolean",
+          "description": "Global toggle for the Struct Instances view: when true, fields marked hidden in the struct types editor are rendered. Absent = false."
+        },
         "segmentNames": {
           "type": "object",
           "additionalProperties": {

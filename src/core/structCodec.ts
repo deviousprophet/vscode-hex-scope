@@ -101,7 +101,19 @@ export function enumHexDigits(width: number): number {
 
 
 export function normalizeStructField(field: StructField): StructField {
-    return LEGACY_POINTER_NORMALIZERS[field.type]?.(field) ?? normalizePointerModifierField(field);
+    const normalized = LEGACY_POINTER_NORMALIZERS[field.type]?.(field) ?? normalizePointerModifierField(field);
+    return normalizeOptionalFieldFlags(normalized);
+}
+
+/**
+ * Optional display flags are preserved as authored; an explicit `false` is
+ * dropped so saved pools stay minimal (absent = default). Mirrors the
+ * pointer-cleared `bitFieldsCollapsed` handling above.
+ */
+function normalizeOptionalFieldFlags(field: StructField): StructField {
+    if (field.hidden !== false) { return field; }
+    const { hidden: _hidden, ...rest } = field;
+    return rest;
 }
 
 const LEGACY_POINTER_NORMALIZERS: Partial<Record<StructFieldType, (field: StructField) => StructField>> = {

@@ -4,6 +4,7 @@ import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
     structDefKind, materializeBitFieldRefs, migrateInlineBitFields, formatEnumLabel, matchEnumEntry,
+    normalizeStructField,
 } from '../../core/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
@@ -1661,6 +1662,62 @@ suite('enum validation', () => {
             bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'plain' }],
         };
         assert.ok(validateStructs([plain, bits2]).some(e => e.includes('not an enum type')));
+    });
+});
+
+// ── hidden field flag (instance-view only) ────────────────────────
+
+suite('hidden field flag — model + decode/C parity', () => {
+    test('normalizeStructField preserves hidden:true and drops an explicit false', () => {
+        const kept = normalizeStructField({ name: 'reserved', type: 'uint8', count: 1, hidden: true });
+        assert.strictEqual(kept.hidden, true, 'hidden:true is preserved');
+
+        const dropped = normalizeStructField({ name: 'reserved', type: 'uint8', count: 1, hidden: false });
+        assert.strictEqual('hidden' in dropped, false, 'hidden:false is dropped (absent = visible)');
+
+        const absent = normalizeStructField({ name: 'tag', type: 'uint8', count: 1 });
+        assert.strictEqual('hidden' in absent, false, 'an absent hidden key stays absent');
+    });
+
+    function parityDef(hidden: boolean | undefined): StructDef {
+        const reserved: StructField = { name: 'reserved', type: 'uint8', count: 1 };
+        if (hidden !== undefined) { reserved.hidden = hidden; }
+        return {
+            id: 'x', name: 'Header', packed: true, fields: [
+                reserved,
+                { name: 'tag', type: 'uint16', count: 1 },
+                { name: 'nodes', type: 'struct', refStructId: 'child', count: 1 },
+            ],
+        };
+    }
+
+    const child: StructDef = { id: 'child', name: 'Child', packed: true, fields: [{ name: 'inner', type: 'uint8', count: 1 }] };
+
+    test('decode rows, offsets, and values are identical whether or not a field is hidden', () => {
+        setBytesInSegment(0, [0xAB, 0x34, 0x12, 0x7F]);
+        const visible = decodeStruct(parityDef(undefined), 0, getByte, 'le', 'msb', [child]);
+        const hidden = decodeStruct(parityDef(true), 0, getByte, 'le', 'msb', [child]);
+
+        assert.deepStrictEqual(hidden.map(r => ({ name: r.fieldName, off: r.byteOffset, val: r.decoded })),
+            visible.map(r => ({ name: r.fieldName, off: r.byteOffset, val: r.decoded })),
+            'hidden changes neither row set, offsets, nor decoded values');
+        assert.ok(hidden.length > 0, 'decode still emits the hidden field rows');
+    });
+
+    test('structByteSize and structToC are identical with a hidden field', () => {
+        assert.strictEqual(structByteSize(parityDef(true), [child]), structByteSize(parityDef(undefined), [child]));
+        assert.strictEqual(structToC(parityDef(true), [child]), structToC(parityDef(undefined), [child]));
+    });
+
+    test('a hidden bit-field container still decodes every child (filter is render-only)', () => {
+        const def: StructDef = {
+            id: 'x', name: 'Regs', packed: true, fields: [
+                { name: 'ctrl', type: 'uint8', count: 1, hidden: true, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
+            ],
+        };
+        setBytesInSegment(0, [0xA5]);
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.deepStrictEqual(rows.map(r => r.fieldName), ['ctrl.lo', 'ctrl.hi'], 'children decode despite the hidden container');
     });
 });
 

@@ -6,7 +6,7 @@ import type { SegmentLabel, WireParseResult } from '../../core/types';
 import { dispatchProviderMessage } from '../../webview/webviewMessageDispatcher';
 import { S } from '../../webview/state';
 import { applyProviderMessageToModel } from '../../webview/webviewMessageModel';
-import { bitAllocationOrDefault, endianOrDefault } from '../../webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault } from '../../webviewProtocol';
 
 function resetState(): void {
     S.parseResult = null;
@@ -68,6 +68,7 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'be',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -76,6 +77,7 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(S.labels.length, 1);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(S.bitFieldAllocation, 'msb');
+        assert.strictEqual(S.showHiddenFields, false, 'showHiddenFields defaults off on init');
         assert.strictEqual(update.invalidations.fullRender, true);
         assert.deepStrictEqual(update.activeChecks, { schemaVersion: 1, checks: [] });
     });
@@ -94,6 +96,7 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'le',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [{ id: 'p1', name: 'Bootloader v3' }], current: 'p1', boundFileCount: 2 },
         });
@@ -151,6 +154,7 @@ suite('applyProviderMessageToModel()', () => {
             structPins: [],
             endian: 'le',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -213,6 +217,7 @@ labels: [],
             structPins: [],
             endian: 'le',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -229,6 +234,7 @@ labels: [],
             pins,
             endian: 'be',
             bitAllocation: 'lsb',
+            showHiddenFields: true,
             activeChecks,
         });
 
@@ -237,11 +243,13 @@ labels: [],
         assert.deepStrictEqual(S.structPins, pins);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(S.bitFieldAllocation, 'lsb');
+        assert.strictEqual(S.showHiddenFields, true, 'showHiddenFields round-trips from perFileDataChange');
         assert.deepStrictEqual(update.activeChecks, activeChecks);
         assert.strictEqual(update.invalidations.labelsAndMemory, true);
         assert.strictEqual(update.invalidations.structPins, true);
         assert.strictEqual(update.invalidations.endianChanged, true);
         assert.strictEqual(update.invalidations.bitFieldAllocationChanged, true);
+        assert.strictEqual(update.invalidations.showHiddenFieldsChanged, true);
     });
 
     test('profilesState update returns the profileState field so the dropdown re-renders', () => {
@@ -279,6 +287,14 @@ labels: [],
         assert.strictEqual(bitAllocationOrDefault('msb'), 'msb');
         assert.strictEqual(bitAllocationOrDefault('bogus'), 'msb');
         assert.strictEqual(bitAllocationOrDefault(undefined), 'msb');
+    });
+
+    test('showHiddenFieldsOrDefault is the shared single normalizer (defaults off)', () => {
+        assert.strictEqual(showHiddenFieldsOrDefault(true), true);
+        assert.strictEqual(showHiddenFieldsOrDefault(false), false);
+        assert.strictEqual(showHiddenFieldsOrDefault('true'), false);
+        assert.strictEqual(showHiddenFieldsOrDefault(1), false);
+        assert.strictEqual(showHiddenFieldsOrDefault(undefined), false);
     });
 });
 

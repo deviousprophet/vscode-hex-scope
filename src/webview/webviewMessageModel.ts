@@ -2,7 +2,7 @@ import type { CopyCommand } from '../core/byteTools/copyCommand';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from '../core/integrity';
 import type { ProviderToWebviewMessage, ProfileSummary } from '../webviewProtocol';
 import type { SegmentLabel, StructPin } from '../core/types';
-import { bitAllocationOrDefault, endianOrDefault } from '../webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault } from '../webviewProtocol';
 import { S } from './state';
 import {
     addLabel,
@@ -33,6 +33,7 @@ export type WebviewInvalidations = {
     integrityBytesChanged?: boolean;
     endianChanged?: boolean;
     bitFieldAllocationChanged?: boolean;
+    showHiddenFieldsChanged?: boolean;
 };
 
 export type ExternalChangeErrorDetails = {
@@ -163,6 +164,7 @@ function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataCha
     S.structPins = pinArrayOrEmpty(msg.pins);
     S.endian = endianOrDefault(msg.endian);
     S.bitFieldAllocation = bitAllocationOrDefault(msg.bitAllocation);
+    S.showHiddenFields = showHiddenFieldsOrDefault(msg.showHiddenFields);
     const activeChecks = normalizeIntegrityCheckSet(msg.activeChecks);
     return {
         activeChecks: activeChecks ?? undefined,
@@ -173,6 +175,7 @@ function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataCha
             integrityBytesChanged: true,
             endianChanged: true,
             bitFieldAllocationChanged: true,
+            showHiddenFieldsChanged: true,
         },
     };
 }

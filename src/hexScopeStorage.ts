@@ -16,7 +16,7 @@ import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
 import type { BitFieldAllocation, SegmentLabel, StructPin } from './core/types';
-import { bitAllocationOrDefault, endianOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
 /** Current schema version of every profile file. A future/unknown version is refused on read. */
 export const DATA_VERSION = 1;
@@ -51,6 +51,8 @@ export interface ProfileRecord {
     endian: HexScopeEndian;
     /** Global bit-field allocation (LSB-first / MSB-first) for this profile's struct decode. */
     bitAllocation: BitFieldAllocation;
+    /** Global "show hidden fields" toggle for the Struct Instances view. Default false. */
+    showHiddenFields: boolean;
     segmentNames: SegmentNameOverrides;
     labels: SegmentLabel[];
 }
@@ -79,7 +81,7 @@ export function structPoolJsonUri(root: string): vscode.Uri {
 }
 
 export function emptyProfileRecord(id: string, name: string): ProfileRecord {
-    return { id, name, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', segmentNames: {}, labels: [] };
+    return { id, name, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: false, segmentNames: {}, labels: [] };
 }
 
 // ── Version envelope ──────────────────────────────────────────────
@@ -345,6 +347,7 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
         activeChecks: checkSetOrDefault(candidate.activeChecks),
         endian: endianOrDefault(candidate.endian),
         bitAllocation: bitAllocationOrDefault(candidate.bitAllocation),
+        showHiddenFields: showHiddenFieldsOrDefault(candidate.showHiddenFields),
     };
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
 }

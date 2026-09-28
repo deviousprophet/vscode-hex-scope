@@ -108,7 +108,7 @@
 /* Struct-default row: grid-aligned so Endian shares the field grid column */
 .se-struct-default-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 28px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
     margin-top: 3px;
 }
@@ -139,7 +139,7 @@
 
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 28px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -149,7 +149,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 28px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 .struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
@@ -175,6 +175,15 @@
 .sfe-ptr-btn.active:hover                { border-color: var(--err); color: var(--err);
                                            background: rgba(255,80,80,.08); }
 .sfe-ptr-btn:disabled                    { opacity: .35; cursor: not-allowed; }
+
+/* Hidden-in-instance-view checkbox cell */
+.sfe-hidden-cell {
+    display: flex; align-items: center; justify-content: center;
+}
+.sfe-hidden-chk {
+    width: 12px; height: 12px; margin: 0; cursor: pointer;
+    accent-color: var(--high-color);
+}
 
 /* Array cell */
 .sfe-arr-cell {
@@ -326,6 +335,14 @@
     flex-shrink: 0;
 }
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
+
+/* Global "show hidden fields" toggle in the Instances header */
+.si-show-hidden {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
+    cursor: pointer; user-select: none; white-space: nowrap; padding-top: 1px;
+}
+.si-show-hidden input { width: 12px; height: 12px; margin: 0; cursor: pointer; accent-color: var(--high-color); }
 
 /* Inline add form */
 .si-add-form {

@@ -162,6 +162,10 @@ const structPanel = new StructPanel({
         S.bitFieldAllocation = bitAllocation;
         postProviderMessage({ type: 'saveBitAllocation', bitAllocation });
     },
+    onShowHiddenFieldsChange: (showHiddenFields): void => {
+        S.showHiddenFields = showHiddenFields;
+        postProviderMessage({ type: 'saveShowHiddenFields', showHiddenFields });
+    },
 });
 
 /** Persist struct-definition mutations from the Struct panel. */
@@ -196,6 +200,7 @@ function pushStructState(): void {
     structPanel.setData(S.structs, S.structPins);
     structPanel.setEndian(S.endian);
     structPanel.setBitFieldAllocation(S.bitFieldAllocation);
+    structPanel.setShowHiddenFields(S.showHiddenFields);
 }
 
 // ── Integrity panel component ────────────────────────────────────
@@ -1135,6 +1140,11 @@ function applyBitFieldAllocationChanged(): void {
     writeBitAllocationToConsumers(S.bitFieldAllocation);
 }
 
+/** Re-drive the "show hidden fields" consumer. */
+function applyShowHiddenFieldsChanged(): void {
+    structPanel.setShowHiddenFields(S.showHiddenFields);
+}
+
 function applyInvalidations(invalidations: WebviewInvalidations): void {
     if (invalidations.fullRender) {
         render();
@@ -1156,6 +1166,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
         ['endianChanged', applyEndianChanged],
         ['bitFieldAllocationChanged', applyBitFieldAllocationChanged],
+        ['showHiddenFieldsChanged', applyShowHiddenFieldsChanged],
     ];
     for (const [key, effect] of effects) {
         if (invalidations[key]) { effect(); }

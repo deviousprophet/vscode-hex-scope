@@ -21,6 +21,8 @@ export const S = {
     selEnd:       null   as number | null,
     endian:       'le'   as 'le' | 'be',
     bitFieldAllocation: 'msb' as BitFieldAllocation,
+    /** Global "show hidden fields" toggle for the Struct Instances view (per profile). */
+    showHiddenFields: false as boolean,
     searchMode:   'bytes'  as SearchMode,
     searchEndianness: 'auto' as SearchEndianness,
     matchAddrs:   []     as number[],

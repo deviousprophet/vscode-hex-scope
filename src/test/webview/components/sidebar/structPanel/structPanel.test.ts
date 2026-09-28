@@ -1097,6 +1097,62 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(reported, ['lsb', 'msb'], 'toggle reports each explicit allocation for persistence');
     });
 
+    test('Instances "Show hidden" toggle reports the new value and host push is authoritative', async () => {
+        const def: StructDef = {
+            id: 'cfg', name: 'Cfg', fields: [
+                { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                { name: 'tag', type: 'uint8', count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_sh', structId: 'cfg', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x11]);
+
+        const { StructPanel } = await import('../../../../../webview/components/sidebar/structPanel/structPanel.js');
+        const reported: boolean[] = [];
+        const panel = new StructPanel({
+            readByte: getByte,
+            onShowHiddenFieldsChange: value => { reported.push(value); },
+        });
+        panel.setData(S.structs, S.structPins);
+        panel.setTabActive(true);
+        panel.mount(document.getElementById('s-struct-pins')!);
+        click(dom, document.querySelector<HTMLElement>('.si-expand-btn'));
+
+        const names = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
+            .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
+        assert.deepStrictEqual(names(), ['tag'], 'hidden field omitted by default');
+
+        const chk = document.getElementById('si-show-hidden-chk') as HTMLInputElement;
+        assert.ok(chk, 'show-hidden toggle renders in the Instances header');
+        chk.checked = true;
+        chk.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.deepStrictEqual(reported, [true], 'toggle reports the new value for persistence');
+        assert.deepStrictEqual(names(), ['reserved', 'tag'], 'toggle reveals the hidden field immediately');
+
+        panel.setShowHiddenFields(false);
+        assert.deepStrictEqual(names(), ['tag'], 'host push (setShowHiddenFields) is authoritative on refresh');
+    });
+
+    test('toggling Show hidden refreshes only the instances and leaves an open editor draft intact', async () => {
+        S.structs = [scalarDef];
+        S.structPins = [];
+        await createMountedPanel();
+        openKindEditor('struct');
+
+        const nameInp = document.getElementById('se-name') as HTMLInputElement;
+        assert.ok(nameInp, 'editor opens');
+        nameInp.value = 'EditedButUnsaved';
+
+        setShowHidden(true);
+
+        assert.strictEqual(
+            (document.getElementById('se-name') as HTMLInputElement).value,
+            'EditedButUnsaved',
+            'the Types editor body is not rebuilt by the instances-only refresh',
+        );
+    });
+
     test('renders scalar values using shared byte order', async () => {
         const fields: StructDef['fields'] = [
             { name: 'u16', type: 'uint16', count: 1 },
@@ -2438,7 +2494,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(!ctlBtn!.classList.contains('active'), 'bit-field reference pointer button is not active');
     });
 
-    test('editor grid shares 7 columns without bit / alloc columns', async () => {
+    test('editor grid shares 8 columns without bit / alloc columns', async () => {
         const inner: StructDef = {
             id: 'inner',
             name: 'Inner',
@@ -2467,30 +2523,30 @@ suite('StructPanel deep-render harness', () => {
         styleEl.textContent = css;
         document.head.appendChild(styleEl);
 
-        const TEMPLATE = '96px 26px 1fr 58px 72px 30px 18px';
+        const TEMPLATE = '96px 26px 1fr 58px 28px 72px 30px 18px';
 
-        // Header: no Alloc / Bits columns.
+        // Header: no Alloc / Bits columns; Hide is the new checkbox column.
         const header = document.querySelector<HTMLElement>('.se-field-hdr');
         assert.ok(header, 'field header should render');
         assert.deepStrictEqual(
             Array.from(header!.querySelectorAll<HTMLElement>(':scope > span')).map(s => s.textContent),
-            ['Type', 'Ptr', 'Name', 'Endian', '[ ]', '', ''],
-            'header columns Type Ptr Name Endian [ ] move del',
+            ['Type', 'Ptr', 'Name', 'Endian', 'Hide', '[ ]', '', ''],
+            'header columns Type Ptr Name Endian Hide [ ] move del',
         );
-        assert.strictEqual(header!.querySelectorAll(':scope > span').length, 7, 'seven field columns');
+        assert.strictEqual(header!.querySelectorAll(':scope > span').length, 8, 'eight field columns');
         assert.strictEqual(
             dom.window.getComputedStyle(header!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'field header uses the 7-column shared grid',
+            'field header uses the 8-column shared grid',
         );
 
-        // Struct-default row shares the same 7-column grid.
+        // Struct-default row shares the same 8-column grid.
         const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
         assert.ok(defaultRow, 'struct-default row should render');
         assert.strictEqual(
             dom.window.getComputedStyle(defaultRow!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'struct-default row shares the 7-column grid',
+            'struct-default row shares the 8-column grid',
         );
 
         // No bit-field authoring / alloc controls remain in the pure-struct form.
@@ -2499,20 +2555,58 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(document.querySelector('.sfe-alloc-placeholder'), null, 'no alloc placeholder cell');
         assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level alloc select');
 
-        // Every field row: 7-column grid, second cell is the pointer button.
+        // Every field row: 8-column grid, second cell is the pointer button, Hide checkbox in cell 5.
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         assert.strictEqual(rows.length, 4, 'all four field rows render');
         for (const row of rows) {
             assert.strictEqual(
                 dom.window.getComputedStyle(row).getPropertyValue('grid-template-columns'),
                 TEMPLATE,
-                'field row uses the 7-column grid',
+                'field row uses the 8-column grid',
             );
-            assert.strictEqual(row.children.length, 7, 'field row renders seven cells');
+            assert.strictEqual(row.children.length, 8, 'field row renders eight cells');
             const btn = row.querySelector<HTMLElement>('.sfe-ptr-btn');
             assert.ok(btn, 'every field row renders the pointer toggle button');
             assert.strictEqual(Array.from(row.children).indexOf(btn!), 1, 'pointer button occupies the second (Ptr) cell');
+            const hide = row.querySelector<HTMLElement>('.sfe-hidden-chk');
+            assert.ok(hide, 'every field row renders the Hide checkbox');
+            assert.strictEqual(row.querySelector<HTMLElement>('.sfe-hidden-cell')!.querySelector('.sfe-hidden-chk'), hide, 'Hide checkbox occupies the Hide cell');
         }
+    });
+
+    test('Hide checkbox reflects a loaded hidden field and saves the flag (false dropped)', async () => {
+        const def: StructDef = {
+            id: 'cfg', name: 'Cfg', fields: [
+                { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                { name: 'tag', type: 'uint8', count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [];
+        await createMountedPanel();
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="cfg"]'));
+
+        const rows = document.querySelectorAll<HTMLElement>('.struct-field-row');
+        const chkFor = (name: string): HTMLInputElement => {
+            const row = Array.from(rows).find(r =>
+                (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
+            return row.querySelector('.sfe-hidden-chk') as HTMLInputElement;
+        };
+        assert.strictEqual(chkFor('reserved').checked, true, 'loaded hidden:true field shows checked');
+        assert.strictEqual(chkFor('tag').checked, false, 'visible field shows unchecked');
+
+        chkFor('reserved').checked = false;
+        chkFor('reserved').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        chkFor('tag').checked = true;
+        chkFor('tag').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        click(dom, document.getElementById('se-save'));
+
+        const saved = S.structs.find(d => d.id === 'cfg')!;
+        const reserved = saved.fields.find(f => f.name === 'reserved')!;
+        const tag = saved.fields.find(f => f.name === 'tag')!;
+        assert.strictEqual(reserved.hidden, undefined, 'unchecked field drops hidden (false is never persisted)');
+        assert.strictEqual(tag.hidden, true, 'checked field persists hidden:true');
+        assert.strictEqual(JSON.stringify(reserved).includes('hidden'), false, 'false value is omitted from the serialized field');
     });
 
     // ── per-field / per-struct endian overrides ──
@@ -3193,5 +3287,88 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(S.structs.map(d => d.id), ['bits', 'user']);
         assert.strictEqual(S.structs[0].bitFields![0].refStructId, undefined);
         assert.deepStrictEqual(S.structs[1].fields, []);
+    });
+
+    // ── hidden fields (Struct Instances view filter) ──────────────
+
+    function topFieldNames(): string[] {
+        return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
+            .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
+    }
+
+    function setShowHidden(checked: boolean): void {
+        const chk = document.getElementById('si-show-hidden-chk') as HTMLInputElement | null;
+        assert.ok(chk, 'show-hidden toggle should render');
+        chk!.checked = checked;
+        chk!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    }
+
+    function hiddenFixture(): void {
+        const child: StructDef = {
+            id: 'child', name: 'ChildNode', packed: true, fields: [
+                { name: 'tag', type: 'uint8', count: 1 },
+                { name: 'secret', type: 'uint8', count: 1, hidden: true },
+            ],
+        };
+        const root: StructDef = {
+            id: 'root', name: 'Root', packed: true, fields: [
+                { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                { name: 'tag', type: 'uint16', count: 1 },
+                { name: 'ctrl', type: 'uint8', count: 1, hidden: true, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
+                { name: 'nodes', type: 'struct', refStructId: 'child', count: 2 },
+                { name: 'data', type: 'uint8', count: 2, hidden: true },
+            ],
+        };
+        S.structs = [child, root];
+        S.structPins = [{ id: 'pin_hidden', structId: 'root', addr: 0, name: 'rootInst' }];
+        setBytesInSegment(0, [0x00, 0x34, 0x12, 0xA5, 0x01, 0x02, 0x03, 0x04, 0x08, 0x09]);
+    }
+
+    test('omits hidden leaf / container / array groups by default; reveals them when toggled on', async () => {
+        hiddenFixture();
+        await renderPinsAndExpandCard();
+
+        assert.deepStrictEqual(topFieldNames(), ['tag', 'nodes'], 'hidden field, container, and array are omitted by default');
+
+        setShowHidden(true);
+        assert.deepStrictEqual(topFieldNames(), ['reserved', 'tag', 'ctrl', 'nodes', 'data'], 'toggle on reveals every hidden group');
+    });
+
+    test('a hidden bit-field container hides all of its children (no per-bit-child control)', async () => {
+        hiddenFixture();
+        await renderPinsAndExpandCard();
+
+        const ctrlGroup = (): HTMLElement | undefined =>
+            Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp'))
+                .find(g => g.querySelector<HTMLElement>('.si-f-name')?.textContent === 'ctrl');
+        assert.strictEqual(ctrlGroup(), undefined, 'hidden bit-field container group is not rendered');
+
+        setShowHidden(true);
+        const group = ctrlGroup();
+        assert.ok(group, 'toggle on reveals the bit-field container group');
+        click(dom, group!.querySelector<HTMLElement>('.si-arr-exp-btn'));
+        const childNames = Array.from(group!.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(childNames, ['lo', 'hi'], 'revealing the container reveals its bit children');
+    });
+
+    test('a hidden nested-struct leaf is dropped from its visible container subtree', async () => {
+        hiddenFixture();
+        await renderPinsAndExpandCard();
+
+        const nodesGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp')!;
+        click(dom, nodesGroup.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn'));
+        click(dom, document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn'));
+
+        const firstElement = document.querySelector<HTMLElement>('.si-arr-el-grp')!;
+        const nestedNames = Array.from(firstElement.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(nestedNames, ['tag'], 'visible nested leaf renders, hidden nested leaf is dropped');
+
+        setShowHidden(true);
+        const firstElementAfter = document.querySelector<HTMLElement>('.si-arr-el-grp')!;
+        const revealed = Array.from(firstElementAfter.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
+            .map(el => el.textContent ?? '');
+        assert.deepStrictEqual(revealed, ['tag', 'secret'], 'toggle on reveals the nested hidden leaf too');
     });
 });

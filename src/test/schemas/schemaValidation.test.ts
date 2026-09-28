@@ -124,6 +124,29 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
     });
 
+    test('structs.json accepts a hidden field flag on a leaf and a bit-field container', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        const data = [
+            {
+                id: 's1', name: 'Config', fields: [
+                    { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                    { name: 'ctrl', type: 'uint8', count: 1, hidden: true, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
+                    { name: 'tag', type: 'uint8', count: 1, hidden: false },
+                ],
+            },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts a showHiddenFields profile flag', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [
+            { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: true },
+            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
     test('integrity checks nested in a profile accept full configs', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{
@@ -158,6 +181,17 @@ suite('hexScope schemas — negative cases', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'sideways' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('non-boolean hidden fails structs.json and non-boolean showHiddenFields fails profiles.json', () => {
+        const structs = loadSchema('structs.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(structs.schema, structsEnvelope([{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, hidden: 'yes' }] }])),
+            [],
+        );
+        const profile = loadSchema('profiles.schema.json');
+        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: 'yes' }];
+        assert.notDeepStrictEqual(errorsFor(profile.schema, profileEnvelope(data)), []);
     });
 
     test('unknown type enum fails structs.json', () => {

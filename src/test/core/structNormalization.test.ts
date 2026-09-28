@@ -149,16 +149,16 @@ suite('normalizeStructDefsValue() — inline bit-field migration', () => {
     });
 
     test('preserves usage-scoped overrides (name/count/endian/allocation/hidden) and clears the collapse flag', () => {
-        // `hidden` is not declared on StructField but legacy pools may carry it;
-        // migration must pass every usage-scoped key through on the referencing field.
-        const legacyField: StructField & { hidden?: boolean } = {
+        // Every usage-scoped key (now including the first-class `hidden`) must
+        // pass through onto the referencing field.
+        const legacyField: StructField = {
             name: 'status', type: 'uint16', count: 1, endian: 'be', allocation: 'lsb', hidden: true,
             bitFieldsCollapsed: true,
             bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }],
         };
         const legacy: StructDef[] = [{ id: 'regs', name: 'Regs', fields: [legacyField] }];
         const result = normalizeStructDefsValue(legacy);
-        const field = result.defs[0].fields[0] as StructField & { hidden?: boolean };
+        const field = result.defs[0].fields[0];
         assert.strictEqual(field.type, 'bitfield');
         assert.strictEqual(field.name, 'status', 'field name preserved');
         assert.strictEqual(field.count, 1, 'count preserved');
@@ -203,5 +203,36 @@ suite('normalizeStructDefsValue() — inline bit-field migration', () => {
         assert.strictEqual(result.changed, true);
         assert.strictEqual(result.defs.filter(d => d.kind === 'bitfield').length, 1, 'reuses the existing def');
         assert.strictEqual(result.defs.find(d => d.id === 'leaf')!.fields[0].refStructId, 'bits');
+    });
+});
+
+suite('normalizeStructDefsValue() — hidden field flag', () => {
+    test('keeps hidden:true on a plain field through a clean round-trip', () => {
+        const pool: StructDef[] = [
+            { id: 'header', name: 'Header', fields: [
+                { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                { name: 'tag', type: 'uint8', count: 1 },
+            ] },
+        ];
+        const result = normalizeStructDefsValue(pool);
+        assert.strictEqual(result.changed, false, 'hidden is a supported key: no self-heal write');
+        assert.strictEqual(result.defs[0], pool[0], 'clean pool keeps its reference');
+        assert.strictEqual(result.defs[0].fields[0].hidden, true, 'hidden survives the round-trip');
+    });
+
+    test('an old file without hidden loads unchanged with every field visible', () => {
+        const legacy: StructDef[] = [
+            { id: 'header', name: 'Header', packed: true, fields: [
+                { name: 'tag', type: 'uint8', count: 1 },
+                { name: 'size', type: 'uint16', count: 1, endian: 'be' },
+            ] },
+        ];
+        const result = normalizeStructDefsValue(legacy);
+        assert.strictEqual(result.changed, false, 'old file stays minimal (no key added)');
+        assert.strictEqual(result.defs[0], legacy[0], 'old def keeps its reference');
+        for (const field of result.defs[0].fields) {
+            assert.strictEqual(field.hidden, undefined, 'absent hidden means visible');
+        }
+        assert.strictEqual('hidden' in result.defs[0].fields[0], false, 'no hidden key is materialized');
     });
 });

@@ -123,6 +123,10 @@ export interface StructField {
     count: number;
     /** Whether the bit-field detail editor is collapsed. Only applies to BitField containers. */
     bitFieldsCollapsed?: boolean;
+    /** When true, this field/container is omitted from the Struct Instances view unless the
+     *  global "show hidden fields" toggle is on. Absent/false = visible. Instance-view only:
+     *  decode, offsets, and the C preview are unaffected. */
+    hidden?: boolean;
     /** Explicit byte order for this field's multi-byte value / bit-field unit.
      *  Absent = inherit (field beats struct beats nested parents beats global overlay).
      *  Ignored for pointer values (always decode with the global overlay endian). */

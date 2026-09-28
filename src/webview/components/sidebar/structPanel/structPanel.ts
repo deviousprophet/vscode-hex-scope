@@ -46,6 +46,8 @@ export interface StructCallbacks {
     onClearHighlightHex?: (cls: string) => void;
     /** Global bit-field allocation toggle (MSB/LSB in bit-layout detail) → host persists. */
     onBitAllocationChange?: (bitAllocation: BitFieldAllocation) => void;
+    /** Global "show hidden fields" toggle (Struct Instances header) → host persists. */
+    onShowHiddenFieldsChange?: (showHiddenFields: boolean) => void;
 }
 
 const MAX_INLINE_POINTER_HOPS = 2;
@@ -190,6 +192,8 @@ export class StructPanel {
     private _pins: StructPin[] = [];
     private _endian: 'le' | 'be' = 'le';
     private _bitFieldAllocation: BitFieldAllocation = 'msb';
+    /** Global "show hidden fields" toggle for the instance view (host-owned, pushed). */
+    private _showHiddenFields = false;
     private _activeStructAddr: number | null = null;
     /** Whether the struct tab is the active sidebar tab (host pushes; guards add/edit address input sync). */
     private _tabActive = false;
@@ -385,6 +389,12 @@ setEndian(endian: 'le' | 'be'): void {
 /** Bit-field allocation source (host pushes S.bitFieldAllocation). */
 setBitFieldAllocation(alloc: BitFieldAllocation): void {
     this._bitFieldAllocation = alloc;
+    this.render();
+}
+
+/** "Show hidden fields" source (host pushes S.showHiddenFields). */
+setShowHiddenFields(show: boolean): void {
+    this._showHiddenFields = show;
     this.render();
 }
 
@@ -824,6 +834,15 @@ private activeClassAttr(isActive: boolean): string {
         return isArr ? 'Remove array' : 'Make array';
     }
 
+    private fieldHiddenCellHtml(f: StructField): string {
+        const title = 'Hide this field in the Struct Instances view';
+        return (
+            `<span class="sfe-hidden-cell" title="${title}">` +
+            `<input type="checkbox" class="sfe-hidden-chk" title="${title}" aria-label="${title}"${f.hidden === true ? ' checked' : ''}>` +
+            `</span>`
+        );
+    }
+
     private fieldArrayCellHtml(f: StructField): string {
         const isArr = f.count > 1;
         const toggleLabel = this.arrayToggleLabel(isArr);
@@ -911,6 +930,7 @@ private fieldRowHtml(
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
         this.overrideSelectHtml(f.endian, 'sfe-endian-sel', undefined, inheritedEndian) +
+        this.fieldHiddenCellHtml(f) +
         this.fieldArrayCellHtml(f) +
         this.fieldMoveButtonsHtml(i, total) +
         delCell +
@@ -1112,7 +1132,7 @@ private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
         `<span class="se-struct-default-lbl">struct default</span>` +
         this.overrideSelectHtml(draft.endian, 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
         `</div>` +
-        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>[ ]</span><span></span><span></span></div>` +
+        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
@@ -1614,6 +1634,13 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
             this.refreshEditorPreview(sec, draft);
         });
     });
+
+    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-hidden-chk').forEach(chk => {
+        chk.addEventListener('change', () => {
+            this.syncEditorDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
 }
 
 /**
@@ -1684,6 +1711,7 @@ private readEditorFieldRow(row: HTMLElement): StructField {
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
         endian: this.readEndianOverride((row.querySelector('.sfe-endian-sel') as HTMLSelectElement | null)?.value),
+        hidden: (row.querySelector('.sfe-hidden-chk') as HTMLInputElement | null)?.checked || undefined,
     };
 }
 
@@ -2160,6 +2188,7 @@ private structInstancesBodyHtml(addFormHtml: string, instHtml: string): string {
     return (
         `<div class="si-hdr-row">` +
         this.bitLayoutToggleHtml() +
+        this.showHiddenToggleHtml() +
         `</div>` +
         `<div id="si-list">${instHtml}</div>`
     );
@@ -2173,6 +2202,18 @@ private bitLayoutToggleHtml(): string {
         `<button id="sa-btn-bit-msb" class="${this._bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
         `</div>` +
         `</div>`
+    );
+}
+
+/** Global "show hidden fields" toggle (Struct Instances header). Off = hidden fields omitted. */
+private showHiddenToggleHtml(): string {
+    const title = 'Show fields marked hidden in the Struct Types editor';
+    return (
+        `<label class="si-show-hidden" title="${title}">` +
+        `<input type="checkbox" id="si-show-hidden-chk"${this._showHiddenFields ? ' checked' : ''} ` +
+               `title="${title}" aria-label="${title}">` +
+        `<span>Show hidden</span>` +
+        `</label>`
     );
 }
 
@@ -2248,6 +2289,7 @@ private wireStructPinsPanel(sec: HTMLElement): void {
     this.wireTypesPanelControls(sec);
     this.wireAddStructPinControls(sec);
     this.wireBitLayoutTabs(sec);
+    this.wireShowHiddenToggle(sec);
 }
 
     private wireTypesPanelControls(sec: HTMLElement): void {
@@ -2331,6 +2373,37 @@ private wireBitLayoutTabs(sec: HTMLElement): void {
         if (this._expanded.size > 0) { this.render(); }
         this.cb.onBitAllocationChange?.(this._bitFieldAllocation);
     });
+}
+
+/**
+ * Global "show hidden fields" toggle. Flips the local view flag, reports the
+ * change so the host persists it per profile, and refreshes only the instances
+ * body in place — an open Types editor draft is left untouched (never reloaded).
+ */
+private wireShowHiddenToggle(sec: HTMLElement): void {
+    sec.querySelector('#si-show-hidden-chk')?.addEventListener('change', e => {
+        const show = (e.target as HTMLInputElement).checked;
+        this._showHiddenFields = show;
+        this.cb.onShowHiddenFieldsChange?.(show);
+        this.refreshInstances();
+    });
+}
+
+/** Re-render just the Struct Instances body + its listeners (Types editor untouched). */
+private refreshInstances(): void {
+    const sec = this._root;
+    if (!sec || !this.sections) { return; }
+    this.prepareStructPanelState();
+    this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
+        this.addPinFormOrEmpty(),
+        this.instanceCardsHtml(),
+    );
+    this.updateHeaderActions();
+    this.hydrateStructPreviews(sec);
+    this.wireAddStructPinControls(sec);
+    this.wireBitLayoutTabs(sec);
+    this.wireShowHiddenToggle(sec);
+    this.wireInstanceCards(sec);
 }
 
 private confirmStructPin(): void {
@@ -3650,6 +3723,7 @@ private renderStructChildren(ctx: StructRenderContext, structRows: DecodedField[
 }
 
 private renderNestedStructGroup(ctx: StructRenderContext, ng: NestedFieldGroup, parentKey: string): string {
+    if (this.isHiddenDeclaredField(ctx.def, ng.fullBase)) { return ''; }
     const info = this.describeStructGroup(ctx.def, ng.rows, ng.fullBase);
     if (this.isStructPointerRows(ng.rows)) {
         return this.renderStructPointerRows(ctx, ng.rows, parentKey, ng.baseRel, info);
@@ -3735,7 +3809,22 @@ private renderStructArrayElements(
 }
 
 private renderStructFieldGroups(ctx: StructRenderContext, rows: DecodedField[]): string {
-    return this.groupRowsByBase(rows).map(g => this.renderStructFieldGroup(ctx, g)).join('');
+    return this.groupRowsByBase(rows)
+        .filter(g => !this.isHiddenDeclaredField(ctx.def, g.baseName))
+        .map(g => this.renderStructFieldGroup(ctx, g))
+        .join('');
+}
+
+/**
+ * Whether the declaration at `fieldPath` is marked hidden. Resolved through
+ * the def by full dotted path so leaf, composite, nested-struct, array, and
+ * bit-unit-container groups are all covered uniformly; a hidden container
+ * drops its whole subtree (its rows never reach a group). The global toggle
+ * short-circuits to "visible".
+ */
+private isHiddenDeclaredField(def: StructDef, fieldPath: string): boolean {
+    if (this._showHiddenFields) { return false; }
+    return resolveStructFieldByPath(def, fieldPath, this._structs)?.field.hidden === true;
 }
 
 private renderStructFieldGroup(ctx: StructRenderContext, g: FieldGroup): string {
