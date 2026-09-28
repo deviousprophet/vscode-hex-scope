@@ -19,7 +19,7 @@ External/persisted values start as `unknown`, are normalized once, then become t
 - struct-definition migration helpers in `HexEditorSession`
 - `isCopyCommand` and `isAnalyzeCommand` for command strings
 
-`StructDef`/`StructField` carry optional `endian?: 'le' | 'be'` and `allocation?: 'lsb' | 'msb'` overrides. Absent = inherit (field beats struct beats nested parents beats global overlay); validation rejects any other value (`validateStructs` + structs JSON schema enums). Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched — that key is a first-class override again, not stripped. Loaded defs stay lenient: normalization preserves the keys, pointers always resolve to the global overlay endian for value decode.
+`StructDef`/`StructField` carry optional `endian?: 'le' | 'be'` and `allocation?: 'lsb' | 'msb'` overrides. Absent = inherit (field beats struct beats nested parents beats global overlay); validation rejects any other value (`validateStructs` + structs JSON schema enums). Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched — that key is a first-class override again, not stripped. Loaded defs stay lenient: normalization preserves the keys, pointers always resolve to the global overlay endian for value decode. `StructField.hidden?: boolean` is a display-only flag: it normalizes/persists like the other optional keys (absent/false = visible; explicit false dropped) and never influences size/decode/C. The bound profile's `showHiddenFields: boolean` is normalized once by `showHiddenFieldsOrDefault` (the shared boundary normalizer).
 
 Use discriminated result unions for expected validation failures:
 

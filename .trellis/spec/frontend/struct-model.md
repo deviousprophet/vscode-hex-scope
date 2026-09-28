@@ -20,6 +20,7 @@ interface StructField {
     count: number;
     endian?: 'le' | 'be';        // override; absent = inherit
     allocation?: 'lsb' | 'msb';  // override; absent = inherit (bit-field units)
+    hidden?: boolean;            // instance-view only; absent/false = visible
 }
 interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; endian?: 'le' | 'be'; allocation?: 'lsb' | 'msb';
                       kind?: 'struct' | 'bitfield' | 'enum'; // absent = plain struct
@@ -54,7 +55,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 
 > **Gotcha**: a `kind: 'bitfield'` def's own optional `endian`/`allocation` keys pass schema/validation but are **not** applied by `materializeBitFieldRefs` — usage-scoped overrides live on the referencing `StructField`. Do not add def-level bitfield defaults without defining precedence. Also, sizing a `kind: 'bitfield'` def **directly** returns `0` (its `fields` is `[]`): always size/decode through a referencing field, and keep non-`'struct'` kinds out of `pinnableStructs()` / pin-card creation.
 - Field `count` is at least one and has **no upper cap** — the struct editor accepts any positive integer (element count is layout metadata, never allocated up front). Validators only reject `count < 1` / non-integer. Keep it that way: do not reintroduce a hard clamp (e.g. `Math.min(v, 256)`) in editor or parser paths. `isPointer` changes storage to pointer-width/address semantics while `type`/`refStructId` describe target.
-- `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped).
+- `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped). The optional `hidden` display flag likewise passes through (preserved when `true`); an explicit `false` is dropped so saved pools stay minimal (absent = visible). `hidden` is **instance-view only** — it never affects size, offsets, decode, address math, or the C preview. Legacy inline-container migration keeps `hidden` on the referencing field via the same usage-scoped pass-through.
 - `decodeStruct` resolves both concerns per field as `field.<x> ?? containing-struct.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats struct beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
 - Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched (first-class override again, not stripped); absent keys = inherit = prior behavior.
 - Natural layout aligns fields and total size unless `packed` is true. Nested definitions participate in size/alignment.

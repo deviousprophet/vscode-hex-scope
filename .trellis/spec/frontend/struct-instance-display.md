@@ -44,6 +44,7 @@ export interface StructField {
     bitFields?: BitFieldChild[];
     count: number;
     bitFieldsCollapsed?: boolean;
+    hidden?: boolean;
 }
 
 export interface StructDef {
@@ -115,6 +116,15 @@ preserving the behavior contracts below.
   values with unavailable targets use status text, not missing-data text.
 - Accessibility contract: every mouse interaction has the keyboard/accessibility
   equivalent defined below.
+- Hidden-field contract: a field/container whose declared `StructField.hidden === true`
+  is omitted from the rendered rows. The filter runs at the decode-to-render seam
+  (group the decoded rows, drop a group whose declaration resolves hidden by full
+  field path), so decode, offsets/address math, and the C preview are unaffected.
+  A hidden container drops its whole subtree (leaf, composite, nested struct, array,
+  and bit-unit children alike). Hidden is field/container level only — there is no
+  per-bit-child hidden control. The Struct Instances header owns one global
+  "show hidden fields" toggle (default off, persisted per profile); turning it on
+  re-renders the instances with the hidden groups revealed, without reopening the editor.
 - No environment keys or external API payloads participate in this feature.
 
 ### 4. Validation & Error Matrix
@@ -133,6 +143,7 @@ preserving the behavior contracts below.
 | Type label exceeds available width | Middle-compact visible label, CSS-clip as needed, preserve full accessible tooltip text. |
 | Duplicate local leaf name | Add stable `#2`, `#3`, ... suffixes. |
 | Bitfield pointer or pointer array requested | Treat as unsupported/future; do not synthesize target semantics. |
+| Field/container marked `hidden` | Omit the group and its whole subtree from the instance view (unless the global toggle is on); decode, offsets, and the C preview stay unchanged. |
 
 ### 5. Good/Base/Bad Cases
 

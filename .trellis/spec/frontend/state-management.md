@@ -34,24 +34,24 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 ## Persistence Scope
 
-- Per-firmware-document state (labels, segment name overrides, struct pins, active integrity check set, endian, bit-field allocation) lives in the file's **bound `ProfileRecord`** inside `.hexscope/profiles.json`, keyed by a `bindings.json` entry (`fileKey → profileId`).
+- Per-firmware-document state (labels, segment name overrides, struct pins, active integrity check set, endian, bit-field allocation, show-hidden-fields) lives in the file's **bound `ProfileRecord`** inside `.hexscope/profiles.json`, keyed by a `bindings.json` entry (`fileKey → profileId`).
 - Shared/global state (struct definitions) lives in the workspace pool `.hexscope/structs.json`; integrity profiles were removed — checks live only as `activeChecks` inside a `ProfileRecord`.
 - Single-file profile registry: `.hexscope/profiles.json` holds the whole `ProfileRecord[]` array (one file for all profiles, order preserved, ids unique). No per-profile directories.
 - Host adapter: `src/hexScopeStorage.ts` owns all `.hexscope/` I/O (envelope read/write, per-slot `JsonStore`, registry-array lookup/upsert/delete, watcher). Normalization functions are injected per slot from the owning module.
 - Per-session wiring: `src/hexEditorSession.ts` opens the root `registryStore: JsonStore<ProfileRecord[]>` + pool store, applies per-file mutations through `withBoundProfile(patch)` (materialize when unbound; in-memory `boundProfileCache` for out-of-workspace non-explicit; explicit Save materializes), and broadcasts genuine external edits to the webview (silent auto-apply — no prompt dialogs):
 
-  - `profiles.json` bound-record changes → `perFileDataChange` (labels/segmentNames/pins/endian/bitAllocation/activeChecks).
+  - `profiles.json` bound-record changes → `perFileDataChange` (labels/segmentNames/pins/endian/bitAllocation/showHiddenFields/activeChecks).
   - `profiles.json` / bindings registry changes → `profilesState` refresh (toolbar dropdown, `boundFileCount`).
   - `.hexscope/structs.json` (workspace pool) changes → `structsExternalChange`; the webview replaces `S.structs` and prunes pins whose `structId` vanished.
 
 - Repositories are never read from browser feature logic — the webview only consumes typed `ProviderToWebviewMessage` slices.
-- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer and `bitAllocationOrDefault` the single shared bit-field allocation normalizer (session + webview model); `normalizeProfilesRegistry` in `src/hexScopeStorage.ts` is the single registry normalizer.
+- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer and `bitAllocationOrDefault` the single shared bit-field allocation normalizer (session + webview model); `showHiddenFieldsOrDefault` is the single shared show-hidden-fields normalizer; `normalizeProfilesRegistry` in `src/hexScopeStorage.ts` is the single registry normalizer.
 - Struct migration/deduplication belongs in `src/core/structMigration.ts` (`migrateStructDefinitions`, `normalizeStructDefsValue`, `mergeLegacyStructDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code. `normalizeStructDefsValue` additionally runs `migrateInlineBitFields` (from `src/core/structCodec.ts`) after identity dedupe, converting legacy inline bit-fields into reusable `kind:'bitfield'` defs and self-healing the pool once.
 - Legacy Memento keys (global structs v2/v1 + per-file keys, integrity profiles, per-file labels/names/pins/checks/endian) are migrated once per workspace root by `src/hexScopeMigration.ts` and then hard-deleted; the per-dir `profiles/<id>/` registry merges into `profiles.json` once (Memento marker).
 
 ## WebviewToProviderMessage additions (profile actions)
 
-`saveProfile` (explicit flush; materializes out-of-workspace), `duplicateProfile` (Save as…: copies the bound profile, binds the current file to the copy), `renameProfile`, `deleteProfile` (confirms with bound-file count). All run inside `enqueuePerFileOp` and end with `broadcastPerFileData()` + `broadcastProfilesState()`. In the webview these are the four `ProfileAction` commands of the typed `PROFILE_ACTION_MESSAGES: Record<ProfileAction, WebviewToProviderMessage>` map guarded by `isProfileAction(cmd)` in `src/webview/profilePicker.ts`.
+`saveProfile` (explicit flush; materializes out-of-workspace), `duplicateProfile` (Save as…: copies the bound profile, binds the current file to the copy), `renameProfile`, `deleteProfile` (confirms with bound-file count). The endian/bit-allocation/show-hidden-fields toggles each persist through their own `saveEndian`/`saveBitAllocation`/`saveShowHiddenFields` message (with the shared `*OrDefault` normalizer), and their `init` + `perFileDataChange` slices re-drive the webview consumer on refresh. All profile actions run inside `enqueuePerFileOp` and end with `broadcastPerFileData()` + `broadcastProfilesState()`. In the webview these are the four `ProfileAction` commands of the typed `PROFILE_ACTION_MESSAGES: Record<ProfileAction, WebviewToProviderMessage>` map guarded by `isProfileAction(cmd)` in `src/webview/profilePicker.ts`.
 
 The webview profile payload shape is the shared `ProfileSummary { id; name }` (`src/webviewProtocol.ts`), used uniformly by the init/profile + `profilesState` message types, `S.profileState.profiles` (`state.ts`), `WebviewProfileState` in `webviewMessageModel.ts`, and the host's `listProfiles()` return type.
 
