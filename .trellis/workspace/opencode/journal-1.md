@@ -357,3 +357,40 @@ Added kind:'enum' defs (baseType + name/value entries) to the struct pool; scala
 ### Next Steps
 
 - Implement remaining children: 09-27-hidden-struct-fields, 09-27-type-kind-creation.
+
+
+## Session 13: Type-kind creation and pure-struct trim
+<!-- trellis-session: v=2 fp=08037aab73b016ed -->
+
+**Date**: 2026-09-28
+**Task**: Type-kind creation and pure-struct trim
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+One New Type chooser with three kinds (struct/bit-field/enum) replacing the standalone bitfield/enum actions; the pure-struct editor drops all inline bit-field authoring (bit toggle, child rows, Bits/Alloc columns, per-field and struct-level Alloc) keeping Endian; legacy inline bit-field containers migrate to standalone reusable types on load via migrateInlineBitFields, pool-wide deduped, idempotent, byte-identical on decode.
+
+### Main Changes
+
+- structCodec.ts: exported migrateInlineBitFields (signature dedupe incl. child enum refs, lowest-unused migrated_bitfield_<n> ids, unique names, override passthrough, bitFields/bitFieldsCollapsed cleared, idempotent).
+- structNormalization.ts: runs migration after identity dedupe and ORs changed into the self-heal flag. structPanel.ts/.css: _choosingKind three-tile picker, editorHtml kind dispatch, removed #sm-add-bitfield-btn/#sm-add-enum-btn, trimmed the pure-struct grid to 7 columns and deleted dead bit-child/alloc helpers.
+- Specs: struct-model (migration contract), component-sidebar-struct-panel (chooser + trim + common mistakes), state-management (normalization wiring).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `238b70c` | feat(struct): unify type creation and trim the pure-struct editor |
+| `d65cf5f` | docs(spec): document the kind chooser, pure-struct trim, and inline-bitfield migration |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests && npm test -> 1210 passing, 0 failing; check caught + fixed a migration signature that dropped child enum refs (data loss).
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Implement the remaining child 09-27-hidden-struct-fields, then the parent struct-overlay-types integration review.

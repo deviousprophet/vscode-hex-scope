@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
-- **Last Active**: 2026-09-27
+- **Total Sessions**: 13
+- **Last Active**: 2026-09-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~359 | Active |
+| `journal-1.md` | ~396 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-09-28 | Type-kind creation and pure-struct trim | `238b70c`, `d65cf5f` | `feat/struct-overlay-types` |
 | 12 | 2026-09-27 | Enum support for fields and bit values | `ed9ace9`, `673c557` | `feat/struct-overlay-types` |
 | 11 | 2026-09-27 | Reusable bit-field types | `eacf2cd`, `f7930c4`, `2135ea2` | `feat/struct-overlay-types` |
 | 10 | 2026-09-22 | Fix spurious external-change banner on hex file copy | `0d6414e` | `fix/copy-external-change` |
