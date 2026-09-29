@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "On-disk .hexscope contract: seeding, writeJson sink, $schema sibling, no-write-on-open, migration write paths"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Persistence ownership: which layer writes .hexscope files, JsonStore slots"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar and test-quality rules for the storage change"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace the data write -> refresh -> schema-copy flow across host/store boundaries"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Return-type and normalization conventions for the refresher"}
