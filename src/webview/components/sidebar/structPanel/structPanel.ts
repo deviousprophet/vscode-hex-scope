@@ -21,6 +21,7 @@ import {
     fieldByteSize, structByteSize, decodeField, decodeStruct, allStructs, resolveStructFieldByPath,
     parseStructText, fieldsToText, structToC, validateStructs, MAX_NESTED_DEPTH,
     normalizeStructField, structDefKind, formatEnumLabel, enumHexDigits,
+    isUnsignedScalarType, bytesToBigUint,
 } from '../../../../core/structCodec.js';
 import type { DecodedField } from '../../../../core/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, EnumEntry, StructBaseType, StructDef, StructDefKind, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
@@ -465,20 +466,6 @@ private bytesFromHexParts(parts: string[]): number[] {
     return parts.map(h => parseInt(h, 16));
 }
 
-private bytesToValue(raw: number[], endian: 'le' | 'be'): bigint {
-    let value = 0n;
-    if (endian === 'le') {
-        for (let i = 0; i < raw.length; i++) {
-            value |= BigInt(raw[i]) << BigInt(i * 8);
-        }
-        return value;
-    }
-    for (const b of raw) {
-        value = (value << 8n) | BigInt(b);
-    }
-    return value;
-}
-
 private makeBitRowKey(byteStart: number, bitStart: number, bitWidth: number): string {
     return `${byteStart}:${bitStart}:${bitWidth}`;
 }
@@ -529,7 +516,7 @@ private renderBinarySpanLines(spans: string[]): string {
 }
 
 private binaryBitsForValue(bytes: number[], endian: 'le' | 'be'): string {
-    return this.bytesToValue(bytes, endian).toString(2).padStart(bytes.length * 8, '0');
+    return bytesToBigUint(bytes, endian).toString(2).padStart(bytes.length * 8, '0');
 }
 
 private renderPlainBinaryBits(bits: string): string {
@@ -647,7 +634,7 @@ private renderKnownBitRowBits(rawParts: string[], usedWidth: number, selectedRan
 
 private slicedBitRowBits(rawParts: string[], usedWidth: number, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
     const raw = this.bytesFromHexParts(rawParts);
-    const value = this.bytesToValue(raw, endian ?? this._endian);
+    const value = bytesToBigUint(raw, endian ?? this._endian);
     const unitBits = raw.length * 8;
     const mask = (1n << BigInt(usedWidth)) - 1n;
     const slicedValue = (alloc ?? this._bitFieldAllocation) === 'lsb'
@@ -794,7 +781,7 @@ private structOptionTitleAttr(label: string, full: string): string {
 private isBitContainerField(f: StructField): boolean {
     f = normalizeStructField(f);
     if (f.isPointer) { return false; }
-    return this.isUnsignedScalarType(f.type) && Array.isArray(f.bitFields) && f.bitFields.length > 0;
+    return isUnsignedScalarType(f.type) && Array.isArray(f.bitFields) && f.bitFields.length > 0;
 }
 
 /** A field that references a standalone `kind: 'bitfield'` def. */
@@ -807,6 +794,11 @@ private isBitFieldRefField(f: StructField): boolean {
 private isEnumRefField(f: StructField): boolean {
     f = normalizeStructField(f);
     return f.type === 'enum' && f.isPointer !== true;
+}
+
+/** Fields that can never be pointers: bit-field containers/refs and enum refs. */
+private isPointerBlocked(field: StructField): boolean {
+    return this.isBitContainerField(field) || this.isBitFieldRefField(field) || this.isEnumRefField(field);
 }
 
 private bitChildButtonState(remainingBits: number): { addBtnDisabled: string; addBtnTitle: string } {
@@ -867,7 +859,8 @@ private fieldMoveButtonsHtml(i: number, total: number): string {
 }
 
 private overrideSelectHtml(
-    value: 'le' | 'be' | undefined,
+    value: 'le' | 'be' | 'lsb' | 'msb' | undefined,
+    kind: 'endian' | 'allocation',
     cls: string,
     id?: string,
     inherited?: string,
@@ -875,19 +868,21 @@ private overrideSelectHtml(
     // Auto = inherit: the Auto option's title (and the select's when Auto is
     // selected) shows the effective inherited source, e.g. "Auto — inherits BE".
     const autoTitle = this.overrideAutoTitle(value, inherited);
-    const options = this.endianOverrideLabels()
+    const options = this.overrideLabels(kind)
         .map(([val, label]) => this.overrideOptionHtml(val, label, value, autoTitle))
         .join('');
     const idAttr = id ? ` id="${id}"` : '';
-    const title = autoTitle ?? this.overrideHelpTitle();
+    const title = autoTitle ?? this.overrideHelpTitle(kind);
     return `<select class="${cls}"${idAttr} title="${title}" aria-label="${title}">${options}</select>`;
 }
 
-private endianOverrideLabels(): Array<[string, string]> {
-    return [['', 'Auto'], ['le', 'LE'], ['be', 'BE']];
+private overrideLabels(kind: 'endian' | 'allocation'): Array<[string, string]> {
+    return kind === 'endian'
+        ? [['', 'Auto'], ['le', 'LE'], ['be', 'BE']]
+        : [['', 'Auto'], ['lsb', 'LSB'], ['msb', 'MSB']];
 }
 
-private overrideAutoTitle(value: 'le' | 'be' | undefined, inherited?: string): string | undefined {
+private overrideAutoTitle(value: 'le' | 'be' | 'lsb' | 'msb' | undefined, inherited?: string): string | undefined {
     if (value !== undefined || !inherited) { return undefined; }
     return `Auto \u2014 inherits ${inherited}`;
 }
@@ -895,15 +890,17 @@ private overrideAutoTitle(value: 'le' | 'be' | undefined, inherited?: string): s
 private overrideOptionHtml(
     val: string,
     label: string,
-    value: 'le' | 'be' | undefined,
+    value: 'le' | 'be' | 'lsb' | 'msb' | undefined,
     autoTitle?: string,
 ): string {
     const titleAttr = val === '' && autoTitle ? ` title="${esc(autoTitle)}"` : '';
     return `<option value="${val}"${value === val ? ' selected' : ''}${titleAttr}>${label}</option>`;
 }
 
-private overrideHelpTitle(): string {
-    return 'Byte order for this field (first explicit value up the chain wins)';
+private overrideHelpTitle(kind: 'endian' | 'allocation'): string {
+    return kind === 'endian'
+        ? 'Byte order for this field (first explicit value up the chain wins)'
+        : 'Bit allocation for this field (first explicit value up the chain wins)';
 }
 
 private fieldIsPointerActive(f: StructField): boolean {
@@ -918,9 +915,11 @@ private fieldRowHtml(
     draftId: string,
 ): string {
     const typeOpts = this.fieldTypeOptionsHtml(f, draftId);
-    const blocksPointer = this.isBitContainerField(f) || this.isBitFieldRefField(f) || this.isEnumRefField(f);
+    const blocksPointer = this.isPointerBlocked(f);
+    const showsAlloc = this.isBitFieldRefField(f);
     const delCell = this.deleteFieldCellHtml(isOnly);
     const inheritedEndian = this.editorInheritedEndian();
+    const inheritedAlloc = this.editorInheritedAlloc();
 
     return (
         `<div class="struct-field-row" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
@@ -929,7 +928,10 @@ private fieldRowHtml(
                `title="Toggle pointer field" aria-label="Toggle pointer field"${this.disabledAttr(blocksPointer)}>*</button>` +
         `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
-        this.overrideSelectHtml(f.endian, 'sfe-endian-sel', undefined, inheritedEndian) +
+        this.overrideSelectHtml(f.endian, 'endian', 'sfe-endian-sel', undefined, inheritedEndian) +
+        (showsAlloc
+            ? this.overrideSelectHtml(f.allocation, 'allocation', 'sfe-alloc-sel', undefined, inheritedAlloc)
+            : `<span class="sfe-alloc-placeholder"></span>`) +
         this.fieldHiddenCellHtml(f) +
         this.fieldArrayCellHtml(f) +
         this.fieldMoveButtonsHtml(i, total) +
@@ -972,11 +974,6 @@ private bitChildEnumSelectHtml(child: BitFieldChild): string {
         ))
         .join('');
     return `<select class="sfe-bf-child-enum" title="Enum labels for this bit value" aria-label="Enum labels for this bit value">${options}</select>`;
-}
-
-/** Check if a field type is an unsigned scalar (eligible for bit-field container). */
-private isUnsignedScalarType(type: import('../../../../core/types').StructFieldType): type is import('../../../../core/types').StructScalarFieldType {
-    return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
 // ── C syntax-highlighted struct preview ─────────────────────────────────────
@@ -1130,9 +1127,9 @@ private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
         `<span class="se-struct-default-ptr"></span>` +
         `<span class="se-struct-default-lbl">struct default</span>` +
-        this.overrideSelectHtml(draft.endian, 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
+        this.overrideSelectHtml(draft.endian, 'endian', 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
         `</div>` +
-        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
+        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="se-fields">${fieldRows}</div>` +
         `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
@@ -1289,7 +1286,7 @@ private syncBitFieldDefDraft(sec: HTMLElement, draft: StructDef): void {
 }
 
 private readBaseType(value: string | undefined): StructBaseType {
-    return value !== undefined && this.isUnsignedScalarType(value as StructFieldType)
+    return value !== undefined && isUnsignedScalarType(value as StructFieldType)
         ? value as StructBaseType
         : 'uint8';
 }
@@ -1483,6 +1480,10 @@ private editorInheritedEndian(): string {
     return (this._editingType?.draft.endian ?? this._endian).toUpperCase();
 }
 
+private editorInheritedAlloc(): string {
+    return (this._editingType?.draft.allocation ?? this._bitFieldAllocation).toUpperCase();
+}
+
 /**
  * Rows markup for the current draft fields — shared by the full editor render
  * and the incremental `#se-fields` rebuild (so the two never diverge).
@@ -1623,12 +1624,12 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
 
     fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
         sel.addEventListener('change', () => {
-            this.handleFieldTypeChange(sel);
+            this.handleFieldTypeChange(sec, draft, sel);
             this.refreshEditorPreview(sec, draft);
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel').forEach(sel => {
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel, .sfe-alloc-sel').forEach(sel => {
         sel.addEventListener('change', () => {
             this.syncEditorDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
@@ -1645,25 +1646,28 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
 
 /**
  * Refresh the "Auto — inherits <X>" titles (select + its Auto option) on all
- * endian override selects after the struct default changed — in place,
+ * endian/alloc override selects after the struct default changed — in place,
  * no editor rebuild (mirrors the tooltip text fieldRowHtml/editorHtml render
  * on mount).
  */
 private updateEditorOverrideTitles(sec: HTMLElement): void {
     const endianInherit = this.editorInheritedEndian();
+    const allocInherit = this.editorInheritedAlloc();
     sec.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel').forEach(sel =>
-        this.setOverrideSelectTitles(sel, endianInherit));
+        this.setOverrideSelectTitles(sel, 'endian', endianInherit));
+    sec.querySelectorAll<HTMLSelectElement>('.sfe-alloc-sel').forEach(sel =>
+        this.setOverrideSelectTitles(sel, 'allocation', allocInherit));
     const structEndian = sec.querySelector<HTMLSelectElement>('#se-endian');
-    if (structEndian) { this.setOverrideSelectTitles(structEndian, this._endian.toUpperCase()); }
+    if (structEndian) { this.setOverrideSelectTitles(structEndian, 'endian', this._endian.toUpperCase()); }
 }
 
-private overrideSelectValue(sel: HTMLSelectElement): 'le' | 'be' | undefined {
-    return this.readEndianOverride(sel.value);
+private overrideSelectValue(sel: HTMLSelectElement, kind: 'endian' | 'allocation'): 'le' | 'be' | 'lsb' | 'msb' | undefined {
+    return kind === 'endian' ? this.readEndianOverride(sel.value) : this.readAllocationOverride(sel.value);
 }
 
-private setOverrideSelectTitles(sel: HTMLSelectElement, inherited: string): void {
-    const autoTitle = this.overrideAutoTitle(this.overrideSelectValue(sel), inherited);
-    const fallbackTitle = this.overrideHelpTitle();
+private setOverrideSelectTitles(sel: HTMLSelectElement, kind: 'endian' | 'allocation', inherited: string): void {
+    const autoTitle = this.overrideAutoTitle(this.overrideSelectValue(sel, kind), inherited);
+    const fallbackTitle = this.overrideHelpTitle(kind);
     sel.title = autoTitle ?? fallbackTitle;
     const opt = sel.options[0];
     if (opt) { opt.title = autoTitle ?? ''; }
@@ -1711,12 +1715,19 @@ private readEditorFieldRow(row: HTMLElement): StructField {
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
         endian: this.readEndianOverride((row.querySelector('.sfe-endian-sel') as HTMLSelectElement | null)?.value),
+        // Only bit-field-reference rows render an alloc select; other rows hold
+        // a placeholder, so this reads undefined and authors no allocation.
+        allocation: this.readAllocationOverride((row.querySelector('.sfe-alloc-sel') as HTMLSelectElement | null)?.value),
         hidden: (row.querySelector('.sfe-hidden-chk') as HTMLInputElement | null)?.checked || undefined,
     };
 }
 
 private readEndianOverride(value: string | undefined): 'le' | 'be' | undefined {
     return value === 'le' || value === 'be' ? value : undefined;
+}
+
+private readAllocationOverride(value: string | undefined): 'lsb' | 'msb' | undefined {
+    return value === 'lsb' || value === 'msb' ? value : undefined;
 }
 
 private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isPointer: boolean } {
@@ -1978,11 +1989,36 @@ private upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
         this._editingType = null;
     }
 
-private handleFieldTypeChange(sel: HTMLSelectElement): void {
+private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
     const row = sel.closest<HTMLElement>('.struct-field-row');
     if (!row) { return; }
     if (sel.value === 'void') { row.dataset.ptr = '1'; }
-    if (sel.value.startsWith('bitfield:') || sel.value.startsWith('enum:')) { row.dataset.ptr = ''; }
+    const isBitFieldRef = sel.value.startsWith('bitfield:');
+    if (isBitFieldRef || sel.value.startsWith('enum:')) { row.dataset.ptr = ''; }
+    this.syncFieldAllocCell(sec, draft, row, isBitFieldRef);
+}
+
+/**
+ * Swap the row's Alloc cell between the (only) bit-field-reference select and
+ * the alignment placeholder as the type select changes — in place, so the row
+ * keeps focus and the column stays aligned.
+ */
+private syncFieldAllocCell(sec: HTMLElement, draft: StructDef, row: HTMLElement, isBitFieldRef: boolean): void {
+    const sel = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+    const placeholder = row.querySelector<HTMLElement>('.sfe-alloc-placeholder');
+    if (isBitFieldRef && !sel && placeholder) {
+        placeholder.outerHTML = this.overrideSelectHtml(undefined, 'allocation', 'sfe-alloc-sel', undefined, this.editorInheritedAlloc());
+        const inserted = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+        if (inserted) {
+            inserted.addEventListener('change', () => {
+                this.syncEditorDraft(sec, draft);
+                this.refreshEditorPreview(sec, draft);
+            });
+            this.setOverrideSelectTitles(inserted, 'allocation', this.editorInheritedAlloc());
+        }
+    } else if (!isBitFieldRef && sel) {
+        sel.outerHTML = '<span class="sfe-alloc-placeholder"></span>';
+    }
 }
 
     /** F10 / Shift+F10 and Enter/Space (when the row itself is focused) open the pointer menu. */
@@ -2004,7 +2040,7 @@ private handleFieldTypeChange(sel: HTMLSelectElement): void {
 }
 
     private cannotPointTo(field: StructField, want: boolean): boolean {
-        return want && (this.isBitContainerField(field) || this.isBitFieldRefField(field) || this.isEnumRefField(field));
+        return want && this.isPointerBlocked(field);
     }
 
     private setFieldPointerFlag(field: StructField, row: HTMLElement, want: boolean): void {
@@ -2028,7 +2064,7 @@ private handleFieldTypeChange(sel: HTMLSelectElement): void {
         if (this.editorRowIsPointer(row)) {
             return this.menuItemHtml('field-ptr-off', 'Clear pointer', 'Revert to a plain (non-pointer) field');
         }
-        if (this.isBitContainerField(field) || this.isBitFieldRefField(field) || this.isEnumRefField(field)) {
+        if (this.isPointerBlocked(field)) {
             return this.disabledMenuItemHtml('Attach pointer', 'Bit-field / enum fields cannot be pointers');
         }
         return this.menuItemHtml('field-ptr-on', 'Attach pointer', 'Mark this field as a pointer (field ↔ address)');
@@ -2389,20 +2425,21 @@ private wireShowHiddenToggle(sec: HTMLElement): void {
     });
 }
 
-/** Re-render just the Struct Instances body + its listeners (Types editor untouched). */
+/**
+ * Re-render just the Struct Instances *list* in place after the hidden-field
+ * filter changed. The header (bit-layout tabs + `#si-show-hidden-chk`) is left
+ * untouched, so the toggle keeps focus and the section body keeps its scroll
+ * position — no whole-body `innerHTML` rebuild (Types editor also untouched).
+ */
 private refreshInstances(): void {
     const sec = this._root;
     if (!sec || !this.sections) { return; }
+    const list = sec.querySelector<HTMLElement>('#si-list');
+    if (!list) { return; }
     this.prepareStructPanelState();
-    this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
-        this.addPinFormOrEmpty(),
-        this.instanceCardsHtml(),
-    );
+    list.innerHTML = this.instanceCardsHtml();
     this.updateHeaderActions();
     this.hydrateStructPreviews(sec);
-    this.wireAddStructPinControls(sec);
-    this.wireBitLayoutTabs(sec);
-    this.wireShowHiddenToggle(sec);
     this.wireInstanceCards(sec);
 }
 
@@ -2516,18 +2553,7 @@ private enumNumericView(r: DecodedField): { value: bigint; hexDigits: number } |
     }
     const bytes = this.fieldBytes(r);
     if (bytes.length === 0 || bytes.some(b => Number.isNaN(b))) { return null; }
-    return { value: this.unsignedValueFromBytes(bytes, r.endian ?? this._endian), hexDigits: bytes.length * 2 };
-}
-
-private unsignedValueFromBytes(bytes: number[], endian: 'le' | 'be'): bigint {
-    if (endian === 'le') {
-        let v = 0n;
-        for (let i = 0; i < bytes.length; i++) { v |= BigInt(bytes[i]) << BigInt(i * 8); }
-        return v;
-    }
-    let v = 0n;
-    for (const b of bytes) { v = (v << 8n) | BigInt(b); }
-    return v;
+    return { value: bytesToBigUint(bytes, r.endian ?? this._endian), hexDigits: bytes.length * 2 };
 }
 
 private fieldBytes(r: DecodedField): number[] {
@@ -3132,7 +3158,7 @@ private groupSummaryLabel(rows: DecodedField[], fallback: string): string {
     const raw = this.completeByteValues(first.bytesHex);
     if (!raw) { return '??'; }
 
-    const value = this.bytesToValue(raw, this.rowEndianOrDefault(first, this._endian));
+    const value = bytesToBigUint(raw, this.rowEndianOrDefault(first, this._endian));
     const hex = value.toString(16).toUpperCase().padStart(raw.length * 2, '0');
     return `0x${hex} (${value.toString(10)})`;
 }
@@ -3173,7 +3199,7 @@ private bitUnitValueSnippet(first: DecodedField, usedWidth: number): string | un
     const rawParts = this.byteHexParts(first.bytesHex);
     if (!this.canDecodeBitUnit(usedWidth, rawParts, first.hasData)) { return undefined; }
     const raw = this.bytesFromHexParts(rawParts);
-    const value = this.bytesToValue(raw, this.rowEndianOrDefault(first, this._endian));
+    const value = bytesToBigUint(raw, this.rowEndianOrDefault(first, this._endian));
     const sliced = this.sliceUnitValue(value, raw.length * 8, usedWidth, this.rowAllocOrDefault(first, this._bitFieldAllocation));
     return sliced.toString(10);
 }

@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import Ajv = require('ajv');
 import { DATA_VERSION } from '../../hexScopeStorage';
 import { INTEGRITY_ALGORITHMS } from '../../core/integrity';
-import { STRUCT_FIELD_TYPES } from '../../core/types';
+import { STRUCT_BASE_TYPES, STRUCT_FIELD_TYPES } from '../../core/types';
 
 const SCHEMAS_DIR = path.resolve(__dirname, '..', '..', '..', 'schemas');
 
@@ -292,5 +292,11 @@ suite('hexScope schemas — drift guard against TS types', () => {
         const structs = loadSchema('structs.schema.json');
         const enumValue = (structs.defs.structFieldType as { enum: unknown[] }).enum;
         assert.deepStrictEqual(enumValue, Array.from(STRUCT_FIELD_TYPES));
+    });
+
+    test('structDef baseType enum matches STRUCT_BASE_TYPES', () => {
+        const structs = loadSchema('structs.schema.json');
+        const structDef = structs.defs.structDef as { properties: { baseType: { enum: unknown[] } } };
+        assert.deepStrictEqual(structDef.properties.baseType.enum, Array.from(STRUCT_BASE_TYPES));
     });
 });

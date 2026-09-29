@@ -47,6 +47,7 @@ import {
     deleteRegistryProfile,
     loadWorkspaceStructs,
     pruneBindings,
+    showHiddenFieldsPatch,
     stripDeletedStructPins,
     unbindFile,
     workspaceStructPoolCache,
@@ -937,8 +938,8 @@ suite('hexScopeSession — struct-storage helpers', () => {
     setup(makeTestRoot);
     teardown(removeTestRoot);
 
-    function structDef(id: string): StructDef {
-        return { id, name: id.toUpperCase(), fields: [] };
+    function structDef(id: string, fields: StructDef['fields'] = []): StructDef {
+        return { id, name: id.toUpperCase(), fields };
     }
 
     function pin(id: string, structId: string): { id: string; structId: string; addr: number; name: string } {
@@ -980,9 +981,14 @@ suite('hexScopeSession — struct-storage helpers', () => {
         });
 
         // Seed pool + two profiles with pins referencing Header (and one unrelated).
-        const seedPool = s([structDef('Header'), structDef('Pkt')]);
+        // `Pkt` carries a nested type:'struct' reference to Header so the delete
+        // confirmation also reports the referencing-field count, not just pins.
+        const pktWithHeaderRef = (): StructDef => structDef('Pkt', [
+            { name: 'hdr', type: 'struct', refStructId: 'Header', count: 1 },
+        ]);
+        const seedPool = s([structDef('Header'), pktWithHeaderRef()]);
         await seedPool.load();
-        seedPool.set([structDef('Header'), structDef('Pkt')]);
+        seedPool.set([structDef('Header'), pktWithHeaderRef()]);
         await seedPool.flush();
         seedPool.dispose();
         await seedProfile('profile_1', 'A', [pin('a1', 'Header')]);
@@ -990,9 +996,9 @@ suite('hexScopeSession — struct-storage helpers', () => {
 
         // Plain edit (no deletion) → applied, pool updated, no confirm.
         let confirmCalls = 0;
-        const plainPool = s([structDef('Header'), structDef('Pkt')]);
+        const plainPool = s([structDef('Header'), pktWithHeaderRef()]);
         await plainPool.load();
-        const r1 = await applyStructDeletion(testRoot, plainPool, [structDef('Header'), structDef('Pkt'), structDef('Crc')], async () => { confirmCalls++; return true; });
+        const r1 = await applyStructDeletion(testRoot, plainPool, [structDef('Header'), pktWithHeaderRef(), structDef('Crc')], async () => { confirmCalls++; return true; });
         assert.strictEqual(r1, 'applied');
         assert.strictEqual(confirmCalls, 0, 'no confirm for a non-delete edit');
         await plainPool.flush();
@@ -1000,16 +1006,17 @@ suite('hexScopeSession — struct-storage helpers', () => {
 
         // Deletion with referencing pins → confirmed → pool updated + all
         // affected-profile pins stripped.
-        const freshPool = s([structDef('Header'), structDef('Pkt'), structDef('Crc')]);
+        const freshPool = s([structDef('Header'), pktWithHeaderRef(), structDef('Crc')]);
         await freshPool.load();
-        const seenUsage: Array<{ pins: number; profileIds: string[] }> = [];
-        const r2 = await applyStructDeletion(testRoot, freshPool, [structDef('Pkt'), structDef('Crc')], async (usage) => {
+        const seenUsage: Array<{ pins: number; profileIds: string[]; fields: number }> = [];
+        const r2 = await applyStructDeletion(testRoot, freshPool, [pktWithHeaderRef(), structDef('Crc')], async (usage) => {
             seenUsage.push(usage);
             return true;
         });
         assert.strictEqual(r2, 'applied');
-        // Only Header is deleted; profile_1 pins 1×Header, profile_2 pins 1×Header.
-        assert.deepStrictEqual(seenUsage, [{ pins: 2, profileIds: ['profile_1', 'profile_2'] }]);
+        // Only Header is deleted; profile_1 pins 1×Header, profile_2 pins 1×Header,
+        // and Pkt's nested field reference to Header is the one referencing field.
+        assert.deepStrictEqual(seenUsage, [{ pins: 2, profileIds: ['profile_1', 'profile_2'], fields: 1 }]);
         await freshPool.flush();
         const poolAfter = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { id: string }[] };
         assert.deepStrictEqual(poolAfter.data.map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool entry removed on confirm');
@@ -1030,6 +1037,16 @@ suite('hexScopeSession — struct-storage helpers', () => {
         const recC = await readProfileRecord(testRoot, 'profile_3');
         assert.deepStrictEqual(recC?.structPins.map(p => p.id), ['c1'], 'affected profile pins untouched on decline');
         declPool.dispose();
+    });
+
+    test('showHiddenFieldsPatch normalizes the toggle through the shared normalizer (malformed → off)', () => {
+        const rec = emptyProfileRecord('profile_norm', 'Norm');
+        assert.strictEqual(showHiddenFieldsPatch(rec, true).showHiddenFields, true);
+        assert.strictEqual(showHiddenFieldsPatch(rec, false).showHiddenFields, false);
+        assert.strictEqual(showHiddenFieldsPatch(rec, 'true').showHiddenFields, false, 'malformed payload resolves through showHiddenFieldsOrDefault (default off)');
+        assert.strictEqual(showHiddenFieldsPatch(rec, 1).showHiddenFields, false, 'non-boolean resolves to the default off');
+        assert.strictEqual(showHiddenFieldsPatch(rec, undefined).showHiddenFields, false);
+        assert.strictEqual(rec.showHiddenFields, false, 'patch is pure — the input record is untouched');
     });
 
     test('per-root struct-pool fallback is independent (two roots never share an empty default)', async () => {

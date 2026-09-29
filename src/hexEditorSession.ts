@@ -18,9 +18,11 @@ import {
 } from './core/integrity';
 import { migrateStructDefinitions } from './core/structMigration';
 import { normalizeStructDefsValue } from './core/structNormalization';
+import { countStructFieldRefs } from './core/structCodec';
 import {
     messageType,
     RECORD_PAGE_SIZE,
+    showHiddenFieldsOrDefault,
     type ProfileSummary,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
@@ -997,9 +999,8 @@ export class HexEditorSession {
                 });
             },
             saveShowHiddenFields: async msg => {
-                if (typeof msg.showHiddenFields !== 'boolean') { return; }
                 await enqueuePerFileOp(async () => {
-                    await withBoundProfile(current => ({ ...current, showHiddenFields: msg.showHiddenFields }));
+                    await withBoundProfile(current => showHiddenFieldsPatch(current, msg.showHiddenFields));
                 });
             },
             selectProfile: async msg => {
@@ -1450,13 +1451,30 @@ export async function loadWorkspaceStructs(
     return defs;
 }
 
+/**
+ * Normalize the show-hidden toggle onto a profile record. The
+ * `saveShowHiddenFields` handler routes through here so a malformed message
+ * payload resolves through the one shared normalizer (default off) instead of
+ * a hand-rolled typeof guard; exported as the host-side test seam.
+ */
+export function showHiddenFieldsPatch(rec: ProfileRecord, raw: unknown): ProfileRecord {
+    return { ...rec, showHiddenFields: showHiddenFieldsOrDefault(raw) };
+}
+
+/** Usage of the struct types being deleted: pins + affected profiles + the
+ *  pool's referencing-field count (layouts that lose a field/ref). */
+type StructDeletionUsage = { pins: number; profileIds: string[]; fields: number };
+
 /** Confirm dialog for deleting struct types that other profiles pin to.
- *  Naming pin count + affected profile count (modal, explicit "Delete"). */
-async function confirmStructDeletion(usage: { pins: number; profileIds: string[] }): Promise<boolean> {
+ *  Naming pin count + affected profile count + the pool's referencing-field
+ *  count (modal, explicit "Delete"). */
+async function confirmStructDeletion(usage: StructDeletionUsage): Promise<boolean> {
     const typeNoun = usage.pins === 1 ? 'type' : 'types';
     const profileNoun = usage.profileIds.length === 1 ? 'profile' : 'profiles';
+    const fieldNoun = usage.fields === 1 ? 'field' : 'fields';
     const confirm = await vscode.window.showWarningMessage(
-        `${usage.pins} pin${usage.pins === 1 ? '' : 's'} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted. Delete anyway?`,
+        `${usage.pins} pin${usage.pins === 1 ? '' : 's'} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted; ` +
+        `${usage.fields} ${fieldNoun} in the pool reference it. Delete anyway?`,
         { modal: true },
         'Delete',
     );
@@ -1512,14 +1530,15 @@ export async function applyStructDeletion(
     root: string,
     poolStore: JsonStore<StructDef[]>,
     incomingStructs: StructDef[],
-    confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
+    confirm: (usage: StructDeletionUsage) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
-    const deletedIds = deletedStructIds(poolStore.get() ?? [], incomingStructs);
+    const previous = poolStore.get() ?? [];
+    const deletedIds = deletedStructIds(previous, incomingStructs);
     if (deletedIds.length === 0) {
         poolStore.set(incomingStructs);
         return 'applied';
     }
-    return applyStructDeletionWithUsage(root, poolStore, incomingStructs, deletedIds, confirm);
+    return applyStructDeletionWithUsage(root, poolStore, incomingStructs, deletedIds, previous, confirm);
 }
 
 async function applyStructDeletionWithUsage(
@@ -1527,14 +1546,15 @@ async function applyStructDeletionWithUsage(
     poolStore: JsonStore<StructDef[]>,
     incomingStructs: StructDef[],
     deletedIds: string[],
-    confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
+    previous: StructDef[],
+    confirm: (usage: StructDeletionUsage) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
     const usage = await collectStructDeletionUsage(root, deletedIds);
     if (usage.pins === 0) {
         poolStore.set(incomingStructs);
         return 'applied';
     }
-    if (!(await confirm(usage))) { return 'declined'; }
+    if (!(await confirm({ ...usage, fields: countStructFieldRefs(previous, deletedIds) }))) { return 'declined'; }
     await stripDeletedStructPins(root, deletedIds);
     poolStore.set(incomingStructs);
     return 'applied';

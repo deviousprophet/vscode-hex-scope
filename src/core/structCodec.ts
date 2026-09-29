@@ -43,9 +43,14 @@ const FIELD_BYTE_SIZE: Record<StructScalarFieldType, number> = {
     float64: 8,
 };
 
-type UnsignedScalarType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
+export type UnsignedScalarType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
 
-function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType {
+/**
+ * One unsigned-width predicate shared by the codec and the editor: a scalar
+ * type eligible as a bit-field storage base / enum width. `isUnsignedBaseType`
+ * reads a raw authored string; the editor widens this one for select values.
+ */
+export function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType {
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
@@ -139,7 +144,8 @@ function bitMask(width: number): bigint {
     return (1n << BigInt(width)) - 1n;
 }
 
-function bytesToBigUint(raw: number[], endian: 'le' | 'be'): bigint {
+/** Fold raw bytes into an unsigned bigint with the given byte order. */
+export function bytesToBigUint(raw: number[], endian: 'le' | 'be'): bigint {
     if (endian === 'le') {
         let v = 0n;
         for (let i = 0; i < raw.length; i++) {
@@ -189,6 +195,11 @@ function materializeStructField(field: StructField, byId: Map<string, StructDef>
         ...normalized,
         type: target.baseType ?? 'uint8',
         refStructId: undefined,
+        // A rewritten container is never pointer-typed: an authored
+        // `type:'bitfield' + isPointer` is invalid (validation rejects it), so
+        // materialization drops the flag rather than yielding a pointer-typed
+        // inline container the layout/decode paths would size as a pointer.
+        isPointer: undefined,
         bitFields: (target.bitFields ?? []).map(child => ({ ...child })),
     };
 }
@@ -214,6 +225,29 @@ function materializedDefsMap(def: StructDef, defs: readonly StructDef[] = []): {
 /** Materialize a def's bit-field references (see `materializedDefsMap`). */
 export function materializeBitFieldRefs(def: StructDef, defs: readonly StructDef[] = []): StructDef {
     return materializedDefsMap(def, defs).def;
+}
+
+/**
+ * Count references to any id in `deletedIds` across the surviving pool — the
+ * number of fields/bit-children whose `refStructId` the deletion would strip.
+ * Mirrors `withoutStructDefinition` (webview pin model) so the delete
+ * confirmation can warn that referencing layouts change, not just pins.
+ */
+export function countStructFieldRefs(defs: readonly StructDef[], deletedIds: readonly string[]): number {
+    const deleted = new Set(deletedIds);
+    if (deleted.size === 0) { return 0; }
+    const refsIn = (children: readonly BitFieldChild[] | undefined): number =>
+        (children ?? []).filter(child => child.refStructId !== undefined && deleted.has(child.refStructId)).length;
+    let count = 0;
+    for (const def of defs) {
+        if (!def || deleted.has(def.id)) { continue; }
+        count += refsIn(def.bitFields);
+        for (const field of def.fields ?? []) {
+            if (field.refStructId !== undefined && deleted.has(field.refStructId)) { count++; }
+            count += refsIn(field.bitFields);
+        }
+    }
+    return count;
 }
 
 /**
@@ -300,6 +334,12 @@ function createMigratedBitFieldDef(field: StructField, usedIds: Set<string>, use
     };
 }
 
+/**
+ * Lowest unused `migrated_bitfield_<n>` id. The scan runs against `usedIds`,
+ * which the caller seeds from **every** def in the pool (existing + already
+ * generated this run), so a generated id can never collide with a pre-existing
+ * def id — the whole pool is the collision domain, not just the generated set.
+ */
 function nextMigratedBitFieldId(usedIds: Set<string>): string {
     let n = 1;
     while (usedIds.has(`migrated_bitfield_${n}`)) { n++; }

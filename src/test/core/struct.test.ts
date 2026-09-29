@@ -4,7 +4,7 @@ import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
     structDefKind, materializeBitFieldRefs, migrateInlineBitFields, formatEnumLabel, matchEnumEntry,
-    normalizeStructField,
+    normalizeStructField, isUnsignedScalarType, bytesToBigUint,
 } from '../../core/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
@@ -1280,6 +1280,37 @@ suite('materializeBitFieldRefs()', () => {
     test('an unresolvable reference passes through untouched', () => {
         const def: StructDef = { id: 'r', name: 'R', fields: [{ name: 'control', type: 'bitfield', refStructId: 'missing', count: 1 }] };
         assert.strictEqual(materializeBitFieldRefs(def, [def]).fields[0].type, 'bitfield');
+    });
+
+    test('a rewritten type:bitfield field never keeps isPointer', () => {
+        const bits = bitFieldDef();
+        const field: StructField = { name: 'control', type: 'bitfield', refStructId: 'bits', isPointer: true, count: 1 };
+        const resolved = materializeBitFieldRefs({ id: 'r', name: 'R', fields: [field] }, [bits]);
+        assert.strictEqual(resolved.fields[0].type, 'uint8', 'rewritten to the inline container form');
+        assert.strictEqual(resolved.fields[0].isPointer, undefined, 'materialization drops the invalid pointer flag rather than yield a pointer-typed container');
+        // Materialization is not a validator: the authored shape still fails validation.
+        assert.ok(
+            validateStructs([bits, { id: 'r', name: 'R', fields: [field] }]).some(e => e.includes('cannot be a bit-field pointer')),
+            'validation remains the gate for the authored shape',
+        );
+    });
+});
+
+suite('shared unsigned predicate / byte fold', () => {
+    test('isUnsignedScalarType accepts exactly the unsigned widths', () => {
+        for (const type of ['uint8', 'uint16', 'uint32', 'uint64'] as const) {
+            assert.strictEqual(isUnsignedScalarType(type), true, `${type} is unsigned`);
+        }
+        for (const type of ['int8', 'int16', 'float32', 'float64', 'ascii', 'void', 'struct'] as const) {
+            assert.strictEqual(isUnsignedScalarType(type), false, `${type} is not unsigned`);
+        }
+    });
+
+    test('bytesToBigUint folds little- and big-endian byte order', () => {
+        assert.strictEqual(bytesToBigUint([0x34, 0x12], 'le'), 0x1234n);
+        assert.strictEqual(bytesToBigUint([0x12, 0x34], 'be'), 0x1234n);
+        assert.strictEqual(bytesToBigUint([], 'le'), 0n);
+        assert.strictEqual(bytesToBigUint([1, 2, 3, 4, 5, 6, 7, 8], 'be'), 0x0102030405060708n);
     });
 });
 

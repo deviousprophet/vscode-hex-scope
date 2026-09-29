@@ -84,6 +84,21 @@ suite('struct pin model', () => {
         assert.deepStrictEqual(result.structs[0].fields.map(f => f.name), ['keep']);
     });
 
+    test('strips nested type:struct fields that reference a deleted type', () => {
+        const structs: StructDef[] = [
+            { id: 'inner', name: 'Inner', fields: [{ name: 'tag', type: 'uint8', count: 1 }] },
+            { id: 'holder', name: 'Holder', fields: [
+                { name: 'kid', type: 'struct', refStructId: 'inner', count: 1 },
+                { name: 'after', type: 'uint8', count: 1 },
+            ] },
+        ];
+
+        const result = withoutStructDefinition(structs, [], 'inner');
+
+        assert.deepStrictEqual(result.structs.map(d => d.id), ['holder']);
+        assert.deepStrictEqual(result.structs[0].fields.map(f => f.name), ['after'], 'orphan nested type:struct ref stripped, sibling kept');
+    });
+
     test('leaves referencing defs untouched when the deleted type is not referenced', () => {
         const structs: StructDef[] = [
             { id: 'a', name: 'A', fields: [] },

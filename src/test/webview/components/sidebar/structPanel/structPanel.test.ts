@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
@@ -7,6 +8,7 @@ import type { StructPanel } from '../../../../../webview/components/sidebar/stru
 import { S } from '../../../../../webview/state';
 import { getByte } from '../../../../../webview/memory/memoryData';
 import type { StructDef, StructPin } from '../../../../../core/types';
+import { structToC } from '../../../../../core/structCodec';
 import { setBytesInSegment } from '../../../structStateHelpers';
 
 function resetStructState(): void {
@@ -1150,6 +1152,43 @@ suite('StructPanel deep-render harness', () => {
             (document.getElementById('se-name') as HTMLInputElement).value,
             'EditedButUnsaved',
             'the Types editor body is not rebuilt by the instances-only refresh',
+        );
+    });
+
+    test('toggling Show hidden updates the instances in place (focus + scroll preserved)', async () => {
+        const def: StructDef = {
+            id: 'cfg', name: 'Cfg', fields: [
+                { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                { name: 'tag', type: 'uint8', count: 1 },
+            ],
+        };
+        S.structs = [def];
+        S.structPins = [{ id: 'pin_inplace', structId: 'cfg', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x00, 0x11]);
+        await createMountedPanel();
+        click(dom, document.querySelector<HTMLElement>('.si-expand-btn'));
+
+        const body = document.getElementById('si-instances-body') as HTMLElement;
+        const list = document.getElementById('si-list') as HTMLElement;
+        const chk = document.getElementById('si-show-hidden-chk') as HTMLInputElement;
+        assert.ok(body && list && chk, 'instances body, list, and toggle render');
+        body.scrollTop = 150;
+        chk.focus();
+        assert.strictEqual(document.activeElement, chk, 'toggle is focused before the change');
+
+        chk.checked = true;
+        chk.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        assert.strictEqual(document.getElementById('si-show-hidden-chk'), chk, 'toggle node is not rebuilt');
+        assert.strictEqual(document.activeElement, chk, 'toggle keeps focus across the in-place refresh');
+        assert.strictEqual(document.getElementById('si-instances-body'), body, 'scroll container is not replaced');
+        assert.strictEqual(document.getElementById('si-list'), list, 'instances list node is reused (only its innerHTML refreshes)');
+        assert.strictEqual(body.scrollTop, 150, 'body scroll position survives the refresh');
+        assert.deepStrictEqual(
+            Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
+                .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? ''),
+            ['reserved', 'tag'],
+            'hidden field is revealed by the in-place refresh',
         );
     });
 
@@ -2494,7 +2533,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(!ctlBtn!.classList.contains('active'), 'bit-field reference pointer button is not active');
     });
 
-    test('editor grid shares 8 columns without bit / alloc columns', async () => {
+    test('editor grid shares 9 columns; only bit-field-reference rows author an Alloc select', async () => {
         const inner: StructDef = {
             id: 'inner',
             name: 'Inner',
@@ -2523,54 +2562,63 @@ suite('StructPanel deep-render harness', () => {
         styleEl.textContent = css;
         document.head.appendChild(styleEl);
 
-        const TEMPLATE = '96px 26px 1fr 58px 28px 72px 30px 18px';
+        const TEMPLATE = '96px 26px 1fr 58px 52px 28px 72px 30px 18px';
 
-        // Header: no Alloc / Bits columns; Hide is the new checkbox column.
+        // Header: Type Ptr Name Endian Alloc Hide [ ] move del.
         const header = document.querySelector<HTMLElement>('.se-field-hdr');
         assert.ok(header, 'field header should render');
         assert.deepStrictEqual(
             Array.from(header!.querySelectorAll<HTMLElement>(':scope > span')).map(s => s.textContent),
-            ['Type', 'Ptr', 'Name', 'Endian', 'Hide', '[ ]', '', ''],
-            'header columns Type Ptr Name Endian Hide [ ] move del',
+            ['Type', 'Ptr', 'Name', 'Endian', 'Alloc', 'Hide', '[ ]', '', ''],
+            'header columns Type Ptr Name Endian Alloc Hide [ ] move del',
         );
-        assert.strictEqual(header!.querySelectorAll(':scope > span').length, 8, 'eight field columns');
+        assert.strictEqual(header!.querySelectorAll(':scope > span').length, 9, 'nine field columns');
         assert.strictEqual(
             dom.window.getComputedStyle(header!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'field header uses the 8-column shared grid',
+            'field header uses the 9-column shared grid',
         );
 
-        // Struct-default row shares the same 8-column grid.
+        // Struct-default row shares the same 9-column grid.
         const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
         assert.ok(defaultRow, 'struct-default row should render');
         assert.strictEqual(
             dom.window.getComputedStyle(defaultRow!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'struct-default row shares the 8-column grid',
+            'struct-default row shares the 9-column grid',
         );
 
-        // No bit-field authoring / alloc controls remain in the pure-struct form.
+        // No inline bit-field authoring; only the reusable bit-field-reference
+        // row carries an Alloc select (the usage-scoped override). Every other
+        // row keeps an alignment placeholder cell.
         assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no per-field bit toggle');
-        assert.strictEqual(document.querySelector('.sfe-alloc-sel'), null, 'no per-field alloc select');
-        assert.strictEqual(document.querySelector('.sfe-alloc-placeholder'), null, 'no alloc placeholder cell');
+        assert.strictEqual(document.querySelectorAll('.sfe-alloc-sel').length, 1, 'only the bit-field-reference row authors an alloc select');
+        assert.strictEqual(document.querySelectorAll('.sfe-alloc-placeholder').length, 3, 'every other row keeps an alignment placeholder');
         assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level alloc select');
 
-        // Every field row: 8-column grid, second cell is the pointer button, Hide checkbox in cell 5.
+        // Every field row: 9-column grid, second cell is the pointer button, Hide checkbox in the Hide cell.
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         assert.strictEqual(rows.length, 4, 'all four field rows render');
+        const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
         for (const row of rows) {
             assert.strictEqual(
                 dom.window.getComputedStyle(row).getPropertyValue('grid-template-columns'),
                 TEMPLATE,
-                'field row uses the 8-column grid',
+                'field row uses the 9-column grid',
             );
-            assert.strictEqual(row.children.length, 8, 'field row renders eight cells');
+            assert.strictEqual(row.children.length, 9, 'field row renders nine cells');
             const btn = row.querySelector<HTMLElement>('.sfe-ptr-btn');
             assert.ok(btn, 'every field row renders the pointer toggle button');
             assert.strictEqual(Array.from(row.children).indexOf(btn!), 1, 'pointer button occupies the second (Ptr) cell');
             const hide = row.querySelector<HTMLElement>('.sfe-hidden-chk');
             assert.ok(hide, 'every field row renders the Hide checkbox');
             assert.strictEqual(row.querySelector<HTMLElement>('.sfe-hidden-cell')!.querySelector('.sfe-hidden-chk'), hide, 'Hide checkbox occupies the Hide cell');
+        }
+
+        assert.ok(rowByName('flags').querySelector('.sfe-alloc-sel'), 'bit-field-reference row carries the alloc select');
+        for (const name of ['plain', 'p', 'nested']) {
+            assert.strictEqual(rowByName(name).querySelector('.sfe-alloc-sel'), null, `${name} row authors no alloc select`);
+            assert.ok(rowByName(name).querySelector('.sfe-alloc-placeholder'), `${name} row keeps the alloc alignment placeholder`);
         }
     });
 
@@ -2630,11 +2678,12 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(!endianSel!.classList.contains('is-explicit'), 'inherited struct endian is not tinted');
         assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level allocation select');
 
-        // Plain row: field endian select renders; no allocation select anywhere.
+        // Plain row: field endian select renders; allocation stays a placeholder cell.
         const plainRow = document.querySelector<HTMLElement>('.struct-field-row')!;
         const fieldEndian = plainRow.querySelector<HTMLSelectElement>('.sfe-endian-sel');
         assert.ok(fieldEndian, 'plain row keeps the field endian select');
-        assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain row renders no field allocation select');
+        assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain row authors no field allocation select');
+        assert.ok(plainRow.querySelector('.sfe-alloc-placeholder'), 'plain row keeps the alloc alignment placeholder');
         assert.strictEqual(fieldEndian!.options[0].textContent, 'Auto', 'field endian Auto option label');
         assert.strictEqual(fieldEndian!.options[0].title, 'Auto — inherits LE', 'field endian Auto tooltip shows global when struct has none');
     });
@@ -2663,7 +2712,7 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(saved!.fields[0].allocation, undefined, 'pure struct no longer authors field allocation');
     });
 
-    test('struct-default row is grid-aligned and has no allocation select', async () => {
+    test('struct-default row is grid-aligned; non-bit-field rows keep an alloc placeholder', async () => {
         const inner: StructDef = {
             id: 'inner',
             name: 'Inner',
@@ -2702,14 +2751,16 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(defaultRow!.querySelector('#se-alloc'), null, 'struct-default row has no allocation select');
         assert.strictEqual(document.querySelector('.se-override-row'), null, 'legacy flex override strip removed');
 
-        // Field rows: no allocation select or placeholder cell anywhere.
+        // Field rows: no bit-field reference here, so no alloc select; every
+        // row keeps the alignment placeholder cell.
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
-        assert.strictEqual(rowByName('plain').querySelector('.sfe-alloc-placeholder'), null, 'no empty alloc cell');
-        assert.strictEqual(rowByName('plain').querySelector('.sfe-alloc-sel'), null, 'plain scalar row has no allocation select');
-        assert.strictEqual(rowByName('p').querySelector('.sfe-alloc-sel'), null, 'pointer row has no allocation select');
-        assert.strictEqual(rowByName('nested').querySelector('.sfe-alloc-sel'), null, 'nested-struct row has no allocation select');
-        assert.strictEqual(rowByName('ctl').querySelector('.sfe-alloc-sel'), null, 'former inline container row has no allocation select');
+        assert.strictEqual(document.querySelectorAll('.sfe-alloc-sel').length, 0, 'no alloc select without a bit-field reference');
+        assert.strictEqual(document.querySelectorAll('.sfe-alloc-placeholder').length, 4, 'every row keeps the alignment placeholder');
+        for (const name of ['plain', 'p', 'nested', 'ctl']) {
+            assert.ok(rowByName(name).querySelector('.sfe-alloc-placeholder'), `${name} row keeps an empty alloc cell`);
+            assert.strictEqual(rowByName(name).querySelector('.sfe-alloc-sel'), null, `${name} row has no allocation select`);
+        }
         assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no field bit toggle anywhere');
     });
 
@@ -3095,17 +3146,65 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(S.structs[0].fields.map(f => f.name), ['after']);
     });
 
-    test('editing a struct with a bit-field reference blocks the pointer toggle and shows no alloc override', async () => {
+    test('editing a struct authors an Alloc override on a bit-field-reference row only', async () => {
         S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
         click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
 
-        const row = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
-        assert.ok(row, 'editor should render the referencing field row');
-        assert.strictEqual((row.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'bitfield:bits', 'reference should be selected');
-        assert.strictEqual(row.querySelector('.sfe-alloc-sel'), null, 'pure-struct form authors no allocation override');
-        assert.ok((row.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
+        const refRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
+        assert.ok(refRow, 'editor should render the referencing field row');
+        assert.strictEqual((refRow.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'bitfield:bits', 'reference should be selected');
+        assert.ok((refRow.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
+        const allocSel = refRow.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+        assert.ok(allocSel, 'bit-field-reference row authors an alloc override');
+        assert.deepStrictEqual(Array.from(allocSel!.options).map(o => o.textContent), ['Auto', 'LSB', 'MSB'], 'alloc select offers Auto/LSB/MSB');
+        assert.strictEqual(allocSel!.options[0].title, 'Auto — inherits MSB', 'alloc Auto tooltip shows the global source');
+
+        // The sibling pure scalar row stays allocation-free (placeholder cell).
+        const scalarRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="1"]')!;
+        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'pure scalar rows author no allocation');
+        assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'pure scalar rows keep the alignment placeholder');
+
+        allocSel!.value = 'lsb';
+        allocSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        click(dom, document.getElementById('se-save'));
+
+        const saved = S.structs.find(d => d.id === 'user')!;
+        assert.strictEqual(saved.fields[0].allocation, 'lsb', 'bit-field-reference row saves its allocation override');
+        assert.strictEqual(saved.fields[1].allocation, undefined, 'pure scalar row saves no allocation');
+    });
+
+    test('switching a field type to/from a bit-field reference swaps the Alloc cell in place', async () => {
+        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
+
+        const scalarRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="1"]')!;
+        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'scalar row starts without an alloc select');
+        assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'scalar row starts with the alignment placeholder');
+
+        const typeSel = scalarRow.querySelector<HTMLSelectElement>('.sfe-type-sel')!;
+        typeSel.value = 'bitfield:bits';
+        typeSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        const allocSel = scalarRow.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+        assert.ok(allocSel, 'switching to a bit-field reference authors the alloc select in place');
+        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-placeholder'), null, 'placeholder is replaced by the alloc select');
+
+        allocSel!.value = 'lsb';
+        allocSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        typeSel.value = 'uint8';
+        typeSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'switching back removes the alloc select');
+        assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'placeholder is restored');
+
+        click(dom, document.getElementById('se-save'));
+        const saved = S.structs.find(d => d.id === 'user')!;
+        assert.strictEqual(saved.fields[1].type, 'uint8', 'type select change is saved');
+        assert.strictEqual(saved.fields[1].allocation, undefined, 'reverted row authors no allocation key');
     });
 
     // ── Enums ─────────────────────────────────────────────────────
@@ -3370,5 +3469,104 @@ suite('StructPanel deep-render harness', () => {
         const revealed = Array.from(firstElementAfter.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(revealed, ['tag', 'secret'], 'toggle on reveals the nested hidden leaf too');
+    });
+
+    test('deleting a referenced struct strips orphan nested type:struct refs across the pool', async () => {
+        const inner: StructDef = { id: 'inner_del', name: 'InnerDel', fields: [{ name: 'tag', type: 'uint8', count: 1 }] };
+        const holder: StructDef = {
+            id: 'holder_del', name: 'HolderDel', packed: true,
+            fields: [
+                { name: 'kid', type: 'struct', refStructId: 'inner_del', count: 1 },
+                { name: 'after', type: 'uint8', count: 1 },
+            ],
+        };
+        S.structs = [inner, holder];
+        S.structPins = [];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-del[data-struct-id="inner_del"]'));
+        confirmDelete(dom);
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        assert.deepStrictEqual(S.structs.map(d => d.id), ['holder_del']);
+        assert.deepStrictEqual(S.structs[0].fields.map(f => f.name), ['after'], 'nested type:struct ref stripped, sibling kept');
+    });
+
+    test('composition: hidden field + reusable bit-field ref + enum render together, toggle off/on', async () => {
+        const bits = enumBitsDef();
+        const root: StructDef = {
+            id: 'compose', name: 'Compose', packed: true,
+            fields: [
+                { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                { name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 },
+                { name: 'state', type: 'enum', refStructId: 'mode', count: 1 },
+            ],
+        };
+        S.structs = [enumModeDef(), bits, root];
+        S.structPins = [{ id: 'pin_compose', structId: 'compose', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xAA, 0b01_000101, 0x01]);
+
+        await renderPinsAndExpandCard();
+
+        assert.deepStrictEqual(topFieldNames(), ['flags', 'state'], 'hidden field omitted; bit-field ref + enum render');
+
+        const group = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp')!;
+        assert.ok(group.querySelector('.si-arr-grp-hdr.si-bitunit-hdr'), 'bit-field ref renders as a bitunit group');
+        click(dom, group.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn'));
+        const childNames = Array.from(group.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')).map(elementText);
+        assert.deepStrictEqual(childNames, ['mode', 'code'], 'referenced bit-field children render');
+        const modeField = Array.from(group.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field'))
+            .find(el => elementText(el.querySelector('.si-f-name')) === 'mode')!;
+        assert.strictEqual(elementText(modeField.querySelector('.si-f-val')), 'ON (0x1)', 'enum-ref bit child label uses its bit width (1 hex digit)');
+
+        const stateRow = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field'))
+            .find(el => elementText(el.querySelector('.si-f-name')) === 'state')!;
+        assert.strictEqual(elementText(stateRow.querySelector('.si-f-val')), 'ON (0x01)', 'enum scalar label uses the field width');
+
+        setShowHidden(true);
+        assert.deepStrictEqual(topFieldNames(), ['reserved', 'flags', 'state'], 'toggle on reveals the hidden field alongside the new features');
+    });
+
+    test('parity golden: unused new features keep the instance view and C preview byte-identical', async () => {
+        const child: StructDef = { id: 'par', name: 'Par', fields: [{ name: 'tag', type: 'uint8', count: 1 }] };
+        const root: StructDef = {
+            id: 'baseline', name: 'Baseline', packed: true,
+            fields: [
+                { name: 'count', type: 'uint16', count: 1 },
+                { name: 'items', type: 'uint8', count: 2 },
+                { name: 'child', type: 'struct', refStructId: 'par', count: 1 },
+            ],
+        };
+        S.structs = [child, root];
+        S.structPins = [{ id: 'pin_baseline', structId: 'baseline', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0x34, 0x12, 0xAA, 0xBB, 0x7F]);
+        await renderPinsAndExpandCard();
+
+        // Instance-view golden: a pool that uses none of the new features
+        // (hidden / reusable bit-field ref / enum) renders exactly as before.
+        const rendered = document.querySelector<HTMLElement>('.si-fields')!.innerHTML;
+        assert.deepStrictEqual(
+            Array.from(document.querySelectorAll<HTMLElement>('.si-fields .si-f-name')).map(elementText),
+            ['count', 'items', '[0]', '[1]', 'child', 'tag'],
+            'visible row names are the pre-change set',
+        );
+        assert.strictEqual(
+            crypto.createHash('sha256').update(rendered).digest('hex'),
+            'bf39479b1e6a22aff464bd4ae3592e06f1c1dccc6648c4cd928eb04807f4a640',
+            'instance-view HTML is byte-identical with every new feature unused',
+        );
+
+        // C-preview golden: same guarantee for the exported layout.
+        assert.strictEqual(
+            structToC(root, [child, root]),
+            [
+                'typedef struct __attribute__((packed)) {',
+                '    uint16_t count;                         /* +  0  2B */',
+                '    uint8_t  items[2];                      /* +  2  2B */',
+                '    Par      child;                         /* +  4  1B */',
+                '} Baseline;                                 /* 5B, packed */',
+            ].join('\n'),
+            'C preview is byte-identical with every new feature unused',
+        );
     });
 });

@@ -40,10 +40,12 @@
     font-family: var(--font-editor); white-space: nowrap;
 }
 
-/* Named-type discriminator badge in the type list (bit-field / enum kinds). */
-.sd-kind {
-    flex-shrink: 0;
-    font-size: 9px; font-weight: 700; text-transform: uppercase;
+/* Named-type discriminator badge — one shared primitive for the type list
+   (`.sd-kind`) and the editor default row (`.se-kind-badge`); only layout
+   differs between the two. 10px type floor. */
+.sd-kind,
+.se-kind-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; line-height: 1.5;
     color: var(--addr-fg);
     border: 1px solid var(--border);
@@ -51,16 +53,9 @@
     font-family: var(--font-ui);
 }
 
-/* Kind badge inside the type editor's default row. */
-.se-kind-badge {
-    font-size: 9px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .04em; line-height: 1.5;
-    color: var(--addr-fg);
-    border: 1px solid var(--border);
-    border-radius: 2px; padding: 0 3px;
-    font-family: var(--font-ui);
-    justify-self: start;
-}
+/* Layout-only modifiers. */
+.sd-kind { flex-shrink: 0; }
+.se-kind-badge { justify-self: start; }
 
 /* -- Struct form editor (#s-struct when editing) ----------------- */
 
@@ -108,7 +103,7 @@
 /* Struct-default row: grid-aligned so Endian shares the field grid column */
 .se-struct-default-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 28px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
     margin-top: 3px;
 }
@@ -120,10 +115,11 @@
     flex: 1; min-width: 0;
 }
 
-/* Shared select control: appearance, caret, spacing — struct-default, type, endian */
+/* Shared select control: appearance, caret, spacing — struct-default, type, endian, alloc */
 .se-struct-default-sel,
 .sfe-type-sel,
-.sfe-endian-sel {
+.sfe-endian-sel,
+.sfe-alloc-sel {
     appearance: none;
     background-color: var(--input-bg);
     background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
@@ -135,11 +131,15 @@
 }
 .se-struct-default-sel:focus,
 .sfe-type-sel:focus,
-.sfe-endian-sel:focus { border-color: var(--focus-bdr); }
+.sfe-endian-sel:focus,
+.sfe-alloc-sel:focus { border-color: var(--focus-bdr); }
+
+/* Empty cell kept so non-bit-field-ref rows stay grid-aligned with ref rows. */
+.sfe-alloc-placeholder { display: block; }
 
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 28px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -149,7 +149,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 28px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 .struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
@@ -159,7 +159,8 @@
 }
 
 .sfe-type-sel,
-.sfe-endian-sel { width: 100%; }
+.sfe-endian-sel,
+.sfe-alloc-sel { width: 100%; }
 
 /* Pointer toggle button (*): fills its grid cell between Type and Name */
 .sfe-ptr-btn {

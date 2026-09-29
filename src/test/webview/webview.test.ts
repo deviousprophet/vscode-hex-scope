@@ -22,6 +22,7 @@ import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
 import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
+import type { StructDef, StructPin } from '../../core/types';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -668,6 +669,33 @@ suite('Record View rendering', () => {
                 'collapse state survives tab round-trip');
             assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-byte-line'),
                 'selection data survives tab round-trip');
+
+            // Struct show-hidden provider seam: a `perFileDataChange` slice drives
+            // showHiddenFieldsChanged → applyScopedInvalidations →
+            // applyShowHiddenFieldsChanged → structPanel.setShowHiddenFields.
+            const seamStructs: StructDef[] = [{
+                id: 'cfg', name: 'Cfg', fields: [
+                    { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                    { name: 'tag', type: 'uint8', count: 1 },
+                ],
+            }];
+            const seamPins: StructPin[] = [{ id: 'pin_seam', structId: 'cfg', addr: 0x08000000, name: 'inst' }];
+            S.structs = seamStructs;
+            const pushHidden = (showHiddenFields: boolean): void => {
+                window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
+                    type: 'perFileDataChange', labels: [], pins: seamPins, endian: 'le', bitAllocation: 'msb',
+                    showHiddenFields, activeChecks: { schemaVersion: 1, checks: [] },
+                } }));
+            };
+            pushHidden(false);
+            document.getElementById('stab-struct')!.click();
+            document.querySelector<HTMLElement>('.si-expand-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+            const seamNames = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
+                .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
+            assert.deepStrictEqual(seamNames(), ['tag'], 'hidden field omitted under the default toggle');
+
+            pushHidden(true);
+            assert.deepStrictEqual(seamNames(), ['reserved', 'tag'], 'showHiddenFieldsChanged invalidation reveals the hidden field through the panel');
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }

@@ -100,6 +100,9 @@ export interface BitFieldChild {
 /** Unsigned integer widths usable as a bit-field storage base. */
 export type StructBaseType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
 
+/** Runtime list mirroring StructBaseType — the JSON-schema enum drift guard. */
+export const STRUCT_BASE_TYPES: readonly StructBaseType[] = ['uint8', 'uint16', 'uint32', 'uint64'];
+
 /** Named-type discriminator; absent = plain struct. */
 export type StructDefKind = 'struct' | 'bitfield' | 'enum';
 
