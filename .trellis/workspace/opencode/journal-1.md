@@ -469,3 +469,36 @@ Resolved the two-axis code-review findings on feat/struct-overlay-types: single-
 ### Next Steps
 
 - Parent struct-overlay-types final integration review; deferred child 09-29-struct-panel-module-split remains open.
+
+
+## Session 16: Struct overlay types — parent integration review and close
+<!-- trellis-session: v=2 fp=d37f281eec9a4cb6 -->
+
+**Date**: 2026-09-29
+**Task**: Struct overlay types — parent integration review and close
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Final integration review of the struct-overlay parent: all four feature children plus the review follow-ups are archived, the parent acceptance criteria are met (struct-only load, legacy inline migration byte-identity, one creation entry point/three kinds, unused-feature parity, feature composition, no issue refs, struct-termed naming), and the parent is archived. The only red test is the pre-existing environmental clipboard test. The deferred structPanel module split is tracked separately and no longer a parent child.
+
+### Main Changes
+
+- Follow-ups commit c182fae resolved the review findings; parity/composition/seam tests close the cross-child acceptance criteria.
+- Parent PRD acceptance criteria ticked and child map updated; parent archived to archive/2026-09.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests exit 0; npm test 1238 passing / 1 pre-existing environmental clipboard failure.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Optionally implement 09-29-struct-panel-module-split, then open the PR from feat/struct-overlay-types.
