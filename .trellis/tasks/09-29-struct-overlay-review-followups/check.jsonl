@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify tests observe behaviour; parity/composition tests are real"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Verify model invariants, validation matrix, and documented rulings"}
+{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Verify render seam, hidden contract, per-width enum labels"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Verify authoring rows, in-place toggle, delete confirmation"}
+{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify 10px floor + Exception Log consistency"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify no duplicated helpers remain across the seam"}

@@ -22,7 +22,9 @@
     "09-27-hidden-struct-fields",
     "09-27-reusable-bitfield-types",
     "09-27-enum-types",
-    "09-27-type-kind-creation"
+    "09-27-type-kind-creation",
+    "09-29-struct-overlay-review-followups",
+    "09-29-struct-panel-module-split"
   ],
   "parent": null,
   "relatedFiles": [],
