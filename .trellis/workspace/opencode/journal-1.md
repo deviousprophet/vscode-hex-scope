@@ -502,3 +502,40 @@ Final integration review of the struct-overlay parent: all four feature children
 ### Next Steps
 
 - Optionally implement 09-29-struct-panel-module-split, then open the PR from feat/struct-overlay-types.
+
+
+## Session 17: Split structPanel into renderer and editor modules
+<!-- trellis-session: v=2 fp=dcd2745912209dce -->
+
+**Date**: 2026-09-29
+**Task**: Split structPanel into renderer and editor modules
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Behaviour-preserving extraction of five clusters from structPanel.ts (5712 -> 2846 lines) into sibling modules: structCPreview, structBinaryView, structEditorFields, structValueFormat, structRowRenderer. StructPanel stays the orchestrator; public API/StructCallbacks unchanged; hexViewer.ts, structPanel.test.ts, structPinsModel.ts and the single structPanel.css untouched.
+
+### Main Changes
+
+- Pure clusters take explicit args; wide clusters share one narrow StructRenderCtx built per wrapper call (endian/alloc/showHidden/defaultValType snapshotted per call; structs/fieldValTypes/expansion sets live references).
+- Extraction order: C preview -> binary view -> editor fields -> value format -> row renderer (value format -> binary view; row renderer -> both; no runtime import cycle). Specs updated: directory-structure ownership tree + component-sidebar-struct-panel layout, StructPanel.ts casing corrected to structPanel.ts.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `53c339c` | refactor(webview): split structPanel into renderer and editor modules |
+| `bb1df87` | docs(spec): list the extracted structPanel modules |
+| `5de9da6` | docs(task): plan the structPanel module split |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests exit 0; npm test 1239 passing / 0 failing. Checker AST parity proof: 266 extracted function pairs order-identical, 0 reorder flags; no test assertion touched.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Branch feat/struct-overlay-types is feature-complete (parent + all children archived); open the PR.
