@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Component contract: public API, StructCallbacks, byte-identical markup rule, no-S rule, parity test gate"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module ownership tree + self-contained component layout rule to update"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component structure, wiring, and CSS-import conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test-quality rules: never weaken assertions during a refactor"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Component vs host state ownership (transient UI state stays in the component)"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Type aliases/unions shared across the extracted modules"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Extraction boundaries and shared-helper placement"}
