@@ -111,25 +111,31 @@ written into each child's `implement.md`:
 - `09-27-reusable-bitfield-types` — Child 2 (R13–R18).
 - `09-27-enum-types` — Child 3 (R19–R24).
 - `09-27-type-kind-creation` — Child 4 (R25–R31).
+- `09-29-struct-overlay-review-followups` — resolves the two-axis code-review
+  findings and adds the composition / parity / host-seam tests that close the
+  parent acceptance criteria below. (A deferred `structPanel` module split is
+  tracked separately, outside this parent.)
 
 ## Acceptance Criteria
 
 Cross-child / parent-level:
 
-- [ ] All four child tasks are implemented, checked, and archived.
-- [ ] A struct-only `structs.json` from before this work loads with no loss.
-- [ ] A legacy pool with inline bit-field containers migrates to standalone
+- [x] All four child tasks are implemented, checked, and archived.
+- [x] A struct-only `structs.json` from before this work loads with no loss.
+- [x] A legacy pool with inline bit-field containers migrates to standalone
       bit-field types on load and decodes byte-identically.
-- [ ] The Struct Types section offers one creation entry point with three
+- [x] The Struct Types section offers one creation entry point with three
       kinds (struct / bit-field / enum), each opening its own form.
-- [ ] With every new feature unused, the instance view and C preview are
+- [x] With every new feature unused, the instance view and C preview are
       byte-for-byte identical to the pre-change behaviour.
-- [ ] New features compose: in one struct, a hidden field, a field typed by a
+- [x] New features compose: in one struct, a hidden field, a field typed by a
       reusable bit-field type, and a field/bit-child using an enum all render
       correctly together in one instance.
-- [ ] No issue reference appears in any artifact, branch, commit, or comment.
-- [ ] Naming stays struct-termed (no typedef rename).
-- [ ] Full lint, type-check, and test suite pass on the integration branch.
+- [x] No issue reference appears in any artifact, branch, commit, or comment.
+- [x] Naming stays struct-termed (no typedef rename).
+- [x] Full lint, type-check, and test suite pass on the integration branch
+      (1238 passing; the sole failure is the pre-existing environmental
+      clipboard test, reproduced on the stashed baseline).
 
 ## Notes
 

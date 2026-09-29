@@ -3,7 +3,7 @@
   "name": "struct-overlay-types",
   "title": "Struct overlay: type kinds and instance clutter",
   "description": "Parent: reduce Struct Instances clutter and let the Struct Types pool define three kinds (struct, bit-field, enum) with one creation flow. Four independently verifiable children.",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "deviousprophet",
   "assignee": "deviousprophet",
   "createdAt": "2026-09-27",
-  "completedAt": null,
+  "completedAt": "2026-09-29",
   "branch": "feat/struct-overlay-types",
   "base_branch": "main",
   "worktree_path": null,
@@ -23,8 +23,7 @@
     "09-27-reusable-bitfield-types",
     "09-27-enum-types",
     "09-27-type-kind-creation",
-    "09-29-struct-overlay-review-followups",
-    "09-29-struct-panel-module-split"
+    "09-29-struct-overlay-review-followups"
   ],
   "parent": null,
   "relatedFiles": [],
