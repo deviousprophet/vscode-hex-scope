@@ -14,8 +14,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityProfiles } from './core/integrity';
 import { arrayField, arrayOrEmpty, plainObject, plainStringRecord, stringField } from './core/fromUnknown';
-import { migrateStructDefinitions, mergeLegacyStructDefs } from './core/structMigration';
-import { normalizeStructDefsValue } from './core/structNormalization';
+import { migrateStructDefinitions, mergeLegacyStructDefs } from './core/struct/structMigration';
+import { normalizeStructDefsValue } from './core/struct/structNormalization';
 import type { StructDef } from './core/types';
 import {
     bindingsJsonUri,

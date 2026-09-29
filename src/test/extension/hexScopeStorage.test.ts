@@ -54,8 +54,8 @@ import {
 } from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
 import { migrateLegacyData } from '../../hexScopeMigration';
-import { migrateStructDefinitions } from '../../core/structMigration';
-import { normalizeStructDefsValue } from '../../core/structNormalization';
+import { migrateStructDefinitions } from '../../core/struct/structMigration';
+import { normalizeStructDefsValue } from '../../core/struct/structNormalization';
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const FAST = 1; // near-immediate debounce for tests

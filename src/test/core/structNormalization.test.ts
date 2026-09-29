@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 
-import { normalizeStructDefsValue } from '../../core/structNormalization';
+import { normalizeStructDefsValue } from '../../core/struct/structNormalization';
 import type { StructDef, StructField } from '../../core/types';
 
 function enumDef(): StructDef {

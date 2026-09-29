@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { HexEditorSession } from './hexEditorSession';
-import { migrateStructDefinitions } from './core/structMigration';
+import { migrateStructDefinitions } from './core/struct/structMigration';
 
 export { migrateStructDefinitions };
 

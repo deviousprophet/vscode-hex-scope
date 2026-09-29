@@ -19,8 +19,8 @@ import {
 import {
     fieldByteSize, structByteSize, decodeStruct, allStructs, validateStructs, MAX_NESTED_DEPTH,
     structDefKind, isUnsignedScalarType,
-} from '../../../../core/structCodec.js';
-import type { DecodedField } from '../../../../core/structCodec.js';
+} from '../../../../core/struct/structCodec.js';
+import type { DecodedField } from '../../../../core/struct/structCodec.js';
 import type { BitFieldAllocation, BitFieldChild, EnumEntry, StructBaseType, StructDef, StructDefKind, StructField, StructFieldType, StructPin } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import { menuController } from '../../menuController/menuController';

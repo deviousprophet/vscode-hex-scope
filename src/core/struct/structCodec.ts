@@ -11,7 +11,7 @@ import type {
     StructField,
     StructFieldType,
     StructScalarFieldType,
-} from './types';
+} from '../types';
 
 export type { StructDef, StructField };
 

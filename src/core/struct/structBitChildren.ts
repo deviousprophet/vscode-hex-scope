@@ -4,7 +4,7 @@
  * (same reference when nothing changed).
  */
 
-import type { BitFieldChild } from './types';
+import type { BitFieldChild } from '../types';
 
 function bitChildListChanged(before: readonly BitFieldChild[], after: readonly BitFieldChild[]): boolean {
     return before.some((c, i) => c !== after[i]);

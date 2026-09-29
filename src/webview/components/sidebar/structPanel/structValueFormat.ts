@@ -1,8 +1,8 @@
 /** Struct panel — decoded value formatting and copy-text helpers.
 Extracted verbatim from structPanel.ts (pure move). */
 import { esc, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64 } from '../../../utils';
-import { bytesToBigUint, enumHexDigits, formatEnumLabel } from '../../../../core/structCodec.js';
-import type { DecodedField } from '../../../../core/structCodec.js';
+import { bytesToBigUint, enumHexDigits, formatEnumLabel } from '../../../../core/struct/structCodec.js';
+import type { DecodedField } from '../../../../core/struct/structCodec.js';
 import type { BitFieldAllocation, StructDef, StructFieldType, StructPin } from '../../../../core/types';
 import {
     binaryBitsForValue, binaryGroupsLowBitsFirst, bitChildValKey, formatPlainBinaryBits, isBitFieldRow,

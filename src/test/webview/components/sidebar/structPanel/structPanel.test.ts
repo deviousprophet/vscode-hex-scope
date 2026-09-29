@@ -8,7 +8,7 @@ import type { StructPanel } from '../../../../../webview/components/sidebar/stru
 import { S } from '../../../../../webview/state';
 import { getByte } from '../../../../../webview/memory/memoryData';
 import type { StructDef, StructPin } from '../../../../../core/types';
-import { structToC } from '../../../../../core/structCodec';
+import { structToC } from '../../../../../core/struct/structCodec';
 import { setBytesInSegment } from '../../../structStateHelpers';
 
 function resetStructState(): void {

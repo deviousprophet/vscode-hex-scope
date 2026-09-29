@@ -5,7 +5,7 @@ import {
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
     structDefKind, materializeBitFieldRefs, migrateInlineBitFields, formatEnumLabel, matchEnumEntry,
     normalizeStructField, isUnsignedScalarType, bytesToBigUint,
-} from '../../core/structCodec';
+} from '../../core/struct/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
 

@@ -16,9 +16,9 @@ import { runParseJob } from './parse/parseWorkerClient';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
-import { migrateStructDefinitions } from './core/structMigration';
-import { normalizeStructDefsValue } from './core/structNormalization';
-import { countStructFieldRefs } from './core/structCodec';
+import { migrateStructDefinitions } from './core/struct/structMigration';
+import { normalizeStructDefsValue } from './core/struct/structNormalization';
+import { countStructFieldRefs } from './core/struct/structCodec';
 import {
     messageType,
     RECORD_PAGE_SIZE,

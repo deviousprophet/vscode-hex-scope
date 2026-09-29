@@ -1,7 +1,7 @@
 /** Struct panel — editor field-row markup helpers.
 Extracted verbatim from structPanel.ts (pure move). */
 import { esc } from '../../../utils';
-import { FIELD_TYPES, allStructs, isUnsignedScalarType, normalizeStructField, structDefKind } from '../../../../core/structCodec.js';
+import { FIELD_TYPES, allStructs, isUnsignedScalarType, normalizeStructField, structDefKind } from '../../../../core/struct/structCodec.js';
 import type { BitFieldChild, StructDef, StructField } from '../../../../core/types';
 
 /** Max chars for a `struct <name>` option label before truncating (full name in `title`). */

@@ -4,8 +4,8 @@ import { esc, formatHex, formatHexHtml } from '../../../utils';
 import {
     allStructs, bytesToBigUint, decodeField, decodeStruct, fieldByteSize, normalizeStructField,
     resolveStructFieldByPath, structByteSize,
-} from '../../../../core/structCodec.js';
-import type { DecodedField } from '../../../../core/structCodec.js';
+} from '../../../../core/struct/structCodec.js';
+import type { DecodedField } from '../../../../core/struct/structCodec.js';
 import type { BitFieldAllocation, StructDef, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
 import {
     bitRowWidth, bitUnitValKey, byteHexParts, bytesFromHexParts, hasMissingByte, isBitFieldRow,

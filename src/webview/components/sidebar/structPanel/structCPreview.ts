@@ -1,6 +1,6 @@
 /** Struct panel — C preview token/line builders and render/hydrate entry points.
 Extracted verbatim from structPanel.ts (pure move). */
-import { allStructs, structToC } from '../../../../core/structCodec.js';
+import { allStructs, structToC } from '../../../../core/struct/structCodec.js';
 import type { StructDef } from '../../../../core/types';
 
 // ── C syntax-highlighted struct preview ─────────────────────────────────────

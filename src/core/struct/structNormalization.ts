@@ -3,7 +3,7 @@
  * host (session + migration) and tests share it.
  */
 
-import type { BitFieldChild, EnumEntry, StructDef, StructField } from './types';
+import type { BitFieldChild, EnumEntry, StructDef, StructField } from '../types';
 import { enumValueBound, migrateInlineBitFields } from './structCodec';
 import { withCleanedBitChildren } from './structBitChildren';
 import { hasSeenStructDefIdentity, rememberStructDefIdentity, structDefIdentity } from './structIdentities';

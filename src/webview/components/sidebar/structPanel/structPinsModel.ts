@@ -1,5 +1,5 @@
 import type { BitFieldChild, StructDef, StructField, StructPin, StructPointerSource } from '../../../../core/types';
-import { withCleanedBitChildren } from '../../../../core/structBitChildren';
+import { withCleanedBitChildren } from '../../../../core/struct/structBitChildren';
 
 export type PinIdFactory = () => string;
 

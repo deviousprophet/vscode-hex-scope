@@ -1,7 +1,7 @@
 /** Struct panel — bit-span / binary rendering helpers.
 Extracted verbatim from structPanel.ts (pure move). */
-import { bytesToBigUint, fieldByteSize } from '../../../../core/structCodec.js';
-import type { DecodedField } from '../../../../core/structCodec.js';
+import { bytesToBigUint, fieldByteSize } from '../../../../core/struct/structCodec.js';
+import type { DecodedField } from '../../../../core/struct/structCodec.js';
 import type { BitFieldAllocation } from '../../../../core/types';
 
 /** Global endian/allocation fallbacks for the binary rendering helpers. */
