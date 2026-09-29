@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify the schema-copy contract and no-write-on-open invariant are preserved and documented"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify the refresh tests observe behaviour and no assertion was weakened"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify the write-sink hook covers all data writes without recursion"}
