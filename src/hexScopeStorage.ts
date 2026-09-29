@@ -7,7 +7,7 @@
 //   .hexscope/structs.json          — workspace-wide StructDef[] pool
 //   .hexscope/profiles.json         — ProfileRecord[] registry (all profiles in one file)
 //   .hexscope/bindings.json         — fileKey → profileId table
-//   .hexscope/schemas/              — seeded schema copies
+//   .hexscope/schemas/              — generated schema copies (refreshed on data writes)
 //   .hexscope/scripts/              — script runner (unchanged)
 
 import { readFileSync } from 'node:fs';
@@ -142,6 +142,21 @@ export async function writeJson(uri: vscode.Uri, value: unknown): Promise<void> 
     const schemaRef = resolveProfileSchemaRef(uri);
     const payload = schemaRef ? withSchemaSibling(value, schemaRef) : value;
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(payload, null, 2)));
+    await refreshSchemaCopiesAfterWrite(uri);
+}
+
+/** Best-effort schema-copy refresh after a .hexscope data write. Recursion
+ *  invariant: the copies live in `.hexscope/schemas/`, so
+ *  `hexScopeRootFromDataUri` returns null for them — writing a copy never
+ *  re-triggers the refresh. */
+async function refreshSchemaCopiesAfterWrite(uri: vscode.Uri): Promise<void> {
+    const root = hexScopeRootFromDataUri(uri);
+    if (root === null) { return; }
+    try {
+        await seedSchemaCopies(root);
+    } catch {
+        // Tooling-only copies: a refresh failure never fails the data write.
+    }
 }
 
 /** Keep an existing `$schema` sibling; otherwise inject the canonical one. */
@@ -151,7 +166,7 @@ function withSchemaSibling(value: unknown, ref: string): unknown {
     return { ...value, $schema: typeof sibling === 'string' ? sibling : ref };
 }
 
-/** Write only when the file does not already exist. Used by migration seeding. */
+/** Write only when the file does not already exist (keep a committed copy). */
 export async function writeIfMissing(uri: vscode.Uri, value: unknown): Promise<void> {
     if ((await readJson(uri)).status !== 'missing') { return; }
     await writeJson(uri, value);
@@ -194,6 +209,18 @@ export function perFileRelativePath(root: string, uri: vscode.Uri): string {
     return path.relative(root, uri.fsPath).split(path.sep).join('/');
 }
 
+/** Root of a top-level `.hexscope` data file, else null. Schema copies (and
+ *  any nested path) return null, so the post-write refresh cannot recurse. */
+function hexScopeRootFromDataUri(uri: vscode.Uri): string | null {
+    if (!isTopLevelDataFile(path.basename(uri.fsPath))) { return null; }
+    const hsDir = path.dirname(uri.fsPath);
+    return path.basename(hsDir) === '.hexscope' ? path.dirname(hsDir) : null;
+}
+
+function isTopLevelDataFile(file: string): boolean {
+    return file === PROFILES_FILE || file === STRUCT_POOL_FILE || file === BINDINGS_FILE;
+}
+
 /** Read a directory; [] when it does not exist (shared by session + migration). */
 export async function readDirectorySafe(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
     try {
@@ -219,12 +246,11 @@ export async function readProfileRecord(root: string, profileId: string): Promis
     return records.find(rec => rec.id === profileId) ?? null;
 }
 
-/** Upsert one record into the registry array (read-modify-write). The first
- *  registry write also seeds the .hexscope/schemas copies. */
+/** Upsert one record into the registry array (read-modify-write). The write
+ *  itself refreshes the .hexscope/schemas copies (see writeJson). */
 export async function writeProfileRecord(root: string, rec: ProfileRecord): Promise<void> {
     const uri = profilesJsonUri(root);
     const read = await readJson(uri);
-    if (read.status === 'missing') { await seedSchemaCopies(root); }
     const records = read.status === 'ok' ? normalizeProfilesRegistry(read.value).value : [];
     const idx = records.findIndex(r => r.id === rec.id);
     const next = idx >= 0 ? records.map(r => (r.id === rec.id ? rec : r)) : [...records, rec];
@@ -290,14 +316,29 @@ function registryChanged(next: ProfileRecord[], current: ProfileRecord[]): boole
     return next.length !== current.length || JSON.stringify(next) !== JSON.stringify(current);
 }
 
-/** Seed .hexscope/schemas with the bundled schema copies (writeIfMissing). */
-export async function seedSchemaCopies(root: string): Promise<void> {
-    const dir = vscode.Uri.file(hexScopeSchemasDir(root));
+/** Refresh .hexscope/schemas with the bundled schema copies (content-diff):
+ *  each copy is written only when missing or its parsed content differs from
+ *  the bundled schema. Returns the schema names actually (re)written. */
+export async function seedSchemaCopies(root: string): Promise<string[]> {
+    const written: string[] = [];
     for (const { schema } of SCHEMA_FILES) {
-        const content = bundledSchema(schema);
-        if (content === undefined) { continue; }
-        await writeIfMissing(vscode.Uri.file(path.join(dir.fsPath, schema)), content);
+        const bundled = bundledSchema(schema);
+        if (bundled === undefined) { continue; }
+        const uri = vscode.Uri.file(path.join(hexScopeSchemasDir(root), schema));
+        if (await schemaCopyDiffers(uri, bundled)) {
+            await writeJson(uri, bundled);
+            written.push(schema);
+        }
     }
+    return written;
+}
+
+/** Compare the parsed on-disk copy with the bundled value using the same
+ *  pretty shape writeJson emits, so whitespace/key-order noise is not a diff. */
+async function schemaCopyDiffers(uri: vscode.Uri, bundled: unknown): Promise<boolean> {
+    const onDisk = await readJson(uri);
+    return onDisk.status !== 'ok'
+        || JSON.stringify(onDisk.value, null, 2) !== JSON.stringify(bundled, null, 2);
 }
 
 /** Relative $schema path from a storage file to .hexscope/schemas/, or null. */
@@ -320,8 +361,7 @@ function schemaRefForParts(parts: string[], schema: string): string | null {
 }
 
 function isTopLevelSchemaPath(afterHs: string[]): boolean {
-    return (afterHs[0] === PROFILES_FILE || afterHs[0] === STRUCT_POOL_FILE || afterHs[0] === BINDINGS_FILE)
-        && afterHs.length === 1;
+    return afterHs.length === 1 && isTopLevelDataFile(afterHs[0]);
 }
 
 /** Read a bundled schema from the extension's own install dir (out/ or dist/ → ../schemas). */

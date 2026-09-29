@@ -603,6 +603,83 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         await bindFile(testRoot, 'firmware/stays.hex', 'profile_1');
         assert.strictEqual(await boundProfileId(testRoot, 'firmware/gone.hex'), null, 'pruned on next write; re-pick from dropdown');
     });
+
+    test('a stale schema copy is re-synced to the bundled content by a data write', async () => {
+        const structsCopy = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
+        await writeText(structsCopy, JSON.stringify({ title: 'stale workspace copy' }, null, 2));
+
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+
+        assert.notDeepStrictEqual(await readJsonValue(structsCopy), { title: 'stale workspace copy' }, 'stale copy replaced');
+        assert.ok((await readJsonValue(structsCopy) as { properties?: unknown }).properties, 'copy now carries the bundled schema shape');
+    });
+
+    test('an absent schema copy is created by a data write (JsonStore.flush path)', async () => {
+        // A workspace written by an older extension: data file present, copies gone.
+        await writeJson(profilesJsonUri(testRoot), withEnvelope([emptyProfileRecord('profile_1', 'Boot')]));
+        await vscode.workspace.fs.delete(vscode.Uri.file(hexScopeSchemasDir(testRoot)), { recursive: true });
+
+        const store = registryStoreFor(testRoot);
+        await store.load();
+        store.set([{ ...emptyProfileRecord('profile_1', 'Boot'), endian: 'be' }]);
+        await store.flush();
+
+        const structsCopy = await readJson(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json')));
+        assert.strictEqual(structsCopy.status, 'ok', 'absent copy recreated by the flushed data write');
+    });
+
+    test('seedSchemaCopies returns the written names when stale and [] when current', async () => {
+        const first = await seedSchemaCopies(testRoot);
+        assert.deepStrictEqual(first.sort(), ['bindings.schema.json', 'profiles.schema.json', 'structs.schema.json'], 'absent → all written');
+        assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'current copies are not rewritten');
+
+        await writeText(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'bindings.schema.json')), JSON.stringify({ stale: true }));
+        assert.deepStrictEqual(await seedSchemaCopies(testRoot), ['bindings.schema.json'], 'only the differing copy is rewritten');
+        assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'back to current');
+    });
+
+    test('the refresh leaves the data files byte-identical', async () => {
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        await writeJson(structPoolJsonUri(testRoot), withEnvelope([]));
+        const profilesUri = profilesJsonUri(testRoot);
+        const structsUri = structPoolJsonUri(testRoot);
+        const profilesBefore = await readText(profilesUri);
+        const structsBefore = await readText(structsUri);
+        await writeText(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json')), JSON.stringify({ stale: true }));
+
+        await writeJson(bindingsJsonUri(testRoot), withEnvelope([{ fileKey: REL, profileId: 'profile_1' }]));
+
+        assert.strictEqual(await readText(profilesUri), profilesBefore, 'profiles.json untouched by the refresh');
+        assert.strictEqual(await readText(structsUri), structsBefore, 'structs.json untouched by the refresh');
+    });
+
+    test('a bare open refreshes no schema copy and writes no file', async () => {
+        await writeJson(profilesJsonUri(testRoot), withEnvelope([]));
+        const stale = JSON.stringify({ title: 'stale workspace copy' }, null, 2);
+        const copyUri = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
+        await writeText(copyUri, stale);
+
+        const store = registryStoreFor(testRoot);
+        await store.load();
+        store.dispose();
+
+        assert.strictEqual(await readText(copyUri), stale, 'a bare load never refreshes the copies');
+    });
+
+    test('a refresh does not recurse (writing a copy never re-triggers the refresh)', async () => {
+        const staleCopy = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
+        await writeText(staleCopy, JSON.stringify({ stale: true }));
+
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+
+        // Exactly one `.hexscope` dir + the three schema copies + the data file:
+        // a recursive trigger would loop/write extra entries (or never settle).
+        const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
+        assert.deepStrictEqual(entries.map(([name]) => name).sort(), ['profiles.json', 'schemas']);
+        const schemas = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeSchemasDir(testRoot)));
+        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['bindings.schema.json', 'profiles.schema.json', 'structs.schema.json']);
+        assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'settled on the current copies');
+    });
 });
 
 suite('hexScopeStorage — per-dir registry → profiles.json migration', () => {
