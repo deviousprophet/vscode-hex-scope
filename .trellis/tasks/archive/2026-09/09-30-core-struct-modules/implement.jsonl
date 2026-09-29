@@ -1,8 +1,0 @@
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Module ownership tree, core/ placement rules, Deep Module Seams paths to update"}
-{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Struct codec ownership references and test-path references to update"}
-{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Decode-owner path reference (structCodec) to update"}
-{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "core/structCodec path reference in the panel contract"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "structMigration/structCodec normalization-ownership reference"}
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "structMigration reference in the registry/migration narrative"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Import/type-boundary conventions for the moved modules"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar and refactor rules (no behaviour change, no weakened tests)"}

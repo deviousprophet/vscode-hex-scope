@@ -1,8 +1,0 @@
-{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Struct field/def model, bit-field container rules, normalizer/validation conventions"}
-{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Struct instance view rendering, hierarchy, bit-unit groups, C preview"}
-{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Struct panel editor rows, type list, add actions, field grid"}
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Pool normalization + self-heal write path"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Persistence scope, ProfileRecord, message flow ownership"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component structure and wiring conventions"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Type/union widening rules for new keys/kinds"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace core -> host normalization -> webview flow"}

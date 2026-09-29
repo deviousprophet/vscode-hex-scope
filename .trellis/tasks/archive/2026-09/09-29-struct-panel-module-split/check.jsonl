@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Verify public API/StructCallbacks unchanged and markup byte-identical"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify the ownership tree and module layout are updated"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify no test assertion was weakened to pass the refactor"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify component/module boundaries and CSS import"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify no duplicated helper remains across the class/module seam"}

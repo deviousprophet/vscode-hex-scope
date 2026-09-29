@@ -1,9 +1,0 @@
-{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Struct def/field model, kind discriminator, validation matrix, C preview contract, codec ownership"}
-{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Instance-view render seam, hidden-field contract, bit-unit grouping, C preview"}
-{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Struct panel editor rows, kind chooser, field grid, delete confirmation"}
-{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "10px type floor, Exception Log, shared sidebar primitives"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Profile fields, save* messages, invalidation effects, normalization ownership"}
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Pool normalization + self-heal write path"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Union widening + drift-guard consts (STRUCT_BASE_TYPES)"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test-quality rules (delete-the-behaviour, golden parity), verification bar"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Extraction threshold, shared-helper placement across core/webview"}
