@@ -64,7 +64,7 @@ src/
         ├── menuController/   menuController.ts + menu.css
         └── sidebar/          sidebar.ts + sidebar.css (shell + shared `.sb-*` primitives; exports SidebarTab; panels injected)
             ├── inspectorPanel/    inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
-            ├── structPanel/       structPanel.ts + structPinsModel.ts + structPanel.css
+            ├── structPanel/       structPanel.ts + structPinsModel.ts + structCPreview.ts + structBinaryView.ts + structEditorFields.ts + structValueFormat.ts + structRowRenderer.ts + structPanel.css
             ├── integrityPanel/    integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityHighlight.ts + integrityPanel.css
             └── scriptsPanel/      scriptsPanel.ts + scriptsPanel.css (script runner panel)
 

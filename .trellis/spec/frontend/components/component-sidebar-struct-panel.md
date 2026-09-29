@@ -2,7 +2,7 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/sidebar/structPanel/structPanel.ts` (+ `structPinsModel.ts`) + `structPanel.css`: the sidebar Struct panel — both tracks (pins/instances + types/editor). The component owns all panel markup, expansion state, bit-field allocation toggle, editor draft state, pin add/edit state, field-value menus, pointer follow/create, and the bit-layout toggle. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
+Owns `src/webview/components/sidebar/structPanel/structPanel.ts` (orchestrator), its extracted render modules (`structCPreview.ts`, `structBinaryView.ts`, `structEditorFields.ts`, `structValueFormat.ts`, `structRowRenderer.ts`), `structPinsModel.ts` and `structPanel.css`: the sidebar Struct panel — both tracks (pins/instances + types/editor). The component owns all panel markup, expansion state, bit-field allocation toggle, editor draft state, pin add/edit state, field-value menus, pointer follow/create, and the bit-layout toggle. It never reads/writes the `S` global and never posts provider messages: data is pushed via setters, byte reads go through the injected `readByte` accessor, and actions report via callbacks.
 
 Host (`hexViewer.ts`) owns: `S` state, struct/pin persistence (`saveStructs`/`saveStructPins`), selection, endian, bit-field allocation, hex-view highlight, and jumps.
 
@@ -10,12 +10,19 @@ Host (`hexViewer.ts`) owns: `S` state, struct/pin persistence (`saveStructs`/`sa
 
 ```text
 src/webview/components/sidebar/structPanel/
-    StructPanel.ts         interaction controller: mount/render/setData/setEndian/setBitFieldAllocation/setSelection/setTabActive/resetViewState
+    structPanel.ts         orchestrator: mount/render/setData/setEndian/setBitFieldAllocation/setSelection/setTabActive/resetViewState
+    structCPreview.ts      C-preview token/line builders + renderStructCPreview/hydrateStructPreviews
+    structBinaryView.ts    bit-span / binary rendering helpers
+    structEditorFields.ts  editor field-row markup helpers
+    structValueFormat.ts   decoded value formatting + copy-text helpers (owns ColType/StructRenderCtx)
+    structRowRenderer.ts   decoded row/group renderers + pointer renderers
     structPinsModel.ts     pure pin-model helpers (makeStructPin, withEditedStructPin, upsertPointerStructPin, ...)
     structPanel.css        all panel rules (moved verbatim from styles/struct.css)
 src/webview/hexViewer.ts   host wiring (panel descriptor, applyStructs/applyPins/applyStructState, selectStructRangeHost, highlight)
 src/test/webview/components/sidebar/structPanel/structPanel.test.ts   (mocha + jsdom)
 ```
+
+The extracted render modules are free functions over a narrow `StructRenderCtx` (structs/pins/endian/bit-field allocation/show-hidden/field-value types/default value type/readByte + expansion and bit-range sets); `structPanel.ts` keeps the `StructPanel` class as the orchestrator and exposes thin delegating methods so its call sites stay stable. None of the five modules import `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, or `rerender`.
 
 Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is pure and shared; mixed-endian overrides extend it with per-field/per-struct `endian`/`allocation` resolution (threaded effective values, pointer-global exception, `DecodedField.endian`/`allocation` resolved indicators) — the panel consumes the resolved row values for badges and passes the same effective values into bit-unit binary rendering.
 
@@ -95,7 +102,7 @@ class StructPanel {
 
 ## Anti-patterns
 
-- `StructPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, or `rerender`.
+- `structPanel.ts` (or any module under `structPanel/`) importing `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, or `rerender`.
 - Component poking `[data-addr]` hex rows directly (must use `onHighlightHex`).
 - Host mutating `S.structs`/`S.structPins` without a `setData` push.
 - Global-DOM-id queries outside the component root.
