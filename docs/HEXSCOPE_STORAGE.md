@@ -13,7 +13,8 @@ to `.hexscope/` data.
 ├── structs.json          # workspace-wide StructDef[] pool (shared by all files)
 ├── profiles.json         # whole profile registry: [{ id, name, structPins, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }]
 ├── bindings.json         # [{ fileKey, profileId }] — file's only file-specific artifact
-├── schemas/              # seeded copies of the JSON Schemas (editor + agent contract)
+├── schemas/              # generated copies of the JSON Schemas (editor + agent contract),
+│                         # content-diff refreshed on every .hexscope data write
 └── scripts/              # unchanged (script runner panes)
 ```
 
@@ -56,8 +57,12 @@ name (`normalizeProfilesRegistry`).
 
 Each store slot debounces its writes (~400 ms, one timer per slot); parallel
 slots debounce independently and never cancel each other. `profiles.json`
-writes are read-modify-write on the whole array; the first registry write
-seeds `.hexscope/schemas/`. On panel close the slots flush. Host writes are
+writes are read-modify-write on the whole array; every `.hexscope` **data**
+write content-diff refreshes `.hexscope/schemas/` (a copy is rewritten only
+when missing or different from the bundled schema, so an extension update
+re-syncs an existing workspace on its next write; the data files are never
+touched by the refresh, and a refresh failure never fails the write). On panel
+close the slots flush. Host writes are
 self-write-marked so the watcher ignores them. Out-of-workspace files stage
 their edits in-memory until an explicit Save/profile action — a bare open or
 non-explicit edit never seeds a `.hexscope/` sibling.
@@ -117,9 +122,11 @@ Three JSON Schema files describe the on-disk shapes:
 | `schemas/bindings.schema.json` | `.hexscope/bindings.json` | `Binding[]` |
 
 - **Locations.** The authoritative copy lives in the repo root `schemas/`
-  (bundled into the extension). At the first registry write a workspace copy is
-  seeded into `.hexscope/schemas/` (`writeIfMissing`, so a committed copy is
-  kept; the watcher ignores this directory).
+  (bundled into the extension). On every `.hexscope` data write the workspace
+  copies in `.hexscope/schemas/` are content-diff refreshed to the bundled
+  schemas (rewritten only when missing or different; a bare open writes
+  nothing; the watcher ignores this directory). Writing a schema copy never
+  re-triggers the refresh — only top-level data files do.
 - **Editor binding.** `package.json` → `contributes.jsonValidation` maps
   `.hexscope/structs.json`, `.hexscope/profiles.json`, and
   `.hexscope/bindings.json` to the bundled schemas. Single-file opens (no
