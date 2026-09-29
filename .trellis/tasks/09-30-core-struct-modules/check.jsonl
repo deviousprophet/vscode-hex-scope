@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify the tree and seam references point at src/core/struct/"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify no behaviour/test changes beyond the path move"}
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Verify codec/test path references are consistent"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify imports resolve to one module per concern after the move"}
