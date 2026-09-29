@@ -100,7 +100,7 @@ One-time, per workspace root, on first panel open (before the first
    (`profiles_<n>`) bound to the open document, then hard-deleted.
 3. **Pre-P1 tree era** (`firmware_profiles/<n>/{index,structs,integrity}.json`):
    every `structs.json` is merged into the workspace `structs.json` pool
-   (deduped by struct id/name via `structMigration`); every `index.json`
+   (deduped by struct id/name via `src/core/struct/structMigration.ts`); every `index.json`
    (+ `integrity.json` template) becomes one registry profile + one binding,
    preserving labels/structPins/endian/activeChecks/segmentNames. The legacy trees are
    left in place so a reverted release still finds committed legacy data;
@@ -150,7 +150,7 @@ Three JSON Schema files describe the on-disk shapes:
   (`onDidRenameFiles`/`onDidDeleteFiles`/prune), the profile-action handlers
   (save/duplicate/rename/delete), and broadcasts external changes to the
   webview.
-- `src/core/structMigration.ts` — struct-def migration/deduplication (shared by
+- `src/core/struct/structMigration.ts` — struct-def migration/deduplication (shared by
   session and migration).
 - `src/webviewProtocol.ts` — `endianOrDefault` single shared endian normalizer.
 - `src/webview/webviewMessageModel.ts` — silent reducers for

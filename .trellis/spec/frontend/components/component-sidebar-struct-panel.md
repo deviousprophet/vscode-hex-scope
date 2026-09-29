@@ -24,7 +24,7 @@ src/test/webview/components/sidebar/structPanel/structPanel.test.ts   (mocha + j
 
 The extracted render modules are free functions over a narrow `StructRenderCtx` (structs/pins/endian/bit-field allocation/show-hidden/field-value types/default value type/readByte + expansion and bit-range sets); `structPanel.ts` keeps the `StructPanel` class as the orchestrator and exposes thin delegating methods so its call sites stay stable. None of the five modules import `S`, `state.ts`, `postProviderMessage`, `memory/memoryData`, or `rerender`.
 
-Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/structCodec.ts` is pure and shared; mixed-endian overrides extend it with per-field/per-struct `endian`/`allocation` resolution (threaded effective values, pointer-global exception, `DecodedField.endian`/`allocation` resolved indicators) — the panel consumes the resolved row values for badges and passes the same effective values into bit-unit binary rendering.
+Panel shell (`sidebar/sidebar.ts`) and shared `.sb-section`/`.sb-body`/`.sb-badge`/`.sb-empty` stay in `sidebar/sidebar.ts`/`sidebar/sidebar.css`. `core/struct/structCodec.ts` is pure and shared; mixed-endian overrides extend it with per-field/per-struct `endian`/`allocation` resolution (threaded effective values, pointer-global exception, `DecodedField.endian`/`allocation` resolved indicators) — the panel consumes the resolved row values for badges and passes the same effective values into bit-unit binary rendering.
 
 ## Contract
 

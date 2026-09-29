@@ -4,7 +4,7 @@
 
 ### 1. Scope / Trigger
 
-Applies to shared struct types, `core/structCodec.ts`, struct editor/import/export, pin model, pointer-created pins, persistence/migration, and decode inputs. Row rendering details live in `struct-instance-display.md`.
+Applies to shared struct types, `core/struct/structCodec.ts`, struct editor/import/export, pin model, pointer-created pins, persistence/migration, and decode inputs. Row rendering details live in `struct-instance-display.md`.
 
 ### 2. Signatures
 
@@ -138,7 +138,7 @@ Codec is the deep layout/decode module; UI consumes its contract.
 
 ### Design Decision: duplicate field names rejected at validation
 
-**Context**: decode walks `def.fields` by offset/index (`decodeStructRecursive`, `src/core/structCodec.ts`) so duplicates decoded correctly, but the display layer re-resolves each row-group's declaration by **name** — `groupRowsByBase` → `describeStructGroup` → `resolveStructFieldByPath` → `findStructField` (first name match, `structPanel.ts`). Two same-named fields in one struct therefore corrupted every duplicate group's header (type/size/count from the *first* declaration) while bytes/expanded rows stayed correct.
+**Context**: decode walks `def.fields` by offset/index (`decodeStructRecursive`, `src/core/struct/structCodec.ts`) so duplicates decoded correctly, but the display layer re-resolves each row-group's declaration by **name** — `groupRowsByBase` → `describeStructGroup` → `resolveStructFieldByPath` → `findStructField` (first name match, `structPanel.ts`). Two same-named fields in one struct therefore corrupted every duplicate group's header (type/size/count from the *first* declaration) while bytes/expanded rows stayed correct.
 
 **Options considered**:
 1. Renderer disambiguation (could fix pre-saved defs, keep duplicates legal; more display surface).

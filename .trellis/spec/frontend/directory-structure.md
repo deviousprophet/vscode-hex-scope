@@ -35,8 +35,12 @@ src/
 │   ├── memory.ts             indexed byte lookup and memory-row model
 │   ├── search.ts             cancellable/chunked search engine
 │   ├── integrity.ts          validation, algorithms, stored-value conversion
-│   ├── structCodec.ts        struct layout, parse/export, decode
-│   ├── structMigration.ts    struct-def migration + dedupe (session, migration, tests)
+│   ├── struct/               struct overlay modules (codec, normalization, migration, identities, bit children)
+│   │   ├── structCodec.ts         struct layout, parse/export, decode
+│   │   ├── structNormalization.ts  pool normalization, identity dedupe, inline bit-field self-heal
+│   │   ├── structMigration.ts      struct-def migration + dedupe (session, migration, tests)
+│   │   ├── structIdentities.ts     stable struct-def identities (dedupe keys/sets)
+│   │   └── structBitChildren.ts    bit-field child cleanup helpers
 │   ├── diff.ts               byte-diff runs for the compare surface (DiffModel)
 │   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
 │   ├── pathName.ts           shared basename/extension helper (compare selection + diff panel + hex session)
@@ -87,7 +91,7 @@ schemas/                          JSON Schemas for .hexscope/ on-disk shapes (in
 - `src/core/document.ts` hides record rewriting/checksum preservation behind format-level functions.
 - `src/core/search.ts` hides debounce, chunking, cancellation tokens, and match parsing behind `SearchEngine`.
 - `src/core/integrity.ts` owns validation and algorithms; DOM code does not reproduce them.
-- `src/core/structCodec.ts` owns struct syntax/layout/decode; render code consumes decoded rows.
+- `src/core/struct/structCodec.ts` owns struct syntax/layout/decode; render code consumes decoded rows.
 - `src/webviewProtocol.ts` is the interface between host and browser runtimes (single-file editor).
 - `src/diffProtocol.ts` is the interface between the diff host panel and the isolated diff webview (`diffViewer.ts`); it does not share the single-file union.
 

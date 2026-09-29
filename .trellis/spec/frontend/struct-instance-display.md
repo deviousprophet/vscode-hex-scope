@@ -18,7 +18,7 @@ contract to current code boundaries and executable checks.
 - Trigger: any change to Struct Overlay decoded rows, grouping, pointer following,
   hover/selection sync, context menus, value modes, keyboard behavior, or row CSS.
 - UI owner: `src/webview/components/sidebar/structPanel/structPanel.ts`.
-- Decode owner: `src/core/structCodec.ts`.
+- Decode owner: `src/core/struct/structCodec.ts`.
 - Shared domain types: `src/core/types.ts`.
 - Cross-layer flow:
 
