@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
-- **Last Active**: 2026-09-29
+- **Total Sessions**: 18
+- **Last Active**: 2026-09-30
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~541 | Active |
+| `journal-1.md` | ~578 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-09-30 | Move struct modules into src/core/struct/ | `a9f2bcd`, `7ad2bda`, `93fa7d5` | `feat/struct-overlay-types` |
 | 17 | 2026-09-29 | Split structPanel into renderer and editor modules | `53c339c`, `bb1df87`, `5de9da6` | `feat/struct-overlay-types` |
 | 16 | 2026-09-29 | Struct overlay types — parent integration review and close | - | `feat/struct-overlay-types` |
 | 15 | 2026-09-29 | Struct overlay review follow-ups | `c182fae`, `6bbf988`, `331d05a` | `feat/struct-overlay-types` |

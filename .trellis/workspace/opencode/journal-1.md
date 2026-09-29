@@ -539,3 +539,40 @@ Behaviour-preserving extraction of five clusters from structPanel.ts (5712 -> 28
 ### Next Steps
 
 - Branch feat/struct-overlay-types is feature-complete (parent + all children archived); open the PR.
+
+
+## Session 18: Move struct modules into src/core/struct/
+<!-- trellis-session: v=2 fp=79a234aa2d651937 -->
+
+**Date**: 2026-09-30
+**Task**: Move struct modules into src/core/struct/
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Pure path move: relocated the five core struct modules (structCodec, structNormalization, structMigration, structIdentities, structBitChildren) into src/core/struct/ with git mv, updated every importer and the spec/doc path references. No behaviour change.
+
+### Main Changes
+
+- 5 files moved (names unchanged, renames detected); 5 './types' -> '../types' rewrites; 4 intra-set specifiers unchanged; 22 importer specifiers rewritten preserving each site's .js/no-.js convention; hexEditorProvider re-export shim intact.
+- Docs: directory-structure tree + Deep Module Seams, struct-model, struct-instance-display, state-management, component-sidebar-struct-panel, hexscope-storage, docs/HEXSCOPE_STORAGE.md.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a9f2bcd` | refactor(core): move struct modules into src/core/struct/ |
+| `7ad2bda` | docs(spec): update struct module paths for src/core/struct/ |
+| `93fa7d5` | docs(task): plan the core/struct module move |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests exit 0; npm test 1239 passing / 0 failing; fallow GREEN (dead-code 0 / complexity 0 / duplication 0).
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Push feat/struct-overlay-types to update PR #255.
