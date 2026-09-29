@@ -31,9 +31,9 @@ export interface StructRenderCtx {
 
 export type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 
-export const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
+const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
 
-export const RAW_HTML_VALUE_TYPES: ReadonlySet<ColType> = new Set(['bin', 'bin-sliced', 'ieee', 'hex']);
+const RAW_HTML_VALUE_TYPES: ReadonlySet<ColType> = new Set(['bin', 'bin-sliced', 'ieee', 'hex']);
 
 export const TYPE_LABELS: Record<ColType, string> = {
     hex: 'Hex',
@@ -50,13 +50,18 @@ export const SAMPLE_TYPE_MENUS: Partial<Record<StructFieldType, ColType[]>> = {
     ascii: ['ascii', 'hex', 'bin'],
 };
 
-export type NumericValueFormatter = (valType: ColType, dv: DataView, le: boolean) => string;
+type NumericValueFormatter = (valType: ColType, dv: DataView, le: boolean) => string;
 
 /** Get a display string for a field given the requested column display type. */
 export function getValForType(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
     const enumLabel = renderEnumLabelValue(rctx, r, valType);
     if (enumLabel !== null) { return enumLabel; }
+    return renderNonEnumValue(rctx, r, valType);
+}
+
+/** Bit-field or scalar rendering once enum-label and no-data cases are handled. */
+function renderNonEnumValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
     if (isBitFieldRow(r)) { return renderBitFieldValue(r, valType); }
 
     const bytes = fieldBytes(r);
@@ -73,44 +78,56 @@ export function getValForType(rctx: StructRenderCtx, r: DecodedField, valType: C
  * values (and non-default view modes) fall through to the numeric rendering.
  * Uses the shared `formatEnumLabel` for scalar enum fields and enum-ref bit children.
  */
-export function renderEnumLabelValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string | null {
+function renderEnumLabelValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string | null {
     if (r.enumLabel === undefined || valType !== defaultValueTypeForRow(rctx, r)) { return null; }
     const view = enumNumericView(rctx, r);
     return view ? esc(formatEnumLabel(r.enumLabel, view.value, view.hexDigits)) : null;
 }
 
-export function enumNumericView(rctx: StructRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
-    if (isBitFieldRow(r)) {
-        return { value: BigInt(r.bitValueUnsigned ?? '0'), hexDigits: enumHexDigits(r.bitWidth ?? 1) };
-    }
+function enumNumericView(rctx: StructRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
+    if (isBitFieldRow(r)) { return bitFieldEnumNumericView(r); }
+    return scalarEnumNumericView(rctx, r);
+}
+
+/** Numeric view of a bit-field child's raw unsigned value. */
+function bitFieldEnumNumericView(r: DecodedField): { value: bigint; hexDigits: number } {
+    return { value: BigInt(r.bitValueUnsigned ?? '0'), hexDigits: enumHexDigits(r.bitWidth ?? 1) };
+}
+
+/** Numeric view of a scalar row's bytes, or null when the bytes are missing. */
+function scalarEnumNumericView(rctx: StructRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
     const bytes = fieldBytes(r);
-    if (bytes.length === 0 || bytes.some(b => Number.isNaN(b))) { return null; }
+    if (hasMissingEnumBytes(bytes)) { return null; }
     return { value: bytesToBigUint(bytes, r.endian ?? rctx.endian), hexDigits: bytes.length * 2 };
 }
 
-export function fieldBytes(r: DecodedField): number[] {
+function hasMissingEnumBytes(bytes: number[]): boolean {
+    return bytes.length === 0 || bytes.some(b => Number.isNaN(b));
+}
+
+function fieldBytes(r: DecodedField): number[] {
     return r.bytesHex.split(' ').map(h => parseInt(h, 16));
 }
 
-export function dataViewForBytes(bytes: number[]): DataView {
+function dataViewForBytes(bytes: number[]): DataView {
     const buf = new ArrayBuffer(bytes.length);
     const dv = new DataView(buf);
     bytes.forEach((b, i) => dv.setUint8(i, b));
     return dv;
 }
 
-export function isBinaryDisplay(valType: ColType): boolean {
+function isBinaryDisplay(valType: ColType): boolean {
     return valType === 'bin' || valType === 'bin-sliced';
 }
 
-export function bitFieldDisplaySource(r: DecodedField): { width: number; value: bigint } {
+function bitFieldDisplaySource(r: DecodedField): { width: number; value: bigint } {
     return {
         width: r.bitWidth ?? 1,
         value: BigInt(r.bitValueUnsigned ?? '0'),
     };
 }
 
-export function renderBitFieldValue(r: DecodedField, valType: ColType): string {
+function renderBitFieldValue(r: DecodedField, valType: ColType): string {
     const { width, value: v } = bitFieldDisplaySource(r);
     if (valType === 'hex') {
         return formatHexHtml(formatHex(v, Math.max(1, Math.ceil(width / 4))));
@@ -125,7 +142,7 @@ export function renderBitFieldValue(r: DecodedField, valType: ColType): string {
     return v.toString(10);
 }
 
-export function copyBitFieldValue(r: DecodedField, valType: ColType): string {
+function copyBitFieldValue(r: DecodedField, valType: ColType): string {
     const { width, value: v } = bitFieldDisplaySource(r);
     if (valType === 'hex') {
         return `0x${v.toString(16).toUpperCase().padStart(Math.max(1, Math.ceil(width / 4)), '0')}`;
@@ -136,7 +153,7 @@ export function copyBitFieldValue(r: DecodedField, valType: ColType): string {
     return v.toString(10);
 }
 
-export function renderScalarValue(
+function renderScalarValue(
     rctx: StructRenderCtx, r: DecodedField,
     valType: ColType,
     bytes: number[],
@@ -149,7 +166,7 @@ export function renderScalarValue(
     return renderNumericValue(r, valType, dv, le);
 }
 
-export function renderSpecialScalarValue(
+function renderSpecialScalarValue(
     rctx: StructRenderCtx, r: DecodedField,
     valType: ColType,
     bytes: number[],
@@ -162,7 +179,7 @@ export function renderSpecialScalarValue(
     return renderSpecialScalarByValueType(r, valType, bytes, endian);
 }
 
-export function renderSpecialScalarByType(
+function renderSpecialScalarByType(
     rctx: StructRenderCtx, r: DecodedField,
     valType: ColType,
     bytes: number[],
@@ -174,7 +191,7 @@ export function renderSpecialScalarByType(
     return null;
 }
 
-export function renderSpecialScalarByValueType(
+function renderSpecialScalarByValueType(
     r: DecodedField,
     valType: ColType,
     bytes: number[],
@@ -186,13 +203,13 @@ export function renderSpecialScalarByValueType(
     return null;
 }
 
-export function renderPointerValue(rctx: StructRenderCtx, r: DecodedField, dv: DataView, le: boolean): string {
+function renderPointerValue(rctx: StructRenderCtx, r: DecodedField, dv: DataView, le: boolean): string {
     const v = r.pointerValue ?? (dv.getUint32(0, le) >>> 0);
     const note = v !== 0 && rctx.readByte(v) === undefined ? ` <span class="si-f-ptr-note">(unmapped)</span>` : '';
     return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8)) + note;
 }
 
-export function renderAsciiValue(r: DecodedField, valType: ColType, bytes: number[]): string {
+function renderAsciiValue(r: DecodedField, valType: ColType, bytes: number[]): string {
     if (valType === 'hex') {
         const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
         return formatHexHtml(`0x${hex}`);
@@ -204,7 +221,7 @@ export function renderAsciiValue(r: DecodedField, valType: ColType, bytes: numbe
     return `'${s}'`;
 }
 
-export function renderIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
+function renderIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
     const parts = getFloatPartsForField(r, bytes, endian);
     if (!parts) { return '??'; }
     return (
@@ -217,7 +234,7 @@ export function renderIeeeValue(r: DecodedField, bytes: number[], endian: 'le' |
     );
 }
 
-export const RENDER_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
+const RENDER_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
     uint8:  (valType, dv)     => { const v = dv.getUint8(0);            return valType === 'hex' ? formatHexHtml(formatHex(v, 2)) : String(v); },
     int8:   (valType, dv)     => { const v = dv.getInt8(0);             return valType === 'hex' ? formatHexHtml(formatHex(dv.getUint8(0), 2)) : String(v); },
     uint16: (valType, dv, le) => { const v = dv.getUint16(0, le);       return valType === 'hex' ? formatHexHtml(formatHex(v, 4)) : String(v); },
@@ -248,20 +265,20 @@ export const RENDER_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericV
     },
 };
 
-export function renderNumericValue(r: DecodedField, valType: ColType, dv: DataView, le: boolean): string {
+function renderNumericValue(r: DecodedField, valType: ColType, dv: DataView, le: boolean): string {
     return RENDER_NUMERIC_VALUE[r.type]?.(valType, dv, le) ?? r.decoded;
 }
 
-export function formatFloat(v: number, digits: number): string {
+function formatFloat(v: number, digits: number): string {
     return isNaN(v) ? 'NaN' : !isFinite(v) ? String(v) : v.toExponential(digits);
 }
 
-export function asciiFromBytes(bytes: number[]): string {
+function asciiFromBytes(bytes: number[]): string {
     return bytes.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.').join('');
 }
 
 /** Parse IEEE754 parts from raw bytes for float32/float64. Returns null on missing/invalid bytes. */
-export function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le' | 'be') {
+function getFloatParts(bytes: number[], type: 'float32' | 'float64', endian: 'le' | 'be') {
     const size = FLOAT_BYTE_SIZE[type];
     if (!hasFloatBytes(bytes, size)) { return null; }
     const dv = floatDataView(bytes, size);
@@ -269,26 +286,26 @@ export function getFloatParts(bytes: number[], type: 'float32' | 'float64', endi
     return FLOAT_PART_READERS[type](dv, le);
 }
 
-export const FLOAT_BYTE_SIZE: Record<'float32' | 'float64', number> = { float32: 4, float64: 8 };
+const FLOAT_BYTE_SIZE: Record<'float32' | 'float64', number> = { float32: 4, float64: 8 };
 
-export const FLOAT_PART_READERS = { float32: (dv: DataView, le: boolean) => getFloat32Parts(dv, le), float64: (dv: DataView, le: boolean) => getFloat64Parts(dv, le) };
+const FLOAT_PART_READERS = { float32: (dv: DataView, le: boolean) => getFloat32Parts(dv, le), float64: (dv: DataView, le: boolean) => getFloat64Parts(dv, le) };
 
-export function hasFloatBytes(bytes: number[], size: number): boolean {
+function hasFloatBytes(bytes: number[], size: number): boolean {
     return bytes.length >= size && bytes.every(b => isPresentByte(b));
 }
 
-export function isPresentByte(byte: number): boolean {
+function isPresentByte(byte: number): boolean {
     return byte >= 0;
 }
 
-export function floatDataView(bytes: number[], size: number): DataView {
+function floatDataView(bytes: number[], size: number): DataView {
     const buf = new ArrayBuffer(size);
     const dv = new DataView(buf);
     bytes.forEach((b, i) => dv.setUint8(i, b));
     return dv;
 }
 
-export function getFloat32Parts(dv: DataView, le: boolean) {
+function getFloat32Parts(dv: DataView, le: boolean) {
     const raw = dv.getUint32(0, le) >>> 0;
     const sign = (raw >>> 31) & 1;
     const exp = (raw >>> 23) & 0xFF;
@@ -303,11 +320,11 @@ export function getFloat32Parts(dv: DataView, le: boolean) {
     return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
 }
 
-export function float32ClassName(exp: number, mant: number): string {
+function float32ClassName(exp: number, mant: number): string {
     return floatClassName(exp, mant === 0, 0xFF);
 }
 
-export function getFloat64Parts(dv: DataView, le: boolean) {
+function getFloat64Parts(dv: DataView, le: boolean) {
     const raw = dv.getBigUint64(0, le);
     const sign = Number((raw >> 63n) & 1n);
     const exp = Number((raw >> 52n) & 0x7FFn);
@@ -322,11 +339,11 @@ export function getFloat64Parts(dv: DataView, le: boolean) {
     return { sign, exp, mant, exponentBits, mantissaBits, exponentHex, mantissaHex, rawHex, className, binStr };
 }
 
-export function float64ClassName(exp: number, mant: bigint): string {
+function float64ClassName(exp: number, mant: bigint): string {
     return floatClassName(exp, mant === 0n, 0x7FF);
 }
 
-export function floatClassName(exp: number, isZeroMant: boolean, infinityExp: number): string {
+function floatClassName(exp: number, isZeroMant: boolean, infinityExp: number): string {
     return ({
         0: isZeroMant ? 'zero' : 'subnormal',
         [infinityExp]: isZeroMant ? 'infinity' : 'NaN',
@@ -339,12 +356,12 @@ export function getCopyText(rctx: StructRenderCtx, r: DecodedField, valType: Col
     return copySpecialRowText(r, valType) ?? copyNonAsciiFieldValue(rctx, r, valType);
 }
 
-export function copySpecialRowText(r: DecodedField, valType: ColType): string | null {
+function copySpecialRowText(r: DecodedField, valType: ColType): string | null {
     const copier = SPECIAL_ROW_COPIERS.find(entry => entry.matches(r));
     return copier ? copier.copy(r, valType) : null;
 }
 
-export const SPECIAL_ROW_COPIERS: Array<{
+const SPECIAL_ROW_COPIERS: Array<{
     matches: (row: DecodedField) => boolean;
     copy: (row: DecodedField, valType: ColType) => string;
 }> = [
@@ -353,11 +370,11 @@ export const SPECIAL_ROW_COPIERS: Array<{
     { matches: row => row.type === 'ascii', copy: row => row.decoded },
 ];
 
-export function copyPointerRowText(r: DecodedField): string {
+function copyPointerRowText(r: DecodedField): string {
     return r.pointerValue === undefined ? '??' : formatHex(r.pointerValue, 8);
 }
 
-export function copyNonAsciiFieldValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
+function copyNonAsciiFieldValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
     const bytes = fieldBytes(r);
     const endian = r.endian ?? rctx.endian;
     const le = endian === 'le';
@@ -366,7 +383,7 @@ export function copyNonAsciiFieldValue(rctx: StructRenderCtx, r: DecodedField, v
     return copyNumericValue(r, valType, dataViewForBytes(bytes), le);
 }
 
-export function copySpecialFieldValue(
+function copySpecialFieldValue(
     r: DecodedField,
     valType: ColType,
     bytes: number[],
@@ -378,13 +395,13 @@ export function copySpecialFieldValue(
     return copySpecialFieldByValueType(r, valType, bytes, endian);
 }
 
-export function copySpecialFieldByType(r: DecodedField, valType: ColType, bytes: number[], le: boolean): string | null {
+function copySpecialFieldByType(r: DecodedField, valType: ColType, bytes: number[], le: boolean): string | null {
     if (r.isPointer) { return copyPointerValue(bytes, le); }
     if (hasSlicedBitCopyValue(r, valType)) { return copySlicedBitValue(r); }
     return null;
 }
 
-export function copySpecialFieldByValueType(
+function copySpecialFieldByValueType(
     r: DecodedField,
     valType: ColType,
     bytes: number[],
@@ -396,49 +413,49 @@ export function copySpecialFieldByValueType(
     return null;
 }
 
-export function copyPointerValue(bytes: number[], le: boolean): string {
+function copyPointerValue(bytes: number[], le: boolean): string {
     const v = dataViewForBytes(bytes).getUint32(0, le) >>> 0;
     return hexPad(v, 8);
 }
 
-export function hasSlicedBitCopyValue(r: DecodedField, valType: ColType): boolean {
+function hasSlicedBitCopyValue(r: DecodedField, valType: ColType): boolean {
     return valType === 'bin-sliced' && typeof r.bitWidth === 'number' && r.bitValueUnsigned !== undefined;
 }
 
-export function copySlicedBitValue(r: DecodedField): string {
+function copySlicedBitValue(r: DecodedField): string {
     return formatPlainBinaryBits(BigInt(r.bitValueUnsigned!).toString(2).padStart(r.bitWidth!, '0'));
 }
 
-export function hexPad(v: number, pad: number): string {
+function hexPad(v: number, pad: number): string {
     return `0x${(v >>> 0).toString(16).toUpperCase().padStart(pad, '0')}`;
 }
 
-export function hexPadBig(v: bigint, pad: number): string {
+function hexPadBig(v: bigint, pad: number): string {
     return `0x${v.toString(16).toUpperCase().padStart(pad, '0')}`;
 }
 
-export function copyIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
+function copyIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'): string {
     const parts = getFloatPartsForField(r, bytes, endian);
     if (!parts) { return '??'; }
     return `sign: ${parts.sign}; exponent: ${parts.exponentHex}; mantissa: ${parts.mantissaHex}; class: ${parts.className}`;
 }
 
-export function getFloatPartsForField(r: DecodedField, bytes: number[], endian: 'le' | 'be'): ReturnType<typeof getFloatParts> {
+function getFloatPartsForField(r: DecodedField, bytes: number[], endian: 'le' | 'be'): ReturnType<typeof getFloatParts> {
     if (r.type !== 'float32' && r.type !== 'float64') { return null; }
     return getFloatParts(bytes, r.type, endian);
 }
 
-export const IMPLICIT_DISPLAY_BY_TYPE: Partial<Record<DecodedField['type'], ColType>> = {
+const IMPLICIT_DISPLAY_BY_TYPE: Partial<Record<DecodedField['type'], ColType>> = {
     float32: 'dec',
     float64: 'dec',
     ascii: 'ascii',
 };
 
-export function fieldImplicitDisplayType(rctx: StructRenderCtx, field: DecodedField | null | undefined): ColType {
+function fieldImplicitDisplayType(rctx: StructRenderCtx, field: DecodedField | null | undefined): ColType {
     return field ? definedFieldImplicitDisplayType(rctx, field) : rctx.defaultValType;
 }
 
-export function definedFieldImplicitDisplayType(rctx: StructRenderCtx, field: DecodedField): ColType {
+function definedFieldImplicitDisplayType(rctx: StructRenderCtx, field: DecodedField): ColType {
     if (isBitFieldRow(field)) { return 'bin'; }
     return field.isPointer ? 'hex' : (IMPLICIT_DISPLAY_BY_TYPE[field.type] ?? rctx.defaultValType);
 }
@@ -447,7 +464,7 @@ export function implicitDisplayType(rctx: StructRenderCtx, field: DecodedField |
     return forceBinary ? 'bin' : fieldImplicitDisplayType(rctx, field);
 }
 
-export const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
+const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericValueFormatter>> = {
     uint8:  (valType, dv)     => { const v = dv.getUint8(0);            return valType === 'hex' ? hexPad(v, 2) : String(v); },
     int8:   (valType, dv)     => { const v = dv.getInt8(0);             return valType === 'hex' ? hexPad(dv.getUint8(0), 2) : String(v); },
     uint16: (valType, dv, le) => { const v = dv.getUint16(0, le);       return valType === 'hex' ? hexPad(v, 4) : String(v); },
@@ -476,7 +493,7 @@ export const COPY_NUMERIC_VALUE: Partial<Record<DecodedField['type'], NumericVal
     },
 };
 
-export function copyNumericValue(r: DecodedField, valType: ColType, dv: DataView, le: boolean): string {
+function copyNumericValue(r: DecodedField, valType: ColType, dv: DataView, le: boolean): string {
     return COPY_NUMERIC_VALUE[r.type]?.(valType, dv, le) ?? r.decoded;
 }
 
@@ -487,9 +504,9 @@ export const TYPE_ABBREV: Record<string, string> = {
     float32: 'f32', float64: 'f64', pointer: 'ptr',
 };
 
-export const TYPE_CELL_MAX_CHARS = 14;
+const TYPE_CELL_MAX_CHARS = 14;
 
-export const TYPE_CELL_ELLIPSIS = '...';
+const TYPE_CELL_ELLIPSIS = '...';
 
 export function fieldValueKey(r: DecodedField, byteStart: number): string {
     return isBitFieldRow(r)
@@ -497,7 +514,7 @@ export function fieldValueKey(r: DecodedField, byteStart: number): string {
         : scalarValKey(byteStart);
 }
 
-export function defaultValueTypeForRow(rctx: StructRenderCtx, r: DecodedField): ColType {
+function defaultValueTypeForRow(rctx: StructRenderCtx, r: DecodedField): ColType {
     if (isBitFieldRow(r)) { return 'bin'; }
     if (FLOAT_FIELD_TYPES.has(r.type)) { return 'dec'; }
     if (r.type === 'ascii') { return 'ascii'; }
@@ -521,7 +538,7 @@ export function fieldFullTypeLabel(r: DecodedField, byteCount: number): string {
     return r.type === 'ascii' ? `ascii[${byteCount}]` : r.type;
 }
 
-export function specialFieldTypeLabel(r: DecodedField, abbreviated: boolean): string | null {
+function specialFieldTypeLabel(r: DecodedField, abbreviated: boolean): string | null {
     if (isBitFieldRow(r)) { return `bit:${r.bitWidth}`; }
     return r.isPointer ? `${pointerTargetTypeLabel(r, abbreviated)}*` : null;
 }
@@ -531,13 +548,13 @@ export function pointerTargetTypeLabel(r: DecodedField, abbreviated: boolean): s
     return POINTER_TARGET_LABELS[target]?.(r, abbreviated) ?? scalarPointerTargetLabel(target, abbreviated);
 }
 
-export const POINTER_TARGET_LABELS: Partial<Record<StructFieldType, (row: DecodedField, abbreviated: boolean) => string>> = {
+const POINTER_TARGET_LABELS: Partial<Record<StructFieldType, (row: DecodedField, abbreviated: boolean) => string>> = {
     struct: row => row.pointerTargetStructName ?? 'struct',
     ascii: () => 'char',
     void: () => 'void',
 };
 
-export function scalarPointerTargetLabel(target: StructFieldType, abbreviated: boolean): string {
+function scalarPointerTargetLabel(target: StructFieldType, abbreviated: boolean): string {
     return abbreviated ? (TYPE_ABBREV[target] ?? target) : target;
 }
 
@@ -547,11 +564,11 @@ export function typeCellHtml(abbrev: string, fullTypeLabel: string): string {
     return `<span class="si-f-type" title="${escapedFullType}" aria-label="${escapedFullType}">${esc(compact)}</span>`;
 }
 
-export function compactTypeCellLabel(label: string): string {
+function compactTypeCellLabel(label: string): string {
     return label.length <= TYPE_CELL_MAX_CHARS ? label : compactLongTypeCellLabel(label);
 }
 
-export function compactLongTypeCellLabel(label: string): string {
+function compactLongTypeCellLabel(label: string): string {
     const pointerSuffix = pointerLabelSuffix(label);
     const body = label.slice(0, label.length - pointerSuffix.length);
     const availableBodyChars = TYPE_CELL_MAX_CHARS - TYPE_CELL_ELLIPSIS.length - pointerSuffix.length;
@@ -560,7 +577,7 @@ export function compactLongTypeCellLabel(label: string): string {
     return `${body.slice(0, headChars)}${TYPE_CELL_ELLIPSIS}${body.slice(-tailChars)}${pointerSuffix}`;
 }
 
-export function pointerLabelSuffix(label: string): string {
+function pointerLabelSuffix(label: string): string {
     return label.endsWith('*') ? '*' : '';
 }
 
@@ -579,7 +596,7 @@ export function valueHtmlForRow(rctx: StructRenderCtx, r: DecodedField, valType:
     return valueIsRawHtml(valType, ptr) ? value : esc(value);
 }
 
-export function valueIsRawHtml(valType: ColType, ptr: boolean): boolean {
+function valueIsRawHtml(valType: ColType, ptr: boolean): boolean {
     if (ptr) { return true; }
     return RAW_HTML_VALUE_TYPES.has(valType);
 }

@@ -1469,16 +1469,26 @@ type StructDeletionUsage = { pins: number; profileIds: string[]; fields: number 
  *  Naming pin count + affected profile count + the pool's referencing-field
  *  count (modal, explicit "Delete"). */
 async function confirmStructDeletion(usage: StructDeletionUsage): Promise<boolean> {
-    const typeNoun = usage.pins === 1 ? 'type' : 'types';
-    const profileNoun = usage.profileIds.length === 1 ? 'profile' : 'profiles';
-    const fieldNoun = usage.fields === 1 ? 'field' : 'fields';
+    const typeNoun = pluralize(usage.pins, 'type', 'types');
+    const profileNoun = pluralize(usage.profileIds.length, 'profile', 'profiles');
+    const fieldNoun = pluralize(usage.fields, 'field', 'fields');
     const confirm = await vscode.window.showWarningMessage(
-        `${usage.pins} pin${usage.pins === 1 ? '' : 's'} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted; ` +
+        `${usage.pins} pin${pluralSuffix(usage.pins)} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted; ` +
         `${usage.fields} ${fieldNoun} in the pool reference it. Delete anyway?`,
         { modal: true },
         'Delete',
     );
     return confirm === 'Delete';
+}
+
+/** Singular/plural noun for a count. */
+function pluralize(count: number, singular: string, plural: string): string {
+    return count === 1 ? singular : plural;
+}
+
+/** Trailing `s` for a plural count. */
+function pluralSuffix(count: number): string {
+    return count === 1 ? '' : 's';
 }
 
 /** Scan every registry profile for pins whose structId is in deletedIds.

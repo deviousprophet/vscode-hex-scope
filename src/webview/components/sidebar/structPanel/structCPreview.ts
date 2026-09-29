@@ -5,11 +5,11 @@ import type { StructDef } from '../../../../core/types';
 
 // ── C syntax-highlighted struct preview ─────────────────────────────────────
 
-export const SC_KW   = /\b(typedef|struct|enum)\b/g;
+const SC_KW   = /\b(typedef|struct|enum)\b/g;
 
-export const SC_ATTR = /__attribute__\(\(packed\)\)/g;
+const SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
-export function buildStructCPreviewNodes(def: StructDef, structs: readonly StructDef[]): DocumentFragment {
+function buildStructCPreviewNodes(def: StructDef, structs: readonly StructDef[]): DocumentFragment {
     const out = document.createDocumentFragment();
     const nameEscRe = (def.name || 'MyStruct').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const nestedTypeNames = def.fields
@@ -56,7 +56,7 @@ export function buildStructCPreviewNodes(def: StructDef, structs: readonly Struc
     return out;
 }
 
-export function appendStructPreviewLine(
+function appendStructPreviewLine(
     out: DocumentFragment,
     line: string,
     idx: number,
@@ -73,28 +73,28 @@ export function appendStructPreviewLine(
     appendPreviewLineBreak(out, idx, lineCount);
 }
 
-export function structPreviewLineParts(line: string): { code: string; cmt: string } {
+function structPreviewLineParts(line: string): { code: string; cmt: string } {
     const ci = line.indexOf('/*');
     if (ci < 0) { return { code: line, cmt: '' }; }
     return { code: line.slice(0, ci), cmt: line.slice(ci) };
 }
 
-export function isPaddingPreviewLine(code: string): boolean {
+function isPaddingPreviewLine(code: string): boolean {
     return /\b_pad\w+/.test(code);
 }
 
-export function appendPreviewLineBreak(out: DocumentFragment, idx: number, lineCount: number): void {
+function appendPreviewLineBreak(out: DocumentFragment, idx: number, lineCount: number): void {
     if (idx < lineCount - 1) { appendPreviewText(out, '\n'); }
 }
 
-export function appendPaddingPreviewLine(out: DocumentFragment, line: string, code: string): void {
+function appendPaddingPreviewLine(out: DocumentFragment, line: string, code: string): void {
     const n = code.match(/_pad\w+\[(\d+)\]/)?.[1] ?? '?';
     const indent = line.slice(0, line.length - line.trimStart().length);
     appendPreviewText(out, indent);
     appendPreviewComment(out, `/* ${n} byte${n === '1' ? '' : 's'} padding */`);
 }
 
-export function appendPreviewComment(out: DocumentFragment, cmt: string): void {
+function appendPreviewComment(out: DocumentFragment, cmt: string): void {
     if (!cmt) { return; }
     const span = document.createElement('span');
     span.className = 'sc-cmt';
@@ -102,14 +102,15 @@ export function appendPreviewComment(out: DocumentFragment, cmt: string): void {
     out.appendChild(span);
 }
 
-export function appendPreviewText(parent: DocumentFragment | HTMLElement, text: string): void {
+function appendPreviewText(parent: DocumentFragment | HTMLElement, text: string): void {
     parent.appendChild(document.createTextNode(text));
 }
 
-export function structCodeTokenClass(tok: string): string {
+const SC_KEYWORD_TOKENS = new Set(['typedef', 'struct', 'enum']);
+
+function structCodeTokenClass(tok: string): string {
     if (tok === '__attribute__((packed))') { return 'sc-attr'; }
-    if (tok === 'typedef' || tok === 'struct' || tok === 'enum') { return 'sc-kw'; }
-    return 'sc-type';
+    return SC_KEYWORD_TOKENS.has(tok) ? 'sc-kw' : 'sc-type';
 }
 
 export function renderStructCPreview(pre: HTMLElement, def: StructDef, structs: readonly StructDef[]): void {
@@ -117,17 +118,31 @@ export function renderStructCPreview(pre: HTMLElement, def: StructDef, structs: 
 }
 
 export function hydrateStructPreviews(root: HTMLElement, structs: readonly StructDef[], editingDraft: StructDef | null): void {
-    root.querySelectorAll<HTMLElement>('.si-c-preview[data-struct-preview-id]').forEach(pre => {
-        const id = pre.dataset.structPreviewId;
-        if (!id) { return; }
-        const def = (editingDraft?.id === id)
-            ? editingDraft
-            : allStructs(structs).find(d => d.id === id);
-        if (!def) {
-            pre.textContent = '';
-            return;
-        }
-        renderStructCPreview(pre, def, structs);
-    });
+    root.querySelectorAll<HTMLElement>('.si-c-preview[data-struct-preview-id]')
+        .forEach(pre => hydrateStructPreview(pre, structs, editingDraft));
+}
+
+/** Hydrate one preview element from its def id. */
+function hydrateStructPreview(pre: HTMLElement, structs: readonly StructDef[], editingDraft: StructDef | null): void {
+    const def = previewDefForId(pre.dataset.structPreviewId, structs, editingDraft);
+    if (!def) {
+        pre.textContent = '';
+        return;
+    }
+    renderStructCPreview(pre, def, structs);
+}
+
+/** Resolve the def a preview id points at, preferring the in-flight editor draft. */
+function previewDefForId(id: string | undefined, structs: readonly StructDef[], editingDraft: StructDef | null): StructDef | null {
+    if (!id) { return null; }
+    return isDraftPreviewId(id, editingDraft) ? editingDraft : structDefById(structs, id);
+}
+
+function isDraftPreviewId(id: string, editingDraft: StructDef | null): boolean {
+    return editingDraft?.id === id;
+}
+
+function structDefById(structs: readonly StructDef[], id: string): StructDef | null {
+    return allStructs(structs).find(d => d.id === id) ?? null;
 }
 

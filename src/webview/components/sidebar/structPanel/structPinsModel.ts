@@ -1,4 +1,5 @@
 import type { BitFieldChild, StructDef, StructField, StructPin, StructPointerSource } from '../../../../core/types';
+import { withCleanedBitChildren } from '../../../../core/structBitChildren';
 
 export type PinIdFactory = () => string;
 
@@ -76,28 +77,30 @@ export function withoutStructDefinition(
 
 /** Strip references to a deleted type so no orphan reference survives. */
 function withoutStructFieldRefs(def: StructDef, structId: string): StructDef {
-    let next = def;
-    const fields = next.fields.filter(f => f.refStructId !== structId);
-    if (fields.length !== next.fields.length) { next = { ...next, fields }; }
-
-    const cleanedFields = next.fields.map(f => withoutStructChildRefs(f, structId));
-    if (cleanedFields.some((f, i) => f !== next.fields[i])) { next = { ...next, fields: cleanedFields }; }
-
-    if (next.bitFields) {
-        const cleanedDefChildren = next.bitFields.map(child => withoutBitChildRef(child, structId));
-        if (cleanedDefChildren.some((c, i) => c !== next.bitFields![i])) {
-            next = { ...next, bitFields: cleanedDefChildren };
-        }
-    }
-    return next;
+    let next = removeStructFieldRefs(def, structId);
+    next = removeStructChildRefs(next, structId);
+    return removeStructDefChildRefs(next, structId);
 }
 
-/** Clear an inline bit-field child's reference to the deleted type (the child itself stays). */
-function withoutStructChildRefs(field: StructField, structId: string): StructField {
-    const children = field.bitFields;
-    if (!children || children.length === 0) { return field; }
-    const cleaned = children.map(child => withoutBitChildRef(child, structId));
-    return cleaned.some((c, i) => c !== children[i]) ? { ...field, bitFields: cleaned } : field;
+/** Drop fields whose `refStructId` is the deleted type. */
+function removeStructFieldRefs(def: StructDef, structId: string): StructDef {
+    const fields = def.fields.filter(f => f.refStructId !== structId);
+    return fields.length === def.fields.length ? def : { ...def, fields };
+}
+
+/** Clear each remaining field's inline bit-child references. */
+function removeStructChildRefs(def: StructDef, structId: string): StructDef {
+    const cleanedFields = def.fields.map(f => withCleanedBitChildren(f, child => withoutBitChildRef(child, structId)));
+    return structFieldListChanged(def.fields, cleanedFields) ? { ...def, fields: cleanedFields } : def;
+}
+
+/** Clear a standalone `kind: 'bitfield'` def's own child references. */
+function removeStructDefChildRefs(def: StructDef, structId: string): StructDef {
+    return withCleanedBitChildren(def, child => withoutBitChildRef(child, structId));
+}
+
+function structFieldListChanged(before: readonly StructField[], after: readonly StructField[]): boolean {
+    return before.some((f, i) => f !== after[i]);
 }
 
 function withoutBitChildRef(child: BitFieldChild, structId: string): BitFieldChild {

@@ -7,7 +7,7 @@ import type { BitFieldChild, StructDef, StructField } from '../../../../core/typ
 /** Max chars for a `struct <name>` option label before truncating (full name in `title`). */
 const TYPE_OPTION_MAX_CHARS = 28;
 
-export function fieldTypeOptionsHtml(f: StructField, draftId: string, structs: readonly StructDef[]): string {
+function fieldTypeOptionsHtml(f: StructField, draftId: string, structs: readonly StructDef[]): string {
     f = normalizeStructField(f);
     const scalarOptions = FIELD_TYPES.map(t =>
         `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`
@@ -30,7 +30,7 @@ export function fieldTypeOptionsHtml(f: StructField, draftId: string, structs: r
         (enumOptions ? `<optgroup label="Enum">${enumOptions}</optgroup>` : '');
 }
 
-export function structOptionHtml(f: StructField, d: StructDef): string {
+function structOptionHtml(f: StructField, d: StructDef): string {
     f = normalizeStructField(f);
     const val = `struct:${d.id}`;
     const selected = isStructTypeSelected(f, d);
@@ -42,7 +42,7 @@ export function structOptionHtml(f: StructField, d: StructDef): string {
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
-export function bitFieldOptionHtml(f: StructField, d: StructDef): string {
+function bitFieldOptionHtml(f: StructField, d: StructDef): string {
     f = normalizeStructField(f);
     const val = `bitfield:${d.id}`;
     const selected = f.type === 'bitfield' && f.refStructId === d.id;
@@ -52,7 +52,7 @@ export function bitFieldOptionHtml(f: StructField, d: StructDef): string {
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
-export function enumOptionHtml(f: StructField, d: StructDef): string {
+function enumOptionHtml(f: StructField, d: StructDef): string {
     f = normalizeStructField(f);
     const val = `enum:${d.id}`;
     const selected = f.type === 'enum' && f.refStructId === d.id;
@@ -62,34 +62,34 @@ export function enumOptionHtml(f: StructField, d: StructDef): string {
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
-export function isStructTypeSelected(f: StructField, d: StructDef): boolean {
+function isStructTypeSelected(f: StructField, d: StructDef): boolean {
     return f.type === 'struct' && f.refStructId === d.id;
 }
 
-export function truncatedStructOptionLabel(full: string): string {
+function truncatedStructOptionLabel(full: string): string {
     return full.length > TYPE_OPTION_MAX_CHARS
         ? `${full.slice(0, TYPE_OPTION_MAX_CHARS)}\u2026`
         : full;
 }
 
-export function structOptionTitleAttr(label: string, full: string): string {
+function structOptionTitleAttr(label: string, full: string): string {
     return label !== full ? ` title="${esc(full)}"` : '';
 }
 
-export function isBitContainerField(f: StructField): boolean {
+function isBitContainerField(f: StructField): boolean {
     f = normalizeStructField(f);
     if (f.isPointer) { return false; }
     return isUnsignedScalarType(f.type) && Array.isArray(f.bitFields) && f.bitFields.length > 0;
 }
 
 /** A field that references a standalone `kind: 'bitfield'` def. */
-export function isBitFieldRefField(f: StructField): boolean {
+function isBitFieldRefField(f: StructField): boolean {
     f = normalizeStructField(f);
     return f.type === 'bitfield' && f.isPointer !== true;
 }
 
 /** A field that references a standalone `kind: 'enum'` def. */
-export function isEnumRefField(f: StructField): boolean {
+function isEnumRefField(f: StructField): boolean {
     f = normalizeStructField(f);
     return f.type === 'enum' && f.isPointer !== true;
 }
@@ -106,25 +106,25 @@ export function bitChildButtonState(remainingBits: number): { addBtnDisabled: st
     };
 }
 
-export function deleteFieldCellHtml(isOnly: boolean): string {
+function deleteFieldCellHtml(isOnly: boolean): string {
     return isOnly
         ? `<span class="sfe-del-placeholder"></span>`
         : `<button class="sfe-del-btn" title="Remove field" aria-label="Remove field">\u2715</button>`;
 }
 
-export function disabledAttr(isDisabled: boolean): string {
+function disabledAttr(isDisabled: boolean): string {
     return isDisabled ? ' disabled' : '';
 }
 
-export function activeClassAttr(isActive: boolean): string {
+function activeClassAttr(isActive: boolean): string {
     return isActive ? ' active' : '';
 }
 
-export function arrayToggleLabel(isArr: boolean): string {
+function arrayToggleLabel(isArr: boolean): string {
         return isArr ? 'Remove array' : 'Make array';
     }
 
-export function fieldHiddenCellHtml(f: StructField): string {
+function fieldHiddenCellHtml(f: StructField): string {
         const title = 'Hide this field in the Struct Instances view';
         return (
             `<span class="sfe-hidden-cell" title="${title}">` +
@@ -133,7 +133,7 @@ export function fieldHiddenCellHtml(f: StructField): string {
         );
     }
 
-export function fieldArrayCellHtml(f: StructField): string {
+function fieldArrayCellHtml(f: StructField): string {
         const isArr = f.count > 1;
         const toggleLabel = arrayToggleLabel(isArr);
         return (
@@ -147,7 +147,7 @@ export function fieldArrayCellHtml(f: StructField): string {
 
 /** Pointer declaration is exposed via the per-field `*` button and context menu (see wireEditorInSec). */
 
-export function fieldMoveButtonsHtml(i: number, total: number): string {
+function fieldMoveButtonsHtml(i: number, total: number): string {
     return (
         `<div class="sfe-move-btns">` +
         `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${disabledAttr(i === 0)}>&#x2191;</button>` +
@@ -174,7 +174,7 @@ export function overrideSelectHtml(
     return `<select class="${cls}"${idAttr} title="${title}" aria-label="${title}">${options}</select>`;
 }
 
-export function overrideLabels(kind: 'endian' | 'allocation'): Array<[string, string]> {
+function overrideLabels(kind: 'endian' | 'allocation'): Array<[string, string]> {
     return kind === 'endian'
         ? [['', 'Auto'], ['le', 'LE'], ['be', 'BE']]
         : [['', 'Auto'], ['lsb', 'LSB'], ['msb', 'MSB']];
@@ -185,7 +185,7 @@ export function overrideAutoTitle(value: 'le' | 'be' | 'lsb' | 'msb' | undefined
     return `Auto \u2014 inherits ${inherited}`;
 }
 
-export function overrideOptionHtml(
+function overrideOptionHtml(
     val: string,
     label: string,
     value: 'le' | 'be' | 'lsb' | 'msb' | undefined,
@@ -201,7 +201,7 @@ export function overrideHelpTitle(kind: 'endian' | 'allocation'): string {
         : 'Bit allocation for this field (first explicit value up the chain wins)';
 }
 
-export function fieldIsPointerActive(f: StructField): boolean {
+function fieldIsPointerActive(f: StructField): boolean {
     return f.isPointer === true || f.type === 'void';
 }
 
@@ -265,7 +265,7 @@ export function childFieldRowHtml(child: BitFieldChild, ci: number, total: numbe
 }
 
 /** Optional enum ref for a bit-field child: labels this bit value with the def's entries. */
-export function bitChildEnumSelectHtml(child: BitFieldChild, structs: readonly StructDef[]): string {
+function bitChildEnumSelectHtml(child: BitFieldChild, structs: readonly StructDef[]): string {
     const enums = allStructs(structs).filter(d => structDefKind(d) === 'enum');
     const options = [`<option value="">\u2014</option>`]
         .concat(enums.map(d =>

@@ -14,16 +14,16 @@ export function isBitFieldRow(r: DecodedField): boolean {
     return r.isBitField === true && typeof r.bitWidth === 'number';
 }
 
-export function renderBitSpan(bit: string, idx: number, selected: boolean): string {
+function renderBitSpan(bit: string, idx: number, selected: boolean): string {
     const sel = selected ? ' sel' : '';
     return `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}${sel}" data-bit-idx="${idx}">${bit}</span>`;
 }
 
-export function renderUnknownBitSpan(bitIdx: number, selected: boolean): string {
+function renderUnknownBitSpan(bitIdx: number, selected: boolean): string {
     return `<span class="si-bit unknown${selected ? ' sel' : ''}" data-bit-idx="${bitIdx}">?</span>`;
 }
 
-export function isBitSelected(
+function isBitSelected(
     bitIdx: number,
     selectedRange?: { startBit: number; endBit: number } | null,
 ): boolean {
@@ -78,7 +78,7 @@ export function binaryGroupsLowBitsFirst(bits: string): string[] {
     return groups;
 }
 
-export function renderBinarySpanLines(spans: string[]): string {
+function renderBinarySpanLines(spans: string[]): string {
     const groups: string[] = [];
     for (let i = 0; i < spans.length; i += 4) {
         groups.push(spans.slice(i, i + 4).join(''));
@@ -113,7 +113,7 @@ export function parseDatasetInt(value: string | undefined): number | null {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function parsePositiveDatasetInt(value: string | undefined): number | null {
+function parsePositiveDatasetInt(value: string | undefined): number | null {
     const parsed = parseDatasetInt(value);
     return parsed !== null && parsed > 0 ? parsed : null;
 }
@@ -175,15 +175,15 @@ export function renderBinaryFromBitRows(
     return renderUnknownBitRowBits(env, usedWidth, selectedRange, rowAlloc(first, alloc));
 }
 
-export function usedBitRowWidth(rows: DecodedField[]): number {
+function usedBitRowWidth(rows: DecodedField[]): number {
     return rows.reduce((sum, r) => sum + Math.max(0, r.bitWidth ?? 0), 0);
 }
 
-export function hasBitRows(first: DecodedField | undefined, usedWidth: number): boolean {
+function hasBitRows(first: DecodedField | undefined, usedWidth: number): boolean {
     return !!first && usedWidth > 0;
 }
 
-export function rowEndian(first: DecodedField, endian?: 'le' | 'be'): 'le' | 'be' | undefined {
+function rowEndian(first: DecodedField, endian?: 'le' | 'be'): 'le' | 'be' | undefined {
     return endian ?? first.endian;
 }
 
@@ -191,7 +191,7 @@ export function rowEndianOrDefault(first: DecodedField, fallback: 'le' | 'be'): 
     return first.endian ?? fallback;
 }
 
-export function rowAlloc(first: DecodedField, alloc?: BitFieldAllocation): BitFieldAllocation | undefined {
+function rowAlloc(first: DecodedField, alloc?: BitFieldAllocation): BitFieldAllocation | undefined {
     return alloc ?? first.allocation;
 }
 
@@ -199,11 +199,11 @@ export function rowAllocOrDefault(first: DecodedField, fallback: BitFieldAllocat
     return first.allocation ?? fallback;
 }
 
-export function hasBitRowData(first: DecodedField, rawParts: string[]): boolean {
+function hasBitRowData(first: DecodedField, rawParts: string[]): boolean {
     return first.hasData && !hasMissingByte(rawParts);
 }
 
-export function renderKnownBitRowBits(env: BitRenderEnv, rawParts: string[], usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
+function renderKnownBitRowBits(env: BitRenderEnv, rawParts: string[], usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
     const bits = slicedBitRowBits(env, rawParts, usedWidth, endian, alloc);
     const spans = [...bits].map((bit, displayIdx) => {
         const bitIdx = displayBitIndex(env, displayIdx, usedWidth, alloc);
@@ -212,7 +212,7 @@ export function renderKnownBitRowBits(env: BitRenderEnv, rawParts: string[], use
     return renderBinarySpanLines(spans);
 }
 
-export function slicedBitRowBits(env: BitRenderEnv, rawParts: string[], usedWidth: number, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
+function slicedBitRowBits(env: BitRenderEnv, rawParts: string[], usedWidth: number, endian?: 'le' | 'be', alloc?: BitFieldAllocation): string {
     const raw = bytesFromHexParts(rawParts);
     const value = bytesToBigUint(raw, endian ?? env.endian);
     const unitBits = raw.length * 8;
@@ -223,7 +223,7 @@ export function slicedBitRowBits(env: BitRenderEnv, rawParts: string[], usedWidt
     return slicedValue.toString(2).padStart(usedWidth, '0');
 }
 
-export function renderUnknownBitRowBits(env: BitRenderEnv, usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null, alloc?: BitFieldAllocation): string {
+function renderUnknownBitRowBits(env: BitRenderEnv, usedWidth: number, selectedRange?: { startBit: number; endBit: number } | null, alloc?: BitFieldAllocation): string {
     const spans = Array.from({ length: usedWidth }, (_, displayIdx) => {
         const bitIdx = displayBitIndex(env, displayIdx, usedWidth, alloc);
         return renderUnknownBitSpan(bitIdx, isBitSelected(bitIdx, selectedRange));
@@ -231,7 +231,7 @@ export function renderUnknownBitRowBits(env: BitRenderEnv, usedWidth: number, se
     return renderBinarySpanLines(spans);
 }
 
-export function displayBitIndex(env: BitRenderEnv, displayIdx: number, usedWidth: number, alloc?: BitFieldAllocation): number {
+function displayBitIndex(env: BitRenderEnv, displayIdx: number, usedWidth: number, alloc?: BitFieldAllocation): number {
     return (alloc ?? env.bitFieldAllocation) === 'lsb' ? usedWidth - displayIdx - 1 : displayIdx;
 }
 
@@ -252,20 +252,20 @@ export function renderBinaryStorageUnit(
     return renderKnownStorageBits(storageValueBits(env, bytes, endian), allocation, selectedRange);
 }
 
-export function storageAlloc(env: BitRenderEnv, alloc?: BitFieldAllocation): BitFieldAllocation {
+function storageAlloc(env: BitRenderEnv, alloc?: BitFieldAllocation): BitFieldAllocation {
     return alloc ?? env.bitFieldAllocation;
 }
 
-export function storageValueBits(env: BitRenderEnv, bytes: number[], endian?: 'le' | 'be'): string {
+function storageValueBits(env: BitRenderEnv, bytes: number[], endian?: 'le' | 'be'): string {
     return binaryBitsForValue(bytes, endian ?? env.endian);
 }
 
-export function storageBitIndex(bitCount: number, displayIdx: number, allocation: BitFieldAllocation): number {
+function storageBitIndex(bitCount: number, displayIdx: number, allocation: BitFieldAllocation): number {
     const numericBitIdx = bitCount - displayIdx - 1;
     return allocation === 'lsb' ? numericBitIdx : displayIdx;
 }
 
-export function renderUnknownStorageBits(
+function renderUnknownStorageBits(
     bitCount: number,
     allocation: BitFieldAllocation,
     selectedRange?: { startBit: number; endBit: number } | null,
@@ -277,7 +277,7 @@ export function renderUnknownStorageBits(
     return renderBinarySpanLines(spans);
 }
 
-export function renderKnownStorageBits(
+function renderKnownStorageBits(
     bits: string,
     allocation: BitFieldAllocation,
     selectedRange?: { startBit: number; endBit: number } | null,

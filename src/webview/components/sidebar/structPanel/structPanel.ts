@@ -40,6 +40,16 @@ import type { ColType, PointerFollowState, StructRenderCtx } from './structValue
 import { buildBitUnitAggregateRow, pointerTargetStructDef, renderStructBody, syncCompositeHeaderOffset } from './structRowRenderer';
 
 
+/** Per-kind slots filled into the shared bit-field / enum editor shell. */
+interface KindDefEditorParts {
+    placeholder: string;
+    badge: string;
+    baseSelectId: string;
+    baseAria: string;
+    rowsHtml: string;
+    addBtnHtml: string;
+}
+
 export interface StructCallbacks {
     /** Required — host memory adapter for byte reads (keeps byte access host-owned, like Inspector). */
     readByte: (addr: number) => number | undefined;
@@ -190,7 +200,7 @@ mount(root: HTMLElement): void {
         const all = allStructs(this._structs);
         this.prepareStructPanelState();
 
-        if (this.isEditorOpen() || this._choosingKind) { this.sections.setCollapsed('types', false); }
+        if (this.typePanelForcedOpen()) { this.sections.setCollapsed('types', false); }
 
         this.sections.setLabel('types', this.typePanelTitle());
         this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
@@ -210,6 +220,11 @@ mount(root: HTMLElement): void {
     /** Whether the type editor is open (header actions + panel focus). */
     private isEditorOpen(): boolean {
         return Boolean(this._editingType);
+    }
+
+    /** The type panel stays expanded while the editor or the kind picker is active. */
+    private typePanelForcedOpen(): boolean {
+        return this.isEditorOpen() || this._choosingKind;
     }
 
     private wireEditorState(sec: HTMLElement): void {
@@ -399,9 +414,29 @@ private editorTabsHtml(): string {
 
 /** Bit-field type form: name + base unsigned width + name/width child rows (no struct fields/nesting). */
 private bitFieldDefEditorHtml(draft: StructDef): string {
-    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
-    const remainingBits = this.availableBitFieldDefBits(draft);
-    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(remainingBits);
+    const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
+    return this.kindDefEditorHtml(draft, {
+        placeholder: 'MyBitField',
+        badge: 'bitfield',
+        baseSelectId: 'se-base-type',
+        baseAria: 'Bit-field base width',
+        rowsHtml: `<div id="se-bf-def-children" class="sfe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>`,
+        addBtnHtml: `<button id="se-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>`,
+    });
+}
+
+/** Per-kind slots for the shared bit-field / enum editor shell. */
+private kindDefEditorHtml(draft: StructDef, parts: KindDefEditorParts): string {
+    return (
+        this.kindDefEditorShellHtml(draft, parts) +
+        parts.rowsHtml +
+        parts.addBtnHtml +
+        this.kindDefEditorFooterHtml(draft)
+    );
+}
+
+/** Shared editor shell: tab bar, form open, type-name input, and the base-width row. */
+private kindDefEditorShellHtml(draft: StructDef, parts: KindDefEditorParts): string {
     return (
         `<div class="si-editor-wrap">` +
         this.editorTabsHtml() +
@@ -409,15 +444,20 @@ private bitFieldDefEditorHtml(draft: StructDef): string {
         `<div class="se-form">` +
         `<label class="se-name-lbl" for="se-name">Type name</label>` +
         `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
-               `maxlength="64" placeholder="MyBitField" spellcheck="false" autocomplete="off">` +
+               `maxlength="64" placeholder="${parts.placeholder}" spellcheck="false" autocomplete="off">` +
         `<div class="se-struct-default-row">` +
-        `<span class="se-kind-badge">bitfield</span>` +
+        `<span class="se-kind-badge">${parts.badge}</span>` +
         `<span class="se-struct-default-ptr"></span>` +
         `<span class="se-struct-default-lbl">base width</span>` +
-        `<select id="se-base-type" class="se-struct-default-sel" aria-label="Bit-field base width">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
-        `</div>` +
-        `<div id="se-bf-def-children" class="sfe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>` +
-        `<button id="se-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>` +
+        `<select id="${parts.baseSelectId}" class="se-struct-default-sel" aria-label="${parts.baseAria}">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
+        `</div>`
+    );
+}
+
+/** Shared editor tail: error slot, save/cancel buttons, and the C preview pane. */
+private kindDefEditorFooterHtml(draft: StructDef): string {
+    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
+    return (
         errorHtml +
         `<div class="se-btns">` +
         `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
@@ -545,35 +585,14 @@ private bitFieldDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef 
 
 /** Enum type form: name + base unsigned width + name/value entry rows (no struct fields). */
 private enumDefEditorHtml(draft: StructDef): string {
-    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
-    return (
-        `<div class="si-editor-wrap">` +
-        this.editorTabsHtml() +
-        `<div class="se-view" data-se-view="edit">` +
-        `<div class="se-form">` +
-        `<label class="se-name-lbl" for="se-name">Type name</label>` +
-        `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
-               `maxlength="64" placeholder="MyEnum" spellcheck="false" autocomplete="off">` +
-        `<div class="se-struct-default-row">` +
-        `<span class="se-kind-badge">enum</span>` +
-        `<span class="se-struct-default-ptr"></span>` +
-        `<span class="se-struct-default-lbl">base width</span>` +
-        `<select id="se-enum-base-type" class="se-struct-default-sel" aria-label="Enum base width">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
-        `</div>` +
-        `<div id="se-enum-entries" class="sfe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>` +
-        `<button id="se-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>` +
-        errorHtml +
-        `<div class="se-btns">` +
-        `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
-        `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
-        `</div>` +
-        `</div>` +
-        `</div>` +
-        `<div class="se-view" data-se-view="preview" hidden>` +
-        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
-        `</div>` +
-        `</div>`
-    );
+    return this.kindDefEditorHtml(draft, {
+        placeholder: 'MyEnum',
+        badge: 'enum',
+        baseSelectId: 'se-enum-base-type',
+        baseAria: 'Enum base width',
+        rowsHtml: `<div id="se-enum-entries" class="sfe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>`,
+        addBtnHtml: `<button id="se-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>`,
+    });
 }
 
 private enumEntryRowsHtml(draft: StructDef): string {
@@ -685,11 +704,12 @@ private readEditorEnumEntry(row: HTMLElement): EnumEntry {
 private parseEnumEntryValue(raw: string): number {
     const text = raw.trim();
     if (text === '') { return 0; }
-    const hex = text.replace(/^0x/i, '');
-    const value = /^[0-9a-fA-F]+$/.test(hex) && /^0x/i.test(text)
-        ? Number.parseInt(hex, 16)
-        : Number.parseInt(text, 10);
-    return Number.isFinite(value) && value >= 0 ? value : 0;
+    return nonNegativeEnumValue(this.parseEnumEntryNumber(text));
+}
+
+/** Parse a hex (`0x`) or decimal enum entry number. */
+private parseEnumEntryNumber(text: string): number {
+    return isHexEnumEntryText(text) ? Number.parseInt(text.replace(/^0x/i, ''), 16) : Number.parseInt(text, 10);
 }
 
 private enumDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
@@ -950,17 +970,32 @@ private selectValue(sec: HTMLElement, sel: string): string | undefined {
 private readEditorFieldRow(row: HTMLElement): StructField {
     const typeInfo = this.readEditorFieldType(row);
     return {
-        name: this.sanitizeCIdent((row.querySelector('.sfe-name-inp') as HTMLInputElement).value),
+        name: this.sanitizeCIdent(this.rowInputValue(row, '.sfe-name-inp')),
         type: typeInfo.type,
         refStructId: typeInfo.refStructId,
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
-        endian: this.readEndianOverride((row.querySelector('.sfe-endian-sel') as HTMLSelectElement | null)?.value),
+        endian: this.readEndianOverride(this.rowSelectValue(row, '.sfe-endian-sel')),
         // Only bit-field-reference rows render an alloc select; other rows hold
         // a placeholder, so this reads undefined and authors no allocation.
-        allocation: this.readAllocationOverride((row.querySelector('.sfe-alloc-sel') as HTMLSelectElement | null)?.value),
-        hidden: (row.querySelector('.sfe-hidden-chk') as HTMLInputElement | null)?.checked || undefined,
+        allocation: this.readAllocationOverride(this.rowSelectValue(row, '.sfe-alloc-sel')),
+        hidden: this.readHiddenFlag(row),
     };
+}
+
+/** Read a text input's current value inside a row. */
+private rowInputValue(row: HTMLElement, sel: string): string {
+    return (row.querySelector(sel) as HTMLInputElement).value;
+}
+
+/** Read a select's current value inside a row, or undefined when absent. */
+private rowSelectValue(row: HTMLElement, sel: string): string | undefined {
+    return row.querySelector<HTMLSelectElement>(sel)?.value;
+}
+
+/** Whether the row's hidden checkbox is ticked (absent = not hidden). */
+private readHiddenFlag(row: HTMLElement): true | undefined {
+    return row.querySelector<HTMLInputElement>('.sfe-hidden-chk')?.checked || undefined;
 }
 
 private readEndianOverride(value: string | undefined): 'le' | 'be' | undefined {
@@ -990,18 +1025,24 @@ private parseEditorFieldType(rawType: string): { type: StructFieldType; refStruc
 
 /** Read a bit-field child row (used by the standalone bit-field def editor). */
 private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
-    const childName = this.sanitizeCIdent(
-        (childRow.querySelector('.sfe-bf-child-name') as HTMLInputElement).value
-    ) || `bit${childRow.dataset.childIdx || '0'}`;
-    const childWidthRaw = (childRow.querySelector('.sfe-bf-child-width') as HTMLInputElement).value;
-    const childWidth = parseInt(childWidthRaw, 10);
-    const enumRef = (childRow.querySelector('.sfe-bf-child-enum') as HTMLSelectElement | null)?.value;
-    const child: BitFieldChild = {
-        name: childName,
-        bitWidth: childWidth > 0 ? Math.min(childWidth, 64) : 1,
-    };
-    if (enumRef) { child.refStructId = enumRef; }
-    return child;
+    const name = this.readBitChildName(childRow);
+    const bitWidth = this.readBitChildWidth(childRow);
+    const enumRef = this.rowSelectValue(childRow, '.sfe-bf-child-enum');
+    return enumRef
+        ? { name, bitWidth, refStructId: enumRef }
+        : { name, bitWidth };
+}
+
+/** Child name, defaulting to the row index when blank. */
+private readBitChildName(childRow: HTMLElement): string {
+    const raw = this.rowInputValue(childRow, '.sfe-bf-child-name');
+    return this.sanitizeCIdent(raw) || `bit${childRow.dataset.childIdx || '0'}`;
+}
+
+/** Child width, clamped to a positive value at most 64 bits. */
+private readBitChildWidth(childRow: HTMLElement): number {
+    const width = parseInt(this.rowInputValue(childRow, '.sfe-bf-child-width'), 10);
+    return width > 0 ? Math.min(width, 64) : 1;
 }
 
 private readEditorArrayCount(row: HTMLElement): number {
@@ -1233,9 +1274,9 @@ private upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
 private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
     const row = sel.closest<HTMLElement>('.struct-field-row');
     if (!row) { return; }
-    if (sel.value === 'void') { row.dataset.ptr = '1'; }
     const isBitFieldRef = sel.value.startsWith('bitfield:');
-    if (isBitFieldRef || sel.value.startsWith('enum:')) { row.dataset.ptr = ''; }
+    const ptr = fieldRowPtrFlag(sel.value, isBitFieldRef);
+    if (ptr !== undefined) { row.dataset.ptr = ptr; }
     this.syncFieldAllocCell(sec, draft, row, isBitFieldRef);
 }
 
@@ -1247,19 +1288,24 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
 private syncFieldAllocCell(sec: HTMLElement, draft: StructDef, row: HTMLElement, isBitFieldRef: boolean): void {
     const sel = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
     const placeholder = row.querySelector<HTMLElement>('.sfe-alloc-placeholder');
-    if (isBitFieldRef && !sel && placeholder) {
-        placeholder.outerHTML = this.overrideSelectHtml(undefined, 'allocation', 'sfe-alloc-sel', undefined, this.editorInheritedAlloc());
-        const inserted = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
-        if (inserted) {
-            inserted.addEventListener('change', () => {
-                this.syncEditorDraft(sec, draft);
-                this.refreshEditorPreview(sec, draft);
-            });
-            this.setOverrideSelectTitles(inserted, 'allocation', this.editorInheritedAlloc());
-        }
-    } else if (!isBitFieldRef && sel) {
+    if (shouldInsertAllocSelect(isBitFieldRef, sel, placeholder)) {
+        this.insertAllocSelect(sec, draft, row, placeholder);
+    } else if (shouldRemoveAllocSelect(isBitFieldRef, sel)) {
         sel.outerHTML = '<span class="sfe-alloc-placeholder"></span>';
     }
+}
+
+/** Insert + live-wire the alloc override select into a bit-field-reference row. */
+private insertAllocSelect(sec: HTMLElement, draft: StructDef, row: HTMLElement, placeholder: HTMLElement | null): void {
+    if (!placeholder) { return; }
+    placeholder.outerHTML = this.overrideSelectHtml(undefined, 'allocation', 'sfe-alloc-sel', undefined, this.editorInheritedAlloc());
+    const inserted = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+    if (!inserted) { return; }
+    inserted.addEventListener('change', () => {
+        this.syncEditorDraft(sec, draft);
+        this.refreshEditorPreview(sec, draft);
+    });
+    this.setOverrideSelectTitles(inserted, 'allocation', this.editorInheritedAlloc());
 }
 
     /** F10 / Shift+F10 and Enter/Space (when the row itself is focused) open the pointer menu. */
@@ -3208,6 +3254,36 @@ private clearStructSelectionState(): void {
     private buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null { return buildBitUnitAggregateRow(this.renderCtx(), rows); }
     private syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void { syncCompositeHeaderOffset(hdr, isOpen); }
     private pointerTargetStructDef(row: DecodedField): StructDef | undefined { return pointerTargetStructDef(this.renderCtx(), row); }
+}
+
+/** Pointer dataset flag a type change implies, or undefined to leave the row's flag untouched. */
+function fieldRowPtrFlag(value: string, isBitFieldRef: boolean): string | undefined {
+    if (isBitFieldRef || value.startsWith('enum:')) { return ''; }
+    return value === 'void' ? '1' : undefined;
+}
+
+/** A bit-field-reference row with a placeholder shows the alloc select. */
+function shouldInsertAllocSelect(
+    isBitFieldRef: boolean,
+    sel: HTMLSelectElement | null,
+    placeholder: HTMLElement | null,
+): boolean {
+    return isBitFieldRef && !sel && placeholder !== null;
+}
+
+/** A non-bit-field-reference row that still shows the alloc select swaps it back. */
+function shouldRemoveAllocSelect(isBitFieldRef: boolean, sel: HTMLSelectElement | null): sel is HTMLSelectElement {
+    return !isBitFieldRef && sel !== null;
+}
+
+/** Whether an enum entry's text is a `0x`-prefixed hex number. */
+function isHexEnumEntryText(text: string): boolean {
+    return /^0x/i.test(text) && /^[0-9a-fA-F]+$/.test(text.replace(/^0x/i, ''));
+}
+
+/** Clamp a parsed enum value to a non-negative finite number. */
+function nonNegativeEnumValue(value: number): number {
+    return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function pinFormHeader(pin: StructPin | null): string {

@@ -5,25 +5,31 @@
 
 import type { BitFieldChild, EnumEntry, StructDef, StructField } from './types';
 import { enumValueBound, migrateInlineBitFields } from './structCodec';
+import { withCleanedBitChildren } from './structBitChildren';
 import { hasSeenStructDefIdentity, rememberStructDefIdentity, structDefIdentity } from './structIdentities';
 
 export type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
 
 export function normalizeStructDefsValue(value: unknown): StructDefsNormalization {
     if (!Array.isArray(value)) { return { defs: [], changed: false }; }
+    const collected = collectUniqueStructDefs(value);
+    // Legacy inline bit-field containers migrate before enum sanitization so the
+    // generated `kind: 'bitfield'` defs' child enum refs are cleaned too.
+    const migrated = migrateInlineBitFields(collected.defs);
+    const sanitized = sanitizeEnumDefs(migrated.defs);
+    return { defs: sanitized.defs, changed: collected.changed || migrated.changed || sanitized.changed };
+}
+
+/** Keep the first occurrence of each def identity; report whether any item was dropped. */
+function collectUniqueStructDefs(value: unknown[]): { defs: StructDef[]; changed: boolean } {
     const out: StructDef[] = [];
     const seenIds = new Set<string>();
     const seenNames = new Set<string>();
     let changed = false;
-
     for (const item of value) {
-        changed = !appendUniqueStructDef(item, out, seenIds, seenNames) || changed;
+        if (!appendUniqueStructDef(item, out, seenIds, seenNames)) { changed = true; }
     }
-    // Legacy inline bit-field containers migrate before enum sanitization so the
-    // generated `kind: 'bitfield'` defs' child enum refs are cleaned too.
-    const migrated = migrateInlineBitFields(out);
-    const sanitized = sanitizeEnumDefs(migrated.defs);
-    return { defs: sanitized.defs, changed: changed || migrated.changed || sanitized.changed };
+    return { defs: out, changed };
 }
 
 function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
@@ -55,41 +61,35 @@ function isEnumDefLike(def: StructDef): boolean {
 }
 
 function sanitizeStructDef(def: StructDef, enumIds: Set<string>): StructDef {
-    let next = def;
+    let next = sanitizeEnumEntriesForDef(def);
+    next = sanitizeStructDefFields(next, enumIds);
+    return withCleanedBitChildren(next, child => sanitizeBitChild(child, enumIds));
+}
 
-    if (isEnumDefLike(def) && Array.isArray(def.entries)) {
-        const entries = sanitizeEnumEntries(def.entries, def.baseType);
-        if (entries !== def.entries) { next = { ...next, entries }; }
-    }
+/** Drop enum entries that do not fit the base width (same ref when clean). */
+function sanitizeEnumEntriesForDef(def: StructDef): StructDef {
+    if (!isEnumDefLike(def) || !Array.isArray(def.entries)) { return def; }
+    const entries = sanitizeEnumEntries(def.entries, def.baseType);
+    return entries === def.entries ? def : { ...def, entries };
+}
 
-    const fields = Array.isArray(next.fields) ? next.fields : [];
+/** Strip dangling enum fields and clean each remaining field's inline children. */
+function sanitizeStructDefFields(def: StructDef, enumIds: Set<string>): StructDef {
+    const fields = Array.isArray(def.fields) ? def.fields : [];
     const cleanedFields = fields
         .filter(field => !isDanglingEnumField(field, enumIds))
-        .map(field => sanitizeStructField(field, enumIds));
-    if (cleanedFields.length !== fields.length || cleanedFields.some((f, i) => f !== fields[i])) {
-        next = { ...next, fields: cleanedFields };
-    }
+        .map(field => withCleanedBitChildren(field, child => sanitizeBitChild(child, enumIds)));
+    return structFieldListChanged(fields, cleanedFields) ? { ...def, fields: cleanedFields } : def;
+}
 
-    if (Array.isArray(next.bitFields)) {
-        const children = next.bitFields;
-        const cleaned = children.map(child => sanitizeBitChild(child, enumIds));
-        if (cleaned.some((c, i) => c !== children[i])) { next = { ...next, bitFields: cleaned }; }
-    }
-
-    return next;
+function structFieldListChanged(before: readonly StructField[], after: readonly StructField[]): boolean {
+    return before.length !== after.length || before.some((f, i) => f !== after[i]);
 }
 
 /** A `type: 'enum'` field whose reference does not resolve to an enum def is unusable. */
 function isDanglingEnumField(field: StructField, enumIds: Set<string>): boolean {
     if (field.type !== 'enum') { return false; }
     return field.isPointer === true || !field.refStructId || !enumIds.has(field.refStructId);
-}
-
-function sanitizeStructField(field: StructField, enumIds: Set<string>): StructField {
-    const children = field.bitFields;
-    if (!Array.isArray(children) || children.length === 0) { return field; }
-    const cleaned = children.map(child => sanitizeBitChild(child, enumIds));
-    return cleaned.some((c, i) => c !== children[i]) ? { ...field, bitFields: cleaned } : field;
 }
 
 function sanitizeBitChild(child: BitFieldChild, enumIds: Set<string>): BitFieldChild {
@@ -106,8 +106,13 @@ function sanitizeEnumEntries(entries: readonly EnumEntry[], baseType: string | u
 }
 
 function isValidEnumEntry(entry: EnumEntry, bound: number): boolean {
-    return typeof entry?.name === 'string' &&
-        Number.isInteger(entry.value) &&
-        entry.value >= 0 &&
-        entry.value < bound;
+    return isNamedEnumEntry(entry) && isEnumValueInRange(entry.value, bound);
+}
+
+function isNamedEnumEntry(entry: EnumEntry | undefined | null): boolean {
+    return typeof entry?.name === 'string';
+}
+
+function isEnumValueInRange(value: number, bound: number): boolean {
+    return Number.isInteger(value) && value >= 0 && value < bound;
 }
