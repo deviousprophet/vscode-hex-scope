@@ -431,3 +431,41 @@ Added StructField.hidden (persisted, editor Hide checkbox, false omitted) plus a
 ### Next Steps
 
 - Parent 09-27-struct-overlay-types integration review (all 4 children archived), then finish-work on the parent.
+
+
+## Session 15: Struct overlay review follow-ups
+<!-- trellis-session: v=2 fp=29eb5cdcfe9a420c -->
+
+**Date**: 2026-09-29
+**Task**: Struct overlay review follow-ups
+**Branch**: `feat/struct-overlay-types`
+
+### Summary
+
+Resolved the two-axis code-review findings on feat/struct-overlay-types: single-sourced the unsigned-width predicate and byte-endian fold (core exports, panel clones deleted), one isPointerBlocked predicate, hardened materialize against pointer containers, shared 10px badge primitive, in-place show-hidden toggle (no innerHTML rebuild), restored per-field Alloc authoring on bit-field-reference rows, and a host-side deletion confirm that counts referencing fields.
+
+### Main Changes
+
+- structCodec.ts/types.ts: exported isUnsignedScalarType + bytesToBigUint, added STRUCT_BASE_TYPES + countStructFieldRefs, materialize drops isPointer, documented the migrated-id scan.
+- structPanel.ts/.css: shared helpers consumed, isPointerBlocked, in-place instances refresh, bit-field-ref Alloc authoring (9-col grid); hexEditorSession.ts saveShowHiddenFields normalizes via showHiddenFieldsOrDefault and threads the referencing-field count into the delete modal.
+- Tests: shared-helper contracts, alloc round-trip/swap, nested-struct deletion, R18 composition (hidden + bit-field-ref + enum), R19 non-vacuous parity golden (instance view hash + C literal), R20 host/seam chain, STRUCT_BASE_TYPES schema parity. Specs updated: struct-model, struct-instance-display, component-sidebar-struct-panel, css-guidelines, state-management, type-safety.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c182fae` | fix(struct): resolve the struct-overlay review findings |
+| `6bbf988` | docs(spec): document the review rulings and corrected contracts |
+| `331d05a` | docs(task): plan the review follow-ups and defer the panel split |
+
+### Testing
+
+- [OK] npm run check-types, npm run lint, npm run compile-tests all exit 0; npm test 1238 passing, 1 failing - the failing copyText clipboard test reproduces on the stashed baseline (headless Electron clipboard), pre-existing/environmental.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Parent struct-overlay-types final integration review; deferred child 09-29-struct-panel-module-split remains open.

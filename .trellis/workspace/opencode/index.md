@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-09-28
+- **Total Sessions**: 15
+- **Last Active**: 2026-09-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~433 | Active |
+| `journal-1.md` | ~471 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-09-29 | Struct overlay review follow-ups | `c182fae`, `6bbf988`, `331d05a` | `feat/struct-overlay-types` |
 | 14 | 2026-09-28 | Hide struct fields in the instance view | `22c67e5`, `63ec80a` | `feat/struct-overlay-types` |
 | 13 | 2026-09-28 | Type-kind creation and pure-struct trim | `238b70c`, `d65cf5f` | `feat/struct-overlay-types` |
 | 12 | 2026-09-27 | Enum support for fields and bit values | `ed9ace9`, `673c557` | `feat/struct-overlay-types` |
