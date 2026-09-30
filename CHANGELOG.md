@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Reusable bit-field types: define a named bit-field type once and reference it from any struct, with its children rendered inline and no extra hierarchy level
+- Enum types: define named values once and reference them from scalar fields and bit-field children, with matched values shown as `NAME (0xNN)` and a plain numeric fallback
+- A per-field hidden flag in the struct editor plus a `Show hidden` toggle in Struct Instances, persisted per profile, that reveals hidden fields and their children
+- A single `New Type` chooser offering three kinds — plain struct, bit-field type, and enum — each opening its own editor
+
+### Changed
+- Plain structs no longer author inline bit-fields; existing inline bit-field containers migrate to standalone reusable types on load, decoding byte-identically
+- Bit-field reference fields can override bit allocation (`LSB`/`MSB`) per field
+- Deleting a referenced type now reports how many fields reference it, alongside the pin count
+
 ## [2.25.0] - 2026-09-22
 
 ### Added

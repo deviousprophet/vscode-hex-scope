@@ -17,6 +17,11 @@ export function bitAllocationOrDefault(value: unknown): BitFieldAllocation {
     return value === 'lsb' ? 'lsb' : 'msb';
 }
 
+/** Single shared "show hidden fields" normalizer (session slot normalizer + webview model). Default off. */
+export function showHiddenFieldsOrDefault(value: unknown): boolean {
+    return value === true;
+}
+
 /** Pinned-segment name overrides, keyed by segment start address (decimal string). */
 export type SegmentNameOverrides = Record<string, string>;
 
@@ -37,6 +42,7 @@ export type ProviderToWebviewMessage =
         structPins: StructPin[];
         endian: HexScopeEndian;
         bitAllocation: BitFieldAllocation;
+        showHiddenFields: boolean;
         activeChecks: IntegrityCheckSet;
         /** Current bound profile display state. */
         profile: { profiles: ProfileSummary[]; current: string | null; boundFileCount: number };
@@ -49,7 +55,7 @@ export type ProviderToWebviewMessage =
     | { type: 'copyCommand'; command?: CopyCommand; format?: string }
 | { type: 'savedEdits'; generation: number; parseResult?: WireParseResult }
 | { type: 'structsExternalChange'; structs: StructDef[] }
-| { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; bitAllocation: BitFieldAllocation; activeChecks: IntegrityCheckSet }
+| { type: 'perFileDataChange'; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides; pins: StructPin[]; endian: HexScopeEndian; bitAllocation: BitFieldAllocation; showHiddenFields: boolean; activeChecks: IntegrityCheckSet }
 | { type: 'profilesState'; profiles: ProfileSummary[]; current: string | null; boundFileCount: number }
 | { type: 'externalChange'; generation: number; parseResult: WireParseResult; labels: SegmentLabel[]; segmentNames?: SegmentNameOverrides }
     | {
@@ -81,6 +87,7 @@ export type WebviewToProviderMessage =
     | { type: 'saveIntegrityChecks'; state: IntegrityCheckSet }
     | { type: 'saveEndian'; endian: HexScopeEndian }
     | { type: 'saveBitAllocation'; bitAllocation: BitFieldAllocation }
+    | { type: 'saveShowHiddenFields'; showHiddenFields: boolean }
     | { type: 'selectProfile'; profileId: string | null }
     | { type: 'newProfile'; name: string | null }
     | { type: 'saveProfile' }

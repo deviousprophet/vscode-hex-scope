@@ -3,7 +3,9 @@ import * as assert from 'assert';
 import {
     fieldByteSize, structByteSize, decodeField, decodeStruct,
     allStructs, parseStructText, fieldsToText, validateStructs, structToC, resolveStructFieldByPath,
-} from '../../core/structCodec';
+    structDefKind, materializeBitFieldRefs, migrateInlineBitFields, formatEnumLabel, matchEnumEntry,
+    normalizeStructField, isUnsignedScalarType, bytesToBigUint,
+} from '../../core/struct/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
 import type { StructDef, StructField } from '../../core/types';
 
@@ -744,6 +746,25 @@ suite('resolveStructFieldByPath()', () => {
         assert.strictEqual(resolved!.field.count, 4);
         assert.strictEqual(resolved!.structName, 'Leaf');
     });
+
+    test('resolves a referenced bit-field container to its inline form', () => {
+        const bits: StructDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }],
+        };
+        const parent: StructDef = {
+            id: 'parent', name: 'Parent',
+            fields: [{ name: 'control', type: 'bitfield', refStructId: 'bits', count: 1 }],
+        };
+
+        structs = [bits, parent];
+
+        const resolved = resolveStructFieldByPath(parent, 'control', structs);
+        assert.ok(resolved);
+        assert.strictEqual(resolved!.field.type, 'uint8');
+        assert.strictEqual(resolved!.field.refStructId, undefined);
+        assert.deepStrictEqual(resolved!.field.bitFields, bits.bitFields);
+    });
 });
 
 // ── validateStructs ───────────────────────────────────────────────
@@ -1192,3 +1213,543 @@ suite('structToC()', () => {
         assert.ok(text.includes('} flags;'), text);
     });
 });
+
+// ── Reusable bit-field types (kind: 'bitfield' + type: 'bitfield' refs) ──
+
+function bitFieldDef(): StructDef {
+    return {
+        id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+        bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }],
+    };
+}
+
+function inlineContainerDef(): StructDef {
+    return {
+        id: 'inline', name: 'Sample', packed: true, fields: [
+            {
+                name: 'control', type: 'uint8', count: 1,
+                bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }],
+            },
+            { name: 'after', type: 'uint16', count: 1 },
+        ],
+    };
+}
+
+function referencedContainerDef(field: Partial<StructField> = {}): StructDef {
+    return {
+        id: 'referenced', name: 'Sample', packed: true, fields: [
+            { name: 'control', type: 'bitfield', refStructId: 'bits', count: 1, ...field },
+            { name: 'after', type: 'uint16', count: 1 },
+        ],
+    };
+}
+
+suite('structDefKind()', () => {
+    test('absent kind defaults to plain struct', () => {
+        assert.strictEqual(structDefKind({ id: 'x', name: 'X', fields: [] }), 'struct');
+    });
+
+    test('explicit bitfield / enum kinds are reported', () => {
+        assert.strictEqual(structDefKind({ id: 'x', name: 'X', fields: [], kind: 'bitfield' }), 'bitfield');
+        assert.strictEqual(structDefKind({ id: 'x', name: 'X', fields: [], kind: 'enum' }), 'enum');
+    });
+
+    test('an unrecognized kind degrades to plain struct', () => {
+        const def = { id: 'x', name: 'X', fields: [], kind: 'sideways' } as unknown as StructDef;
+        assert.strictEqual(structDefKind(def), 'struct');
+    });
+});
+
+suite('materializeBitFieldRefs()', () => {
+    test('rewrites a reference into its inline container form', () => {
+        const bits = bitFieldDef();
+        const field: StructField = { name: 'control', type: 'bitfield', refStructId: 'bits', count: 1 };
+        const resolved = materializeBitFieldRefs({ id: 'r', name: 'R', fields: [field] }, [bits]);
+        assert.strictEqual(resolved.fields[0].type, 'uint8');
+        assert.strictEqual(resolved.fields[0].refStructId, undefined);
+        assert.deepStrictEqual(resolved.fields[0].bitFields, bits.bitFields);
+    });
+
+    test('leaves plain structs and inline containers untouched (same reference)', () => {
+        const inline = inlineContainerDef();
+        assert.strictEqual(materializeBitFieldRefs(inline, [inline]), inline);
+        const plain = { id: 'p', name: 'P', fields: [{ name: 'a', type: 'uint8' as const, count: 1 }] };
+        assert.strictEqual(materializeBitFieldRefs(plain, [plain]), plain);
+    });
+
+    test('an unresolvable reference passes through untouched', () => {
+        const def: StructDef = { id: 'r', name: 'R', fields: [{ name: 'control', type: 'bitfield', refStructId: 'missing', count: 1 }] };
+        assert.strictEqual(materializeBitFieldRefs(def, [def]).fields[0].type, 'bitfield');
+    });
+
+    test('a rewritten type:bitfield field never keeps isPointer', () => {
+        const bits = bitFieldDef();
+        const field: StructField = { name: 'control', type: 'bitfield', refStructId: 'bits', isPointer: true, count: 1 };
+        const resolved = materializeBitFieldRefs({ id: 'r', name: 'R', fields: [field] }, [bits]);
+        assert.strictEqual(resolved.fields[0].type, 'uint8', 'rewritten to the inline container form');
+        assert.strictEqual(resolved.fields[0].isPointer, undefined, 'materialization drops the invalid pointer flag rather than yield a pointer-typed container');
+        // Materialization is not a validator: the authored shape still fails validation.
+        assert.ok(
+            validateStructs([bits, { id: 'r', name: 'R', fields: [field] }]).some(e => e.includes('cannot be a bit-field pointer')),
+            'validation remains the gate for the authored shape',
+        );
+    });
+});
+
+suite('shared unsigned predicate / byte fold', () => {
+    test('isUnsignedScalarType accepts exactly the unsigned widths', () => {
+        for (const type of ['uint8', 'uint16', 'uint32', 'uint64'] as const) {
+            assert.strictEqual(isUnsignedScalarType(type), true, `${type} is unsigned`);
+        }
+        for (const type of ['int8', 'int16', 'float32', 'float64', 'ascii', 'void', 'struct'] as const) {
+            assert.strictEqual(isUnsignedScalarType(type), false, `${type} is not unsigned`);
+        }
+    });
+
+    test('bytesToBigUint folds little- and big-endian byte order', () => {
+        assert.strictEqual(bytesToBigUint([0x34, 0x12], 'le'), 0x1234n);
+        assert.strictEqual(bytesToBigUint([0x12, 0x34], 'be'), 0x1234n);
+        assert.strictEqual(bytesToBigUint([], 'le'), 0n);
+        assert.strictEqual(bytesToBigUint([1, 2, 3, 4, 5, 6, 7, 8], 'be'), 0x0102030405060708n);
+    });
+});
+
+suite('migrateInlineBitFields()', () => {
+    test('a migrated pool decodes / sizes / emits C byte-identically to the inline form', () => {
+        const inline = inlineContainerDef();
+        setBytesInSegment(0, [0xAC, 0x35, 0x00, 0x00]);
+
+        const before = decodeStruct(inline, 0, getByte, 'le', 'msb', [inline]);
+        const beforeSize = structByteSize(inline, [inline]);
+        const beforeC = structToC(inline, [inline]);
+
+        const migrated = migrateInlineBitFields([inline]);
+        assert.strictEqual(migrated.changed, true);
+        const pool = migrated.defs;
+        const migratedDef = pool.find(d => d.id === 'inline')!;
+        assert.strictEqual(migratedDef.fields[0].type, 'bitfield');
+        assert.strictEqual(migratedDef.fields[0].refStructId, 'migrated_bitfield_1');
+
+        assert.deepStrictEqual(decodeStruct(migratedDef, 0, getByte, 'le', 'msb', pool), before, 'decode is unchanged');
+        assert.strictEqual(structByteSize(migratedDef, pool), beforeSize, 'size is unchanged');
+        assert.strictEqual(structToC(migratedDef, pool), beforeC, 'C preview is unchanged');
+        assert.deepStrictEqual(validateStructs(pool), [], 'migrated pool validates cleanly');
+    });
+
+    test('leaves a pool with no inline containers untouched (same array, changed false)', () => {
+        const pool: StructDef[] = [
+            bitFieldDef(),
+            { id: 'leaf', name: 'Leaf', fields: [{ name: 'b', type: 'bitfield', refStructId: 'bits', count: 1 }] },
+        ];
+        const result = migrateInlineBitFields(pool);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.defs, pool);
+    });
+});
+
+suite('reusable bit-field sizing / alignment', () => {
+    test('referenced bit-field sizes identically to the inline container', () => {
+        const bits = bitFieldDef();
+        assert.strictEqual(structByteSize(referencedContainerDef(), [bits]), structByteSize(inlineContainerDef()));
+    });
+
+    test('array usage multiplies the referenced base width', () => {
+        const bits = bitFieldDef();
+        const scalars: StructDef = { id: 's', name: 'S', fields: [{ name: 'regs', type: 'bitfield', refStructId: 'bits', count: 4 }] };
+        const inline: StructDef = { id: 'i', name: 'S', fields: [{ name: 'regs', type: 'uint8', count: 4, bitFields: bits.bitFields }] };
+        assert.strictEqual(structByteSize(scalars, [bits]), 4);
+        assert.strictEqual(structByteSize(scalars, [bits]), structByteSize(inline));
+    });
+
+    test('endianness / allocation overrides do not change size or alignment', () => {
+        const bits = bitFieldDef();
+        const base = structByteSize(referencedContainerDef(), [bits]);
+        const overridden = structByteSize(referencedContainerDef({ endian: 'be', allocation: 'lsb' }), [bits]);
+        assert.strictEqual(overridden, base);
+    });
+
+    test('one def edit is reflected in every referencing struct', () => {
+        const bits = bitFieldDef();
+        const a: StructDef = { id: 'a', name: 'A', packed: true, fields: [{ name: 'r', type: 'bitfield', refStructId: 'bits', count: 1 }] };
+        const b: StructDef = { id: 'b', name: 'B', fields: [
+            { name: 'r', type: 'bitfield', refStructId: 'bits', count: 1 },
+            { name: 'x', type: 'uint8', count: 1 },
+        ] };
+
+        assert.strictEqual(structByteSize(a, [bits, a]), 1);
+        assert.strictEqual(structByteSize(b, [bits, b]), 2);
+
+        const wider: StructDef = { ...bits, baseType: 'uint16' };
+        assert.strictEqual(structByteSize(a, [wider, a]), 2);
+        assert.strictEqual(structByteSize(b, [wider, b]), 4);
+
+        setBytesInSegment(0, [0xAC, 0x35, 0x00, 0x00]);
+        assert.strictEqual(decodeStruct(a, 0, getByte, 'le', 'msb', [bits, a])[0].bitStorageByteSize, 1);
+        assert.strictEqual(decodeStruct(a, 0, getByte, 'le', 'msb', [wider, a])[0].bitStorageByteSize, 2);
+    });
+
+    test('absent kind stays a plain struct through materialization', () => {
+        const plain: StructDef = { id: 'p', name: 'Plain', fields: [{ name: 'a', type: 'uint8', count: 1 }] };
+        const resolved = materializeBitFieldRefs(plain, [plain]);
+        assert.strictEqual(resolved.kind, undefined);
+        assert.strictEqual(resolved, plain);
+    });
+});
+
+suite('reusable bit-field decode', () => {
+    test('decodes byte-identically to the inline container', () => {
+        const bits = bitFieldDef();
+        setBytesInSegment(0, [0b1010_1100, 0x34, 0x12]);
+        const inlineRows = decodeStruct(inlineContainerDef(), 0, getByte, 'le', 'msb');
+        const refRows = decodeStruct(referencedContainerDef(), 0, getByte, 'le', 'msb', [bits]);
+        assert.deepStrictEqual(refRows, inlineRows);
+        assert.deepStrictEqual(refRows.map(r => r.fieldName), ['control.mode', 'control.code', 'after']);
+        assert.strictEqual(refRows[0].bitWidth, 2);
+        assert.strictEqual(refRows[1].bitWidth, 6);
+    });
+
+    test('array usage decodes one bit-unit group per element', () => {
+        const bits = bitFieldDef();
+        const defs: StructDef[] = [bits, { id: 's', name: 'S', packed: true, fields: [{ name: 'regs', type: 'bitfield', refStructId: 'bits', count: 2 }] }];
+        setBytesInSegment(0, [0b1010_1100, 0b0011_0101]);
+        const rows = decodeStruct(defs[1], 0, getByte, 'le', 'msb', defs);
+        assert.deepStrictEqual(rows.map(r => [r.fieldName, r.byteOffset, r.bitWidth]), [
+            ['regs[0].mode', 0, 2], ['regs[0].code', 0, 6],
+            ['regs[1].mode', 1, 2], ['regs[1].code', 1, 6],
+        ]);
+    });
+
+    test('field endian/allocation overrides take effect', () => {
+        const bits = bitFieldDef();
+        setBytesInSegment(0, [0b1010_1100, 0x00, 0x00]);
+        const defs = [bits, referencedContainerDef({ endian: 'be', allocation: 'lsb' })];
+        const rows = decodeStruct(defs[1], 0, getByte, 'le', 'msb', defs);
+        assert.strictEqual(rows[0].allocation, 'lsb');
+        assert.strictEqual(rows[0].endian, 'be');
+        // lsb allocation: 'mode' takes the low 2 bits, 'code' the next 6.
+        assert.strictEqual(rows[0].bitValueUnsigned, '0');
+        assert.strictEqual(rows[1].bitValueUnsigned, '43');
+    });
+});
+
+suite('reusable bit-field C preview', () => {
+    test('referenced form emits the same C as the inline container', () => {
+        const bits = bitFieldDef();
+        assert.strictEqual(
+            structToC(referencedContainerDef(), [bits]),
+            structToC(inlineContainerDef()),
+        );
+    });
+
+    test('array usage emits the container array with the referenced base type', () => {
+        const bits = bitFieldDef();
+        const def: StructDef = { id: 's', name: 'S', packed: true, fields: [{ name: 'regs', type: 'bitfield', refStructId: 'bits', count: 2 }] };
+        const text = structToC(def, [bits, def]);
+        assert.ok(text.includes('uint8_t mode:2;'), text);
+        assert.ok(text.includes('uint8_t code:6;'), text);
+        assert.ok(text.includes('} regs[2];'), text);
+        assert.ok(text.includes('/* 2B, packed */'), text);
+    });
+
+    test('a bitfield def previews as a typedef of its storage unit', () => {
+        const bits = bitFieldDef();
+        const text = structToC(bits, [bits]);
+        assert.ok(text.includes('typedef struct {'), text);
+        assert.ok(text.includes('uint8_t mode:2;'), text);
+        assert.ok(text.includes('uint8_t code:6;'), text);
+        assert.ok(text.includes('} Bits;'), text);
+    });
+});
+
+suite('reusable bit-field validation', () => {
+    test('accepts a bitfield def referenced by a field', () => {
+        assert.deepStrictEqual(validateStructs([bitFieldDef(), referencedContainerDef()]), []);
+    });
+
+    test('rejects a reference to an unknown type', () => {
+        const def: StructDef = { id: 'r', name: 'R', fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'nope', count: 1 }] };
+        assert.ok(validateStructs([def]).some(e => e.includes('unknown bit-field type')), validateStructs([def]).join('; '));
+    });
+
+    test('rejects a reference to a non-bitfield type', () => {
+        const plain: StructDef = { id: 'plain', name: 'Plain', fields: [] };
+        const def: StructDef = { id: 'r', name: 'R', fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'plain', count: 1 }] };
+        assert.ok(validateStructs([plain, def]).some(e => e.includes('not a bit-field type')), validateStructs([plain, def]).join('; '));
+    });
+
+    test('rejects a bitfield pointer and a missing reference', () => {
+        const bits = bitFieldDef();
+        const pointer: StructDef = { id: 'p', name: 'P', fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', isPointer: true, count: 1 }] };
+        assert.ok(validateStructs([bits, pointer]).some(e => e.includes('cannot be a bit-field pointer')));
+        const missing: StructDef = { id: 'm', name: 'M', fields: [{ name: 'ctl', type: 'bitfield', count: 1 }] };
+        assert.ok(validateStructs([bits, missing]).some(e => e.includes('missing a referenced bit-field type')));
+    });
+
+    test('rejects nesting a bit-field reference with inline bit-fields', () => {
+        const bits = bitFieldDef();
+        const nested: StructDef = { id: 'n', name: 'N', fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', count: 1, bitFields: [{ name: 'x', bitWidth: 1 }] }] };
+        assert.ok(validateStructs([bits, nested]).some(e => e.includes('cannot combine a bit-field reference with inline bit-fields')));
+    });
+
+    test('rejects a bitfield def shape that is not unsigned / has fields / is over-width', () => {
+        const badBase = { id: 'b', name: 'B', kind: 'bitfield', baseType: 'int8', fields: [], bitFields: [{ name: 'a', bitWidth: 1 }] } as unknown as StructDef;
+        assert.ok(validateStructs([badBase]).some(e => e.includes('unsigned base type')), validateStructs([badBase]).join('; '));
+
+        const withFields: StructDef = { id: 'f', name: 'F', kind: 'bitfield', baseType: 'uint8', fields: [{ name: 'a', type: 'uint8', count: 1 }], bitFields: [{ name: 'a', bitWidth: 1 }] };
+        assert.ok(validateStructs([withFields]).some(e => e.includes('cannot contain fields')));
+
+        const overWidth: StructDef = { id: 'o', name: 'O', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'a', bitWidth: 12 }] };
+        assert.ok(validateStructs([overWidth]).some(e => e.includes('exceeds 8-bit base')));
+
+        const empty: StructDef = { id: 'e', name: 'E', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [] };
+        assert.ok(validateStructs([empty]).some(e => e.includes('at least one bit-field child')));
+    });
+
+    test('rejects an invalid kind discriminator', () => {
+        const def = { id: 'k', name: 'K', fields: [], kind: 'sideways' } as unknown as StructDef;
+        assert.ok(validateStructs([def]).some(e => e.includes('invalid kind')));
+    });
+});
+
+// ── Enums (kind: 'enum' + type: 'enum' refs) ──────────────────────
+
+function enumModeDef(): StructDef {
+    return {
+        id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [],
+        entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }],
+    };
+}
+
+function enumUserDef(): StructDef {
+    return {
+        id: 'user', name: 'User', packed: true,
+        fields: [
+            { name: 'state', type: 'enum', refStructId: 'mode', count: 1 },
+            { name: 'after', type: 'uint8', count: 1 },
+        ],
+    };
+}
+
+function enumBitsDef(): StructDef {
+    return {
+        id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+        bitFields: [{ name: 'mode', bitWidth: 2, refStructId: 'mode' }, { name: 'code', bitWidth: 6 }],
+    };
+}
+
+function enumHolderDef(): StructDef {
+    return {
+        id: 'holder', name: 'Holder', packed: true,
+        fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', count: 1 }],
+    };
+}
+
+suite('enum label formatting', () => {
+    test('formats a matched label as NAME (0xNN)', () => {
+        assert.strictEqual(formatEnumLabel('ON', 1n, 2), 'ON (0x01)');
+        assert.strictEqual(formatEnumLabel('MODE_LONG', 0x1234n, 4), 'MODE_LONG (0x1234)');
+    });
+
+    test('matches the first entry by numeric value', () => {
+        const mode = enumModeDef();
+        assert.strictEqual(matchEnumEntry(mode, 0n)?.name, 'OFF');
+        assert.strictEqual(matchEnumEntry(mode, 1n)?.name, 'ON');
+    });
+
+    test('an unmatched value has no label (numeric fallback)', () => {
+        assert.strictEqual(matchEnumEntry(enumModeDef(), 5n), undefined);
+    });
+});
+
+suite('enum sizing / alignment', () => {
+    test('a scalar enum sizes/aligns exactly like its base integer field', () => {
+        const mode = enumModeDef();
+        const enumUser = enumUserDef();
+        const intUser: StructDef = {
+            id: 'user', name: 'User', packed: true,
+            fields: [{ name: 'state', type: 'uint8', count: 1 }, { name: 'after', type: 'uint8', count: 1 }],
+        };
+        assert.strictEqual(structByteSize(enumUser, [mode, enumUser]), structByteSize(intUser));
+    });
+
+    test('a wider base width drives size (uint32 base = 4 bytes)', () => {
+        const wide: StructDef = { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint32', fields: [], entries: [{ name: 'A', value: 1 }] };
+        const def: StructDef = { id: 'd', name: 'D', packed: true, fields: [{ name: 'm', type: 'enum', refStructId: 'mode', count: 1 }] };
+        assert.strictEqual(structByteSize(def, [wide, def]), 4);
+    });
+});
+
+suite('enum decode', () => {
+    test('carries the matched label without changing bytes/offset/decoded numerics', () => {
+        const mode = enumModeDef();
+        const user = enumUserDef();
+        setBytesInSegment(0, [0x01, 0x34]);
+        const rows = decodeStruct(user, 0, getByte, 'le', 'msb', [mode, user]);
+        assert.deepStrictEqual(rows.map(r => r.fieldName), ['state', 'after']);
+        assert.strictEqual(rows[0].type, 'uint8');
+        assert.strictEqual(rows[0].enumLabel, 'ON');
+        assert.strictEqual(rows[0].byteOffset, 0);
+        assert.strictEqual(rows[0].bytesHex, '01');
+        assert.strictEqual(rows[0].decoded, decodeField([0x01], 'uint8', 'le'));
+    });
+
+    test('an unmatched value carries no label', () => {
+        const mode = enumModeDef();
+        const user = enumUserDef();
+        setBytesInSegment(0, [0x05, 0x00]);
+        const rows = decodeStruct(user, 0, getByte, 'le', 'msb', [mode, user]);
+        assert.strictEqual(rows[0].enumLabel, undefined);
+        assert.strictEqual(rows[0].decoded, decodeField([0x05], 'uint8', 'le'));
+    });
+
+    test('a bit-field child with an enum ref carries a label per element', () => {
+        const mode = enumModeDef();
+        const bits = enumBitsDef();
+        const holder = enumHolderDef();
+        setBytesInSegment(0, [0x40]); // msb allocation: mode = 0b01
+        const rows = decodeStruct(holder, 0, getByte, 'le', 'msb', [mode, bits, holder]);
+        assert.deepStrictEqual(rows.map(r => r.fieldName), ['ctl.mode', 'ctl.code']);
+        assert.strictEqual(rows[0].enumLabel, 'ON');
+        assert.strictEqual(rows[1].enumLabel, undefined);
+        assert.strictEqual(rows[0].bytesHex, '40');
+        assert.strictEqual(rows[0].bitOffset, 0);
+    });
+
+    test('a bit-field child without an enum ref never carries a label', () => {
+        const bits = enumBitsDef();
+        const holder = enumHolderDef();
+        setBytesInSegment(0, [0x40]);
+        const rows = decodeStruct(holder, 0, getByte, 'le', 'msb', [bits, holder]);
+        assert.strictEqual(rows[0].enumLabel, undefined);
+        assert.strictEqual(rows[1].enumLabel, undefined);
+    });
+});
+
+suite('enum C preview', () => {
+    test('an enum def previews as a typedef enum sized to its base width', () => {
+        const text = structToC(enumModeDef(), [enumModeDef()]);
+        assert.ok(text.includes('typedef enum {'), text);
+        assert.ok(text.includes('OFF = 0x0,'), text);
+        assert.ok(text.includes('ON  = 0x1,'), text);
+        assert.ok(text.includes('} Mode;'), text);
+        assert.ok(text.includes('/* 1B */'), text);
+    });
+
+    test('an enum-typed field keeps the integer layout (offsets/sizes unchanged)', () => {
+        const mode = enumModeDef();
+        const user = enumUserDef();
+        const intUser: StructDef = {
+            id: 'user', name: 'User', packed: true,
+            fields: [{ name: 'state', type: 'uint8', count: 1 }, { name: 'after', type: 'uint8', count: 1 }],
+        };
+        const enumC = structToC(user, [mode, user]);
+        const intC = structToC(intUser);
+        assert.strictEqual(enumC.replace('  enum Mode', ''), intC, 'enum field comment/layout must match an integer field');
+        assert.ok(enumC.includes('/* +  0  1B  enum Mode */'), enumC);
+        assert.ok(enumC.includes('/* 2B, packed */'), enumC);
+    });
+});
+
+suite('enum validation', () => {
+    test('accepts an enum def referenced by a scalar field and a bit child', () => {
+        const defs = [enumModeDef(), enumBitsDef(), enumUserDef(), enumHolderDef()];
+        assert.deepStrictEqual(validateStructs(defs), []);
+    });
+
+    test('rejects an unknown / non-enum / missing scalar enum reference', () => {
+        const mode = enumModeDef();
+        const unknown: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', refStructId: 'nope', count: 1 }] };
+        assert.ok(validateStructs([mode, unknown]).some(e => e.includes('unknown enum type')));
+        const plain: StructDef = { id: 'plain', name: 'Plain', fields: [] };
+        const notEnum: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', refStructId: 'plain', count: 1 }] };
+        assert.ok(validateStructs([plain, notEnum]).some(e => e.includes('not an enum type')));
+        const missing: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', count: 1 }] };
+        assert.ok(validateStructs([mode, missing]).some(e => e.includes('missing a referenced enum')));
+        const pointer: StructDef = { id: 'u', name: 'U', fields: [{ name: 's', type: 'enum', refStructId: 'mode', isPointer: true, count: 1 }] };
+        assert.ok(validateStructs([mode, pointer]).some(e => e.includes('cannot be an enum pointer')));
+    });
+
+    test('rejects enum entries that do not fit the base width', () => {
+        const bad: StructDef = { id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'BIG', value: 256 }] };
+        assert.ok(validateStructs([bad]).some(e => e.includes('does not fit uint8')), validateStructs([bad]).join('; '));
+    });
+
+    test('rejects an enum def with a non-unsigned base or fields', () => {
+        const badBase = { id: 'e', name: 'E', kind: 'enum', baseType: 'int8', fields: [], entries: [] } as unknown as StructDef;
+        assert.ok(validateStructs([badBase]).some(e => e.includes('unsigned base type')));
+        const withFields: StructDef = { id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [{ name: 'a', type: 'uint8', count: 1 }], entries: [] };
+        assert.ok(validateStructs([withFields]).some(e => e.includes('cannot contain fields')));
+    });
+
+    test('rejects a bit-field child referencing an unknown or non-enum type', () => {
+        const bits: StructDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'nope' }],
+        };
+        assert.ok(validateStructs([bits]).some(e => e.includes('references an unknown enum type')));
+        const plain: StructDef = { id: 'plain', name: 'Plain', fields: [] };
+        const bits2: StructDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'plain' }],
+        };
+        assert.ok(validateStructs([plain, bits2]).some(e => e.includes('not an enum type')));
+    });
+});
+
+// ── hidden field flag (instance-view only) ────────────────────────
+
+suite('hidden field flag — model + decode/C parity', () => {
+    test('normalizeStructField preserves hidden:true and drops an explicit false', () => {
+        const kept = normalizeStructField({ name: 'reserved', type: 'uint8', count: 1, hidden: true });
+        assert.strictEqual(kept.hidden, true, 'hidden:true is preserved');
+
+        const dropped = normalizeStructField({ name: 'reserved', type: 'uint8', count: 1, hidden: false });
+        assert.strictEqual('hidden' in dropped, false, 'hidden:false is dropped (absent = visible)');
+
+        const absent = normalizeStructField({ name: 'tag', type: 'uint8', count: 1 });
+        assert.strictEqual('hidden' in absent, false, 'an absent hidden key stays absent');
+    });
+
+    function parityDef(hidden: boolean | undefined): StructDef {
+        const reserved: StructField = { name: 'reserved', type: 'uint8', count: 1 };
+        if (hidden !== undefined) { reserved.hidden = hidden; }
+        return {
+            id: 'x', name: 'Header', packed: true, fields: [
+                reserved,
+                { name: 'tag', type: 'uint16', count: 1 },
+                { name: 'nodes', type: 'struct', refStructId: 'child', count: 1 },
+            ],
+        };
+    }
+
+    const child: StructDef = { id: 'child', name: 'Child', packed: true, fields: [{ name: 'inner', type: 'uint8', count: 1 }] };
+
+    test('decode rows, offsets, and values are identical whether or not a field is hidden', () => {
+        setBytesInSegment(0, [0xAB, 0x34, 0x12, 0x7F]);
+        const visible = decodeStruct(parityDef(undefined), 0, getByte, 'le', 'msb', [child]);
+        const hidden = decodeStruct(parityDef(true), 0, getByte, 'le', 'msb', [child]);
+
+        assert.deepStrictEqual(hidden.map(r => ({ name: r.fieldName, off: r.byteOffset, val: r.decoded })),
+            visible.map(r => ({ name: r.fieldName, off: r.byteOffset, val: r.decoded })),
+            'hidden changes neither row set, offsets, nor decoded values');
+        assert.ok(hidden.length > 0, 'decode still emits the hidden field rows');
+    });
+
+    test('structByteSize and structToC are identical with a hidden field', () => {
+        assert.strictEqual(structByteSize(parityDef(true), [child]), structByteSize(parityDef(undefined), [child]));
+        assert.strictEqual(structToC(parityDef(true), [child]), structToC(parityDef(undefined), [child]));
+    });
+
+    test('a hidden bit-field container still decodes every child (filter is render-only)', () => {
+        const def: StructDef = {
+            id: 'x', name: 'Regs', packed: true, fields: [
+                { name: 'ctrl', type: 'uint8', count: 1, hidden: true, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
+            ],
+        };
+        setBytesInSegment(0, [0xA5]);
+        const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
+        assert.deepStrictEqual(rows.map(r => r.fieldName), ['ctrl.lo', 'ctrl.hi'], 'children decode despite the hidden container');
+    });
+});
+
+

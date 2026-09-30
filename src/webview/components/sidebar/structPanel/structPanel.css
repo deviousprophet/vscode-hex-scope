@@ -15,7 +15,6 @@
 .sa-row .sb-select { flex: 1; min-width: 0; }
 /* Add Field: compact, centered in the form, not full-width. */
 .se-form > .sb-btn-add { align-self: center; width: auto; padding: 3px 12px; }
-.sfe-bf-children .sb-btn-add { padding: 2px 6px; margin: 2px auto; align-self: center; }
 #si-add-btn { flex-shrink: 0; }
 #sm-close-btn { flex-shrink: 0; }
 
@@ -40,6 +39,23 @@
     flex-shrink: 0; font-size: 10px; color: var(--addr-fg);
     font-family: var(--font-editor); white-space: nowrap;
 }
+
+/* Named-type discriminator badge — one shared primitive for the type list
+   (`.sd-kind`) and the editor default row (`.se-kind-badge`); only layout
+   differs between the two. 10px type floor. */
+.sd-kind,
+.se-kind-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; line-height: 1.5;
+    color: var(--addr-fg);
+    border: 1px solid var(--border);
+    border-radius: 2px; padding: 0 3px;
+    font-family: var(--font-ui);
+}
+
+/* Layout-only modifiers. */
+.sd-kind { flex-shrink: 0; }
+.se-kind-badge { justify-self: start; }
 
 /* -- Struct form editor (#s-struct when editing) ----------------- */
 
@@ -84,10 +100,10 @@
     color: var(--addr-fg); font-family: var(--font-ui);
 }
 
-/* Struct-default row: grid-aligned so Endian/Alloc share the field grid columns */
+/* Struct-default row: grid-aligned so Endian shares the field grid column */
 .se-struct-default-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
     margin-top: 3px;
 }
@@ -118,9 +134,12 @@
 .sfe-endian-sel:focus,
 .sfe-alloc-sel:focus { border-color: var(--focus-bdr); }
 
+/* Empty cell kept so non-bit-field-ref rows stay grid-aligned with ref rows. */
+.sfe-alloc-placeholder { display: block; }
+
 .se-field-hdr {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
     gap: 3px; align-items: center;
     font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
@@ -130,7 +149,7 @@
 
 .struct-field-row {
     display: grid;
-    grid-template-columns: 96px 26px 1fr 58px 52px 40px 72px 30px 18px;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
     gap: 3px; align-items: center; padding: 1px 0;
 }
 .struct-field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
@@ -158,8 +177,14 @@
                                            background: rgba(255,80,80,.08); }
 .sfe-ptr-btn:disabled                    { opacity: .35; cursor: not-allowed; }
 
-/* Empty cell kept so plain/pointer/nested rows stay grid-aligned with bit-field rows */
-.sfe-alloc-placeholder { display: block; }
+/* Hidden-in-instance-view checkbox cell */
+.sfe-hidden-cell {
+    display: flex; align-items: center; justify-content: center;
+}
+.sfe-hidden-chk {
+    width: 12px; height: 12px; margin: 0; cursor: pointer;
+    accent-color: var(--high-color);
+}
 
 /* Array cell */
 .sfe-arr-cell {
@@ -194,21 +219,6 @@
 .sfe-del-btn:hover { color: var(--err); }
 .sfe-del-placeholder { display: block; width: 18px; }
 
-/* -- Bit-field toggle button (:N) ------------------------------- */
-.sfe-bit-btn {
-    width: 28px; flex-shrink: 0; text-align: center;
-    background: transparent; border: 1px dashed var(--border);
-    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
-    font-size: 10px; cursor: pointer; padding: 1px 1px; line-height: 1.4;
-    white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
-}
-.sfe-bit-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
-.sfe-bit-btn.sfe-bit-btn-on              { border-style: solid; border-color: var(--high-color);
-                                            color: var(--high-color); background: rgba(79,195,247,.1); }
-.sfe-bit-btn.sfe-bit-btn-on:hover        { border-color: var(--err); color: var(--err);
-                                            background: rgba(255,80,80,.08); }
-.sfe-bit-btn:disabled                    { opacity: .35; cursor: not-allowed; }
-
 .si-f-ptr-note {
     color: var(--addr-fg);
     opacity: .8;
@@ -223,10 +233,6 @@
     padding: 3px 0 0 0; margin: 0;
     border-top: 1px solid rgba(255,255,255,.06);
     background: rgba(0,0,0,.1);
-}
-.struct-field-row.has-bit-children {
-    border-bottom: none;
-    margin-bottom: 0;
 }
 .sfe-bf-child-row {
     display: flex; align-items: center; gap: 3px;
@@ -253,6 +259,34 @@
     font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
 }
 .sfe-bf-del-child:hover { color: var(--err); }
+.sfe-bf-child-enum {
+    flex-shrink: 0; max-width: 90px; min-width: 0;
+    font-size: 10px; font-family: var(--font-ui);
+    background: var(--input-bg, transparent); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* -- Enum entry rows -------------------------------------------- */
+.sfe-enum-entries {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 3px 0 0 0; margin: 0;
+}
+.sfe-enum-entry-row {
+    display: flex; align-items: center; gap: 3px;
+    padding: 1px 4px 1px 8px;
+}
+.sfe-enum-entry-name {
+    flex: 1; min-width: 0; width: 60px;
+}
+.sfe-enum-entry-value {
+    flex-shrink: 0; width: 56px; text-align: right;
+}
+.sfe-enum-del-entry {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.sfe-enum-del-entry:hover { color: var(--err); }
 
 .sfe-move-btns {
     display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1px;
@@ -274,6 +308,24 @@
     line-height: 1.3;
 }
 
+/* Type-kind picker (shown in the Types body after the single ＋ Add action) */
+.sm-kind-picker { display: flex; flex-direction: column; gap: 8px; }
+.sm-kind-hdr {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.sm-kind-tiles { display: flex; flex-direction: column; gap: 6px; }
+.sm-kind-tile {
+    display: flex; flex-direction: column; gap: 2px; text-align: left;
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 6px 8px; cursor: pointer;
+    transition: border-color .1s, background .1s;
+}
+.sm-kind-tile:hover { border-color: var(--high-color); background: rgba(79,195,247,.08); }
+.sm-kind-tile-name { font-size: 11px; font-weight: 600; font-family: var(--font-ui); }
+.sm-kind-tile-hint { font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui); }
+
 /* Header row: body controls below the framework section header */
 .si-hdr-row {
     display: flex; align-items: flex-start; gap: 6px;
@@ -284,6 +336,14 @@
     flex-shrink: 0;
 }
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
+
+/* Global "show hidden fields" toggle in the Instances header */
+.si-show-hidden {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
+    cursor: pointer; user-select: none; white-space: nowrap; padding-top: 1px;
+}
+.si-show-hidden input { width: 12px; height: 12px; margin: 0; cursor: pointer; accent-color: var(--high-color); }
 
 /* Inline add form */
 .si-add-form {

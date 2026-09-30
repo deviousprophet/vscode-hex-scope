@@ -16,11 +16,13 @@ import { runParseJob } from './parse/parseWorkerClient';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
-import { migrateStructDefinitions } from './core/structMigration';
-import { normalizeStructDefsValue } from './core/structNormalization';
+import { migrateStructDefinitions } from './core/struct/structMigration';
+import { normalizeStructDefsValue } from './core/struct/structNormalization';
+import { countStructFieldRefs } from './core/struct/structCodec';
 import {
     messageType,
     RECORD_PAGE_SIZE,
+    showHiddenFieldsOrDefault,
     type ProfileSummary,
     type ProviderToWebviewMessage,
     type WebviewToProviderMessage,
@@ -30,20 +32,24 @@ import {
     bindingsJsonUri,
     collectProfileRecords,
     emptyProfileRecord,
+    migrateAndNormalize,
     nextProfileOrdinal,
     normalizeBindings,
     normalizeProfilesRegistry,
     perFileRelativePath,
     profilesJsonUri,
     readJson,
+    readPayloadForWrite,
     readProfileRecord,
     removeProfileRecord,
     resolveHexScopeRoot,
     structPoolJsonUri,
+    withDataEnvelope,
     withEnvelope,
     writeJson,
     writeProfileRecord,
     type Binding,
+    type NormalizedValue,
     type ProfileRecord,
     JsonStore,
 } from './hexScopeStorage';
@@ -586,11 +592,18 @@ export class HexEditorSession {
                 const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
                 return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
             };
+            // Migration runs ahead of the shape normalizer for both slots, so an
+            // older-version file is upgraded on load and self-healed once.
+            const migratableStructs = (raw: unknown): NormalizedValue<StructDef[]> =>
+                migrateAndNormalize(raw, 'defs', normalizeStructs, () => []);
+            const migratableRegistry = (raw: unknown): NormalizedValue<ProfileRecord[]> =>
+                migrateAndNormalize(raw, 'records', normalizeProfilesRegistry, () => []);
             if (!registryStore) {
                 // single-file profile registry (.hexscope/profiles.json)
                 registryStore = new JsonStore<ProfileRecord[]>({
                     uri: profilesJsonUri(root),
-                    normalizer: normalizeProfilesRegistry,
+                    normalizer: migratableRegistry,
+                    payloadKey: 'records',
                     empty: () => [],
                     onSelfWrite: markSelfWrite,
                     onReload: () => { void broadcastPerFileData(); void broadcastProfilesState(); },
@@ -600,7 +613,8 @@ export class HexEditorSession {
                 // workspace-wide struct pool (.hexscope/structs.json)
                 structPoolStore = new JsonStore<StructDef[]>({
                     uri: structPoolJsonUri(root),
-                    normalizer: normalizeStructs,
+                    normalizer: migratableStructs,
+                    payloadKey: 'defs',
                     empty: () => [...(workspaceStructPoolCache.get(root) ?? [])],
                     onSelfWrite: markSelfWrite,
                     onReload: () => void broadcastStructs(),
@@ -717,6 +731,7 @@ export class HexEditorSession {
                 pins: p.structPins,
                 endian: p.endian,
                 bitAllocation: p.bitAllocation,
+                showHiddenFields: p.showHiddenFields,
                 activeChecks: p.activeChecks,
             });
         };
@@ -793,6 +808,7 @@ export class HexEditorSession {
                 structPins: profileData.structPins,
                 endian: profileData.endian,
                 bitAllocation: profileData.bitAllocation,
+                showHiddenFields: profileData.showHiddenFields,
                 activeChecks: profileData.activeChecks,
                 profile: { profiles: allProfiles, current: bound, boundFileCount: boundCount },
             };
@@ -992,6 +1008,11 @@ export class HexEditorSession {
                 if (msg.bitAllocation !== 'lsb' && msg.bitAllocation !== 'msb') { return; }
                 await enqueuePerFileOp(async () => {
                     await withBoundProfile(current => ({ ...current, bitAllocation: msg.bitAllocation }));
+                });
+            },
+            saveShowHiddenFields: async msg => {
+                await enqueuePerFileOp(async () => {
+                    await withBoundProfile(current => showHiddenFieldsPatch(current, msg.showHiddenFields));
                 });
             },
             selectProfile: async msg => {
@@ -1357,23 +1378,25 @@ export async function boundProfileId(root: string, relPath: string): Promise<str
 /** Append/replace the binding for a file (prunes dead entries on write). */
 export async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
     const bindingsUri = bindingsJsonUri(root);
-    const read = await readJson(bindingsUri);
-    const bindings = read.status === 'ok' ? normalizeBindings(read.value).value : [];
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const bindings = normalizeBindings(read.status === 'ok' ? withDataEnvelope('bindings', read.payload) : []).value;
     const without = bindings.filter(b => b.fileKey !== fileKey);
     const next = [...without, { fileKey, profileId }];
     const pruned = await pruneBindings(root, next);
-    await writeJson(bindingsUri, withEnvelope(pruned));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
 }
 
 /** Remove the binding for a file (silent). */
 export async function unbindFile(root: string, fileKey: string): Promise<void> {
     const bindingsUri = bindingsJsonUri(root);
-    const read = await readJson(bindingsUri);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
     if (read.status !== 'ok') { return; }
-    const bindings = normalizeBindings(read.value).value;
+    const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value;
     if (!bindings.some(b => b.fileKey === fileKey)) { return; }
     const pruned = await pruneBindings(root, bindings.filter(b => b.fileKey !== fileKey));
-    await writeJson(bindingsUri, withEnvelope(pruned));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
 }
 
 /** Drop binding entries whose fileKey no longer resolves on disk (CLI mv/rm). */
@@ -1423,10 +1446,10 @@ export async function bindingsUsing(root: string, profileId: string): Promise<Ar
 export async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
     await removeProfileRecord(root, profileId);
     const bindingsUri = bindingsJsonUri(root);
-    const read = await readJson(bindingsUri);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
     if (read.status === 'ok') {
-        const bindings = normalizeBindings(read.value).value.filter(b => b.profileId !== profileId);
-        await writeJson(bindingsUri, withEnvelope(bindings));
+        const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value.filter(b => b.profileId !== profileId);
+        await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', bindings)));
     }
 }
 
@@ -1442,17 +1465,44 @@ export async function loadWorkspaceStructs(
     return defs;
 }
 
+/**
+ * Normalize the show-hidden toggle onto a profile record. The
+ * `saveShowHiddenFields` handler routes through here so a malformed message
+ * payload resolves through the one shared normalizer (default off) instead of
+ * a hand-rolled typeof guard; exported as the host-side test seam.
+ */
+export function showHiddenFieldsPatch(rec: ProfileRecord, raw: unknown): ProfileRecord {
+    return { ...rec, showHiddenFields: showHiddenFieldsOrDefault(raw) };
+}
+
+/** Usage of the struct types being deleted: pins + affected profiles + the
+ *  pool's referencing-field count (layouts that lose a field/ref). */
+type StructDeletionUsage = { pins: number; profileIds: string[]; fields: number };
+
 /** Confirm dialog for deleting struct types that other profiles pin to.
- *  Naming pin count + affected profile count (modal, explicit "Delete"). */
-async function confirmStructDeletion(usage: { pins: number; profileIds: string[] }): Promise<boolean> {
-    const typeNoun = usage.pins === 1 ? 'type' : 'types';
-    const profileNoun = usage.profileIds.length === 1 ? 'profile' : 'profiles';
+ *  Naming pin count + affected profile count + the pool's referencing-field
+ *  count (modal, explicit "Delete"). */
+async function confirmStructDeletion(usage: StructDeletionUsage): Promise<boolean> {
+    const typeNoun = pluralize(usage.pins, 'type', 'types');
+    const profileNoun = pluralize(usage.profileIds.length, 'profile', 'profiles');
+    const fieldNoun = pluralize(usage.fields, 'field', 'fields');
     const confirm = await vscode.window.showWarningMessage(
-        `${usage.pins} pin${usage.pins === 1 ? '' : 's'} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted. Delete anyway?`,
+        `${usage.pins} pin${pluralSuffix(usage.pins)} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted; ` +
+        `${usage.fields} ${fieldNoun} in the pool reference it. Delete anyway?`,
         { modal: true },
         'Delete',
     );
     return confirm === 'Delete';
+}
+
+/** Singular/plural noun for a count. */
+function pluralize(count: number, singular: string, plural: string): string {
+    return count === 1 ? singular : plural;
+}
+
+/** Trailing `s` for a plural count. */
+function pluralSuffix(count: number): string {
+    return count === 1 ? '' : 's';
 }
 
 /** Scan every registry profile for pins whose structId is in deletedIds.
@@ -1483,13 +1533,15 @@ export async function collectStructDeletionUsage(
  *  idempotent with the webview's later saveStructPins). */
 export async function stripDeletedStructPins(root: string, deletedIds: string[]): Promise<void> {
     const target = new Set(deletedIds);
-    const records = await collectProfileRecords(root);
+    const read = await readPayloadForWrite(profilesJsonUri(root), 'records');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const records = normalizeProfilesRegistry(read.payload).value;
     const next = records.map(rec => {
 const stripped = rec.structPins.filter(pin => !target.has(pin.structId));
 return stripped.length === rec.structPins.length ? rec : { ...rec, structPins: stripped };
     });
     if (next.some((rec, i) => rec !== records[i])) {
-        await writeJson(profilesJsonUri(root), withEnvelope(normalizeProfilesRegistry(next).value));
+        await writeJson(profilesJsonUri(root), withEnvelope(withDataEnvelope('records', normalizeProfilesRegistry(next).value)));
     }
 }
 
@@ -1504,14 +1556,15 @@ export async function applyStructDeletion(
     root: string,
     poolStore: JsonStore<StructDef[]>,
     incomingStructs: StructDef[],
-    confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
+    confirm: (usage: StructDeletionUsage) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
-    const deletedIds = deletedStructIds(poolStore.get() ?? [], incomingStructs);
+    const previous = poolStore.get() ?? [];
+    const deletedIds = deletedStructIds(previous, incomingStructs);
     if (deletedIds.length === 0) {
         poolStore.set(incomingStructs);
         return 'applied';
     }
-    return applyStructDeletionWithUsage(root, poolStore, incomingStructs, deletedIds, confirm);
+    return applyStructDeletionWithUsage(root, poolStore, incomingStructs, deletedIds, previous, confirm);
 }
 
 async function applyStructDeletionWithUsage(
@@ -1519,14 +1572,15 @@ async function applyStructDeletionWithUsage(
     poolStore: JsonStore<StructDef[]>,
     incomingStructs: StructDef[],
     deletedIds: string[],
-    confirm: (usage: { pins: number; profileIds: string[] }) => Promise<boolean>,
+    previous: StructDef[],
+    confirm: (usage: StructDeletionUsage) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
     const usage = await collectStructDeletionUsage(root, deletedIds);
     if (usage.pins === 0) {
         poolStore.set(incomingStructs);
         return 'applied';
     }
-    if (!(await confirm(usage))) { return 'declined'; }
+    if (!(await confirm({ ...usage, fields: countStructFieldRefs(previous, deletedIds) }))) { return 'declined'; }
     await stripDeletedStructPins(root, deletedIds);
     poolStore.set(incomingStructs);
     return 'applied';
@@ -1556,6 +1610,7 @@ async function revertDeclinedStructDeletion(
         pins: rec.structPins,
         endian: rec.endian,
         bitAllocation: rec.bitAllocation,
+        showHiddenFields: rec.showHiddenFields,
         activeChecks: rec.activeChecks,
     });
 }
@@ -1571,7 +1626,7 @@ function attachBindingFileLifecycle(root: string): vscode.Disposable {
             if (match) { changed = true; return { ...b, fileKey: perFileRelativePath(root, match.newUri) }; }
             return b;
         });
-        if (changed) { await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next))); }
+        if (changed) { await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next)))); }
     });
     const del = vscode.workspace.onDidDeleteFiles(async event => {
         const bindings = await readBindingsTable(root);
@@ -1579,17 +1634,18 @@ function attachBindingFileLifecycle(root: string): vscode.Disposable {
         const deleted = new Set(event.files.map(f => perFileRelativePath(root, f)));
         const next = bindings.filter(b => !deleted.has(b.fileKey));
         if (next.length !== bindings.length) {
-            await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next)));
+            await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next))));
         }
     });
     return new vscode.Disposable(() => { rename.dispose(); del.dispose(); });
 }
 
-/** Read + normalize the bindings table; null when missing/corrupt. */
+/** Read + normalize the bindings table; null when missing/corrupt/never-downgrade. */
 async function readBindingsTable(root: string): Promise<Binding[] | null> {
     const read = await readJson(bindingsJsonUri(root));
     if (read.status !== 'ok') { return null; }
-    return normalizeBindings(read.value).value;
+    const normalized = normalizeBindings(read.value);
+    return normalized.newer ? null : normalized.value;
 }
 
 function getNonce(): string {

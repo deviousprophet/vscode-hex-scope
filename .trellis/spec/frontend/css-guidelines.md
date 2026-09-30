@@ -100,7 +100,7 @@ The section header is the collapse control (VS Code model): every `.sb-section-h
 - Sidebar panels use `scrollbar-gutter: stable` to prevent content shift when scrollbar appears/disappears
 - Tab strip buttons use `writing-mode: vertical-rl` for compact vertical labels
 - Horizontal spacing baseline: `12px` (sidebar padding), `6px` (gap between related items)
-- Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; record-view grid tags are the sole retained `9px` exception)
+- Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; the remaining `9px` marks are documented in the Exception Log)
 
 ## Exception Log
 
@@ -111,6 +111,7 @@ Documented deviations from the token/type-floor rules, each with a reason. Add a
 | No hardcoded color without a token | `diff.css:2` `--diff-split-bg: var(--vscode-editorIndentGuide-activeBackground, var(--border))` | Uses the VS Code indent-guide theme color (the intended higher-contrast splitter token); the fallback is the existing `--border` token, not a literal hex. |
 | 10px type floor | `.diff-action-glyph` 14px (`.diff-action-text` stays 10px) | The glyph span holds a Unicode icon (`▲▼≡≠⇄⇅`), not text — sized for legibility like the `.act-btn` icon precedent; the accompanying label stays on the 10px floor. |
 | 10px metadata floor | `.diff-summary` 11px (`.diff-count` badges inherit) | `.diff-summary` is a toolbar/stat band, not a dense field label; it matches the single-file stats bar (`statsBar.css` 11px) and the VS Code pane-header type. |
+| 10px metadata floor | Record-view grid tags (`.rbadge`, `.cerr-tag`) and struct override chips (`.si-chip`) at 9px | Pre-existing dense tag/chip marks rendered inline inside data grids/rows next to data; surrounding labels and body text stay on the 10px floor. |
 
 ## Design Decision: Section Body Is the Only Scroll Container
 

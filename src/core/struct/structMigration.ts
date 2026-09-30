@@ -8,7 +8,7 @@
  * decode with their declared byte order, and new saves round-trip.
  */
 
-import type { StructDef } from './types';
+import type { StructDef } from '../types';
 import { createStructDefIdentitySets, hasSeenStructDefIdentity, rememberStructDefIdentity, structDefIdentity } from './structIdentities';
 
 export function migrateStructDefinitions(value: unknown): unknown {

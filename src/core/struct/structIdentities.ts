@@ -1,4 +1,4 @@
-import type { StructDef } from './types';
+import type { StructDef } from '../types';
 
 export type StructDefIdentity = { id: string; name: string };
 

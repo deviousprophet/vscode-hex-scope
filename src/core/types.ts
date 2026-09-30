@@ -78,7 +78,7 @@ export type StructScalarFieldType =
     | 'float32' | 'float64'
     | 'pointer';
 
-export type StructFieldType = StructScalarFieldType | 'struct';
+export type StructFieldType = StructScalarFieldType | 'struct' | 'bitfield' | 'enum';
 
 /** Runtime list mirroring StructFieldType — the JSON-schema enum drift guard. */
 export const STRUCT_FIELD_TYPES: readonly StructFieldType[] = [
@@ -86,13 +86,30 @@ export const STRUCT_FIELD_TYPES: readonly StructFieldType[] = [
     'uint8', 'uint16', 'uint32', 'uint64',
     'int8', 'int16', 'int32', 'int64',
     'float32', 'float64',
-    'pointer', 'struct',
+    'pointer', 'struct', 'bitfield', 'enum',
 ];
 
 /** A single named child of a BitField container field. */
 export interface BitFieldChild {
     name: string;
     bitWidth: number;
+    /** Optional `kind: 'enum'` def reference supplying labels for this bit value. */
+    refStructId?: string;
+}
+
+/** Unsigned integer widths usable as a bit-field storage base. */
+export type StructBaseType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
+
+/** Runtime list mirroring StructBaseType — the JSON-schema enum drift guard. */
+export const STRUCT_BASE_TYPES: readonly StructBaseType[] = ['uint8', 'uint16', 'uint32', 'uint64'];
+
+/** Named-type discriminator; absent = plain struct. */
+export type StructDefKind = 'struct' | 'bitfield' | 'enum';
+
+/** One `NAME = value` entry of a `kind: 'enum'` def. */
+export interface EnumEntry {
+    name: string;
+    value: number;
 }
 
 export interface StructField {
@@ -109,6 +126,10 @@ export interface StructField {
     count: number;
     /** Whether the bit-field detail editor is collapsed. Only applies to BitField containers. */
     bitFieldsCollapsed?: boolean;
+    /** When true, this field/container is omitted from the Struct Instances view unless the
+     *  global "show hidden fields" toggle is on. Absent/false = visible. Instance-view only:
+     *  decode, offsets, and the C preview are unaffected. */
+    hidden?: boolean;
     /** Explicit byte order for this field's multi-byte value / bit-field unit.
      *  Absent = inherit (field beats struct beats nested parents beats global overlay).
      *  Ignored for pointer values (always decode with the global overlay endian). */
@@ -122,6 +143,14 @@ export interface StructDef {
     id: string;
     name: string;
     fields: StructField[];
+    /** Named-type discriminator. Absent = plain struct (`'struct'`). */
+    kind?: StructDefKind;
+    /** Storage width for a `kind: 'bitfield'` def (uint8/uint16/uint32/uint64). */
+    baseType?: StructBaseType;
+    /** Named bit-field children for a `kind: 'bitfield'` def (its `fields` is empty). */
+    bitFields?: BitFieldChild[];
+    /** Ordered name/value entries for a `kind: 'enum'` def (its `fields` is empty). */
+    entries?: EnumEntry[];
     /** When true: no padding between fields (GCC __attribute__((packed))).
      *  When false/absent: fields are naturally aligned (default). */
     packed?: boolean;

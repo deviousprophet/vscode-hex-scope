@@ -13,10 +13,25 @@
       "const": 1
     },
     "data": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/binding"
-      }
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "bindings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only)."
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/binding"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "$schema": {
       "type": "string"

@@ -4,24 +4,38 @@
 
 ### 1. Scope / Trigger
 
-Applies to shared struct types, `core/structCodec.ts`, struct editor/import/export, pin model, pointer-created pins, persistence/migration, and decode inputs. Row rendering details live in `struct-instance-display.md`.
+Applies to shared struct types, `core/struct/structCodec.ts`, struct editor/import/export, pin model, pointer-created pins, persistence/migration, and decode inputs. Row rendering details live in `struct-instance-display.md`.
 
 ### 2. Signatures
 
 ```typescript
+interface EnumEntry { name: string; value: number; }
+interface BitFieldChild { name: string; bitWidth: number; refStructId?: string; } // refStructId = optional enum ref
 interface StructField {
     name: string;
-    type: StructFieldType;
+    type: StructFieldType;          // scalar | 'struct' | 'bitfield' | 'enum'
     isPointer?: boolean;
-    refStructId?: string;
-    bitFields?: BitFieldChild[];
+    refStructId?: string;           // target def for 'struct'/'bitfield'/'enum' fields
+    bitFields?: BitFieldChild[];    // inline container children (authored form)
     count: number;
     endian?: 'le' | 'be';        // override; absent = inherit
     allocation?: 'lsb' | 'msb';  // override; absent = inherit (bit-field units)
+    hidden?: boolean;            // instance-view only; absent/false = visible
 }
-interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; endian?: 'le' | 'be'; allocation?: 'lsb' | 'msb'; }
+interface StructDef { id: string; name: string; fields: StructField[]; packed?: boolean; endian?: 'le' | 'be'; allocation?: 'lsb' | 'msb';
+                      kind?: 'struct' | 'bitfield' | 'enum'; // absent = plain struct
+                      baseType?: 'uint8'|'uint16'|'uint32'|'uint64'; // storage width for kind:'bitfield'/'enum'
+                      bitFields?: BitFieldChild[];                // kind:'bitfield' children (fields is [])
+                      entries?: EnumEntry[]; }                    // kind:'enum' entries (fields is [])
 interface StructPin { id: string; structId: string; addr: number; name: string; pointerSources?: StructPointerSource[]; }
+function matchEnumEntry(def: StructDef, value: bigint): EnumEntry | undefined;
+function formatEnumLabel(label: string, value: bigint, hexDigits: number): string;   // "NAME (0x<hexDigits digits>)"
+function enumHexDigits(width: number): number;
+function enumValueBound(baseType: string | undefined): number;
 
+function structDefKind(def: StructDef): 'struct' | 'bitfield' | 'enum';  // absent kind = 'struct'
+function materializeBitFieldRefs(def: StructDef, defs?: readonly StructDef[]): StructDef;
+function migrateInlineBitFields(defs: StructDef[]): { defs: StructDef[]; changed: boolean };
 function validateStructs(defs: StructDef[], maxDepth = 32): string[];
 function structByteSize(def: StructDef, defs?: readonly StructDef[]): number;
 function decodeStruct(def, baseAddr, getByte, endian, bitAllocation?, defs?): DecodedField[];
@@ -33,8 +47,19 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 ### 3. Contracts
 
 - Struct definitions are global/shared; pins are per file/address.
+- Named types carry a `kind` discriminator on the def (`'struct'` default, `'bitfield'`, `'enum'`); a def without `kind` is a plain struct and loads/sizes/decodes exactly as before. A `kind: 'bitfield'` def owns `baseType` (unsigned) + `bitFields[]` and has `fields: []`. A field references it with `type: 'bitfield'` + `refStructId`; the children/base width come from the def. Bit-field-in-bit-field nesting and bitfield pointers are rejected by validation.
+- **Materialize seam**: authored defs keep the reference; `decodeStruct` / `structByteSize` / `structToC` (and `resolveStructFieldByPath`) rewrite every `type: 'bitfield'` field into its inline container form (`baseType` + copied children, `refStructId` cleared) via `materializeBitFieldRefs` before the size/decode/C paths run. Sizing, alignment, decoding, and C output are therefore byte-identical to the equivalent inline container; validation runs on the authored (referenced) form.
+- **Inline → reusable migration**: `migrateInlineBitFields(defs)` rewrites every legacy inline bit-field container (non-pointer unsigned `type` + non-empty `bitFields[]`) into a `type: 'bitfield'` + `refStructId` reference and appends the standalone `kind: 'bitfield'` defs. Pool-wide dedupe collapses identical containers (same base type + ordered child `{name,bitWidth}` list + each child's optional enum ref) onto one shared def — including pre-existing reusable defs with the same signature. Generated defs get the lowest unused `migrated_bitfield_<n>` id and a unique name derived from the first matching field; usage-scoped `count`/`endian`/`allocation`/`name` (plus any extra keys a legacy pool carries, e.g. a stale `hidden`) stay on the referencing field while `bitFields`/`bitFieldsCollapsed` are cleared. Idempotent (a second run returns `changed:false` and the same array reference); the migrated pool materializes back to the inline form so decode/size/C are byte-identical. `normalizeStructDefsValue` runs it after identity dedupe and ORs its `changed` into the returned flag, so legacy pools self-heal once on load.
+
+- A `kind: 'enum'` def owns `baseType` (unsigned) + `entries: { name, value }[]` and has `fields: []`. A scalar field references it with `type: 'enum'` + `refStructId`; a bit-field child may carry its own `refStructId` enum ref. Decode is **presentation-only**: `type: 'enum'` sizes/aligns as its base unsigned width (same materialize discipline) and the row carries an additive `DecodedField.enumLabel` (matched entry name); `bytesHex`/offset/endianness/allocation stay byte-identical to a plain integer of that width. `matchEnumEntry` + `formatEnumLabel` + `enumHexDigits` are the one shared label path — a matched value renders `NAME (0x<digits>)` where the digit count follows the value width (`enumHexDigits(bitWidth)` for a bit child, the field byte width for a scalar enum; no forced 2-digit minimum); unmatched (or non-default display mode) falls back to numeric; used by scalar enum rows and enum-ref bit children. `enumValueBound` (exported) is the single base-width→value-bound map shared by `structNormalization` and validation. Enum pointers are rejected (like bit-field pointers).
+
+- A field whose type references a reusable `kind: 'bitfield'` type may carry a per-field `allocation` override; this usage-scoped control is the **only** editor path that authors `allocation` (the pure-struct field grid stays allocation-free). The override lives on the referencing `StructField`, never on the def.
+- **Def-level C preview**: `structToC` emits a plain struct's typedef as before. A `kind: 'bitfield'` def previews as `typedef struct { <children as bitfields> } Name;` over its storage unit, and a `kind: 'enum'` def previews as `typedef enum { NAME = 0x... } Name;` sized to its base width. A referencing field's C output is produced through materialization, so it is byte-identical to the equivalent inline container.
+- **Schema scope**: `structs.schema.json` is syntax/shape-level only (keys, enums, `required`, `additionalProperties`). Cross-kind structural rules — kind ↔ `baseType`/`fields`/`bitFields`/`entries` coupling, reference resolution, and width bounds — are runtime-only, enforced by `validateStructs` (kept in sync by the drift-guard test).
+
+> **Gotcha**: a `kind: 'bitfield'` def's own optional `endian`/`allocation` keys pass schema/validation but are **not** applied by `materializeBitFieldRefs` — usage-scoped overrides live on the referencing `StructField`. Do not add def-level bitfield defaults without defining precedence. Also, sizing a `kind: 'bitfield'` def **directly** returns `0` (its `fields` is `[]`): always size/decode through a referencing field, and keep non-`'struct'` kinds out of `pinnableStructs()` / pin-card creation.
 - Field `count` is at least one and has **no upper cap** — the struct editor accepts any positive integer (element count is layout metadata, never allocated up front). Validators only reject `count < 1` / non-integer. Keep it that way: do not reintroduce a hard clamp (e.g. `Math.min(v, 256)`) in editor or parser paths. `isPointer` changes storage to pointer-width/address semantics while `type`/`refStructId` describe target.
-- `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped).
+- `normalizeStructField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped). The optional `hidden` display flag likewise passes through unchanged: **load is identity-preserving** (a persisted `hidden:false` is kept as-is — no self-heal rewrite), while the **editor omits `false` on save** so saved pools stay minimal (absent = visible). `hidden` is **instance-view only** — it never affects size, offsets, decode, address math, or the C preview. Legacy inline-container migration keeps `hidden` on the referencing field via the same usage-scoped pass-through.
 - `decodeStruct` resolves both concerns per field as `field.<x> ?? containing-struct.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats struct beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
 - Legacy per-field `endian` annotations pass through `migrateStructDefinitions` untouched (first-class override again, not stripped); absent keys = inherit = prior behavior.
 - Natural layout aligns fields and total size unless `packed` is true. Nested definitions participate in size/alignment.
@@ -46,7 +71,7 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 - `fieldsToText` and `parseStructText` round-trip supported fields; `structToC` emits padding comments/fields that explain aligned vs packed layout.
 - Pin address input is full hexadecimal. Pin create/edit/remove functions are immutable and IDs are injected.
 - Pointer-created pins reuse an existing target pin when identity matches, add source metadata once, and otherwise create a unique name.
-- Deleting a struct type is safe across the shared workspace pool: the host scans `structPins[]` in **every** registry profile (not just the open file's bound profile); when any pin references the type, a modal confirm names the pin count + affected-profile count, and on confirm the pool entry **and** the orphaned pins are removed from every affected profile. A declined delete writes nothing (webview is reverted).
+- Deleting a struct type is safe across the shared workspace pool: the host scans `structPins[]` in **every** registry profile (not just the open file's bound profile); when any pin references the type, a modal confirm names the pin count + affected-profile count + the pool's referencing-field count (`countStructFieldRefs`, i.e. fields/bit-children whose `refStructId` the deletion will strip), and on confirm the pool entry **and** the orphaned pins are removed from every affected profile. All orphan references across the pool are stripped regardless of kind (nested `type:'struct'`, reusable bit-field, enum, and bit-child enum refs). A declined delete writes nothing (webview is reverted).
 
 ### 4. Validation & Error Matrix
 
@@ -56,6 +81,14 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 | Recursive/cyclic nesting or depth > 32 | Validation error. |
 | Invalid count / duplicate or empty names | Validation error. |
 | Bit width exceeds/overflows unsigned storage | Validation error. |
+| Bitfield ref to unknown/non-bitfield type, bitfield pointer, bitfield + inline children | Validation error. |
+| `kind: 'bitfield'` def with non-unsigned base, empty children, over-width children, or non-empty `fields` | Validation error. |
+| Enum ref to unknown/non-enum type, or an enum pointer | Validation error. |
+| `kind: 'enum'` def with non-unsigned base, non-empty `fields`, or an entry outside the base width | **Authoring** error (inline, blocks Save; no silent wraparound). |
+| Enum entry value outside the base width on load | **Defensive drop/sanitize** so load never breaks (runtime, not a schema rule). |
+| Dangling scalar enum field ref on load | Field dropped (load never breaks). |
+| Dangling bit-child enum ref on load | Ref cleared, child kept. |
+| Deleting a referenced type | Pin-safe flow; orphan pins removed and referencing fields stripped. |
 | `endian` / `allocation` value outside `'le'/'be'` / `'lsb'/'msb'` | Validation error (field or def); schema enum. |
 | Bitfield array in C text | Parse error. |
 | Unknown pointer target | Normalize as `void*`. |
@@ -75,7 +108,8 @@ function structToC(def: StructDef, defs?: readonly StructDef[]): string;
 
 ### 6. Tests Required
 
-- `src/test/core/struct.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, per-field/per-struct endian+allocation overrides (precedence, nested inherit, pointer-global, bitfield unit/child), bitfields, pointers, path resolution, parser/text/C export round-trips.
+- `src/test/core/struct.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, per-field/per-struct endian+allocation overrides (precedence, nested inherit, pointer-global, bitfield unit/child), bitfields, pointers, path resolution, parser/text/C export round-trips, enum sizing/decode (presentation-only, byte-identical to an integer of the base width), enum label formatting (matched/unmatched), enum C preview, inline→reusable migration (dedupe, idempotence, decode/size/C byte-identical).
+- `src/test/core/structNormalization.test.ts`: clean pools preserved (identity, no spurious self-heal); inline bit-field migration (shared def per signature, override preservation, second-run no-op, reuse of an existing signature); enum entry range sanitization; dangling scalar enum / bit-child enum refs handled without breaking load.
 - `src/test/webview/structPinsModel.test.ts`: full address parsing, injected IDs, uniqueness, immutable edit/remove, dependent removal, pointer reuse/source dedupe.
 - `src/test/webview/structPanel.test.ts` plus `struct-instance-display.md`: visible rendering/action matrix.
 - `src/test/core/provider-utils.test.ts`: legacy/global definition migration.
@@ -104,7 +138,7 @@ Codec is the deep layout/decode module; UI consumes its contract.
 
 ### Design Decision: duplicate field names rejected at validation
 
-**Context**: decode walks `def.fields` by offset/index (`decodeStructRecursive`, `src/core/structCodec.ts`) so duplicates decoded correctly, but the display layer re-resolves each row-group's declaration by **name** — `groupRowsByBase` → `describeStructGroup` → `resolveStructFieldByPath` → `findStructField` (first name match, `structPanel.ts`). Two same-named fields in one struct therefore corrupted every duplicate group's header (type/size/count from the *first* declaration) while bytes/expanded rows stayed correct.
+**Context**: decode walks `def.fields` by offset/index (`decodeStructRecursive`, `src/core/struct/structCodec.ts`) so duplicates decoded correctly, but the display layer re-resolves each row-group's declaration by **name** — `groupRowsByBase` → `describeStructGroup` → `resolveStructFieldByPath` → `findStructField` (first name match, `structPanel.ts`). Two same-named fields in one struct therefore corrupted every duplicate group's header (type/size/count from the *first* declaration) while bytes/expanded rows stayed correct.
 
 **Options considered**:
 1. Renderer disambiguation (could fix pre-saved defs, keep duplicates legal; more display surface).

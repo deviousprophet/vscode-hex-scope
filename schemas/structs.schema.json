@@ -13,10 +13,25 @@
       "const": 1
     },
     "data": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/structDef"
-      }
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "defs"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only)."
+        },
+        "defs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/structDef"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "$schema": {
       "type": "string"
@@ -42,6 +57,33 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/structField"
+          }
+        },
+        "kind": {
+          "enum": [
+            "struct",
+            "bitfield",
+            "enum"
+          ]
+        },
+        "baseType": {
+          "enum": [
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64"
+          ]
+        },
+        "bitFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/bitFieldChild"
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/enumEntry"
           }
         },
         "packed": {
@@ -94,6 +136,9 @@
         "bitFieldsCollapsed": {
           "type": "boolean"
         },
+        "hidden": {
+          "type": "boolean"
+        },
         "endian": {
           "enum": [
             "le",
@@ -121,6 +166,25 @@
         },
         "bitWidth": {
           "type": "number"
+        },
+        "refStructId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "enumEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
         }
       },
       "additionalProperties": false
@@ -141,7 +205,9 @@
         "float32",
         "float64",
         "pointer",
-        "struct"
+        "struct",
+        "bitfield",
+        "enum"
       ]
     }
   }

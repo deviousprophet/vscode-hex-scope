@@ -4,11 +4,14 @@
 import type {
     BitFieldAllocation,
     BitFieldChild,
+    EnumEntry,
+    StructBaseType,
     StructDef,
+    StructDefKind,
     StructField,
     StructFieldType,
     StructScalarFieldType,
-} from './types';
+} from '../types';
 
 export type { StructDef, StructField };
 
@@ -40,14 +43,82 @@ const FIELD_BYTE_SIZE: Record<StructScalarFieldType, number> = {
     float64: 8,
 };
 
-type UnsignedScalarType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
+export type UnsignedScalarType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
 
-function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType {
+/**
+ * One unsigned-width predicate shared by the codec and the editor: a scalar
+ * type eligible as a bit-field storage base / enum width. `isUnsignedBaseType`
+ * reads a raw authored string; the editor widens this one for select values.
+ */
+export function isUnsignedScalarType(type: StructFieldType): type is UnsignedScalarType {
     return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
 }
 
+function isUnsignedBaseType(type: string | undefined): type is StructBaseType {
+    return type === 'uint8' || type === 'uint16' || type === 'uint32' || type === 'uint64';
+}
+
+/** Named-type discriminator; absent = plain struct. */
+export function structDefKind(def: StructDef): StructDefKind {
+    return def.kind === 'bitfield' || def.kind === 'enum' ? def.kind : 'struct';
+}
+
+/**
+ * Resolve a `kind: 'enum'` target from a reference id. Returns null when the
+ * reference is absent or does not point at an enum def.
+ */
+function enumDefById(refStructId: string | undefined, byId: Map<string, StructDef>): StructDef | null {
+    if (!refStructId) { return null; }
+    const target = byId.get(refStructId);
+    return target && structDefKind(target) === 'enum' ? target : null;
+}
+
+/** Resolve the enum def referenced by a scalar `type: 'enum'` field (non-pointer only). */
+function referencedEnumDef(field: StructField, map: Map<string, StructDef>): StructDef | null {
+    if (field.type !== 'enum' || field.isPointer) { return null; }
+    return enumDefById(field.refStructId, map);
+}
+
+/** Unsigned base width of an enum def (defaults to uint8 when unspecified/invalid). */
+function enumBaseType(def: StructDef): UnsignedScalarType {
+    return isUnsignedBaseType(def.baseType) ? def.baseType : 'uint8';
+}
+
+/** First entry whose value matches, or undefined when the value is unmatched. */
+export function matchEnumEntry(def: StructDef, value: bigint): EnumEntry | undefined {
+    return (def.entries ?? []).find(entry => isEnumEntryMatch(entry, value));
+}
+
+/** Whether an entry's value is a valid non-negative integer equal to `value`. */
+function isEnumEntryMatch(entry: EnumEntry, value: bigint): boolean {
+    return Number.isInteger(entry.value) && entry.value >= 0 && BigInt(entry.value) === value;
+}
+
+/** Canonical enum value label: `NAME (0xNN)`; `hexDigits` sizes the numeric part. */
+export function formatEnumLabel(label: string, value: bigint, hexDigits: number): string {
+    return `${label} (0x${value.toString(16).toUpperCase().padStart(hexDigits, '0')})`;
+}
+
+/** Hexadecimal digit count for an enum/bit value of `width` bits. */
+export function enumHexDigits(width: number): number {
+    return Math.max(1, Math.ceil(width / 4));
+}
+
+
 export function normalizeStructField(field: StructField): StructField {
-    return LEGACY_POINTER_NORMALIZERS[field.type]?.(field) ?? normalizePointerModifierField(field);
+    const normalized = LEGACY_POINTER_NORMALIZERS[field.type]?.(field) ?? normalizePointerModifierField(field);
+    return normalizeOptionalFieldFlags(normalized);
+}
+
+/**
+ * Optional display flags are preserved as authored; an explicit `false` is
+ * dropped so saved pools stay minimal (absent = default). Mirrors the
+ * pointer-cleared `bitFieldsCollapsed` handling above.
+ */
+function normalizeOptionalFieldFlags(field: StructField): StructField {
+    if (field.hidden !== false) { return field; }
+    const { hidden: _hidden, ...rest } = field;
+    return rest;
 }
 
 const LEGACY_POINTER_NORMALIZERS: Partial<Record<StructFieldType, (field: StructField) => StructField>> = {
@@ -73,7 +144,8 @@ function bitMask(width: number): bigint {
     return (1n << BigInt(width)) - 1n;
 }
 
-function bytesToBigUint(raw: number[], endian: 'le' | 'be'): bigint {
+/** Fold raw bytes into an unsigned bigint with the given byte order. */
+export function bytesToBigUint(raw: number[], endian: 'le' | 'be'): bigint {
     if (endian === 'le') {
         let v = 0n;
         for (let i = 0; i < raw.length; i++) {
@@ -108,6 +180,247 @@ function defsMap(defs: readonly StructDef[] = [], extra?: StructDef): Map<string
     return map;
 }
 
+/**
+ * Rewrite a referenced bit-field field into its inline container form: the
+ * referenced def's base type + children are copied onto the field and
+ * `refStructId` is cleared. Fields that are not `type: 'bitfield'` (or whose
+ * target is missing/not a bit-field) pass through untouched.
+ */
+function materializeStructField(field: StructField, byId: Map<string, StructDef>): StructField {
+    const normalized = normalizeStructField(field);
+    const target = materializedBitFieldTarget(normalized, byId);
+    if (!target) { return normalized; }
+    return {
+        ...normalized,
+        type: target.baseType ?? 'uint8',
+        refStructId: undefined,
+        // A rewritten container is never pointer-typed: an authored
+        // `type:'bitfield' + isPointer` is invalid (validation rejects it), so
+        // materialization drops the flag rather than yielding a pointer-typed
+        // inline container the layout/decode paths would size as a pointer.
+        isPointer: undefined,
+        bitFields: (target.bitFields ?? []).map(child => ({ ...child })),
+    };
+}
+
+/** The `kind: 'bitfield'` def a referenced field points at, or null when it does not. */
+function materializedBitFieldTarget(field: StructField, byId: Map<string, StructDef>): StructDef | null {
+    if (!isBitFieldReferenceField(field)) { return null; }
+    return bitFieldDefTarget(field.refStructId, byId);
+}
+
+/** Whether a field carries a `type: 'bitfield'` reference id. */
+function isBitFieldReferenceField(field: StructField): boolean {
+    return field.type === 'bitfield' && field.refStructId !== undefined;
+}
+
+/** Look up a bit-field def by id; only a `kind: 'bitfield'` target qualifies. */
+function bitFieldDefTarget(refStructId: string | undefined, byId: Map<string, StructDef>): StructDef | null {
+    const target = refStructId ? byId.get(refStructId) : undefined;
+    return target && structDefKind(target) === 'bitfield' ? target : null;
+}
+
+function materializeStructDef(def: StructDef, byId: Map<string, StructDef>): StructDef {
+    if (structDefKind(def) === 'bitfield') { return def; }
+    if (!def.fields.some(f => f.type === 'bitfield')) { return def; }
+    return { ...def, fields: def.fields.map(f => materializeStructField(f, byId)) };
+}
+
+/**
+ * Single "materialize" seam: the authored (referenced) form is what validation,
+ * persistence, and editing see; decode/size/C resolve references to the inline
+ * container form here so the intricate inline code paths stay the only ones.
+ */
+function materializedDefsMap(def: StructDef, defs: readonly StructDef[] = []): { def: StructDef; map: Map<string, StructDef> } {
+    const authored = defsMap(defs, def);
+    const map = new Map<string, StructDef>();
+    authored.forEach((d, id) => map.set(id, materializeStructDef(d, authored)));
+    return { def: map.get(def.id) ?? def, map };
+}
+
+/** Materialize a def's bit-field references (see `materializedDefsMap`). */
+export function materializeBitFieldRefs(def: StructDef, defs: readonly StructDef[] = []): StructDef {
+    return materializedDefsMap(def, defs).def;
+}
+
+/**
+ * Count references to any id in `deletedIds` across the surviving pool — the
+ * number of fields/bit-children whose `refStructId` the deletion would strip.
+ * Mirrors `withoutStructDefinition` (webview pin model) so the delete
+ * confirmation can warn that referencing layouts change, not just pins.
+ */
+export function countStructFieldRefs(defs: readonly StructDef[], deletedIds: readonly string[]): number {
+    const deleted = new Set(deletedIds);
+    if (deleted.size === 0) { return 0; }
+    return defs
+        .filter(def => def && !deleted.has(def.id))
+        .reduce((sum, def) => sum + countDefFieldRefs(def, deleted), 0);
+}
+
+/** Referencing fields/bit-children inside one surviving def. */
+function countDefFieldRefs(def: StructDef, deleted: Set<string>): number {
+    const fieldRefs = (def.fields ?? []).reduce((sum, field) => sum + countFieldRefs(field, deleted), 0);
+    return fieldRefs + countBitChildRefs(def.bitFields, deleted);
+}
+
+/** A field's own `refStructId` plus any inline bit-child references. */
+function countFieldRefs(field: StructField, deleted: Set<string>): number {
+    const selfRef = isDeletedRef(field.refStructId, deleted) ? 1 : 0;
+    return selfRef + countBitChildRefs(field.bitFields, deleted);
+}
+
+function countBitChildRefs(children: readonly BitFieldChild[] | undefined, deleted: Set<string>): number {
+    return (children ?? []).filter(child => isDeletedRef(child.refStructId, deleted)).length;
+}
+
+/** Whether a reference id points at one of the deleted ids. */
+function isDeletedRef(refStructId: string | undefined, deleted: Set<string>): boolean {
+    return refStructId !== undefined && deleted.has(refStructId);
+}
+
+/**
+ * Legacy migration: rewrite every inline bit-field container (`unsigned type` +
+ * `bitFields[]`) into a reference to a standalone `kind: 'bitfield'` def.
+ *
+ * Pool-wide dedupe collapses identical containers (same base width + ordered
+ * child name/width list) onto one shared type. Generated defs get the lowest
+ * unused `migrated_bitfield_<n>` id and a unique name derived from the first
+ * matching field. Usage-scoped overrides (`count`/`endian`/`allocation`/`name`,
+ * plus any extra keys a legacy pool carries) stay on the referencing field;
+ * `bitFields`/`bitFieldsCollapsed` are cleared. Idempotent: a second run over
+ * migrated defs returns `changed: false` and the same def array reference.
+ */
+interface MigrateBitFieldContext {
+    bySignature: Map<string, StructDef>;
+    generated: StructDef[];
+    usedIds: Set<string>;
+    usedNames: Set<string>;
+}
+
+export function migrateInlineBitFields(defs: StructDef[]): { defs: StructDef[]; changed: boolean } {
+    const ctx: MigrateBitFieldContext = {
+        bySignature: new Map<string, StructDef>(),
+        generated: [],
+        usedIds: new Set<string>(),
+        usedNames: new Set<string>(),
+    };
+    defs.forEach(def => rememberBitFieldPoolDef(def, ctx));
+
+    let changed = false;
+    const next = defs.map(def => {
+        const migrated = migrateStructDefFields(def, ctx);
+        if (migrated !== def) { changed = true; }
+        return migrated;
+    });
+
+    if (!changed) { return { defs, changed: false }; }
+    return { defs: [...next, ...ctx.generated], changed: true };
+}
+
+/** Seed the id/name pools and the signature index from one authored def. */
+function rememberBitFieldPoolDef(def: StructDef | undefined, ctx: MigrateBitFieldContext): void {
+    if (!def) { return; }
+    if (typeof def.id === 'string') { ctx.usedIds.add(def.id); }
+    if (typeof def.name === 'string') { ctx.usedNames.add(def.name); }
+    rememberBitFieldSignature(def, ctx);
+}
+
+/** Index a standalone `kind: 'bitfield'` def by its container signature (first wins). */
+function rememberBitFieldSignature(def: StructDef, ctx: MigrateBitFieldContext): void {
+    if (structDefKind(def) !== 'bitfield') { return; }
+    const signature = bitFieldContainerSignature(def.baseType, def.bitFields ?? []);
+    if (!ctx.bySignature.has(signature)) { ctx.bySignature.set(signature, def); }
+}
+
+/** Rewrite one def's inline bit-field containers to references; same ref when clean. */
+function migrateStructDefFields(def: StructDef, ctx: MigrateBitFieldContext): StructDef {
+    if (!def || structDefKind(def) === 'bitfield') { return def; }
+    const fields = structDefFields(def);
+    const migratedFields = fields.map(field => migrateStructFieldRef(field, ctx));
+    if (!fieldListChanged(fields, migratedFields)) { return def; }
+    return { ...def, fields: migratedFields };
+}
+
+function structDefFields(def: StructDef): StructField[] {
+    return Array.isArray(def.fields) ? def.fields : [];
+}
+
+function fieldListChanged(before: readonly StructField[], after: readonly StructField[]): boolean {
+    return before.some((f, i) => f !== after[i]);
+}
+
+/** Rewrite a single inline container field to its referenced form, or return it unchanged. */
+function migrateStructFieldRef(field: StructField, ctx: MigrateBitFieldContext): StructField {
+    if (!isBitFieldContainer(field)) { return field; }
+    return referencingBitField(field, resolveMigratedBitFieldTarget(field, ctx).id);
+}
+
+/** Shared target def for a container signature, generating + registering one on first use. */
+function resolveMigratedBitFieldTarget(field: StructField, ctx: MigrateBitFieldContext): StructDef {
+    const signature = bitFieldContainerSignature(field.type, field.bitFields ?? []);
+    const existing = ctx.bySignature.get(signature);
+    if (existing) { return existing; }
+    const created = createMigratedBitFieldDef(field, ctx.usedIds, ctx.usedNames);
+    ctx.bySignature.set(signature, created);
+    ctx.generated.push(created);
+    return created;
+}
+
+/**
+ * Signature of an inline bit-field container: unsigned base + ordered child
+ * name/width list + each child's optional enum ref. Two containers that differ
+ * only by a child enum label are not identical, so they must not collapse onto
+ * one def (that would drop the other container's labels).
+ */
+function bitFieldContainerSignature(baseType: string | undefined, children: readonly BitFieldChild[]): string {
+    return JSON.stringify([baseType ?? 'uint8', children.map(child => [child.name, child.bitWidth, child.refStructId ?? null])]);
+}
+
+/** Copy a container field into the referenced form, keeping every usage-scoped override. */
+function referencingBitField(field: StructField, refStructId: string): StructField {
+    const { bitFields: _children, bitFieldsCollapsed: _collapsed, ...rest } = field;
+    return { ...rest, type: 'bitfield', refStructId };
+}
+
+function createMigratedBitFieldDef(field: StructField, usedIds: Set<string>, usedNames: Set<string>): StructDef {
+    const id = nextMigratedBitFieldId(usedIds);
+    usedIds.add(id);
+    const name = uniqueMigratedBitFieldName(field.name, usedNames);
+    usedNames.add(name);
+    return {
+        id,
+        name,
+        kind: 'bitfield',
+        baseType: isUnsignedBaseType(field.type) ? field.type : 'uint8',
+        bitFields: (field.bitFields ?? []).map(child => ({ ...child })),
+        fields: [],
+    };
+}
+
+/**
+ * Lowest unused `migrated_bitfield_<n>` id. The scan runs against `usedIds`,
+ * which the caller seeds from **every** def in the pool (existing + already
+ * generated this run), so a generated id can never collide with a pre-existing
+ * def id — the whole pool is the collision domain, not just the generated set.
+ */
+function nextMigratedBitFieldId(usedIds: Set<string>): string {
+    let n = 1;
+    while (usedIds.has(`migrated_bitfield_${n}`)) { n++; }
+    return `migrated_bitfield_${n}`;
+}
+
+function uniqueMigratedBitFieldName(rawName: string, usedNames: Set<string>): string {
+    const base = sanitizeStructIdentifier(rawName) || 'bitfield';
+    if (!usedNames.has(base)) { return base; }
+    let n = 1;
+    while (usedNames.has(`${base}_${n}`)) { n++; }
+    return `${base}_${n}`;
+}
+
+function sanitizeStructIdentifier(raw: string): string {
+    return (raw ?? '').replace(/[^A-Za-z0-9_]/g, '').replace(/^(\d)/, '_$1');
+}
+
 function referencedStruct(field: StructField, map: Map<string, StructDef>): StructDef | null {
     field = normalizeStructField(field);
     if (field.type !== 'struct' || !field.refStructId) { return null; }
@@ -116,13 +429,21 @@ function referencedStruct(field: StructField, map: Map<string, StructDef>): Stru
 
 function fieldSizeWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
     field = normalizeStructField(field);
+    const enumTarget = referencedEnumDef(field, map);
+    if (enumTarget) { return fieldByteSize(enumBaseType(enumTarget)); }
     const scalarSize = scalarOrPointerFieldSize(field);
     return scalarSize ?? nestedStructFieldSize(field, map, depth);
 }
 
+/** Named-type discriminator: `struct` / `bitfield` / `enum` size through their def, not as scalars. */
+function isNamedStructFieldType(type: StructFieldType): type is 'struct' | 'bitfield' | 'enum' {
+    return type === 'struct' || type === 'bitfield' || type === 'enum';
+}
+
 function scalarOrPointerFieldSize(field: StructField): number | null {
     if (field.isPointer) { return POINTER_BYTE_SIZE; }
-    return field.type === 'struct' ? null : fieldByteSize(field.type);
+    if (isNamedStructFieldType(field.type)) { return null; }
+    return fieldByteSize(field.type);
 }
 
 function nestedStructFieldSize(field: StructField, map: Map<string, StructDef>, depth: number): number {
@@ -133,13 +454,16 @@ function nestedStructFieldSize(field: StructField, map: Map<string, StructDef>, 
 
 function fieldAlignWithDefs(field: StructField, map: Map<string, StructDef>, depth: number): number {
     field = normalizeStructField(field);
+    const enumTarget = referencedEnumDef(field, map);
+    if (enumTarget) { return fieldAlignment(enumBaseType(enumTarget)); }
     const scalarAlign = scalarOrPointerFieldAlign(field);
     return scalarAlign ?? nestedStructFieldAlign(field, map, depth);
 }
 
 function scalarOrPointerFieldAlign(field: StructField): number | null {
     if (field.isPointer) { return POINTER_BYTE_SIZE; }
-    return field.type === 'struct' ? null : fieldAlignment(field.type);
+    if (isNamedStructFieldType(field.type)) { return null; }
+    return fieldAlignment(field.type);
 }
 
 function nestedStructFieldAlign(field: StructField, map: Map<string, StructDef>, depth: number): number {
@@ -179,8 +503,8 @@ function structByteSizeWithDefs(def: StructDef, map: Map<string, StructDef>, dep
  * Includes trailing padding so that arrays of the struct are correctly aligned.
  */
 export function structByteSize(def: StructDef, defs: readonly StructDef[] = []): number {
-    const map = defsMap(defs, def);
-    return structByteSizeWithDefs(def, map, 1);
+    const { def: resolved, map } = materializedDefsMap(def, defs);
+    return structByteSizeWithDefs(resolved, map, 1);
 }
 
 /** Validate nested struct references, cycles, and max depth constraints. */
@@ -190,21 +514,147 @@ export function validateStructs(defs: StructDef[], maxDepth = MAX_NESTED_DEPTH):
     const errors: string[] = [];
 
     for (const d of defs) {
-        validateEndianAllocationOverrides(d, errors);
-        validateDuplicateFieldNames(d, errors);
-        for (const f of d.fields) {
-            validateStructReference(d, f, byId, errors);
-
-            // ── New bitFields container validation ──────────────────────────────
-            if (isBitFieldContainer(f)) {
-                validateBitFieldContainer(d, f, errors);
-                continue;
-            }
-        }
+        validateStructDefPoolEntry(d, byId, errors);
     }
 
     defs.forEach(d => validateNestedStructGraph(d.id, 1, [d.id], byId, maxDepth, errors));
     return [...new Set(errors)];
+}
+
+/** Per-def shape + reference validation (kind dispatch, then fields). */
+function validateStructDefPoolEntry(d: StructDef, byId: Map<string, StructDef>, errors: string[]): void {
+    validateEndianAllocationOverrides(d, errors);
+    validateStructDefKind(d, errors);
+    validateDuplicateFieldNames(d, errors);
+    if (structDefKind(d) === 'bitfield') {
+        validateBitFieldDefShape(d, byId, errors);
+        return;
+    }
+    if (structDefKind(d) === 'enum') {
+        validateEnumDefShape(d, errors);
+        return;
+    }
+    for (const f of d.fields) {
+        validateStructFieldEntry(d, f, byId, errors);
+    }
+}
+
+/** One field: reference check plus inline bit-field container validation. */
+function validateStructFieldEntry(d: StructDef, f: StructField, byId: Map<string, StructDef>, errors: string[]): void {
+    validateStructReference(d, f, byId, errors);
+    if (isBitFieldContainer(f)) {
+        validateBitFieldContainer(d, f, byId, errors);
+    }
+}
+
+const STRUCT_DEF_KINDS = new Set(['struct', 'bitfield', 'enum']);
+
+function validateStructDefKind(def: StructDef, errors: string[]): void {
+    if (def.kind !== undefined && !STRUCT_DEF_KINDS.has(def.kind)) {
+        errors.push(`Struct "${def.name}": invalid kind "${def.kind}".`);
+    }
+}
+
+/** Shape check for a standalone `kind: 'bitfield'` def (unsigned base, children in range, no nesting). */
+function validateBitFieldDefShape(def: StructDef, byId: Map<string, StructDef>, errors: string[]): void {
+    const ctx = `Struct "${def.name}"`;
+    validateNoOwnFields(def, ctx, 'bit-field', errors);
+    const children = def.bitFields ?? [];
+    if (children.length === 0) {
+        errors.push(`${ctx}: bit-field type must declare at least one bit-field child.`);
+        return;
+    }
+    validateBitFieldDefBase(def, children, byId, errors);
+}
+
+/** Base width + child width/enum-ref checks for a standalone bit-field def. */
+function validateBitFieldDefBase(
+    def: StructDef,
+    children: readonly BitFieldChild[],
+    byId: Map<string, StructDef>,
+    errors: string[],
+): void {
+    const ctx = `Struct "${def.name}"`;
+    const totalBits = validateBitFieldChildWidths(def.name, children, errors);
+    validateBitChildEnumRefs(def.name, children, byId, errors);
+    if (!isUnsignedBaseType(def.baseType)) {
+        errors.push(`${ctx}: bit-field type must declare an unsigned base type.`);
+        return;
+    }
+    const unitBits = fieldByteSize(def.baseType) * 8;
+    if (totalBits > unitBits) {
+        errors.push(`${ctx}: children total ${totalBits} bits exceeds ${unitBits}-bit base.`);
+    }
+}
+
+/** Named defs (`bitfield` / `enum`) carry no own fields. */
+function validateNoOwnFields(def: StructDef, ctx: string, noun: string, errors: string[]): void {
+    if (def.fields.length > 0) {
+        errors.push(`${ctx}: ${noun} type cannot contain fields.`);
+    }
+}
+
+/** Exclusive upper bound implied by an enum def's base width (defaults to 8 bits). */
+export function enumValueBound(baseType: string | undefined): number {
+    const bits = isUnsignedBaseType(baseType) ? fieldByteSize(baseType) * 8 : 8;
+    return 2 ** bits;
+}
+
+/** Shape check for a standalone `kind: 'enum'` def (unsigned base, entries within range, no fields). */
+function validateEnumDefShape(def: StructDef, errors: string[]): void {
+    const ctx = `Struct "${def.name}"`;
+    validateNoOwnFields(def, ctx, 'enum', errors);
+    const baseType = isUnsignedBaseType(def.baseType) ? def.baseType : null;
+    if (!baseType) {
+        errors.push(`${ctx}: enum type must declare an unsigned base type.`);
+        return;
+    }
+    validateEnumEntryBounds(def, baseType, ctx, errors);
+}
+
+/** Reject enum entries whose value does not fit the declared base width. */
+function validateEnumEntryBounds(def: StructDef, baseType: StructBaseType, ctx: string, errors: string[]): void {
+    const bound = enumValueBound(baseType);
+    for (const entry of def.entries ?? []) {
+        if (!isEnumEntryInBound(entry.value, bound)) {
+            errors.push(`${ctx}: enum entry "${entry.name}" value ${entry.value} does not fit ${baseType}.`);
+        }
+    }
+}
+
+/** A non-negative integer entry value below the base-width bound. */
+function isEnumEntryInBound(value: number, bound: number): boolean {
+    return Number.isInteger(value) && value >= 0 && value < bound;
+}
+
+/** Reject bit-field children whose enum reference does not resolve to an enum def. */
+function validateBitChildEnumRefs(
+    defName: string,
+    children: readonly BitFieldChild[],
+    byId: Map<string, StructDef>,
+    errors: string[],
+): void {
+    for (const child of children) {
+        validateBitChildEnumRef(child, defName, byId, errors);
+    }
+}
+
+/** One bit-field child's enum reference check. */
+function validateBitChildEnumRef(
+    child: BitFieldChild,
+    defName: string,
+    byId: Map<string, StructDef>,
+    errors: string[],
+): void {
+    if (child.refStructId === undefined) { return; }
+    const target = byId.get(child.refStructId);
+    if (!target) {
+        errors.push(`Struct "${defName}": bit-field child "${child.name}" references an unknown enum type.`);
+        return;
+    }
+    if (structDefKind(target) !== 'enum') {
+        errors.push(`Struct "${defName}": bit-field child "${child.name}" references "${target.name}", which is not an enum type.`);
+    }
 }
 
 const ENDIAN_VALUES = new Set(['le', 'be']);
@@ -243,6 +693,34 @@ function validateDuplicateFieldNames(def: StructDef, errors: string[]): void {
     }
 }
 
+/** Spec for validating a `type: 'bitfield'` / `type: 'enum'` field reference. */
+interface TypedRefSpec {
+    kind: StructDefKind;
+    pointerError: (ctx: string) => string;
+    missing: (ctx: string) => string;
+    unknown: (ctx: string) => string;
+    mismatch: (ctx: string, targetName: string) => string;
+    checkExtra?: (field: StructField, ctx: string, errors: string[]) => void;
+}
+
+const TYPED_REF_SPECS: Partial<Record<StructFieldType, TypedRefSpec>> = {
+    bitfield: {
+        kind: 'bitfield',
+        pointerError: ctx => `${ctx} cannot be a bit-field pointer.`,
+        missing: ctx => `${ctx} is missing a referenced bit-field type.`,
+        unknown: ctx => `${ctx} references an unknown bit-field type.`,
+        mismatch: (ctx, name) => `${ctx} references "${name}", which is not a bit-field type.`,
+        checkExtra: validateNoInlineBitFieldsWithRef,
+    },
+    enum: {
+        kind: 'enum',
+        pointerError: ctx => `${ctx} cannot be an enum pointer.`,
+        missing: ctx => `${ctx} is missing a referenced enum.`,
+        unknown: ctx => `${ctx} references an unknown enum type.`,
+        mismatch: (ctx, name) => `${ctx} references "${name}", which is not an enum type.`,
+    },
+};
+
 function validateStructReference(
     def: StructDef,
     field: StructField,
@@ -250,32 +728,119 @@ function validateStructReference(
     errors: string[],
 ): void {
     field = normalizeStructField(field);
-    if (field.type !== 'struct') { return; }
-
-    if (!field.refStructId) {
-        errors.push(`Struct "${def.name}": field "${field.name}" is missing a referenced struct.`);
+    const spec = TYPED_REF_SPECS[field.type];
+    if (spec) {
+        validateTypedFieldReference(def, field, byId, errors, spec);
         return;
     }
-    if (!byId.has(field.refStructId)) {
-        errors.push(`Struct "${def.name}": field "${field.name}" references an unknown struct.`);
+    if (field.type !== 'struct') { return; }
+    validateStructFieldTarget(def, field, byId, errors);
+}
+
+/** Shared pointer/shape/reference checks for a typed (bit-field / enum) field. */
+function validateTypedFieldReference(
+    def: StructDef,
+    field: StructField,
+    byId: Map<string, StructDef>,
+    errors: string[],
+    spec: TypedRefSpec,
+): void {
+    const ctx = `Struct "${def.name}": field "${field.name}"`;
+    if (field.isPointer) {
+        errors.push(spec.pointerError(ctx));
+        return;
+    }
+    spec.checkExtra?.(field, ctx, errors);
+    const target = resolveReferencedType(field, byId, ctx, spec, errors);
+    validateRefTargetKind(target, ctx, spec, errors);
+}
+
+/** Reject a resolvable target whose def kind does not match the spec. */
+function validateRefTargetKind(target: StructDef | null, ctx: string, spec: TypedRefSpec, errors: string[]): void {
+    if (target && structDefKind(target) !== spec.kind) {
+        errors.push(spec.mismatch(ctx, target.name));
     }
 }
 
-function validateBitFieldContainer(def: StructDef, field: StructField, errors: string[]): void {
-    if (isPointerField(field)) {
-        errors.push(`Struct "${def.name}": field "${field.name}" cannot combine pointer and bit-field details.`);
+/** A referenced bit-field container carries no inline `bitFields`. */
+function validateNoInlineBitFieldsWithRef(field: StructField, ctx: string, errors: string[]): void {
+    if (field.bitFields !== undefined && field.bitFields.length > 0) {
+        errors.push(`${ctx} cannot combine a bit-field reference with inline bit-fields.`);
+    }
+}
+
+/** Resolve a field's reference id, pushing the spec's missing/unknown message when it fails. */
+function resolveReferencedType(
+    field: StructField,
+    byId: Map<string, StructDef>,
+    ctx: string,
+    spec: TypedRefSpec,
+    errors: string[],
+): StructDef | null {
+    if (!field.refStructId) {
+        errors.push(spec.missing(ctx));
+        return null;
+    }
+    const target = byId.get(field.refStructId);
+    if (!target) {
+        errors.push(spec.unknown(ctx));
+        return null;
+    }
+    return target;
+}
+
+/** A plain `type: 'struct'` field's reference must resolve in the pool. */
+function validateStructFieldTarget(def: StructDef, field: StructField, byId: Map<string, StructDef>, errors: string[]): void {
+    const ctx = `Struct "${def.name}": field "${field.name}"`;
+    if (!field.refStructId) {
+        errors.push(`${ctx} is missing a referenced struct.`);
         return;
+    }
+    if (!byId.has(field.refStructId)) {
+        errors.push(`${ctx} references an unknown struct.`);
+    }
+}
+
+function validateBitFieldContainer(def: StructDef, field: StructField, byId: Map<string, StructDef>, errors: string[]): void {
+    if (!isValidBitFieldContainerShape(def, field, errors)) { return; }
+    validateBitFieldContainerWidth(def, field, byId, errors);
+}
+
+/** Pointer/unsigned-base shape guard for an inline bit-field container. */
+function isValidBitFieldContainerShape(def: StructDef, field: StructField, errors: string[]): boolean {
+    const ctx = `Struct "${def.name}": field "${field.name}"`;
+    if (isPointerField(field)) {
+        errors.push(`${ctx} cannot combine pointer and bit-field details.`);
+        return false;
     }
     if (!isUnsignedScalarType(field.type)) {
-        errors.push(`Struct "${def.name}": field "${field.name}" bit-field container must be an unsigned type.`);
-        return;
+        errors.push(`${ctx} bit-field container must be an unsigned type.`);
+        return false;
     }
+    return true;
+}
 
+/** Child widths + enum refs + total-bit bound for an inline bit-field container. */
+function validateBitFieldContainerWidth(def: StructDef, field: StructField, byId: Map<string, StructDef>, errors: string[]): void {
     const unitBits = fieldByteSize(field.type as UnsignedScalarType) * 8;
     const totalBits = validateBitFieldChildren(def, field, errors);
+    validateBitChildEnumRefs(def.name, field.bitFields ?? [], byId, errors);
     if (totalBits > unitBits) {
         errors.push(`Struct "${def.name}": field "${field.name}" children total ${totalBits} bits exceeds ${unitBits}-bit container.`);
     }
+}
+
+/** Sum + validate child widths; returns the total valid bit width. */
+function validateBitFieldChildWidths(defName: string, children: readonly BitFieldChild[], errors: string[]): number {
+    let totalBits = 0;
+    for (const child of children) {
+        if (!isValidBitWidth(child.bitWidth)) {
+            errors.push(`Struct "${defName}": bit-field child "${child.name}" bit width must be > 0.`);
+        } else {
+            totalBits += child.bitWidth;
+        }
+    }
+    return totalBits;
 }
 
 function validateBitFieldChildren(def: StructDef, field: StructField, errors: string[]): number {
@@ -372,6 +937,8 @@ export interface DecodedField {
     bitOffset?: number;
     bitStorageByteSize?: number;
     bitValueUnsigned?: string;
+    /** Resolved enum entry name when this row's value matches an enum entry (label reference only). */
+    enumLabel?: string;
     /** Resolved effective byte order for this row (field beats struct beats nested parents beats global). */
     endian?: 'le' | 'be';
     /** Resolved effective bit allocation for this row (only meaningful for bit-field rows/units). */
@@ -395,8 +962,8 @@ export function resolveStructFieldByPath(
     const parts = parseStructFieldPathParts(fieldPath);
     if (!parts) { return null; }
 
-    const byId = createStructDefMap(def, defs);
-    const field = resolveStructPathParts(def, parts, byId);
+    const { def: resolved, map: byId } = materializedDefsMap(def, defs);
+    const field = resolveStructPathParts(resolved, parts, byId);
     return field ? buildResolvedStructFieldPath(field, byId) : null;
 }
 
@@ -404,12 +971,6 @@ function parseStructFieldPathParts(fieldPath: string): string[] | null {
     const normalized = fieldPath.replace(/\[\d+\]/g, '');
     const parts = normalized.split('.').map(p => p.trim()).filter(Boolean);
     return parts.length > 0 ? parts : null;
-}
-
-function createStructDefMap(def: StructDef, defs: readonly StructDef[]): Map<string, StructDef> {
-    const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
-    byId.set(def.id, def);
-    return byId;
 }
 
 function resolveStructPathParts(
@@ -627,10 +1188,9 @@ function bitFieldChildRow(
     endian: 'le' | 'be',
     allocation: BitFieldAllocation,
 ): DecodedField {
-    const unsignedValue = unit.hasData
-        ? extractBitFieldValue(unit.value, unitBits, bitPos, child.bitWidth, allocation)
-        : 0n;
+    const unsignedValue = readBitFieldChildValue(unit, bitPos, child, unitBits, allocation);
     const valueText = bitFieldDecodedText(unit.hasData, unsignedValue, child.bitWidth);
+    const enumLabel = bitFieldChildEnumLabel(child, unit.hasData, ctx.map, unsignedValue);
     return {
         fieldName: `${fieldPath}.${child.name || `bit${bitPos}`}`,
         type: field.type as UnsignedScalarType,
@@ -644,9 +1204,35 @@ function bitFieldChildRow(
         bitOffset: bitPos,
         bitStorageByteSize: unitBytes,
         bitValueUnsigned: bitFieldUnsignedText(unit.hasData, unsignedValue),
+        enumLabel,
         endian,
         allocation,
     };
+}
+
+/** Extract one child's unsigned value, or 0n when the storage unit has no data. */
+function readBitFieldChildValue(
+    unit: { hasData: boolean; value: bigint },
+    bitPos: number,
+    child: BitFieldChild,
+    unitBits: number,
+    allocation: BitFieldAllocation,
+): bigint {
+    return unit.hasData
+        ? extractBitFieldValue(unit.value, unitBits, bitPos, child.bitWidth, allocation)
+        : 0n;
+}
+
+/** Resolved enum entry label for a bit-field child, when it has data and a matching entry. */
+function bitFieldChildEnumLabel(
+    child: BitFieldChild,
+    hasData: boolean,
+    map: Map<string, StructDef>,
+    unsignedValue: bigint,
+): string | undefined {
+    if (!hasData) { return undefined; }
+    const enumDef = enumDefById(child.refStructId, map);
+    return enumDef ? matchEnumEntry(enumDef, unsignedValue)?.name : undefined;
 }
 
 function bitFieldDecodedText(hasData: boolean, unsignedValue: bigint, width: number): string {
@@ -697,12 +1283,25 @@ function decodePointerValue(raw: number[], endian: 'le' | 'be'): number | undefi
 }
 
 function pointerTargetByteSize(field: StructField, map: Map<string, StructDef>, depth: number): number {
-    if (field.type === 'void') { return 1; }
-    if (field.type === 'struct') {
-        const child = referencedStruct(field, map);
-        return child ? structByteSizeWithDefs(child, map, depth + 1) : 1;
-    }
-    return fieldByteSize(field.type);
+    if (field.type === 'struct') { return structPointerTargetByteSize(field, map, depth); }
+    if (field.type === 'enum') { return enumPointerTargetByteSize(field, map); }
+    return scalarPointerTargetByteSize(field.type);
+}
+
+function structPointerTargetByteSize(field: StructField, map: Map<string, StructDef>, depth: number): number {
+    const child = referencedStruct(field, map);
+    return child ? structByteSizeWithDefs(child, map, depth + 1) : 1;
+}
+
+function enumPointerTargetByteSize(field: StructField, map: Map<string, StructDef>): number {
+    const target = enumDefById(field.refStructId, map);
+    return target ? fieldByteSize(enumBaseType(target)) : 1;
+}
+
+/** Byte size of a pointer's scalar (or opaque void/bit-field) target. */
+function scalarPointerTargetByteSize(type: Exclude<StructFieldType, 'struct' | 'enum'>): number {
+    if (type === 'void' || type === 'bitfield') { return 1; }
+    return fieldByteSize(type);
 }
 
 function pointerTargetStructName(field: StructField, map: Map<string, StructDef>): string | undefined {
@@ -720,24 +1319,43 @@ function decodePointerElements(
         const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + offset + idx * POINTER_BYTE_SIZE;
         const raw = readFieldBytes(ctx, absOffset, POINTER_BYTE_SIZE);
-        const hasData = raw.every(v => v >= 0);
-        ctx.rows.push({
-            fieldName: fieldPath,
-            type: field.type === 'struct' ? 'void' : field.type,
-            pointerTargetType: field.type,
-            pointerTargetStructId: field.refStructId,
-            pointerTargetStructName: pointerTargetStructName(field, ctx.map),
-            pointerTargetByteSize: pointerTargetByteSize(field, ctx.map, ctx.depth),
-            pointerValue: decodePointerValue(raw, endian),
-            isPointer: true,
-            arrayIdx: idx,
-            byteOffset: absOffset,
-            bytesHex: bytesToHex(raw),
-            decoded: hasData ? decodeField(raw, 'pointer', endian) : '??',
-            hasData,
-            endian,
-        });
+        ctx.rows.push(pointerElementRow(ctx, field, fieldPath, idx, absOffset, raw, endian));
     }
+}
+
+/** One pointer element row (a pointer's storage bytes never carry a named target type). */
+function pointerElementRow(
+    ctx: DecodeContext,
+    field: StructField,
+    fieldPath: string,
+    arrayIdx: number,
+    absOffset: number,
+    raw: number[],
+    endian: 'le' | 'be',
+): DecodedField {
+    const hasData = raw.every(v => v >= 0);
+    return {
+        fieldName: fieldPath,
+        type: pointerStorageFieldType(field.type),
+        pointerTargetType: field.type,
+        pointerTargetStructId: field.refStructId,
+        pointerTargetStructName: pointerTargetStructName(field, ctx.map),
+        pointerTargetByteSize: pointerTargetByteSize(field, ctx.map, ctx.depth),
+        pointerValue: decodePointerValue(raw, endian),
+        isPointer: true,
+        arrayIdx,
+        byteOffset: absOffset,
+        bytesHex: bytesToHex(raw),
+        decoded: hasData ? decodeField(raw, 'pointer', endian) : '??',
+        hasData,
+        endian,
+    };
+}
+
+/** Storage row type for a pointer element: named targets decode as opaque `void`. */
+function pointerStorageFieldType(type: StructFieldType): StructScalarFieldType {
+    if (type === 'struct' || type === 'bitfield' || type === 'enum') { return 'void'; }
+    return type;
 }
 
 function decodeScalarFieldElement(
@@ -751,20 +1369,42 @@ function decodeScalarFieldElement(
     allocation: BitFieldAllocation,
 ): void {
     field = normalizeStructField(field);
-    if (field.type === 'struct') { return; }
+    const enumDef = referencedEnumDef(field, ctx.map);
+    if (!isScalarRowCandidate(field, enumDef)) { return; }
+    const decodeType = decodeTypeForField(field, enumDef);
     const raw = readFieldBytes(ctx, absOffset, elemSize);
     const hasData = raw.every(v => v >= 0);
+    const enumLabel = scalarEnumLabel(enumDef, hasData, raw, endian);
     ctx.rows.push({
         fieldName: fieldPath,
-        type: field.type,
+        type: decodeType,
         arrayIdx,
         byteOffset: absOffset,
         bytesHex: bytesToHex(raw),
-        decoded: hasData ? decodeField(raw, field.type, endian) : '??',
+        decoded: hasData ? decodeField(raw, decodeType, endian) : '??',
         hasData,
+        enumLabel,
         endian,
         allocation,
     });
+}
+
+/** Scalar rows skip structs/bit-fields, and enum fields only when their ref resolves. */
+function isScalarRowCandidate(field: StructField, enumDef: StructDef | null): boolean {
+    if (field.type === 'struct' || field.type === 'bitfield') { return false; }
+    return field.type !== 'enum' || enumDef !== null;
+}
+
+/** Storage type used to decode a scalar row: an enum decodes as its unsigned base. */
+function decodeTypeForField(field: StructField, enumDef: StructDef | null): StructScalarFieldType {
+    if (enumDef) { return enumBaseType(enumDef); }
+    return field.type as StructScalarFieldType;
+}
+
+/** Matched enum label for a scalar row, when the bytes are available. */
+function scalarEnumLabel(enumDef: StructDef | null, hasData: boolean, raw: number[], endian: 'le' | 'be'): string | undefined {
+    if (!enumDef || !hasData) { return undefined; }
+    return matchEnumEntry(enumDef, bytesToBigUint(raw, endian))?.name;
 }
 
 function decodeNestedStructField(
@@ -905,8 +1545,8 @@ export function decodeStruct(
     defs: readonly StructDef[] = [],
 ): DecodedField[] {
     const rows: DecodedField[] = [];
-    const map = defsMap(defs, def);
-    decodeStructRecursive(def, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0, globalEndian, bitFieldAllocation);
+    const { def: resolved, map } = materializedDefsMap(def, defs);
+    decodeStructRecursive(resolved, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0, globalEndian, bitFieldAllocation);
     return rows;
 }
 
@@ -971,7 +1611,23 @@ function fieldTypeToC(field: StructField, defsById: Map<string, StructDef>): str
 }
 
 function fieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
-    return field.type === 'struct' ? structFieldBaseTypeToC(field, defsById) : TYPE_TO_C[field.type];
+    if (field.type === 'enum') { return enumFieldBaseTypeToC(field, defsById); }
+    return field.type === 'struct' || field.type === 'bitfield'
+        ? structFieldBaseTypeToC(field, defsById)
+        : TYPE_TO_C[field.type];
+}
+
+/** An enum-typed field is emitted as its unsigned base-width integer (size/offset faithful). */
+function enumFieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
+    const target = enumDefById(field.refStructId, defsById);
+    const base = target ? enumBaseType(target) : 'uint8';
+    return TYPE_TO_C[base];
+}
+
+/** `  enum <Name>` comment suffix for an enum-typed field, or '' otherwise. */
+function enumFieldNote(field: StructField, defsById: Map<string, StructDef>): string {
+    const target = enumDefById(field.refStructId, defsById);
+    return field.type === 'enum' && target ? `  enum ${target.name}` : '';
 }
 
 function structFieldBaseTypeToC(field: StructField, defsById: Map<string, StructDef>): string {
@@ -1257,10 +1913,11 @@ function appendParsedStructLine(rawLine: string, fields: StructField[], errors: 
 export function fieldsToText(fields: StructField[], defs: readonly StructDef[] = []): string {
     if (fields.length === 0) { return ''; }
     const byId = new Map<string, StructDef>(defs.map(d => [d.id, d]));
-    const typeNames = fields.map(f => fieldTypeToC(f, byId));
+    const resolved = fields.map(f => materializeStructField(f, byId));
+    const typeNames = resolved.map(f => fieldTypeToC(f, byId));
     const maxTypeLen = Math.max(...typeNames.map(t => t.length));
 
-    return fields.map((f, i) => {
+    return resolved.map((f, i) => {
         // BitFields container: emit each child as a flat C bit declaration
         if (isBitFieldContainer(f)) {
             const cType = fieldTypeToC(f, byId).padEnd(maxTypeLen);
@@ -1330,7 +1987,7 @@ function emitScalarStructFieldC(f: StructField, fieldIndex: number, state: Struc
     const fieldBytes = fieldSize * f.count;
     state.lines.push(
         `    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
-        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B */`
+        `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B${enumFieldNote(f, state.byId)} */`
     );
     state.offset += fieldBytes;
 }
@@ -1386,23 +2043,54 @@ function structCAlignNote(def: StructDef, maxAlign: number): string {
 
 /** Render a StructDef as a C typedef with per-field offset comments. */
 export function structToC(def: StructDef, defs: readonly StructDef[] = []): string {
-    const byId = createStructDefMap(def, defs);
+    const { def: resolved, map: byId } = materializedDefsMap(def, defs);
+    if (structDefKind(resolved) === 'bitfield') { return bitFieldDefToC(resolved); }
+    if (structDefKind(resolved) === 'enum') { return enumDefToC(resolved); }
 
-    const attr = def.packed ? ' __attribute__((packed))' : '';
+    const attr = resolved.packed ? ' __attribute__((packed))' : '';
     const lines: string[] = [];
     lines.push(`typedef struct${attr} {`);
 
-    const state = createStructCEmitState(def, lines, byId);
+    const state = createStructCEmitState(resolved, lines, byId);
 
-    emitStructCFields(def, state);
+    emitStructCFields(resolved, state);
 
     const totalUnpadded = state.offset;
     const totalPadded = alignUp(state.offset, state.maxAlign);
-    appendTrailingStructCPadding(def, lines, state.offset, totalPadded);
+    appendTrailingStructCPadding(resolved, lines, state.offset, totalPadded);
 
-    const totalBytes = structCTotalBytes(def, totalUnpadded, totalPadded);
-    const alignNote = structCAlignNote(def, state.maxAlign);
-    appendStructCFooter(def, lines, totalBytes, alignNote);
+    const totalBytes = structCTotalBytes(resolved, totalUnpadded, totalPadded);
+    const alignNote = structCAlignNote(resolved, state.maxAlign);
+    appendStructCFooter(resolved, lines, totalBytes, alignNote);
 
+    return lines.join('\n');
+}
+
+/** Render a standalone `kind: 'bitfield'` def as a C typedef of its storage unit. */
+function bitFieldDefToC(def: StructDef): string {
+    const baseType = def.baseType ?? 'uint8';
+    const lines: string[] = [];
+    lines.push('typedef struct {');
+    const container: StructField = { name: structDefDisplayName(def, 'bitfield'), type: baseType, count: 1, bitFields: def.bitFields ?? [] };
+    appendBitFieldChildrenC(container, TYPE_TO_C[baseType], lines);
+    lines.push(`} ${structDefDisplayName(def, 'MyBitField')};`.padEnd(44) + `/* ${fieldByteSize(baseType)}B */`);
+    return lines.join('\n');
+}
+
+/** A def's authored name, or a kind-appropriate fallback. */
+function structDefDisplayName(def: StructDef, fallback: string): string {
+    return def.name || fallback;
+}
+
+/** Render a standalone `kind: 'enum'` def as a C enum typedef sized to its base width. */
+function enumDefToC(def: StructDef): string {
+    const baseType = enumBaseType(def);
+    const entries = def.entries ?? [];
+    const nameWidth = entries.reduce((max, entry) => Math.max(max, entry.name.length), 0);
+    const lines: string[] = ['typedef enum {'];
+    for (const entry of entries) {
+        lines.push(`    ${entry.name.padEnd(nameWidth)} = 0x${entry.value.toString(16).toUpperCase()},`);
+    }
+    lines.push(`} ${def.name || 'MyEnum'};`.padEnd(44) + `/* ${fieldByteSize(baseType)}B */`);
     return lines.join('\n');
 }

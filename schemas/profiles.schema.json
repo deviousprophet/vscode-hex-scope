@@ -13,11 +13,26 @@
       "const": 1
     },
     "data": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "$ref": "#/definitions/profileRecord"
-      }
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "records"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only)."
+        },
+        "records": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/profileRecord"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "$schema": {
       "type": "string"
@@ -72,6 +87,10 @@
             "lsb",
             "msb"
           ]
+        },
+        "showHiddenFields": {
+          "type": "boolean",
+          "description": "Global toggle for the Struct Instances view: when true, fields marked hidden in the struct types editor are rendered. Absent = false."
         },
         "segmentNames": {
           "type": "object",
