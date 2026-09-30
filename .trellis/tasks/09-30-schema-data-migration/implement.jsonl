@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "On-disk .hexscope contract: envelope, version handling, JsonStore self-heal, migration, schema seeding"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Persistence ownership, JsonStore slots, normalizer/self-heal flow"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Normalization and unknown-input narrowing conventions for the migration runner"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar and test-quality rules (observable behaviour, no weakened assertions)"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace read -> unwrap -> migrate -> normalize -> self-heal write across the storage boundary"}

@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify the envelope/version contract, forward-only rule, and open-time migration are correct and documented"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify migration tests observe behaviour and no assertion was weakened"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify all three data files route through the migration and the self-heal write"}
