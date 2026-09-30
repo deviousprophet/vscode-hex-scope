@@ -11,29 +11,42 @@ to `.hexscope/` data.
 ```text
 .hexscope/
 ├── structs.json          # workspace-wide StructDef[] pool (shared by all files)
-├── profiles.json         # whole profile registry: [{ id, name, structPins, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }]
-├── bindings.json         # [{ fileKey, profileId }] — file's only file-specific artifact
+├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, structPins, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }] }
+├── bindings.json         # { schemaVersion, bindings: [{ fileKey, profileId }] } — file's only file-specific artifact
 ├── schemas/              # generated copies of the JSON Schemas (editor + agent contract),
 │                         # content-diff refreshed on every .hexscope data write
 └── scripts/              # unchanged (script runner panes)
 ```
 
-## Files (uniform version envelope `{ version, data, $schema? }`)
+## Files (uniform version envelope `{ version, data: { schemaVersion, <payload> }, $schema? }`)
 
-| File | `data` schema |
+| File | `data` payload |
 |---|---|
-| `structs.json` | `StructDef[]` (workspace pool) |
-| `profiles.json` | `ProfileRecord[]` — every profile in one array (order preserved, ids unique) |
-| `bindings.json` | `[{ fileKey, profileId }]`, `fileKey` = workspace-relative posix path |
+| `structs.json` | `{ schemaVersion, defs: StructDef[] }` (workspace pool) |
+| `profiles.json` | `{ schemaVersion, records: ProfileRecord[] }` — every profile in one array (order preserved, ids unique) |
+| `bindings.json` | `{ schemaVersion, bindings: [{ fileKey, profileId }] }`, `fileKey` = workspace-relative posix path |
 
-Current `DATA_VERSION = 1`. On read, a future/unknown `version` is refused:
-the file loads the empty default, warns once per file per session, and is
-never overwritten (forward protection). Unversioned payloads (a bare array or
-object) are accepted as the current version and upgraded on the next write.
-Self-heal write-back happens only when the parse is OK **and** the normalized
-output differs; empty/missing files load the empty default, not an error.
-Registry reads drop malformed records and deduplicate by id + case-insensitive
-name (`normalizeProfilesRegistry`).
+Current `DATA_VERSION = 1` (storage envelope) and the current data shape is
+`DATA_SCHEMA_VERSION` (also `1`). On read, a future/unknown envelope `version`
+is refused: the file loads the empty default, warns once per file per session,
+and is never overwritten (forward protection). Unversioned payloads (a bare
+array or object) are accepted as the current storage version.
+
+The `data` payload itself carries a **data-schema version** (`schemaVersion`).
+A file written before this change (legacy bare-array `data`, or an object with
+no `schemaVersion`) is read as version 1 and **migrated forward on open**: the
+migration runner upgrades the payload to the current shape and the one
+`changed`-driven self-heal write-back re-stamps `{ schemaVersion, <payload> }`.
+A file already at the current version is never rewritten (byte-identical). A
+file whose `schemaVersion` is **newer** than the running extension is **not
+downgraded** — it loads the empty default, warns once, and is left untouched
+until a matching build is installed (forward-only). Every read-modify-write
+path (registry upsert/rename/delete, binding rewrite, legacy per-dir merge)
+also declines to write a newer file, so a future-shaped file is never
+overwritten. Self-heal write-back happens
+only when the parse is OK **and** the normalized output differs; empty/missing
+files load the empty default, not an error. Registry reads drop malformed
+records and deduplicate by id + case-insensitive name (`normalizeProfilesRegistry`).
 
 ## Identity and binding
 
@@ -67,6 +80,20 @@ self-write-marked so the watcher ignores them. Out-of-workspace files stage
 their edits in-memory until an explicit Save/profile action — a bare open or
 non-explicit edit never seeds a `.hexscope/` sibling.
 
+Every write stamps the current data-schema version through the shared
+`withDataEnvelope` helper, so a payload is always `{ schemaVersion, <payload> }`.
+
+## Data migration on open (forward-only)
+
+Each payload records a data-schema version. On open the migration runner applies
+the ordered `MIGRATIONS` steps from the recorded version (missing = 1) up to the
+current `DATA_SCHEMA_VERSION`, then the store's normalizer runs on the migrated
+payload. If anything changed, the existing self-heal writes the file back once —
+there is no separate migration write path. A file already at the current version
+is byte-identical and never rewritten; migration is idempotent (a second open is
+a no-op). A file newer than the build is not touched at all (empty default +
+warn-once) and survives until a matching build is installed.
+
 ## External changes (silent auto-apply)
 
 The session watches the struct pool, the profile registry, and the bindings
@@ -79,8 +106,9 @@ the open webview — no confirmation prompts anywhere:
   pins whose `structId` vanished)
 - profile registry + bindings → profile dropdown refresh (`profilesState`)
 
-If an external edit breaks a profile file (corrupt JSON or unknown version),
-the slot loads the empty default and the original file is left untouched.
+If an external edit breaks a profile file (corrupt JSON, unknown envelope
+version, or a data-schema version newer than the build), the slot loads the
+empty default and the original file is left untouched.
 
 ## Profile actions
 
@@ -117,9 +145,9 @@ Three JSON Schema files describe the on-disk shapes:
 
 | Schema | File | `data` |
 |---|---|---|
-| `schemas/structs.schema.json` | `.hexscope/structs.json` | `StructDef[]` |
-| `schemas/profiles.schema.json` | `.hexscope/profiles.json` | `ProfileRecord[]` (array, `uniqueItems`; ids unique at runtime) |
-| `schemas/bindings.schema.json` | `.hexscope/bindings.json` | `Binding[]` |
+| `schemas/structs.schema.json` | `.hexscope/structs.json` | `{ schemaVersion, defs: StructDef[] }` |
+| `schemas/profiles.schema.json` | `.hexscope/profiles.json` | `{ schemaVersion, records: ProfileRecord[] }` (array, `uniqueItems`; ids unique at runtime) |
+| `schemas/bindings.schema.json` | `.hexscope/bindings.json` | `{ schemaVersion, bindings: Binding[] }` |
 
 - **Locations.** The authoritative copy lives in the repo root `schemas/`
   (bundled into the extension). On every `.hexscope` data write the workspace
@@ -141,15 +169,20 @@ Three JSON Schema files describe the on-disk shapes:
   true` — forward compat), `version` is `const 1`, and nested payload objects
   are strict: `additionalProperties: false` plus `required` on all scalar
   objects, with `enum` for `StructFieldType`, `IntegrityAlgorithm`, and
-  `endian`. The runtime still normalizes tolerantly (unknown `version` is
-  refused, extra/missing fields are normalized); schemas describe the
+  `endian`. `data` requires `schemaVersion` (integer ≥ 1) plus the file's payload
+  key; the version is not a `const` so an older file still validates for
+  authoring while the runtime migrates it forward. The runtime still normalizes
+  tolerantly (unknown `version` is refused, a newer `schemaVersion` maps to the
+  corrupt path, extra/missing fields are normalized); schemas describe the
   contracted shape, they do not gate loading.
 
 ## Owner modules
 
 - `src/hexScopeStorage.ts` — all `.hexscope/` I/O (read/write/envelope,
-  `JsonStore` slots, registry-array lookup/upsert/delete, watcher). No Memento
-  access; normalizers are injected per slot.
+  `JsonStore` slots, registry-array lookup/upsert/delete, watcher, the
+  `DATA_SCHEMA_VERSION` constant + `MIGRATIONS` table + migration runner and
+  `withDataEnvelope` stamping). No Memento access; normalizers are injected per
+  slot.
 - `src/hexScopeMigration.ts` — the one-time legacy transfers (per-dir registry
   merge + Memento era + `firmware_profiles` tree era → three-tier).
 - `src/hexEditorSession.ts` — wires the three-tier stores to the open

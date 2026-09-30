@@ -11,14 +11,23 @@ This spec is the single source of truth for the on-disk contract. `docs/HEXSCOPE
 ### 2. Signatures
 
 ```typescript
-export const DATA_VERSION = 1;                       // hexScopeStorage.ts
+export const DATA_VERSION = 1;                       // hexScopeStorage.ts — STORAGE envelope version (do not bump)
+export const DATA_SCHEMA_VERSION = 1;                // data-payload shape version (bump + add a MIGRATIONS step)
+export const MIGRATIONS: Record<number, (data) => data>;  // ordered forward steps keyed by from-version
+export type DataPayloadKey = 'defs' | 'records' | 'bindings';
+function withDataEnvelope(payloadKey, payload): { schemaVersion, <payloadKey> };
+function migrateData(raw, payloadKey): { status: 'ok'; value; changed } | { status: 'newer' };
+function migrateAndNormalize<T>(raw, payloadKey, shapeNormalize, empty): NormalizedValue<T>;
+function migratedPayload(raw, payloadKey): unknown | null;   // null = newer than build
+function readPayloadForWrite(uri, payloadKey): { status: 'ok'|'missing'|'corrupt'|'newer'; payload };  // newer → caller must not write
+function applyMigrationSteps(steps, from, target, payloadKey, payload): unknown;
 export type ProfileJsonName = 'profiles.json';
 type JsonRead = { status: 'ok'; value: unknown } | { status: 'missing' } | { status: 'corrupt' };
-function withEnvelope(payload: unknown): unknown;                      // { version: DATA_VERSION, data: payload }
-function unwrapEnvelope(raw: unknown): unknown | null;                 // null = unknown version
-async function readJson(uri): Promise<JsonRead>;                       // corrupt covers read-err + parse-err + envelope
-async function writeJson(uri, value): Promise<void>;                   // ensureParentDir, $schema sibling, pretty 2-space, then schema-copy refresh
-async function writeIfMissing(uri, value): Promise<void>;              // keep committed copy
+function withEnvelope(payload): unknown;                      // { version: DATA_VERSION, data: payload }
+function unwrapEnvelope(raw): unknown | null;                 // null = unknown STORAGE version
+async function readJson(uri): Promise<JsonRead>;              // corrupt covers read-err + parse-err + envelope
+async function writeJson(uri, value): Promise<void>;          // ensureParentDir, $schema sibling, pretty 2-space, then schema-copy refresh
+async function writeIfMissing(uri, value): Promise<void>;     // keep committed copy
 
 function resolveHexScopeRoot(uri): string;            // workspace folder else dirname(document)
 function perFileRelativePath(root, uri): string;      // posix, e.g. "firmware/boot.hex"
@@ -65,15 +74,16 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 
 ```text
 .hexscope/
-├── structs.json              { version, data: StructDef[], $schema? }   # workspace pool, one flat list
-├── profiles.json             { version, data: ProfileRecord[], $schema? } # whole registry, one array
-├── bindings.json             { version, data: Binding[], $schema? }      # fileKey → profileId table
+├── structs.json              { version, data: { schemaVersion, defs: StructDef[] }, $schema? }   # workspace pool
+├── profiles.json             { version, data: { schemaVersion, records: ProfileRecord[] }, $schema? } # whole registry
+├── bindings.json             { version, data: { schemaVersion, bindings: Binding[] }, $schema? }      # fileKey → profileId table
 ├── schemas/                  # generated copies of the 3 bundled schemas; content-diff refreshed on every data write
 └── scripts/                  # script runner, unchanged
 ```
 
 - **Three tiers**: struct *types* live once in the workspace pool (`.hexscope/structs.json`); a *profile* is a named annotation bundle (`ProfileRecord`) storing structPins / activeChecks / endian / bitAllocation / showHiddenFields / segmentNames / labels, not owned by any file; a *file* is bound to a profile by a `Binding` entry keyed on its workspace-relative posix `relPath`. The pool's in-memory fallback cache is **per root** (keyed by `root`, never a module global), so one root's defs can never leak as another root's empty default. All profiles live in the single `profiles.json` array (order preserved; ids unique — `normalizeProfilesRegistry` drops duplicates and malformed records). The old `firmware_profiles/*` per-file dirs (`index.json` + `structs.json` + `integrity.json`) and the per-dir registry (`profiles/<id>/profile.json`) no longer exist outside migration. The standalone `IntegrityProfile[]` template registry is removed — checks live only as `activeChecks` inside a `ProfileRecord` (the Integrity panel shows only the bound profile's `activeChecks`; see integrity-checks.md).
-- **Envelope**: every file is `{ version: 1, data }`. `writeJson`/`flush` write it; `readJson` unwraps. Unknown `version` → `corrupt` (empty default + warn once per store instance + file never overwritten — forward protection). Unversioned payloads (bare array/object) accepted as current version, lazily upgraded on next write. `$schema` lives at envelope level only, never in `data`.
+- **Envelope**: every file is `{ version: 1, data }`. `writeJson`/`flush` write it; `readJson` unwraps. Unknown `version` → `corrupt` (empty default + warn once per store instance + file never overwritten — forward protection). This is a **storage** version and must not be bumped (older builds would reject the file); it is separate from the data-schema version below. Unversioned payloads (bare array/object) accepted as current storage version, lazily upgraded on next write. `$schema` lives at envelope level only, never in `data`.
+- **Data-schema version** (inside `data`): each payload is an object `{ schemaVersion, <key>: payload }` — `defs` (structs), `records` (profiles), `bindings`. `schemaVersion` is the *shape* version; missing/legacy bare-array `data` is treated as version 1. On load the migration runner (`migrateData` → `migrateAndNormalize`, composed ahead of each store's shape normalizer) upgrades the payload to `DATA_SCHEMA_VERSION` via the shared ordered `MIGRATIONS` table, and the existing `changed`-driven self-heal writes it back **once**. Current-version files are byte-identical (no write). **Forward-only**: a recorded `schemaVersion` newer than the build maps to the existing `corrupt` outcome (empty default + warn-once, file never overwritten) — there is no downgrade path. One constant + one step table serve all three files; writes always stamp via `withDataEnvelope`.
 - **Additive profile keys**: `showHiddenFields: boolean` (default false) is optional on read; absent/invalid values normalize to false, and the key self-heals into the record on the next write. Old `profiles.json` files load unchanged.
 - **`$schema`**: on any write `writeJson` injects the matching `schemas/<name>.schema.json` sibling (keeps an existing string sibling if present). Normalizers never see it (`readJson` unwraps first) so self-heal cannot strip it. Top-level files reference `schemas/<name>.schema.json` directly (no `../../` — there are no profile subdirs anymore).
 - **Load semantics** (`JsonStore.load`): missing → `empty()`; corrupt/unknown-version → warn once + `empty()`; parse-ok → normalize; self-heal write-back only when `changed` (parse-ok AND normalized differs).
@@ -84,7 +94,7 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 - **Watcher**: `attachProfileWatcher` watches `profiles.json`, `structs.json`, and `bindings.json` under `.hexscope/` (create/change/delete). Session debounces (`onProfileChanged` → per-slot `scheduleReload`) and guards self-writes via the 1 s self-write horizon. External edits auto-apply silently (see editing-save-external-change.md §1a).
 - **Webview fan-out** on external change: `profiles.json` → `perFileDataChange` (bound record changed) + `profilesState` (registry/binding changed); `.hexscope/structs.json` → `structsExternalChange` (webview prunes pins with vanished `structId`). Struct edits (`saveStructs`) always write the workspace pool; pin/label/check/endian/bitAllocation edits always write the bound profile; picking/creating a profile writes a binding.
 - **Migration** (once per root, first panel open, before first `postInit`): (0) per-dir registry `.hexscope/profiles/<id>/profile.json` → merge into `profiles.json` array (dedupe ids + case-insensitive names; existing array records win), one-time Memento marker `hexScope.profilesArray.v1`, dir tree left in place for rollback (runs before the firmware_profiles conversion, which pushes more records into the array); (a) Memento-era `globalState`/`workspaceState` keys (structs v2/v1, integrity templates, per-file labels/segmentNames/pins/checks/endian/structs) → deduped pool + unbound template profiles + a bound profile for the open doc, then hard-delete keys; (b) on-disk `firmware_profiles/*` tree → merge every `structs.json` into the pool (dedup via `src/core/struct/structMigration.ts` `mergeLegacyStructDefs`) and convert each `index.json`+`integrity.json` pair into one registry profile + one binding (extra integrity templates → unbound profiles). Idempotent: Memento tariffs + per-converted-dir `.converted` marker file (restart-safe, no duplicate profiles); the mere existence of `bindings.json` is **never** treated as proof of completion, so a pre-existing binding from an unrelated file cannot suppress conversion of a remaining legacy tree. Legacy trees left in place for rollback. Failures never block opening.
-- **JSON Schemas**: repo `schemas/{profiles,structs,bindings}.schema.json` bundled; `contributes.jsonValidation` globs map the three file paths → bundled schema (`schemas/index.schema.json`, `schemas/integrity.schema.json`, `schemas/profile.schema.json` retired); content-diff-refreshed `.hexscope/schemas/` copies for installed-extension/agent resolution. `profiles.schema.json` data is an array (each item = the ProfileRecord shape; `uniqueItems` catches exact duplicates; id/name uniqueness beyond that is runtime-enforced by `normalizeProfilesRegistry`). `structPins` stays `required`; the legacy pre-rename `pins` key is declared as an **allowed deprecated property** (same `structPin` array, `"deprecated": true`) so files still carrying it pass strict authoring while the runtime's `structPins ?? pins` tolerance keeps reading them. Envelope root tolerant (`additionalProperties: true`), nested payload objects strict (`required` + `additionalProperties: false` + enums from `STRUCT_FIELD_TYPES` / `INTEGRITY_ALGORITHMS` / `endian` / `bitAllocation`). Schemas describe the contracted shape; they do not gate loading (runtime stays lenient).
+- **JSON Schemas**: repo `schemas/{profiles,structs,bindings}.schema.json` bundled; `contributes.jsonValidation` globs map the three file paths → bundled schema (`schemas/index.schema.json`, `schemas/integrity.schema.json`, `schemas/profile.schema.json` retired); content-diff-refreshed `.hexscope/schemas/` copies for installed-extension/agent resolution. Each schema's `data` is the versioned object `{ schemaVersion (required integer ≥ 1), <payload key> }` (`defs` / `records` / `bindings`), with `schemaVersion` left non-`const` so older files remain authorable while the runtime migrates them forward. `profiles.schema.json`'s `records` is an array (each item = the ProfileRecord shape; `uniqueItems` catches exact duplicates; id/name uniqueness beyond that is runtime-enforced by `normalizeProfilesRegistry`). `structPins` stays `required`; the legacy pre-rename `pins` key is declared as an **allowed deprecated property** (same `structPin` array, `"deprecated": true`) so files still carrying it pass strict authoring while the runtime's `structPins ?? pins` tolerance keeps reading them. Envelope root tolerant (`additionalProperties: true`), nested payload objects strict (`required` + `additionalProperties: false` + enums from `STRUCT_FIELD_TYPES` / `INTEGRITY_ALGORITHMS` / `endian` / `bitAllocation`). Schemas describe the contracted shape; they do not gate loading (runtime stays lenient).
 
 ### 4. Validation & Error Matrix
 
@@ -100,8 +110,12 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 | First per-file mutation (unbound, workspace) | Materialize once: create profile + write binding + refresh schema copies + attach watcher |
 | First per-file mutation (unbound, out-of-workspace non-explicit) | Staged in `boundProfileCache`; zero `.hexscope/` writes |
 | Explicit Save (out-of-workspace) | `forceMaterializeOnSave` → materialize + fold staged cache into the profile + persist + flush pools |
-| Corrupt JSON / unknown `version` | empty default + `console.warn` once per store instance; original file untouched/never overwritten |
-| Parse OK, normalized differs | Self-heal write-back (satisfies `$schema` + envelope) |
+| Corrupt JSON / unknown envelope `version` | empty default + `console.warn` once per store instance; original file untouched/never overwritten |
+| Data file at an older `schemaVersion` (or legacy bare-array `data`) | migrated forward on load; self-heal writes it back once (stamped `{ schemaVersion, <key> }`) |
+| Data file at the current `schemaVersion` | byte-identical — no write |
+| Data file with a `schemaVersion` **newer** than the build | existing corrupt path: empty default + warn-once; file never overwritten (forward-only, no downgrade) |
+| Registry/binding read-modify-write (`writeProfileRecord`/`removeProfileRecord`/`bindFile`/`stripDeletedStructPins`/`migrateLegacyProfileDirs`/legacy `mergeIntoPool`) against a **newer** file | Declined (`readPayloadForWrite` → `newer`): no write, the newer file survives untouched |
+| Parse OK, normalized differs | Self-heal write-back (satisfies `$schema` + envelope + data-schema version) |
 | Parse OK, normalized equal | No write |
 | `set()` then panel close | Flush pending write immediately |
 | External edit to profiles/pool/binding file | Watcher → debounced reload → re-normalize → re-broadcast (silent) |
@@ -126,13 +140,17 @@ Layout (whole tree git-tracked — no `.gitignore` seeding, no local/private spl
 - Bad: writing `.hexscope/` state to `globalState`/`workspaceState` (migration is the sole Memento consumer).
 - Bad: importing `vscode` from `src/core/` to read `.hexscope/` — storage I/O stays in the host adapter.
 - Bad: treating an unknown-version file as OK and writing back over it.
+- Bad: bumping the storage `DATA_VERSION` to signal a payload shape change (older builds would refuse the file) — bump `DATA_SCHEMA_VERSION` and add a `MIGRATIONS` step instead.
+- Bad: downgrading a file whose `schemaVersion` is newer than the build (it maps to the existing `corrupt` path, never a rewrite).
+- Bad: a read-modify-write helper reading a newer-version file as `[]`/empty and then writing the object form over it (must bail on `readPayloadForWrite` → `newer`; the newer file is never rewritten).
+- Bad: stamping the data-schema version by hand at a call site instead of `withDataEnvelope` (drift between the three files).
 - Bad: bypassing the registry-array write path with a raw `writeJson(profilesJsonUri(root), ...)` that skips `normalizeProfilesRegistry` (duplicate ids/names would survive).
 - Bad: mutating a shared profile unconditionally without surfacing the "used by N files" state (select `title` tooltip + switch toast).
 
 ### 6. Tests Required
 
-- `src/test/extension/hexScopeStorage.test.ts` (extension host): envelope matrix (missing/corrupt/unknown-version/self-heal/debounce/flush/dispose), registry array semantics (upsert/remove/rename/ordinal over the array, `normalizeProfilesRegistry` dedupe order), schema-copy refresh (stale/absent copy re-synced by a data write, `seedSchemaCopies` returns written names vs `[]`, data bytes unchanged, bare open/no-write), deferred `lazyDir` store (read-only open creates nothing; first write materializes; `null` resolver stays in-memory; later explicit write materializes), binding lifecycle (rename rewrite / delete remove / prune on write / unwatched-rename → No Profile re-pick), multi-file sharing (2 files → 1 profile), watcher conflict (external auto-applies; self-write persists), migration pipeline (Memento era + `firmware_profiles/*` tree + per-dir registry merge → pool + profiles + bindings, dedup, idempotence, markers), no gitignore seeding.
-- `src/test/schemas/schemaValidation.test.ts` (node): ajv strict-pass + negatives (wrong version/endian/type-enum/required/non-array data/duplicate items) + drift guard (`version` const === `DATA_VERSION`, enums === source consts, `profiles.schema.json` array shape).
+- `src/test/extension/hexScopeStorage.test.ts` (extension host): envelope matrix (missing/corrupt/unknown-version/self-heal/debounce/flush/dispose), **data-schema migration** (legacy bare-array → v1 object form, ordered-step applier, older-version file migrates on load and writes back once, current file byte-identical, newer-than-build file untouched + warn-once + empty default, newer file never clobbered by any registry/binding read-modify-write, absent `schemaVersion` treated as v1, idempotent second load, `schemaVersion` stamped on every write, `normalizeBindings` object/legacy/newer), registry array semantics (upsert/remove/rename/ordinal over the array, `normalizeProfilesRegistry` dedupe order), schema-copy refresh (stale/absent copy re-synced by a data write, `seedSchemaCopies` returns written names vs `[]`, data bytes unchanged, current-file bare open/no-write), deferred `lazyDir` store (read-only open creates nothing; first write materializes; `null` resolver stays in-memory; later explicit write materializes), binding lifecycle (rename rewrite / delete remove / prune on write / unwatched-rename → No Profile re-pick), multi-file sharing (2 files → 1 profile), watcher conflict (external auto-applies; self-write persists), migration pipeline (Memento era + `firmware_profiles/*` tree + per-dir registry merge → pool + profiles + bindings, dedup, idempotence, markers), no gitignore seeding.
+- `src/test/schemas/schemaValidation.test.ts` (node): ajv strict-pass + negatives (wrong version/endian/type-enum/required/**data not the versioned object form/missing `schemaVersion` or payload key/non-integer or sub-1 `schemaVersion`/duplicate items**) + drift guard (`version` const === `DATA_VERSION`, enums === source consts, the three schemas' `data.schemaVersion` rule is identical and accepts `DATA_SCHEMA_VERSION`).
 - Webview `src/test/webview/webviewMessageModel.test.ts`: `structsExternalChange` (replace + pin-prune), `perFileDataChange` slices, `profilesState`/`selectProfile`/`newProfile`/`saveProfile`/`duplicateProfile`/`renameProfile`/`deleteProfile` message flow (discriminated-union shape).
 - Gate: `npm run compile` (check-types + lint + esbuild) and `npm run test` green; `npx fallow` 4-axis green; grep gates (no `globalState`/`workspaceState` outside migration; no `firmware_profiles`/`index.json`/`integrity.json` reads outside migration; no `profileRegistryJsonUri`/`hexScopeProfilesRegistryDir`/`resolveProfileDir`/`createProfileRegistryEntry`; no `.gitignore`/`local/` in `src/`).
 
@@ -145,15 +163,17 @@ const value: StructDef[] = JSON.parse(text);            // skip normalizer, acce
 await vscode.workspace.fs.writeFile(uri, rawText);       // no envelope, no $schema, no margin for v2
 context.workspaceState.update(`hexScope.labels.${uri}`, labels);   // Memento read/write in session
 await writeJson(profilesJsonUri(root), withEnvelope([...records, rec]));   // skip normalizeProfilesRegistry → dup ids/names survive
+DATA_VERSION = 2;                                        // bump the STORAGE version → older builds reject the whole file
 ```
 
 #### Correct
 
 ```typescript
-await writeProfileRecord(root, next);                   // read-modify-write through the registry array (normalized)
+await writeProfileRecord(root, next);                   // read-modify-write through the registry array (normalized + stamped)
 registryStore.set(normalizeProfilesRegistry(nextRecords).value);   // per-file mutations stage through the debounced registry store
-await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next)));   // binding writes always prune first
+await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next))));   // bindings write: envelope + data-schema version
 // persistence happens through JsonStore slots wired in hexEditorSession.ts; migration owns the only Memento access
+// a shape change: bump DATA_SCHEMA_VERSION and add the matching MIGRATIONS[oldVersion] step — older files migrate on open
 ```
 
 ## Related specs
