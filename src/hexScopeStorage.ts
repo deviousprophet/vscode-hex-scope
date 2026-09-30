@@ -18,8 +18,135 @@ import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './c
 import type { BitFieldAllocation, SegmentLabel, StructPin } from './core/types';
 import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
-/** Current schema version of every profile file. A future/unknown version is refused on read. */
+/** Storage envelope version (`{ version, data }`). A future/unknown value is refused on read.
+ *  This is NOT the data-schema version: it must not be bumped without breaking older builds. */
 export const DATA_VERSION = 1;
+
+/** Current shape version of the payload carried inside `data` (see `migrateData`).
+ *  Bump this when a `.hexscope` data shape changes and add the matching step to
+ *  `MIGRATIONS`; existing files then migrate forward on open. */
+export const DATA_SCHEMA_VERSION = 1;
+
+/** Ordered forward migrations keyed by from-version: `MIGRATIONS[n]` turns a
+ *  version-`n` payload into a version-`n+1` payload. Empty while the shape is
+ *  still at its first version; the table (and the constant above) is the one
+ *  source of truth shared by all three data files. */
+const MIGRATIONS: Readonly<Record<number, (data: Record<string, unknown>) => Record<string, unknown>>> = {};
+
+/** Payload key per data file — the object form is `{ schemaVersion, <key>: payload }`. */
+export type DataPayloadKey = 'defs' | 'records' | 'bindings';
+
+/** Stamp the current data-schema version on a payload: `{ schemaVersion, <key>: payload }`. */
+export function withDataEnvelope(payloadKey: DataPayloadKey, payload: unknown): Record<string, unknown> {
+    return { schemaVersion: DATA_SCHEMA_VERSION, [payloadKey]: payload };
+}
+
+/** Outcome of running the migration chain. `newer` = recorded version is ahead
+ *  of this build: the caller maps it to the existing corrupt path (empty
+ *  default + warn-once, file never overwritten). No downgrade path exists. */
+export type MigratedData =
+    | { status: 'ok'; value: Record<string, unknown>; changed: boolean }
+    | { status: 'newer' };
+
+/** Recorded data-schema version: object form reads `schemaVersion`; a legacy
+ *  bare array (or an object missing the field) is the first version. */
+function recordedSchemaVersion(raw: unknown): number {
+    const v = plainObject(raw)?.schemaVersion;
+    return isSchemaVersion(v) ? v : 1;
+}
+
+function isSchemaVersion(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+/** Apply the ordered steps in `steps` from `from` up to (not including) `target`,
+ *  threading the payload under `payloadKey`. Exported as the test seam for the
+ *  ordered-chain contract; `migrateData` calls it with the shared table. */
+export function applyMigrationSteps(
+    steps: Readonly<Record<number, (data: Record<string, unknown>) => Record<string, unknown>>>,
+    from: number,
+    target: number,
+    payloadKey: DataPayloadKey,
+    payload: unknown,
+): unknown {
+    let value = payload;
+    for (let v = from; v < target; v++) {
+        const step = steps[v];
+        if (step) { value = step({ schemaVersion: v, [payloadKey]: value })[payloadKey]; }
+    }
+    return value;
+}
+
+/** Resolve the payload from a raw `data` value: the legacy bare array is the
+ *  payload itself; the versioned object carries it under `payloadKey`. An object
+ *  that declares a valid `schemaVersion` but omits the payload key has an absent
+ *  payload (`undefined`) — stamp it so the shape normalizer self-heals the empty
+ *  default rather than nesting the whole object. Returns null for an
+ *  unrecognized object (no carrier, no numeric `schemaVersion`) — not a data
+ *  file this runner should restructure. */
+function resolvePayload(raw: unknown, payloadKey: DataPayloadKey): { value: unknown } | null {
+    const source = plainObject(raw);
+    if (source === null) { return { value: raw }; }
+    if (payloadKey in source) { return { value: source[payloadKey] }; }
+    return isSchemaVersion(source.schemaVersion) ? { value: undefined } : null;
+}
+
+/** Migrate a payload forward to `DATA_SCHEMA_VERSION`.
+ *  - legacy bare-array `data` is treated as version 1 and wrapped in the object form;
+ *  - recorded version newer than the build → `{ status: 'newer' }` (no downgrade);
+ *  - already current and byte-identical → `changed: false` (no write). */
+export function migrateData(raw: unknown, payloadKey: DataPayloadKey): MigratedData {
+    const from = recordedSchemaVersion(raw);
+    if (from > DATA_SCHEMA_VERSION) { return { status: 'newer' }; }
+    const resolved = resolvePayload(raw, payloadKey);
+    if (resolved === null) { return { status: 'ok', value: raw as Record<string, unknown>, changed: false }; }
+    const value = applyMigrationSteps(MIGRATIONS, from, DATA_SCHEMA_VERSION, payloadKey, resolved.value);
+    // An absent payload (versioned object missing its key) omits the carrier key
+    // rather than nesting the whole object; the shape normalizer then self-heals.
+    const next = value === undefined
+        ? { schemaVersion: DATA_SCHEMA_VERSION }
+        : { schemaVersion: DATA_SCHEMA_VERSION, [payloadKey]: value };
+    return { status: 'ok', value: next, changed: JSON.stringify(raw) !== JSON.stringify(next) };
+}
+
+/** Compose the migration runner with a per-file shape normalizer.
+ *  Returns:
+ *  - `newer` when the recorded version is ahead of this build (caller → corrupt path);
+ *  - otherwise the shape-normalized payload, with `changed` true when either the
+ *    version/shape migrated or the shape normalizer reports a diff. */
+export function migrateAndNormalize<T>(
+    raw: unknown,
+    payloadKey: DataPayloadKey,
+    shapeNormalize: (payload: unknown) => NormalizedValue<T>,
+    empty: () => T,
+): NormalizedValue<T> {
+    const migrated = migrateData(raw, payloadKey);
+    if (migrated.status === 'newer') { return { value: empty(), changed: false, newer: true }; }
+    const shaped = shapeNormalize(migrated.value[payloadKey]);
+    return { value: shaped.value, changed: migrated.changed || shaped.changed };
+}
+
+/** Extract the payload from a raw `data` value (legacy array or object form).
+ *  Returns null when the file is newer than this build (do not read stale data). */
+export function migratedPayload(raw: unknown, payloadKey: DataPayloadKey): unknown | null {
+    const migrated = migrateData(raw, payloadKey);
+    return migrated.status === 'newer' ? null : migrated.value[payloadKey];
+}
+
+/** Read a data file for a read-modify-write. `newer` marks a payload ahead of
+ *  this build: the caller must NOT write (forward-only — never downgrade or
+ *  clobber a newer file). `missing`/`corrupt` fall back to the empty payload so
+ *  an unrelated corrupt sibling is not treated as a reason to skip a legitimate
+ *  write (existing behavior). */
+export type PayloadForWrite = { status: 'ok' | 'missing' | 'corrupt' | 'newer'; payload: unknown };
+
+export async function readPayloadForWrite(uri: vscode.Uri, payloadKey: DataPayloadKey): Promise<PayloadForWrite> {
+    const read = await readJson(uri);
+    if (read.status !== 'ok') { return { status: read.status, payload: undefined }; }
+    const migrated = migrateData(read.value, payloadKey);
+    if (migrated.status === 'newer') { return { status: 'newer', payload: undefined }; }
+    return { status: 'ok', payload: migrated.value[payloadKey] };
+}
 
 const DEFAULT_DEBOUNCE_MS = 400;
 const SCHEMA_DIR = '.hexscope/schemas';
@@ -30,7 +157,10 @@ const STRUCT_POOL_FILE = 'structs.json';
 /** File names within the single-file registry. */
 type ProfileJsonName = 'profiles.json';
 export type JsonRead = { status: 'ok'; value: unknown } | { status: 'missing' } | { status: 'corrupt' };
-export type NormalizedValue<T> = { value: T; changed: boolean };
+/** Normalizer result. `changed` drives the self-heal write-back; `newer` marks a
+ *  payload whose data-schema version is ahead of this build — the store maps it
+ *  to the corrupt path (empty default + warn-once, file never overwritten). */
+export type NormalizedValue<T> = { value: T; changed: boolean; newer?: boolean };
 
 // Bundled schemas seeded into .hexscope/schemas/; writeJson injects a
 // $schema sibling pointing here for AI-agent discovery.
@@ -234,10 +364,22 @@ export async function readDirectorySafe(uri: vscode.Uri): Promise<[string, vscod
 // All profiles live in one array. Reads scan the array; writes are
 // read-modify-write on the single file. No-per-profile directories.
 
-/** Every profile record in the registry array (normalized). */
+/** Every profile record in the registry array (normalized). A newer-version
+ *  file resolves to [] (forward-only: never downgraded; the store warns). */
 export async function collectProfileRecords(root: string): Promise<ProfileRecord[]> {
     const read = await readJson(profilesJsonUri(root));
-    return read.status === 'ok' ? normalizeProfilesRegistry(read.value).value : [];
+    if (read.status !== 'ok') { return []; }
+    const payload = migratedPayload(read.value, 'records');
+    return payload === null ? [] : normalizeProfilesRegistry(payload).value;
+}
+
+/** Registry array for a read-modify-write: `newer` means the file is ahead of
+ *  this build and the caller must not write it back (R4 forward-only). */
+async function recordsForWrite(root: string): Promise<{ records: ProfileRecord[]; newer: boolean }> {
+    const read = await readPayloadForWrite(profilesJsonUri(root), 'records');
+    return read.status === 'newer'
+        ? { records: [], newer: true }
+        : { records: normalizeProfilesRegistry(read.payload).value, newer: false };
 }
 
 /** Read one registry profile record; null when missing. */
@@ -250,19 +392,20 @@ export async function readProfileRecord(root: string, profileId: string): Promis
  *  itself refreshes the .hexscope/schemas copies (see writeJson). */
 export async function writeProfileRecord(root: string, rec: ProfileRecord): Promise<void> {
     const uri = profilesJsonUri(root);
-    const read = await readJson(uri);
-    const records = read.status === 'ok' ? normalizeProfilesRegistry(read.value).value : [];
+    const { records, newer } = await recordsForWrite(root);
+    if (newer) { return; }   // forward-only: never clobber a newer file
     const idx = records.findIndex(r => r.id === rec.id);
     const next = idx >= 0 ? records.map(r => (r.id === rec.id ? rec : r)) : [...records, rec];
-    await writeJson(uri, withEnvelope(normalizeProfilesRegistry(next).value));
+    await writeJson(uri, withEnvelope(withDataEnvelope('records', normalizeProfilesRegistry(next).value)));
 }
 
 /** Remove a profile record from the registry array (no-op when absent). */
 export async function removeProfileRecord(root: string, profileId: string): Promise<void> {
-    const records = await collectProfileRecords(root);
+    const { records, newer } = await recordsForWrite(root);
+    if (newer) { return; }   // forward-only: never clobber a newer file
     const next = records.filter(r => r.id !== profileId);
     if (next.length === records.length) { return; }
-    await writeJson(profilesJsonUri(root), withEnvelope(normalizeProfilesRegistry(next).value));
+    await writeJson(profilesJsonUri(root), withEnvelope(withDataEnvelope('records', normalizeProfilesRegistry(next).value)));
 }
 
 /** Rename one profile record in the registry array (created when missing). */
@@ -285,21 +428,32 @@ export async function nextProfileOrdinal(root: string): Promise<number> {
     return id;
 }
 
-/** One-time merge of the per-directory registry (.hexscope/profiles/<id>/profile.json)
- *  into the single-file registry array. Idempotent: existing records win on
- *  duplicate id / case-insensitive name; the dir tree is left in place for
- *  rollback (the marker lives in hexScopeMigration). */
-export async function migrateLegacyProfileDirs(root: string): Promise<void> {
-    const current = await collectProfileRecords(root);
+/** Collect the registry records merged with any legacy per-dir records, or
+ *  `null` when the file is newer than the build (forward-only → no write). */
+async function mergedLegacyRecords(root: string): Promise<{ current: ProfileRecord[]; merged: ProfileRecord[] } | null> {
+    const read = await readPayloadForWrite(profilesJsonUri(root), 'records');
+    if (read.status === 'newer') { return null; }
+    const current = normalizeProfilesRegistry(read.payload).value;
     const container = vscode.Uri.file(path.join(root, '.hexscope', 'profiles'));
     const merged: ProfileRecord[] = [...current];
     for (const entry of await readDirectorySafe(container)) {
         const rec = await readLegacyDirRecord(container, entry);
         if (rec) { merged.push(rec); }
     }
-    const normalized = normalizeProfilesRegistry(merged);
-    if (registryChanged(normalized.value, current)) {
-        await writeJson(profilesJsonUri(root), withEnvelope(normalized.value));
+    return { current, merged };
+}
+
+/** One-time merge of the per-directory registry (.hexscope/profiles/<id>/profile.json)
+ *  into the single-file registry array. Idempotent: existing records win on
+ *  duplicate id / case-insensitive name; the dir tree is left in place for
+ *  rollback (the marker lives in hexScopeMigration). A newer-version file is
+ *  never rewritten (forward-only). */
+export async function migrateLegacyProfileDirs(root: string): Promise<void> {
+    const collected = await mergedLegacyRecords(root);
+    if (collected === null) { return; }
+    const normalized = normalizeProfilesRegistry(collected.merged);
+    if (registryChanged(normalized.value, collected.current)) {
+        await writeJson(profilesJsonUri(root), withEnvelope(withDataEnvelope('records', normalized.value)));
     }
 }
 
@@ -432,6 +586,9 @@ export interface JsonStoreOptions<T> {
     uri: vscode.Uri;
     normalizer: (raw: unknown) => NormalizedValue<T>;
     empty: () => T;
+    /** Data-schema payload key: when set, `commitWrite` stamps the cache as
+     *  `{ schemaVersion, <key>: cache }` inside `data` (see `withDataEnvelope`). */
+    payloadKey?: DataPayloadKey;
     debounceMs?: number;
     onSelfWrite?: () => void;
     onReload?: (value: T) => void;
@@ -523,6 +680,9 @@ export class JsonStore<T> {
 
     private async applyOk(raw: unknown): Promise<T> {
         const normalized = this.options.normalizer(raw);
+        // A payload newer than this build reuses the corrupt path: empty default
+        // + warn-once, never overwritten (forward-only; no downgrade).
+        if (normalized.newer) { return this.applyFallback('corrupt'); }
         this.cache = normalized.value;
         if (normalized.changed) { await this.writeNow(); }
         return this.cache;
@@ -606,7 +766,14 @@ export class JsonStore<T> {
         this.options.onSelfWrite?.();
         const uri = await this.writeUri();
         if (uri === null) { return; }
-        await writeJson(uri, withEnvelope(this.cache));
+        await writeJson(uri, withEnvelope(this.payload()));
+    }
+
+    /** The `data` payload: stamped with the data-schema version when the slot
+     *  owns one (`payloadKey`), else the cache verbatim. */
+    private payload(): unknown {
+        const key = this.options.payloadKey;
+        return key ? withDataEnvelope(key, this.cache) : this.cache;
     }
 
     private warnCorrupt(): void {
@@ -650,9 +817,16 @@ export function attachProfileWatcher(options: ProfileWatcherOptions): vscode.Dis
 // ── Binding table helpers ─────────────────────────────────────────
 
 export function normalizeBindings(raw: unknown): NormalizedValue<Binding[]> {
-    if (!Array.isArray(raw)) { return { value: [], changed: false }; }
-    const value: Binding[] = raw.map(bindingFromEntry).filter((b): b is Binding => isBinding(b));
-    return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
+    // Accept the legacy bare array or the versioned object form; a newer-than-build
+    // payload resolves to [] and carries `newer` (forward-only — never written back).
+    const migrated = migrateData(raw, 'bindings');
+    if (migrated.status === 'newer') { return { value: [], changed: false, newer: true }; }
+    const payload = migrated.value.bindings;
+    if (!Array.isArray(payload)) { return { value: [], changed: false }; }
+    const value: Binding[] = payload.map(bindingFromEntry).filter((b): b is Binding => isBinding(b));
+    // Rewrite when the payload differs OR the carrier/version is not yet stamped.
+    const changed = JSON.stringify(raw) !== JSON.stringify(withDataEnvelope('bindings', value));
+    return { value, changed };
 }
 
 function bindingFromEntry(entry: unknown): Binding | null {

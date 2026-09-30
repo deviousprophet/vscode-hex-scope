@@ -7,7 +7,7 @@ import * as assert from 'assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Ajv = require('ajv');
-import { DATA_VERSION } from '../../hexScopeStorage';
+import { DATA_SCHEMA_VERSION, DATA_VERSION } from '../../hexScopeStorage';
 import { INTEGRITY_ALGORITHMS } from '../../core/integrity';
 import { STRUCT_BASE_TYPES, STRUCT_FIELD_TYPES } from '../../core/types';
 
@@ -27,9 +27,10 @@ function errorsFor(schema: object, data: unknown): string[] {
     return check(data) ? [] : (check.errors ?? []).map(error => error.message ?? 'invalid');
 }
 
-const structsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/structs.schema.json' });
-const profileEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/profiles.schema.json' });
-const bindingsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/bindings.schema.json' });
+/** Envelope + data payload with the current data-schema version and payload key. */
+const structsEnvelope = (defs: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, defs }, $schema: 'schemas/structs.schema.json' });
+const profileEnvelope = (records: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, records }, $schema: 'schemas/profiles.schema.json' });
+const bindingsEnvelope = (bindings: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, bindings }, $schema: 'schemas/bindings.schema.json' });
 
 suite('hexScope schemas — positive fixtures', () => {
     test('profiles.json accepts a full ProfileRecord[] (with unique ids)', () => {
@@ -165,9 +166,15 @@ suite('hexScope schemas — positive fixtures', () => {
 
 suite('hexScope schemas — negative cases', () => {
     test('wrong envelope version is refused everywhere', () => {
-        for (const name of ['profiles.schema.json', 'structs.schema.json', 'bindings.schema.json']) {
+        const payloads: Array<[string, Record<string, unknown>]> = [
+            ['profiles.schema.json', { schemaVersion: DATA_SCHEMA_VERSION, records: [] }],
+            ['structs.schema.json', { schemaVersion: DATA_SCHEMA_VERSION, defs: [] }],
+            ['bindings.schema.json', { schemaVersion: DATA_SCHEMA_VERSION, bindings: [] }],
+        ];
+        for (const [name, data] of payloads) {
             const { schema } = loadSchema(name);
-            assert.notDeepStrictEqual(errorsFor(schema, { version: 2, data: [] }), [], `${name} rejects version 2`);
+            assert.deepStrictEqual(errorsFor(schema, { version: DATA_VERSION, data }), [], `${name} accepts a valid payload at version 1`);
+            assert.notDeepStrictEqual(errorsFor(schema, { version: 2, data }), [], `${name} rejects version 2`);
         }
     });
 
@@ -263,13 +270,33 @@ suite('hexScope schemas — negative cases', () => {
         assert.notDeepStrictEqual(errorsFor(bindings.schema, bindingsEnvelope([{ fileKey: 'a.hex' }])), []);
     });
 
-    test('data not an array fails structs.json + bindings.json + profiles.json', () => {
+    test('a bare-array (legacy) data payload fails the object-form schemas', () => {
+        // The schemas describe the versioned object form `{ schemaVersion, <payload> }`;
+        // a legacy bare array is readable at runtime but no longer schema-valid.
         const structs = loadSchema('structs.schema.json');
-        assert.notDeepStrictEqual(errorsFor(structs.schema, structsEnvelope({ id: 's1' })), []);
+        assert.notDeepStrictEqual(errorsFor(structs.schema, { version: DATA_VERSION, data: [{ id: 's1' }] }), []);
         const bindings = loadSchema('bindings.schema.json');
-        assert.notDeepStrictEqual(errorsFor(bindings.schema, bindingsEnvelope({ fileKey: 'a.hex' })), []);
+        assert.notDeepStrictEqual(errorsFor(bindings.schema, { version: DATA_VERSION, data: [{ fileKey: 'a.hex' }] }), []);
         const profile = loadSchema('profiles.schema.json');
-        assert.notDeepStrictEqual(errorsFor(profile.schema, profileEnvelope({ id: 'x' })), []);
+        assert.notDeepStrictEqual(errorsFor(profile.schema, { version: DATA_VERSION, data: [{ id: 'x' }] }), []);
+    });
+
+    test('a data payload missing schemaVersion or its payload key fails every schema', () => {
+        const structs = loadSchema('structs.schema.json');
+        assert.notDeepStrictEqual(errorsFor(structs.schema, { version: DATA_VERSION, data: { defs: [] } }), [], 'missing schemaVersion');
+        assert.notDeepStrictEqual(errorsFor(structs.schema, { version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION } }), [], 'missing defs');
+        const profile = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(profile.schema, { version: DATA_VERSION, data: { records: [] } }), [], 'missing schemaVersion');
+        const bindings = loadSchema('bindings.schema.json');
+        assert.notDeepStrictEqual(errorsFor(bindings.schema, { version: DATA_VERSION, data: { bindings: [] } }), [], 'missing schemaVersion');
+    });
+
+    test('a non-integer / sub-1 schemaVersion fails every schema', () => {
+        for (const [name, key] of [['structs.schema.json', 'defs'], ['profiles.schema.json', 'records'], ['bindings.schema.json', 'bindings']] as const) {
+            const { schema } = loadSchema(name);
+            assert.notDeepStrictEqual(errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: 1.5, [key]: [] } }), [], `${name} rejects fractional schemaVersion`);
+            assert.notDeepStrictEqual(errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: 0, [key]: [] } }), [], `${name} rejects schemaVersion 0`);
+        }
     });
 });
 
@@ -298,5 +325,36 @@ suite('hexScope schemas — drift guard against TS types', () => {
         const structs = loadSchema('structs.schema.json');
         const structDef = structs.defs.structDef as { properties: { baseType: { enum: unknown[] } } };
         assert.deepStrictEqual(structDef.properties.baseType.enum, Array.from(STRUCT_BASE_TYPES));
+    });
+
+    test('the three schemas declare an identical data.schemaVersion rule and the runtime constant is accepted', () => {
+        const keys: Record<string, string> = {
+            'profiles.schema.json': 'records',
+            'structs.schema.json': 'defs',
+            'bindings.schema.json': 'bindings',
+        };
+        const rules: Array<{ schemaVersion: unknown; requiresVersion: boolean }> = [];
+        for (const [name, payloadKey] of Object.entries(keys)) {
+            const { schema } = loadSchema(name);
+            const data = (schema as { properties: { data: { required?: string[]; properties?: Record<string, unknown> } } }).properties.data;
+            assert.ok(data.required?.includes('schemaVersion'), `${name} requires data.schemaVersion`);
+            assert.ok(data.required?.includes(payloadKey), `${name} requires data.${payloadKey}`);
+            assert.deepStrictEqual(Object.keys(data.properties ?? {}).sort(), ['schemaVersion', payloadKey].sort(), `${name} declares exactly schemaVersion + ${payloadKey}`);
+            rules.push({ schemaVersion: (data.properties as Record<string, unknown>).schemaVersion, requiresVersion: !!data.required?.includes('schemaVersion') });
+        }
+        assert.deepStrictEqual(rules[1], rules[0], 'structs and profiles declare the same data.schemaVersion rule');
+        assert.deepStrictEqual(rules[2], rules[0], 'bindings and profiles declare the same data.schemaVersion rule');
+        // The schemas pin `minimum: 1` and no `const` (older files stay authorable);
+        // the runtime constant must satisfy that floor, and a payload stamped with
+        // it must validate for all three — the drift guard against a bare bump.
+        assert.deepStrictEqual(rules[0].schemaVersion, { type: 'integer', minimum: 1, description: 'Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only).' }, 'the shared data.schemaVersion rule is the version floor (no const)');
+        for (const [name, payloadKey] of Object.entries(keys)) {
+            const { schema } = loadSchema(name);
+            assert.deepStrictEqual(
+                errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, [payloadKey]: [] } }),
+                [],
+                `${name} accepts a DATA_SCHEMA_VERSION payload`,
+            );
+        }
     });
 });

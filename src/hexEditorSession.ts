@@ -32,20 +32,24 @@ import {
     bindingsJsonUri,
     collectProfileRecords,
     emptyProfileRecord,
+    migrateAndNormalize,
     nextProfileOrdinal,
     normalizeBindings,
     normalizeProfilesRegistry,
     perFileRelativePath,
     profilesJsonUri,
     readJson,
+    readPayloadForWrite,
     readProfileRecord,
     removeProfileRecord,
     resolveHexScopeRoot,
     structPoolJsonUri,
+    withDataEnvelope,
     withEnvelope,
     writeJson,
     writeProfileRecord,
     type Binding,
+    type NormalizedValue,
     type ProfileRecord,
     JsonStore,
 } from './hexScopeStorage';
@@ -588,11 +592,18 @@ export class HexEditorSession {
                 const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
                 return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
             };
+            // Migration runs ahead of the shape normalizer for both slots, so an
+            // older-version file is upgraded on load and self-healed once.
+            const migratableStructs = (raw: unknown): NormalizedValue<StructDef[]> =>
+                migrateAndNormalize(raw, 'defs', normalizeStructs, () => []);
+            const migratableRegistry = (raw: unknown): NormalizedValue<ProfileRecord[]> =>
+                migrateAndNormalize(raw, 'records', normalizeProfilesRegistry, () => []);
             if (!registryStore) {
                 // single-file profile registry (.hexscope/profiles.json)
                 registryStore = new JsonStore<ProfileRecord[]>({
                     uri: profilesJsonUri(root),
-                    normalizer: normalizeProfilesRegistry,
+                    normalizer: migratableRegistry,
+                    payloadKey: 'records',
                     empty: () => [],
                     onSelfWrite: markSelfWrite,
                     onReload: () => { void broadcastPerFileData(); void broadcastProfilesState(); },
@@ -602,7 +613,8 @@ export class HexEditorSession {
                 // workspace-wide struct pool (.hexscope/structs.json)
                 structPoolStore = new JsonStore<StructDef[]>({
                     uri: structPoolJsonUri(root),
-                    normalizer: normalizeStructs,
+                    normalizer: migratableStructs,
+                    payloadKey: 'defs',
                     empty: () => [...(workspaceStructPoolCache.get(root) ?? [])],
                     onSelfWrite: markSelfWrite,
                     onReload: () => void broadcastStructs(),
@@ -1366,23 +1378,25 @@ export async function boundProfileId(root: string, relPath: string): Promise<str
 /** Append/replace the binding for a file (prunes dead entries on write). */
 export async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
     const bindingsUri = bindingsJsonUri(root);
-    const read = await readJson(bindingsUri);
-    const bindings = read.status === 'ok' ? normalizeBindings(read.value).value : [];
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const bindings = normalizeBindings(read.status === 'ok' ? withDataEnvelope('bindings', read.payload) : []).value;
     const without = bindings.filter(b => b.fileKey !== fileKey);
     const next = [...without, { fileKey, profileId }];
     const pruned = await pruneBindings(root, next);
-    await writeJson(bindingsUri, withEnvelope(pruned));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
 }
 
 /** Remove the binding for a file (silent). */
 export async function unbindFile(root: string, fileKey: string): Promise<void> {
     const bindingsUri = bindingsJsonUri(root);
-    const read = await readJson(bindingsUri);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
     if (read.status !== 'ok') { return; }
-    const bindings = normalizeBindings(read.value).value;
+    const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value;
     if (!bindings.some(b => b.fileKey === fileKey)) { return; }
     const pruned = await pruneBindings(root, bindings.filter(b => b.fileKey !== fileKey));
-    await writeJson(bindingsUri, withEnvelope(pruned));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
 }
 
 /** Drop binding entries whose fileKey no longer resolves on disk (CLI mv/rm). */
@@ -1432,10 +1446,10 @@ export async function bindingsUsing(root: string, profileId: string): Promise<Ar
 export async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
     await removeProfileRecord(root, profileId);
     const bindingsUri = bindingsJsonUri(root);
-    const read = await readJson(bindingsUri);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
     if (read.status === 'ok') {
-        const bindings = normalizeBindings(read.value).value.filter(b => b.profileId !== profileId);
-        await writeJson(bindingsUri, withEnvelope(bindings));
+        const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value.filter(b => b.profileId !== profileId);
+        await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', bindings)));
     }
 }
 
@@ -1519,13 +1533,15 @@ export async function collectStructDeletionUsage(
  *  idempotent with the webview's later saveStructPins). */
 export async function stripDeletedStructPins(root: string, deletedIds: string[]): Promise<void> {
     const target = new Set(deletedIds);
-    const records = await collectProfileRecords(root);
+    const read = await readPayloadForWrite(profilesJsonUri(root), 'records');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const records = normalizeProfilesRegistry(read.payload).value;
     const next = records.map(rec => {
 const stripped = rec.structPins.filter(pin => !target.has(pin.structId));
 return stripped.length === rec.structPins.length ? rec : { ...rec, structPins: stripped };
     });
     if (next.some((rec, i) => rec !== records[i])) {
-        await writeJson(profilesJsonUri(root), withEnvelope(normalizeProfilesRegistry(next).value));
+        await writeJson(profilesJsonUri(root), withEnvelope(withDataEnvelope('records', normalizeProfilesRegistry(next).value)));
     }
 }
 
@@ -1610,7 +1626,7 @@ function attachBindingFileLifecycle(root: string): vscode.Disposable {
             if (match) { changed = true; return { ...b, fileKey: perFileRelativePath(root, match.newUri) }; }
             return b;
         });
-        if (changed) { await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next))); }
+        if (changed) { await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next)))); }
     });
     const del = vscode.workspace.onDidDeleteFiles(async event => {
         const bindings = await readBindingsTable(root);
@@ -1618,17 +1634,18 @@ function attachBindingFileLifecycle(root: string): vscode.Disposable {
         const deleted = new Set(event.files.map(f => perFileRelativePath(root, f)));
         const next = bindings.filter(b => !deleted.has(b.fileKey));
         if (next.length !== bindings.length) {
-            await writeJson(bindingsJsonUri(root), withEnvelope(await pruneBindings(root, next)));
+            await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next))));
         }
     });
     return new vscode.Disposable(() => { rename.dispose(); del.dispose(); });
 }
 
-/** Read + normalize the bindings table; null when missing/corrupt. */
+/** Read + normalize the bindings table; null when missing/corrupt/never-downgrade. */
 async function readBindingsTable(root: string): Promise<Binding[] | null> {
     const read = await readJson(bindingsJsonUri(root));
     if (read.status !== 'ok') { return null; }
-    return normalizeBindings(read.value).value;
+    const normalized = normalizeBindings(read.value);
+    return normalized.newer ? null : normalized.value;
 }
 
 function getNonce(): string {

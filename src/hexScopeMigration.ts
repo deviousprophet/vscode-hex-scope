@@ -22,13 +22,16 @@ import {
     collectProfileRecords,
     emptyProfileRecord,
     migrateLegacyProfileDirs,
+    migratedPayload,
     nextProfileOrdinal,
     normalizeBindings,
     perFileRelativePath,
     readDirectorySafe,
     readJson,
+    readPayloadForWrite,
     resolveHexScopeRoot,
     structPoolJsonUri,
+    withDataEnvelope,
     withEnvelope,
     writeJson,
     writeProfileRecord,
@@ -246,10 +249,12 @@ function legacyActiveChecks(profiles: IntegrityProfileVal[]): IntegrityCheckVal 
 async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
     if (!fileKey) { return; }
     const bindingsUri = bindingsJsonUri(root);
-    const current = await readBindings(root);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const current = read.status === 'ok' ? normalizeBindings(withDataEnvelope('bindings', read.payload)).value : [];
     const without = current.filter(b => b.fileKey !== fileKey);
     const next = [...without, { fileKey, profileId }];
-    await writeJson(bindingsUri, withEnvelope(normalizeBindings(next).value));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', normalizeBindings(next).value)));
 }
 
 function profileNameFromIndex(index: ProfileIndexData, sourceDirName: string): string {
@@ -260,26 +265,23 @@ function profileNameFromRel(relPath: string): string {
     return path.basename(relPath, path.extname(relPath)) || 'Firmware';
 }
 
-async function readBindings(root: string): Promise<BindingVal[]> {
-    const read = await readJson(bindingsJsonUri(root));
-    if (read.status !== 'ok') { return []; }
-    return normalizeBindings(read.value).value;
-}
-
 /** Merge legacy struct defs into the pool, deduped via structMigration. */
 async function mergeIntoPool(root: string, legacy: StructDef[]): Promise<void> {
     const poolUri = structPoolJsonUri(root);
+    const read = await readPayloadForWrite(poolUri, 'defs');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
     const existing = await readStructPool(root);
     const merged = mergeLegacyStructDefs(existing, legacy);
     if (merged.changed) {
-        await writeJson(poolUri, withEnvelope(merged.defs));
+        await writeJson(poolUri, withEnvelope(withDataEnvelope('defs', merged.defs)));
     }
 }
 
 async function readStructPool(root: string): Promise<StructDef[]> {
     const read = await readJson(structPoolJsonUri(root));
     if (read.status !== 'ok') { return []; }
-    return normalizeStructDefsValue(migrateStructDefinitions(read.value)).defs;
+    const payload = migratedPayload(read.value, 'defs');
+    return payload === null ? [] : normalizeStructDefsValue(migrateStructDefinitions(payload)).defs;
 }
 
 // ── Legacy Memento seeding (open doc) ─────────────────────────────
@@ -478,7 +480,3 @@ interface IntegrityProfileVal {
     checks: unknown[];
 }
 
-interface BindingVal {
-    fileKey: string;
-    profileId: string;
-}
