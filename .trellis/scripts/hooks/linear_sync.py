@@ -37,6 +37,17 @@ from pathlib import Path
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
+
+def hidden_kwargs() -> dict:
+    """Windows: suppress the console window a child process would otherwise pop.
+
+    This hook is standalone (it imports no ``common`` module), so it carries its
+    own copy. ``CREATE_NO_WINDOW`` is not inherited and must be set per spawn.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
 # Trellis priority → Linear priority (1=Urgent, 2=High, 3=Medium, 4=Low)
 PRIORITY_MAP = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
 
@@ -94,6 +105,7 @@ def _linearis(*args: str) -> dict | None:
         text=True,
         encoding="utf-8",
         errors="replace",
+        **hidden_kwargs(),
     )
     if result.returncode != 0:
         print(f"linearis error: {result.stderr.strip()}", file=sys.stderr)
