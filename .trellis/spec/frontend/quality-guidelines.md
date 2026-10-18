@@ -21,6 +21,30 @@ Both reports must contain zero dead-code issues, clone groups, health findings, 
 
 `npm test` compiles tests/extension, bundles the webview, launches VS Code, and runs core, webview, fixture, and extension suites.
 
+## Complexity / CRAP Authoring
+
+The health gate scores cyclomatic complexity and CRAP per function; a small reader can trip it even when every branch is trivial. The usual culprit is chained conditional object spreads used to build an optional-key result:
+
+```typescript
+// Trips the gate: each `...(cond ? {k: v} : {})` adds a branch (cyclo + CRAP).
+function read(row: Row) {
+    return { name: readName(row), ...(row.hidden ? { hidden: true } : {}), ...(row.refId ? { refStructId: row.refId } : {}) };
+}
+```
+
+Build the base object first, then assign the optional keys — or extract each optional read into a tiny named helper (one branch each). Mutate-then-assign keeps the orchestrating function branch-free and the pieces individually testable:
+
+```typescript
+function read(row: Row) {
+    const out: Draft = { name: readName(row) };
+    const hidden = readHiddenFlag(row);        // own tiny helper
+    if (hidden) { out.hidden = hidden; }
+    return out;
+}
+```
+
+Prefer this shape over stacked conditional spreads in readers/normalizers; the same discipline applies to any function the gate scores on a chained expression.
+
 ## Test Placement
 
 - Pure algorithms/models: `src/test/core/`.

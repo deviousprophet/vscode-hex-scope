@@ -47,6 +47,13 @@ export interface StructField {
     hidden?: boolean;
 }
 
+export interface BitFieldChild {
+    name: string;
+    bitWidth: number;
+    refStructId?: string;
+    hidden?: boolean;   // def-level, instance-view only
+}
+
 export interface StructDef {
     id: string;
     name: string;
@@ -121,8 +128,10 @@ preserving the behavior contracts below.
   (group the decoded rows, drop a group whose declaration resolves hidden by full
   field path), so decode, offsets/address math, and the C preview are unaffected.
   A hidden container drops its whole subtree (leaf, composite, nested struct, array,
-  and bit-unit children alike). Hidden is field/container level only — there is no
-  per-bit-child hidden control. The flag is display-only and load-preserving (a
+  and bit-unit children alike). Hidden is field/container level, **plus** a def-level
+  per-bit-child flag: a `BitFieldChild.hidden === true` drops that one named bit row
+  from the bit-unit body while the container header row stays (an all-hidden container
+  still renders its header). Both flags are display-only and load-preserving (a
   persisted `hidden:false` is not rewritten on load; the editor omits `false` when
   saving). The Struct Instances header owns one global "show hidden fields" toggle
   (default off, persisted per profile); turning it on updates the instances **in
@@ -148,6 +157,7 @@ preserving the behavior contracts below.
 | Duplicate local leaf name | Add stable `#2`, `#3`, ... suffixes. |
 | Bitfield pointer or pointer array requested | Treat as unsupported/future; do not synthesize target semantics. |
 | Field/container marked `hidden` | Omit the group and its whole subtree from the instance view (unless the global toggle is on); decode, offsets, and the C preview stay unchanged. |
+| Bit child marked `hidden` | Omit that child row from the bit-unit body (unless the global toggle is on); the container header row stays even when all children are hidden; decode, offsets, and the C preview stay unchanged. |
 
 ### 5. Good/Base/Bad Cases
 
@@ -536,6 +546,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Bitfield container (single bitfield parent field)
 
 - A field that references a named `kind: 'bitfield'` type resolves at the decode boundary to the **same group shape an inline container produces today**: the field's own bitunit header is the container row, its children are the def's children, and there is no extra wrapper/nested-struct level. Arrays (`count > 1`) render one bitunit group per element. Field-level endian/allocation overrides apply exactly as on an inline container.
+- A child marked `hidden` (`BitFieldChild.hidden === true`, def-level) has its row dropped from the expanded bitunit body; the container header row is unaffected (an all-hidden container still shows its header row). The global "show hidden fields" toggle reveals hidden child rows. Render-only: decode, offsets/sizes, and the C preview are unchanged.
 - An enum-typed scalar field, or a bit-field child carrying an enum ref, renders a matched value as `NAME (0x<digits>)` in the value cell, where the digit count follows the value width (`enumHexDigits`: the bit-child width, or the field byte width for a scalar enum; no forced 2-digit minimum); an unmatched value (or a non-default display mode) falls back to the plain numeric rendering. Enum is presentation-only: offset/endianness/allocation/bytes are unchanged, and per-element labels apply for scalar arrays and bit-container arrays. `Copy as` stays numeric.
 
 - Render shape:
