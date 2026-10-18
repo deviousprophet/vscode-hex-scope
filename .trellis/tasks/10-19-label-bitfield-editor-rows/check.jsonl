@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Verify the editor row headers/wiring match the documented form contract"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar, test-quality rules, no weakened assertions"}
-{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify the header reuses the shared grid/typography pattern"}
