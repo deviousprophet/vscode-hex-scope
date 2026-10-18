@@ -442,21 +442,23 @@ export default {
         debugLog("inject", "tool.execute.before called, tool:", event?.tool);
 
         const toolName = event?.tool?.toLowerCase();
-        if (toolName === "bash") {
+        // OpenCode v2 renamed the V1 tools: bash -> shell, task -> subagent.
+        // Accept both so the hook survives either naming.
+        if (toolName === "shell" || toolName === "bash") {
           if (injectTrellisContextIntoBash(trellis, event, hostPlatform, env)) {
-            debugLog("inject", "Injected TRELLIS_CONTEXT_ID into Bash command");
+            debugLog("inject", "Injected TRELLIS_CONTEXT_ID into shell command");
           }
           return;
         }
 
-        if (toolName !== "task") {
+        if (toolName !== "subagent" && toolName !== "task") {
           return;
         }
 
         const args = event?.input;
         if (!args) { return; }
 
-        const rawSubagentType = args.subagent_type;
+        const rawSubagentType = args.subagent_type ?? args.agent;
         // Strip "trellis-" prefix added by v0.5.0-beta.5 agent rename migration
         const subagentType = (rawSubagentType || "").replace(/^trellis-/, "");
         const originalPrompt = args.prompt || "";
