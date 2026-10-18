@@ -6,29 +6,29 @@
  * OpenCode v2: registered on `ctx.tool.hook("execute.before")`.
  */
 
-import { existsSync, readdirSync } from "fs"
-import { join } from "path"
+import { existsSync, readdirSync } from "fs";
+import { join } from "path";
 import {
   TrellisContext,
   debugLog,
   readContextInjectionLimits,
   ContextBudget,
   materializeArtifact,
-} from "../lib/trellis-context.js"
+} from "../lib/trellis-context.js";
 
 // Supported subagent types
-const AGENTS_ALL = ["implement", "check", "research"]
-const AGENTS_REQUIRE_TASK = ["implement", "check"]
+const AGENTS_ALL = ["implement", "check", "research"];
+const AGENTS_REQUIRE_TASK = ["implement", "check"];
 
 // Match `Active task: <path>` on the first non-empty line of the dispatch
 // prompt. Mirrors the contract in workflow.md's [workflow-state:in_progress]
 // breadcrumb so multi-window users can disambiguate which task is targeted.
-const ACTIVE_TASK_HINT_RE = /^\s*Active task:\s*(\S+)\s*$/m
+const ACTIVE_TASK_HINT_RE = /^\s*Active task:\s*(\S+)\s*$/m;
 
 function extractActiveTaskHint(prompt) {
-  if (typeof prompt !== "string" || !prompt) return null
-  const match = prompt.match(ACTIVE_TASK_HINT_RE)
-  return match ? match[1].trim() : null
+  if (typeof prompt !== "string" || !prompt) { return null; }
+  const match = prompt.match(ACTIVE_TASK_HINT_RE);
+  return match ? match[1].trim() : null;
 }
 
 /**
@@ -44,18 +44,18 @@ function extractActiveTaskHint(prompt) {
  * All blocks share one total budget (issue #441).
  */
 function getImplementContext(ctx, taskDir) {
-  const parts = []
-  const taskDirFull = ctx.resolveTaskDir(taskDir)
-  if (!taskDirFull) return ""
+  const parts = [];
+  const taskDirFull = ctx.resolveTaskDir(taskDir);
+  if (!taskDirFull) { return ""; }
 
-  const limits = readContextInjectionLimits(ctx.directory)
-  const budget = new ContextBudget(limits.max_total_bytes)
+  const limits = readContextInjectionLimits(ctx.directory);
+  const budget = new ContextBudget(limits.max_total_bytes);
 
   // 1. Read implement.jsonl
-  const jsonlPath = join(taskDirFull, "implement.jsonl")
-  const blocks = ctx.readJsonlWithFiles(jsonlPath, limits, budget)
+  const jsonlPath = join(taskDirFull, "implement.jsonl");
+  const blocks = ctx.readJsonlWithFiles(jsonlPath, limits, budget);
   if (blocks.length > 0) {
-    parts.push(ctx.buildContextFromEntries(blocks))
+    parts.push(ctx.buildContextFromEntries(blocks));
   }
 
   // 2. Requirements document
@@ -66,8 +66,8 @@ function getImplementContext(ctx, taskDir) {
     "Requirements document",
     limits,
     budget,
-  )
-  if (prdBlock) parts.push(prdBlock)
+  );
+  if (prdBlock) { parts.push(prdBlock); }
 
   // 3. Technical design for complex tasks
   const designBlock = materializeArtifact(
@@ -77,8 +77,8 @@ function getImplementContext(ctx, taskDir) {
     "Technical design document",
     limits,
     budget,
-  )
-  if (designBlock) parts.push(designBlock)
+  );
+  if (designBlock) { parts.push(designBlock); }
 
   // 4. Execution plan for complex tasks
   const implementPlanBlock = materializeArtifact(
@@ -88,10 +88,10 @@ function getImplementContext(ctx, taskDir) {
     "Execution plan document",
     limits,
     budget,
-  )
-  if (implementPlanBlock) parts.push(implementPlanBlock)
+  );
+  if (implementPlanBlock) { parts.push(implementPlanBlock); }
 
-  return parts.join("\n\n")
+  return parts.join("\n\n");
 }
 
 /**
@@ -99,17 +99,17 @@ function getImplementContext(ctx, taskDir) {
  * Same read order and shared budget as the implement context.
  */
 function getCheckContext(ctx, taskDir) {
-  const parts = []
-  const taskDirFull = ctx.resolveTaskDir(taskDir)
-  if (!taskDirFull) return ""
+  const parts = [];
+  const taskDirFull = ctx.resolveTaskDir(taskDir);
+  if (!taskDirFull) { return ""; }
 
-  const limits = readContextInjectionLimits(ctx.directory)
-  const budget = new ContextBudget(limits.max_total_bytes)
+  const limits = readContextInjectionLimits(ctx.directory);
+  const budget = new ContextBudget(limits.max_total_bytes);
 
-  const jsonlPath = join(taskDirFull, "check.jsonl")
-  const blocks = ctx.readJsonlWithFiles(jsonlPath, limits, budget)
+  const jsonlPath = join(taskDirFull, "check.jsonl");
+  const blocks = ctx.readJsonlWithFiles(jsonlPath, limits, budget);
   if (blocks.length > 0) {
-    parts.push(ctx.buildContextFromEntries(blocks))
+    parts.push(ctx.buildContextFromEntries(blocks));
   }
 
   const prdBlock = materializeArtifact(
@@ -119,8 +119,8 @@ function getCheckContext(ctx, taskDir) {
     "Requirements document",
     limits,
     budget,
-  )
-  if (prdBlock) parts.push(prdBlock)
+  );
+  if (prdBlock) { parts.push(prdBlock); }
 
   const designBlock = materializeArtifact(
     ctx.directory,
@@ -129,8 +129,8 @@ function getCheckContext(ctx, taskDir) {
     "Technical design document",
     limits,
     budget,
-  )
-  if (designBlock) parts.push(designBlock)
+  );
+  if (designBlock) { parts.push(designBlock); }
 
   const implementPlanBlock = materializeArtifact(
     ctx.directory,
@@ -139,10 +139,10 @@ function getCheckContext(ctx, taskDir) {
     "Execution plan document",
     limits,
     budget,
-  )
-  if (implementPlanBlock) parts.push(implementPlanBlock)
+  );
+  if (implementPlanBlock) { parts.push(implementPlanBlock); }
 
-  return parts.join("\n\n")
+  return parts.join("\n\n");
 }
 
 /**
@@ -150,7 +150,7 @@ function getCheckContext(ctx, taskDir) {
  */
 function getFinishContext(ctx, taskDir) {
   // Finish reuses check context (same JSONL source)
-  return getCheckContext(ctx, taskDir)
+  return getCheckContext(ctx, taskDir);
 }
 
 
@@ -158,32 +158,32 @@ function getFinishContext(ctx, taskDir) {
  * Get context for research agent
  */
 function getResearchContext(ctx) {
-  const parts = []
+  const parts = [];
 
   // Dynamic project structure (scan actual spec directory)
-  const specPath = ".trellis/spec"
-  const specFull = join(ctx.directory, specPath)
+  const specPath = ".trellis/spec";
+  const specFull = join(ctx.directory, specPath);
 
-  const structureLines = [`## Project Spec Directory Structure\n\n\`\`\`\n${specPath}/`]
+  const structureLines = [`## Project Spec Directory Structure\n\n\`\`\`\n${specPath}/`];
   if (existsSync(specFull)) {
     try {
       const entries = readdirSync(specFull, { withFileTypes: true })
         .filter(d => d.isDirectory() && !d.name.startsWith("."))
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
       for (const entry of entries) {
-        const entryPath = join(specFull, entry.name)
+        const entryPath = join(specFull, entry.name);
         if (existsSync(join(entryPath, "index.md"))) {
-          structureLines.push(`├── ${entry.name}/`)
+          structureLines.push(`├── ${entry.name}/`);
         } else {
           try {
             const nested = readdirSync(entryPath, { withFileTypes: true })
               .filter(d => d.isDirectory() && existsSync(join(entryPath, d.name, "index.md")))
-              .sort((a, b) => a.name.localeCompare(b.name))
+              .sort((a, b) => a.name.localeCompare(b.name));
             if (nested.length > 0) {
-              structureLines.push(`├── ${entry.name}/`)
+              structureLines.push(`├── ${entry.name}/`);
               for (const n of nested) {
-                structureLines.push(`│   ├── ${n.name}/`)
+                structureLines.push(`│   ├── ${n.name}/`);
               }
             }
           } catch {
@@ -195,7 +195,7 @@ function getResearchContext(ctx) {
       // Ignore read errors
     }
   }
-  structureLines.push("```")
+  structureLines.push("```");
 
   parts.push(structureLines.join("\n") + `
 
@@ -204,9 +204,9 @@ function getResearchContext(ctx) {
 - Spec files: \`.trellis/spec/**/*.md\`
 - Known issues: \`.trellis/big-question/\`
 - Code search: Use Glob and Grep tools
-- Tech solutions: Use mcp__exa__web_search_exa or mcp__exa__get_code_context_exa`)
+- Tech solutions: Use mcp__exa__web_search_exa or mcp__exa__get_code_context_exa`);
 
-  return parts.join("\n\n")
+  return parts.join("\n\n");
 }
 
 /**
@@ -342,63 +342,63 @@ ${originalPrompt}
 **Only allowed**: Describe what exists, where it is, how it works
 
 **Forbidden**: Suggest improvements, criticize implementation, modify files`
-  }
+  };
 
-  return templates[agentType] || originalPrompt
+  return templates[agentType] || originalPrompt;
 }
 
 function shellQuote(value) {
-  return `'${String(value).replace(/'/g, "'\\''")}'`
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
 function powershellQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 function envValue(env, key) {
-  const value = env?.[key]
-  return typeof value === "string" && value.trim() ? value.trim() : null
+  const value = env?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function shellBasename(value) {
-  return value.replace(/\\/g, "/").split("/").pop()?.toLowerCase() || ""
+  return value.replace(/\\/g, "/").split("/").pop()?.toLowerCase() || "";
 }
 
 function isWindowsPosixShell(env = process.env) {
-  if (envValue(env, "MSYSTEM")) return true
-  if (envValue(env, "MINGW_PREFIX")) return true
-  if (envValue(env, "OPENCODE_GIT_BASH_PATH")) return true
+  if (envValue(env, "MSYSTEM")) { return true; }
+  if (envValue(env, "MINGW_PREFIX")) { return true; }
+  if (envValue(env, "OPENCODE_GIT_BASH_PATH")) { return true; }
 
-  const ostype = envValue(env, "OSTYPE")?.toLowerCase() || ""
-  if (/(msys|mingw|cygwin)/.test(ostype)) return true
+  const ostype = envValue(env, "OSTYPE")?.toLowerCase() || "";
+  if (/(msys|mingw|cygwin)/.test(ostype)) { return true; }
 
-  const shell = shellBasename(envValue(env, "SHELL") || "")
-  return /^(bash|sh|zsh)(\.exe)?$/.test(shell)
+  const shell = shellBasename(envValue(env, "SHELL") || "");
+  return /^(bash|sh|zsh)(\.exe)?$/.test(shell);
 }
 
 function buildTrellisContextPrefix(contextKey, hostPlatform = process.platform, env = process.env) {
   if (hostPlatform === "win32" && !isWindowsPosixShell(env)) {
-    return `$env:TRELLIS_CONTEXT_ID = ${powershellQuote(contextKey)}; `
+    return `$env:TRELLIS_CONTEXT_ID = ${powershellQuote(contextKey)}; `;
   }
 
-  return `export TRELLIS_CONTEXT_ID=${shellQuote(contextKey)}; `
+  return `export TRELLIS_CONTEXT_ID=${shellQuote(contextKey)}; `;
 }
 
 function getBashCommandKey(args) {
-  if (!args || typeof args !== "object") return null
-  if (typeof args.command === "string") return "command"
-  if (typeof args.cmd === "string") return "cmd"
-  return null
+  if (!args || typeof args !== "object") { return null; }
+  if (typeof args.command === "string") { return "command"; }
+  if (typeof args.cmd === "string") { return "cmd"; }
+  return null;
 }
 
 function commandStartsWithTrellisContext(command) {
-  const firstCommand = command.trimStart().split(/[;&|]/, 1)[0].trimStart()
+  const firstCommand = command.trimStart().split(/[;&|]/, 1)[0].trimStart();
   return (
     /^TRELLIS_CONTEXT_ID\s*=/.test(firstCommand) ||
     /^export\s+TRELLIS_CONTEXT_ID\s*=/.test(firstCommand) ||
     /^env\s+(?:(?:-\S+|[A-Za-z_][A-Za-z0-9_]*=\S*)\s+)*TRELLIS_CONTEXT_ID\s*=/.test(firstCommand) ||
     /^\$env:TRELLIS_CONTEXT_ID\s*=/i.test(firstCommand)
-  )
+  );
 }
 
 /**
@@ -408,19 +408,19 @@ function commandStartsWithTrellisContext(command) {
  * AI-run `task.py` sees the OpenCode session.
  */
 function injectTrellisContextIntoBash(trellis, event, hostPlatform, env) {
-  const args = event?.input
-  const commandKey = getBashCommandKey(args)
-  if (!commandKey) return false
+  const args = event?.input;
+  const commandKey = getBashCommandKey(args);
+  if (!commandKey) { return false; }
 
-  const command = args[commandKey]
-  if (typeof command !== "string" || !command.trim()) return false
-  if (commandStartsWithTrellisContext(command)) return false
+  const command = args[commandKey];
+  if (typeof command !== "string" || !command.trim()) { return false; }
+  if (commandStartsWithTrellisContext(command)) { return false; }
 
-  const contextKey = trellis.getContextKey(event)
-  if (!contextKey) return false
+  const contextKey = trellis.getContextKey(event);
+  if (!contextKey) { return false; }
 
-  args[commandKey] = `${buildTrellisContextPrefix(contextKey, hostPlatform, env)}${command}`
-  return true
+  args[commandKey] = `${buildTrellisContextPrefix(contextKey, hostPlatform, env)}${command}`;
+  return true;
 }
 
 // OpenCode v2 plugin: default-export a definition with an id and a setup(ctx)
@@ -428,44 +428,44 @@ function injectTrellisContextIntoBash(trellis, event, hostPlatform, env) {
 export default {
   id: "trellis.inject-subagent-context",
   async setup(ctx) {
-    const directory = ctx.location.directory
-    const trellis = new TrellisContext(directory)
-    const hostPlatform = process.platform
-    const env = process.env
-    debugLog("inject", "Plugin loaded, directory:", directory)
+    const directory = ctx.location.directory;
+    const trellis = new TrellisContext(directory);
+    const hostPlatform = process.platform;
+    const env = process.env;
+    debugLog("inject", "Plugin loaded, directory:", directory);
 
     await ctx.tool.hook("execute.before", async (event) => {
       try {
         if (process.env.TRELLIS_HOOKS === "0" || process.env.TRELLIS_DISABLE_HOOKS === "1") {
-          return
+          return;
         }
-        debugLog("inject", "tool.execute.before called, tool:", event?.tool)
+        debugLog("inject", "tool.execute.before called, tool:", event?.tool);
 
-        const toolName = event?.tool?.toLowerCase()
+        const toolName = event?.tool?.toLowerCase();
         if (toolName === "bash") {
           if (injectTrellisContextIntoBash(trellis, event, hostPlatform, env)) {
-            debugLog("inject", "Injected TRELLIS_CONTEXT_ID into Bash command")
+            debugLog("inject", "Injected TRELLIS_CONTEXT_ID into Bash command");
           }
-          return
+          return;
         }
 
         if (toolName !== "task") {
-          return
+          return;
         }
 
-        const args = event?.input
-        if (!args) return
+        const args = event?.input;
+        if (!args) { return; }
 
-        const rawSubagentType = args.subagent_type
+        const rawSubagentType = args.subagent_type;
         // Strip "trellis-" prefix added by v0.5.0-beta.5 agent rename migration
-        const subagentType = (rawSubagentType || "").replace(/^trellis-/, "")
-        const originalPrompt = args.prompt || ""
+        const subagentType = (rawSubagentType || "").replace(/^trellis-/, "");
+        const originalPrompt = args.prompt || "";
 
-        debugLog("inject", "Task tool called, subagent_type:", rawSubagentType)
+        debugLog("inject", "Task tool called, subagent_type:", rawSubagentType);
 
         if (!AGENTS_ALL.includes(subagentType)) {
-          debugLog("inject", "Skipping - unsupported subagent_type")
-          return
+          debugLog("inject", "Skipping - unsupported subagent_type");
+          return;
         }
 
         // Resolve active task in this priority order (only later steps
@@ -476,42 +476,42 @@ export default {
         //      inference so multi-window users can disambiguate)
         //   3. Single-session fallback — only when exactly 1 session
         //      runtime file exists locally
-        let taskDir = null
-        let taskSource = null
+        let taskDir = null;
+        let taskSource = null;
 
-        const contextKey = trellis.getContextKey(event)
+        const contextKey = trellis.getContextKey(event);
         if (contextKey) {
-          const context = trellis.readContext(contextKey)
-          const exactRef = trellis.normalizeTaskRef(context?.current_task || "")
+          const context = trellis.readContext(contextKey);
+          const exactRef = trellis.normalizeTaskRef(context?.current_task || "");
           if (exactRef) {
-            taskDir = exactRef
-            taskSource = `session:${contextKey}`
+            taskDir = exactRef;
+            taskSource = `session:${contextKey}`;
           }
         }
 
         if (!taskDir) {
-          const hintRef = extractActiveTaskHint(originalPrompt)
+          const hintRef = extractActiveTaskHint(originalPrompt);
           if (hintRef) {
-            const hintNormalized = trellis.normalizeTaskRef(hintRef)
+            const hintNormalized = trellis.normalizeTaskRef(hintRef);
             if (hintNormalized) {
-              const hintDir = trellis.resolveTaskDir(hintNormalized)
+              const hintDir = trellis.resolveTaskDir(hintNormalized);
               if (hintDir && existsSync(hintDir)) {
-                taskDir = hintNormalized
-                taskSource = "prompt-hint"
-                debugLog("inject", "Resolved task from Active task: hint:", hintNormalized)
+                taskDir = hintNormalized;
+                taskSource = "prompt-hint";
+                debugLog("inject", "Resolved task from Active task: hint:", hintNormalized);
               }
             }
           }
         }
 
         if (!taskDir) {
-          const fallback = trellis._resolveSingleSessionFallback()
+          const fallback = trellis._resolveSingleSessionFallback();
           if (fallback?.taskPath) {
-            const fallbackDir = trellis.resolveTaskDir(fallback.taskPath)
+            const fallbackDir = trellis.resolveTaskDir(fallback.taskPath);
             if (fallbackDir && existsSync(fallbackDir)) {
-              taskDir = fallback.taskPath
-              taskSource = fallback.source
-              debugLog("inject", "Resolved task via single-session fallback:", taskDir, "source:", taskSource)
+              taskDir = fallback.taskPath;
+              taskSource = fallback.source;
+              debugLog("inject", "Resolved task via single-session fallback:", taskDir, "source:", taskSource);
             }
           }
         }
@@ -520,52 +520,52 @@ export default {
         if (AGENTS_REQUIRE_TASK.includes(subagentType)) {
           // subagentType is already stripped of "trellis-" prefix above
           if (!taskDir) {
-            debugLog("inject", "Skipping - no current task")
-            return
+            debugLog("inject", "Skipping - no current task");
+            return;
           }
-          const taskDirFull = trellis.resolveTaskDir(taskDir)
+          const taskDirFull = trellis.resolveTaskDir(taskDir);
           if (!taskDirFull || !existsSync(taskDirFull)) {
-            debugLog("inject", "Skipping - task directory not found")
-            return
+            debugLog("inject", "Skipping - task directory not found");
+            return;
           }
         }
 
         // Check for [finish] marker
-        const isFinish = originalPrompt.toLowerCase().includes("[finish]")
+        const isFinish = originalPrompt.toLowerCase().includes("[finish]");
 
         // Get context based on agent type
-        let context = ""
+        let context = "";
         switch (subagentType) {
           case "implement":
-            context = getImplementContext(trellis, taskDir)
-            break
+            context = getImplementContext(trellis, taskDir);
+            break;
           case "check":
             context = isFinish
               ? getFinishContext(trellis, taskDir)
-              : getCheckContext(trellis, taskDir)
-            break
+              : getCheckContext(trellis, taskDir);
+            break;
           case "research":
-            context = getResearchContext(trellis, taskDir)
-            break
+            context = getResearchContext(trellis, taskDir);
+            break;
         }
 
         if (!context) {
-          debugLog("inject", "No context to inject")
-          return
+          debugLog("inject", "No context to inject");
+          return;
         }
 
-        const newPrompt = buildPrompt(subagentType, originalPrompt, context, isFinish)
+        const newPrompt = buildPrompt(subagentType, originalPrompt, context, isFinish);
 
         // Mutate event.input in-place — replacing the object does not update
         // the running tool call.
-        args.prompt = newPrompt
+        args.prompt = newPrompt;
 
-        debugLog("inject", "Injected context for", subagentType, "prompt length:", newPrompt.length)
+        debugLog("inject", "Injected context for", subagentType, "prompt length:", newPrompt.length);
 
       } catch (error) {
-        debugLog("inject", "Error in tool.execute.before:", error.message, error.stack)
+        debugLog("inject", "Error in tool.execute.before:", error.message, error.stack);
       }
-    })
+    });
   },
-}
+};
 
