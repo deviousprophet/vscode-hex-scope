@@ -21,40 +21,40 @@
  *   - task.json malformed or missing status
  */
 
-import { existsSync, readFileSync } from "fs"
-import { join } from "path"
-import { latestUserPromptText, prependEphemeralText } from "../lib/context-visibility.js"
-import { TrellisContext, debugLog, isTrellisSubagent } from "../lib/trellis-context.js"
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { latestUserPromptText, prependEphemeralText } from "../lib/context-visibility.js";
+import { TrellisContext, debugLog, isTrellisSubagent } from "../lib/trellis-context.js";
 
 // Supports STATUS values with letters, digits, underscores, hyphens
 // (so "in-review" / "blocked-by-team" work alongside "in_progress").
-const TAG_RE = /\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n([\s\S]*?)\n\s*\[\/workflow-state:\1\]/g
+const TAG_RE = /\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n([\s\S]*?)\n\s*\[\/workflow-state:\1\]/g;
 
 // Escape hatch for the per-turn breadcrumb (issue #427). Mirrors
 // `common.config.get_prompt_injection_config()` / the shared Python hook's
 // `_resolve_skip_keyword()` + `prompt_has_skip_keyword()`.
-const DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD = "no-trellis"
+const DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD = "no-trellis";
 
 function stripInlineComment(value) {
-  let inQuote = null
+  let inQuote = null;
   for (let idx = 0; idx < value.length; idx++) {
-    const ch = value[idx]
+    const ch = value[idx];
     if (inQuote) {
-      if (ch === inQuote) inQuote = null
-      continue
+      if (ch === inQuote) { inQuote = null; }
+      continue;
     }
     if (ch === '"' || ch === "'") {
-      inQuote = ch
-      continue
+      inQuote = ch;
+      continue;
     }
-    if (ch === "#" && (idx === 0 || /\s/.test(value[idx - 1]))) return value.slice(0, idx)
+    if (ch === "#" && (idx === 0 || /\s/.test(value[idx - 1]))) { return value.slice(0, idx); }
   }
-  return value
+  return value;
 }
 
 function unquoteYaml(s) {
-  if (s.length >= 2 && s[0] === s[s.length - 1] && (s[0] === '"' || s[0] === "'")) return s.slice(1, -1)
-  return s
+  if (s.length >= 2 && s[0] === s[s.length - 1] && (s[0] === '"' || s[0] === "'")) { return s.slice(1, -1); }
+  return s;
 }
 
 /**
@@ -64,34 +64,34 @@ function unquoteYaml(s) {
  * only (missing key keeps the default; non-string value keeps the default).
  */
 function readSkipKeyword(directory) {
-  const path = join(directory, ".trellis", "config.yaml")
-  if (!existsSync(path)) return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD
-  let text
+  const path = join(directory, ".trellis", "config.yaml");
+  if (!existsSync(path)) { return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD; }
+  let text;
   try {
-    text = readFileSync(path, "utf-8")
+    text = readFileSync(path, "utf-8");
   } catch {
-    return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD
+    return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD;
   }
 
-  let inSection = false
-  let sectionIndent = -1
+  let inSection = false;
+  let sectionIndent = -1;
   for (const rawLine of text.split(/\r?\n/)) {
-    const trimmed = rawLine.trim()
+    const trimmed = rawLine.trim();
     if (!inSection) {
       if (/^prompt_injection\s*:\s*(#.*)?$/.test(trimmed)) {
-        inSection = true
-        sectionIndent = rawLine.length - rawLine.trimStart().length
+        inSection = true;
+        sectionIndent = rawLine.length - rawLine.trimStart().length;
       }
-      continue
+      continue;
     }
-    if (!trimmed || trimmed.startsWith("#")) continue
-    const indent = rawLine.length - rawLine.trimStart().length
-    if (indent <= sectionIndent) break
-    const m = trimmed.match(/^skip_keyword\s*:\s*(.*)$/)
-    if (!m) continue
-    return unquoteYaml(stripInlineComment(m[1]).trim())
+    if (!trimmed || trimmed.startsWith("#")) { continue; }
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (indent <= sectionIndent) { break; }
+    const m = trimmed.match(/^skip_keyword\s*:\s*(.*)$/);
+    if (!m) { continue; }
+    return unquoteYaml(stripInlineComment(m[1]).trim());
   }
-  return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD
+  return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD;
 }
 
 /**
@@ -100,10 +100,10 @@ function readSkipKeyword(directory) {
  * punctuation/whitespace boundaries do. Empty keyword never matches.
  */
 function promptHasSkipKeyword(text, keyword) {
-  if (!keyword || typeof text !== "string") return false
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const pattern = new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, "i")
-  return pattern.test(text)
+  if (!keyword || typeof text !== "string") { return false; }
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, "i");
+  return pattern.test(text);
 }
 
 /**
@@ -116,44 +116,44 @@ function promptHasSkipKeyword(text, keyword) {
  * rather than the plugin silently masking it.
  */
 function loadBreadcrumbs(directory) {
-  const workflowPath = join(directory, ".trellis", "workflow.md")
-  if (!existsSync(workflowPath)) return {}
-  let content
+  const workflowPath = join(directory, ".trellis", "workflow.md");
+  if (!existsSync(workflowPath)) { return {}; }
+  let content;
   try {
-    content = readFileSync(workflowPath, "utf-8")
+    content = readFileSync(workflowPath, "utf-8");
   } catch {
-    return {}
+    return {};
   }
-  const result = {}
+  const result = {};
   for (const match of content.matchAll(TAG_RE)) {
-    const status = match[1]
-    const body = match[2].trim()
-    if (body) result[status] = body
+    const status = match[1];
+    const body = match[2].trim();
+    if (body) { result[status] = body; }
   }
-  return result
+  return result;
 }
 
 /**
  * Get (taskId, status) from active task, or null if no active task.
  */
 function getActiveTask(ctx, platformInput = null) {
-  const active = ctx.getActiveTask(platformInput)
-  const taskRef = active.taskPath
-  if (!taskRef) return null
-  const taskDir = ctx.resolveTaskDir(taskRef)
+  const active = ctx.getActiveTask(platformInput);
+  const taskRef = active.taskPath;
+  if (!taskRef) { return null; }
+  const taskDir = ctx.resolveTaskDir(taskRef);
   if (active.stale || !taskDir || !existsSync(taskDir)) {
-    return { id: taskRef.split("/").pop(), status: "stale", source: active.source }
+    return { id: taskRef.split("/").pop(), status: "stale", source: active.source };
   }
-  const taskJsonPath = join(taskDir, "task.json")
-  if (!existsSync(taskJsonPath)) return null
+  const taskJsonPath = join(taskDir, "task.json");
+  if (!existsSync(taskJsonPath)) { return null; }
   try {
-    const data = JSON.parse(readFileSync(taskJsonPath, "utf-8"))
-    const status = typeof data.status === "string" ? data.status : ""
-    if (!status) return null
-    const id = data.id || taskRef.split("/").pop()
-    return { id, status, source: active.source }
+    const data = JSON.parse(readFileSync(taskJsonPath, "utf-8"));
+    const status = typeof data.status === "string" ? data.status : "";
+    if (!status) { return null; }
+    const id = data.id || taskRef.split("/").pop();
+    return { id, status, source: active.source };
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -165,12 +165,12 @@ function getActiveTask(ctx, platformInput = null) {
  * - no_task pseudo-status (id === null) → header omits task info
  */
 function buildBreadcrumb(id, status, templates) {
-  let body = templates[status]
+  let body = templates[status];
   if (body === undefined) {
-    body = "Refer to workflow.md for current step."
+    body = "Refer to workflow.md for current step.";
   }
-  let header = id === null ? `Status: ${status}` : `Task: ${id} (${status})`
-  return `<workflow-state>\n${header}\n${body}\n</workflow-state>`
+  let header = id === null ? `Status: ${status}` : `Task: ${id} (${status})`;
+  return `<workflow-state>\n${header}\n${body}\n</workflow-state>`;
 }
 
 // OpenCode v2 plugin: default-export a definition with an id and a setup(ctx)
@@ -178,61 +178,61 @@ function buildBreadcrumb(id, status, templates) {
 export default {
   id: "trellis.inject-workflow-state",
   async setup(ctx) {
-    const directory = ctx.location.directory
-    const trellis = new TrellisContext(directory)
-    debugLog("workflow-state", "Plugin loaded, directory:", directory)
+    const directory = ctx.location.directory;
+    const trellis = new TrellisContext(directory);
+    debugLog("workflow-state", "Plugin loaded, directory:", directory);
 
     await ctx.session.hook("context", (event) => {
       try {
-        const platformInput = { sessionID: event?.sessionID, agent: event?.agent }
+        const platformInput = { sessionID: event?.sessionID, agent: event?.agent };
         // Skip Trellis sub-agent turns — the per-turn breadcrumb is for the
         // main session only; sub-agent context comes from the parent's
         // tool.execute.before injection.
         if (isTrellisSubagent(platformInput)) {
-          debugLog("workflow-state", "Skipping trellis subagent turn:", platformInput?.agent)
-          return
+          debugLog("workflow-state", "Skipping trellis subagent turn:", platformInput?.agent);
+          return;
         }
         if (process.env.TRELLIS_HOOKS === "0" || process.env.TRELLIS_DISABLE_HOOKS === "1") {
-          return
+          return;
         }
         if (process.env.OPENCODE_NON_INTERACTIVE === "1") {
-          return
+          return;
         }
         if (!trellis.isTrellisProject()) {
-          return
+          return;
         }
 
-        const originalText = latestUserPromptText(event?.messages)
+        const originalText = latestUserPromptText(event?.messages);
 
         // Escape hatch (issue #427): user prompt contains the skip keyword
         // as a standalone word — emit nothing for this turn only.
         if (promptHasSkipKeyword(originalText, readSkipKeyword(directory))) {
-          debugLog("workflow-state", "Skipping turn: skip keyword present in prompt")
-          return
+          debugLog("workflow-state", "Skipping turn: skip keyword present in prompt");
+          return;
         }
 
-        const templates = loadBreadcrumbs(directory)
-        const task = getActiveTask(trellis, platformInput)
+        const templates = loadBreadcrumbs(directory);
+        const task = getActiveTask(trellis, platformInput);
         const breadcrumb = task
           ? buildBreadcrumb(task.id, task.status, templates, task.source)
-          : buildBreadcrumb(null, "no_task", templates)
+          : buildBreadcrumb(null, "no_task", templates);
 
-        prependEphemeralText(event?.messages, breadcrumb, "workflowState")
+        prependEphemeralText(event?.messages, breadcrumb, "workflowState");
         debugLog(
           "workflow-state",
           "Injected breadcrumb for task",
           task ? task.id : "none",
           "status",
           task ? task.status : "no_task",
-        )
+        );
       } catch (error) {
         debugLog(
           "workflow-state",
           "Error in context hook:",
           error instanceof Error ? error.message : String(error),
-        )
+        );
       }
-    })
+    });
   },
-}
+};
 

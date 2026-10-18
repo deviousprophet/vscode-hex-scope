@@ -13,6 +13,9 @@
     "out/**",
     ".opencode/**"
   ],
+  "ignoreDependencies": [
+    "@vscode/test-electron"
+  ],
   "dynamicallyLoaded": [
     "src/webview/styles/*.css",
     "src/core/scripting/scriptWorker.ts"
