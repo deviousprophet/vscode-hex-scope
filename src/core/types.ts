@@ -95,6 +95,11 @@ export interface BitFieldChild {
     bitWidth: number;
     /** Optional `kind: 'enum'` def reference supplying labels for this bit value. */
     refStructId?: string;
+    /** When true, this named bit is omitted from the Struct Instances view unless the
+     *  global "show hidden fields" toggle is on. Absent/false = visible. Def-level
+     *  (authored on the reusable bit-field type), so it applies to every usage.
+     *  Instance-view only: decode, offsets/sizes, and the C preview are unaffected. */
+    hidden?: boolean;
 }
 
 /** Unsigned integer widths usable as a bit-field storage base. */

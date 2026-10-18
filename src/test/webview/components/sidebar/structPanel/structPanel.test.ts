@@ -30,6 +30,12 @@ function click(dom: JSDOM, el: Element | null): void {
     el!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 }
 
+function setChecked(dom: JSDOM, el: HTMLInputElement | null, checked: boolean): void {
+    assert.ok(el, 'checkbox should exist');
+    el!.checked = checked;
+    el!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+}
+
 function confirmDelete(dom: JSDOM): void {
     const yes = document.getElementById('del-confirm-pop')?.querySelector<HTMLElement>('.dcp-yes');
     assert.ok(yes, 'inline delete confirmation should appear');
@@ -3133,6 +3139,33 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'bitfield', 'type list should show a kind badge');
     });
 
+    test('bit-field def editor child hidden checkbox reflects the loaded flag and saves it (false dropped)', async () => {
+        S.structs = [{
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }],
+        }];
+        S.structPins = [];
+
+        await createMountedPanel();
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="bits"]'));
+
+        const rows = document.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
+        assert.strictEqual(rows.length, 2, 'both bit-child rows render');
+        const chk = (i: number): HTMLInputElement => rows[i].querySelector('.sfe-bf-child-hidden') as HTMLInputElement;
+        assert.ok(chk(0), 'each bit-child row carries a hidden checkbox');
+        assert.strictEqual(chk(0).checked, true, 'loaded hidden:true bit child shows checked');
+        assert.strictEqual(chk(1).checked, false, 'visible bit child shows unchecked');
+
+        setChecked(dom, chk(0), false);
+        setChecked(dom, chk(1), true);
+        click(dom, document.getElementById('se-save'));
+
+        const saved = S.structs.find(d => d.id === 'bits')!;
+        assert.strictEqual(saved.bitFields![1].hidden, true, 'checked bit child persists hidden:true');
+        assert.strictEqual('hidden' in saved.bitFields![0], false, 'unchecked bit child drops hidden (false is never persisted)');
+        assert.strictEqual(JSON.stringify(saved.bitFields![0]).includes('hidden'), false, 'false value is omitted from the serialized child');
+    });
+
     test('deleting a referenced bit-field strips orphan field references', async () => {
         S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
         S.structPins = [];
@@ -3375,7 +3408,9 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('deleting a referenced enum strips orphan scalar + bit-child refs (pin-safe)', async () => {
-        S.structs = [enumModeDef(), enumBitsDef(), enumUserDef()];
+        const bits = enumBitsDef();
+        bits.bitFields![0].hidden = true;
+        S.structs = [enumModeDef(), bits, enumUserDef()];
         S.structPins = [];
 
         await createMountedPanel();
@@ -3385,6 +3420,7 @@ suite('StructPanel deep-render harness', () => {
 
         assert.deepStrictEqual(S.structs.map(d => d.id), ['bits', 'user']);
         assert.strictEqual(S.structs[0].bitFields![0].refStructId, undefined);
+        assert.strictEqual(S.structs[0].bitFields![0].hidden, true, 'pin-safe ref strip preserves the bit-child hidden flag');
         assert.deepStrictEqual(S.structs[1].fields, []);
     });
 
@@ -3433,7 +3469,7 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(topFieldNames(), ['reserved', 'tag', 'ctrl', 'nodes', 'data'], 'toggle on reveals every hidden group');
     });
 
-    test('a hidden bit-field container hides all of its children (no per-bit-child control)', async () => {
+    test('a hidden bit-field container hides all of its children (field-level hidden)', async () => {
         hiddenFixture();
         await renderPinsAndExpandCard();
 
@@ -3525,6 +3561,158 @@ suite('StructPanel deep-render harness', () => {
 
         setShowHidden(true);
         assert.deepStrictEqual(topFieldNames(), ['reserved', 'flags', 'state'], 'toggle on reveals the hidden field alongside the new features');
+    });
+
+    // ── hidden bit children (def-level, instance view) ────────────
+
+    function bitUnitGroups(): HTMLElement[] {
+        return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp'));
+    }
+
+    function expandBitUnit(group: HTMLElement): void {
+        if (!group.classList.contains('open')) {
+            click(dom, group.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn'));
+        }
+    }
+
+    function bitChildNames(group: HTMLElement): string[] {
+        return Array.from(group.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')).map(elementText);
+    }
+
+    test('a hidden bit child is absent by default, revealed by Show hidden, container header intact', async () => {
+        S.structs = [{
+            id: 'regs', name: 'Regs', packed: true, fields: [
+                { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
+            ],
+        }];
+        S.structPins = [{ id: 'pin_hidden_bit', structId: 'regs', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xA5]);
+
+        await renderPinsAndExpandCard();
+
+        const group = bitUnitGroups()[0];
+        assert.ok(group.querySelector('.si-arr-grp-hdr.si-bitunit-hdr'), 'container header row renders');
+        expandBitUnit(group);
+        assert.deepStrictEqual(bitChildNames(group), ['hi'], 'the hidden bit child row is omitted by default');
+
+        setShowHidden(true);
+        const revealed = bitUnitGroups()[0];
+        assert.ok(revealed.querySelector('.si-arr-grp-hdr.si-bitunit-hdr'), 'container header row stays after the in-place refresh');
+        expandBitUnit(revealed);
+        assert.deepStrictEqual(bitChildNames(revealed), ['lo', 'hi'], 'Show hidden reveals the hidden bit child');
+    });
+
+    test('a container with every bit child hidden keeps its header row and drops every child row', async () => {
+        S.structs = [{
+            id: 'regs', name: 'Regs', packed: true, fields: [
+                { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4, hidden: true }] },
+            ],
+        }];
+        S.structPins = [{ id: 'pin_all_hidden', structId: 'regs', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xA5]);
+
+        await renderPinsAndExpandCard();
+
+        const group = bitUnitGroups()[0];
+        const hdr = group.querySelector<HTMLElement>('.si-arr-grp-hdr')!;
+        assert.ok(hdr.classList.contains('si-bitunit-hdr'), 'container header row still renders');
+        assert.ok(elementText(hdr.querySelector('.si-f-name')), 'the container header keeps its name');
+        assert.ok(elementText(hdr.querySelector('.si-f-val')), 'the container header keeps its decoded value');
+        expandBitUnit(group);
+        assert.deepStrictEqual(bitChildNames(group), [], 'no bit child rows render when all are hidden');
+
+        setShowHidden(true);
+        const revealed = bitUnitGroups()[0];
+        expandBitUnit(revealed);
+        assert.deepStrictEqual(bitChildNames(revealed), ['lo', 'hi'], 'toggle reveals every hidden bit child');
+    });
+
+    test('hiding a bit child on a reusable type drops it in every referencing field (def-level)', async () => {
+        const bits: StructDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }],
+        };
+        const user: StructDef = {
+            id: 'user', name: 'User', packed: true, fields: [
+                { name: 'a', type: 'bitfield', refStructId: 'bits', count: 1 },
+                { name: 'b', type: 'bitfield', refStructId: 'bits', count: 1 },
+            ],
+        };
+        S.structs = [bits, user];
+        S.structPins = [{ id: 'pin_ref_hidden', structId: 'user', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xA5, 0x3C]);
+
+        await renderPinsAndExpandCard();
+
+        const groups = bitUnitGroups();
+        assert.strictEqual(groups.length, 2, 'both referencing fields render a bitunit group');
+        for (const group of groups) { expandBitUnit(group); }
+        const names = bitUnitGroups().flatMap(bitChildNames);
+        assert.deepStrictEqual(names, ['hi', 'hi'], 'the hidden bit is dropped in every usage of the reusable type');
+    });
+
+    function expandBitElements(): void {
+        document.querySelectorAll<HTMLElement>('.si-arr-grp .si-arr-el-grp').forEach(element => {
+            if (!element.classList.contains('open')) {
+                click(dom, element.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn'));
+            }
+        });
+    }
+
+    function bitElementChildNames(): string[] {
+        return Array.from(
+            document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-arr-el-body .si-field .si-f-name'),
+        ).map(elementText);
+    }
+
+    test('a hidden bit child is dropped per element of a bit-field array', async () => {
+        S.structs = [{
+            id: 'regs', name: 'Regs', packed: true, fields: [
+                { name: 'cfg', type: 'uint8', count: 2, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
+            ],
+        }];
+        S.structPins = [{ id: 'pin_bit_arr', structId: 'regs', addr: 0, name: 'inst' }];
+        setBytesInSegment(0, [0xA5, 0x3C]);
+
+        await renderPinsAndExpandCard();
+
+        expandBitUnit(bitUnitGroups()[0]);
+        expandBitElements();
+        assert.deepStrictEqual(bitElementChildNames(), ['hi', 'hi'], 'every element of the bit-field array drops the hidden bit child');
+
+        setShowHidden(true);
+        expandBitUnit(bitUnitGroups()[0]);
+        expandBitElements();
+        assert.deepStrictEqual(bitElementChildNames(), ['lo', 'hi', 'lo', 'hi'], 'the toggle reveals the hidden bit child in every element');
+    });
+
+    test('a hidden bit child inside a pointer target struct is dropped from the inline preview', async () => {
+        const target: StructDef = {
+            id: 'bf_target', name: 'BfTarget', packed: true, fields: [
+                { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
+            ],
+        };
+        const parent: StructDef = {
+            id: 'bf_parent', name: 'BfParent', packed: true,
+            fields: [{ name: 'hdr', type: 'struct', refStructId: target.id, isPointer: true, count: 1 }],
+        };
+        const bytes = new Array(0x40).fill(0);
+        bytes[0] = 0x20;
+        bytes[0x20] = 0xA5;
+        S.structs = [target, parent];
+        S.structPins = [{ id: 'pin_bf_ptr', structId: parent.id, addr: 0, name: 'inst' }];
+        setBytesInSegment(0, bytes);
+
+        await renderPinsAndExpandCard();
+
+        click(dom, document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn'));
+        click(dom, document.querySelector<HTMLElement>('.si-ptr-child-hdr .si-arr-exp-btn'));
+
+        const container = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr'))
+            .find(hdr => elementText(hdr.querySelector('.si-f-name')) === 'ctrl')?.closest<HTMLElement>('.si-arr-grp');
+        assert.ok(container, 'the pointer target bit-field container renders inline');
+        expandBitUnit(container!);
+        assert.deepStrictEqual(bitChildNames(container!), ['hi'], 'the target struct resolves its own hidden bit child');
     });
 
     test('parity golden: unused new features keep the instance view and C preview byte-identical', async () => {

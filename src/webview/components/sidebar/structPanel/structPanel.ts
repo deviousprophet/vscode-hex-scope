@@ -530,6 +530,11 @@ private wireBitFieldDefChildRows(sec: HTMLElement, draft: StructDef): void {
             this.syncBitFieldDefDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
         }));
+    container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-hidden').forEach(chk =>
+        chk.addEventListener('change', () => {
+            this.syncBitFieldDefDraft(sec, draft);
+            this.refreshEditorPreview(sec, draft);
+        }));
     this.wireClicks(container, '.sfe-bf-del-child', btn => {
         const ci = this.bitFieldChildIndex(btn);
         if (ci === null) { return; }
@@ -1025,12 +1030,19 @@ private parseEditorFieldType(rawType: string): { type: StructFieldType; refStruc
 
 /** Read a bit-field child row (used by the standalone bit-field def editor). */
 private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
-    const name = this.readBitChildName(childRow);
-    const bitWidth = this.readBitChildWidth(childRow);
+    const child: BitFieldChild = {
+        name: this.readBitChildName(childRow),
+        bitWidth: this.readBitChildWidth(childRow),
+    };
     const enumRef = this.rowSelectValue(childRow, '.sfe-bf-child-enum');
-    return enumRef
-        ? { name, bitWidth, refStructId: enumRef }
-        : { name, bitWidth };
+    if (enumRef) { child.refStructId = enumRef; }
+    if (this.readBitChildHiddenFlag(childRow)) { child.hidden = true; }
+    return child;
+}
+
+/** Whether a bit-field child row's hidden checkbox is ticked (absent = visible). */
+private readBitChildHiddenFlag(childRow: HTMLElement): boolean {
+    return childRow.querySelector<HTMLInputElement>('.sfe-bf-child-hidden')?.checked === true;
 }
 
 /** Child name, defaulting to the row index when blank. */

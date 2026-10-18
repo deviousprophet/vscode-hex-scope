@@ -266,6 +266,9 @@
     border: 1px solid var(--border); border-radius: 2px;
     padding: 0 2px;
 }
+.sfe-bf-child-hidden-cell {
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+}
 
 /* -- Enum entry rows -------------------------------------------- */
 .sfe-enum-entries {

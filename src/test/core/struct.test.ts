@@ -7,7 +7,7 @@ import {
     normalizeStructField, isUnsignedScalarType, bytesToBigUint,
 } from '../../core/struct/structCodec';
 import { getByte, setBytesInSegment } from '../shared/structTestHelpers';
-import type { StructDef, StructField } from '../../core/types';
+import type { BitFieldChild, StructDef, StructField } from '../../core/types';
 
 let structs: StructDef[] = [];
 
@@ -1750,6 +1750,58 @@ suite('hidden field flag — model + decode/C parity', () => {
         const rows = decodeStruct(def, 0, getByte, 'le', 'msb');
         assert.deepStrictEqual(rows.map(r => r.fieldName), ['ctrl.lo', 'ctrl.hi'], 'children decode despite the hidden container');
     });
+
+    test('a hidden bit child decodes identically and leaves size/C unchanged', () => {
+        const withHidden = hiddenBitChildDef(true);
+        const visible = hiddenBitChildDef(undefined);
+
+        setBytesInSegment(0, [0xA5]);
+        assert.deepStrictEqual(
+            decodeStruct(withHidden, 0, getByte, 'le', 'msb'),
+            decodeStruct(visible, 0, getByte, 'le', 'msb'),
+            'a hidden bit child changes neither rows, offsets, nor decoded values',
+        );
+        assert.strictEqual(structByteSize(withHidden, []), structByteSize(visible, []), 'size is unchanged');
+        assert.strictEqual(structToC(withHidden, [withHidden]), structToC(visible, [visible]), 'C preview is unchanged');
+    });
+
+    test('a hidden bit child on a reusable bit-field type sizes/decodes like the visible equivalent', () => {
+        const withHidden = referencedHiddenBitChildDef(true);
+        const visible = referencedHiddenBitChildDef(undefined);
+
+        setBytesInSegment(0, [0x5A]);
+        assert.deepStrictEqual(
+            decodeStruct(withHidden, 0, getByte, 'le', 'msb', [withHidden.refBitsDef, withHidden]),
+            decodeStruct(visible, 0, getByte, 'le', 'msb', [visible.refBitsDef, visible]),
+        );
+        assert.strictEqual(
+            structByteSize(withHidden, [withHidden.refBitsDef]),
+            structByteSize(visible, [visible.refBitsDef]),
+        );
+        assert.strictEqual(
+            structToC(withHidden, [withHidden, withHidden.refBitsDef]),
+            structToC(visible, [visible, visible.refBitsDef]),
+        );
+    });
 });
+
+function hiddenBitChildDef(hidden: boolean | undefined): StructDef {
+    const lo: BitFieldChild = { name: 'lo', bitWidth: 4 };
+    if (hidden !== undefined) { lo.hidden = hidden; }
+    const field: StructField = { name: 'ctrl', type: 'uint8', count: 1, bitFields: [lo, { name: 'hi', bitWidth: 4 }] };
+    return { id: 'x', name: 'Regs', packed: true, fields: [field] };
+}
+
+type HiddenRefDef = StructDef & { refBitsDef: StructDef };
+
+function referencedHiddenBitChildDef(hidden: boolean | undefined): HiddenRefDef {
+    const lo: BitFieldChild = { name: 'lo', bitWidth: 4 };
+    if (hidden !== undefined) { lo.hidden = hidden; }
+    return {
+        id: 'x', name: 'Regs', packed: true,
+        fields: [{ name: 'ctrl', type: 'bitfield', refStructId: 'bits', count: 1 }],
+        refBitsDef: { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [lo, { name: 'hi', bitWidth: 4 }] },
+    };
+}
 
 

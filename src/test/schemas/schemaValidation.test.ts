@@ -139,6 +139,22 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
     });
 
+    test('structs.json accepts a hidden flag on a bit-field child (inline and reusable)', () => {
+        const { schema } = loadSchema('structs.schema.json');
+        const data = [
+            {
+                id: 's1', name: 'Config', fields: [
+                    { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4, hidden: false }] },
+                ],
+            },
+            {
+                id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+                bitFields: [{ name: 'a', bitWidth: 3, hidden: true }, { name: 'b', bitWidth: 5 }],
+            },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+    });
+
     test('profiles.json accepts a showHiddenFields profile flag', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [
@@ -195,6 +211,13 @@ suite('hexScope schemas — negative cases', () => {
         assert.notDeepStrictEqual(
             errorsFor(structs.schema, structsEnvelope([{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, hidden: 'yes' }] }])),
             [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(structs.schema, structsEnvelope([
+                { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'a', bitWidth: 3, hidden: 'yes' }] },
+            ])),
+            [],
+            'a non-boolean bit-child hidden is rejected',
         );
         const profile = loadSchema('profiles.schema.json');
         const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: 'yes' }];

@@ -93,8 +93,24 @@ function isDanglingEnumField(field: StructField, enumIds: Set<string>): boolean 
 }
 
 function sanitizeBitChild(child: BitFieldChild, enumIds: Set<string>): BitFieldChild {
+    return normalizeBitChildFlags(dropDanglingBitChildEnumRef(child, enumIds));
+}
+
+/** Strip a bit child's enum ref when it does not resolve to an enum def (same ref when clean). */
+function dropDanglingBitChildEnumRef(child: BitFieldChild, enumIds: Set<string>): BitFieldChild {
     if (child.refStructId === undefined || enumIds.has(child.refStructId)) { return child; }
     const { refStructId: _ref, ...rest } = child;
+    return rest;
+}
+
+/**
+ * A bit child's optional display flags are preserved as authored; an explicit
+ * `false` is dropped so saved pools stay minimal (absent = visible). Mirrors the
+ * field-level `normalizeOptionalFieldFlags`.
+ */
+function normalizeBitChildFlags(child: BitFieldChild): BitFieldChild {
+    if (child.hidden !== false) { return child; }
+    const { hidden: _hidden, ...rest } = child;
     return rest;
 }
 

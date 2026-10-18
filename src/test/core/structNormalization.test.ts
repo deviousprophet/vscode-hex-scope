@@ -235,4 +235,60 @@ suite('normalizeStructDefsValue() — hidden field flag', () => {
         }
         assert.strictEqual('hidden' in result.defs[0].fields[0], false, 'no hidden key is materialized');
     });
+
+    test('keeps hidden:true on a bit child through a clean round-trip', () => {
+        const pool: StructDef[] = [
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+              bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
+            { id: 'header', name: 'Header', fields: [{ name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 }] },
+        ];
+        const result = normalizeStructDefsValue(pool);
+        assert.strictEqual(result.changed, false, 'hidden is a supported bit-child key: no self-heal write');
+        assert.strictEqual(result.defs[0], pool[0], 'clean pool keeps its reference');
+        assert.strictEqual(result.defs[0].bitFields![0].hidden, true, 'bit-child hidden survives the round-trip');
+        assert.strictEqual('hidden' in result.defs[0].bitFields![1], false, 'absent stays absent');
+    });
+
+    test('drops an explicit hidden:false on a bit child (absent = visible)', () => {
+        const pool: StructDef[] = [
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+              bitFields: [{ name: 'lo', bitWidth: 4, hidden: false }, { name: 'hi', bitWidth: 4 }] },
+        ];
+        const result = normalizeStructDefsValue(pool);
+        assert.strictEqual(result.changed, true, 'dropping the redundant key signals a self-heal write');
+        assert.strictEqual('hidden' in result.defs[0].bitFields![0], false, 'explicit false is dropped');
+        assert.strictEqual(result.defs[0].bitFields![0].name, 'lo', 'the child itself is preserved');
+        assert.deepStrictEqual(result.defs[0].bitFields![1], { name: 'hi', bitWidth: 4 }, 'sibling untouched');
+    });
+
+    test('a legacy inline bit-field pool without hidden migrates with every bit visible', () => {
+        const legacy: StructDef[] = [
+            { id: 'header', name: 'Header', fields: [
+                { name: 'flags', type: 'uint8', count: 1, bitFields: [{ name: 'a', bitWidth: 3 }, { name: 'b', bitWidth: 5 }] },
+            ] },
+        ];
+        const result = normalizeStructDefsValue(legacy);
+        assert.strictEqual(result.changed, true, 'legacy inline container migrates once');
+        const bits = result.defs.find(d => d.kind === 'bitfield')!;
+        assert.strictEqual(bits.bitFields!.every(child => !('hidden' in child)), true, 'no hidden key is materialized');
+    });
+
+    test('inline containers differing only by a hidden bit child migrate to separate types', () => {
+        const legacy: StructDef[] = [
+            { id: 'a', name: 'A', fields: [
+                { name: 'flags', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
+            ] },
+            { id: 'b', name: 'B', fields: [
+                { name: 'flags', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
+            ] },
+        ];
+        const result = normalizeStructDefsValue(legacy);
+        const byId = new Map(result.defs.filter(d => d.kind === 'bitfield').map(d => [d.id, d]));
+        const refs = result.defs.slice(0, 2).map(d => d.fields[0].refStructId);
+
+        assert.strictEqual(byId.size, 2, 'a hidden bit is part of the container signature, so the two containers do not collapse');
+        assert.notStrictEqual(refs[0], refs[1], 'each container keeps its own bit-field type');
+        assert.strictEqual(byId.get(refs[0]!)!.bitFields![0].hidden, true, 'the hidden container keeps its hidden bit');
+        assert.strictEqual('hidden' in byId.get(refs[1]!)!.bitFields![0], false, 'the visible container stays fully visible');
+    });
 });

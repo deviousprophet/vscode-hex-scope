@@ -368,12 +368,13 @@ function resolveMigratedBitFieldTarget(field: StructField, ctx: MigrateBitFieldC
 
 /**
  * Signature of an inline bit-field container: unsigned base + ordered child
- * name/width list + each child's optional enum ref. Two containers that differ
- * only by a child enum label are not identical, so they must not collapse onto
- * one def (that would drop the other container's labels).
+ * name/width list + each child's optional enum ref + each child's hidden flag.
+ * Two containers that differ only by a child enum label or a hidden bit are not
+ * identical, so they must not collapse onto one def (that would drop the other
+ * container's labels / hidden state).
  */
 function bitFieldContainerSignature(baseType: string | undefined, children: readonly BitFieldChild[]): string {
-    return JSON.stringify([baseType ?? 'uint8', children.map(child => [child.name, child.bitWidth, child.refStructId ?? null])]);
+    return JSON.stringify([baseType ?? 'uint8', children.map(child => [child.name, child.bitWidth, child.refStructId ?? null, child.hidden === true])]);
 }
 
 /** Copy a container field into the referenced form, keeping every usage-scoped override. */

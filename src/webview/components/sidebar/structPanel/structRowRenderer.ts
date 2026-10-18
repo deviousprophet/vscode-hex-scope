@@ -712,7 +712,7 @@ const BODY_RULES: ReadonlyArray<BodyRule> = [
     ],
     [
         group => group.info.isBitUnit,
-        (rctx, ctx, group) => renderBitUnitLeafRows(rctx, group.rows, ctx),
+        (rctx, ctx, group) => renderBitUnitLeafRows(rctx, group.rows, ctx, group.baseName),
     ],
     [
         group => !group.info.isStruct && group.info.isArray && !group.info.isString,
@@ -732,8 +732,12 @@ export function renderStructBody(rctx: StructRenderCtx, def: StructDef, pin: Str
     }, rows)}</div>`;
 }
 
-function renderBitUnitLeafRows(rctx: StructRenderCtx, unitRows: DecodedField[], ctx: StructRenderContext): string {
-    return leafRowsHtml(rctx, unitRows, ctx);
+function renderBitUnitLeafRows(
+    rctx: StructRenderCtx, unitRows: DecodedField[],
+    ctx: StructRenderContext,
+    containerPath: string,
+): string {
+    return leafRowsHtml(rctx, visibleBitChildRows(rctx, ctx.def, containerPath, unitRows), ctx);
 }
 
 function renderBitUnitArrayElements(
@@ -749,7 +753,7 @@ function renderBitUnitArrayElements(
         const elementByteCnt = decodedRowByteCount(first);
         const elementKey = `${parentKey}::${element.idx}`;
         const isElementOpen = rctx.expandedArrayElements.has(elementKey);
-        const elementRowsHtml = renderBitUnitLeafRows(rctx, element.rows, ctx);
+        const elementRowsHtml = renderBitUnitLeafRows(rctx, element.rows, ctx, baseName);
         return (
             `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
             bitUnitHeaderHtml(rctx, element.rows, elementByteStart, elementByteCnt, isElementOpen, `[${element.idx}]`, 'element') +
@@ -757,6 +761,28 @@ function renderBitUnitArrayElements(
             `</div>`
         );
     }).join('');
+}
+
+const NO_HIDDEN_BIT_CHILDREN: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Bit-child rows whose declared child is marked hidden are dropped from the
+ * instance view (unless the global toggle is on). The container's declared field
+ * is resolved by group path, so inline containers and reusable `kind:'bitfield'`
+ * references filter identically. Render-only: decode/offsets/C stay unchanged,
+ * and the container header row is unaffected (an all-hidden container keeps it).
+ */
+function visibleBitChildRows(rctx: StructRenderCtx, def: StructDef, containerPath: string, rows: DecodedField[]): DecodedField[] {
+    const hidden = hiddenBitChildNames(rctx, def, containerPath);
+    if (hidden.size === 0) { return rows; }
+    return rows.filter(row => !hidden.has(leafName(row.fieldName)));
+}
+
+function hiddenBitChildNames(rctx: StructRenderCtx, def: StructDef, containerPath: string): ReadonlySet<string> {
+    if (rctx.showHiddenFields) { return NO_HIDDEN_BIT_CHILDREN; }
+    const children = resolveStructFieldByPath(def, containerPath, rctx.structs)?.field.bitFields;
+    if (!children || children.length === 0) { return NO_HIDDEN_BIT_CHILDREN; }
+    return new Set(children.filter(child => child.hidden === true).map(child => child.name));
 }
 
 function renderStructChildren(rctx: StructRenderCtx, ctx: StructRenderContext, structRows: DecodedField[], structBase: string, parentKey: string): string {

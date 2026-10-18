@@ -255,6 +255,7 @@ export function childFieldRowHtml(child: BitFieldChild, ci: number, total: numbe
                `placeholder="N" maxlength="2">` +
         `<span class="sfe-bf-child-unit">bit</span>` +
         bitChildEnumSelectHtml(child, structs) +
+        bitChildHiddenCellHtml(child) +
         `<div class="sfe-bf-child-move">` +
         `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
         `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
@@ -275,3 +276,12 @@ function bitChildEnumSelectHtml(child: BitFieldChild, structs: readonly StructDe
     return `<select class="sfe-bf-child-enum" title="Enum labels for this bit value" aria-label="Enum labels for this bit value">${options}</select>`;
 }
 
+/** Per-child "hide this bit in the Struct Instances view" checkbox (instance-view only). */
+function bitChildHiddenCellHtml(child: BitFieldChild): string {
+    const title = 'Hide this bit in the Struct Instances view';
+    return (
+        `<span class="sfe-bf-child-hidden-cell" title="${title}">` +
+        `<input type="checkbox" class="sfe-hidden-chk sfe-bf-child-hidden" title="${title}" aria-label="${title}"${child.hidden === true ? ' checked' : ''}>` +
+        `</span>`
+    );
+}
