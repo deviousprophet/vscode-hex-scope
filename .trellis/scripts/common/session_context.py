@@ -24,6 +24,7 @@ from pathlib import Path
 from .active_task import resolve_context_key
 from .config import get_git_packages
 from .git import run_git
+from .proc import hidden_kwargs
 from .packages_context import get_packages_section
 from .tasks import iter_active_tasks, load_task, get_all_statuses, children_progress
 from .paths import (
@@ -337,6 +338,7 @@ def _fetch_trellis_version_output() -> str | None:
             encoding="utf-8",
             errors="replace",
             timeout=_UPDATE_CHECK_TIMEOUT_SECONDS,
+            **hidden_kwargs(),
         )
     except (OSError, subprocess.SubprocessError, TimeoutError):
         return None

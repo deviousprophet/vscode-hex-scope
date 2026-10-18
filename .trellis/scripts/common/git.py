@@ -10,6 +10,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .proc import hidden_kwargs
+
 
 # Bounded retry for transient `.git/index.lock` contention. Another process
 # (IDE git integration, status daemon, a concurrent Trellis session) can hold
@@ -48,6 +50,7 @@ def run_git(
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            **hidden_kwargs(),
         )
         return result.returncode, result.stdout, result.stderr
     except Exception as e:
