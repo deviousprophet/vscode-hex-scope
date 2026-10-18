@@ -340,13 +340,10 @@
 }
 .si-toggle-group .compact-tabs button { padding: 1px 5px; }
 
-/* Global "show hidden fields" toggle in the Instances header */
-.si-show-hidden {
-    display: flex; align-items: center; gap: 4px;
-    font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
-    cursor: pointer; user-select: none; white-space: nowrap; padding-top: 1px;
+/* Global "show hidden fields" toggle button in the Instances header */
+.si-show-hidden-btn {
+    padding: 1px 5px; white-space: nowrap;
 }
-.si-show-hidden input { width: 12px; height: 12px; margin: 0; cursor: pointer; accent-color: var(--high-color); }
 
 /* Inline add form */
 .si-add-form {

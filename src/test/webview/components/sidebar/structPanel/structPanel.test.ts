@@ -1131,10 +1131,11 @@ suite('StructPanel deep-render harness', () => {
             .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
         assert.deepStrictEqual(names(), ['tag'], 'hidden field omitted by default');
 
-        const chk = document.getElementById('si-show-hidden-chk') as HTMLInputElement;
-        assert.ok(chk, 'show-hidden toggle renders in the Instances header');
-        chk.checked = true;
-        chk.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        const btn = document.getElementById('si-show-hidden-btn') as HTMLButtonElement;
+        assert.ok(btn, 'show-hidden toggle renders in the Instances header');
+        assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', 'toggle button starts inactive');
+        click(dom, btn);
+        assert.strictEqual(btn.getAttribute('aria-pressed'), 'true', 'toggle button reports active state after the click');
         assert.deepStrictEqual(reported, [true], 'toggle reports the new value for persistence');
         assert.deepStrictEqual(names(), ['reserved', 'tag'], 'toggle reveals the hidden field immediately');
 
@@ -1176,17 +1177,16 @@ suite('StructPanel deep-render harness', () => {
 
         const body = document.getElementById('si-instances-body') as HTMLElement;
         const list = document.getElementById('si-list') as HTMLElement;
-        const chk = document.getElementById('si-show-hidden-chk') as HTMLInputElement;
-        assert.ok(body && list && chk, 'instances body, list, and toggle render');
+        const btn = document.getElementById('si-show-hidden-btn') as HTMLButtonElement;
+        assert.ok(body && list && btn, 'instances body, list, and toggle render');
         body.scrollTop = 150;
-        chk.focus();
-        assert.strictEqual(document.activeElement, chk, 'toggle is focused before the change');
+        btn.focus();
+        assert.strictEqual(document.activeElement, btn, 'toggle is focused before the click');
 
-        chk.checked = true;
-        chk.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        click(dom, btn);
 
-        assert.strictEqual(document.getElementById('si-show-hidden-chk'), chk, 'toggle node is not rebuilt');
-        assert.strictEqual(document.activeElement, chk, 'toggle keeps focus across the in-place refresh');
+        assert.strictEqual(document.getElementById('si-show-hidden-btn'), btn, 'toggle node is not rebuilt');
+        assert.strictEqual(document.activeElement, btn, 'toggle keeps focus across the in-place refresh');
         assert.strictEqual(document.getElementById('si-instances-body'), body, 'scroll container is not replaced');
         assert.strictEqual(document.getElementById('si-list'), list, 'instances list node is reused (only its innerHTML refreshes)');
         assert.strictEqual(body.scrollTop, 150, 'body scroll position survives the refresh');
@@ -3431,11 +3431,10 @@ suite('StructPanel deep-render harness', () => {
             .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
     }
 
-    function setShowHidden(checked: boolean): void {
-        const chk = document.getElementById('si-show-hidden-chk') as HTMLInputElement | null;
-        assert.ok(chk, 'show-hidden toggle should render');
-        chk!.checked = checked;
-        chk!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    function setShowHidden(show: boolean): void {
+        const btn = document.getElementById('si-show-hidden-btn') as HTMLButtonElement | null;
+        assert.ok(btn, 'show-hidden toggle should render');
+        if ((btn!.getAttribute('aria-pressed') === 'true') !== show) { click(dom, btn!); }
     }
 
     function hiddenFixture(): void {

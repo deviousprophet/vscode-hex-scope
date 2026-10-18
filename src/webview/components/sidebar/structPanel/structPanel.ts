@@ -1542,13 +1542,15 @@ private bitLayoutToggleHtml(): string {
 
 /** Global "show hidden fields" toggle (Struct Instances header). Off = hidden fields omitted. */
 private showHiddenToggleHtml(): string {
+    const on = this._showHiddenFields;
     const title = 'Show fields marked hidden in the Struct Types editor';
     return (
-        `<label class="si-show-hidden" title="${title}">` +
-        `<input type="checkbox" id="si-show-hidden-chk"${this._showHiddenFields ? ' checked' : ''} ` +
-               `title="${title}" aria-label="${title}">` +
-        `<span>Show hidden</span>` +
-        `</label>`
+        `<div class="si-toggle-group" title="${title}">` +
+        `<div class="compact-tabs">` +
+        `<button type="button" id="si-show-hidden-btn" class="si-show-hidden-btn${on ? ' active' : ''}" ` +
+               `title="${title}" aria-label="${title}" aria-pressed="${on ? 'true' : 'false'}">Show hidden</button>` +
+        `</div>` +
+        `</div>`
     );
 }
 
@@ -1711,14 +1713,17 @@ private wireBitLayoutTabs(sec: HTMLElement): void {
 }
 
 /**
- * Global "show hidden fields" toggle. Flips the local view flag, reports the
- * change so the host persists it per profile, and refreshes only the instances
- * body in place — an open Types editor draft is left untouched (never reloaded).
+ * Global "show hidden fields" toggle button. Flips the local view flag, reflects
+ * the new state on the button (active + aria-pressed), reports the change so the
+ * host persists it per profile, and refreshes only the instances body in place —
+ * an open Types editor draft is left untouched (never reloaded).
  */
 private wireShowHiddenToggle(sec: HTMLElement): void {
-    sec.querySelector('#si-show-hidden-chk')?.addEventListener('change', e => {
-        const show = (e.target as HTMLInputElement).checked;
+    const btn = sec.querySelector('#si-show-hidden-btn');
+    btn?.addEventListener('click', () => {
+        const show = !this._showHiddenFields;
         this._showHiddenFields = show;
+        applyShowHiddenButtonState(btn, show);
         this.cb.onShowHiddenFieldsChange?.(show);
         this.refreshInstances();
     });
@@ -1726,7 +1731,7 @@ private wireShowHiddenToggle(sec: HTMLElement): void {
 
 /**
  * Re-render just the Struct Instances *list* in place after the hidden-field
- * filter changed. The header (bit-layout tabs + `#si-show-hidden-chk`) is left
+ * filter changed. The header (bit-layout tabs + `#si-show-hidden-btn`) is left
  * untouched, so the toggle keeps focus and the section body keeps its scroll
  * position — no whole-body `innerHTML` rebuild (Types editor also untouched).
  */
@@ -3296,6 +3301,13 @@ function isHexEnumEntryText(text: string): boolean {
 /** Clamp a parsed enum value to a non-negative finite number. */
 function nonNegativeEnumValue(value: number): number {
     return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/** Reflect the show-hidden flag on the header toggle button (active + aria-pressed). */
+function applyShowHiddenButtonState(btn: Element | null, show: boolean): void {
+    if (!btn) { return; }
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
 }
 
 function pinFormHeader(pin: StructPin | null): string {
