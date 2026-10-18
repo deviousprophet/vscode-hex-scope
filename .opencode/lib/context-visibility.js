@@ -11,26 +11,26 @@
  * that kept injected copies out of stored replay is no longer needed.
  */
 
-const TRELLIS_MARKER = "trellis"
+const TRELLIS_MARKER = "trellis";
 
 // Injected text always starts with one of these wrappers. Prefix detection is
 // used alongside the metadata marker because a downstream serializer may drop
 // unknown part metadata before a later hook sees the part.
-const TRELLIS_TEXT_PREFIXES = ["<session-context>", "<workflow-state>", "<first-reply-notice>"]
+const TRELLIS_TEXT_PREFIXES = ["<session-context>", "<workflow-state>", "<first-reply-notice>"];
 
 /** Latest `role === "user"` message, or undefined. */
 export function findLatestUserMessage(messages) {
-  if (!Array.isArray(messages)) return undefined
+  if (!Array.isArray(messages)) { return undefined; }
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user") return messages[i]
+    if (messages[i]?.role === "user") { return messages[i]; }
   }
-  return undefined
+  return undefined;
 }
 
 function isTrellisInjectedPart(part) {
-  if (part?.metadata?.[TRELLIS_MARKER] != null) return true
-  if (typeof part?.text !== "string") return false
-  return TRELLIS_TEXT_PREFIXES.some(prefix => part.text.startsWith(prefix))
+  if (part?.metadata?.[TRELLIS_MARKER] !== null) { return true; }
+  if (typeof part?.text !== "string") { return false; }
+  return TRELLIS_TEXT_PREFIXES.some(prefix => part.text.startsWith(prefix));
 }
 
 /**
@@ -39,21 +39,21 @@ function isTrellisInjectedPart(part) {
  * the user's prompt.
  */
 export function findUserTextPart(content) {
-  if (!Array.isArray(content)) return undefined
+  if (!Array.isArray(content)) { return undefined; }
   return content.find(
     part => part?.type === "text" && typeof part.text === "string" && !isTrellisInjectedPart(part),
-  )
+  );
 }
 
 export function latestUserPromptText(messages) {
-  const message = findLatestUserMessage(messages)
-  const part = findUserTextPart(message?.content)
-  return typeof part?.text === "string" ? part.text : ""
+  const message = findLatestUserMessage(messages);
+  const part = findUserTextPart(message?.content);
+  return typeof part?.text === "string" ? part.text : "";
 }
 
 export function transcriptHasAssistantMessage(messages) {
-  if (!Array.isArray(messages)) return false
-  return messages.some(message => message?.role === "assistant")
+  if (!Array.isArray(messages)) { return false; }
+  return messages.some(message => message?.role === "assistant");
 }
 
 /**
@@ -61,15 +61,15 @@ export function transcriptHasAssistantMessage(messages) {
  * Mutates the outgoing `event.messages` in place; v2 never persists this.
  */
 export function prependEphemeralText(messages, text, kind = "context") {
-  if (!Array.isArray(messages)) return false
-  if (typeof text !== "string") return false
-  const message = findLatestUserMessage(messages)
-  if (!message || !Array.isArray(message.content)) return false
+  if (!Array.isArray(messages)) { return false; }
+  if (typeof text !== "string") { return false; }
+  const message = findLatestUserMessage(messages);
+  if (!message || !Array.isArray(message.content)) { return false; }
 
   message.content.unshift({
     type: "text",
     text,
     metadata: { [TRELLIS_MARKER]: { [kind]: true } },
-  })
-  return true
+  });
+  return true;
 }
