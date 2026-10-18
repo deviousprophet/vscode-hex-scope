@@ -31,6 +31,25 @@ A component under `src/webview/components/<Name>/` owns its markup, UI state, in
 - Component CSS is imported by the component's `.ts` and bundled via esbuild; global CSS (tokens/resets/layout) stays in `src/webview/styles/`.
 - A component extraction is behavior-preserving: UI gestures the pre-refactor code only used to update shared state must not start triggering new actions.
 
+## Module Singletons & Document Ownership
+
+A module-level singleton that caches a DOM node (`menuController`'s `#menu`
+container, `toast.ts`'s toast element) must be **document-scoped**, not just
+`isConnected`-guarded.
+
+**Why:** a node stays `isConnected` to the document that owns it even after that
+document is torn down (jsdom's `window.close()` does not detach the tree), so an
+`isConnected`-only check wrongly reuses a node the live document cannot see. That
+is invisible in the running webview (one document for the page's life) but breaks
+every test that installs a fresh jsdom per case — `#menu`/`.sb-toast` renders into
+the previous test's document and the current one finds nothing.
+
+**Rule:** before reusing a cached node, confirm it belongs to the ambient
+`document` (`node.ownerDocument === document`); when the document changes, drop
+the cached node and any per-document state (registry, active element, focus
+snapshot) so the next use rebuilds against the new document. Per-document listener
+WeakSets are the same idea and already key off the `Document`.
+
 ## Rerender Registry
 
 `src/webview/render/registry.ts` breaks a real circular dependency between feature modules and the composition root. `hexViewer.ts` assigns:

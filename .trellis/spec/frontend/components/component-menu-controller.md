@@ -76,9 +76,14 @@ export const menuController = new MenuController();   // module-wide singleton
 ```
 
 Opening a menu closes any other open menu (one active at a time). The dynamic
-`#menu` container is created once on first `show()` and reused. Attached
-static popovers are shown with `show(x, y, { el, anchor })` and keep their own
-`hidden` attribute/CSS positioning.
+`#menu` container is created on first `show()` and reused **within one document**:
+the singleton is document-scoped, so when the ambient `document` changes,
+`syncDocument()` drops the cached container, registry, and focus state and the
+next `show()`/`attach()` creates a fresh container in the new document. (A module
+singleton outlives the document it rendered into — a fresh jsdom per test — and a
+stale node stays `isConnected` to the closed one, so an `isConnected`-only guard
+would wrongly reuse it.) Attached static popovers are shown with
+`show(x, y, { el, anchor })` and keep their own `hidden` attribute/CSS positioning.
 
 ## Rules
 
@@ -161,6 +166,7 @@ static popovers are shown with `show(x, y, { el, anchor })` and keep their own
 | ArrowRight on submenu row / ArrowLeft in submenu / Home / End | Submenu opens+focuses first / closes+parent refocus / jump to first / last enabled item. |
 | Hover submenu row | Submenu shown (flip-aware). |
 | Menu disconnected (re-render) | Registry entry pruned on next interaction; active close path avoids stale DOM. |
+| Ambient `document` changes (fresh jsdom per test) | `syncDocument()` drops the cached container/registry/focus state; `show()`/`attach()` rebuilds in the new document. |
 
 ## Tests Required
 
@@ -170,8 +176,10 @@ valid+invalid), positioning/submenu flip, full keyboard matrix (arrows wrap +
 skip-disabled, Home/End, submenu two-step, ArrowRight/Left,
 Enter-on-submenu, Enter-left-to-native-button, Escape two-step), dismissal
 (click-outside, focusout, window blur + skipRestore, Escape), focus restore,
-input modality, single-active-menu invariants, attach/popover aria sync. Host
-suites continue covering hexViewer/structPanel/integrityPanel integrations.
+input modality, single-active-menu invariants, attach/popover aria sync,
+document-scoped singleton (a second document gets its own `#menu`, not the stale
+one). Host suites continue covering hexViewer/structPanel/integrityPanel
+integrations.
 
 ## Anti-patterns
 

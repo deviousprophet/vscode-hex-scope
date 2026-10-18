@@ -74,6 +74,8 @@ function mergeEntry(prior: MenuEntry | undefined, opts: MenuShowOpts, attached: 
 class MenuController {
     /** The one dynamic-menu container (#menu), created lazily on first show and reused. */
     private container: HTMLElement | null = null;
+    /** Ambient document the cached container/registry belong to; a swap resets them. */
+    private doc: Document | null = null;
     /** Registered menus: the #menu container's per-show opts + attached static popovers. */
     private readonly registry = new Map<HTMLElement, MenuEntry>();
     /** The single open menu right now, or null. */
@@ -91,6 +93,7 @@ class MenuController {
 
     /** Attach a pre-authored static popover (integrity ⋮ menu). Registers only; show() displays it. */
     attach(el: HTMLElement, opts: Pick<MenuShowOpts, 'emit' | 'onClose'> = {}): void {
+        this.syncDocument();
         this.registry.set(el, mergeEntry(this.registry.get(el), opts, true));
     }
 
@@ -102,6 +105,7 @@ class MenuController {
 
     /** Open a menu: the internal #menu container by default, or an attached el. */
     show(x: number, y: number, opts: MenuShowOpts & { el?: HTMLElement } = {}): void {
+        this.syncDocument();
         const el = opts.el ?? this.ensureContainer();
         if (!el) { return; }
         // One active menu: opening one closes any other (without focus restore —
@@ -225,6 +229,23 @@ if (opts.innerHTML !== undefined) {
         document.body.appendChild(el);
         this.container = el;
         return el;
+    }
+
+    /**
+     * Drop cached DOM state when the ambient document changes. The controller is a
+     * module singleton that outlives the document it rendered into (a fresh JSDOM
+     * per test; never in the running webview), and a stale container stays
+     * `isConnected` to its old document — so `ensureContainer` would reuse a node
+     * the live document cannot see. Per-document listeners already key off the
+     * document (`*Docs` WeakSets); this keeps the container/registry consistent.
+     */
+    private syncDocument(): void {
+        if (this.doc === document) { return; }
+        this.doc = document;
+        this.container = null;
+        this.activeEl = null;
+        this.restoreEl = null;
+        this.registry.clear();
     }
 
     // ── Dismissal ────────────────────────────────────────────────
