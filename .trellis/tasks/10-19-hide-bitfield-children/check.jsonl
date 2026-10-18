@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Verify the bit-child hidden flag, normalization, and schema match the spec"}
+{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Verify the render filter matches the hidden-field contract and decode/C are untouched"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Verify the child-row checkbox and its wiring"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify the tests observe behaviour and no assertion was weakened"}

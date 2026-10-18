@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/struct-model.md", "reason": "Bit-field child model, normalization rules, hidden-field handling, schema contract"}
+{"file": ".trellis/spec/frontend/struct-instance-display.md", "reason": "Bit-unit rendering, the hidden-field contract at the decode-to-render seam, C preview invariance"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-struct-panel.md", "reason": "Struct editor child rows, bit-field form, checkbox wiring, test matrix"}
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "structs.json persistence and the additive-key compatibility rule"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Optional-key/union widening and schema drift-guard conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar and test-quality rules"}
