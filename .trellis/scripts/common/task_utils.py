@@ -308,6 +308,8 @@ def _kill_hook_tree(proc: subprocess.Popen[str]) -> None:
     import signal
     import subprocess
 
+    from .proc import hidden_kwargs
+
     if os.name == "posix":
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -319,6 +321,7 @@ def _kill_hook_tree(proc: subprocess.Popen[str]) -> None:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                 capture_output=True,
+                **hidden_kwargs(),
             )
         except (OSError, ValueError):
             pass
@@ -406,6 +409,7 @@ def run_task_hooks(event: str, task_json_path: Path, repo_root: Path) -> None:
 
     from .config import get_hooks
     from .log import Colors, colored
+    from .proc import hidden_kwargs
 
     commands = get_hooks(event, repo_root)
     if not commands:
@@ -432,6 +436,7 @@ def run_task_hooks(event: str, task_json_path: Path, repo_root: Path) -> None:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                **hidden_kwargs(),
                 **popen_kwargs,
             )
             try:
