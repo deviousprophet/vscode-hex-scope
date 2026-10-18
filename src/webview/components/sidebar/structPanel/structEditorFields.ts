@@ -250,9 +250,9 @@ export function childFieldRowHtml(child: BitFieldChild, ci: number, total: numbe
         `<div class="sfe-bf-child-row" data-child-idx="${ci}">` +
         `<span class="sfe-bf-child-indent"></span>` +
         `<input class="sfe-bf-child-name sb-input sb-input-sm" type="text" value="${esc(child.name)}" maxlength="64" ` +
-               `placeholder="bit${ci}" spellcheck="false" autocomplete="off">` +
+               `aria-label="Bit name" placeholder="bit${ci}" spellcheck="false" autocomplete="off">` +
         `<input class="sfe-bf-child-width sb-input sb-input-sm" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
-               `placeholder="N" maxlength="2">` +
+               `aria-label="Bit width in bits" placeholder="N" maxlength="2">` +
         `<span class="sfe-bf-child-unit">bit</span>` +
         bitChildEnumSelectHtml(child, structs) +
         bitChildHiddenCellHtml(child) +

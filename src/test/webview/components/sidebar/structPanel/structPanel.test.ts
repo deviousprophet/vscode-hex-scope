@@ -25,6 +25,23 @@ function elementText(element: Element | null): string {
     return element?.textContent ?? '';
 }
 
+/** Inject the real panel stylesheet so computed layout reflects the authored grid rules. */
+function injectStructPanelCss(): void {
+    const css = fs.readFileSync(
+        path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'structPanel', 'structPanel.css'),
+        'utf8',
+    );
+    const styleEl = document.createElement('style');
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+}
+
+/** Computed `grid-template-columns` of a header/row block — proves they resolve the same columns. */
+function computedGridTemplate(dom: JSDOM, element: Element | null): string {
+    assert.ok(element, 'element should exist');
+    return dom.window.getComputedStyle(element!).getPropertyValue('grid-template-columns');
+}
+
 function click(dom: JSDOM, el: Element | null): void {
     assert.ok(el, 'target element should exist');
     el!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -2560,13 +2577,7 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
 
         // Inject the real stylesheet so computed grid templates reflect the shared columns.
-        const css = fs.readFileSync(
-            path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'structPanel', 'structPanel.css'),
-            'utf8',
-        );
-        const styleEl = document.createElement('style');
-        styleEl.textContent = css;
-        document.head.appendChild(styleEl);
+        injectStructPanelCss();
 
         const TEMPLATE = '96px 26px 1fr 58px 52px 28px 72px 30px 18px';
 
@@ -3139,6 +3150,40 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'bitfield', 'type list should show a kind badge');
     });
 
+    test('bit-field def editor labels its child columns with a header above the rows', async () => {
+        S.structs = [];
+
+        await createMountedPanel();
+        openKindEditor('bitfield');
+        injectStructPanelCss();
+
+        const hdr = document.querySelector<HTMLElement>('.sfe-bf-child-hdr');
+        assert.ok(hdr, 'bit-field form should render a child column header');
+        assert.deepStrictEqual(Array.from(hdr!.children).map(elementText), ['', 'Name', 'Bits', '', 'Enum', 'Hide', '', ''],
+            'header cells label the name/width/enum/hide columns and stay blank over the indent, bit unit, move and delete cells');
+        assert.strictEqual(hdr!.closest('#se-bf-def-children'), null, 'header sits outside the refreshed row container');
+        assert.strictEqual(document.getElementById('se-bf-def-children')!.previousElementSibling, hdr, 'header sits directly above the rows');
+
+        click(dom, document.getElementById('se-bf-def-add'));
+        assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 2, 'Add bit appends a child row');
+        assert.strictEqual(document.querySelector('.sfe-bf-child-hdr'), hdr, 'header node survives the incremental row rebuild after Add');
+
+        click(dom, document.querySelector('#se-bf-def-children .sfe-bf-child-row .sfe-bf-del-child'));
+        assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 1, 'deleting a child removes its row');
+        assert.strictEqual(document.querySelector('.sfe-bf-child-hdr'), hdr, 'header node survives the incremental row rebuild after delete');
+
+        const row = document.querySelector<HTMLElement>('#se-bf-def-children .sfe-bf-child-row')!;
+        assert.strictEqual(row.querySelector('.sfe-bf-child-name')!.getAttribute('aria-label'), 'Bit name');
+        assert.strictEqual(row.querySelector('.sfe-bf-child-width')!.getAttribute('aria-label'), 'Bit width in bits');
+
+        // R3: the labels only line up if header and rows resolve the very same columns.
+        const template = computedGridTemplate(dom, row);
+        assert.notStrictEqual(template, '', 'the child row grid template should resolve from the stylesheet');
+        assert.strictEqual(row.children.length, 8, 'child row renders eight cells (indent/name/width/unit/enum/hide/move/delete)');
+        assert.strictEqual(hdr!.children.length, 8, 'header renders one cell per child column');
+        assert.strictEqual(computedGridTemplate(dom, hdr), template, 'header and child rows share one grid template');
+    });
+
     test('bit-field def editor child hidden checkbox reflects the loaded flag and saves it (false dropped)', async () => {
         S.structs = [{
             id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
@@ -3354,6 +3399,40 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(saved!.fields, []);
         assert.deepStrictEqual(saved!.entries, [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }]);
         assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'enum', 'type list should show an enum kind badge');
+    });
+
+    test('enum def editor labels its entry columns with a header above the rows', async () => {
+        S.structs = [];
+
+        await createMountedPanel();
+        openKindEditor('enum');
+        injectStructPanelCss();
+
+        const hdr = document.querySelector<HTMLElement>('.sfe-enum-entry-hdr');
+        assert.ok(hdr, 'enum form should render an entry column header');
+        assert.deepStrictEqual(Array.from(hdr!.children).map(elementText), ['', 'Name', '', 'Value', '', ''],
+            'header cells label the name/value columns and stay blank over the indent, =, move and delete cells');
+        assert.strictEqual(hdr!.closest('#se-enum-entries'), null, 'header sits outside the refreshed row container');
+        assert.strictEqual(document.getElementById('se-enum-entries')!.previousElementSibling, hdr, 'header sits directly above the rows');
+
+        click(dom, document.getElementById('se-enum-add'));
+        assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 2, 'Add entry appends a row');
+        assert.strictEqual(document.querySelector('.sfe-enum-entry-hdr'), hdr, 'header node survives the incremental row rebuild after Add');
+
+        click(dom, document.querySelector('#se-enum-entries .sfe-enum-entry-row .sfe-enum-del-entry'));
+        assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 1, 'deleting an entry removes its row');
+        assert.strictEqual(document.querySelector('.sfe-enum-entry-hdr'), hdr, 'header node survives the incremental row rebuild after delete');
+
+        const row = document.querySelector<HTMLElement>('#se-enum-entries .sfe-enum-entry-row')!;
+        assert.strictEqual(row.querySelector('.sfe-enum-entry-name')!.getAttribute('aria-label'), 'Enum entry name');
+        assert.strictEqual(row.querySelector('.sfe-enum-entry-value')!.getAttribute('aria-label'), 'Enum entry value');
+
+        // R3: the labels only line up if header and rows resolve the very same columns.
+        const template = computedGridTemplate(dom, row);
+        assert.notStrictEqual(template, '', 'the entry row grid template should resolve from the stylesheet');
+        assert.strictEqual(row.children.length, 6, 'entry row renders six cells (indent/name/=/value/move/delete)');
+        assert.strictEqual(hdr!.children.length, 6, 'header renders one cell per entry column');
+        assert.strictEqual(computedGridTemplate(dom, hdr), template, 'header and entry rows share one grid template');
     });
 
     test('enum def editor rejects an entry that does not fit the base width', async () => {

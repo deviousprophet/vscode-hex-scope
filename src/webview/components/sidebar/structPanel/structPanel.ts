@@ -420,9 +420,24 @@ private bitFieldDefEditorHtml(draft: StructDef): string {
         badge: 'bitfield',
         baseSelectId: 'se-base-type',
         baseAria: 'Bit-field base width',
-        rowsHtml: `<div id="se-bf-def-children" class="sfe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>`,
+        rowsHtml: this.bitFieldChildHeaderHtml() +
+            `<div id="se-bf-def-children" class="sfe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>`,
         addBtnHtml: `<button id="se-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>`,
     });
+}
+
+/**
+ * Column header for the bit-field child rows. Sits outside `#se-bf-def-children` so the
+ * incremental row rebuild (`refreshBitFieldDefRows`) leaves it in place; it aligns with the
+ * rows through the shared `.sfe-bf-child-hdr` / `.sfe-bf-child-row` grid template.
+ */
+private bitFieldChildHeaderHtml(): string {
+    return (
+        `<div class="sfe-bf-child-hdr">` +
+        `<span></span><span>Name</span><span>Bits</span><span></span>` +
+        `<span>Enum</span><span>Hide</span><span></span><span></span>` +
+        `</div>`
+    );
 }
 
 /** Per-kind slots for the shared bit-field / enum editor shell. */
@@ -595,9 +610,23 @@ private enumDefEditorHtml(draft: StructDef): string {
         badge: 'enum',
         baseSelectId: 'se-enum-base-type',
         baseAria: 'Enum base width',
-        rowsHtml: `<div id="se-enum-entries" class="sfe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>`,
+        rowsHtml: this.enumEntryHeaderHtml() +
+            `<div id="se-enum-entries" class="sfe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>`,
         addBtnHtml: `<button id="se-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>`,
     });
+}
+
+/**
+ * Column header for the enum entry rows. Sits outside `#se-enum-entries` so the incremental
+ * row rebuild (`refreshEnumDefRows`) leaves it in place; it aligns with the rows through the
+ * shared `.sfe-enum-entry-hdr` / `.sfe-enum-entry-row` grid template.
+ */
+private enumEntryHeaderHtml(): string {
+    return (
+        `<div class="sfe-enum-entry-hdr">` +
+        `<span></span><span>Name</span><span></span><span>Value</span><span></span><span></span>` +
+        `</div>`
+    );
 }
 
 private enumEntryRowsHtml(draft: StructDef): string {
@@ -615,10 +644,10 @@ private enumEntryRowHtml(entry: EnumEntry, i: number, total: number): string {
         `<div class="sfe-enum-entry-row" data-entry-idx="${i}">` +
         `<span class="sfe-bf-child-indent"></span>` +
         `<input class="sfe-enum-entry-name sb-input sb-input-sm" type="text" value="${esc(entry.name)}" maxlength="64" ` +
-               `placeholder="ENTRY${i}" spellcheck="false" autocomplete="off">` +
+               `aria-label="Enum entry name" placeholder="ENTRY${i}" spellcheck="false" autocomplete="off">` +
         `<span class="sfe-bf-child-unit">=</span>` +
         `<input class="sfe-enum-entry-value sb-input sb-input-sm" type="text" inputmode="numeric" ` +
-               `value="${esc(this.enumEntryValueText(entry.value))}" placeholder="0" spellcheck="false" autocomplete="off">` +
+               `aria-label="Enum entry value" value="${esc(this.enumEntryValueText(entry.value))}" placeholder="0" spellcheck="false" autocomplete="off">` +
         `<div class="sfe-bf-child-move">` +
         `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
         `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
