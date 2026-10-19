@@ -1,15 +1,15 @@
 /**
- * Deprecated read-window aliases for the Type Overlay rename.
+ * Migration-only aliases for the Type Overlay rename.
  *
  * The persisted contract was renamed in data-schema v2 — `structPins` →
  * `typeInstances`, `structId` → `typeId`, `refStructId` → `refTypeId`,
  * `sourceStructId` → `sourceTypeId` (`schemas/types.schema.json`). The payload
  * migration in `hexScopeStorage` rewrites the keys of a recorded v1 payload, but
- * an old-format payload can still reach a normalizer without passing through
- * that runner (a legacy `firmware_profiles/<n>/structs.json`, a per-directory
- * `profiles/<id>/profile.json`, or Memento-era instance arrays). These helpers
- * alias the legacy keys so such data still loads; **writers emit only the new
- * names**.
+ * the one-time legacy sources reach the (alias-free) general normalizers
+ * directly: a legacy `firmware_profiles/<n>/structs.json`, a per-directory
+ * `profiles/<id>/profile.json`, or Memento-era type/instance arrays. The
+ * migration layer calls these helpers explicitly before normalization; the
+ * general read path does not. **Writers emit only the new names.**
  *
  * The aliases are lossless and **identity-preserving**: a value that carries no
  * legacy key is returned by reference and a renamed key keeps its position, so a

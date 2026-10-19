@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
-import { aliasLegacyProfileRecord, aliasLegacyTypeDef, aliasLegacyTypeInstance } from './core/overlay/overlayAliases';
+import { aliasLegacyProfileRecord, aliasLegacyTypeDef } from './core/overlay/overlayAliases';
 import type { BitFieldAllocation, SegmentLabel, TypeInstance } from './core/types';
 import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
@@ -443,16 +443,25 @@ export async function nextProfileOrdinal(root: string): Promise<number> {
     return id;
 }
 
+/** Per-record transform supplied by the one-time migration layer. It aliases the
+ *  pre-rename keys of a legacy per-dir `profile.json` before this module's
+ *  alias-free normalizer reads it. Defaults to identity for callers that only
+ *  carry canonical records. */
+type LegacyRecordAlias = (raw: unknown) => unknown;
+
 /** Collect the registry records merged with any legacy per-dir records, or
  *  `null` when the file is newer than the build (forward-only → no write). */
-async function mergedLegacyRecords(root: string): Promise<{ current: ProfileRecord[]; merged: ProfileRecord[] } | null> {
+async function mergedLegacyRecords(
+    root: string,
+    aliasRecord: LegacyRecordAlias,
+): Promise<{ current: ProfileRecord[]; merged: ProfileRecord[] } | null> {
     const read = await readPayloadForWrite(profilesJsonUri(root), 'records');
     if (read.status === 'newer') { return null; }
     const current = normalizeProfilesRegistry(read.payload).value;
     const container = vscode.Uri.file(path.join(root, '.hexscope', 'profiles'));
     const merged: ProfileRecord[] = [...current];
     for (const entry of await readDirectorySafe(container)) {
-        const rec = await readLegacyDirRecord(container, entry);
+        const rec = await readLegacyDirRecord(container, entry, aliasRecord);
         if (rec) { merged.push(rec); }
     }
     return { current, merged };
@@ -462,9 +471,14 @@ async function mergedLegacyRecords(root: string): Promise<{ current: ProfileReco
  *  into the single-file registry array. Idempotent: existing records win on
  *  duplicate id / case-insensitive name; the dir tree is left in place for
  *  rollback (the marker lives in hexScopeMigration). A newer-version file is
- *  never rewritten (forward-only). */
-export async function migrateLegacyProfileDirs(root: string): Promise<void> {
-    const collected = await mergedLegacyRecords(root);
+ *  never rewritten (forward-only). `aliasRecord` is the migration layer's
+ *  explicit pre-rename alias pass; the general read path no longer tolerates the
+ *  old keys. */
+export async function migrateLegacyProfileDirs(
+    root: string,
+    aliasRecord: LegacyRecordAlias = raw => raw,
+): Promise<void> {
+    const collected = await mergedLegacyRecords(root, aliasRecord);
     if (collected === null) { return; }
     const normalized = normalizeProfilesRegistry(collected.merged);
     if (registryChanged(normalized.value, collected.current)) {
@@ -472,12 +486,16 @@ export async function migrateLegacyProfileDirs(root: string): Promise<void> {
     }
 }
 
-async function readLegacyDirRecord(container: vscode.Uri, entry: [string, vscode.FileType]): Promise<ProfileRecord | null> {
+async function readLegacyDirRecord(
+    container: vscode.Uri,
+    entry: [string, vscode.FileType],
+    aliasRecord: LegacyRecordAlias,
+): Promise<ProfileRecord | null> {
     const [dirName, type] = entry;
     if (type !== vscode.FileType.Directory) { return null; }
     const read = await readJson(vscode.Uri.file(path.join(container.fsPath, dirName, 'profile.json')));
     if (read.status !== 'ok') { return null; }
-    const rec = normalizeProfileRecord(read.value, emptyProfileRecord(dirName, dirName)).value;
+    const rec = normalizeProfileRecord(aliasRecord(read.value), emptyProfileRecord(dirName, dirName)).value;
     return rec.id !== '' ? rec : { ...rec, id: dirName };
 }
 
@@ -561,13 +579,12 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
 }
 
-/** Read the profile's instance array. Deprecated read window: tolerate the
- *  pre-rename keys on existing files (`structPins`, and the older `pins`) and
- *  alias each instance's legacy `structId` / `sourceStructId`. Writers emit only
- *  `typeInstances` with the new per-instance keys. */
+/** Read the profile's instance array. The persisted key is `typeInstances` only:
+ *  the pre-rename read window is retired, so the legacy `structPins` / `pins`
+ *  keys and the old per-instance refs are not aliased on the general read path.
+ *  The one-time legacy migrations alias their own input before writing. */
 function candidateTypeInstances(candidate: Record<string, unknown>): TypeInstance[] {
-    const alias = candidate.typeInstances ?? candidate.structPins ?? candidate.pins;
-    return arrayOrEmpty(alias, []).map(entry => aliasLegacyTypeInstance(entry) as TypeInstance);
+    return arrayOrEmpty(candidate.typeInstances) as TypeInstance[];
 }
 
 /** Normalize the whole registry array: drop malformed records, dedupe by

@@ -5,7 +5,6 @@
 
 import type { BitFieldChild, EnumEntry, TypeDef, TypeField } from '../types';
 import { enumValueBound, migrateInlineBitFields } from './overlayCodec';
-import { aliasLegacyTypeDefs } from './overlayAliases';
 import { withCleanedBitChildren } from './bitChildren';
 import { hasSeenTypeDefIdentity, rememberTypeDefIdentity, typeDefIdentity } from './overlayIdentities';
 
@@ -13,14 +12,14 @@ export type TypeDefsNormalization = { defs: TypeDef[]; changed: boolean };
 
 export function normalizeTypeDefsValue(value: unknown): TypeDefsNormalization {
     if (!Array.isArray(value)) { return { defs: [], changed: false }; }
-    // Deprecated read window: alias the pre-rename ref keys before any pass reads them.
-    const aliased = aliasLegacyTypeDefs(value);
-    const collected = collectUniqueTypeDefs(aliased.value as unknown[]);
+    // General read path: the pre-rename aliases are retired (migration-internal),
+    // so only the canonical v2 keys are read here.
+    const collected = collectUniqueTypeDefs(value);
     // Legacy inline bit-field containers migrate before enum sanitization so the
     // generated `kind: 'bitfield'` defs' child enum refs are cleaned too.
     const migrated = migrateInlineBitFields(collected.defs);
     const sanitized = sanitizeEnumDefs(migrated.defs);
-    return { defs: sanitized.defs, changed: anyPassChanged([aliased, collected, migrated, sanitized]) };
+    return { defs: sanitized.defs, changed: anyPassChanged([collected, migrated, sanitized]) };
 }
 
 /** Any normalization pass reporting a change (keeps the orchestrator branch-light). */

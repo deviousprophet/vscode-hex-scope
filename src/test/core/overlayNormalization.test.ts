@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 
+import { aliasLegacyTypeDefs } from '../../core/overlay/overlayAliases';
 import { normalizeTypeDefsValue } from '../../core/overlay/overlayNormalization';
 import type { TypeDef, TypeField } from '../../core/types';
 
@@ -170,11 +171,13 @@ suite('normalizeTypeDefsValue() — inline bit-field migration', () => {
         assert.strictEqual(result.defs[0].kind, undefined, 'containing def stays a plain struct');
     });
 
-    test('aliases a legacy inline bit-child enum ref before migrating the container', () => {
+    test('a legacy inline bit-child enum ref is aliased before the container migration (migration path)', () => {
         // A pre-rename pool wrote the bit child's enum ref as `refStructId`. The
-        // alias must run before `migrateInlineBitFields` reads the container
-        // signature and copies the children, otherwise the label ref is lost and
-        // the stale key would be re-emitted into the strict schema.
+        // one-time migration layer aliases the raw payload first (the general
+        // reader no longer does), so the alias must run before
+        // `migrateInlineBitFields` reads the container signature and copies the
+        // children — otherwise the label ref is lost and the stale key would be
+        // re-emitted into the strict schema.
         const legacy = [
             { id: 'regs', name: 'Regs', fields: [
                 { name: 'ctrl', type: 'uint8', count: 1, bitFields: [
@@ -184,7 +187,8 @@ suite('normalizeTypeDefsValue() — inline bit-field migration', () => {
             ] },
             { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }] },
         ];
-        const result = normalizeTypeDefsValue(legacy as unknown as TypeDef[]);
+        const aliased = aliasLegacyTypeDefs(legacy);
+        const result = normalizeTypeDefsValue(aliased.value as TypeDef[]);
         assert.strictEqual(result.changed, true);
         const generated = result.defs.find(d => d.kind === 'bitfield')!;
         assert.deepStrictEqual(
@@ -316,5 +320,44 @@ suite('normalizeTypeDefsValue() — hidden field flag', () => {
         assert.notStrictEqual(refs[0], refs[1], 'each container keeps its own bit-field type');
         assert.strictEqual(byId.get(refs[0]!)!.bitFields![0].hidden, true, 'the hidden container keeps its hidden bit');
         assert.strictEqual('hidden' in byId.get(refs[1]!)!.bitFields![0], false, 'the visible container stays fully visible');
+    });
+});
+
+suite('normalizeTypeDefsValue() — retired pre-rename aliases', () => {
+    test('a current-version field ref under the legacy key is not aliased', () => {
+        // The general reader accepts only the canonical v2 keys now. A v2 payload
+        // that still carries the old key is left untouched (no refTypeId, no
+        // alias-induced self-heal) — the documented retirement.
+        const legacy = [
+            { id: 's1', name: 'S1', fields: [{ name: 'next', type: 'struct', refStructId: 's2', count: 1 }] },
+        ];
+        const result = normalizeTypeDefsValue(legacy as unknown as TypeDef[]);
+        assert.strictEqual(result.changed, false, 'no alias-induced self-heal');
+        assert.strictEqual(result.defs[0].fields[0].refTypeId, undefined, 'the legacy field ref is not read');
+        assert.strictEqual(
+            (result.defs[0].fields[0] as unknown as Record<string, unknown>).refStructId,
+            's2',
+            'the unknown legacy key is carried through untouched, never interpreted',
+        );
+    });
+
+    test('a legacy bit-child enum ref is not aliased before the container migration', () => {
+        // The inline-container migration still runs, but it copies the child as
+        // authored: the retired alias no longer turns `refStructId` into an enum
+        // label reference on the general read path.
+        const legacy = [
+            { id: 'regs', name: 'Regs', fields: [
+                { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'mode', bitWidth: 2, refStructId: 'mode' }] },
+            ] },
+            { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'OFF', value: 0 }] },
+        ];
+        const result = normalizeTypeDefsValue(legacy as unknown as TypeDef[]);
+        const generated = result.defs.find(d => d.kind === 'bitfield')!;
+        assert.strictEqual(generated.bitFields![0].refTypeId, undefined, 'the legacy bit-child ref is not read');
+        assert.strictEqual(
+            (generated.bitFields![0] as unknown as Record<string, unknown>).refStructId,
+            'mode',
+            'the unknown legacy key survives untouched',
+        );
     });
 });

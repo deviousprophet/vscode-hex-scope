@@ -646,12 +646,13 @@ suite('hexScopeStorage — Type Overlay v1 → v2 key migration', () => {
         assert.ok(!JSON.stringify(typesOnDisk).includes('refStructId'), 'old ref keys gone');
         assert.strictEqual(typesOnDisk.$schema, 'schemas/types.schema.json', '$schema points at the renamed schema');
 
-        // The session read path aliases the legacy refs into the decoded model.
+        // The migrated pool decodes with the new ref keys (the file-move runner
+        // rewrote them; the general reader no longer aliases old keys).
         const pool = poolStoreFor(testRoot);
         const defs = await pool.load();
         pool.dispose();
-        assert.strictEqual(defs.find(d => d.id === 's1')!.fields[0].refTypeId, 's2', 'the aliased def ref reaches the decoded model');
-        assert.strictEqual(defs.find(d => d.id === 'bits')!.bitFields![0].refTypeId, 'mode', 'the aliased bit-child ref reaches the decoded model');
+        assert.strictEqual(defs.find(d => d.id === 's1')!.fields[0].refTypeId, 's2', 'the migrated def ref reaches the decoded model');
+        assert.strictEqual(defs.find(d => d.id === 'bits')!.bitFields![0].refTypeId, 'mode', 'the migrated bit-child ref reaches the decoded model');
 
         // The v1 profile payload self-heals to v2 through the store: labels /
         // segment names / endian / instances all survive, old keys are gone.
@@ -702,38 +703,38 @@ suite('hexScopeStorage — Type Overlay v1 → v2 key migration', () => {
         assert.strictEqual(await readText(profilesJsonUri(testRoot)), profilesBefore, 'profiles.json byte-identical');
     });
 
-    test('an old-key payload at the current version still reads through the aliases (unsaved, no migration)', () => {
-        // No migration ran (the keys are already v2-shaped except the refs): the
-        // read-window alias is the only thing that saves the reference.
+    test('the general reader retires the pre-rename aliases (a current-version payload is not aliased)', () => {
+        // The read window is retired: a v2 payload carrying only legacy keys no
+        // longer populates defs/instances. The old tolerance is asserted here as
+        // *off*; the one-time migration inputs keep it explicitly (see the
+        // `hexScopeMigration` suites below).
         const defs = normalizeTypeDefsValue(defsPayloadV1().defs);
-        assert.strictEqual(defs.defs[0].fields[0].refTypeId, 's2', 'field ref aliased');
-        assert.strictEqual(defs.defs[3].bitFields![0].refTypeId, 'mode', 'bit-child ref aliased');
-        assert.strictEqual(defs.changed, true, 'the alias is a self-heal change');
+        assert.strictEqual(defs.defs[0].fields[0].refTypeId, undefined, 'field ref not aliased');
+        assert.strictEqual(defs.defs[3].bitFields![0].refTypeId, undefined, 'bit-child ref not aliased');
+        assert.strictEqual(defs.changed, false, 'no alias-induced self-heal');
 
         const records = normalizeProfilesRegistry(recordsPayloadV1().records);
-        assert.strictEqual(records.value[0].typeInstances[0].typeId, 's1', 'instance key aliased');
-        assert.strictEqual(records.value[0].typeInstances[0].pointerSources![0].sourceTypeId, 's2', 'pointer-source key aliased');
+        assert.deepStrictEqual(records.value[0].typeInstances, [], '`structPins` is not read on the general path');
+        assert.strictEqual(records.value[0].id, 'profile_1', 'the record itself still loads');
 
-        // Deprecated v0 keys stay readable too (`structPins` and the older `pins`).
+        // Deprecated v0 keys are retired too (`pins`).
         const legacyPins = normalizeProfilesRegistry([{
             id: 'p', name: 'P', labels: [], segmentNames: {},
             pins: [{ id: 'i', structId: 's1', addr: 0, name: 'x' }],
             activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
         }]);
-        assert.strictEqual(legacyPins.value[0].typeInstances[0].typeId, 's1', 'the v0 `pins` array is read through the alias chain');
+        assert.deepStrictEqual(legacyPins.value[0].typeInstances, [], 'the v0 `pins` array is not read either');
+    });
 
-        // A record carrying the new key *and* a legacy key (the schema declares
-        // both, so it validates): the new key wins, matching the documented
-        // `typeInstances ?? structPins ?? pins` chain — and the migration's alias
-        // must not clobber the new array with the legacy one.
+    test('the v1 payload runner still renames the keys and keeps the new key when both are present', () => {
+        // Versioned v1 payloads go through `MIGRATIONS[1]` (unchanged), never the
+        // retired general-reader aliases.
         const bothKeys = {
             id: 'b', name: 'B', labels: [], segmentNames: {},
             typeInstances: [{ id: 'new', typeId: 's_new', addr: 1, name: 'n' }],
             structPins: [{ id: 'old', typeId: 's_old', addr: 2, name: 'o' }],
             activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
         };
-        const both = normalizeProfilesRegistry([{ ...bothKeys }]);
-        assert.deepStrictEqual(both.value[0].typeInstances.map(i => i.id), ['new'], 'the new key wins over the legacy array');
         const migratedBoth = migrateData({ schemaVersion: 1, records: [{ ...bothKeys }] }, 'records');
         assert.strictEqual(migratedBoth.status, 'ok');
         if (migratedBoth.status === 'ok') {
@@ -1261,7 +1262,10 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
     });
 
     test('tree era: firmware_profiles tree converts to pool + registry profiles + bindings', async () => {
-        // Build a legacy firmware_profiles/<n> tree the old way.
+        // Build a legacy firmware_profiles/<n> tree the old way. The structs.json
+        // carries pre-rename refs (`refStructId`) and the index.json pins carry
+        // `structId` / `sourceStructId`: the migration layer must alias them
+        // explicitly, because the general readers are alias-free now.
         const legacyContainer = vscode.Uri.file(path.join(testRoot, '.hexscope', 'firmware_profiles'));
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(legacyContainer.fsPath, 'profiles_1')));
         const dir = path.join(legacyContainer.fsPath, 'profiles_1');
@@ -1271,14 +1275,26 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
                 relPath: REL,
                 labels: [{ id: 'l1', name: 'L1', startAddress: 0, length: 1, color: '#000' }],
                 segmentNames: { '0': 'Boot' },
-                pins: [],
+                pins: [{
+                    id: 'pin1', structId: 's3', addr: 0x100, name: 'cfg',
+                    pointerSources: [{
+                        sourcePinId: 'pin0', sourcePinName: 'boot', sourceStructId: 's2',
+                        sourceFieldPath: 'next', pointerStorageAddress: 4, targetAddress: 0x100,
+                    }],
+                }],
                 activeChecks: { schemaVersion: 1, checks: [] },
                 endian: 'be',
             },
         }));
         await writeText(vscode.Uri.file(path.join(dir, 'structs.json')), JSON.stringify({
             version: 1,
-            data: [{ id: 's1', name: 'S1', fields: [] }],
+            data: [
+                { id: 's1', name: 'S1', fields: [] },
+                { id: 's2', name: 'S2', fields: [] },
+                { id: 's3', name: 'S3', fields: [{ name: 'next', type: 'struct', refStructId: 's2', count: 1 }] },
+                { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'OFF', value: 0 }] },
+                { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'mode' }] },
+            ],
         }));
         await writeText(vscode.Uri.file(path.join(dir, 'integrity.json')), JSON.stringify({
             version: 1,
@@ -1293,7 +1309,14 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
 
         // Pool got the type (v2 supersedes v1; tree type deduped against Memento)
         const pool = await readJsonValue(typePoolJsonUri(testRoot));
-        assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id).sort(), ['s1'], 'tree types + Memento v2 merged');
+        assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id).sort(), ['bits', 'mode', 's1', 's2', 's3'], 'tree types + Memento v2 merged');
+        const defs = payloadOf(pool, 'defs') as Array<Record<string, unknown>>;
+        const s3Fields = defs.find(d => d.id === 's3')!.fields as Array<Record<string, unknown>>;
+        assert.strictEqual(s3Fields[0].refTypeId, 's2', 'the legacy field ref survives under the new key');
+        assert.ok(!('refStructId' in s3Fields[0]), 'the legacy field key is not re-emitted');
+        const bitsFields = defs.find(d => d.id === 'bits')!.bitFields as Array<Record<string, unknown>>;
+        assert.strictEqual(bitsFields[0].refTypeId, 'mode', 'the legacy bit-child enum ref survives under the new key');
+        assert.ok(!JSON.stringify(defs).includes('refStructId'), 'writers emit only the new ref key');
 
         // Binding created for the file; registry has the file profile.
         const bindings = await readJsonValue(bindingsJsonUri(testRoot));
@@ -1304,6 +1327,12 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.ok(profile, 'file profile in the array registry');
         assert.strictEqual(profile!.labels.length, 1);
         assert.strictEqual(profile!.endian, 'be');
+        assert.strictEqual(profile!.typeInstances[0].typeId, 's3', 'the legacy pin `structId` survives as `typeId`');
+        assert.strictEqual(profile!.typeInstances[0].pointerSources![0].sourceTypeId, 's2', 'the legacy pointer-source ref survives as `sourceTypeId`');
+        const profilesText = await readText(profilesJsonUri(testRoot));
+        assert.ok(!profilesText.includes('"structPins"'), 'writers emit only the new profile key');
+        assert.ok(!profilesText.includes('structId'), 'writers emit only the new instance key');
+        assert.ok(!profilesText.includes('sourceStructId'), 'writers emit only the new pointer-source key');
         assert.deepStrictEqual(profile!.activeChecks.checks.map(c => c.algorithm), ['crc16-ccitt-false'], 'empty index activeChecks folds the first integrity template in');
 
         // Legacy tree stays in place (revert safety).
@@ -1442,6 +1471,40 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         // Second run: marker present → merge skipped (profile_1 not duplicated).
         await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
         assert.strictEqual((await collectProfileRecords(testRoot)).length, 1, 'no duplicate after marker');
+    });
+
+    test('per-dir registry: a legacy profile.json aliases structPins / structId / sourceStructId on the migration path', async () => {
+        // The per-dir file predates the rename: the migration layer's explicit
+        // alias pass must keep its pins and pointer sources lossless even though
+        // the general profile reader no longer tolerates the old keys.
+        const dir = path.join(testRoot, '.hexscope', 'profiles', 'profile_1');
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
+        await writeText(vscode.Uri.file(path.join(dir, 'profile.json')), JSON.stringify(withEnvelope({
+            id: 'profile_1', name: 'Boot', labels: [], segmentNames: {},
+            structPins: [{
+                id: 'pin1', structId: 's1', addr: 0x100, name: 'cfg',
+                pointerSources: [{
+                    sourcePinId: 'pin0', sourcePinName: 'boot', sourceStructId: 's2',
+                    sourceFieldPath: 'next', pointerStorageAddress: 4, targetAddress: 0x100,
+                }],
+            }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'be', bitAllocation: 'msb',
+        })));
+
+        const globalState = new FakeMemento();
+        const workspaceState = new FakeMemento();
+        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
+
+        const rec = (await collectProfileRecords(testRoot)).find(r => r.id === 'profile_1');
+        assert.ok(rec, 'the legacy dir record reached the array');
+        assert.strictEqual(rec!.typeInstances[0].id, 'pin1');
+        assert.strictEqual(rec!.typeInstances[0].typeId, 's1', 'the legacy `structId` survives as `typeId`');
+        assert.strictEqual(rec!.typeInstances[0].addr, 0x100);
+        assert.strictEqual(rec!.typeInstances[0].pointerSources![0].sourceTypeId, 's2', 'the legacy `sourceStructId` survives as `sourceTypeId`');
+        const text = await readText(profilesJsonUri(testRoot));
+        assert.ok(!text.includes('"structPins"'), 'writers emit only the new profile key');
+        assert.ok(!text.includes('structId'), 'writers emit only the new instance key');
+        assert.ok(!text.includes('sourceStructId'), 'writers emit only the new pointer-source key');
     });
 
     test('no legacy data → nothing seeded, no crash', async () => {

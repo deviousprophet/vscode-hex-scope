@@ -76,9 +76,9 @@ suite('hexScope schemas — positive fixtures', () => {
         const { schema } = loadSchema('profiles.schema.json');
         // The schema keeps typeInstances required for new files but declares the
         // legacy `structPins` (v1) and `pins` (v0) properties as deprecated
-        // (additionalProperties: false would otherwise reject them); the runtime
-        // normalizer reads `typeInstances ?? structPins ?? pins` and self-heals
-        // on the next write.
+        // (additionalProperties: false would otherwise reject them). They describe
+        // the v1 on-disk shape only: `MIGRATIONS[1]` renames them for a recorded
+        // v1 payload, while the general profile reader no longer tolerates them.
         const data = [{
             id: 'profile_1', name: 'Legacy', labels: [], segmentNames: {},
             typeInstances: [], structPins: [{ id: 'p1', typeId: 's1', addr: 0, name: 'Pin A' }],

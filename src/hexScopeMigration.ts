@@ -16,6 +16,7 @@ import { normalizeIntegrityProfiles } from './core/integrity';
 import { arrayField, arrayOrEmpty, plainObject, plainStringRecord, stringField } from './core/fromUnknown';
 import { migrateTypeDefinitions, mergeLegacyTypeDefs } from './core/overlay/overlayMigration';
 import { normalizeTypeDefsValue } from './core/overlay/overlayNormalization';
+import { aliasLegacyProfileRecord, aliasLegacyTypeDefs, aliasLegacyTypeInstance } from './core/overlay/overlayAliases';
 import type { TypeDef } from './core/types';
 import {
     bindingsJsonUri,
@@ -118,7 +119,9 @@ async function migrateProfilesDirToArray(root: string, context: MigrationContext
     const marker = PROFILES_ARRAY_MARKER;
     if (context.globalState.get<string>(marker) === root) { return; }
     if (await dirExists(path.join(root, '.hexscope', 'profiles'))) {
-        await migrateLegacyProfileDirs(root);
+        // Legacy per-dir records still carry the pre-rename keys; the migration
+        // layer is the only alias consumer now (the general reader is retired).
+        await migrateLegacyProfileDirs(root, aliasLegacyProfileRecord);
     }
     await context.globalState.update(marker, root);
 }
@@ -233,7 +236,7 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
 
 async function readLegacyTypes(dir: string): Promise<TypeDef[]> {
     const raw = await readJson(vscode.Uri.file(path.join(dir, 'structs.json')));
-    return raw.status === 'ok' ? normalizeTypeDefsValue(migrateTypeDefinitions(raw.value)).defs : [];
+    return raw.status === 'ok' ? normalizeLegacyDefs(raw.value) : [];
 }
 
 async function readLegacyIntegrityProfiles(dir: string): Promise<IntegrityProfileVal[]> {
@@ -259,7 +262,7 @@ async function ensureProfileLegacy(
         activeChecks: (index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles)) as ProfileRecord['activeChecks'],
         labels: index.labels as ProfileRecord['labels'],
         segmentNames: index.segmentNames,
-        typeInstances: index.pins as ProfileRecord['typeInstances'],
+        typeInstances: aliasLegacyInstances(index.pins),
         endian: index.endian,
     });
     return profileId;
@@ -333,7 +336,7 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
         ...emptyProfileRecord(profileId, name),
         labels: arrayOrEmpty(legacy.labels) as ProfileRecord['labels'],
         segmentNames: plainStringRecord(legacy.segmentNames),
-        typeInstances: arrayOrEmpty(legacy.pins) as ProfileRecord['typeInstances'],
+        typeInstances: aliasLegacyInstances(legacy.pins),
         activeChecks: normalizeChecks(legacy.checks) as ProfileRecord['activeChecks'],
         endian: legacy.endian === 'be' ? 'be' : 'le',
     };
@@ -345,13 +348,27 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
 
 /** Merge Memento era type sources (global v2/v1 + per-file) deduped. */
 function legacyTypeDefs(v2: unknown, v1: unknown, perFile: unknown): TypeDef[] {
-    const globalArr = v2 === undefined ? legacySourceDefs(v1) : normalizeTypeDefsValue(v2).defs;
+    const globalArr = v2 === undefined ? legacySourceDefs(v1) : normalizeLegacyDefs(v2);
     const legacyArr = legacySourceDefs(perFile);
     return dedupeTypeDefs([...globalArr, ...legacyArr]);
 }
 
+/** One-time legacy input: explicitly alias the pre-rename ref keys (including
+ *  every inline bit-child enum ref) before the alias-free general normalizer
+ *  reads the payload. A bare/undefined source normalizes to `[]`. */
+function normalizeLegacyDefs(source: unknown): TypeDef[] {
+    const aliased = aliasLegacyTypeDefs(source);
+    return normalizeTypeDefsValue(migrateTypeDefinitions(aliased.value)).defs;
+}
+
 function legacySourceDefs(source: unknown): TypeDef[] {
-    return normalizeTypeDefsValue(migrateTypeDefinitions(source ?? [])).defs;
+    return normalizeLegacyDefs(source ?? []);
+}
+
+/** One-time legacy input: alias a pin array's pre-rename instance refs
+ *  (`structId` / `sourceStructId` → `typeId` / `sourceTypeId`). */
+function aliasLegacyInstances(source: unknown): ProfileRecord['typeInstances'] {
+    return arrayOrEmpty(source).map(aliasLegacyTypeInstance) as ProfileRecord['typeInstances'];
 }
 
 function dedupeTypeDefs(defs: TypeDef[]): TypeDef[] {
