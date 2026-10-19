@@ -2352,6 +2352,139 @@ suite('OverlayPanel deep-render harness', () => {
         assert.deepStrictEqual(S.typeInstances, []);
     });
 
+    test('types list shows a chip for every kind, sentence-case labels, meta and kind-grouped order', async () => {
+        const alphaStruct = simpleDef('alpha', 'Alpha', [{ name: 'b', type: 'uint32', count: 1 }]);
+        const zetaStruct = simpleDef('zeta', 'zeta', [{ name: 'a', type: 'uint8', count: 1 }]);
+        const bits: TypeDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint16', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 5 }],
+        };
+        const mode: TypeDef = {
+            id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [],
+            entries: [{ name: 'OFF', value: 0 }],
+        };
+        // Nested struct size must resolve through the full defs pool (4-byte head + 1-byte tail, aligned = 8 B).
+        const outerStruct = simpleDef('outer', 'Outer', [
+            { name: 'head', type: 'struct', refTypeId: 'alpha', count: 1 },
+            { name: 'tail', type: 'uint8', count: 1 },
+        ]);
+        S.types = [mode, bits, outerStruct, zetaStruct, alphaStruct];
+        await createMountedPanel();
+
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('#om-list .od-row'));
+        assert.deepStrictEqual(rows.map(r => elementText(r.querySelector('.od-name'))),
+            ['Alpha', 'Outer', 'zeta', 'Bits', 'Mode'], 'kind-grouped then case-insensitive name A-Z');
+
+        const expected: Array<{ label: string; modifier: string; meta: string }> = [
+            { label: 'Struct', modifier: 'od-kind-struct', meta: '1 field \u00b7 4 B' },
+            { label: 'Struct', modifier: 'od-kind-struct', meta: '2 fields \u00b7 8 B' },
+            { label: 'Struct', modifier: 'od-kind-struct', meta: '1 field \u00b7 1 B' },
+            { label: 'Bit-field', modifier: 'od-kind-bitfield', meta: 'uint16 \u00b7 9/16 bits' },
+            { label: 'Enum', modifier: 'od-kind-enum', meta: 'uint8 \u00b7 1 entry' },
+        ];
+        rows.forEach((row, i) => {
+            const chip = row.querySelector<HTMLElement>('.od-kind')!;
+            assert.strictEqual(elementText(chip), expected[i].label, `row ${i} chip label`);
+            assert.ok(chip.classList.contains(expected[i].modifier), `row ${i} kind modifier`);
+            assert.strictEqual(elementText(row.querySelector('.od-meta')), expected[i].meta, `row ${i} meta`);
+        });
+        // Row order: name → kind → meta → actions.
+        assert.strictEqual(rows[0].children[0].className, 'od-name');
+        assert.ok(rows[0].children[1].classList.contains('od-kind'));
+        assert.strictEqual(rows[0].children[2].className, 'od-meta');
+        assert.ok(rows[0].children[3].classList.contains('act-btn-edit'));
+    });
+
+    test('types filter narrows by name and kind, composes, and restores the full sorted list', async () => {
+        const alphaStruct = simpleDef('alpha', 'Alpha', [{ name: 'b', type: 'uint32', count: 1 }]);
+        const zetaStruct = simpleDef('zeta', 'zeta', [{ name: 'a', type: 'uint8', count: 1 }]);
+        const bits: TypeDef = {
+            id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint16', fields: [],
+            bitFields: [{ name: 'lo', bitWidth: 4 }],
+        };
+        const mode: TypeDef = {
+            id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [],
+            entries: [{ name: 'OFF', value: 0 }],
+        };
+        S.types = [mode, bits, zetaStruct, alphaStruct];
+        await createMountedPanel();
+
+        const names = () => Array.from(document.querySelectorAll<HTMLElement>('#om-list .od-row .od-name'))
+            .map(el => el.textContent ?? '');
+        const filter = document.getElementById('om-filter') as HTMLInputElement;
+        const kindFilter = document.getElementById('om-kind-filter') as HTMLSelectElement;
+        assert.ok(filter && kindFilter, 'filter tools should render above the list');
+
+        filter.value = 'AL';
+        filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        assert.deepStrictEqual(names(), ['Alpha'], 'name filter is a case-insensitive substring');
+
+        filter.value = '';
+        filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        kindFilter.value = 'struct';
+        kindFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.deepStrictEqual(names(), ['Alpha', 'zeta'], 'kind filter keeps struct order');
+
+        filter.value = 'alp';
+        filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        assert.deepStrictEqual(names(), ['Alpha'], 'name + kind filters compose');
+
+        kindFilter.value = 'enum';
+        kindFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual(document.querySelector('#om-list .sb-empty')?.textContent, 'No types match.',
+            'no-match state is distinct from the no-types state');
+
+        kindFilter.value = 'all';
+        kindFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        filter.value = '';
+        filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        assert.deepStrictEqual(names(), ['Alpha', 'zeta', 'Bits', 'Mode'], 'clearing restores the full sorted list');
+    });
+
+    test('types filtering keeps the search input focused and leaves row actions wired', async () => {
+        const alphaStruct = simpleDef('alpha', 'Alpha', [{ name: 'b', type: 'uint32', count: 1 }]);
+        const zetaStruct = simpleDef('zeta', 'zeta', [{ name: 'a', type: 'uint8', count: 1 }]);
+        S.types = [zetaStruct, alphaStruct];
+        await createMountedPanel();
+
+        const filter = document.getElementById('om-filter') as HTMLInputElement;
+        filter.focus();
+        filter.value = 'alp';
+        filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+        assert.strictEqual(document.getElementById('om-filter'), filter, 'filter input node survives the list-only refresh');
+        assert.strictEqual(document.activeElement, filter, 'filter input keeps focus');
+        assert.strictEqual(filter.value, 'alp', 'filter value is preserved');
+
+        // Row actions are re-wired after the list-only rebuild.
+        click(dom, document.querySelector('.od-row .act-btn-edit[data-type-id="alpha"]'));
+        assert.ok(document.getElementById('oe-name'), 'edit action still opens the type editor after filtering');
+        assert.strictEqual((document.getElementById('oe-name') as HTMLInputElement).value, 'Alpha');
+    });
+
+    test('resetViewState clears the type filters', async () => {
+        S.types = [scalarDef, childDef];
+        const panel = await createMountedPanel();
+
+        const filter = document.getElementById('om-filter') as HTMLInputElement;
+        const kindFilter = document.getElementById('om-kind-filter') as HTMLSelectElement;
+        filter.value = 'zzz';
+        filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        kindFilter.value = 'enum';
+        kindFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual(document.querySelector('#om-list .sb-empty')?.textContent, 'No types match.');
+
+        panel.resetViewState();
+
+        assert.strictEqual((document.getElementById('om-filter') as HTMLInputElement).value, '', 'name filter cleared');
+        assert.strictEqual((document.getElementById('om-kind-filter') as HTMLSelectElement).value, 'all', 'kind filter cleared');
+        assert.deepStrictEqual(
+            Array.from(document.querySelectorAll<HTMLElement>('#om-list .od-row .od-name')).map(el => el.textContent),
+            ['ChildNode', 'Scalar'],
+            'full sorted list restored',
+        );
+    });
+
     test('add form confirms a new pin', async () => {
         S.types = [scalarDef];
         S.typeInstances = [];
@@ -3124,6 +3257,9 @@ suite('OverlayPanel deep-render harness', () => {
 
         assert.ok(document.getElementById('oe-base-type'), 'bit-field form should render a base width select');
         assert.strictEqual((document.getElementById('oe-base-type') as HTMLSelectElement).value, 'uint32');
+        const formBadge = document.querySelector<HTMLElement>('.oe-kind-badge')!;
+        assert.strictEqual(elementText(formBadge), 'Bit-field', 'form badge matches the list label');
+        assert.ok(formBadge.classList.contains('od-kind-bitfield'), 'form badge carries the kind accent modifier');
         assert.strictEqual(document.querySelectorAll('#oe-bf-def-children .ofe-bf-child-row').length, 1, 'seeded with one child row');
         assert.strictEqual(document.querySelector('.field-row'), null, 'no type field grid in the bit-field form');
         assert.strictEqual(document.getElementById('oe-endian'), null, 'bit-field form edits name + base width + child rows only (no endian select)');
@@ -3147,7 +3283,7 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(saved!.baseType, 'uint16');
         assert.deepStrictEqual(saved!.fields, []);
         assert.deepStrictEqual(saved!.bitFields, [{ name: 'a', bitWidth: 4 }, { name: 'b', bitWidth: 5 }]);
-        assert.strictEqual(elementText(document.querySelector('.od-row .od-kind')), 'bitfield', 'type list should show a kind badge');
+        assert.strictEqual(elementText(document.querySelector('.od-row .od-kind')), 'Bit-field', 'type list should show a sentence-case kind badge');
     });
 
     test('bit-field def editor labels its child columns with a header above the rows', async () => {
@@ -3378,6 +3514,9 @@ suite('OverlayPanel deep-render harness', () => {
 
         assert.ok(document.getElementById('oe-enum-base-type'), 'enum form should render a base width select');
         assert.strictEqual((document.getElementById('oe-enum-base-type') as HTMLSelectElement).value, 'uint8');
+        const formBadge = document.querySelector<HTMLElement>('.oe-kind-badge')!;
+        assert.strictEqual(elementText(formBadge), 'Enum', 'form badge matches the list label');
+        assert.ok(formBadge.classList.contains('od-kind-enum'), 'form badge carries the kind accent modifier');
         assert.strictEqual(document.querySelectorAll('#oe-enum-entries .ofe-enum-entry-row').length, 1, 'seeded with one entry row');
         assert.strictEqual(document.querySelector('.field-row'), null, 'no type field grid in the enum form');
 
@@ -3398,7 +3537,7 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(saved!.baseType, 'uint8');
         assert.deepStrictEqual(saved!.fields, []);
         assert.deepStrictEqual(saved!.entries, [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }]);
-        assert.strictEqual(elementText(document.querySelector('.od-row .od-kind')), 'enum', 'type list should show an enum kind badge');
+        assert.strictEqual(elementText(document.querySelector('.od-row .od-kind')), 'Enum', 'type list should show an enum kind badge');
     });
 
     test('enum def editor labels its entry columns with a header above the rows', async () => {

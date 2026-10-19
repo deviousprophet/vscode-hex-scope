@@ -42,20 +42,47 @@
 
 /* Named-type discriminator badge — one shared primitive for the type list
    (`.od-kind`) and the editor default row (`.oe-kind-badge`); only layout
-   differs between the two. 10px type floor. */
+   differs between the two. Sentence-case label, 10px type floor. */
 .od-kind,
 .oe-kind-badge {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .04em; line-height: 1.5;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0; line-height: 1.5;
     color: var(--addr-fg);
+    background: transparent;
     border: 1px solid var(--border);
     border-radius: 2px; padding: 0 3px;
     font-family: var(--font-ui);
+    text-transform: none;
+}
+
+/* Per-kind accents (component-local; meta stays monochrome so it does not compete). */
+.od-kind-struct {
+    color: var(--high-color);
+    background: rgba(156, 220, 254, .10);
+    border-color: rgba(156, 220, 254, .45);
+}
+.od-kind-bitfield {
+    color: var(--warn);
+    background: rgba(229, 168, 0, .12);
+    border-color: rgba(229, 168, 0, .45);
+}
+.od-kind-enum {
+    color: #c586c0;
+    background: rgba(197, 134, 192, .12);
+    border-color: rgba(197, 134, 192, .45);
 }
 
 /* Layout-only modifiers. */
 .od-kind { flex-shrink: 0; }
 .oe-kind-badge { justify-self: start; }
+
+/* Types filter bar: name search grows, kind filter stays compact. */
+.od-tools {
+    display: flex; align-items: center; gap: 4px;
+    margin-bottom: 4px;
+}
+.od-filter { flex: 1; min-width: 0; }
+.od-kind-filter { flex-shrink: 0; max-width: 92px; }
 
 /* -- Type form editor (#s-types when editing) ----------------- */
 

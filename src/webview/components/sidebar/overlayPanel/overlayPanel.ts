@@ -43,11 +43,34 @@ import { buildBitUnitAggregateRow, pointerTargetTypeDef, renderTypeBody, syncCom
 /** Per-kind slots filled into the shared bit-field / enum editor shell. */
 interface KindDefEditorParts {
     placeholder: string;
-    badge: string;
+    kind: TypeDefKind;
     baseSelectId: string;
     baseAria: string;
     rowsHtml: string;
     addBtnHtml: string;
+}
+
+/** List/editor kind chip labels: sentence case, hyphenated bit-field (matches the kind chooser). */
+const KIND_LABEL: Record<TypeDefKind, string> = {
+    struct: 'Struct',
+    bitfield: 'Bit-field',
+    enum: 'Enum',
+};
+
+/** Type-list grouping order: structs, then bit-fields, then enums. */
+const KIND_RANK: Record<TypeDefKind, number> = { struct: 0, bitfield: 1, enum: 2 };
+
+function typeKindLabel(kind: TypeDefKind): string {
+    return KIND_LABEL[kind];
+}
+
+/** Copy sorted kind-grouped then case-insensitive name A-Z (never mutates the shared pool). */
+function sortTypeDefs(defs: readonly TypeDef[]): TypeDef[] {
+    return defs.slice().sort((a, b) => {
+        const rank = KIND_RANK[typeDefKind(a)] - KIND_RANK[typeDefKind(b)];
+        if (rank !== 0) { return rank; }
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
 }
 
 export interface OverlayCallbacks {
@@ -169,6 +192,10 @@ private _editingType: { draft: TypeDef; existing: TypeDef | null; fromManage: bo
 /** True while the Types `＋ Add` action is showing the kind picker (struct / bit-field / enum). */
 private _choosingKind = false;
 private _editorError: string | null = null;
+/** Types-list name filter (transient view state, never persisted). */
+private _typeFilter = '';
+/** Types-list kind filter (transient view state, never persisted). */
+private _typeKindFilter: TypeDefKind | 'all' = 'all';
 
 constructor(cb: OverlayCallbacks) {
     this.cb = cb;
@@ -342,6 +369,8 @@ setTabActive(active: boolean): void {
 resetViewState(): void {
     this._editingType             = null;
     this._choosingKind            = false;
+    this._typeFilter              = '';
+    this._typeKindFilter          = 'all';
     this._addingPin               = false;
     this._editingPinId            = null;
     this._editingPinDraftTypeId = null;
@@ -417,7 +446,7 @@ private bitFieldDefEditorHtml(draft: TypeDef): string {
     const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
     return this.kindDefEditorHtml(draft, {
         placeholder: 'MyBitField',
-        badge: 'bitfield',
+        kind: 'bitfield',
         baseSelectId: 'oe-base-type',
         baseAria: 'Bit-field base width',
         rowsHtml: this.bitFieldChildHeaderHtml() +
@@ -461,7 +490,7 @@ private kindDefEditorShellHtml(draft: TypeDef, parts: KindDefEditorParts): strin
         `<input id="oe-name" class="oe-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="${parts.placeholder}" spellcheck="false" autocomplete="off">` +
         `<div class="oe-type-default-row">` +
-        `<span class="oe-kind-badge">${parts.badge}</span>` +
+        `<span class="oe-kind-badge od-kind-${parts.kind}">${typeKindLabel(parts.kind)}</span>` +
         `<span class="oe-type-default-ptr"></span>` +
         `<span class="oe-type-default-lbl">base width</span>` +
         `<select id="${parts.baseSelectId}" class="oe-type-default-sel" aria-label="${parts.baseAria}">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
@@ -607,7 +636,7 @@ private bitFieldDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
 private enumDefEditorHtml(draft: TypeDef): string {
     return this.kindDefEditorHtml(draft, {
         placeholder: 'MyEnum',
-        badge: 'enum',
+        kind: 'enum',
         baseSelectId: 'oe-enum-base-type',
         baseAria: 'Enum base width',
         rowsHtml: this.enumEntryHeaderHtml() +
@@ -1435,17 +1464,29 @@ private nextApplyTypeId(all: TypeDef[]): string | null {
 
 private typeRowsHtml(all: TypeDef[]): string {
     if (all.length === 0) { return `<div class="sb-empty">No types defined yet.</div>`; }
-    return all.map(def => this.typeRowHtml(def)).join('');
+    const visible = this.visibleTypeDefs(all);
+    if (visible.length === 0) { return `<div class="sb-empty">No types match.</div>`; }
+    return visible.map(def => this.typeRowHtml(def, all)).join('');
 }
 
-private typeRowHtml(def: TypeDef): string {
+/** Kind filter → name substring (case-insensitive, trimmed) → kind-grouped name sort. */
+private visibleTypeDefs(all: readonly TypeDef[]): TypeDef[] {
+    const name = this._typeFilter.trim().toLowerCase();
+    const filtered = all.filter(def =>
+        (this._typeKindFilter === 'all' || typeDefKind(def) === this._typeKindFilter) &&
+        (name === '' || def.name.toLowerCase().includes(name)),
+    );
+    return sortTypeDefs(filtered);
+}
+
+private typeRowHtml(def: TypeDef, all: readonly TypeDef[]): string {
     const kind = typeDefKind(def);
     const meta = kind === 'bitfield'
         ? this.bitFieldDefMeta(def)
         : kind === 'enum'
             ? this.enumDefMeta(def)
-            : this.typeDefMeta(def);
-    const badge = kind === 'struct' ? '' : `<span class="od-kind">${kind}</span>`;
+            : this.typeDefMeta(def, all);
+    const badge = `<span class="od-kind od-kind-${kind}">${typeKindLabel(kind)}</span>`;
     return (
         `<div class="od-row">` +
         `<span class="od-name">${esc(def.name)}</span>` +
@@ -1456,14 +1497,15 @@ private typeRowHtml(def: TypeDef): string {
     );
 }
 
-private typeDefMeta(def: TypeDef): string {
+private typeDefMeta(def: TypeDef, all: readonly TypeDef[]): string {
     const fieldCount = def.fields.length;
-    return `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
+    return `${fieldCount} field${fieldCount !== 1 ? 's' : ''} \u00b7 ${typeByteSize(def, all)} B`;
 }
 
 private bitFieldDefMeta(def: TypeDef): string {
-    const childCount = (def.bitFields ?? []).length;
-    return `${def.baseType ?? 'uint8'} \u00b7 ${childCount} child${childCount !== 1 ? 'ren' : ''}`;
+    const used = (def.bitFields ?? []).reduce((sum, child) => sum + child.bitWidth, 0);
+    const total = fieldByteSize(def.baseType ?? 'uint8') * 8;
+    return `${def.baseType ?? 'uint8'} \u00b7 ${used}/${total} bits`;
 }
 
 private enumDefMeta(def: TypeDef): string {
@@ -1592,7 +1634,36 @@ private showHiddenToggleHtml(): string {
     private typePanelBodyHtml(typeRows: string): string {
         if (this._choosingKind) { return this.kindChooserHtml(); }
         if (this._editingType) { return this.editorHtml(this._editingType.draft, this._editingType.existing); }
-        return `<div id="om-list">${typeRows}</div>`;
+        return (
+            this.typeListToolsHtml() +
+            `<div id="om-list">${typeRows}</div>`
+        );
+    }
+
+    /** Compact filter bar above the type list: name search + kind filter (transient view state). */
+    private typeListToolsHtml(): string {
+        const kindOptions = (['all', 'struct', 'bitfield', 'enum'] as const)
+            .map(kind => {
+                const label = kind === 'all' ? 'All' : typeKindLabel(kind);
+                return `<option value="${kind}"${this._typeKindFilter === kind ? ' selected' : ''}>${label}</option>`;
+            })
+            .join('');
+        return (
+            `<div class="od-tools">` +
+            `<input id="om-filter" class="od-filter sb-input sb-input-sm" type="search" ` +
+                   `placeholder="Filter types" aria-label="Filter types by name" ` +
+                   `spellcheck="false" autocomplete="off" value="${esc(this._typeFilter)}">` +
+            `<select id="om-kind-filter" class="od-kind-filter sb-select sb-input-sm" aria-label="Filter types by kind">${kindOptions}</select>` +
+            `</div>`
+        );
+    }
+
+    /** Rebuild only the type list (keeps the filter controls mounted + focused). */
+    private refreshTypeList(sec: HTMLElement): void {
+        const list = sec.querySelector<HTMLElement>('#om-list');
+        if (!list) { return; }
+        list.innerHTML = this.typeRowsHtml(allTypes(this._types));
+        this.wireTypeListActions(list);
     }
 
     /** Three-tile kind picker shown in the Types body after the single `＋ Add` entry point. */
@@ -1661,40 +1732,59 @@ private wireOverlayPanel(sec: HTMLElement): void {
     private wireTypesPanelControls(sec: HTMLElement): void {
         const typesPanel = sec.querySelector<HTMLElement>('#oi-types-body')!;
         this.wireKindChooser(typesPanel);
-    wireActionBtns(
-        typesPanel,
-        '.act-btn-edit',
-        '.act-btn-del',
-        btn => {
-            this._editorError = null;
-            const existing = this._types.find(d => d.id === btn.dataset.typeId) ?? null;
-            if (!existing) { return; }
-            this._editingType = {
-                draft: {
-                    id: existing.id, name: existing.name, packed: existing.packed ?? false,
-                    kind: typeDefKind(existing),
-                    baseType: existing.baseType,
-                    endian: existing.endian, allocation: existing.allocation,
-                    fields: existing.fields.map(f => ({ ...f })),
-                    bitFields: existing.bitFields?.map(c => ({ ...c })),
-                    entries: existing.entries?.map(e => ({ ...e })),
-                },
-                existing,
-                fromManage: true,
-            };
-            this.render();
-        },
-        btn => {
-            const id = btn.dataset.typeId!;
-            const next = withoutTypeDefinition(this._types, this._pins, id);
-            this._types = next.types;
-            this._pins = next.pins;
-            if (this._applyTypeId === id) { this._applyTypeId = null; }
-            this.cb.onStateChange?.(this._types, this._pins);
-            this.render();
-        },
-    );
-}
+        this.wireTypeListFilters(typesPanel);
+        this.wireTypeListActions(typesPanel);
+    }
+
+    /** Filter events rebuild only `#om-list`, so the search input keeps focus and the editor is untouched. */
+    private wireTypeListFilters(typesPanel: HTMLElement): void {
+        typesPanel.querySelector<HTMLInputElement>('#om-filter')?.addEventListener('input', e => {
+            this._typeFilter = (e.target as HTMLInputElement).value;
+            this.refreshTypeList(typesPanel);
+        });
+        typesPanel.querySelector<HTMLSelectElement>('#om-kind-filter')?.addEventListener('change', e => {
+            const value = (e.target as HTMLSelectElement).value;
+            this._typeKindFilter = value === 'struct' || value === 'bitfield' || value === 'enum' ? value : 'all';
+            this.refreshTypeList(typesPanel);
+        });
+    }
+
+    /** Wire type-list row actions (re-applied after each list-only refresh). */
+    private wireTypeListActions(typesPanel: HTMLElement): void {
+        wireActionBtns(
+            typesPanel,
+            '.act-btn-edit',
+            '.act-btn-del',
+            btn => {
+                this._editorError = null;
+                const existing = this._types.find(d => d.id === btn.dataset.typeId) ?? null;
+                if (!existing) { return; }
+                this._editingType = {
+                    draft: {
+                        id: existing.id, name: existing.name, packed: existing.packed ?? false,
+                        kind: typeDefKind(existing),
+                        baseType: existing.baseType,
+                        endian: existing.endian, allocation: existing.allocation,
+                        fields: existing.fields.map(f => ({ ...f })),
+                        bitFields: existing.bitFields?.map(c => ({ ...c })),
+                        entries: existing.entries?.map(e => ({ ...e })),
+                    },
+                    existing,
+                    fromManage: true,
+                };
+                this.render();
+            },
+            btn => {
+                const id = btn.dataset.typeId!;
+                const next = withoutTypeDefinition(this._types, this._pins, id);
+                this._types = next.types;
+                this._pins = next.pins;
+                if (this._applyTypeId === id) { this._applyTypeId = null; }
+                this.cb.onStateChange?.(this._types, this._pins);
+                this.render();
+            },
+        );
+    }
 
 private wireAddInstanceControls(sec: HTMLElement): void {
     if (!this._addingPin && !this._editingPinId) { return; }
