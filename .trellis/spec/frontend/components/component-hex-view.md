@@ -81,7 +81,7 @@ export class HexView {
     paintSelection(range: HexViewRange | null): void;      // incremental class paint
     paintMatch(matchAddrs: readonly number[], index: number, length: number): void;
     paintCell(addr: number, previewText: string | null): void;  // nibble preview; null restores from data-val
-    paintTypeHighlight(addrs: readonly number[], cls: string): void;   // overlay-field class on cells (root-scoped)
+    paintTypeHighlight(addrs: readonly number[], cls: string): void;   // overlay-field class on cells (root-scoped); the overlay host passes 'type-h' / 'type-arr-sep'
     paintClearTypeHighlight(cls: string): void;            // remove `cls` from all cells in the root
     paintLabelDraft(range: HexViewRange | null, color: string): void;  // label-form draft tint (root-scoped); null clears
     paintSelEdit(range: HexViewRange | null): void;                    // selection-session range tint (`.sel-edit`); null clears

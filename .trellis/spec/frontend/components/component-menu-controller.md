@@ -19,7 +19,7 @@ messages, never executes commands — it reports via **per-show `emit`**.
 Boundary rule: the controller is headless — it never renders content of its
 own. Callers supply `innerHTML` per `show()` (hex, overlay) or `attach()` a
 pre-authored static popover (overlay field menu). Integration-specific classes
-(`si-field-menu`) stay caller-owned and are NOT renamed.
+(`oi-field-menu`) stay caller-owned and are NOT renamed.
 
 ## Layout
 
@@ -188,7 +188,7 @@ integrations.
 - Executing commands (must report via per-show `emit`).
 - Re-introducing a second popover-menu implementation (one controller).
 - Duplicating `positionMenu`/`wireMenuSubmenus` (reuse from `utils.ts`).
-- Renaming `integrity-profile-menu-*` / `si-field-menu` classes (caller-owned).
+- Renaming `integrity-profile-menu-*` / `oi-field-menu` classes (caller-owned).
 - Guarding host shortcuts with an `#ctx-menu` proximity check — capture-phase
   interception in the controller subsumes it (host `inContextMenu` deleted in
   the unification task; Ctrl+S while a menu is open now saves, matching overlay

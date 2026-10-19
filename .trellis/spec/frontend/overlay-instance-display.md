@@ -392,7 +392,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Scalar (single field / leaf row)
 
 - Render shape:
-  - Leaf row (`.si-field`) with: offset, type, name, value.
+  - Leaf row (`.oi-field`) with: offset, type, name, value.
   - Preview:
 
         +000 | u16    | count          | 0x1234
@@ -403,7 +403,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Value display defaults:
   - Integers: Hex by default.
   - Floats: Decimal by default.
-  - Ascii fields: ASCII by default. Ascii value cells use `white-space: pre` (`.si-f-val[data-val-type="ascii"]`) so runs of `0x20`, leading, and trailing spaces render exactly as decoded; non-printable bytes still show `.`.
+  - Ascii fields: ASCII by default. Ascii value cells use `white-space: pre` (`.oi-f-val[data-val-type="ascii"]`) so runs of `0x20`, leading, and trailing spaces render exactly as decoded; non-printable bytes still show `.`.
 - Value display menu options (`View as`):
   - Integer-like: Hex, Decimal, Binary, ASCII.
   - `float32/float64`: Hex, Decimal, IEEE754, Binary.
@@ -415,7 +415,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Scalar array
 
 - Render shape:
-  - Collapsible array group header (`.si-arr-grp-hdr`) for the parent field.
+  - Collapsible array group header (`.oi-arr-grp-hdr`) for the parent field.
   - Expanded body shows index-only child rows (`[0]`, `[1]`, ...).
   - Preview:
 
@@ -463,7 +463,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Struct (single type field)
 
 - Render shape:
-  - Collapsible composite group header (`.si-arr-grp-hdr`) with nested child rows/groups.
+  - Collapsible composite group header (`.oi-arr-grp-hdr`) with nested child rows/groups.
   - Preview:
 
         Collapsed:
@@ -550,7 +550,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - An enum-typed scalar field, or a bit-field child carrying an enum ref, renders a matched value as `NAME (0x<digits>)` in the value cell, where the digit count follows the value width (`enumHexDigits`: the bit-child width, or the field byte width for a scalar enum; no forced 2-digit minimum); an unmatched value (or a non-default display mode) falls back to the plain numeric rendering. Enum is presentation-only: offset/endianness/allocation/bytes are unchanged, and per-element labels apply for scalar arrays and bit-container arrays. `Copy as` stays numeric.
 
 - Render shape:
-  - Scalar-like collapsible header row (`.si-bitunit-hdr.si-field`) with type/name/value columns.
+  - Scalar-like collapsible header row (`.oi-bitunit-hdr.oi-field`) with type/name/value columns.
   - Expanded body shows bitfield child rows.
   - Preview:
 
@@ -576,9 +576,9 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - `Binary (bit fields only)` appears only when used bit width is less than full storage width.
 - Bit hover highlight:
   - Hovering/selecting bit ranges paints the recalled bits in the parent binary value.
-  - Hover paint adds a 1px solid underscore per hovered `.si-bit`, rendered `box-shadow` inset (no `border-bottom`) so hovering adds no layout space and the value row never shifts.
+  - Hover paint adds a 1px solid underscore per hovered `.oi-bit`, rendered `box-shadow` inset (no `border-bottom`) so hovering adds no layout space and the value row never shifts.
 - Multi-line binary alignment:
-  - Values wider than 16 bits (u32/u64, or wide `Binary (bit fields only)` slices) wrap after 16 bits; the header cluster (`>` chevron, field name, endian/allocation chips, dotted leader) sits together on the binary value's **last** line, with the dotted leader sharing the same baseline as the name/bit text. Expandable type headers (`.si-arr-grp-hdr` / `.si-arr-el-hdr`) render no `::before` tree stub; the vertical body guide lines remain.
+  - Values wider than 16 bits (u32/u64, or wide `Binary (bit fields only)` slices) wrap after 16 bits; the header cluster (`>` chevron, field name, endian/allocation chips, dotted leader) sits together on the binary value's **last** line, with the dotted leader sharing the same baseline as the name/bit text. Expandable type headers (`.oi-arr-grp-hdr` / `.oi-arr-el-hdr`) render no `::before` tree stub; the vertical body guide lines remain.
 - Context menu:
   - Header (array-header style): `Copy address`, `View as`.
   - Child rows (scalar style): `Copy as`, `View as`.
