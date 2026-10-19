@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/components/component-sidebar-overlay-panel.md", "reason": "Verify the row/filter contract and that no behavior changed"}
-{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify the component overrides and container query follow the conventions"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar: no weakened assertions"}
