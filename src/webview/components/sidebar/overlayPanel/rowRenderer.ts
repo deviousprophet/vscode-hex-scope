@@ -100,19 +100,19 @@ function mkFieldRow(rctx: OverlayRenderCtx, r: DecodedField, bs: number, bc: num
     const offsetHtml = offsetCellHtml(ctx.hideOffsets, offsetLabel);
     const display = rowDisplayName(r, displayName);
     return (
-        `<div class="si-field${fieldRowClasses(r.hasData, ptr)}" ` +
+        `<div class="oi-field${fieldRowClasses(r.hasData, ptr)}" ` +
         `data-byte-start="${bs}" data-byte-cnt="${bc}" data-val-key="${esc(valKey)}"` +
         sourceContextDataAttrs(ctx) +
         bitFieldDataAttrs(r) +
         `>` +
         offsetHtml +
         typeCellHtml(abbrev, fullTypeLabel) +
-        `<span class="si-toggle-pad" aria-hidden="true"></span>` +
-        `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(display)}</span>` +
+        `<span class="oi-toggle-pad" aria-hidden="true"></span>` +
+        `<span class="oi-f-body">` +
+        `<span class="oi-f-name">${esc(display)}</span>` +
         (isBitFieldRow(r) ? '' : overrideBadgeHtml(rctx, r)) +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri${pointerValueClass(ptr)}" data-val-type="${t}" data-bs="${bs}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
+        `<span class="oi-f-lead"></span>` +
+        `<span class="oi-f-val oi-f-pri${pointerValueClass(ptr)}" data-val-type="${t}" data-bs="${bs}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
         `</span>` +
         `</div>`
     );
@@ -128,12 +128,12 @@ function rowDisplayName(r: DecodedField, displayName?: string): string {
 
 function offsetCellHtml(hideOffsets: boolean, offsetLabel: string): string {
     return hideOffsets
-        ? '<span class="si-node-pad" aria-hidden="true"></span>'
-        : `<span class="si-f-off">${offsetLabel}</span>`;
+        ? '<span class="oi-node-pad" aria-hidden="true"></span>'
+        : `<span class="oi-f-off">${offsetLabel}</span>`;
 }
 
 function fieldRowClasses(hasData: boolean, pointer: boolean): string {
-    return `${hasData ? '' : ' si-no-data'}${pointer ? ' si-ptr-field' : ''}`;
+    return `${hasData ? '' : ' oi-no-data'}${pointer ? ' oi-ptr-field' : ''}`;
 }
 
 /** Explicit-override badge chips for a decoded row: shown when the row's
@@ -141,8 +141,8 @@ function fieldRowClasses(hasData: boolean, pointer: boolean): string {
  *  (i.e. an explicit override is in effect somewhere up the chain). */
 function overrideBadgeHtml(rctx: OverlayRenderCtx, r: DecodedField | undefined): string {
     if (!r) { return ''; }
-    return overrideChipHtml(r.endian, rctx.endian, 'si-chip-endian') +
-        overrideChipHtml(r.allocation, rctx.bitFieldAllocation, 'si-chip-alloc');
+    return overrideChipHtml(r.endian, rctx.endian, 'oi-chip-endian') +
+        overrideChipHtml(r.allocation, rctx.bitFieldAllocation, 'oi-chip-alloc');
 }
 
 function overrideChipHtml(
@@ -151,11 +151,11 @@ function overrideChipHtml(
     cls: string,
 ): string {
     if (value === undefined || value === global) { return ''; }
-    return `<span class="si-chip ${cls}">${value.toUpperCase()}</span>`;
+    return `<span class="oi-chip ${cls}">${value.toUpperCase()}</span>`;
 }
 
 function pointerValueClass(pointer: boolean): string {
-    return pointer ? ' si-f-ptr' : '';
+    return pointer ? ' oi-f-ptr' : '';
 }
 
 function parseArrayIndex(fieldPath: string, baseName: string): number | null {
@@ -263,8 +263,8 @@ function matchingBitRange(range: { parentByteStart: number; startBit: number; en
 
 function bitUnitHeaderClasses(kind: 'group' | 'element'): { headerClass: string; buttonClass: string } {
     return {
-        headerClass: kind === 'element' ? 'si-arr-el-hdr' : 'si-arr-grp-hdr',
-        buttonClass: kind === 'element' ? 'si-arr-el-exp-btn' : 'si-arr-exp-btn',
+        headerClass: kind === 'element' ? 'oi-arr-el-hdr' : 'oi-arr-grp-hdr',
+        buttonClass: kind === 'element' ? 'oi-arr-el-exp-btn' : 'oi-arr-exp-btn',
     };
 }
 
@@ -278,14 +278,14 @@ function emptyBitUnitHeaderHtml(
     isOpen: boolean,
 ): string {
     return (
-        `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
-        `<span class="si-f-off">+000</span>` +
+        `<div class="${headerClass} oi-bitunit-hdr oi-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
+        `<span class="oi-f-off">+000</span>` +
         typeCellHtml('u8', 'uint8') +
         `<button class="${buttonClass}" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>` +
-        `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(headerName)}</span>` +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri" data-val-type="hex" data-bs="${start}" data-val-key="${esc(valKey)}">??</span>` +
+        `<span class="oi-f-body">` +
+        `<span class="oi-f-name">${esc(headerName)}</span>` +
+        `<span class="oi-f-lead"></span>` +
+        `<span class="oi-f-val oi-f-pri" data-val-type="hex" data-bs="${start}" data-val-key="${esc(valKey)}">??</span>` +
         `</span>` +
         `</div>`
     );
@@ -353,8 +353,8 @@ function firstBitUnitFieldName(rows: DecodedField[]): string {
 
 function bitUnitOffsetHtml(offsetLabel: string, hideOffset: boolean): string {
         return hideOffset
-            ? '<span class="si-node-pad" aria-hidden="true"></span>'
-            : `<span class="si-f-off">${offsetLabel}</span>`;
+            ? '<span class="oi-node-pad" aria-hidden="true"></span>'
+            : `<span class="oi-f-off">${offsetLabel}</span>`;
     }
 
 function collapsibleIconHtml(buttonClass: string, isOpen: boolean): string {
@@ -382,15 +382,15 @@ function populatedBitUnitHeaderHtml(
         const offsetLabel = fieldOffsetLabel(agg);
 
         return (
-            `<div class="${headerClass} si-bitunit-hdr si-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
+            `<div class="${headerClass} oi-bitunit-hdr oi-field" data-byte-start="${start}" data-byte-cnt="${cnt}" data-val-key="${esc(valKey)}">` +
             bitUnitOffsetHtml(offsetLabel, hideOffset) +
             typeCellHtml(abbrev, fullTypeLabel) +
             collapsibleIconHtml(buttonClass, isOpen) +
-            `<span class="si-f-body">` +
-            `<span class="si-f-name">${esc(headerName)}</span>` +
+            `<span class="oi-f-body">` +
+            `<span class="oi-f-name">${esc(headerName)}</span>` +
             overrideBadgeHtml(rctx, agg) +
-            `<span class="si-f-lead"></span>` +
-            `<span class="si-f-val si-f-pri${ptrClass}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
+            `<span class="oi-f-lead"></span>` +
+            `<span class="oi-f-val oi-f-pri${ptrClass}" data-val-type="${t}" data-bs="${start}" data-val-key="${esc(valKey)}">${valHtml}</span>` +
             `</span>` +
             `</div>`
         );
@@ -401,7 +401,7 @@ function bitUnitHeaderValueType(rctx: OverlayRenderCtx, valKey: string): ColType
 }
 
 function bitUnitPointerClass(agg: DecodedField): string {
-    return agg.isPointer === true ? ' si-f-ptr' : '';
+    return agg.isPointer === true ? ' oi-f-ptr' : '';
 }
 
 function disambiguateLeafNames(names: string[]): string[] {
@@ -611,22 +611,22 @@ function arrayElementHtml(
     const bodyStyle = arrayElementBodyStyle(isOpen);
     return (
         `<div class="${groupClass}" data-arr-el-key="${esc(elementKey)}">` +
-        `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${byteStart}" data-byte-cnt="${byteCnt}"${offsetAttr}>` +
+        `<div class="oi-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${byteStart}" data-byte-cnt="${byteCnt}"${offsetAttr}>` +
         compositeHeaderPrefixHtml(isOpen, first.byteOffset, hideOffsets) +
-        `<button class="si-arr-el-exp-btn" title="${isOpen ? 'Collapse element' : 'Expand element'}" aria-label="${isOpen ? 'Collapse element' : 'Expand element'}">›</button>` +
-        `<span class="si-f-body">` +
-        `<span class="si-f-name">[${element.idx}]</span>` +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-arr-addr">${esc(summary)}</span>` +
+        `<button class="oi-arr-el-exp-btn" title="${isOpen ? 'Collapse element' : 'Expand element'}" aria-label="${isOpen ? 'Collapse element' : 'Expand element'}">›</button>` +
+        `<span class="oi-f-body">` +
+        `<span class="oi-f-name">[${element.idx}]</span>` +
+        `<span class="oi-f-lead"></span>` +
+        `<span class="oi-arr-addr">${esc(summary)}</span>` +
         `</span>` +
         `</div>` +
-        `<div class="si-arr-el-body"${bodyStyle}>${bodyHtml}</div>` +
+        `<div class="oi-arr-el-body"${bodyStyle}>${bodyHtml}</div>` +
         `</div>`
     );
 }
 
 function arrayElementGroupClass(isOpen: boolean): string {
-    return isOpen ? 'si-arr-el-grp open' : 'si-arr-el-grp';
+    return isOpen ? 'oi-arr-el-grp open' : 'oi-arr-el-grp';
 }
 
 function arrayElementOffsetAttr(byteOffset: number, hideOffsets: boolean): string {
@@ -644,23 +644,23 @@ function offsetLabel(byteOffset: number): string {
 function compositeHeaderPrefixHtml(isOpen: boolean, byteOffset: number, hideOffset = false): string {
     if (isOpen || hideOffset) {
         return (
-            `<span class="si-node-pad" aria-hidden="true"></span>` +
-            `<span class="si-node-type-pad" aria-hidden="true"></span>`
+            `<span class="oi-node-pad" aria-hidden="true"></span>` +
+            `<span class="oi-node-type-pad" aria-hidden="true"></span>`
         );
     }
     return (
-        `<span class="si-f-off">${offsetLabel(byteOffset)}</span>` +
-        `<span class="si-node-type-pad" aria-hidden="true"></span>`
+        `<span class="oi-f-off">${offsetLabel(byteOffset)}</span>` +
+        `<span class="oi-node-type-pad" aria-hidden="true"></span>`
     );
 }
 
 export function syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void {
-    if (hdr.classList.contains('si-bitunit-hdr')) { return; }
-    if (hdr.classList.contains('si-ptr-hdr')) { return; }
+    if (hdr.classList.contains('oi-bitunit-hdr')) { return; }
+    if (hdr.classList.contains('oi-ptr-hdr')) { return; }
 
-    const existingOffset = hdr.querySelector<HTMLElement>(':scope > .si-f-off');
-    const existingPad = hdr.querySelector<HTMLElement>(':scope > .si-node-pad');
-    const typePad = hdr.querySelector<HTMLElement>(':scope > .si-node-type-pad');
+    const existingOffset = hdr.querySelector<HTMLElement>(':scope > .oi-f-off');
+    const existingPad = hdr.querySelector<HTMLElement>(':scope > .oi-node-pad');
+    const typePad = hdr.querySelector<HTMLElement>(':scope > .oi-node-type-pad');
     if (isOpen) {
         syncOpenCompositeHeaderOffset(existingOffset, existingPad, typePad);
         return;
@@ -676,7 +676,7 @@ function syncOpenCompositeHeaderOffset(
 ): void {
     existingOffset?.remove();
     if (!existingPad && typePad) {
-        typePad.insertAdjacentHTML('beforebegin', '<span class="si-node-pad" aria-hidden="true"></span>');
+        typePad.insertAdjacentHTML('beforebegin', '<span class="oi-node-pad" aria-hidden="true"></span>');
     }
 }
 
@@ -689,7 +689,7 @@ function syncClosedCompositeHeaderOffset(
     if (!label) { return; }
     existingPad?.remove();
     if (!existingOffset && typePad) {
-        typePad.insertAdjacentHTML('beforebegin', `<span class="si-f-off">${esc(label)}</span>`);
+        typePad.insertAdjacentHTML('beforebegin', `<span class="oi-f-off">${esc(label)}</span>`);
     }
 }
 
@@ -722,7 +722,7 @@ const BODY_RULES: ReadonlyArray<BodyRule> = [
 
 export function renderTypeBody(rctx: OverlayRenderCtx, def: TypeDef, pin: TypeInstance): string {
     const rows = decodeType(def, pin.addr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.types);
-    return `<div class="si-fields">${renderTypeFieldGroups(rctx, {
+    return `<div class="oi-fields">${renderTypeFieldGroups(rctx, {
         def,
         pin,
         baseAddr: pin.addr,
@@ -755,9 +755,9 @@ function renderBitUnitArrayElements(
         const isElementOpen = rctx.expandedArrayElements.has(elementKey);
         const elementRowsHtml = renderBitUnitLeafRows(rctx, element.rows, ctx, baseName);
         return (
-            `<div class="si-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
+            `<div class="oi-arr-el-grp${isElementOpen ? ' open' : ''}" data-arr-el-key="${esc(elementKey)}">` +
             bitUnitHeaderHtml(rctx, element.rows, elementByteStart, elementByteCnt, isElementOpen, `[${element.idx}]`, 'element') +
-            `<div class="si-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
+            `<div class="oi-arr-el-body"${isElementOpen ? '' : ' style=\"display:none\"'}>${elementRowsHtml}</div>` +
             `</div>`
         );
     }).join('');
@@ -942,9 +942,9 @@ function fieldHeaderHtml(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, g: F
 
 function compositeGroupHtml(key: string, isOpen: boolean, headerHtml: string, bodyHtml: string): string {
     return (
-        `<div class="si-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
+        `<div class="oi-arr-grp${isOpen ? ' open' : ''}" data-arr-key="${esc(key)}">` +
         headerHtml +
-        `<div class="si-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${bodyHtml}</div>` +
+        `<div class="oi-arr-grp-body"${isOpen ? '' : ' style=\"display:none\"'}>${bodyHtml}</div>` +
         `</div>`
     );
 }
@@ -966,15 +966,15 @@ function compositeHeaderHtml(
     ): string {
         const title = includeTitle ? ` title="${esc(summaryLabel)}"` : '';
         return (
-            `<div class="si-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}"` +
+            `<div class="oi-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}"` +
             compositeHeaderAttr(byteOffset, hideOffset) + `>` +
             compositeHeaderPrefixHtml(isOpen, byteOffset, hideOffset) +
-            collapsibleIconHtml('si-arr-exp-btn', isOpen) +
-            `<span class="si-f-body">` +
-            `<span class="si-f-name">${esc(name)}</span>` +
+            collapsibleIconHtml('oi-arr-exp-btn', isOpen) +
+            `<span class="oi-f-body">` +
+            `<span class="oi-f-name">${esc(name)}</span>` +
             badgeHtml +
-            `<span class="si-f-lead"></span>` +
-            `<span class="si-arr-addr"${title}>${esc(summaryLabel)}</span>` +
+            `<span class="oi-f-lead"></span>` +
+            `<span class="oi-arr-addr"${title}>${esc(summaryLabel)}</span>` +
             `</span>` +
             `</div>`
         );
@@ -1054,7 +1054,7 @@ function pointerLeafHtml(
     return (
         pointerLeafOpenTag(ctx, row, target, key, storageStart, valKey) +
         pointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        `<span class="si-toggle-pad" aria-hidden="true"></span>` +
+        `<span class="oi-toggle-pad" aria-hidden="true"></span>` +
         pointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
@@ -1068,7 +1068,7 @@ function pointerLeafOpenTag(
     storageStart: number,
     valKey: string,
 ): string {
-    return pointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-field si-ptr-hdr si-ptr-field', 0);
+    return pointerOpenTag(ctx, row, target, key, storageStart, valKey, 'oi-field oi-ptr-hdr oi-ptr-field', 0);
 }
 
 function pointerChildState(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>, key: string): PointerChildState {
@@ -1203,7 +1203,7 @@ function pointerHeaderHtml(
     return (
         pointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
         pointerHeaderPrefixHtml(row, ctx.hideOffsets) +
-        `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>` +
+        `<button class="oi-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>` +
         pointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
@@ -1214,8 +1214,8 @@ function pointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): string
     const abbrev = fieldTypeAbbrev(row, byteCount);
     const fullTypeLabel = fieldFullTypeLabel(row, byteCount);
     const offsetHtml = hideOffset
-        ? '<span class="si-node-pad" aria-hidden="true"></span>'
-        : `<span class="si-f-off">${offsetLabel(row.byteOffset)}</span>`;
+        ? '<span class="oi-node-pad" aria-hidden="true"></span>'
+        : `<span class="oi-f-off">${offsetLabel(row.byteOffset)}</span>`;
     return offsetHtml + typeCellHtml(abbrev, fullTypeLabel);
 }
 
@@ -1228,7 +1228,7 @@ function pointerHeaderOpenTag(
     valKey: string,
 ): string {
     const targetCnt = target.ok ? target.byteCount : 0;
-    return pointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-arr-grp-hdr si-ptr-hdr si-ptr-field', targetCnt);
+    return pointerOpenTag(ctx, row, target, key, storageStart, valKey, 'oi-arr-grp-hdr oi-ptr-hdr oi-ptr-field', targetCnt);
 }
 
 function pointerOpenTag(
@@ -1258,28 +1258,28 @@ function pointerHeaderBodyHtml(
     storageStart: number,
     valKey: string,
 ): string {
-    return `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(name)}</span>` +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-f-val si-f-pri si-f-ptr" data-val-type="hex" data-bs="${storageStart}" data-val-key="${esc(valKey)}">${pointerValueDisplayHtml(row, target)}</span>` +
+    return `<span class="oi-f-body">` +
+        `<span class="oi-f-name">${esc(name)}</span>` +
+        `<span class="oi-f-lead"></span>` +
+        `<span class="oi-f-val oi-f-pri oi-f-ptr" data-val-type="hex" data-bs="${storageStart}" data-val-key="${esc(valKey)}">${pointerValueDisplayHtml(row, target)}</span>` +
         `</span>`;
 }
 
 function pointerValueDisplayHtml(row: DecodedField, target: PointerDerefTarget): string {
     const addr = target.addr ?? 0;
     const addrHtml = formatHexHtml(formatHex(addr, 8));
-    return target.ok ? `<span class="si-f-ptr-sym">→</span> ${addrHtml}` : pointerStatusAddressHtml(target, addrHtml);
+    return target.ok ? `<span class="oi-f-ptr-sym">→</span> ${addrHtml}` : pointerStatusAddressHtml(target, addrHtml);
 }
 
 function pointerStatusAddressHtml(target: Extract<PointerDerefTarget, { ok: false }>, addrHtml: string): string {
-    return `<span class="si-f-ptr-note">(${esc(target.reason)})</span> ${addrHtml}`;
+    return `<span class="oi-f-ptr-note">(${esc(target.reason)})</span> ${addrHtml}`;
 }
 
 function pointerBodyHtml(ctx: OverlayRenderContext, row: DecodedField, child: PointerChildState): string {
     return (
-        `<div class="si-arr-grp${child.isOpen ? ' open' : ''}" data-arr-key="${esc(child.key)}">` +
+        `<div class="oi-arr-grp${child.isOpen ? ' open' : ''}" data-arr-key="${esc(child.key)}">` +
         pointerChildHeaderHtml(ctx, row, child) +
-        `<div class="si-arr-grp-body"${child.isOpen ? '' : ' style=\"display:none\"'}>${child.bodyHtml}</div>` +
+        `<div class="oi-arr-grp-body"${child.isOpen ? '' : ' style=\"display:none\"'}>${child.bodyHtml}</div>` +
         `</div>`
     );
 }
@@ -1287,16 +1287,16 @@ function pointerBodyHtml(ctx: OverlayRenderContext, row: DecodedField, child: Po
 function pointerChildHeaderHtml(ctx: OverlayRenderContext, row: DecodedField, child: PointerChildState): string {
     const storageStart = child.storageStart;
     const disabled = child.canExpand ? '' : ' disabled';
-    return `<div class="si-arr-grp-hdr si-ptr-child-hdr si-ptr-field" data-byte-start="${child.byteStart}" data-byte-cnt="${child.byteCount}" ` +
+    return `<div class="oi-arr-grp-hdr oi-ptr-child-hdr oi-ptr-field" data-byte-start="${child.byteStart}" data-byte-cnt="${child.byteCount}" ` +
         `data-pointer-storage-start="${storageStart}" data-val-key="${esc(child.valKey)}" data-pointer-allow-create="${child.allowCreate ? 'true' : 'false'}"` +
         sourceContextDataAttrs(ctx) +
         ` data-arr-key="${esc(child.key)}">` +
         compositeHeaderPrefixHtml(child.isOpen, row.byteOffset, true) +
-        `<button class="si-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">›</button>` +
-        `<span class="si-f-body">` +
-        `<span class="si-f-name">${esc(child.name)}</span>` +
-        `<span class="si-f-lead"></span>` +
-        `<span class="si-arr-addr" title="${esc(child.summaryTitle)}">${esc(child.summary)}</span>` +
+        `<button class="oi-arr-exp-btn"${disabled} title="${esc(child.expandTitle)}" aria-label="${esc(child.expandTitle)}">›</button>` +
+        `<span class="oi-f-body">` +
+        `<span class="oi-f-name">${esc(child.name)}</span>` +
+        `<span class="oi-f-lead"></span>` +
+        `<span class="oi-arr-addr" title="${esc(child.summaryTitle)}">${esc(child.summary)}</span>` +
         `</span>` +
         `</div>`;
 }

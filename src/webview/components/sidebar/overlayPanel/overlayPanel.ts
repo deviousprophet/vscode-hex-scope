@@ -63,7 +63,7 @@ export interface OverlayCallbacks {
     onSelectRange?: (start: number, count: number) => void;
     /** Hex-row highlight: apply class at address range (moved highlightAddress). */
     onHighlightHex?: (addrs: number[], cls: string) => void;
-    /** Hex-row highlight: remove class everywhere (moved clearArrSep / struct-h clear). */
+    /** Hex-row highlight: remove class everywhere (moved clearArrSep / type-h clear). */
     onClearHighlightHex?: (cls: string) => void;
     /** Global bit-field allocation toggle (MSB/LSB in bit-layout detail) → host persists. */
     onBitAllocationChange?: (bitAllocation: BitFieldAllocation) => void;
@@ -149,7 +149,7 @@ private _hoveredBitRange: { parentByteStart: number; startBit: number; endBit: n
 private _selectedBitRowKey: string | null = null;
 /** Hovered bit-field child row identity: `${byteStart}:${bitStart}:${bitWidth}`. */
 private _hoveredBitRowKey: string | null = null;
-/** Byte start addresses marked with struct-arr-sep in the hex view. */
+/** Byte start addresses marked with type-arr-sep in the hex view. */
 private _arrSepAddrs: number[] = [];
 /** Pin id of the currently selected instance card. */
 private _selectedPinId: string | null = null;
@@ -174,11 +174,11 @@ constructor(cb: OverlayCallbacks) {
     this.cb = cb;
 }
 
-/** Renders both stacked sections into the given root (#s-struct-pins). */
+/** Renders both stacked sections into the given root (#s-overlay). */
 mount(root: HTMLElement): void {
     this._root = root;
     root.innerHTML = '';
-    this.sections = new SidebarSections(root, 'si', [
+    this.sections = new SidebarSections(root, 'oi', [
         { id: 'instances', label: 'Instances', mountActions: r => this.mountInstancesAction(r) },
         { id: 'types', label: 'Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
     ]);
@@ -230,7 +230,7 @@ mount(root: HTMLElement): void {
     private wireEditorState(sec: HTMLElement): void {
         if (this._editingType) {
             this.wireEditorInSec(sec);
-            sec.querySelector<HTMLInputElement>('#se-name')?.focus();
+            sec.querySelector<HTMLInputElement>('#oe-name')?.focus();
         }
     }
 
@@ -243,7 +243,7 @@ mount(root: HTMLElement): void {
     }
 
     private syncInstanceAddButton(root: HTMLElement): void {
-        const add = root.querySelector<HTMLButtonElement>('#si-add-btn');
+        const add = root.querySelector<HTMLButtonElement>('#oi-add-btn');
         if (!add) { return; }
         add.disabled = this.instanceAddBusy() || this.noTypes();
         add.title = this.noTypes() ? 'No types defined' : 'Add instance';
@@ -252,7 +252,7 @@ mount(root: HTMLElement): void {
 
     private syncTypeAddButton(root: HTMLElement): void {
         const disabled = this.isEditorOpen() || this._choosingKind;
-        const addType = root.querySelector<HTMLButtonElement>('#sm-add-btn');
+        const addType = root.querySelector<HTMLButtonElement>('#om-add-btn');
         if (addType) { addType.disabled = disabled; }
     }
 
@@ -272,13 +272,13 @@ mount(root: HTMLElement): void {
 /** Instances header action: ＋ Add (primary/status control usable while collapsed). */
 private mountInstancesAction(root: HTMLElement): void {
     const add = document.createElement('button');
-    add.id = 'si-add-btn';
+    add.id = 'oi-add-btn';
     add.className = 'sb-btn sb-btn-add sb-section-action';
     add.textContent = '\uff0b Add';
     add.addEventListener('click', () => {
         this._addingPin = true;
         this.render();
-        this._root?.querySelector<HTMLInputElement>('#sa-name')?.focus();
+        this._root?.querySelector<HTMLInputElement>('#oa-name')?.focus();
     });
     root.appendChild(add);
 }
@@ -286,7 +286,7 @@ private mountInstancesAction(root: HTMLElement): void {
 /** Types header action: one ＋ Add entry point that opens the kind picker (struct / bit-field / enum). */
 private mountTypesAction(root: HTMLElement): void {
     const add = document.createElement('button');
-    add.id = 'sm-add-btn';
+    add.id = 'om-add-btn';
     add.className = 'sb-btn sb-btn-add sb-section-action';
     add.textContent = '\uff0b Add';
     add.title = 'New type';
@@ -369,34 +369,34 @@ private editorHtml(draft: TypeDef, existing: TypeDef | null): string {
 
 private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
     const fieldRows = this.fieldRowsHtml(draft);
-    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
+    const errorHtml = this._editorError ? `<div class="oe-error">${esc(this._editorError)}</div>` : '';
     return (
-        `<div class="si-editor-wrap">` +
+        `<div class="oi-editor-wrap">` +
         this.editorTabsHtml() +
-        `<div class="se-view" data-se-view="edit">` +
-        `<div class="se-form">` +
-        `<label class="se-name-lbl" for="se-name">Type name</label>` +
-        `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
+        `<div class="oe-view" data-oe-view="edit">` +
+        `<div class="oe-form">` +
+        `<label class="oe-name-lbl" for="oe-name">Type name</label>` +
+        `<input id="oe-name" class="oe-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="MyType" spellcheck="false" autocomplete="off">` +
-        `<div class="se-struct-default-row">` +
-        `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
+        `<div class="oe-type-default-row">` +
+        `<button id="oe-packed" class="oe-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
-        `<span class="se-struct-default-ptr"></span>` +
-        `<span class="se-struct-default-lbl">type default</span>` +
-        this.overrideSelectHtml(draft.endian, 'endian', 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
+        `<span class="oe-type-default-ptr"></span>` +
+        `<span class="oe-type-default-lbl">type default</span>` +
+        this.overrideSelectHtml(draft.endian, 'endian', 'oe-type-default-sel', 'oe-endian', this._endian.toUpperCase()) +
         `</div>` +
-        `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
-        `<div id="se-fields">${fieldRows}</div>` +
-        `<button id="se-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
+        `<div class="oe-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
+        `<div id="oe-fields">${fieldRows}</div>` +
+        `<button id="oe-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
         errorHtml +
-        `<div class="se-btns">` +
-        `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
-        `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
+        `<div class="oe-btns">` +
+        `<button id="oe-save" class="sb-btn sb-btn-primary">Save</button>` +
+        `<button id="oe-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `</div>` +
         `</div>` +
-        `<div class="se-view" data-se-view="preview" hidden>` +
-        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-preview-id="${esc(draft.id)}"></pre></div>` +
+        `<div class="oe-view" data-oe-view="preview" hidden>` +
+        `<div id="oe-preview" class="oe-preview"><pre class="oi-c-preview" data-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
@@ -405,9 +405,9 @@ private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
 /** Edit/Preview tab bar that toggles which editor view is visible (markdown raw/preview style). */
 private editorTabsHtml(): string {
     return (
-        `<div class="se-tabs compact-tabs" role="tablist" aria-label="Type editor views">` +
-        `<button type="button" class="se-tab active" role="tab" aria-selected="true" data-se-view="edit">Edit</button>` +
-        `<button type="button" class="se-tab" role="tab" aria-selected="false" data-se-view="preview">Preview</button>` +
+        `<div class="oe-tabs compact-tabs" role="tablist" aria-label="Type editor views">` +
+        `<button type="button" class="oe-tab active" role="tab" aria-selected="true" data-oe-view="edit">Edit</button>` +
+        `<button type="button" class="oe-tab" role="tab" aria-selected="false" data-oe-view="preview">Preview</button>` +
         `</div>`
     );
 }
@@ -418,22 +418,22 @@ private bitFieldDefEditorHtml(draft: TypeDef): string {
     return this.kindDefEditorHtml(draft, {
         placeholder: 'MyBitField',
         badge: 'bitfield',
-        baseSelectId: 'se-base-type',
+        baseSelectId: 'oe-base-type',
         baseAria: 'Bit-field base width',
         rowsHtml: this.bitFieldChildHeaderHtml() +
-            `<div id="se-bf-def-children" class="sfe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>`,
-        addBtnHtml: `<button id="se-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>`,
+            `<div id="oe-bf-def-children" class="ofe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>`,
+        addBtnHtml: `<button id="oe-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>`,
     });
 }
 
 /**
- * Column header for the bit-field child rows. Sits outside `#se-bf-def-children` so the
+ * Column header for the bit-field child rows. Sits outside `#oe-bf-def-children` so the
  * incremental row rebuild (`refreshBitFieldDefRows`) leaves it in place; it aligns with the
- * rows through the shared `.sfe-bf-child-hdr` / `.sfe-bf-child-row` grid template.
+ * rows through the shared `.ofe-bf-child-hdr` / `.ofe-bf-child-row` grid template.
  */
 private bitFieldChildHeaderHtml(): string {
     return (
-        `<div class="sfe-bf-child-hdr">` +
+        `<div class="ofe-bf-child-hdr">` +
         `<span></span><span>Name</span><span>Bits</span><span></span>` +
         `<span>Enum</span><span>Hide</span><span></span><span></span>` +
         `</div>`
@@ -453,35 +453,35 @@ private kindDefEditorHtml(draft: TypeDef, parts: KindDefEditorParts): string {
 /** Shared editor shell: tab bar, form open, type-name input, and the base-width row. */
 private kindDefEditorShellHtml(draft: TypeDef, parts: KindDefEditorParts): string {
     return (
-        `<div class="si-editor-wrap">` +
+        `<div class="oi-editor-wrap">` +
         this.editorTabsHtml() +
-        `<div class="se-view" data-se-view="edit">` +
-        `<div class="se-form">` +
-        `<label class="se-name-lbl" for="se-name">Type name</label>` +
-        `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
+        `<div class="oe-view" data-oe-view="edit">` +
+        `<div class="oe-form">` +
+        `<label class="oe-name-lbl" for="oe-name">Type name</label>` +
+        `<input id="oe-name" class="oe-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="${parts.placeholder}" spellcheck="false" autocomplete="off">` +
-        `<div class="se-struct-default-row">` +
-        `<span class="se-kind-badge">${parts.badge}</span>` +
-        `<span class="se-struct-default-ptr"></span>` +
-        `<span class="se-struct-default-lbl">base width</span>` +
-        `<select id="${parts.baseSelectId}" class="se-struct-default-sel" aria-label="${parts.baseAria}">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
+        `<div class="oe-type-default-row">` +
+        `<span class="oe-kind-badge">${parts.badge}</span>` +
+        `<span class="oe-type-default-ptr"></span>` +
+        `<span class="oe-type-default-lbl">base width</span>` +
+        `<select id="${parts.baseSelectId}" class="oe-type-default-sel" aria-label="${parts.baseAria}">${this.baseTypeOptionsHtml(draft.baseType)}</select>` +
         `</div>`
     );
 }
 
 /** Shared editor tail: error slot, save/cancel buttons, and the C preview pane. */
 private kindDefEditorFooterHtml(draft: TypeDef): string {
-    const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
+    const errorHtml = this._editorError ? `<div class="oe-error">${esc(this._editorError)}</div>` : '';
     return (
         errorHtml +
-        `<div class="se-btns">` +
-        `<button id="se-save" class="sb-btn sb-btn-primary">Save</button>` +
-        `<button id="se-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
+        `<div class="oe-btns">` +
+        `<button id="oe-save" class="sb-btn sb-btn-primary">Save</button>` +
+        `<button id="oe-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `</div>` +
         `</div>` +
-        `<div class="se-view" data-se-view="preview" hidden>` +
-        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-preview-id="${esc(draft.id)}"></pre></div>` +
+        `<div class="oe-view" data-oe-view="preview" hidden>` +
+        `<div id="oe-preview" class="oe-preview"><pre class="oi-c-preview" data-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
@@ -501,12 +501,12 @@ private availableBitFieldDefBits(def: TypeDef): number {
 }
 
 private refreshBitFieldDefRows(sec: HTMLElement, draft: TypeDef): void {
-    const container = sec.querySelector<HTMLElement>('#se-bf-def-children');
+    const container = sec.querySelector<HTMLElement>('#oe-bf-def-children');
     if (!container) { return; }
     container.innerHTML = this.bitFieldDefChildRowsHtml(draft);
     this.wireBitFieldDefChildRows(sec, draft);
     this.refreshBitFieldDefAddButton(sec, draft);
-    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    const pre = sec.querySelector<HTMLElement>('#oe-preview pre');
     if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
@@ -516,7 +516,7 @@ private bitFieldDefChildRowsHtml(draft: TypeDef): string {
 }
 
 private refreshBitFieldDefAddButton(sec: HTMLElement, draft: TypeDef): void {
-    const btn = sec.querySelector<HTMLButtonElement>('#se-bf-def-add');
+    const btn = sec.querySelector<HTMLButtonElement>('#oe-bf-def-add');
     if (!btn) { return; }
     const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
     btn.disabled = addBtnDisabled !== '';
@@ -524,33 +524,33 @@ private refreshBitFieldDefAddButton(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private bitFieldChildIndex(btn: HTMLElement): number | null {
-    const row = btn.closest<HTMLElement>('.sfe-bf-child-row');
+    const row = btn.closest<HTMLElement>('.ofe-bf-child-row');
     const idx = this.parseDatasetInt(row?.dataset.childIdx);
     return idx === null ? null : idx;
 }
 
 private wireBitFieldDefChildRows(sec: HTMLElement, draft: TypeDef): void {
-    const container = sec.querySelector<HTMLElement>('#se-bf-def-children');
+    const container = sec.querySelector<HTMLElement>('#oe-bf-def-children');
     if (!container) { return; }
-    container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name').forEach(inp =>
+    container.querySelectorAll<HTMLInputElement>('.ofe-bf-child-name').forEach(inp =>
         inp.addEventListener('input', () => this.refreshEditorPreview(sec, draft)));
-    container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-width').forEach(inp =>
+    container.querySelectorAll<HTMLInputElement>('.ofe-bf-child-width').forEach(inp =>
         inp.addEventListener('input', () => {
             this.syncBitFieldDefDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
             this.refreshBitFieldDefAddButton(sec, draft);
         }));
-    container.querySelectorAll<HTMLSelectElement>('.sfe-bf-child-enum').forEach(sel =>
+    container.querySelectorAll<HTMLSelectElement>('.ofe-bf-child-enum').forEach(sel =>
         sel.addEventListener('change', () => {
             this.syncBitFieldDefDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
         }));
-    container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-hidden').forEach(chk =>
+    container.querySelectorAll<HTMLInputElement>('.ofe-bf-child-hidden').forEach(chk =>
         chk.addEventListener('change', () => {
             this.syncBitFieldDefDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
         }));
-    this.wireClicks(container, '.sfe-bf-del-child', btn => {
+    this.wireClicks(container, '.ofe-bf-del-child', btn => {
         const ci = this.bitFieldChildIndex(btn);
         if (ci === null) { return; }
         this.syncBitFieldDefDraft(sec, draft);
@@ -558,7 +558,7 @@ private wireBitFieldDefChildRows(sec: HTMLElement, draft: TypeDef): void {
         if (draft.bitFields!.length === 0) { draft.bitFields!.push({ name: 'bit0', bitWidth: 1 }); }
         this.refreshBitFieldDefRows(sec, draft);
     });
-    this.wireClicks(container, '.sfe-bf-child-row .sfe-move-up', btn => {
+    this.wireClicks(container, '.ofe-bf-child-row .ofe-move-up', btn => {
         const ci = this.bitFieldChildIndex(btn);
         if (ci === null) { return; }
         this.syncBitFieldDefDraft(sec, draft);
@@ -567,7 +567,7 @@ private wireBitFieldDefChildRows(sec: HTMLElement, draft: TypeDef): void {
             this.refreshBitFieldDefRows(sec, draft);
         }
     });
-    this.wireClicks(container, '.sfe-bf-child-row .sfe-move-dn', btn => {
+    this.wireClicks(container, '.ofe-bf-child-row .ofe-move-dn', btn => {
         const ci = this.bitFieldChildIndex(btn);
         if (ci === null) { return; }
         this.syncBitFieldDefDraft(sec, draft);
@@ -579,10 +579,10 @@ private wireBitFieldDefChildRows(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private syncBitFieldDefDraft(sec: HTMLElement, draft: TypeDef): void {
-    draft.name = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
-    draft.baseType = this.readBaseType(this.selectValue(sec, '#se-base-type'));
+    draft.name = this.sanitizeCIdent(this.inputValue(sec, '#oe-name'));
+    draft.baseType = this.readBaseType(this.selectValue(sec, '#oe-base-type'));
     draft.fields = [];
-    const rows = sec.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
+    const rows = sec.querySelectorAll<HTMLElement>('#oe-bf-def-children .ofe-bf-child-row');
     draft.bitFields = Array.from(rows).map(row => this.readEditorBitFieldChild(row));
 }
 
@@ -595,7 +595,7 @@ private readBaseType(value: string | undefined): TypeBaseType {
 private bitFieldDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
     return {
         id: draft.id,
-        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextTypeName(draft.id),
+        name: this.sanitizeCIdent(this.inputValue(sec, '#oe-name')) || this.nextTypeName(draft.id),
         kind: 'bitfield',
         baseType: draft.baseType ?? 'uint8',
         bitFields: (draft.bitFields ?? [{ name: 'bit0', bitWidth: 1 }]).map(child => ({ ...child })),
@@ -608,22 +608,22 @@ private enumDefEditorHtml(draft: TypeDef): string {
     return this.kindDefEditorHtml(draft, {
         placeholder: 'MyEnum',
         badge: 'enum',
-        baseSelectId: 'se-enum-base-type',
+        baseSelectId: 'oe-enum-base-type',
         baseAria: 'Enum base width',
         rowsHtml: this.enumEntryHeaderHtml() +
-            `<div id="se-enum-entries" class="sfe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>`,
-        addBtnHtml: `<button id="se-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>`,
+            `<div id="oe-enum-entries" class="ofe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>`,
+        addBtnHtml: `<button id="oe-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>`,
     });
 }
 
 /**
- * Column header for the enum entry rows. Sits outside `#se-enum-entries` so the incremental
+ * Column header for the enum entry rows. Sits outside `#oe-enum-entries` so the incremental
  * row rebuild (`refreshEnumDefRows`) leaves it in place; it aligns with the rows through the
- * shared `.sfe-enum-entry-hdr` / `.sfe-enum-entry-row` grid template.
+ * shared `.ofe-enum-entry-hdr` / `.ofe-enum-entry-row` grid template.
  */
 private enumEntryHeaderHtml(): string {
     return (
-        `<div class="sfe-enum-entry-hdr">` +
+        `<div class="ofe-enum-entry-hdr">` +
         `<span></span><span>Name</span><span></span><span>Value</span><span></span><span></span>` +
         `</div>`
     );
@@ -638,19 +638,19 @@ private enumEntryRowHtml(entry: EnumEntry, i: number, total: number): string {
     const upDis = i === 0 ? ' disabled' : '';
     const dnDis = i === total - 1 ? ' disabled' : '';
     const delCell = total <= 1
-        ? `<span class="sfe-del-placeholder"></span>`
-        : `<button class="sfe-enum-del-entry" title="Remove entry" aria-label="Remove entry">\u2715</button>`;
+        ? `<span class="ofe-del-placeholder"></span>`
+        : `<button class="ofe-enum-del-entry" title="Remove entry" aria-label="Remove entry">\u2715</button>`;
     return (
-        `<div class="sfe-enum-entry-row" data-entry-idx="${i}">` +
-        `<span class="sfe-bf-child-indent"></span>` +
-        `<input class="sfe-enum-entry-name sb-input sb-input-sm" type="text" value="${esc(entry.name)}" maxlength="64" ` +
+        `<div class="ofe-enum-entry-row" data-entry-idx="${i}">` +
+        `<span class="ofe-bf-child-indent"></span>` +
+        `<input class="ofe-enum-entry-name sb-input sb-input-sm" type="text" value="${esc(entry.name)}" maxlength="64" ` +
                `aria-label="Enum entry name" placeholder="ENTRY${i}" spellcheck="false" autocomplete="off">` +
-        `<span class="sfe-bf-child-unit">=</span>` +
-        `<input class="sfe-enum-entry-value sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+        `<span class="ofe-bf-child-unit">=</span>` +
+        `<input class="ofe-enum-entry-value sb-input sb-input-sm" type="text" inputmode="numeric" ` +
                `aria-label="Enum entry value" value="${esc(this.enumEntryValueText(entry.value))}" placeholder="0" spellcheck="false" autocomplete="off">` +
-        `<div class="sfe-bf-child-move">` +
-        `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
-        `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
+        `<div class="ofe-bf-child-move">` +
+        `<button class="ofe-move-btn ofe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
+        `<button class="ofe-move-btn ofe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
         `</div>` +
         delCell +
         `</div>`
@@ -662,24 +662,24 @@ private enumEntryValueText(value: number): string {
 }
 
 private enumEntryIndex(btn: HTMLElement): number | null {
-    const row = btn.closest<HTMLElement>('.sfe-enum-entry-row');
+    const row = btn.closest<HTMLElement>('.ofe-enum-entry-row');
     const idx = this.parseDatasetInt(row?.dataset.entryIdx);
     return idx === null ? null : idx;
 }
 
 private refreshEnumDefRows(sec: HTMLElement, draft: TypeDef): void {
-    const container = sec.querySelector<HTMLElement>('#se-enum-entries');
+    const container = sec.querySelector<HTMLElement>('#oe-enum-entries');
     if (!container) { return; }
     container.innerHTML = this.enumEntryRowsHtml(draft);
     this.wireEnumDefEntryRows(sec, draft);
-    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    const pre = sec.querySelector<HTMLElement>('#oe-preview pre');
     if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
 private wireEnumDefEntryRows(sec: HTMLElement, draft: TypeDef): void {
-    const container = sec.querySelector<HTMLElement>('#se-enum-entries');
+    const container = sec.querySelector<HTMLElement>('#oe-enum-entries');
     if (!container) { return; }
-    container.querySelectorAll<HTMLInputElement>('.sfe-enum-entry-name').forEach(inp => {
+    container.querySelectorAll<HTMLInputElement>('.ofe-enum-entry-name').forEach(inp => {
         inp.addEventListener('input', () => { this.syncEnumDefDraft(sec, draft); this.refreshEditorPreview(sec, draft); });
         inp.addEventListener('blur', () => {
             const clean = this.sanitizeCIdent(inp.value);
@@ -688,9 +688,9 @@ private wireEnumDefEntryRows(sec: HTMLElement, draft: TypeDef): void {
             this.refreshEditorPreview(sec, draft);
         });
     });
-    container.querySelectorAll<HTMLInputElement>('.sfe-enum-entry-value').forEach(inp =>
+    container.querySelectorAll<HTMLInputElement>('.ofe-enum-entry-value').forEach(inp =>
         inp.addEventListener('input', () => { this.syncEnumDefDraft(sec, draft); this.refreshEditorPreview(sec, draft); }));
-    this.wireClicks(container, '.sfe-enum-del-entry', btn => {
+    this.wireClicks(container, '.ofe-enum-del-entry', btn => {
         const i = this.enumEntryIndex(btn);
         if (i === null) { return; }
         this.syncEnumDefDraft(sec, draft);
@@ -698,7 +698,7 @@ private wireEnumDefEntryRows(sec: HTMLElement, draft: TypeDef): void {
         if (draft.entries!.length === 0) { draft.entries!.push({ name: 'VALUE0', value: 0 }); }
         this.refreshEnumDefRows(sec, draft);
     });
-    this.wireClicks(container, '.sfe-enum-entry-row .sfe-move-up', btn => {
+    this.wireClicks(container, '.ofe-enum-entry-row .ofe-move-up', btn => {
         const i = this.enumEntryIndex(btn);
         if (i === null) { return; }
         this.syncEnumDefDraft(sec, draft);
@@ -707,7 +707,7 @@ private wireEnumDefEntryRows(sec: HTMLElement, draft: TypeDef): void {
             this.refreshEnumDefRows(sec, draft);
         }
     });
-    this.wireClicks(container, '.sfe-enum-entry-row .sfe-move-dn', btn => {
+    this.wireClicks(container, '.ofe-enum-entry-row .ofe-move-dn', btn => {
         const i = this.enumEntryIndex(btn);
         if (i === null) { return; }
         this.syncEnumDefDraft(sec, draft);
@@ -719,19 +719,19 @@ private wireEnumDefEntryRows(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private syncEnumDefDraft(sec: HTMLElement, draft: TypeDef): void {
-    draft.name = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
-    draft.baseType = this.readBaseType(this.selectValue(sec, '#se-enum-base-type'));
+    draft.name = this.sanitizeCIdent(this.inputValue(sec, '#oe-name'));
+    draft.baseType = this.readBaseType(this.selectValue(sec, '#oe-enum-base-type'));
     draft.fields = [];
-    const rows = sec.querySelectorAll<HTMLElement>('#se-enum-entries .sfe-enum-entry-row');
+    const rows = sec.querySelectorAll<HTMLElement>('#oe-enum-entries .ofe-enum-entry-row');
     draft.entries = Array.from(rows).map(row => this.readEditorEnumEntry(row));
 }
 
 private readEditorEnumEntry(row: HTMLElement): EnumEntry {
     const idx = row.dataset.entryIdx ?? '0';
     const name = this.sanitizeCIdent(
-        (row.querySelector('.sfe-enum-entry-name') as HTMLInputElement).value
+        (row.querySelector('.ofe-enum-entry-name') as HTMLInputElement).value
     ) || `VALUE${idx}`;
-    const value = this.parseEnumEntryValue((row.querySelector('.sfe-enum-entry-value') as HTMLInputElement).value);
+    const value = this.parseEnumEntryValue((row.querySelector('.ofe-enum-entry-value') as HTMLInputElement).value);
     return { name, value };
 }
 
@@ -749,7 +749,7 @@ private parseEnumEntryNumber(text: string): number {
 private enumDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
     return {
         id: draft.id,
-        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextTypeName(draft.id),
+        name: this.sanitizeCIdent(this.inputValue(sec, '#oe-name')) || this.nextTypeName(draft.id),
         kind: 'enum',
         baseType: draft.baseType ?? 'uint8',
         entries: (draft.entries ?? [{ name: 'VALUE0', value: 0 }]).map(entry => ({ ...entry })),
@@ -781,25 +781,25 @@ private editorInheritedAlloc(): string {
 
 /**
  * Rows markup for the current draft fields — shared by the full editor render
- * and the incremental `#se-fields` rebuild (so the two never diverge).
+ * and the incremental `#oe-fields` rebuild (so the two never diverge).
  */
 private fieldRowsHtml(draft: TypeDef): string {
     return draft.fields.map((f, i) => this.fieldRowHtml(f, i, draft.fields.length === 1, draft.fields.length, draft.id)).join('');
 }
 
 /**
- * Incremental editor refresh: rebuild only the `#se-fields` row container
- * instead of the whole editor. The scroll container (.se-form) is never
+ * Incremental editor refresh: rebuild only the `#oe-fields` row container
+ * instead of the whole editor. The scroll container (.oe-form) is never
  * replaced, so its scrollTop survives — no jump to the top on Add Field /
  * Add bit / move / delete. Then re-wire row-level controls and refresh the
  * live C preview.
  */
 private refreshFieldRows(sec: HTMLElement, draft: TypeDef): void {
-    const fields = sec.querySelector<HTMLElement>('#se-fields');
+    const fields = sec.querySelector<HTMLElement>('#oe-fields');
     if (!fields) { return; }
     fields.innerHTML = this.fieldRowsHtml(draft);
     this.wireFieldRows(fields, sec, draft);
-    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    const pre = sec.querySelector<HTMLElement>('#oe-preview pre');
     if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
@@ -809,28 +809,28 @@ private refreshEditorPreview(sec: HTMLElement, draft: TypeDef): void {
     if (kind === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
     else if (kind === 'enum') { this.syncEnumDefDraft(sec, draft); }
     else { this.syncEditorDraft(sec, draft); }
-    const pre = sec.querySelector<HTMLElement>('#se-preview pre');
+    const pre = sec.querySelector<HTMLElement>('#oe-preview pre');
     if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
 /**
  * Row-level editor controls (type select, pointer, array, bit toggle, child
  * rows, move/delete, endian/alloc select). Called on initial mount and again
- * after every `#se-fields` rebuild so freshly inserted rows stay live.
+ * after every `#oe-fields` rebuild so freshly inserted rows stay live.
  */
 private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): void {
     const syncedFieldForButton = (btn: HTMLElement): { row: HTMLElement; idx: number; field: TypeField | undefined } => {
-        const row = btn.closest<HTMLElement>('.struct-field-row')!;
+        const row = btn.closest<HTMLElement>('.field-row')!;
         this.syncEditorDraft(sec, draft);
         const idx = parseInt(row.dataset.idx!);
         return { row, idx, field: draft.fields[idx] };
     };
 
-    fieldsEl.querySelectorAll<HTMLElement>('.sfe-del-btn').forEach(btn => {
+    fieldsEl.querySelectorAll<HTMLElement>('.ofe-del-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             this.syncEditorDraft(sec, draft);
             this._editorError = null;
-            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            const row = btn.closest<HTMLElement>('.field-row')!;
             const idx = parseInt(row.dataset.idx!);
             draft.fields.splice(idx, 1);
             this.refreshFieldRows(sec, draft);
@@ -838,7 +838,7 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLElement>('.sfe-move-up').forEach(btn => {
+    fieldsEl.querySelectorAll<HTMLElement>('.ofe-move-up').forEach(btn => {
         btn.addEventListener('click', () => {
             const { idx } = syncedFieldForButton(btn);
             this._editorError = null;
@@ -850,7 +850,7 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLElement>('.sfe-move-dn').forEach(btn => {
+    fieldsEl.querySelectorAll<HTMLElement>('.ofe-move-dn').forEach(btn => {
         btn.addEventListener('click', () => {
             const { idx } = syncedFieldForButton(btn);
             this._editorError = null;
@@ -862,16 +862,16 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLElement>('.sfe-arr-toggle').forEach(btn => {
+    fieldsEl.querySelectorAll<HTMLElement>('.ofe-arr-toggle').forEach(btn => {
         btn.addEventListener('click', () => {
-            const cell = btn.closest<HTMLElement>('.sfe-arr-cell')!;
+            const cell = btn.closest<HTMLElement>('.ofe-arr-cell')!;
             const nowArr = !cell.classList.contains('is-array');
             cell.classList.toggle('is-array', nowArr);
             btn.classList.toggle('active', nowArr);
             btn.title = nowArr ? 'Remove array' : 'Make array';
             btn.setAttribute('aria-label', btn.title);
             if (nowArr) {
-                const inp = cell.querySelector<HTMLInputElement>('.sfe-count-inp')!;
+                const inp = cell.querySelector<HTMLInputElement>('.ofe-count-inp')!;
                 if (!inp.value) { inp.value = '2'; }
                 inp.focus(); inp.select();
             }
@@ -879,7 +879,7 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLElement>('.struct-field-row').forEach(row => {
+    fieldsEl.querySelectorAll<HTMLElement>('.field-row').forEach(row => {
         row.tabIndex = 0;
         row.addEventListener('contextmenu', ev => {
             this.showEditorFieldPointerMenu(sec, draft, row, ev);
@@ -892,23 +892,23 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLElement>('.sfe-ptr-btn').forEach(btn => {
+    fieldsEl.querySelectorAll<HTMLElement>('.ofe-ptr-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const row = btn.closest<HTMLElement>('.struct-field-row')!;
+            const row = btn.closest<HTMLElement>('.field-row')!;
             if (!row) { return; }
             const want = !(row.dataset.ptr === '1');
             this.toggleFieldPointer(sec, draft, row, want);
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-count-inp').forEach(inp => {
+    fieldsEl.querySelectorAll<HTMLInputElement>('.ofe-count-inp').forEach(inp => {
         inp.addEventListener('input', () => {
             inp.value = inp.value.replace(/\D/g, '');
             this.refreshEditorPreview(sec, draft);
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-name-inp').forEach(inp => {
+    fieldsEl.querySelectorAll<HTMLInputElement>('.ofe-name-inp').forEach(inp => {
         inp.addEventListener('input', () => { this.refreshEditorPreview(sec, draft); });
         inp.addEventListener('blur', () => {
             const clean = this.sanitizeCIdent(inp.value);
@@ -917,21 +917,21 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-type-sel').forEach(sel => {
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.ofe-type-sel').forEach(sel => {
         sel.addEventListener('change', () => {
             this.handleFieldTypeChange(sec, draft, sel);
             this.refreshEditorPreview(sec, draft);
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel, .sfe-alloc-sel').forEach(sel => {
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.ofe-endian-sel, .ofe-alloc-sel').forEach(sel => {
         sel.addEventListener('change', () => {
             this.syncEditorDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
         });
     });
 
-    fieldsEl.querySelectorAll<HTMLInputElement>('.sfe-hidden-chk').forEach(chk => {
+    fieldsEl.querySelectorAll<HTMLInputElement>('.ofe-hidden-chk').forEach(chk => {
         chk.addEventListener('change', () => {
             this.syncEditorDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
@@ -948,11 +948,11 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
 private updateEditorOverrideTitles(sec: HTMLElement): void {
     const endianInherit = this.editorInheritedEndian();
     const allocInherit = this.editorInheritedAlloc();
-    sec.querySelectorAll<HTMLSelectElement>('.sfe-endian-sel').forEach(sel =>
+    sec.querySelectorAll<HTMLSelectElement>('.ofe-endian-sel').forEach(sel =>
         this.setOverrideSelectTitles(sel, 'endian', endianInherit));
-    sec.querySelectorAll<HTMLSelectElement>('.sfe-alloc-sel').forEach(sel =>
+    sec.querySelectorAll<HTMLSelectElement>('.ofe-alloc-sel').forEach(sel =>
         this.setOverrideSelectTitles(sel, 'allocation', allocInherit));
-    const typeEndian = sec.querySelector<HTMLSelectElement>('#se-endian');
+    const typeEndian = sec.querySelector<HTMLSelectElement>('#oe-endian');
     if (typeEndian) { this.setOverrideSelectTitles(typeEndian, 'endian', this._endian.toUpperCase()); }
 }
 
@@ -975,15 +975,15 @@ private wireClicks(root: HTMLElement, selector: string, handler: (btn: HTMLEleme
 
 /** Scroll a field row at `idx` into (near) viewport — used after row-set rebuilds. */
 private scrollEditorRowIntoView(sec: HTMLElement, idx: number): void {
-    const row = sec.querySelectorAll<HTMLElement>('.struct-field-row')[idx];
+    const row = sec.querySelectorAll<HTMLElement>('.field-row')[idx];
     if (row && typeof row.scrollIntoView === 'function') { row.scrollIntoView({ block: 'nearest' }); }
 }
 
 private syncEditorDraft(sec: HTMLElement, draft: TypeDef): void {
-    draft.name   = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
-    draft.packed = this.inputActive(sec, '#se-packed');
-    draft.endian = this.readEndianOverride(this.selectValue(sec, '#se-endian'));
-    const rows = sec.querySelectorAll<HTMLElement>('.struct-field-row');
+    draft.name   = this.sanitizeCIdent(this.inputValue(sec, '#oe-name'));
+    draft.packed = this.inputActive(sec, '#oe-packed');
+    draft.endian = this.readEndianOverride(this.selectValue(sec, '#oe-endian'));
+    const rows = sec.querySelectorAll<HTMLElement>('.field-row');
     draft.fields = Array.from(rows).map(row => {
         return this.readEditorFieldRow(row);
     });
@@ -1004,15 +1004,15 @@ private selectValue(sec: HTMLElement, sel: string): string | undefined {
 private readEditorFieldRow(row: HTMLElement): TypeField {
     const typeInfo = this.readEditorFieldType(row);
     return {
-        name: this.sanitizeCIdent(this.rowInputValue(row, '.sfe-name-inp')),
+        name: this.sanitizeCIdent(this.rowInputValue(row, '.ofe-name-inp')),
         type: typeInfo.type,
         refTypeId: typeInfo.refTypeId,
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
-        endian: this.readEndianOverride(this.rowSelectValue(row, '.sfe-endian-sel')),
+        endian: this.readEndianOverride(this.rowSelectValue(row, '.ofe-endian-sel')),
         // Only bit-field-reference rows render an alloc select; other rows hold
         // a placeholder, so this reads undefined and authors no allocation.
-        allocation: this.readAllocationOverride(this.rowSelectValue(row, '.sfe-alloc-sel')),
+        allocation: this.readAllocationOverride(this.rowSelectValue(row, '.ofe-alloc-sel')),
         hidden: this.readHiddenFlag(row),
     };
 }
@@ -1029,7 +1029,7 @@ private rowSelectValue(row: HTMLElement, sel: string): string | undefined {
 
 /** Whether the row's hidden checkbox is ticked (absent = not hidden). */
 private readHiddenFlag(row: HTMLElement): true | undefined {
-    return row.querySelector<HTMLInputElement>('.sfe-hidden-chk')?.checked || undefined;
+    return row.querySelector<HTMLInputElement>('.ofe-hidden-chk')?.checked || undefined;
 }
 
 private readEndianOverride(value: string | undefined): 'le' | 'be' | undefined {
@@ -1041,7 +1041,7 @@ private readAllocationOverride(value: string | undefined): 'lsb' | 'msb' | undef
 }
 
 private readEditorFieldType(row: HTMLElement): { type: TypeFieldType; refTypeId: string | undefined; isPointer: boolean } {
-    const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
+    const rawType = (row.querySelector('.ofe-type-sel') as HTMLSelectElement).value;
     const parsed = this.parseEditorFieldType(rawType);
     const ptrActive = row.dataset.ptr === '1';
     return {
@@ -1063,7 +1063,7 @@ private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
         name: this.readBitChildName(childRow),
         bitWidth: this.readBitChildWidth(childRow),
     };
-    const enumRef = this.rowSelectValue(childRow, '.sfe-bf-child-enum');
+    const enumRef = this.rowSelectValue(childRow, '.ofe-bf-child-enum');
     if (enumRef) { child.refTypeId = enumRef; }
     if (this.readBitChildHiddenFlag(childRow)) { child.hidden = true; }
     return child;
@@ -1071,25 +1071,25 @@ private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
 
 /** Whether a bit-field child row's hidden checkbox is ticked (absent = visible). */
 private readBitChildHiddenFlag(childRow: HTMLElement): boolean {
-    return childRow.querySelector<HTMLInputElement>('.sfe-bf-child-hidden')?.checked === true;
+    return childRow.querySelector<HTMLInputElement>('.ofe-bf-child-hidden')?.checked === true;
 }
 
 /** Child name, defaulting to the row index when blank. */
 private readBitChildName(childRow: HTMLElement): string {
-    const raw = this.rowInputValue(childRow, '.sfe-bf-child-name');
+    const raw = this.rowInputValue(childRow, '.ofe-bf-child-name');
     return this.sanitizeCIdent(raw) || `bit${childRow.dataset.childIdx || '0'}`;
 }
 
 /** Child width, clamped to a positive value at most 64 bits. */
 private readBitChildWidth(childRow: HTMLElement): number {
-    const width = parseInt(this.rowInputValue(childRow, '.sfe-bf-child-width'), 10);
+    const width = parseInt(this.rowInputValue(childRow, '.ofe-bf-child-width'), 10);
     return width > 0 ? Math.min(width, 64) : 1;
 }
 
 private readEditorArrayCount(row: HTMLElement): number {
-    const cell = row.querySelector<HTMLElement>('.sfe-arr-cell')!;
+    const cell = row.querySelector<HTMLElement>('.ofe-arr-cell')!;
     if (!cell.classList.contains('is-array')) { return 1; }
-    const v = parseInt((row.querySelector('.sfe-count-inp') as HTMLInputElement).value);
+    const v = parseInt((row.querySelector('.ofe-count-inp') as HTMLInputElement).value);
     return isNaN(v) || v < 1 ? 1 : v;
 }
 
@@ -1105,12 +1105,12 @@ private wireBitFieldDefEditor(sec: HTMLElement, draft: TypeDef): void {
     this.wireEditorTabs(sec);
     this.wireBitFieldDefChildRows(sec, draft);
 
-    sec.querySelector<HTMLSelectElement>('#se-base-type')?.addEventListener('change', () => {
+    sec.querySelector<HTMLSelectElement>('#oe-base-type')?.addEventListener('change', () => {
         this.syncBitFieldDefDraft(sec, draft);
         this.refreshEditorPreview(sec, draft);
         this.refreshBitFieldDefAddButton(sec, draft);
     });
-    sec.querySelector('#se-bf-def-add')?.addEventListener('click', () => {
+    sec.querySelector('#oe-bf-def-add')?.addEventListener('click', () => {
         this.syncBitFieldDefDraft(sec, draft);
         if (!draft.bitFields) { draft.bitFields = []; }
         draft.bitFields.push({ name: `bit${draft.bitFields.length}`, bitWidth: 1 });
@@ -1124,11 +1124,11 @@ private wireEnumDefEditor(sec: HTMLElement, draft: TypeDef): void {
     this.wireEditorTabs(sec);
     this.wireEnumDefEntryRows(sec, draft);
 
-    sec.querySelector<HTMLSelectElement>('#se-enum-base-type')?.addEventListener('change', () => {
+    sec.querySelector<HTMLSelectElement>('#oe-enum-base-type')?.addEventListener('change', () => {
         this.syncEnumDefDraft(sec, draft);
         this.refreshEditorPreview(sec, draft);
     });
-    sec.querySelector('#se-enum-add')?.addEventListener('click', () => {
+    sec.querySelector('#oe-enum-add')?.addEventListener('click', () => {
         this.syncEnumDefDraft(sec, draft);
         if (!draft.entries) { draft.entries = []; }
         draft.entries.push({ name: `VALUE${draft.entries.length}`, value: draft.entries.length });
@@ -1139,7 +1139,7 @@ private wireEnumDefEditor(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private wireTypeEditor(sec: HTMLElement, draft: TypeDef): void {
-    const packedBtn = sec.querySelector<HTMLButtonElement>('#se-packed')!;
+    const packedBtn = sec.querySelector<HTMLButtonElement>('#oe-packed')!;
     packedBtn.addEventListener('click', () => {
         const nowPacked = !packedBtn.classList.contains('active');
         packedBtn.classList.toggle('active', nowPacked);
@@ -1148,20 +1148,20 @@ private wireTypeEditor(sec: HTMLElement, draft: TypeDef): void {
     });
 
     // Row-level controls are wired by wireFieldRows (also re-run after each
-    // incremental #se-fields rebuild). The type-level controls below are
+    // incremental #oe-fields rebuild). The type-level controls below are
     // mounted once and kept across those rebuilds.
-    this.wireFieldRows(sec.querySelector<HTMLElement>('#se-fields')!, sec, draft);
+    this.wireFieldRows(sec.querySelector<HTMLElement>('#oe-fields')!, sec, draft);
 
     this.wireEditorTabs(sec);
 
-    sec.querySelector('#se-add')!.addEventListener('click', () => {
+    sec.querySelector('#oe-add')!.addEventListener('click', () => {
         this.syncEditorDraft(sec, draft);
         this._editorError = null;
         const lastIdx = draft.fields.length;
         draft.fields.push({ name: `field${lastIdx}`, type: 'uint8', count: 1 });
         this.refreshFieldRows(sec, draft);
         this.scrollEditorRowIntoView(sec, lastIdx);
-        sec.querySelectorAll<HTMLInputElement>('.struct-field-row .sfe-name-inp')[lastIdx]?.focus();
+        sec.querySelectorAll<HTMLInputElement>('.field-row .ofe-name-inp')[lastIdx]?.focus();
     });
 
     // Type-level endian change: sync the draft, refresh per-field "Auto"
@@ -1173,7 +1173,7 @@ private wireTypeEditor(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private wireTypeLevelOverrideSelects(sec: HTMLElement): void {
-    sec.querySelector<HTMLSelectElement>('#se-endian')?.addEventListener('change', () => {
+    sec.querySelector<HTMLSelectElement>('#oe-endian')?.addEventListener('change', () => {
         if (!this._editingType) { return; }
         const { draft } = this._editingType;
         this.syncEditorDraft(sec, draft);
@@ -1183,10 +1183,10 @@ private wireTypeLevelOverrideSelects(sec: HTMLElement): void {
 }
 
 private wireEditorNameInput(sec: HTMLElement, draft: TypeDef): void {
-    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
+    sec.querySelector<HTMLInputElement>('#oe-name')!.addEventListener('input', () => {
         this.refreshEditorPreview(sec, draft);
     });
-    sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('blur', e => {
+    sec.querySelector<HTMLInputElement>('#oe-name')!.addEventListener('blur', e => {
         const inp = e.target as HTMLInputElement;
         const clean = this.sanitizeCIdent(inp.value);
         if (clean !== inp.value) { inp.value = clean; }
@@ -1195,10 +1195,10 @@ private wireEditorNameInput(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private wireEditorSaveCancel(sec: HTMLElement, draft: TypeDef): void {
-    sec.querySelector('#se-save')!.addEventListener('click', () => {
+    sec.querySelector('#oe-save')!.addEventListener('click', () => {
         this.saveEditorDraft(sec, draft);
     });
-    sec.querySelector('#se-cancel')!.addEventListener('click', () => {
+    sec.querySelector('#oe-cancel')!.addEventListener('click', () => {
         this._editorError = null;
         this._editingType = null;
         this.render();
@@ -1207,29 +1207,29 @@ private wireEditorSaveCancel(sec: HTMLElement, draft: TypeDef): void {
 
 /** Edit/Preview tab switch: attribute-only toggling (no re-render), so the draft and the section-body scroll keep their state when switching views. */
 private wireEditorTabs(sec: HTMLElement): void {
-    const tabButtons = sec.querySelectorAll<HTMLButtonElement>('.se-tab');
+    const tabButtons = sec.querySelectorAll<HTMLButtonElement>('.oe-tab');
     const setEditorView = (view: string): void => {
         tabButtons.forEach(btn => {
-            const on = btn.dataset.seView === view;
+            const on = btn.dataset.oeView === view;
             btn.classList.toggle('active', on);
             btn.setAttribute('aria-selected', String(on));
         });
-        sec.querySelectorAll<HTMLElement>('.se-view').forEach(pane => {
-            pane.hidden = pane.dataset.seView !== view;
+        sec.querySelectorAll<HTMLElement>('.oe-view').forEach(pane => {
+            pane.hidden = pane.dataset.oeView !== view;
         });
     };
     tabButtons.forEach(btn => {
-        btn.addEventListener('click', () => { setEditorView(btn.dataset.seView!); });
+        btn.addEventListener('click', () => { setEditorView(btn.dataset.oeView!); });
         btn.addEventListener('keydown', ev => {
             if (this.tabNavKey(ev.key)) {
                 ev.preventDefault();
                 const list = Array.from(tabButtons);
                 const next = list[this.nextTabIndex(list, btn, ev.key)]!;
                 next.focus();
-                setEditorView(next.dataset.seView!);
+                setEditorView(next.dataset.oeView!);
             } else if (this.tabActivateKey(ev.key)) {
                 ev.preventDefault();
-                setEditorView(btn.dataset.seView!);
+                setEditorView(btn.dataset.oeView!);
             }
         });
     });
@@ -1278,7 +1278,7 @@ private editorDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
 }
 
 private readEditorTypeName(sec: HTMLElement, draftId: string): string {
-    const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
+    const nameInp = sec.querySelector<HTMLInputElement>('#oe-name')!;
     const name = this.sanitizeCIdent(nameInp.value.trim());
     return name || this.nextTypeName(draftId);
 }
@@ -1313,7 +1313,7 @@ private upsertTypeList(types: TypeDef[], def: TypeDef): TypeDef[] {
     }
 
 private handleFieldTypeChange(sec: HTMLElement, draft: TypeDef, sel: HTMLSelectElement): void {
-    const row = sel.closest<HTMLElement>('.struct-field-row');
+    const row = sel.closest<HTMLElement>('.field-row');
     if (!row) { return; }
     const isBitFieldRef = sel.value.startsWith('bitfield:');
     const ptr = fieldRowPtrFlag(sel.value, isBitFieldRef);
@@ -1327,20 +1327,20 @@ private handleFieldTypeChange(sec: HTMLElement, draft: TypeDef, sel: HTMLSelectE
  * keeps focus and the column stays aligned.
  */
 private syncFieldAllocCell(sec: HTMLElement, draft: TypeDef, row: HTMLElement, isBitFieldRef: boolean): void {
-    const sel = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
-    const placeholder = row.querySelector<HTMLElement>('.sfe-alloc-placeholder');
+    const sel = row.querySelector<HTMLSelectElement>('.ofe-alloc-sel');
+    const placeholder = row.querySelector<HTMLElement>('.ofe-alloc-placeholder');
     if (shouldInsertAllocSelect(isBitFieldRef, sel, placeholder)) {
         this.insertAllocSelect(sec, draft, row, placeholder);
     } else if (shouldRemoveAllocSelect(isBitFieldRef, sel)) {
-        sel.outerHTML = '<span class="sfe-alloc-placeholder"></span>';
+        sel.outerHTML = '<span class="ofe-alloc-placeholder"></span>';
     }
 }
 
 /** Insert + live-wire the alloc override select into a bit-field-reference row. */
 private insertAllocSelect(sec: HTMLElement, draft: TypeDef, row: HTMLElement, placeholder: HTMLElement | null): void {
     if (!placeholder) { return; }
-    placeholder.outerHTML = this.overrideSelectHtml(undefined, 'allocation', 'sfe-alloc-sel', undefined, this.editorInheritedAlloc());
-    const inserted = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+    placeholder.outerHTML = this.overrideSelectHtml(undefined, 'allocation', 'ofe-alloc-sel', undefined, this.editorInheritedAlloc());
+    const inserted = row.querySelector<HTMLSelectElement>('.ofe-alloc-sel');
     if (!inserted) { return; }
     inserted.addEventListener('change', () => {
         this.syncEditorDraft(sec, draft);
@@ -1364,7 +1364,7 @@ private insertAllocSelect(sec: HTMLElement, draft: TypeDef, row: HTMLElement, pl
 
     /** Pointer declaration lives on the row dataset (set by the * row button or context menu). */
     private editorRowIsPointer(row: HTMLElement): boolean {
-    return row.dataset.ptr === '1' || (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value === 'void';
+    return row.dataset.ptr === '1' || (row.querySelector('.ofe-type-sel') as HTMLSelectElement).value === 'void';
 }
 
     private cannotPointTo(field: TypeField, want: boolean): boolean {
@@ -1445,12 +1445,12 @@ private typeRowHtml(def: TypeDef): string {
         : kind === 'enum'
             ? this.enumDefMeta(def)
             : this.typeDefMeta(def);
-    const badge = kind === 'struct' ? '' : `<span class="sd-kind">${kind}</span>`;
+    const badge = kind === 'struct' ? '' : `<span class="od-kind">${kind}</span>`;
     return (
-        `<div class="sd-row">` +
-        `<span class="sd-name">${esc(def.name)}</span>` +
+        `<div class="od-row">` +
+        `<span class="od-name">${esc(def.name)}</span>` +
         badge +
-        `<span class="sd-meta">${meta}</span>` +
+        `<span class="od-meta">${meta}</span>` +
         actionBtnsHtml(`data-type-id="${esc(def.id)}"`, `data-type-id="${esc(def.id)}"`) +
         `</div>`
     );
@@ -1474,21 +1474,21 @@ private enumDefMeta(def: TypeDef): string {
 private addInstanceFormHtml(all: TypeDef[]): string {
     const pin = this.editingTypeInstance();
     return (
-        `<div id="si-add-form" class="si-add-form">` +
-        `<div class="sa-form-hdr ${pinFormClass(pin)}">${pinFormHeader(pin)}</div>` +
-        `<div class="sa-row">` +
-        `<input id="sa-name" class="sa-name-inp sb-input" type="text" maxlength="40" ` +
+        `<div id="oi-add-form" class="oi-add-form">` +
+        `<div class="oa-form-hdr ${pinFormClass(pin)}">${pinFormHeader(pin)}</div>` +
+        `<div class="oa-row">` +
+        `<input id="oa-name" class="oa-name-inp sb-input" type="text" maxlength="40" ` +
                `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin?.name ?? '')}">` +
         `</div>` +
-        `<div class="sa-row">` +
-        `<span class="struct-addr-pfx">0x</span>` +
-        `<input id="sa-addr" class="sb-input sa-addr-inp" type="text" maxlength="8" ` +
+        `<div class="oa-row">` +
+        `<span class="addr-pfx">0x</span>` +
+        `<input id="oa-addr" class="sb-input oa-addr-inp" type="text" maxlength="8" ` +
                `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(this.pinFormAddress(pin))}">` +
         `</div>` +
         this.addInstanceTypeRowHtml(all) +
-        `<div class="sa-row sa-btn-row">` +
-        `<button id="sa-confirm" class="sb-btn sb-btn-primary"${this.saConfirmDisabledAttr()}>${pinFormConfirmLabel(pin)}</button>` +
-        `<button id="sa-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
+        `<div class="oa-row oa-btn-row">` +
+        `<button id="oa-confirm" class="sb-btn sb-btn-primary"${this.saConfirmDisabledAttr()}>${pinFormConfirmLabel(pin)}</button>` +
+        `<button id="oa-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
         `</div>` +
         `</div>`
     );
@@ -1517,11 +1517,11 @@ private addInstanceTypeRowHtml(all: TypeDef[]): string {
     ).join('');
     const applyDef = all.find(d => d.id === selectedId);
     const previewHtml = applyDef
-        ? `<pre class="si-c-preview" data-preview-id="${esc(applyDef.id)}"></pre>`
+        ? `<pre class="oi-c-preview" data-preview-id="${esc(applyDef.id)}"></pre>`
         : '';
     return (
-        `<div class="sa-row">` +
-        `<select id="sa-struct-sel" class="sb-select">${typeOpts}</select>` +
+        `<div class="oa-row">` +
+        `<select id="oa-type-sel" class="sb-select">${typeOpts}</select>` +
         `</div>` +
         previewHtml
     );
@@ -1550,20 +1550,20 @@ private instanceCardsHtml(): string {
 private instancesBodyHtml(addFormHtml: string, instHtml: string): string {
     if (addFormHtml) { return addFormHtml; }
     return (
-        `<div class="si-hdr-row">` +
+        `<div class="oi-hdr-row">` +
         this.bitLayoutToggleHtml() +
         this.showHiddenToggleHtml() +
         `</div>` +
-        `<div id="si-list">${instHtml}</div>`
+        `<div id="oi-list">${instHtml}</div>`
     );
 }
 
 private bitLayoutToggleHtml(): string {
     return (
-        `<div class="si-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
-        `<div class="compact-tabs sa-bit-order-tabs">` +
-        `<button id="sa-btn-bit-lsb" class="${this._bitFieldAllocation === 'lsb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the least significant bit">LSB</button>` +
-        `<button id="sa-btn-bit-msb" class="${this._bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
+        `<div class="oi-toggle-group" title="Bit-field allocation: which side receives the first declared bit field">` +
+        `<div class="compact-tabs oa-bit-order-tabs">` +
+        `<button id="oa-btn-bit-lsb" class="${this._bitFieldAllocation === 'lsb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the least significant bit">LSB</button>` +
+        `<button id="oa-btn-bit-msb" class="${this._bitFieldAllocation === 'msb' ? 'active' : ''}" title="Bit-field allocation: first declared bit field starts at the most significant bit">MSB</button>` +
         `</div>` +
         `</div>`
     );
@@ -1574,9 +1574,9 @@ private showHiddenToggleHtml(): string {
     const on = this._showHiddenFields;
     const title = 'Show fields marked hidden in the Types editor';
     return (
-        `<div class="si-toggle-group" title="${title}">` +
+        `<div class="oi-toggle-group" title="${title}">` +
         `<div class="compact-tabs">` +
-        `<button type="button" id="si-show-hidden-btn" class="si-show-hidden-btn${on ? ' active' : ''}" ` +
+        `<button type="button" id="oi-show-hidden-btn" class="oi-show-hidden-btn${on ? ' active' : ''}" ` +
                `title="${title}" aria-label="${title}" aria-pressed="${on ? 'true' : 'false'}">Show hidden</button>` +
         `</div>` +
         `</div>`
@@ -1592,29 +1592,29 @@ private showHiddenToggleHtml(): string {
     private typePanelBodyHtml(typeRows: string): string {
         if (this._choosingKind) { return this.kindChooserHtml(); }
         if (this._editingType) { return this.editorHtml(this._editingType.draft, this._editingType.existing); }
-        return `<div id="sm-list">${typeRows}</div>`;
+        return `<div id="om-list">${typeRows}</div>`;
     }
 
     /** Three-tile kind picker shown in the Types body after the single `＋ Add` entry point. */
     private kindChooserHtml(): string {
         return (
-            `<div id="sm-kind-picker" class="sm-kind-picker">` +
-            `<div class="sm-kind-hdr">New type</div>` +
-            `<div class="sm-kind-tiles">` +
+            `<div id="om-kind-picker" class="om-kind-picker">` +
+            `<div class="om-kind-hdr">New type</div>` +
+            `<div class="om-kind-tiles">` +
             this.kindTileHtml('struct', 'Struct', 'A C-like layout of named fields') +
             this.kindTileHtml('bitfield', 'Bit-field', 'A reusable unsigned storage unit split into named bits') +
             this.kindTileHtml('enum', 'Enum', 'A named set of integer values') +
             `</div>` +
-            `<div class="se-btns"><button id="sm-kind-cancel" class="sb-btn sb-btn-secondary">Cancel</button></div>` +
+            `<div class="oe-btns"><button id="om-kind-cancel" class="sb-btn sb-btn-secondary">Cancel</button></div>` +
             `</div>`
         );
     }
 
     private kindTileHtml(kind: TypeDefKind, label: string, hint: string): string {
         return (
-            `<button class="sm-kind-tile" data-kind="${kind}" title="${esc(hint)}">` +
-            `<span class="sm-kind-tile-name">${esc(label)}</span>` +
-            `<span class="sm-kind-tile-hint">${esc(hint)}</span>` +
+            `<button class="om-kind-tile" data-kind="${kind}" title="${esc(hint)}">` +
+            `<span class="om-kind-tile-name">${esc(label)}</span>` +
+            `<span class="om-kind-tile-hint">${esc(hint)}</span>` +
             `</button>`
         );
     }
@@ -1639,13 +1639,13 @@ private showHiddenToggleHtml(): string {
 
     private wireKindChooser(typesPanel: HTMLElement): void {
         if (!this._choosingKind) { return; }
-        typesPanel.querySelectorAll<HTMLElement>('.sm-kind-tile').forEach(tile => {
+        typesPanel.querySelectorAll<HTMLElement>('.om-kind-tile').forEach(tile => {
             tile.addEventListener('click', () => {
                 const kind = tile.dataset.kind;
                 if (kind === 'struct' || kind === 'bitfield' || kind === 'enum') { this.pickKind(kind); }
             });
         });
-        typesPanel.querySelector('#sm-kind-cancel')?.addEventListener('click', () => {
+        typesPanel.querySelector('#om-kind-cancel')?.addEventListener('click', () => {
             this._choosingKind = false;
             this.render();
         });
@@ -1659,7 +1659,7 @@ private wireOverlayPanel(sec: HTMLElement): void {
 }
 
     private wireTypesPanelControls(sec: HTMLElement): void {
-        const typesPanel = sec.querySelector<HTMLElement>('#si-types-body')!;
+        const typesPanel = sec.querySelector<HTMLElement>('#oi-types-body')!;
         this.wireKindChooser(typesPanel);
     wireActionBtns(
         typesPanel,
@@ -1699,24 +1699,24 @@ private wireOverlayPanel(sec: HTMLElement): void {
 private wireAddInstanceControls(sec: HTMLElement): void {
     if (!this._addingPin && !this._editingPinId) { return; }
 
-    sec.querySelector('#sa-struct-sel')?.addEventListener('change', e => {
+    sec.querySelector('#oa-type-sel')?.addEventListener('change', e => {
         const value = (e.target as HTMLSelectElement).value || null;
         if (this._editingPinId) { this._editingPinDraftTypeId = value; }
         else { this._applyTypeId = value; }
         this.preservePendingTypeAddress();
         this.render();
     });
-    sec.querySelector('#sa-addr')?.addEventListener('input', () => {
-        const addrInp = sec.querySelector<HTMLInputElement>('#sa-addr');
-        const confirmBtn = sec.querySelector<HTMLButtonElement>('#sa-confirm');
+    sec.querySelector('#oa-addr')?.addEventListener('input', () => {
+        const addrInp = sec.querySelector<HTMLInputElement>('#oa-addr');
+        const confirmBtn = sec.querySelector<HTMLButtonElement>('#oa-confirm');
         if (!addrInp || !confirmBtn) { return; }
         const hasAddr = addrInp.value.trim().length > 0;
         confirmBtn.disabled = !this.selectedApplyTypeId() || !hasAddr;
     });
-    sec.querySelector('#sa-confirm')?.addEventListener('click', () => {
+    sec.querySelector('#oa-confirm')?.addEventListener('click', () => {
         this.confirmInstance();
     });
-    sec.querySelector('#sa-cancel')?.addEventListener('click', () => {
+    sec.querySelector('#oa-cancel')?.addEventListener('click', () => {
         this._addingPin = false;
         this._editingPinId = null;
         this._editingPinDraftTypeId = null;
@@ -1725,17 +1725,17 @@ private wireAddInstanceControls(sec: HTMLElement): void {
 }
 
 private wireBitLayoutTabs(sec: HTMLElement): void {
-    sec.querySelector('#sa-btn-bit-lsb')?.addEventListener('click', () => {
+    sec.querySelector('#oa-btn-bit-lsb')?.addEventListener('click', () => {
         this._bitFieldAllocation = 'lsb';
-        sec.querySelector('#sa-btn-bit-lsb')?.classList.add('active');
-        sec.querySelector('#sa-btn-bit-msb')?.classList.remove('active');
+        sec.querySelector('#oa-btn-bit-lsb')?.classList.add('active');
+        sec.querySelector('#oa-btn-bit-msb')?.classList.remove('active');
         if (this._expanded.size > 0) { this.render(); }
         this.cb.onBitAllocationChange?.(this._bitFieldAllocation);
     });
-    sec.querySelector('#sa-btn-bit-msb')?.addEventListener('click', () => {
+    sec.querySelector('#oa-btn-bit-msb')?.addEventListener('click', () => {
         this._bitFieldAllocation = 'msb';
-        sec.querySelector('#sa-btn-bit-msb')?.classList.add('active');
-        sec.querySelector('#sa-btn-bit-lsb')?.classList.remove('active');
+        sec.querySelector('#oa-btn-bit-msb')?.classList.add('active');
+        sec.querySelector('#oa-btn-bit-lsb')?.classList.remove('active');
         if (this._expanded.size > 0) { this.render(); }
         this.cb.onBitAllocationChange?.(this._bitFieldAllocation);
     });
@@ -1748,7 +1748,7 @@ private wireBitLayoutTabs(sec: HTMLElement): void {
  * an open Types editor draft is left untouched (never reloaded).
  */
 private wireShowHiddenToggle(sec: HTMLElement): void {
-    const btn = sec.querySelector('#si-show-hidden-btn');
+    const btn = sec.querySelector('#oi-show-hidden-btn');
     btn?.addEventListener('click', () => {
         const show = !this._showHiddenFields;
         this._showHiddenFields = show;
@@ -1760,14 +1760,14 @@ private wireShowHiddenToggle(sec: HTMLElement): void {
 
 /**
  * Re-render just the Instances *list* in place after the hidden-field
- * filter changed. The header (bit-layout tabs + `#si-show-hidden-btn`) is left
+ * filter changed. The header (bit-layout tabs + `#oi-show-hidden-btn`) is left
  * untouched, so the toggle keeps focus and the section body keeps its scroll
  * position — no whole-body `innerHTML` rebuild (Types editor also untouched).
  */
 private refreshInstances(): void {
     const sec = this._root;
     if (!sec || !this.sections) { return; }
-    const list = sec.querySelector<HTMLElement>('#si-list');
+    const list = sec.querySelector<HTMLElement>('#oi-list');
     if (!list) { return; }
     this.prepareOverlayPanelState();
     list.innerHTML = this.instanceCardsHtml();
@@ -1785,8 +1785,8 @@ private confirmInstance(): void {
 }
 
 private applyAddress(): number | null {
-    const addrInp = this._root?.querySelector<HTMLInputElement>('#sa-addr');
-    const nameInp = this._root?.querySelector<HTMLInputElement>('#sa-name');
+    const addrInp = this._root?.querySelector<HTMLInputElement>('#oa-addr');
+    const nameInp = this._root?.querySelector<HTMLInputElement>('#oa-name');
     if (!addrInp || !nameInp || !this.selectedApplyTypeId()) { return null; }
     return this.parseApplyAddress(addrInp);
 }
@@ -1811,11 +1811,11 @@ private editedPinName(pin: TypeInstance | undefined): string {
 }
 
 private rawPinName(): string {
-    return this._root?.querySelector<HTMLInputElement>('#sa-name')?.value.trim() ?? '';
+    return this._root?.querySelector<HTMLInputElement>('#oa-name')?.value.trim() ?? '';
 }
 
 private applyNewPin(addr: number): void {
-    const name = this.applyName(this._root!.querySelector<HTMLInputElement>('#sa-name')!);
+    const name = this.applyName(this._root!.querySelector<HTMLInputElement>('#oa-name')!);
     const pin = makeTypeInstance({ typeId: this.selectedApplyTypeId()!, addr, name }, this.makePinId);
     this._pins = [...this._pins, pin];
     this._activeTypeAddr = addr;
@@ -1867,13 +1867,13 @@ private pendingTypeAddressValue(): number | null {
 }
 
 private pendingAddrInput(): HTMLInputElement | null {
-    return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
+    return this._root?.querySelector<HTMLInputElement>('#oa-addr') ?? null;
 }
 
 private instanceTypePreviewHtml(def: TypeDef | undefined, pin: TypeInstance): string {
     return def
-        ? `<div class="si-type-preview"${this._previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
-                    `<pre class="si-c-preview" data-preview-id="${esc(def.id)}"></pre>` +
+        ? `<div class="oi-type-preview"${this._previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
+                    `<pre class="oi-c-preview" data-preview-id="${esc(def.id)}"></pre>` +
           `</div>`
         : '';
 }
@@ -1902,16 +1902,16 @@ private instanceHeaderHtml(
 ): string {
     return (
         `<div class="sb-card-hdr">` +
-        `<button class="si-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">›</button>` +
+        `<button class="oi-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">›</button>` +
         `<div class="sb-card-info">` +
-        `<span class="si-cname">${esc(pin.name)}</span>` +
-        `<div class="si-cmeta-row">` +
-        `<span class="si-ctype">${esc(defName)}</span>` +
-        `<span class="si-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>` +
+        `<span class="oi-cname">${esc(pin.name)}</span>` +
+        `<div class="oi-cmeta-row">` +
+        `<span class="oi-ctype">${esc(defName)}</span>` +
+        `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>` +
         `</div>` +
         this.pointerSourceSubtitleHtml(pin) +
         `</div>` +
-        `<div class="si-card-actions">` +
+        `<div class="oi-card-actions">` +
         this.instanceActionsHtml(pin, index) +
         `</div>` +
         `</div>`
@@ -1933,7 +1933,7 @@ private buildInstanceCard(pin: TypeInstance, i: number): string {
     const typePreviewHtml = this.instanceTypePreviewHtml(def, pin);
 
     return (
-        `<div class="sb-card${expanded ? ' si-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
+        `<div class="sb-card${expanded ? ' oi-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
         this.instanceHeaderHtml(pin, i, defName, totalBytes, addrHex, expanded) +
         this.instanceContentHtml(pin, typePreviewHtml, bodyHtml) +
         `</div>`
@@ -1941,17 +1941,17 @@ private buildInstanceCard(pin: TypeInstance, i: number): string {
 }
 
 private clearArrSep(): void {
-    this.cb.onClearHighlightHex?.('struct-arr-sep');
+    this.cb.onClearHighlightHex?.('type-arr-sep');
     this._arrSepAddrs.length = 0;
 }
 
 private clearSelRow(): void {
-    this._root?.querySelectorAll<HTMLElement>('.si-selected')
-        .forEach(el => el.classList.remove('si-selected'));
+    this._root?.querySelectorAll<HTMLElement>('.oi-selected')
+        .forEach(el => el.classList.remove('oi-selected'));
 }
 
 private setTreeLevel(el: HTMLElement, level: number): void {
-    el.style.setProperty('--si-level', String(level));
+    el.style.setProperty('--oi-level', String(level));
 }
 
 private asHtml(el: Element | null): HTMLElement | null {
@@ -1971,7 +1971,7 @@ private firstDirectChildByClass(parent: HTMLElement, cls: string): HTMLElement |
 }
 
 private applyTreeDepthStyles(sec: HTMLElement): void {
-    sec.querySelectorAll<HTMLElement>('.si-fields').forEach(fields => {
+    sec.querySelectorAll<HTMLElement>('.oi-fields').forEach(fields => {
         this.annotateTreeBody(fields, 0);
     });
 }
@@ -1985,16 +1985,16 @@ private annotateTreeBody(body: HTMLElement, level: number): void {
 }
 
 private annotateTreeChild(child: HTMLElement, level: number): void {
-    if (child.classList.contains('si-field')) {
+    if (child.classList.contains('oi-field')) {
         this.setTreeLevel(child, level);
         return;
     }
-    if (child.classList.contains('si-arr-grp')) {
-        this.annotateCompositeTreeChild(child, level, 'si-arr-grp-hdr', 'si-arr-grp-body');
+    if (child.classList.contains('oi-arr-grp')) {
+        this.annotateCompositeTreeChild(child, level, 'oi-arr-grp-hdr', 'oi-arr-grp-body');
         return;
     }
-    if (child.classList.contains('si-arr-el-grp')) {
-        this.annotateCompositeTreeChild(child, level, 'si-arr-el-hdr', 'si-arr-el-body');
+    if (child.classList.contains('oi-arr-el-grp')) {
+        this.annotateCompositeTreeChild(child, level, 'oi-arr-el-hdr', 'oi-arr-el-body');
     }
 }
 
@@ -2020,7 +2020,7 @@ private wireInstanceCards(sec: HTMLElement): void {
         }
     };
 
-    sec.querySelectorAll<HTMLElement>('.si-expand-btn').forEach(btn => {
+    sec.querySelectorAll<HTMLElement>('.oi-expand-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const id = btn.dataset.pinId!;
             if (this._expanded.has(id)) { this._expanded.delete(id); } else { this._expanded.add(id); }
@@ -2029,22 +2029,22 @@ private wireInstanceCards(sec: HTMLElement): void {
     });
 
     // Array group: arrow button toggles expand; rest of row selects in hex view
-    sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
-        const expBtn = hdr.querySelector<HTMLElement>('.si-arr-exp-btn');
+    sec.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr').forEach(hdr => {
+        const expBtn = hdr.querySelector<HTMLElement>('.oi-arr-exp-btn');
         const start  = parseInt(hdr.dataset.byteStart!);
         const cnt    = parseInt(hdr.dataset.byteCnt!);
-        const isBitUnitHdr = hdr.classList.contains('si-bitunit-hdr');
-        const isPointerHdr = hdr.classList.contains('si-ptr-hdr') || hdr.classList.contains('si-ptr-child-hdr');
+        const isBitUnitHdr = hdr.classList.contains('oi-bitunit-hdr');
+        const isPointerHdr = hdr.classList.contains('oi-ptr-hdr') || hdr.classList.contains('oi-ptr-child-hdr');
 
         if (expBtn) {
             expBtn.addEventListener('click', e => {
                 e.stopPropagation();
                 if ((expBtn as HTMLButtonElement).disabled) { return; }
-                this.toggleCompositeGroup(hdr, '.si-arr-grp', '.si-arr-grp-body', 'arrKey', this._expandedArrayFields);
+                this.toggleCompositeGroup(hdr, '.oi-arr-grp', '.oi-arr-grp-body', 'arrKey', this._expandedArrayFields);
             });
         }
 
-        hdr.querySelector<HTMLElement>('.si-f-ptr')?.addEventListener('click', e => {
+        hdr.querySelector<HTMLElement>('.oi-f-ptr')?.addEventListener('click', e => {
             e.stopPropagation();
             this.followPointerHeaderValue(hdr);
         });
@@ -2061,20 +2061,20 @@ private wireInstanceCards(sec: HTMLElement): void {
     });
 
     // Nested element: arrow toggles expand; row selects that element range.
-    sec.querySelectorAll<HTMLElement>('.si-arr-el-hdr').forEach(hdr => {
-        const expBtn = hdr.querySelector<HTMLElement>('.si-arr-el-exp-btn')!;
+    sec.querySelectorAll<HTMLElement>('.oi-arr-el-hdr').forEach(hdr => {
+        const expBtn = hdr.querySelector<HTMLElement>('.oi-arr-el-exp-btn')!;
         const start  = parseInt(hdr.dataset.byteStart!);
         const cnt    = parseInt(hdr.dataset.byteCnt!);
 
         expBtn.addEventListener('click', e => {
             e.stopPropagation();
-            this.toggleCompositeGroup(hdr, '.si-arr-el-grp', '.si-arr-el-body', 'arrElKey', this._expandedArrayElements);
+            this.toggleCompositeGroup(hdr, '.oi-arr-el-grp', '.oi-arr-el-body', 'arrElKey', this._expandedArrayElements);
         });
 
         this.wireHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
-            if ((e.target as HTMLElement).closest('.si-arr-el-exp-btn')) { return; }
+            if ((e.target as HTMLElement).closest('.oi-arr-el-exp-btn')) { return; }
             this.clearSelectionVisuals();
             if (isNaN(start) || isNaN(cnt)) { return; }
             this._selectedArrElemKey = hdr.dataset.arrElKey!;
@@ -2118,7 +2118,7 @@ private wireInstanceCards(sec: HTMLElement): void {
         });
     });
 
-    sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
+    sec.querySelectorAll<HTMLElement>('.oi-field').forEach(row => {
         const start = parseInt(row.dataset.byteStart!);
         const cnt   = parseInt(row.dataset.byteCnt!);
         const bitStartRaw = row.dataset.bitStart;
@@ -2129,12 +2129,12 @@ private wireInstanceCards(sec: HTMLElement): void {
             if (isBitRow) { return; }
             const addrs: number[] = [];
             for (let i = 0; i < cnt; i++) { addrs.push(start + i); }
-            this.cb.onHighlightHex?.(addrs, 'struct-h');
+            this.cb.onHighlightHex?.(addrs, 'type-h');
         });
 
         row.addEventListener('mouseleave', () => {
             if (isBitRow) { return; }
-            this.cb.onClearHighlightHex?.('struct-h');
+            this.cb.onClearHighlightHex?.('type-h');
         });
 
         row.addEventListener('click', () => {
@@ -2146,7 +2146,7 @@ private wireInstanceCards(sec: HTMLElement): void {
             this.selectTypeFieldRow(row, start, cnt);
         });
 
-        row.querySelector<HTMLElement>('.si-f-ptr')?.addEventListener('click', ev => {
+        row.querySelector<HTMLElement>('.oi-f-ptr')?.addEventListener('click', ev => {
             ev.stopPropagation();
             const card = row.closest<HTMLElement>('.sb-card');
             const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
@@ -2157,16 +2157,16 @@ private wireInstanceCards(sec: HTMLElement): void {
 
     // Right-click on a field row to open the value menu. Pass the pin index
     // so the menu can decode values when performing copy actions.
-    sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
+    sec.querySelectorAll<HTMLElement>('.oi-field').forEach(row => {
         row.addEventListener('contextmenu', ev => {
             ev.preventDefault(); ev.stopPropagation();
             const start = parseInt(row.dataset.byteStart!);
             const card = row.closest<HTMLElement>('.sb-card');
             const pinIdx = card ? parseInt(card.dataset.idx!) : -1;
             // Determine if this is a pointer field
-            const valCell = row.querySelector<HTMLElement>('.si-f-val');
-            const isPointer = valCell?.classList.contains('si-f-ptr');
-            const isBitUnitHeader = row.classList.contains('si-bitunit-hdr');
+            const valCell = row.querySelector<HTMLElement>('.oi-f-val');
+            const isPointer = valCell?.classList.contains('oi-f-ptr');
+            const isBitUnitHeader = row.classList.contains('oi-bitunit-hdr');
             // Only allow per-element change, not group, for array elements
             const valKey = row.dataset.valKey ?? this.scalarValKey(start);
             this.showFieldValMenu(ev.clientX, ev.clientY, start, undefined, pinIdx, {
@@ -2180,9 +2180,9 @@ private wireInstanceCards(sec: HTMLElement): void {
 
     // Right-click on an array group header should allow actions on the
     // entire group (child elements).
-    sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
+    sec.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr').forEach(hdr => {
         hdr.addEventListener('contextmenu', ev => {
-            if (hdr.classList.contains('si-ptr-hdr') || hdr.classList.contains('si-ptr-child-hdr')) {
+            if (hdr.classList.contains('oi-ptr-hdr') || hdr.classList.contains('oi-ptr-child-hdr')) {
                 this.openPointerHeaderValueMenu(ev, hdr);
                 return;
             }
@@ -2196,7 +2196,7 @@ private wireInstanceCards(sec: HTMLElement): void {
 
 
     private onCardHeaderClick(sec: HTMLElement, hdr: HTMLElement, e: Event): void {
-        if ((e.target as HTMLElement).closest('.si-expand-btn, .si-card-actions')) { return; }
+        if ((e.target as HTMLElement).closest('.oi-expand-btn, .oi-card-actions')) { return; }
     this.clearArrSep();
     this.clearSelRow();
     this._selectedBitRange = null;
@@ -2211,8 +2211,8 @@ private wireInstanceCards(sec: HTMLElement): void {
     const size = typeByteSize(sel.def, this._types);
     this._activeTypeAddr = sel.pin.addr;
     this._selectedPinId = sel.pin.id;
-    sec.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('si-card-selected'));
-    sel.card.classList.add('si-card-selected');
+    sec.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('oi-card-selected'));
+    sel.card.classList.add('oi-card-selected');
     this.cb.onSelectRange?.(sel.pin.addr, size);
 }
 
@@ -2231,7 +2231,7 @@ private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: TypeInstance;
 private toggleTypePreview(btn: HTMLElement): void {
     const id = btn.dataset.pinId!;
     const card = btn.closest<HTMLElement>('.sb-card')!;
-    const preview = card.querySelector<HTMLElement>('.si-type-preview');
+    const preview = card.querySelector<HTMLElement>('.oi-type-preview');
     const isOpen = this._previewedPins.has(id);
     this.setTypePreviewOpen(id, btn, preview, !isOpen);
 }
@@ -2252,7 +2252,7 @@ private restoreSelectedPin(sec: HTMLElement): void {
     if (this._selectedPinId === null) { return; }
     sec.querySelectorAll<HTMLElement>('.sb-card').forEach(card => {
         if (card.dataset.pinId === this._selectedPinId) {
-            card.classList.add('si-card-selected');
+            card.classList.add('oi-card-selected');
         }
     });
 }
@@ -2266,12 +2266,12 @@ private restoreSelectedValueRow(sec: HTMLElement): void {
 
 private restoreSelectedBitRow(sec: HTMLElement): boolean {
     if (this._selectedBitRowKey === null) { return false; }
-    sec.querySelectorAll<HTMLElement>('.si-field[data-bit-start][data-bit-width]').forEach(row => {
+    sec.querySelectorAll<HTMLElement>('.oi-field[data-bit-start][data-bit-width]').forEach(row => {
         const meta = this.parseBitRowMeta(row);
         if (!meta) { return; }
         const key = this.makeBitRowKey(meta.byteStart, meta.bitStart, meta.bitWidth);
         if (key === this._selectedBitRowKey) {
-            row.classList.add('si-selected');
+            row.classList.add('oi-selected');
         }
     });
     return true;
@@ -2279,9 +2279,9 @@ private restoreSelectedBitRow(sec: HTMLElement): boolean {
 
 private restoreSelectedFieldRow(sec: HTMLElement): boolean {
     if (this._selectedFieldAddr === null) { return false; }
-    sec.querySelectorAll<HTMLElement>('.si-field').forEach(row => {
+    sec.querySelectorAll<HTMLElement>('.oi-field').forEach(row => {
         if (parseInt(row.dataset.byteStart!) === this._selectedFieldAddr) {
-            row.classList.add('si-selected');
+            row.classList.add('oi-selected');
         }
     });
     return true;
@@ -2289,9 +2289,9 @@ private restoreSelectedFieldRow(sec: HTMLElement): boolean {
 
 private restoreSelectedArrayElement(sec: HTMLElement): boolean {
     if (this._selectedArrElemKey === null) { return false; }
-    sec.querySelectorAll<HTMLElement>('.si-arr-el-hdr').forEach(hdr => {
+    sec.querySelectorAll<HTMLElement>('.oi-arr-el-hdr').forEach(hdr => {
         if (hdr.dataset.arrElKey === this._selectedArrElemKey) {
-            hdr.classList.add('si-selected');
+            hdr.classList.add('oi-selected');
         }
     });
     return true;
@@ -2299,10 +2299,10 @@ private restoreSelectedArrayElement(sec: HTMLElement): boolean {
 
 private restoreSelectedArrayGroup(sec: HTMLElement): void {
     if (this._selectedArrKey === null) { return; }
-    sec.querySelectorAll<HTMLElement>('.si-arr-grp-hdr').forEach(hdr => {
-        const grp = hdr.closest<HTMLElement>('.si-arr-grp');
+    sec.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr').forEach(hdr => {
+        const grp = hdr.closest<HTMLElement>('.oi-arr-grp');
         if (grp?.dataset.arrKey === this._selectedArrKey) {
-            hdr.classList.add('si-selected');
+            hdr.classList.add('oi-selected');
         }
     });
 }
@@ -2312,8 +2312,8 @@ private restoreSelectedArrayGroup(sec: HTMLElement): void {
 private showFieldMenu(innerHtml: string, x: number, y: number, onCommand: (cmd: string) => void): void {
     menuController.show(x, y, { innerHTML: innerHtml, emit: onCommand });
     // The controller owns #menu; tag it with the overlay modifier so the
-    // .si-field-menu CSS (min/max width, wrapped hints) applies.
-    menuController.openMenu()?.classList.add('si-field-menu');
+    // .oi-field-menu CSS (min/max width, wrapped hints) applies.
+    menuController.openMenu()?.classList.add('oi-field-menu');
 }
 
 private instanceAtAddress(addr: number, pinIdx: number | undefined, allDefs: TypeDef[]): TypeInstance | undefined {
@@ -2449,7 +2449,7 @@ private setArrayHeaderDisplayType(
 
 private updateHoveredBitRow(ev: MouseEvent, sec: HTMLElement): void {
     const target = ev.target as HTMLElement | null;
-    const bitRow = target?.closest<HTMLElement>('.si-field[data-bit-start][data-bit-width]') ?? null;
+    const bitRow = target?.closest<HTMLElement>('.oi-field[data-bit-start][data-bit-width]') ?? null;
     const hover = this.bitRowHoverState(bitRow);
     if (this._hoveredBitRowKey === hover.key) { return; }
     this._hoveredBitRange = hover.range;
@@ -2475,7 +2475,7 @@ private selectBitRow(row: HTMLElement, sec: HTMLElement): void {
     this.applyBitRowSelection(this.parseBitRowMeta(row));
     this.clearFieldSelectionState();
     this.clearSelRow();
-    row.classList.add('si-selected');
+    row.classList.add('oi-selected');
     this.applyBitHighlightsInPlace(sec);
 }
 
@@ -2502,7 +2502,7 @@ private selectTypeFieldRow(row: HTMLElement, start: number, cnt: number): void {
     this.clearArrSep();
     this.clearSelRow();
     this.clearBitSelectionState();
-    row.classList.add('si-selected');
+    row.classList.add('oi-selected');
     this._selectedFieldAddr = start;
     this._selectedArrKey = null;
     this._selectedArrElemKey = null;
@@ -2521,7 +2521,7 @@ private selectArrayGroupHeader(e: MouseEvent, hdr: HTMLElement, start: number, c
     if (this.shouldSkipArrayGroupClick(e, isBitUnitHdr)) { return; }
     this.clearSelectionVisuals();
     if (this.hasInvalidRange(start, cnt)) { return; }
-    const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
+    const grp = hdr.closest<HTMLElement>('.oi-arr-grp')!;
     this._selectedArrKey = grp.dataset.arrKey!;
     this._selectedArrElemKey = null;
     this._selectedFieldAddr = null;
@@ -2530,7 +2530,7 @@ private selectArrayGroupHeader(e: MouseEvent, hdr: HTMLElement, start: number, c
 }
 
 private shouldSkipArrayGroupClick(e: MouseEvent, isBitUnitHdr: boolean): boolean {
-    return isBitUnitHdr || Boolean((e.target as HTMLElement).closest('.si-arr-exp-btn'));
+    return isBitUnitHdr || Boolean((e.target as HTMLElement).closest('.oi-arr-exp-btn'));
 }
 
 private hasInvalidRange(start: number, cnt: number): boolean {
@@ -2538,7 +2538,7 @@ private hasInvalidRange(start: number, cnt: number): boolean {
 }
 
 private selectPointerHeaderRange(e: MouseEvent, hdr: HTMLElement, start: number, cnt: number): void {
-    if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
+    if ((e.target as HTMLElement).closest('.oi-arr-exp-btn')) { return; }
     this.clearSelectionVisuals();
     if (this.hasInvalidRange(start, cnt)) { return; }
     this.selectRange(hdr, start, cnt);
@@ -2552,12 +2552,12 @@ private followPointerHeaderValue(hdr: HTMLElement): void {
 }
 
 private arrayGroupSeparatorRows(grp: HTMLElement): HTMLElement[] {
-    const elementHeaders = Array.from(grp.querySelectorAll<HTMLElement>('.si-arr-el-hdr'));
-    return elementHeaders.length > 0 ? elementHeaders : Array.from(grp.querySelectorAll<HTMLElement>('.si-field'));
+    const elementHeaders = Array.from(grp.querySelectorAll<HTMLElement>('.oi-arr-el-hdr'));
+    return elementHeaders.length > 0 ? elementHeaders : Array.from(grp.querySelectorAll<HTMLElement>('.oi-field'));
 }
 
 private openArrayHeaderValueMenu(ev: MouseEvent, hdr: HTMLElement): void {
-    if (hdr.classList.contains('si-bitunit-hdr')) { return; }
+    if (hdr.classList.contains('oi-bitunit-hdr')) { return; }
     ev.preventDefault();
     ev.stopPropagation();
     const directValueRows = this.directArrayHeaderValueRows(hdr);
@@ -2590,18 +2590,18 @@ private directArrayHeaderValueRows(hdr: HTMLElement): HTMLElement[] {
 }
 
 private arrayGroupBody(hdr: HTMLElement): HTMLElement | undefined {
-    const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
+    const grp = hdr.closest<HTMLElement>('.oi-arr-grp')!;
     return Array.from(grp.children).find(c => this.isArrayGroupBody(c)) as HTMLElement | undefined;
 }
 
 private isArrayGroupBody(child: Element): boolean {
-    return child.classList.contains('si-arr-grp-body');
+    return child.classList.contains('oi-arr-grp-body');
 }
 
 private directValueRowsFromChild(child: Element): HTMLElement[] {
     const childEl = child as HTMLElement;
-    if (childEl.classList.contains('si-field')) { return [childEl]; }
-    if (childEl.classList.contains('si-arr-el-grp')) { return this.nestedValueHeaderRows(childEl); }
+    if (childEl.classList.contains('oi-field')) { return [childEl]; }
+    if (childEl.classList.contains('oi-arr-el-grp')) { return this.nestedValueHeaderRows(childEl); }
     return [];
 }
 
@@ -2611,7 +2611,7 @@ private nestedValueHeaderRows(child: HTMLElement): HTMLElement[] {
 }
 
 private isNestedValueHeader(child: Element): boolean {
-    return child.classList.contains('si-arr-el-hdr') && child.classList.contains('si-field');
+    return child.classList.contains('oi-arr-el-hdr') && child.classList.contains('oi-field');
 }
 
 private rowByteStart(row: HTMLElement): number {
@@ -2771,7 +2771,7 @@ private pointerSourceSubtitleHtml(pin: TypeInstance): string {
     const source = pin.pointerSources?.[0];
     if (!source) { return ''; }
     const addr = formatHex(source.pointerStorageAddress, 8);
-    return `<div class="si-csource">from ${esc(source.sourcePinName)}.${esc(source.sourceFieldPath)} @${esc(addr)}</div>`;
+    return `<div class="oi-csource">from ${esc(source.sourcePinName)}.${esc(source.sourceFieldPath)} @${esc(addr)}</div>`;
 }
 
 private menuSubHtml(label: string, id: string, body: string): string {
@@ -3160,10 +3160,10 @@ private wireHoverRange(el: HTMLElement, start: number, count: number): void {
     el.addEventListener('mouseenter', () => {
         const addrs: number[] = [];
         for (let i = 0; i < count; i++) { addrs.push(start + i); }
-        this.cb.onHighlightHex?.(addrs, 'struct-h');
+        this.cb.onHighlightHex?.(addrs, 'type-h');
     });
     el.addEventListener('mouseleave', () => {
-        this.cb.onClearHighlightHex?.('struct-h');
+        this.cb.onClearHighlightHex?.('type-h');
     });
 }
 
@@ -3189,11 +3189,11 @@ private markArraySeparators(rows: HTMLElement[]): void {
         this._arrSepAddrs.push(bs);
         addrs.push(bs);
     });
-    this.cb.onHighlightHex?.(addrs, 'struct-arr-sep');
+    this.cb.onHighlightHex?.(addrs, 'type-arr-sep');
 }
 
 private selectRange(el: HTMLElement, start: number, count: number): void {
-    el.classList.add('si-selected');
+    el.classList.add('oi-selected');
     this.cb.onSelectRange?.(start, count);
 }
 
@@ -3234,11 +3234,11 @@ private clearSelectionState(): void {
     }
 
     private addPinAddressInput(): HTMLInputElement | null {
-        return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
+        return this._root?.querySelector<HTMLInputElement>('#oa-addr') ?? null;
     }
 
     private addPinConfirmButton(): HTMLButtonElement | null {
-        return this._root?.querySelector<HTMLButtonElement>('#sa-confirm') ?? null;
+        return this._root?.querySelector<HTMLButtonElement>('#oa-confirm') ?? null;
     }
 
     // ── Extracted-module delegation (thin wrappers keep internal call sites stable) ──
@@ -3344,7 +3344,7 @@ function pinFormHeader(pin: TypeInstance | null): string {
 }
 
 function pinFormClass(pin: TypeInstance | null): string {
-    return pin ? 'sa-form-hdr-edit' : 'sa-form-hdr-new';
+    return pin ? 'oa-form-hdr-edit' : 'oa-form-hdr-new';
 }
 
 function pinFormConfirmLabel(pin: TypeInstance | null): string {

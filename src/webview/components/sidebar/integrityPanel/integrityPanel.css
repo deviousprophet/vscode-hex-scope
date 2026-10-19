@@ -281,7 +281,7 @@
 
 /* Hex-body span inside the value pane: structural selector (last child of
    `<code>` produced by shared `formatHexHtml`) so this panel never names
-   the overlay-owned `.si-hex-body` class. */
+   the overlay-owned `.oi-hex-body` class. */
 .integrity-value-pane code > span:last-child {
     min-width: 0;
     overflow-wrap: anywhere;
@@ -304,8 +304,8 @@
     padding: 8px;
 }
 
-/* Form header + action row — local copies of the legacy `.sa-form-hdr` /
-   `.sa-row .sa-btn-row` rules so the panel stops borrowing overlay-owned classes. */
+/* Form header + action row — local copies of the legacy `.oa-form-hdr` /
+   `.oa-row .oa-btn-row` rules so the panel stops borrowing overlay-owned classes. */
 .integrity-form-hdr {
     font-size: 10px; font-weight: 600; font-family: var(--font-ui);
     padding-bottom: 5px;
@@ -357,7 +357,7 @@
     min-width: 0;
 }
 
-/* Address prefix — local copy of the legacy `.struct-addr-pfx` so the panel
+/* Address prefix — local copy of the legacy `.addr-pfx` so the panel
    stops borrowing an overlay-owned class (that rule stays in overlayPanel.css
    for overlay's own markup). */
 .integrity-addr-pfx {

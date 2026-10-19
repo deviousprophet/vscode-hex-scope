@@ -108,8 +108,8 @@ export function bitChildButtonState(remainingBits: number): { addBtnDisabled: st
 
 function deleteFieldCellHtml(isOnly: boolean): string {
     return isOnly
-        ? `<span class="sfe-del-placeholder"></span>`
-        : `<button class="sfe-del-btn" title="Remove field" aria-label="Remove field">\u2715</button>`;
+        ? `<span class="ofe-del-placeholder"></span>`
+        : `<button class="ofe-del-btn" title="Remove field" aria-label="Remove field">\u2715</button>`;
 }
 
 function disabledAttr(isDisabled: boolean): string {
@@ -127,8 +127,8 @@ function arrayToggleLabel(isArr: boolean): string {
 function fieldHiddenCellHtml(f: TypeField): string {
         const title = 'Hide this field in the Instances view';
         return (
-            `<span class="sfe-hidden-cell" title="${title}">` +
-            `<input type="checkbox" class="sfe-hidden-chk" title="${title}" aria-label="${title}"${f.hidden === true ? ' checked' : ''}>` +
+            `<span class="ofe-hidden-cell" title="${title}">` +
+            `<input type="checkbox" class="ofe-hidden-chk" title="${title}" aria-label="${title}"${f.hidden === true ? ' checked' : ''}>` +
             `</span>`
         );
     }
@@ -137,9 +137,9 @@ function fieldArrayCellHtml(f: TypeField): string {
         const isArr = f.count > 1;
         const toggleLabel = arrayToggleLabel(isArr);
         return (
-            `<div class="sfe-arr-cell${isArr ? ' is-array' : ''}">` +
-            `<button class="sfe-arr-toggle${activeClassAttr(isArr)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>` +
-            `<input class="sfe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+            `<div class="ofe-arr-cell${isArr ? ' is-array' : ''}">` +
+            `<button class="ofe-arr-toggle${activeClassAttr(isArr)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>` +
+            `<input class="ofe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
                    `value="${isArr ? f.count : ''}" placeholder="N">` +
             `</div>`
         );
@@ -149,9 +149,9 @@ function fieldArrayCellHtml(f: TypeField): string {
 
 function fieldMoveButtonsHtml(i: number, total: number): string {
     return (
-        `<div class="sfe-move-btns">` +
-        `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${disabledAttr(i === 0)}>&#x2191;</button>` +
-        `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${disabledAttr(i === total - 1)}>&#x2193;</button>` +
+        `<div class="ofe-move-btns">` +
+        `<button class="ofe-move-btn ofe-move-up" title="Move up" aria-label="Move up"${disabledAttr(i === 0)}>&#x2191;</button>` +
+        `<button class="ofe-move-btn ofe-move-dn" title="Move down" aria-label="Move down"${disabledAttr(i === total - 1)}>&#x2193;</button>` +
         `</div>`
     );
 }
@@ -221,16 +221,16 @@ export function fieldRowHtml(
     const delCell = deleteFieldCellHtml(isOnly);
 
     return (
-        `<div class="struct-field-row" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
-        `<select class="sfe-type-sel">${typeOpts}</select>` +
-        `<button class="sfe-ptr-btn${activeClassAttr(fieldIsPointerActive(f))}" ` +
+        `<div class="field-row" data-idx="${i}" data-ptr="${f.isPointer ? '1' : ''}">` +
+        `<select class="ofe-type-sel">${typeOpts}</select>` +
+        `<button class="ofe-ptr-btn${activeClassAttr(fieldIsPointerActive(f))}" ` +
                `title="Toggle pointer field" aria-label="Toggle pointer field"${disabledAttr(blocksPointer)}>*</button>` +
-        `<input class="sfe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
+        `<input class="ofe-name-inp sb-input sb-input-sm" type="text" value="${esc(f.name)}" maxlength="64" ` +
                `placeholder="fieldName" spellcheck="false" autocomplete="off">` +
-        overrideSelectHtml(f.endian, 'endian', 'sfe-endian-sel', undefined, inheritedEndian) +
+        overrideSelectHtml(f.endian, 'endian', 'ofe-endian-sel', undefined, inheritedEndian) +
         (showsAlloc
-            ? overrideSelectHtml(f.allocation, 'allocation', 'sfe-alloc-sel', undefined, inheritedAlloc)
-            : `<span class="sfe-alloc-placeholder"></span>`) +
+            ? overrideSelectHtml(f.allocation, 'allocation', 'ofe-alloc-sel', undefined, inheritedAlloc)
+            : `<span class="ofe-alloc-placeholder"></span>`) +
         fieldHiddenCellHtml(f) +
         fieldArrayCellHtml(f) +
         fieldMoveButtonsHtml(i, total) +
@@ -244,21 +244,21 @@ export function childFieldRowHtml(child: BitFieldChild, ci: number, total: numbe
     const upDis  = ci === 0        ? ' disabled' : '';
     const dnDis  = ci === total - 1 ? ' disabled' : '';
     const delCell = total <= 1
-        ? `<span class="sfe-del-placeholder"></span>`
-        : `<button class="sfe-bf-del-child" title="Remove child" aria-label="Remove child">\u2715</button>`;
+        ? `<span class="ofe-del-placeholder"></span>`
+        : `<button class="ofe-bf-del-child" title="Remove child" aria-label="Remove child">\u2715</button>`;
     return (
-        `<div class="sfe-bf-child-row" data-child-idx="${ci}">` +
-        `<span class="sfe-bf-child-indent"></span>` +
-        `<input class="sfe-bf-child-name sb-input sb-input-sm" type="text" value="${esc(child.name)}" maxlength="64" ` +
+        `<div class="ofe-bf-child-row" data-child-idx="${ci}">` +
+        `<span class="ofe-bf-child-indent"></span>` +
+        `<input class="ofe-bf-child-name sb-input sb-input-sm" type="text" value="${esc(child.name)}" maxlength="64" ` +
                `aria-label="Bit name" placeholder="bit${ci}" spellcheck="false" autocomplete="off">` +
-        `<input class="sfe-bf-child-width sb-input sb-input-sm" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
+        `<input class="ofe-bf-child-width sb-input sb-input-sm" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
                `aria-label="Bit width in bits" placeholder="N" maxlength="2">` +
-        `<span class="sfe-bf-child-unit">bit</span>` +
+        `<span class="ofe-bf-child-unit">bit</span>` +
         bitChildEnumSelectHtml(child, types) +
         bitChildHiddenCellHtml(child) +
-        `<div class="sfe-bf-child-move">` +
-        `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
-        `<button class="sfe-move-btn sfe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
+        `<div class="ofe-bf-child-move">` +
+        `<button class="ofe-move-btn ofe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
+        `<button class="ofe-move-btn ofe-move-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
         `</div>` +
         delCell +
         `</div>`
@@ -273,15 +273,15 @@ function bitChildEnumSelectHtml(child: BitFieldChild, types: readonly TypeDef[])
             `<option value="${esc(d.id)}"${child.refTypeId === d.id ? ' selected' : ''}>${esc(truncatedTypeOptionLabel(d.name))}</option>`
         ))
         .join('');
-    return `<select class="sfe-bf-child-enum" title="Enum labels for this bit value" aria-label="Enum labels for this bit value">${options}</select>`;
+    return `<select class="ofe-bf-child-enum" title="Enum labels for this bit value" aria-label="Enum labels for this bit value">${options}</select>`;
 }
 
 /** Per-child "hide this bit in the Instances view" checkbox (instance-view only). */
 function bitChildHiddenCellHtml(child: BitFieldChild): string {
     const title = 'Hide this bit in the Instances view';
     return (
-        `<span class="sfe-bf-child-hidden-cell" title="${title}">` +
-        `<input type="checkbox" class="sfe-hidden-chk sfe-bf-child-hidden" title="${title}" aria-label="${title}"${child.hidden === true ? ' checked' : ''}>` +
+        `<span class="ofe-bf-child-hidden-cell" title="${title}">` +
+        `<input type="checkbox" class="ofe-hidden-chk ofe-bf-child-hidden" title="${title}" aria-label="${title}"${child.hidden === true ? ' checked' : ''}>` +
         `</span>`
     );
 }

@@ -118,7 +118,7 @@ export function renderTypeCPreview(pre: HTMLElement, def: TypeDef, types: readon
 }
 
 export function hydrateTypePreviews(root: HTMLElement, types: readonly TypeDef[], editingDraft: TypeDef | null): void {
-    root.querySelectorAll<HTMLElement>('.si-c-preview[data-preview-id]')
+    root.querySelectorAll<HTMLElement>('.oi-c-preview[data-preview-id]')
         .forEach(pre => hydrateTypePreview(pre, types, editingDraft));
 }
 

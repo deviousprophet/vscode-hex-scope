@@ -135,9 +135,9 @@ function renderBitFieldValue(r: DecodedField, valType: ColType): string {
     if (isBinaryDisplay(valType)) {
         const groups = binaryGroupsLowBitsFirst(v.toString(2).padStart(width, '0'));
         const html = groups.map(g => [...g].map(bit =>
-            `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`
+            `<span class="oi-bit ${bit === '1' ? 'one' : 'zero'}">${bit}</span>`
         ).join('')).join(' ');
-        return `<span class="si-bin-wrap">${html}</span>`;
+        return `<span class="oi-bin-wrap">${html}</span>`;
     }
     return v.toString(10);
 }
@@ -205,8 +205,8 @@ function renderSpecialScalarByValueType(
 
 function renderPointerValue(rctx: OverlayRenderCtx, r: DecodedField, dv: DataView, le: boolean): string {
     const v = r.pointerValue ?? (dv.getUint32(0, le) >>> 0);
-    const note = v !== 0 && rctx.readByte(v) === undefined ? ` <span class="si-f-ptr-note">(unmapped)</span>` : '';
-    return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8)) + note;
+    const note = v !== 0 && rctx.readByte(v) === undefined ? ` <span class="oi-f-ptr-note">(unmapped)</span>` : '';
+    return `<span class="oi-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8)) + note;
 }
 
 function renderAsciiValue(r: DecodedField, valType: ColType, bytes: number[]): string {
@@ -225,11 +225,11 @@ function renderIeeeValue(r: DecodedField, bytes: number[], endian: 'le' | 'be'):
     const parts = getFloatPartsForField(r, bytes, endian);
     if (!parts) { return '??'; }
     return (
-        `<pre class="si-ieee">` +
-        `<span class="si-ieee-label">sign:</span> <span class="si-ieee-val">${esc(String(parts.sign))}</span><br>` +
-        `<span class="si-ieee-label">exponent:</span> ${formatHexHtml(parts.exponentHex)}<br>` +
-        `<span class="si-ieee-label">mantissa:</span> ${formatHexHtml(parts.mantissaHex)}<br>` +
-        `<span class="si-ieee-label">class:</span> <span class="si-ieee-val">${esc(parts.className)}</span>` +
+        `<pre class="oi-ieee">` +
+        `<span class="oi-ieee-label">sign:</span> <span class="oi-ieee-val">${esc(String(parts.sign))}</span><br>` +
+        `<span class="oi-ieee-label">exponent:</span> ${formatHexHtml(parts.exponentHex)}<br>` +
+        `<span class="oi-ieee-label">mantissa:</span> ${formatHexHtml(parts.mantissaHex)}<br>` +
+        `<span class="oi-ieee-label">class:</span> <span class="oi-ieee-val">${esc(parts.className)}</span>` +
         `</pre>`
     );
 }
@@ -561,7 +561,7 @@ function scalarPointerTargetLabel(target: TypeFieldType, abbreviated: boolean): 
 export function typeCellHtml(abbrev: string, fullTypeLabel: string): string {
     const compact = compactTypeCellLabel(abbrev);
     const escapedFullType = esc(fullTypeLabel);
-    return `<span class="si-f-type" title="${escapedFullType}" aria-label="${escapedFullType}">${esc(compact)}</span>`;
+    return `<span class="oi-f-type" title="${escapedFullType}" aria-label="${escapedFullType}">${esc(compact)}</span>`;
 }
 
 function compactTypeCellLabel(label: string): string {

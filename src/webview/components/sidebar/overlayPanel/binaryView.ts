@@ -16,11 +16,11 @@ export function isBitFieldRow(r: DecodedField): boolean {
 
 function renderBitSpan(bit: string, idx: number, selected: boolean): string {
     const sel = selected ? ' sel' : '';
-    return `<span class="si-bit ${bit === '1' ? 'one' : 'zero'}${sel}" data-bit-idx="${idx}">${bit}</span>`;
+    return `<span class="oi-bit ${bit === '1' ? 'one' : 'zero'}${sel}" data-bit-idx="${idx}">${bit}</span>`;
 }
 
 function renderUnknownBitSpan(bitIdx: number, selected: boolean): string {
-    return `<span class="si-bit unknown${selected ? ' sel' : ''}" data-bit-idx="${bitIdx}">?</span>`;
+    return `<span class="oi-bit unknown${selected ? ' sel' : ''}" data-bit-idx="${bitIdx}">?</span>`;
 }
 
 function isBitSelected(
@@ -88,7 +88,7 @@ function renderBinarySpanLines(spans: string[]): string {
     for (let i = 0; i < groups.length; i += 4) {
         lines.push(groups.slice(i, i + 4).join(' '));
     }
-    return `<span class="si-bin-wrap">${lines.join('<br>')}</span>`;
+    return `<span class="oi-bin-wrap">${lines.join('<br>')}</span>`;
 }
 
 export function binaryBitsForValue(bytes: number[], endian: 'le' | 'be'): string {
@@ -133,8 +133,8 @@ export function applyBitHighlightsInPlace(
     selectedRange: { parentByteStart: number; startBit: number; endBit: number } | null,
     hoveredRange: { parentByteStart: number; startBit: number; endBit: number } | null,
 ): void {
-    sec.querySelectorAll<HTMLElement>('.si-bit.hov').forEach(el => el.classList.remove('hov'));
-    sec.querySelectorAll<HTMLElement>('.si-bit.sel').forEach(el => el.classList.remove('sel'));
+    sec.querySelectorAll<HTMLElement>('.oi-bit.hov').forEach(el => el.classList.remove('hov'));
+    sec.querySelectorAll<HTMLElement>('.oi-bit.sel').forEach(el => el.classList.remove('sel'));
 
     const applyRange = (
         range: { parentByteStart: number; startBit: number; endBit: number } | null,
@@ -142,14 +142,14 @@ export function applyBitHighlightsInPlace(
     ) => {
         if (!range) { return; }
         const parentVal = sec.querySelector<HTMLElement>(
-            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"], ` +
-            `.si-arr-grp-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin-sliced"], ` +
-            `.si-arr-el-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin"], ` +
-            `.si-arr-el-hdr.si-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .si-f-val[data-val-type="bin-sliced"]`
+            `.oi-arr-grp-hdr.oi-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .oi-f-val[data-val-type="bin"], ` +
+            `.oi-arr-grp-hdr.oi-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .oi-f-val[data-val-type="bin-sliced"], ` +
+            `.oi-arr-el-hdr.oi-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .oi-f-val[data-val-type="bin"], ` +
+            `.oi-arr-el-hdr.oi-bitunit-hdr[data-byte-start="${range.parentByteStart}"] .oi-f-val[data-val-type="bin-sliced"]`
         );
         if (!parentVal) { return; }
         for (let i = range.startBit; i <= range.endBit; i++) {
-            parentVal.querySelector<HTMLElement>(`.si-bit[data-bit-idx="${i}"]`)?.classList.add(cls);
+            parentVal.querySelector<HTMLElement>(`.oi-bit[data-bit-idx="${i}"]`)?.classList.add(cls);
         }
     };
 
@@ -166,7 +166,7 @@ export function renderBinaryFromBitRows(
     const usedWidth = usedBitRowWidth(rows);
     const first = rows[0];
     if (!hasBitRows(first, usedWidth)) {
-        return '<span class="si-bin-wrap"></span>';
+        return '<span class="oi-bin-wrap"></span>';
     }
     const rawParts = byteHexParts(first.bytesHex);
     if (hasBitRowData(first, rawParts)) {

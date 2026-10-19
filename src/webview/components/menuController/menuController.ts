@@ -10,7 +10,7 @@
 // per-show `emit` callbacks.
 //
 // The `menu-*` class lexicon is the single shared vocabulary; the
-// overlay field menu (`si-field-menu-*`) is caller-owned and wired by
+// overlay field menu (`oi-field-menu-*`) is caller-owned and wired by
 // id elsewhere (not renamed).
 //
 // One active menu: opening a menu closes any other (registry

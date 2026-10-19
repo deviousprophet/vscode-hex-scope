@@ -668,20 +668,20 @@ suite('HexView paint methods', () => {
         const { hex } = installHexView();
         renderGrid(standardInput());
 
-        hex.paintTypeHighlight([ADDR_BASE, ADDR_BASE + 2], 'struct-h');
-        assert.ok(hexCell(ADDR_BASE).classList.contains('struct-h'));
-        assert.ok(charCell(ADDR_BASE).classList.contains('struct-h'), 'char cell shares the address class');
-        assert.ok(hexCell(ADDR_BASE + 2).classList.contains('struct-h'));
-        assert.ok(!hexCell(ADDR_BASE + 1).classList.contains('struct-h'));
+        hex.paintTypeHighlight([ADDR_BASE, ADDR_BASE + 2], 'type-h');
+        assert.ok(hexCell(ADDR_BASE).classList.contains('type-h'));
+        assert.ok(charCell(ADDR_BASE).classList.contains('type-h'), 'char cell shares the address class');
+        assert.ok(hexCell(ADDR_BASE + 2).classList.contains('type-h'));
+        assert.ok(!hexCell(ADDR_BASE + 1).classList.contains('type-h'));
 
         const decoy = document.createElement('div');
-        const decoyHtml = '<span class="data-cell struct-h" data-addr="00001000">AA</span>';
+        const decoyHtml = '<span class="data-cell type-h" data-addr="00001000">AA</span>';
         decoy.innerHTML = decoyHtml;
         document.body.appendChild(decoy);
 
-        hex.paintClearTypeHighlight('struct-h');
-        assert.ok(!hexCell(ADDR_BASE).classList.contains('struct-h'));
-        assert.ok(!hexCell(ADDR_BASE + 2).classList.contains('struct-h'));
-        assert.ok(decoy.querySelector('.struct-h'), 'outside-root elements are untouched by clear');
+        hex.paintClearTypeHighlight('type-h');
+        assert.ok(!hexCell(ADDR_BASE).classList.contains('type-h'));
+        assert.ok(!hexCell(ADDR_BASE + 2).classList.contains('type-h'));
+        assert.ok(decoy.querySelector('.type-h'), 'outside-root elements are untouched by clear');
     });
 });

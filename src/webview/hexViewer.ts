@@ -271,7 +271,7 @@ function mappedScriptWrites(writes: Array<[number, number]>): Array<[number, num
 
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspectorPanel.mount(root) },
-    { id: 'struct', label: 'Overlay', mount: root => overlayPanel.mount(root) },
+    { id: 'overlay', label: 'Overlay', mount: root => overlayPanel.mount(root) },
     { id: 'integrity', label: 'Integrity', mount: root => integrityPanel.mount(root) },
     { id: 'scripts', label: 'Scripts', mount: root => scriptsPanel.mount(root) },
 ];
@@ -1307,7 +1307,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
     inspector: () => overlayPanel.resetViewState(),
-    struct: () => inspectorPanel.setLabels(S.labels, S.segmentNames),
+    overlay: () => inspectorPanel.setLabels(S.labels, S.segmentNames),
     integrity: () => integrityPanel.setTabActive(true),
     scripts: () => scriptsPanel.setTabActive(true),
 };
@@ -1315,7 +1315,7 @@ const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
 function onSidebarTabChange(tab: SidebarTab): void {
     S.sidebarTab = tab;
     sidebar.setTab(tab);
-    overlayPanel.setTabActive(tab === 'struct');
+    overlayPanel.setTabActive(tab === 'overlay');
     SIDEBAR_TAB_EFFECTS[tab]();
 }
 
@@ -1334,7 +1334,7 @@ function mountSidebarPanel(tab: SidebarTab): void {
 /** After a full render: sync component active tab to host truth + mount active panel. */
 function syncSidebarTab(): void {
     sidebar.setTab(S.sidebarTab);
-    overlayPanel.setTabActive(S.sidebarTab === 'struct');
+    overlayPanel.setTabActive(S.sidebarTab === 'overlay');
     mountSidebarPanel(S.sidebarTab);
 }
 

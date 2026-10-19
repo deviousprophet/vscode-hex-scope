@@ -18,7 +18,7 @@ function resetOverlayState(): void {
     S.segmentIndex = [];
     S.endian = 'le';
     S.bitFieldAllocation = 'msb';
-    S.sidebarTab = 'struct';
+    S.sidebarTab = 'overlay';
 }
 
 function elementText(element: Element | null): string {
@@ -77,13 +77,13 @@ const parentDef: TypeDef = {
 };
 
 function getTopFieldHeaders(): string[] {
-    return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
+    return Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-f-name'))
         .map(el => el.textContent ?? '');
 }
 
 function openValueMenuLabels(target: HTMLElement, dom: JSDOM): string[] {
     target.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-    return Array.from(document.querySelectorAll<HTMLElement>('.si-field-menu .menu-item[data-cmd^="disp-"] .menu-label'))
+    return Array.from(document.querySelectorAll<HTMLElement>('.oi-field-menu .menu-item[data-cmd^="disp-"] .menu-label'))
         .map(el => el.textContent ?? '');
 }
 
@@ -91,7 +91,7 @@ suite('OverlayPanel deep-render harness', () => {
     let dom: JSDOM;
 
     setup(() => {
-        dom = new JSDOM('<!doctype html><html><body><div id="s-struct-pins"></div></body></html>');
+        dom = new JSDOM('<!doctype html><html><body><div id="s-overlay"></div></body></html>');
 
         const fakeVsCodeApi = {
             postMessage: () => {},
@@ -148,25 +148,25 @@ suite('OverlayPanel deep-render harness', () => {
         panel.setEndian(S.endian);
         panel.setBitFieldAllocation(S.bitFieldAllocation);
         panel.setTabActive(true);
-        panel.mount(document.getElementById('s-struct-pins')!);
+        panel.mount(document.getElementById('s-overlay')!);
         return panel;
     }
 
     /** Open the single `＋ Add` entry point's kind picker. */
     function openKindPicker(): void {
-        click(dom, document.getElementById('sm-add-btn'));
-        assert.ok(document.getElementById('sm-kind-picker'), 'kind picker should render after ＋ Add');
+        click(dom, document.getElementById('om-add-btn'));
+        assert.ok(document.getElementById('om-kind-picker'), 'kind picker should render after ＋ Add');
     }
 
     /** Open a kind's creation form through the picker tile. */
     function openKindEditor(kind: 'struct' | 'bitfield' | 'enum'): void {
         openKindPicker();
-        click(dom, document.querySelector<HTMLElement>(`.sm-kind-tile[data-kind="${kind}"]`));
+        click(dom, document.querySelector<HTMLElement>(`.om-kind-tile[data-kind="${kind}"]`));
     }
 
     async function renderPinsAndExpandCard(): Promise<OverlayPanel> {
         const panel = await createMountedPanel();
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        const expandCard = document.querySelector<HTMLElement>('.oi-expand-btn');
         assert.ok(expandCard, 'expand button should render');
         expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         return panel;
@@ -252,47 +252,47 @@ suite('OverlayPanel deep-render harness', () => {
     }
 
     function assertUnmappedPointerRow(): void {
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.oi-ptr-hdr.oi-ptr-field');
         assert.ok(row, 'typed pointer row should render');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '', 'next', 'typed pointer name should not repeat target type');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-f-name')?.textContent ?? '', 'next', 'typed pointer name should not repeat target type');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-f-type')?.textContent, 'u16*', 'typed pointer type cell should show target pointer type');
         assertUnmappedPointerValue(row!);
-        assert.ok(row!.classList.contains('si-field'), 'unmapped pointer should use scalar field row layout');
-        assert.ok(!row!.classList.contains('si-arr-grp-hdr'), 'unmapped pointer should not use composite header layout');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
-        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
+        assert.ok(row!.classList.contains('oi-field'), 'unmapped pointer should use scalar field row layout');
+        assert.ok(!row!.classList.contains('oi-arr-grp-hdr'), 'unmapped pointer should not use composite header layout');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-arr-exp-btn'), null, 'unmapped pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.oi-ptr-child-hdr'), null, 'unmapped pointer should not render a child preview row');
     }
 
     function assertUnmappedPointerValue(row: HTMLElement): void {
-        const value = row.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        const value = row.querySelector<HTMLElement>('.oi-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.strictEqual(value, '(unmapped) 0x20000000', 'unmapped status should not imply followable pointer navigation');
     }
 
     function assertNullPointerRow(): void {
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.oi-ptr-hdr.oi-ptr-field');
         assert.ok(row, 'null pointer row should render');
-        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        const value = row!.querySelector<HTMLElement>('.oi-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.strictEqual(value, '(null) 0x00000000', 'null status should be explicit without pointer navigation arrow');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'null pointer should not render an expand button');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-arr-exp-btn'), null, 'null pointer should not render an expand button');
     }
 
     function assertVoidPointerLeafRow(): HTMLElement {
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.oi-ptr-hdr.oi-ptr-field');
         assert.ok(row, 'void pointer row should render');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-type')?.textContent, 'void*', 'void pointer type cell should render');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'raw', 'void pointer name should render');
-        assert.strictEqual(row!.querySelector<HTMLElement>('.si-arr-exp-btn'), null, 'void pointer should not render an expand button');
-        assert.strictEqual(document.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'void pointer should not render a child preview row');
-        const value = row!.querySelector<HTMLElement>('.si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-f-type')?.textContent, 'void*', 'void pointer type cell should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-f-name')?.textContent, 'raw', 'void pointer name should render');
+        assert.strictEqual(row!.querySelector<HTMLElement>('.oi-arr-exp-btn'), null, 'void pointer should not render an expand button');
+        assert.strictEqual(document.querySelector<HTMLElement>('.oi-ptr-child-hdr'), null, 'void pointer should not render a child preview row');
+        const value = row!.querySelector<HTMLElement>('.oi-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.strictEqual(value, '→ 0x00000020', 'mapped void pointer should keep followable value display');
         return row!;
     }
 
     function assertUnmappedPointerMenu(dom: JSDOM): void {
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.oi-ptr-hdr.oi-ptr-field');
         assert.ok(row, 'typed pointer row should render before opening menu');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const disabledFollow = document.querySelector<HTMLElement>('.si-field-menu .menu-item.menu-disabled');
+        const disabledFollow = document.querySelector<HTMLElement>('.oi-field-menu .menu-item.menu-disabled');
         assert.ok(disabledFollow?.textContent?.includes('Jump to Address'), 'jump item should be visible but disabled');
         assert.ok(disabledFollow?.textContent?.includes('unmapped'), 'disabled jump should explain unmapped target');
     }
@@ -319,18 +319,18 @@ suite('OverlayPanel deep-render harness', () => {
 
     function assertScalarPointerTargetPreview(row: HTMLElement): void {
         const body = requiredPointerBody(row);
-        const child = body.querySelector<HTMLElement>(':scope > .si-field');
+        const child = body.querySelector<HTMLElement>(':scope > .oi-field');
         assert.ok(child, 'scalar pointer target preview should render');
-        assert.strictEqual(body.querySelector<HTMLElement>('.si-ptr-child-hdr'), null, 'scalar target should not render an object child header');
+        assert.strictEqual(body.querySelector<HTMLElement>('.oi-ptr-child-hdr'), null, 'scalar target should not render an object child header');
         assertScalarPointerTargetField(child!);
     }
 
     function assertScalarPointerTargetField(child: HTMLElement): void {
-        assert.strictEqual(child.querySelector<HTMLElement>('.si-f-off'), null, 'scalar pointer target should hide noisy +000 offset');
-        assert.ok(child.querySelector<HTMLElement>('.si-node-pad'), 'scalar pointer target should keep row alignment');
-        assert.strictEqual(requiredPointerTargetText(child, '.si-f-type'), 'u32');
-        assert.strictEqual(requiredPointerTargetText(child, '.si-f-name'), '*');
-        assert.strictEqual(requiredPointerTargetText(child, '.si-f-val'), '0x38433330');
+        assert.strictEqual(child.querySelector<HTMLElement>('.oi-f-off'), null, 'scalar pointer target should hide noisy +000 offset');
+        assert.ok(child.querySelector<HTMLElement>('.oi-node-pad'), 'scalar pointer target should keep row alignment');
+        assert.strictEqual(requiredPointerTargetText(child, '.oi-f-type'), 'u32');
+        assert.strictEqual(requiredPointerTargetText(child, '.oi-f-name'), '*');
+        assert.strictEqual(requiredPointerTargetText(child, '.oi-f-val'), '0x38433330');
     }
 
     function requiredPointerTargetText(row: HTMLElement, selector: string): string {
@@ -340,9 +340,9 @@ suite('OverlayPanel deep-render harness', () => {
     }
 
     function requiredPointerBody(row: HTMLElement): HTMLElement {
-        const group = row.closest<HTMLElement>('.si-arr-grp');
+        const group = row.closest<HTMLElement>('.oi-arr-grp');
         assert.ok(group, 'pointer group should render');
-        const body = group!.querySelector<HTMLElement>(':scope > .si-arr-grp-body');
+        const body = group!.querySelector<HTMLElement>(':scope > .oi-arr-grp-body');
         assert.ok(body, 'pointer body should render after expand');
         return body!;
     }
@@ -382,33 +382,33 @@ suite('OverlayPanel deep-render harness', () => {
     }
 
     function requiredPointerHeader(message: string): HTMLElement {
-        const headerRow = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        const headerRow = document.querySelector<HTMLElement>('.oi-ptr-hdr');
         assert.ok(headerRow, message);
         return headerRow!;
     }
 
     function pointerHeaderOffset(headerRow: HTMLElement): string {
-        const offset = headerRow.querySelector<HTMLElement>('.si-f-off');
+        const offset = headerRow.querySelector<HTMLElement>('.oi-f-off');
         assert.ok(offset, 'pointer header offset should render');
         return offset!.textContent ?? '';
     }
 
     function expandPointerHeader(headerRow: HTMLElement, dom: JSDOM): void {
-        const expand = headerRow.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const expand = headerRow.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(expand, 'type pointer expand button should render');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     }
 
     function triggerCreateTypeInstance(dom: JSDOM, message: string): void {
-        const parentHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
+        const parentHeader = document.querySelector<HTMLElement>('.oi-ptr-hdr');
         assert.ok(parentHeader, message);
-        const expand = parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const expand = parentHeader!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(expand, 'type pointer header should have expand button');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        const childHeader = document.querySelector<HTMLElement>('.si-ptr-child-hdr[data-pointer-allow-create="true"]');
+        const childHeader = document.querySelector<HTMLElement>('.oi-ptr-child-hdr[data-pointer-allow-create="true"]');
         assert.ok(childHeader, 'type pointer child header should render create-enabled menu source');
         childHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-type-ptr"]');
+        const create = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="create-type-ptr"]');
         assert.ok(create, 'create instance command should be enabled');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     }
@@ -428,7 +428,7 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(source!.sourcePinId, 'pin_parent_create');
         assert.strictEqual(source!.sourceFieldPath, 'hdr');
         assert.strictEqual(source!.pointerStorageAddress, 0);
-        assert.strictEqual(elementText(document.querySelector('.si-csource')), 'from parentInst.hdr @0x00000000');
+        assert.strictEqual(elementText(document.querySelector('.oi-csource')), 'from parentInst.hdr @0x00000000');
     }
 
     function assertSinglePointerTarget(typeId: string): TypeInstance {
@@ -465,7 +465,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const header = document.querySelector<HTMLElement>('.si-arr-addr');
+        const header = document.querySelector<HTMLElement>('.oi-arr-addr');
         assert.ok(header, 'array header summary should be rendered');
 
         const text = header!.textContent ?? '';
@@ -507,51 +507,51 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const expandArray = document.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const expandArray = document.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(expandArray, 'array group expand button should be rendered');
         expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const topArrayHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
+        const topArrayHeaders = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr .oi-f-name'))
             .map(el => el.textContent ?? '');
         const nodesHeaderCount = topArrayHeaders.filter(name => name === 'nodes').length;
         assert.strictEqual(nodesHeaderCount, 1, 'parent type-array group should not be split by nested arrays');
 
-        const firstElementBody = document.querySelector<HTMLElement>('.si-arr-el-body');
+        const firstElementBody = document.querySelector<HTMLElement>('.oi-arr-el-body');
         assert.ok(firstElementBody, 'nested element body should be rendered');
         assert.strictEqual(firstElementBody!.style.display, 'none', 'nested element body should be collapsed by default');
 
-        const expandElement = document.querySelector<HTMLElement>('.si-arr-el-exp-btn');
+        const expandElement = document.querySelector<HTMLElement>('.oi-arr-el-exp-btn');
         assert.ok(expandElement, 'nested element expand button should be rendered');
         expandElement!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const elementHeaderName = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-name');
+        const elementHeaderName = document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-f-name');
         assert.ok(elementHeaderName, 'element header name should be rendered');
         assert.strictEqual(elementHeaderName!.textContent ?? '', '[0]', 'element header should only show index');
-        const elementHeaderMeta = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-addr');
+        const elementHeaderMeta = document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-arr-addr');
         assert.ok(elementHeaderMeta, 'element header should show type summary');
         assert.strictEqual(elementHeaderMeta!.textContent ?? '', 'ChildNode', 'element header should show type');
 
-        const firstLeafName = document.querySelector<HTMLElement>('.si-arr-el-body .si-field .si-f-name');
+        const firstLeafName = document.querySelector<HTMLElement>('.oi-arr-el-body .oi-field .oi-f-name');
         assert.ok(firstLeafName, 'leaf row name should be rendered after expanding an element');
         const label = firstLeafName!.textContent ?? '';
         assert.strictEqual(label, 'field0', `expected leaf-only label field0, got: ${label}`);
         assert.ok(!label.includes('['), `label should not include array index prefix, got: ${label}`);
         assert.ok(!label.includes('nodes.'), `label should not include parent path, got: ${label}`);
 
-        const nestedHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-arr-grp-hdr'));
+        const nestedHeaders = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-el-body .oi-arr-grp-hdr'));
         const nestedField2Header = nestedHeaders.find(h =>
-            h.querySelector<HTMLElement>('.si-f-name')?.textContent === 'field2'
+            h.querySelector<HTMLElement>('.oi-f-name')?.textContent === 'field2'
         );
         assert.ok(nestedField2Header, 'nested scalar-array node field2 should be rendered');
 
-        const nestedExpandBtn = nestedField2Header!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const nestedExpandBtn = nestedField2Header!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(nestedExpandBtn, 'nested scalar-array node should have expand button');
         nestedExpandBtn!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const nestedLeafNames = Array.from(
             nestedField2Header!
-                .closest<HTMLElement>('.si-arr-grp')!
-                .querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')
+                .closest<HTMLElement>('.oi-arr-grp')!
+                .querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field .oi-f-name')
         ).map(el => el.textContent ?? '');
         assert.ok(nestedLeafNames.includes('[0]'), 'nested scalar-array child should use index-only label [0]');
         assert.ok(nestedLeafNames.includes('[1]'), 'nested scalar-array child should use index-only label [1]');
@@ -587,23 +587,23 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
+        const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(topHeaders.includes('field3'), 'scalar type node should be labeled with local field name');
         assert.ok(topHeaders.includes('field2'), 'nested scalar-array node should be labeled with local field name');
         assert.ok(!topHeaders.includes('field3.field2'), 'nested scalar-array node should not include parent path');
 
-        const topLevelHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
+        const topLevelHeaders = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(topLevelHeaders, ['field3'], 'nested scalar-array node should not be rendered at top level');
 
-        const parentGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp');
+        const parentGroup = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp');
         assert.ok(parentGroup, 'scalar type group should exist');
-        const parentExpandBtn = parentGroup!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const parentExpandBtn = parentGroup!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(parentExpandBtn, 'scalar type group should be expandable');
         parentExpandBtn!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const nestedHeader = parentGroup!.querySelector<HTMLElement>('.si-arr-grp-body .si-arr-grp-hdr .si-f-name');
+        const nestedHeader = parentGroup!.querySelector<HTMLElement>('.oi-arr-grp-body .oi-arr-grp-hdr .oi-f-name');
         assert.ok(nestedHeader, 'nested scalar-array header should render inside scalar type body');
         assert.strictEqual(nestedHeader!.textContent ?? '', 'field2', 'nested scalar-array header should keep local name');
     });
@@ -630,19 +630,19 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const topGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp');
+        const topGroup = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp');
         assert.ok(topGroup, 'top composite group should render');
-        const topBody = topGroup!.querySelector<HTMLElement>('.si-arr-grp-body');
+        const topBody = topGroup!.querySelector<HTMLElement>('.oi-arr-grp-body');
         assert.ok(topBody, 'top group body should render');
         assert.strictEqual(topBody!.style.display, 'none', 'top group should be collapsed by default');
 
-        const topExpand = topGroup!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const topExpand = topGroup!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(topExpand, 'top group expand button should render');
         topExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const nestedGroup = topGroup!.querySelector<HTMLElement>('.si-arr-grp-body .si-arr-grp');
+        const nestedGroup = topGroup!.querySelector<HTMLElement>('.oi-arr-grp-body .oi-arr-grp');
         assert.ok(nestedGroup, 'nested scalar-array group should render inside parent body');
-        const nestedBody = nestedGroup!.querySelector<HTMLElement>('.si-arr-grp-body');
+        const nestedBody = nestedGroup!.querySelector<HTMLElement>('.oi-arr-grp-body');
         assert.ok(nestedBody, 'nested group body should render');
         assert.strictEqual(nestedBody!.style.display, 'none', 'nested composite should remain collapsed by default');
     });
@@ -671,7 +671,7 @@ suite('OverlayPanel deep-render harness', () => {
         const topHeaders = getTopFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['wrap'], 'type field should render as a composite node header even with one leaf child');
 
-        const leafAtTop = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field .si-f-name'))
+        const leafAtTop = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(!leafAtTop.includes('only'), 'child leaf should not render at top level');
     });
@@ -704,23 +704,23 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const topHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name');
+        const topHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-f-name');
         assert.ok(topHeader, 'top nested type header should render');
         assert.strictEqual(topHeader!.textContent ?? '', 'outer', 'top nested type should use local label');
 
-        const topExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        const topExpand = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-arr-exp-btn');
         assert.ok(topExpand, 'top nested type expand button should render');
         topExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const innerHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-arr-grp-hdr .si-f-name');
+        const innerHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-body .oi-arr-grp-hdr .oi-f-name');
         assert.ok(innerHeader, 'second-level type header should render at max depth boundary');
         assert.strictEqual(innerHeader!.textContent ?? '', 'inner', 'second-level type should use local label');
 
-        const innerExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-arr-grp-hdr .si-arr-exp-btn');
+        const innerExpand = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-body .oi-arr-grp-hdr .oi-arr-exp-btn');
         assert.ok(innerExpand, 'second-level type expand button should render');
         innerExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const bytesHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body .si-arr-grp-body .si-arr-grp-hdr .si-f-name');
+        const bytesHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-body .oi-arr-grp-body .oi-arr-grp-hdr .oi-f-name');
         assert.ok(bytesHeader, 'scalar array at max depth should render as a composite node');
         assert.strictEqual(bytesHeader!.textContent ?? '', 'bytes', 'max-depth scalar array should use local label');
     });
@@ -741,19 +741,19 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const arrayHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        const arrayHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr');
         assert.ok(arrayHeader, 'array header should render');
-        assert.strictEqual(arrayHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+002', 'collapsed array header should show first element offset');
+        assert.strictEqual(arrayHeader!.querySelector<HTMLElement>('.oi-f-off')?.textContent ?? '', '+002', 'collapsed array header should show first element offset');
 
-        const expandArray = arrayHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const expandArray = arrayHeader!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(expandArray, 'array expand button should render');
         expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const expandedHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        const expandedHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr');
         assert.ok(expandedHeader, 'expanded array header should render');
-        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off'), null, 'expanded array header should not duplicate child offsets');
+        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.oi-f-off'), null, 'expanded array header should not duplicate child offsets');
 
-        const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body > .si-field .si-f-off'))
+        const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-body > .oi-field .oi-f-off'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded array children should keep their own offsets');
     });
@@ -782,19 +782,19 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const typeHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        const typeHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr');
         assert.ok(typeHeader, 'nested type header should render');
-        assert.strictEqual(typeHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+002', 'collapsed nested type header should show first child offset');
+        assert.strictEqual(typeHeader!.querySelector<HTMLElement>('.oi-f-off')?.textContent ?? '', '+002', 'collapsed nested type header should show first child offset');
 
-        const expandInstance = typeHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const expandInstance = typeHeader!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(expandInstance, 'nested type expand button should render');
         expandInstance!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const expandedHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        const expandedHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr');
         assert.ok(expandedHeader, 'expanded nested type header should render');
-        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off'), null, 'expanded nested type header should not duplicate child offsets');
+        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.oi-f-off'), null, 'expanded nested type header should not duplicate child offsets');
 
-        const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body > .si-field .si-f-off'))
+        const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-body > .oi-field .oi-f-off'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded nested type children should keep their own offsets');
     });
@@ -819,11 +819,11 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const arrNodeNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
+        const arrNodeNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(!arrNodeNames.includes('name'), 'ascii field should not render as collapsible array node');
 
-        const leafNames = Array.from(document.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
+        const leafNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(leafNames.includes('name'), 'ascii field should render as leaf field');
     });
@@ -837,7 +837,7 @@ suite('OverlayPanel deep-render harness', () => {
         setBytesInSegment(0, [0x41, 0x20, 0x20, 0x42, 0x20]);
         await renderPinsAndExpandCard();
 
-        const val = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="ascii"]');
+        const val = document.querySelector<HTMLElement>('.oi-field .oi-f-val[data-val-type="ascii"]');
         assert.ok(val, 'ascii value cell should render');
         assert.strictEqual(val!.textContent, "'A  B '", 'decoded value should keep both 0x20 spaces');
 
@@ -845,7 +845,7 @@ suite('OverlayPanel deep-render harness', () => {
             path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'overlayPanel', 'overlayPanel.css'),
             'utf8',
         );
-        const rule = css.match(/\.si-f-val\[data-val-type="ascii"\]\s*\{([^}]*)\}/);
+        const rule = css.match(/\.oi-f-val\[data-val-type="ascii"\]\s*\{([^}]*)\}/);
         assert.ok(rule, 'ascii value rule should exist in overlayPanel.css');
         assert.match(rule![1], /white-space:\s*pre/, 'ascii value rule should declare white-space: pre');
     });
@@ -890,12 +890,12 @@ suite('OverlayPanel deep-render harness', () => {
             btn!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         };
 
-        openFirst('.si-arr-grp-hdr .si-arr-exp-btn');
-        openFirst('.si-arr-el-hdr .si-arr-el-exp-btn');
-        openFirst('.si-arr-el-body .si-arr-grp-hdr .si-arr-exp-btn');
-        openFirst('.si-arr-el-body .si-arr-el-hdr .si-arr-el-exp-btn');
+        openFirst('.oi-arr-grp-hdr .oi-arr-exp-btn');
+        openFirst('.oi-arr-el-hdr .oi-arr-el-exp-btn');
+        openFirst('.oi-arr-el-body .oi-arr-grp-hdr .oi-arr-exp-btn');
+        openFirst('.oi-arr-el-body .oi-arr-el-hdr .oi-arr-el-exp-btn');
 
-        const labels = Array.from(document.querySelectorAll<HTMLElement>('.si-f-name'))
+        const labels = Array.from(document.querySelectorAll<HTMLElement>('.oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(!labels.some(label => /#\d+$/.test(label)), 'nested labels should not use disambiguation suffixes');
     });
@@ -931,50 +931,50 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const topField0 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(1) > .si-arr-grp-hdr .si-f-name');
+        const topField0 = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp:nth-child(1) > .oi-arr-grp-hdr .oi-f-name');
         assert.ok(topField0, 'array bit-field group should render a top-level header');
         assert.strictEqual(elementText(topField0), 'field0', 'array bit-field group should display the declared field name');
 
-        const topField1 = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2) > .si-arr-grp-hdr .si-f-name');
+        const topField1 = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp:nth-child(2) > .oi-arr-grp-hdr .oi-f-name');
         assert.ok(topField1, 'second bit-field group should render a top-level header');
         assert.strictEqual(elementText(topField1), 'field1', 'single bit-field group should display the declared field name');
 
-        const unitType = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-type');
+        const unitType = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-hdr .oi-f-type');
         assert.ok(unitType, 'bit-field header should show scalar-like type');
         assert.strictEqual(elementText(unitType), 'u8', 'bit-field header should use base scalar type');
 
-        const unitOffset = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-off');
+        const unitOffset = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-hdr .oi-f-off');
         assert.ok(unitOffset, 'bit-field header should show scalar-like offset');
 
-        const unitValue = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-f-val');
+        const unitValue = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-hdr .oi-f-val');
         assert.ok(unitValue, 'bit-field unit should show scalar-like value cell');
         assert.strictEqual(unitValue!.dataset.valType, 'bin', 'bit-field parent row should default to binary view');
 
-        const unitExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr .si-arr-exp-btn');
+        const unitExpand = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-hdr .oi-arr-exp-btn');
         assert.ok(unitExpand, 'bit-field unit should be expandable');
         unitExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field .si-f-name'))
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-el-body .oi-field .oi-f-name'))
             .map(elementText);
         assert.ok(childNames.includes('mode'), 'bit-field child row should contain mode');
         assert.ok(childNames.includes('flags'), 'bit-field child row should contain flags');
 
-        const firstElementHeader = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-name');
+        const firstElementHeader = document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-f-name');
         assert.ok(firstElementHeader, 'bit-field array element should render a scalar-like header');
         assert.strictEqual(elementText(firstElementHeader), '[0]', 'bit-field array element header should show its index');
 
-        const firstElementValue = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-f-val');
+        const firstElementValue = document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-f-val');
         assert.ok(firstElementValue, 'bit-field array element should show a scalar-like value cell');
         assert.strictEqual(firstElementValue!.dataset.valType, 'bin', 'bit-field array element should default to binary view');
 
-        const elementExpand = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn');
+        const elementExpand = document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-arr-el-exp-btn');
         assert.ok(elementExpand, 'bit-field array element should be expandable');
         elementExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const selectedBits = document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-val .si-bit.sel');
+        const selectedBits = document.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr .oi-f-val .oi-bit.sel');
         assert.ok(selectedBits.length === 0, 'array element expansion should not select bits by itself');
 
-        const childRows = document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field');
+        const childRows = document.querySelectorAll<HTMLElement>('.oi-arr-el-body .oi-field');
         assert.ok(childRows.length > 0, 'bit-field array element should expose child bit rows');
     });
 
@@ -1002,7 +1002,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const parentHdr = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        const parentHdr = document.querySelector<HTMLElement>('.oi-bitunit-hdr');
         assert.ok(parentHdr, 'bit-field parent header should render');
         assert.strictEqual(
             parentHdr!.dataset.byteCnt,
@@ -1037,41 +1037,41 @@ suite('OverlayPanel deep-render harness', () => {
         setBytesInSegment(0x600, [0xB1]);
 
         const panel = await createMountedPanel();
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        const expandCard = document.querySelector<HTMLElement>('.oi-expand-btn');
         assert.ok(expandCard, 'expand button should render');
         expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         S.bitFieldAllocation = 'lsb';
-        const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-group'))
+        const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.oi-toggle-group'))
             .map(el => el.getAttribute('title') ?? '');
         assert.ok(!toggleGroups.some(title => title.includes('Byte endianness')), 'Overlay must use shared sidebar byte order');
         assert.ok(toggleGroups.some(title => title.includes('Bit-field allocation')), 'bit-field allocation detail should be available on hover');
         assert.strictEqual(S.bitFieldAllocation, 'lsb', 'bit-field allocation should be LSB after explicit set');
-        assert.ok(document.getElementById('sa-btn-bit-lsb'), 'LSB bit-field button should render');
-        assert.ok(document.getElementById('sa-btn-bit-msb'), 'MSB bit-field button should render');
-        assert.strictEqual(document.getElementById('sa-btn-bit-lsb')?.textContent, 'LSB');
-        assert.strictEqual(document.getElementById('sa-btn-bit-msb')?.textContent, 'MSB');
-        assert.ok(document.getElementById('sa-btn-bit-lsb')?.getAttribute('title')?.includes('least significant bit'), 'LSB button should explain allocation on hover');
-        assert.ok(document.getElementById('sa-btn-bit-msb')?.getAttribute('title')?.includes('most significant bit'), 'MSB button should explain allocation on hover');
+        assert.ok(document.getElementById('oa-btn-bit-lsb'), 'LSB bit-field button should render');
+        assert.ok(document.getElementById('oa-btn-bit-msb'), 'MSB bit-field button should render');
+        assert.strictEqual(document.getElementById('oa-btn-bit-lsb')?.textContent, 'LSB');
+        assert.strictEqual(document.getElementById('oa-btn-bit-msb')?.textContent, 'MSB');
+        assert.ok(document.getElementById('oa-btn-bit-lsb')?.getAttribute('title')?.includes('least significant bit'), 'LSB button should explain allocation on hover');
+        assert.ok(document.getElementById('oa-btn-bit-msb')?.getAttribute('title')?.includes('most significant bit'), 'MSB button should explain allocation on hover');
 
-        const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        const expandBits = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-arr-exp-btn');
         assert.ok(expandBits, 'bit-field parent should be expandable');
         expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const childValuesMsb = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'))
+        const childValuesMsb = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start] .oi-f-val'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(childValuesMsb, ['101', '1 0001'], 'MSB-first should allocate from high bits by default');
 
-        document.getElementById('sa-btn-bit-lsb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        document.getElementById('oa-btn-bit-lsb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const childValuesLsb = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'))
+        const childValuesLsb = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start] .oi-f-val'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(childValuesLsb, ['001', '1 0110'], 'LSB-first should allocate from low bits independently of byte endianness');
 
         // Host push of a new allocation re-renders (contract parity: setBitFieldAllocation from host).
         panel.setBitFieldAllocation('msb');
-        assert.ok(document.getElementById('sa-btn-bit-msb')!.classList.contains('active'));
-        const restored = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'))
+        assert.ok(document.getElementById('oa-btn-bit-msb')!.classList.contains('active'));
+        const restored = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start] .oi-f-val'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(restored, ['101', '1 0001'], 'host push should restore MSB-first allocation');
     });
@@ -1107,18 +1107,18 @@ suite('OverlayPanel deep-render harness', () => {
         panel.setEndian(S.endian);
         panel.setBitFieldAllocation(S.bitFieldAllocation);
         panel.setTabActive(true);
-        panel.mount(document.getElementById('s-struct-pins')!);
+        panel.mount(document.getElementById('s-overlay')!);
 
-        const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
+        const expandCard = document.querySelector<HTMLElement>('.oi-expand-btn');
         assert.ok(expandCard, 'expand button should render');
         expandCard!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        const expandBits = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-arr-exp-btn');
         assert.ok(expandBits, 'bit-field parent should be expandable');
         expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        document.getElementById('sa-btn-bit-lsb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        document.getElementById('sa-btn-bit-msb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        document.getElementById('oa-btn-bit-lsb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        document.getElementById('oa-btn-bit-msb')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.deepStrictEqual(reported, ['lsb', 'msb'], 'toggle reports each explicit allocation for persistence');
     });
 
@@ -1141,14 +1141,14 @@ suite('OverlayPanel deep-render harness', () => {
         });
         panel.setData(S.types, S.typeInstances);
         panel.setTabActive(true);
-        panel.mount(document.getElementById('s-struct-pins')!);
-        click(dom, document.querySelector<HTMLElement>('.si-expand-btn'));
+        panel.mount(document.getElementById('s-overlay')!);
+        click(dom, document.querySelector<HTMLElement>('.oi-expand-btn'));
 
-        const names = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
-            .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
+        const names = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > *'))
+            .map(el => el.querySelector<HTMLElement>('.oi-f-name')?.textContent ?? '');
         assert.deepStrictEqual(names(), ['tag'], 'hidden field omitted by default');
 
-        const btn = document.getElementById('si-show-hidden-btn') as HTMLButtonElement;
+        const btn = document.getElementById('oi-show-hidden-btn') as HTMLButtonElement;
         assert.ok(btn, 'show-hidden toggle renders in the Instances header');
         assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', 'toggle button starts inactive');
         click(dom, btn);
@@ -1166,14 +1166,14 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('struct');
 
-        const nameInp = document.getElementById('se-name') as HTMLInputElement;
+        const nameInp = document.getElementById('oe-name') as HTMLInputElement;
         assert.ok(nameInp, 'editor opens');
         nameInp.value = 'EditedButUnsaved';
 
         setShowHidden(true);
 
         assert.strictEqual(
-            (document.getElementById('se-name') as HTMLInputElement).value,
+            (document.getElementById('oe-name') as HTMLInputElement).value,
             'EditedButUnsaved',
             'the Types editor body is not rebuilt by the instances-only refresh',
         );
@@ -1190,11 +1190,11 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin_inplace', typeId: 'cfg', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x00, 0x11]);
         await createMountedPanel();
-        click(dom, document.querySelector<HTMLElement>('.si-expand-btn'));
+        click(dom, document.querySelector<HTMLElement>('.oi-expand-btn'));
 
-        const body = document.getElementById('si-instances-body') as HTMLElement;
-        const list = document.getElementById('si-list') as HTMLElement;
-        const btn = document.getElementById('si-show-hidden-btn') as HTMLButtonElement;
+        const body = document.getElementById('oi-instances-body') as HTMLElement;
+        const list = document.getElementById('oi-list') as HTMLElement;
+        const btn = document.getElementById('oi-show-hidden-btn') as HTMLButtonElement;
         assert.ok(body && list && btn, 'instances body, list, and toggle render');
         body.scrollTop = 150;
         btn.focus();
@@ -1202,14 +1202,14 @@ suite('OverlayPanel deep-render harness', () => {
 
         click(dom, btn);
 
-        assert.strictEqual(document.getElementById('si-show-hidden-btn'), btn, 'toggle node is not rebuilt');
+        assert.strictEqual(document.getElementById('oi-show-hidden-btn'), btn, 'toggle node is not rebuilt');
         assert.strictEqual(document.activeElement, btn, 'toggle keeps focus across the in-place refresh');
-        assert.strictEqual(document.getElementById('si-instances-body'), body, 'scroll container is not replaced');
-        assert.strictEqual(document.getElementById('si-list'), list, 'instances list node is reused (only its innerHTML refreshes)');
+        assert.strictEqual(document.getElementById('oi-instances-body'), body, 'scroll container is not replaced');
+        assert.strictEqual(document.getElementById('oi-list'), list, 'instances list node is reused (only its innerHTML refreshes)');
         assert.strictEqual(body.scrollTop, 150, 'body scroll position survives the refresh');
         assert.deepStrictEqual(
-            Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
-                .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? ''),
+            Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > *'))
+                .map(el => el.querySelector<HTMLElement>('.oi-f-name')?.textContent ?? ''),
             ['reserved', 'tag'],
             'hidden field is revealed by the in-place refresh',
         );
@@ -1256,7 +1256,7 @@ suite('OverlayPanel deep-render harness', () => {
             S.typeInstances = [{ id: `pin_${endian}`, typeId: def.id, addr: 0, name: 'inst' }];
             setBytesInSegment(0, bytes);
             await renderPinsAndExpandCard();
-            return Array.from(document.querySelectorAll<HTMLElement>('.si-field > .si-f-body > .si-f-val'))
+            return Array.from(document.querySelectorAll<HTMLElement>('.oi-field > .oi-f-body > .oi-f-val'))
                 .map(el => el.textContent?.replace(/\s+/g, ' ').trim() ?? '');
         };
 
@@ -1269,19 +1269,19 @@ suite('OverlayPanel deep-render harness', () => {
         assert.ok(leValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 LE display: ${leValues[5]}`);
         assert.ok(leValues[6].startsWith('1.000000e+0'), `f32 LE display: ${leValues[6]}`);
         assert.ok(leValues[7].startsWith('1.0000000000000000e+0'), `f64 LE display: ${leValues[7]}`);
-        const ptrValueLe = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        const ptrValueLe = document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.ok(ptrValueLe.includes('0x12345678'), `ptr LE display: ${ptrValueLe}`);
-        let firstRow = document.querySelector<HTMLElement>('.si-field');
+        let firstRow = document.querySelector<HTMLElement>('.oi-field');
         assert.ok(firstRow, 'first scalar row should render');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        let binItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-bin"]');
+        let binItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-bin"]');
         assert.ok(binItem, 'binary view menu item should render');
         binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        let firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
+        let firstBinary = document.querySelector<HTMLElement>('.oi-field .oi-f-val[data-val-type="bin"]');
         assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'LE binary should display the numeric value bits, not raw memory byte order');
-        firstRow = document.querySelector<HTMLElement>('.si-field');
+        firstRow = document.querySelector<HTMLElement>('.oi-field');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const hexItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-hex"]');
+        const hexItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-hex"]');
         assert.ok(hexItem, 'hex view menu item should render');
         hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1294,15 +1294,15 @@ suite('OverlayPanel deep-render harness', () => {
         assert.ok(beValues[5].includes('0xFFFFFFFFFFFFFFFE'), `i64 BE display: ${beValues[5]}`);
         assert.ok(beValues[6].startsWith('1.000000e+0'), `f32 BE display: ${beValues[6]}`);
         assert.ok(beValues[7].startsWith('1.0000000000000000e+0'), `f64 BE display: ${beValues[7]}`);
-        const ptrValueBe = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        const ptrValueBe = document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-f-val')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         assert.ok(ptrValueBe.includes('0x12345678'), `ptr BE display: ${ptrValueBe}`);
-        firstRow = document.querySelector<HTMLElement>('.si-field');
+        firstRow = document.querySelector<HTMLElement>('.oi-field');
         assert.ok(firstRow, 'first scalar row should render after BE rerender');
         firstRow!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        binItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-bin"]');
+        binItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-bin"]');
         assert.ok(binItem, 'binary view menu item should render after BE rerender');
         binItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        firstBinary = document.querySelector<HTMLElement>('.si-field .si-f-val[data-val-type="bin"]');
+        firstBinary = document.querySelector<HTMLElement>('.oi-field .oi-f-val[data-val-type="bin"]');
         assert.strictEqual(firstBinary?.textContent?.replace(/\s+/g, ' ').trim(), '0001 0010 0011 0100', 'BE binary should display the same numeric value bits for the same decoded value');
         S.endian = 'le';
     });
@@ -1326,11 +1326,11 @@ suite('OverlayPanel deep-render harness', () => {
 
         const row = assertVoidPointerLeafRow();
         row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const jump = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="jump-ptr"]');
+        const jump = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="jump-ptr"]');
         assert.ok(jump, 'jump pointer command should be enabled for mapped void pointer');
-        assert.strictEqual(document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-type-ptr"]'), null, 'void pointer should not offer create instance');
+        assert.strictEqual(document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="create-type-ptr"]'), null, 'void pointer should not offer create instance');
 
-        row.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        row.querySelector<HTMLElement>('.oi-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(S.selStart, 0x20);
         assert.strictEqual(S.selEnd, 0x20);
     });
@@ -1360,14 +1360,14 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.oi-ptr-hdr.oi-ptr-field');
         assert.ok(row, 'typed pointer row should render');
         row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(S.selStart, 0);
         assert.strictEqual(S.selEnd, 3);
 
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const jump = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="jump-ptr"]');
+        const jump = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="jump-ptr"]');
         assert.ok(jump, 'jump pointer command should be enabled');
         jump!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1380,9 +1380,9 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const row = document.querySelector<HTMLElement>('.si-ptr-hdr.si-ptr-field');
+        const row = document.querySelector<HTMLElement>('.oi-ptr-hdr.oi-ptr-field');
         assert.ok(row, 'scalar pointer row should render');
-        row!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+        row!.querySelector<HTMLElement>('.oi-arr-exp-btn')!
             .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assertScalarPointerTargetPreview(row!);
     });
@@ -1408,7 +1408,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const value = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-ptr');
+        const value = document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-f-ptr');
         assert.ok(value, 'type pointer value should render');
         value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1454,15 +1454,15 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
+        const expand = document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-arr-exp-btn');
         assert.ok(expand, 'type pointer should render expandable row');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const child = document.querySelector<HTMLElement>('.si-ptr-hdr + .si-arr-grp-body .si-field');
+        const child = document.querySelector<HTMLElement>('.oi-ptr-hdr + .oi-arr-grp-body .oi-field');
         assert.ok(child, 'expanded pointer should render target child rows inline');
         assert.strictEqual(child!.dataset.byteStart, '32', 'inline child byte start should use target address');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000', 'inline child offset should be relative to target base');
-        assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.oi-f-off')?.textContent, '+000', 'inline child offset should be relative to target base');
+        assert.strictEqual(child!.querySelector<HTMLElement>('.oi-f-name')?.textContent, 'tag');
     });
 
     test('expanded type pointer header keeps its offset visible', async () => {
@@ -1494,31 +1494,31 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const parentHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        const parentHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr');
         assert.ok(parentHeader, 'pointer array parent header should render');
-        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'nodes');
-        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.si-arr-addr')?.textContent, 'Node*[2]');
+        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.oi-f-name')?.textContent, 'nodes');
+        assert.strictEqual(parentHeader!.querySelector<HTMLElement>('.oi-arr-addr')?.textContent, 'Node*[2]');
 
-        parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn')!
+        parentHeader!.querySelector<HTMLElement>('.oi-arr-exp-btn')!
             .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const pointerHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
+        const pointerHeaders = Array.from(document.querySelectorAll<HTMLElement>('.oi-ptr-hdr'));
         assert.strictEqual(pointerHeaders.length, 2, 'expanded pointer array should render pointer element rows');
-        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.si-f-name')?.textContent), ['[0]', '[1]']);
-        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.si-f-type')?.textContent), ['Node*', 'Node*']);
+        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.oi-f-name')?.textContent), ['[0]', '[1]']);
+        assert.deepStrictEqual(pointerHeaders.map(h => h.querySelector<HTMLElement>('.oi-f-type')?.textContent), ['Node*', 'Node*']);
         assert.deepStrictEqual(pointerHeaders.map(h => h.dataset.byteStart), ['0', '4']);
 
-        pointerHeaders[0].querySelector<HTMLElement>('.si-arr-exp-btn')!
+        pointerHeaders[0].querySelector<HTMLElement>('.oi-arr-exp-btn')!
             .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         const childHeader = pointerHeaders[0]
-            .closest<HTMLElement>('.si-arr-grp')!
-            .querySelector<HTMLElement>('.si-ptr-child-hdr');
+            .closest<HTMLElement>('.oi-arr-grp')!
+            .querySelector<HTMLElement>('.oi-ptr-child-hdr');
         assert.ok(childHeader, 'pointer element should render target preview header');
-        assert.ok(childHeader!.querySelector<HTMLElement>('.si-arr-addr')?.textContent?.includes('Node @ 0x00000020'));
+        assert.ok(childHeader!.querySelector<HTMLElement>('.oi-arr-addr')?.textContent?.includes('Node @ 0x00000020'));
         const child = pointerHeaders[0]
-            .closest<HTMLElement>('.si-arr-grp')!
-            .querySelector<HTMLElement>('.si-arr-grp-body .si-field');
-        assert.strictEqual(child?.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000');
+            .closest<HTMLElement>('.oi-arr-grp')!
+            .querySelector<HTMLElement>('.oi-arr-grp-body .oi-field');
+        assert.strictEqual(child?.querySelector<HTMLElement>('.oi-f-off')?.textContent, '+000');
     });
 
     test('compacts long type pointer type labels in the data type column', async () => {
@@ -1543,7 +1543,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const typeCell = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-type');
+        const typeCell = document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-f-type');
         assert.ok(typeCell, 'type pointer type cell should render');
         assert.strictEqual(typeCell!.textContent, 'VeryL...rType*');
         assert.strictEqual(typeCell!.getAttribute('title'), `${longName}*`);
@@ -1578,23 +1578,23 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
+        const expand = document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-arr-exp-btn');
         assert.ok(expand, 'parent type pointer should render expandable row');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const headers = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
+        const headers = Array.from(document.querySelectorAll<HTMLElement>('.oi-ptr-hdr'));
         assert.strictEqual(headers.length, 2, 'expanded pointer should render nested pointer header');
         const nested = headers[1];
-        nested!.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        nested!.querySelector<HTMLElement>('.oi-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(S.selStart, 0x30);
         assert.strictEqual(S.selEnd, 0x30);
 
         const nestedChild = nested!
-            .closest<HTMLElement>('.si-arr-grp')!
-            .querySelector<HTMLElement>('.si-arr-grp-body .si-ptr-child-hdr[data-pointer-allow-create="true"]');
+            .closest<HTMLElement>('.oi-arr-grp')!
+            .querySelector<HTMLElement>('.oi-arr-grp-body .oi-ptr-child-hdr[data-pointer-allow-create="true"]');
         assert.ok(nestedChild, 'nested type pointer should expose create-enabled child row');
         nestedChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-type-ptr"]');
+        const create = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="create-type-ptr"]');
         assert.ok(create, 'nested type pointer should enable create');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -1634,10 +1634,10 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        const bitHeader = document.querySelector<HTMLElement>('.oi-bitunit-hdr');
         assert.ok(bitHeader, 'bit-field parent header should render');
 
-        const parentValue = bitHeader!.querySelector<HTMLElement>('.si-f-val');
+        const parentValue = bitHeader!.querySelector<HTMLElement>('.oi-f-val');
         assert.ok(parentValue, 'bit-field parent should render a value');
         assert.strictEqual(parentValue!.dataset.valType, 'bin', 'bit-field parent should default to full binary');
         assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00110011', 'full binary should show the complete u8 storage range');
@@ -1646,36 +1646,36 @@ suite('OverlayPanel deep-render harness', () => {
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
         assert.ok(labels.includes('Binary (bit fields only)'), 'View as should include bit-fields-only binary');
 
-        const slicedItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-bin-sliced"]');
+        const slicedItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-bin-sliced"]');
         assert.ok(slicedItem, 'sliced binary menu item should render');
         slicedItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const slicedValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val');
+        const slicedValue = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-f-val');
         assert.ok(slicedValue, 'bit-field parent should rerender after selecting sliced binary');
         assert.strictEqual(slicedValue!.dataset.valType, 'bin-sliced', 'sliced binary should use its own value type');
         assert.strictEqual(slicedValue!.textContent?.replace(/\s+/g, ''), '0011', 'sliced binary should show the declared bit range as one value');
 
-        const parentExpand = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        const parentExpand = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-arr-exp-btn');
         assert.ok(parentExpand, 'bit-field parent should be expandable');
         parentExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const childValues = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'));
+        const childValues = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start] .oi-f-val'));
         assert.ok(childValues.length >= 2, 'bit-field child rows should render after expanding parent');
         assert.ok(childValues.every(el => el.dataset.valType === 'bin'), 'changing bit-field parent view should not change child row views');
 
-        const firstChild = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]');
+        const firstChild = document.querySelector<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start]');
         assert.ok(firstChild, 'first bit-field child should render');
         firstChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
 
-        const childDecItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-dec"]');
+        const childDecItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-dec"]');
         assert.ok(childDecItem, 'bit-field child decimal menu item should render');
         childDecItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const parentAfterChildChange = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val');
+        const parentAfterChildChange = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-f-val');
         assert.ok(parentAfterChildChange, 'bit-field parent should still render after changing a child');
         assert.strictEqual(parentAfterChildChange!.dataset.valType, 'bin-sliced', 'changing a bit-field child should not change parent view');
 
-        const childValuesAfterChange = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val'));
+        const childValuesAfterChange = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start] .oi-f-val'));
         assert.strictEqual(childValuesAfterChange[0]?.dataset.valType, 'dec', 'changing a bit-field child should affect that child');
         assert.strictEqual(childValuesAfterChange[1]?.dataset.valType, 'bin', 'changing a bit-field child should not affect sibling children');
     });
@@ -1703,7 +1703,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const bitHeader = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        const bitHeader = document.querySelector<HTMLElement>('.oi-bitunit-hdr');
         assert.ok(bitHeader, 'bit-field parent header should render');
         const labels = openValueMenuLabels(bitHeader!, dom);
         assert.ok(labels.includes('Binary'), 'View as should include full Binary');
@@ -1736,22 +1736,22 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const parent = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        const parent = document.querySelector<HTMLElement>('.oi-bitunit-hdr');
         assert.ok(parent, 'bit-field parent should render');
         parent!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const parentCopyHex = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="copy-hex"]');
+        const parentCopyHex = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="copy-hex"]');
         assert.ok(parentCopyHex, 'parent copy hex item should render');
         parentCopyHex!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(writes.pop(), '0xB1', 'parent copy should use the aggregate storage value');
 
-        const expandParent = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        const expandParent = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-arr-exp-btn');
         assert.ok(expandParent, 'bit-field parent should be expandable');
         expandParent!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const children = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]'));
+        const children = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start]'));
         assert.strictEqual(children.length, 3, 'three bit-field children should render');
         children[1]!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const childCopyDec = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="copy-dec"]');
+        const childCopyDec = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="copy-dec"]');
         assert.ok(childCopyDec, 'child copy decimal item should render');
         childCopyDec!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(writes.pop(), '6', 'child copy should use the clicked bit-field child value');
@@ -1791,7 +1791,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         const copyFromRow = (row: HTMLElement, cmd: string): string => {
             row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-            const item = document.querySelector<HTMLElement>(`.si-field-menu .menu-item[data-cmd="${cmd}"]`);
+            const item = document.querySelector<HTMLElement>(`.oi-field-menu .menu-item[data-cmd="${cmd}"]`);
             assert.ok(item, `${cmd} menu item should render`);
             item!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
             const copied = writes.pop();
@@ -1800,7 +1800,7 @@ suite('OverlayPanel deep-render harness', () => {
             return copied!;
         };
 
-        const rows = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field'));
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-field'));
         assert.ok(rows.length >= 3, 'scalar rows should render');
         assert.strictEqual(
             copyFromRow(rows[0]!, 'copy-bin'),
@@ -1818,7 +1818,7 @@ suite('OverlayPanel deep-render harness', () => {
             'ASCII copy should replace non-printable bytes instead of copying line breaks',
         );
 
-        const bitParent = document.querySelector<HTMLElement>('.si-bitunit-hdr');
+        const bitParent = document.querySelector<HTMLElement>('.oi-bitunit-hdr');
         assert.ok(bitParent, 'bit-field parent should render');
         assert.strictEqual(
             copyFromRow(bitParent!, 'copy-bin'),
@@ -1855,20 +1855,20 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const parentValue = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"]');
+        const parentValue = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-f-val[data-val-type="bin"]');
         assert.ok(parentValue, 'wide bit-field parent should render full binary by default');
         assert.strictEqual(parentValue!.querySelectorAll('br').length, 1, 'uint32 bit-field parent binary should wrap after 16 bits');
         assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '01111000010101100011010000010010', 'wide bit-field parent binary should follow shared byte order');
 
-        const expandBits = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        const expandBits = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-arr-exp-btn');
         assert.ok(expandBits, 'wide bit-field parent should be expandable');
         expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const firstChild = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start]');
+        const firstChild = document.querySelector<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start]');
         assert.ok(firstChild, 'wide bit-field child row should render');
         firstChild!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const selectedBits = Array.from(document.querySelectorAll<HTMLElement>('.si-bitunit-hdr .si-f-val[data-val-type="bin"] .si-bit.sel'));
+        const selectedBits = Array.from(document.querySelectorAll<HTMLElement>('.oi-bitunit-hdr .oi-f-val[data-val-type="bin"] .oi-bit.sel'));
         assert.strictEqual(selectedBits.length, 4, 'selecting a wide bit-field child should highlight its bits on the wrapped parent value');
         assert.deepStrictEqual(
             selectedBits.map(el => el.dataset.bitIdx).sort(),
@@ -1899,11 +1899,11 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const parentExpand = document.querySelector<HTMLElement>('.si-bitunit-hdr .si-arr-exp-btn');
+        const parentExpand = document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-arr-exp-btn');
         assert.ok(parentExpand, 'bit-field parent should be expandable');
         parentExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const childValue = document.querySelector<HTMLElement>('.si-arr-grp-body .si-field[data-bit-start] .si-f-val');
+        const childValue = document.querySelector<HTMLElement>('.oi-arr-grp-body .oi-field[data-bit-start] .oi-f-val');
         assert.ok(childValue, 'bit-field child value should render');
         assert.strictEqual(childValue!.textContent, '0 0000', 'bit-field child binary should keep the lower four bits packed together');
     });
@@ -1931,27 +1931,27 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const arrayHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        const arrayHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr');
         assert.ok(arrayHeader, 'bit-field array header should render');
         arrayHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
 
-        const hexItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-hex"]');
+        const hexItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-hex"]');
         assert.ok(hexItem, 'array header hex menu item should render');
         hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const expandArray = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        const expandArray = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-arr-exp-btn');
         assert.ok(expandArray, 'bit-field array should be expandable');
         expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const elementValues = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-val'));
+        const elementValues = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-el-hdr.oi-bitunit-hdr .oi-f-val'));
         assert.strictEqual(elementValues.length, 2, 'bit-field array should render two direct element aggregate values');
         assert.ok(elementValues.every(el => el.dataset.valType === 'hex'), 'array header view should change direct bit-field element parents');
 
-        const expandFirstElement = document.querySelector<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-arr-el-exp-btn');
+        const expandFirstElement = document.querySelector<HTMLElement>('.oi-arr-el-hdr.oi-bitunit-hdr .oi-arr-el-exp-btn');
         assert.ok(expandFirstElement, 'bit-field array element should be expandable');
         expandFirstElement!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const childValues = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-field[data-bit-start] .si-f-val'));
+        const childValues = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-el-body .oi-field[data-bit-start] .oi-f-val'));
         assert.ok(childValues.length > 0, 'bit-field array element should render child bit rows');
         assert.ok(childValues.every(el => el.dataset.valType === 'bin'), 'array header view should not change nested bit-field children');
     });
@@ -1979,25 +1979,25 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const expandArray = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        const expandArray = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-arr-exp-btn');
         assert.ok(expandArray, 'bit-field array should be expandable');
         expandArray!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const expandFirstElement = document.querySelector<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-arr-el-exp-btn');
+        const expandFirstElement = document.querySelector<HTMLElement>('.oi-arr-el-hdr.oi-bitunit-hdr .oi-arr-el-exp-btn');
         assert.ok(expandFirstElement, 'bit-field array element should be expandable');
         expandFirstElement!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const firstChild = document.querySelector<HTMLElement>('.si-arr-el-body .si-field[data-bit-start]');
+        const firstChild = document.querySelector<HTMLElement>('.oi-arr-el-body .oi-field[data-bit-start]');
         assert.ok(firstChild, 'bit-field child row should render');
 
         firstChild!.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true }));
-        const hoveredBits = document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-val .si-bit.hov');
+        const hoveredBits = document.querySelectorAll<HTMLElement>('.oi-arr-el-hdr.oi-bitunit-hdr .oi-f-val .oi-bit.hov');
         assert.ok(hoveredBits.length > 0, 'hovering array bit-field child should highlight bits in the element parent value');
 
         firstChild!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        assert.ok(firstChild!.classList.contains('si-selected'), 'selecting bit-field child should highlight the child row');
+        assert.ok(firstChild!.classList.contains('oi-selected'), 'selecting bit-field child should highlight the child row');
 
-        const selectedBits = document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-val .si-bit.sel');
+        const selectedBits = document.querySelectorAll<HTMLElement>('.oi-arr-el-hdr.oi-bitunit-hdr .oi-f-val .oi-bit.sel');
         assert.ok(selectedBits.length > 0, 'selecting array bit-field child should highlight bits in the element parent value');
     });
 
@@ -2031,28 +2031,28 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const parentGroupExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-exp-btn');
+        const parentGroupExpand = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-exp-btn');
         assert.ok(parentGroupExpand, 'nested type array group should be expandable');
         parentGroupExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const elementExpand = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn');
+        const elementExpand = document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-arr-el-exp-btn');
         assert.ok(elementExpand, 'nested type array element should be expandable');
         elementExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const nestedBitGroup = document.querySelector<HTMLElement>('.si-arr-el-body .si-arr-grp-hdr .si-f-name');
+        const nestedBitGroup = document.querySelector<HTMLElement>('.oi-arr-el-body .oi-arr-grp-hdr .oi-f-name');
         assert.ok(nestedBitGroup, 'nested bit-field group should render a header');
         assert.strictEqual(nestedBitGroup!.textContent ?? '', 'field0', 'nested bit-field group should show the declared field name');
 
-        const nestedBitExpand = document.querySelector<HTMLElement>('.si-arr-el-body .si-arr-grp .si-arr-exp-btn');
+        const nestedBitExpand = document.querySelector<HTMLElement>('.oi-arr-el-body .oi-arr-grp .oi-arr-exp-btn');
         assert.ok(nestedBitExpand, 'nested bit-field group should be expandable');
         nestedBitExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const nestedElementNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-arr-el-hdr .si-f-name'))
+        const nestedElementNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-el-body .oi-arr-el-hdr .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(nestedElementNames.includes('[0]'), 'nested bit-field array should show element index [0]');
         assert.ok(nestedElementNames.includes('[1]'), 'nested bit-field array should show element index [1]');
 
-        const nestedChildNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-el-body .si-arr-el-body .si-field .si-f-name'))
+        const nestedChildNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-el-body .oi-arr-el-body .oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(nestedChildNames.includes('mode'), 'nested bit-field child row should contain mode');
         assert.ok(nestedChildNames.includes('flags'), 'nested bit-field child row should contain flags');
@@ -2066,16 +2066,16 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const expandNode = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
+        const expandNode = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-hdr .oi-arr-exp-btn');
         assert.ok(expandNode, 'nested type node should be expandable');
         expandNode!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const nestedBitHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body > .si-arr-grp > .si-bitunit-hdr');
+        const nestedBitHeader = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-body > .oi-arr-grp > .oi-bitunit-hdr');
         assertNestedSingleBitFieldHeader(nestedBitHeader);
 
         assertNestedSingleBitFieldValue(nestedBitHeader!);
 
-        const expandBits = nestedBitHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const expandBits = nestedBitHeader!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(expandBits, 'nested bit-field group should be expandable');
         expandBits!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
@@ -2085,9 +2085,9 @@ suite('OverlayPanel deep-render harness', () => {
     function assertNestedSingleBitFieldHeader(nestedBitHeader: HTMLElement | null): void {
         assert.ok(nestedBitHeader, 'nested single bit-field group should use the scalar-like bit-field header');
         const header = nestedBitHeader as HTMLElement;
-        assert.strictEqual(requiredText(header, '.si-f-name'), 'control', 'nested bit-field header should use declared field name');
-        assert.strictEqual(requiredText(header, '.si-f-off'), '+000', 'nested bit-field header should show its byte offset');
-        assert.strictEqual(requiredText(header, '.si-f-type'), 'u8', 'nested bit-field header should show the base scalar type');
+        assert.strictEqual(requiredText(header, '.oi-f-name'), 'control', 'nested bit-field header should use declared field name');
+        assert.strictEqual(requiredText(header, '.oi-f-off'), '+000', 'nested bit-field header should show its byte offset');
+        assert.strictEqual(requiredText(header, '.oi-f-type'), 'u8', 'nested bit-field header should show the base scalar type');
     }
 
     function requiredText(root: HTMLElement, selector: string): string {
@@ -2095,14 +2095,14 @@ suite('OverlayPanel deep-render harness', () => {
     }
 
     function assertNestedSingleBitFieldValue(nestedBitHeader: HTMLElement): void {
-        const parentValue = nestedBitHeader.querySelector<HTMLElement>('.si-f-val');
+        const parentValue = nestedBitHeader.querySelector<HTMLElement>('.oi-f-val');
         assert.ok(parentValue, 'nested bit-field parent should show an aggregate value');
         assert.strictEqual(parentValue!.dataset.valType, 'bin', 'nested bit-field parent should default to full binary');
         assert.strictEqual(parentValue!.textContent?.replace(/\s+/g, ''), '00001011', 'nested bit-field parent should show full storage binary');
     }
 
     function assertNestedSingleBitFieldChildren(): void {
-        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-field[data-bit-start] .si-f-name'))
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp > .oi-arr-grp-body .oi-field[data-bit-start] .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(childNames.includes('mode'), 'nested bit-field child row should contain mode');
         assert.ok(childNames.includes('enabled'), 'nested bit-field child row should contain enabled');
@@ -2169,13 +2169,13 @@ suite('OverlayPanel deep-render harness', () => {
         const topHeaders = getTopFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['field0', 'data', 'field1'], 'mixed sibling groups should keep their declared order and names');
 
-        const dataGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2)');
+        const dataGroup = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp:nth-child(2)');
         assert.ok(dataGroup, 'scalar array group should render at the top level');
-        const dataExpand = dataGroup!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        const dataExpand = dataGroup!.querySelector<HTMLElement>('.oi-arr-exp-btn');
         assert.ok(dataExpand, 'scalar array group should be expandable');
         dataExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const scalarArrayNames = Array.from(dataGroup!.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name'))
+        const scalarArrayNames = Array.from(dataGroup!.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(scalarArrayNames.includes('[0]'), 'scalar array should keep index-only child labels');
         assert.ok(scalarArrayNames.includes('[1]'), 'scalar array should keep index-only child labels');
@@ -2187,27 +2187,27 @@ suite('OverlayPanel deep-render harness', () => {
 
     test('renders pane-view sections with empty states', async () => {
         await createMountedPanel();
-        const view = document.querySelector('#s-struct-pins > .sb-pane-view')!;
+        const view = document.querySelector('#s-overlay > .sb-pane-view')!;
         assert.ok(view, 'sections live in a .sb-pane-view split container');
         const sections = view.querySelectorAll('.sb-section');
         assert.strictEqual(sections.length, 2);
-        assert.strictEqual(sections[0].id, 'si-instances');
-        assert.strictEqual(sections[1].id, 'si-types');
+        assert.strictEqual(sections[0].id, 'oi-instances');
+        assert.strictEqual(sections[1].id, 'oi-types');
         assert.strictEqual(view.querySelectorAll('.sb-pane-sash').length, 1, 'one sash between the two panes');
-        const instancesHead = document.querySelector<HTMLElement>('#si-instances .sb-section-head')!;
-        const typesHead = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
+        const instancesHead = document.querySelector<HTMLElement>('#oi-instances .sb-section-head')!;
+        const typesHead = document.querySelector<HTMLElement>('#oi-types .sb-section-head')!;
         assert.strictEqual(typesHead.getAttribute('role'), 'button');
         assert.strictEqual(typesHead.getAttribute('aria-expanded'), 'true');
         assert.ok(typesHead.querySelector('.sb-section-chevron'));
-        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'types section should default open');
+        assert.ok(!document.getElementById('oi-types')!.classList.contains('collapsed'), 'types section should default open');
         // All sections are collapsible now — instances is a full disclosure header too.
         assert.strictEqual(instancesHead.getAttribute('role'), 'button');
         assert.strictEqual(instancesHead.getAttribute('aria-expanded'), 'true');
         assert.ok(instancesHead.querySelector('.sb-section-chevron'));
-        assert.match(document.getElementById('si-instances')!.textContent!, /Define a type first/);
-        assert.strictEqual(document.querySelector('#si-types .sb-empty')?.textContent, 'No types defined yet.');
-        assert.strictEqual(document.getElementById('si-types-btn'), null, 'no hamburger manage-types control');
-        assert.strictEqual(document.getElementById('si-track'), null, 'no slide-track container');
+        assert.match(document.getElementById('oi-instances')!.textContent!, /Define a type first/);
+        assert.strictEqual(document.querySelector('#oi-types .sb-empty')?.textContent, 'No types defined yet.');
+        assert.strictEqual(document.getElementById('oi-types-btn'), null, 'no hamburger manage-types control');
+        assert.strictEqual(document.getElementById('oi-track'), null, 'no slide-track container');
     });
 
     test('mount is idempotent: re-mount into the same root re-renders without errors', async () => {
@@ -2215,7 +2215,7 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin2', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
-        panel.mount(document.getElementById('s-struct-pins')!);
+        panel.mount(document.getElementById('s-overlay')!);
         assert.ok(document.querySelector('.sb-card'));
         assert.strictEqual(document.querySelectorAll('.sb-card').length, 1);
     });
@@ -2245,17 +2245,17 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
-        assert.strictEqual(document.querySelector('.si-cname')?.textContent, 'inst');
-        assert.ok(document.querySelector('.si-ctype')?.textContent?.includes('Scalar'));
+        assert.strictEqual(document.querySelector('.oi-cname')?.textContent, 'inst');
+        assert.ok(document.querySelector('.oi-ctype')?.textContent?.includes('Scalar'));
 
-        click(dom, document.querySelector('.si-expand-btn'));
-        assert.strictEqual(document.querySelector('.si-field .si-f-name')?.textContent, 'count');
-        assert.match(elementText(document.querySelector('.si-field .si-f-val')!), /0x1234/);
-        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'), 'types should stay expanded by default');
+        click(dom, document.querySelector('.oi-expand-btn'));
+        assert.strictEqual(document.querySelector('.oi-field .oi-f-name')?.textContent, 'count');
+        assert.match(elementText(document.querySelector('.oi-field .oi-f-val')!), /0x1234/);
+        assert.ok(!document.getElementById('oi-types')!.classList.contains('collapsed'), 'types should stay expanded by default');
 
         panel.render();
-        assert.ok(document.querySelector('.sb-card')?.classList.contains('si-expanded'), 'card expansion survives re-render');
-        assert.strictEqual(document.querySelector('.si-field .si-f-name')?.textContent, 'count');
+        assert.ok(document.querySelector('.sb-card')?.classList.contains('oi-expanded'), 'card expansion survives re-render');
+        assert.strictEqual(document.querySelector('.oi-field .oi-f-name')?.textContent, 'count');
     });
 
     test('row click selects the decoded range and paints the row selected', async () => {
@@ -2263,12 +2263,12 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         await renderPinsAndExpandCard();
-        const row = document.querySelector<HTMLElement>('.si-field');
+        const row = document.querySelector<HTMLElement>('.oi-field');
         assert.ok(row, 'decoded row should render');
         click(dom, row);
         assert.strictEqual(S.selStart, 0);
         assert.strictEqual(S.selEnd, 1);
-        assert.ok(row!.classList.contains('si-selected'));
+        assert.ok(row!.classList.contains('oi-selected'));
     });
 
     test('setEndian re-decodes scalar values live', async () => {
@@ -2276,30 +2276,30 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
-        click(dom, document.querySelector('.si-expand-btn'));
-        assert.match(elementText(document.querySelector('.si-field .si-f-val')!), /0x1234/);
+        click(dom, document.querySelector('.oi-expand-btn'));
+        assert.match(elementText(document.querySelector('.oi-field .oi-f-val')!), /0x1234/);
         panel.setEndian('be');
-        assert.match(elementText(document.querySelector('.si-field .si-f-val')!), /0x3412/);
+        assert.match(elementText(document.querySelector('.oi-field .oi-f-val')!), /0x3412/);
     });
 
     test('＋ Add opens a three-tile kind picker; cancel creates nothing', async () => {
         await createMountedPanel();
 
         // The standalone bit-field / enum actions from the child tasks are gone.
-        assert.strictEqual(document.getElementById('sm-add-bitfield-btn'), null, 'no standalone bit-field action');
-        assert.strictEqual(document.getElementById('sm-add-enum-btn'), null, 'no standalone enum action');
+        assert.strictEqual(document.getElementById('om-add-bitfield-btn'), null, 'no standalone bit-field action');
+        assert.strictEqual(document.getElementById('om-add-enum-btn'), null, 'no standalone enum action');
 
-        click(dom, document.getElementById('sm-add-btn'));
-        const picker = document.getElementById('sm-kind-picker');
+        click(dom, document.getElementById('om-add-btn'));
+        const picker = document.getElementById('om-kind-picker');
         assert.ok(picker, 'kind picker should render in the Types body');
-        const tiles = Array.from(picker!.querySelectorAll<HTMLElement>('.sm-kind-tile'));
+        const tiles = Array.from(picker!.querySelectorAll<HTMLElement>('.om-kind-tile'));
         assert.deepStrictEqual(tiles.map(t => t.dataset.kind), ['struct', 'bitfield', 'enum'], 'three kind tiles');
-        assert.strictEqual(document.getElementById('se-name'), null, 'no editor opens before a tile is picked');
-        assert.strictEqual(document.getElementById('sm-list'), null, 'the type list is replaced by the picker');
+        assert.strictEqual(document.getElementById('oe-name'), null, 'no editor opens before a tile is picked');
+        assert.strictEqual(document.getElementById('om-list'), null, 'the type list is replaced by the picker');
 
-        click(dom, document.getElementById('sm-kind-cancel'));
-        assert.strictEqual(document.getElementById('sm-kind-picker'), null, 'cancel returns to the list');
-        assert.ok(document.getElementById('sm-list'), 'cancel shows the type list again');
+        click(dom, document.getElementById('om-kind-cancel'));
+        assert.strictEqual(document.getElementById('om-kind-picker'), null, 'cancel returns to the list');
+        assert.ok(document.getElementById('om-list'), 'cancel shows the type list again');
         assert.strictEqual(S.types.length, 0, 'cancel creates nothing');
     });
 
@@ -2307,32 +2307,32 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
 
         openKindPicker();
-        click(dom, document.querySelector<HTMLElement>('.sm-kind-tile[data-kind="struct"]'));
-        assert.ok(document.querySelector('.se-field-hdr'), 'Struct tile opens the field grid');
-        assert.strictEqual(document.getElementById('se-base-type'), null, 'type form has no bit-field base select');
+        click(dom, document.querySelector<HTMLElement>('.om-kind-tile[data-kind="struct"]'));
+        assert.ok(document.querySelector('.oe-field-hdr'), 'Struct tile opens the field grid');
+        assert.strictEqual(document.getElementById('oe-base-type'), null, 'type form has no bit-field base select');
 
-        click(dom, document.getElementById('se-cancel'));
+        click(dom, document.getElementById('oe-cancel'));
         openKindEditor('bitfield');
-        assert.ok(document.getElementById('se-base-type'), 'Bit-field tile opens the base width select');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'bit-field form has no type field grid');
+        assert.ok(document.getElementById('oe-base-type'), 'Bit-field tile opens the base width select');
+        assert.strictEqual(document.querySelector('.field-row'), null, 'bit-field form has no type field grid');
 
-        click(dom, document.getElementById('se-cancel'));
+        click(dom, document.getElementById('oe-cancel'));
         openKindEditor('enum');
-        assert.ok(document.getElementById('se-enum-base-type'), 'Enum tile opens the enum base width select');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'enum form has no type field grid');
+        assert.ok(document.getElementById('oe-enum-base-type'), 'Enum tile opens the enum base width select');
+        assert.strictEqual(document.querySelector('.field-row'), null, 'enum form has no type field grid');
     });
 
     test('new type editor saves and renders C preview', async () => {
         await createMountedPanel();
         openKindEditor('struct');
-        assert.ok(document.getElementById('se-name'));
-        assert.ok(document.getElementById('se-preview'));
+        assert.ok(document.getElementById('oe-name'));
+        assert.ok(document.getElementById('oe-preview'));
 
-        (document.getElementById('se-name') as HTMLInputElement).value = 'MyNewType';
-        const preview = document.querySelector<HTMLElement>('#se-preview pre.si-c-preview');
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'MyNewType';
+        const preview = document.querySelector<HTMLElement>('#oe-preview pre.oi-c-preview');
         assert.ok(preview && preview.textContent!.length > 0, 'C preview should render');
 
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
         assert.strictEqual(S.types.length, 1);
         assert.strictEqual(S.types[0].name, 'MyNewType');
         assert.strictEqual(S.types[0].fields.length, 1);
@@ -2342,7 +2342,7 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [childDef, parentDef];
         S.typeInstances = [{ id: 'pin1', typeId: 'parent', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        const delBtn = document.querySelector<HTMLElement>('.sd-row .act-btn-del[data-type-id="parent"]');
+        const delBtn = document.querySelector<HTMLElement>('.od-row .act-btn-del[data-type-id="parent"]');
         assert.ok(delBtn, 'type row delete button should render');
         click(dom, delBtn);
         confirmDelete(dom);
@@ -2356,13 +2356,13 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [scalarDef];
         S.typeInstances = [];
         await createMountedPanel();
-        click(dom, document.getElementById('si-add-btn'));
-        const nameInp = document.getElementById('sa-name') as HTMLInputElement | null;
-        const addrInp = document.getElementById('sa-addr') as HTMLInputElement | null;
+        click(dom, document.getElementById('oi-add-btn'));
+        const nameInp = document.getElementById('oa-name') as HTMLInputElement | null;
+        const addrInp = document.getElementById('oa-addr') as HTMLInputElement | null;
         assert.ok(nameInp && addrInp, 'add form inputs should render');
         nameInp!.value = 'newInst';
         addrInp!.value = '00001000';
-        click(dom, document.getElementById('sa-confirm'));
+        click(dom, document.getElementById('oa-confirm'));
         assert.strictEqual(S.typeInstances.length, 1);
         assert.strictEqual(S.typeInstances[0].typeId, 'scalar');
         assert.strictEqual(S.typeInstances[0].addr, 0x1000);
@@ -2373,9 +2373,9 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [scalarDef];
         S.typeInstances = [];
         const panel = await createMountedPanel();
-        click(dom, document.getElementById('si-add-btn'));
+        click(dom, document.getElementById('oi-add-btn'));
         panel.setSelection(0x2000);
-        assert.strictEqual((document.getElementById('sa-addr') as HTMLInputElement).value, '00002000');
+        assert.strictEqual((document.getElementById('oa-addr') as HTMLInputElement).value, '00002000');
     });
 
     test('edit form save updates the pin via inline add form', async () => {
@@ -2383,15 +2383,15 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         click(dom, document.querySelector('.sb-card .act-btn-edit'));
-        assert.ok(document.getElementById('si-add-form'), 'inline edit form should open');
-        assert.strictEqual((document.getElementById('sa-name') as HTMLInputElement).value, 'inst', 'name prefilled');
-        assert.strictEqual((document.getElementById('sa-addr') as HTMLInputElement).value, '00000000', 'addr prefilled');
-        (document.getElementById('sa-name') as HTMLInputElement).value = 'renamed';
-        (document.getElementById('sa-addr') as HTMLInputElement).value = '00001111';
-        click(dom, document.getElementById('sa-confirm'));
+        assert.ok(document.getElementById('oi-add-form'), 'inline edit form should open');
+        assert.strictEqual((document.getElementById('oa-name') as HTMLInputElement).value, 'inst', 'name prefilled');
+        assert.strictEqual((document.getElementById('oa-addr') as HTMLInputElement).value, '00000000', 'addr prefilled');
+        (document.getElementById('oa-name') as HTMLInputElement).value = 'renamed';
+        (document.getElementById('oa-addr') as HTMLInputElement).value = '00001111';
+        click(dom, document.getElementById('oa-confirm'));
         assert.strictEqual(S.typeInstances[0].name, 'renamed');
         assert.strictEqual(S.typeInstances[0].addr, 0x1111);
-        assert.strictEqual(document.getElementById('si-add-form'), null, 'form should close after save');
+        assert.strictEqual(document.getElementById('oi-add-form'), null, 'form should close after save');
     });
 
     test('instance card always-visible actions: view-type, edit cancel', async () => {
@@ -2404,21 +2404,21 @@ suite('OverlayPanel deep-render harness', () => {
         assert.ok(card!.querySelector('.act-btn-edit'), 'edit action always present');
         assert.ok(card!.querySelector('.act-btn-del'), 'delete action always present');
         assert.ok(card!.querySelector('.act-btn-view-type'), 'view-type action always present');
-        assert.strictEqual(card!.querySelector('.si-card-menu'), null, 'no ⋮ menu');
-        assert.strictEqual(document.querySelector('.si-type-btn'), null, 'no hover-only type button on card');
+        assert.strictEqual(card!.querySelector('.oi-card-menu'), null, 'no ⋮ menu');
+        assert.strictEqual(document.querySelector('.oi-type-btn'), null, 'no hover-only type button on card');
 
         // View type toggles the card preview.
         click(dom, card!.querySelector('.act-btn-view-type'));
-        const preview = document.querySelector<HTMLElement>('.si-type-preview');
+        const preview = document.querySelector<HTMLElement>('.oi-type-preview');
         assert.ok(preview && preview!.style.display !== 'none', 'view-type should reveal the C preview');
         click(dom, card!.querySelector('.act-btn-view-type'));
-        assert.ok(document.querySelector<HTMLElement>('.si-type-preview')!.style.display === 'none', 'view-type should toggle the preview closed');
+        assert.ok(document.querySelector<HTMLElement>('.oi-type-preview')!.style.display === 'none', 'view-type should toggle the preview closed');
 
         // Edit opens the inline form; cancel closes without mutating.
         click(dom, card!.querySelector('.act-btn-edit'));
-        assert.ok(document.getElementById('si-add-form'), 'edit should open the inline form');
-        click(dom, document.getElementById('sa-cancel'));
-        assert.strictEqual(document.getElementById('si-add-form'), null, 'cancel should close the form');
+        assert.ok(document.getElementById('oi-add-form'), 'edit should open the inline form');
+        click(dom, document.getElementById('oa-cancel'));
+        assert.strictEqual(document.getElementById('oi-add-form'), null, 'cancel should close the form');
         assert.strictEqual(S.typeInstances[0].name, 'inst', 'cancel should not mutate the pin');
     });
 
@@ -2437,17 +2437,17 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [scalarDef];
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        const head = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
+        const head = document.querySelector<HTMLElement>('#oi-types .sb-section-head')!;
         click(dom, head);
-        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.ok(document.getElementById('oi-types')!.classList.contains('collapsed'));
         assert.strictEqual(head.getAttribute('aria-expanded'), 'false');
         head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.ok(!document.getElementById('oi-types')!.classList.contains('collapsed'));
         head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-        assert.ok(document.getElementById('si-types')!.classList.contains('collapsed'));
+        assert.ok(document.getElementById('oi-types')!.classList.contains('collapsed'));
         head.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        assert.ok(!document.getElementById('si-types')!.classList.contains('collapsed'));
-        assert.ok(document.querySelector('.sd-row'));
+        assert.ok(!document.getElementById('oi-types')!.classList.contains('collapsed'));
+        assert.ok(document.querySelector('.od-row'));
     });
 
     test('editor field rows expose pointer via visible toggle button and context menu', async () => {
@@ -2455,35 +2455,35 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         openKindEditor('struct');
-        let row = document.querySelector<HTMLElement>('.struct-field-row');
+        let row = document.querySelector<HTMLElement>('.field-row');
         assert.ok(row, 'editor field row should render');
-        const ptrBtn = row!.querySelector<HTMLElement>('.sfe-ptr-btn');
+        const ptrBtn = row!.querySelector<HTMLElement>('.ofe-ptr-btn');
         assert.ok(ptrBtn, 'every field row renders the visible pointer toggle button');
         assert.ok(!ptrBtn!.classList.contains('active'), 'field pointer button starts inactive');
         assert.strictEqual((ptrBtn as HTMLButtonElement).disabled, false, 'scalar field pointer button is enabled');
 
         // Context menu path still works alongside the visible button.
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const attach = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]');
+        const attach = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="field-ptr-on"]');
         assert.ok(attach, 'attach pointer item should render');
         click(dom, attach);
 
         // Re-query the row after each render (re-render replaces the editor rows).
-        row = document.querySelector<HTMLElement>('.struct-field-row');
+        row = document.querySelector<HTMLElement>('.field-row');
         assert.ok(row, 'editor field row should re-render');
-        assert.ok(row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'attaching via context menu activates the row button');
+        assert.ok(row!.querySelector<HTMLElement>('.ofe-ptr-btn')!.classList.contains('active'), 'attaching via context menu activates the row button');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const clear = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-off"]');
+        const clear = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="field-ptr-off"]');
         assert.ok(clear, 'clear pointer item should render once attached');
         click(dom, clear);
 
         // Attach again, then save and verify the draft is saved as a pointer field.
-        row = document.querySelector<HTMLElement>('.struct-field-row');
-        assert.ok(!row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clearing via context menu deactivates the row button');
+        row = document.querySelector<HTMLElement>('.field-row');
+        assert.ok(!row!.querySelector<HTMLElement>('.ofe-ptr-btn')!.classList.contains('active'), 'clearing via context menu deactivates the row button');
         row!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        click(dom, document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]'));
-        (document.getElementById('se-name') as HTMLInputElement).value = 'PtrType';
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="field-ptr-on"]'));
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'PtrType';
+        click(dom, document.getElementById('oe-save'));
         const saved = S.types.find(d => d.name === 'PtrType');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.fields[0].isPointer, true, 'saved field should be a pointer');
@@ -2494,34 +2494,34 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         openKindEditor('struct');
-        (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'BtnPtr';
 
-        let row = document.querySelector<HTMLElement>('.struct-field-row');
+        let row = document.querySelector<HTMLElement>('.field-row');
         assert.ok(row, 'editor field row should render');
         // Click ON: button activates and the pointer flag lands in the saved type.
-        click(dom, row!.querySelector<HTMLElement>('.sfe-ptr-btn'));
-        row = document.querySelector<HTMLElement>('.struct-field-row');
-        assert.ok(row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clicking * activates the pointer button');
+        click(dom, row!.querySelector<HTMLElement>('.ofe-ptr-btn'));
+        row = document.querySelector<HTMLElement>('.field-row');
+        assert.ok(row!.querySelector<HTMLElement>('.ofe-ptr-btn')!.classList.contains('active'), 'clicking * activates the pointer button');
         assert.strictEqual(row!.dataset.ptr, '1', 'clicking * marks the row as pointer');
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
         const savedOn = S.types.find(d => d.name === 'BtnPtr');
         assert.ok(savedOn, 'saved type should exist');
         assert.strictEqual(savedOn!.fields[0].isPointer, true, 'saved field should be a pointer after button click');
 
         // Re-open the editor: button renders active from persisted state.
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="' + savedOn!.id + '"]'));
-        row = document.querySelector<HTMLElement>('.struct-field-row');
-        const btnOn = row!.querySelector<HTMLElement>('.sfe-ptr-btn');
+        row = document.querySelector<HTMLElement>('.field-row');
+        const btnOn = row!.querySelector<HTMLElement>('.ofe-ptr-btn');
         assert.ok(btnOn!.classList.contains('active'), 'persisted pointer field re-opens with active button');
         assert.strictEqual(row!.dataset.ptr, '1', 'persisted pointer field re-opens with row marked pointer');
 
         // Click OFF: button deactivates and the flag clears on save.
         click(dom, btnOn);
-        row = document.querySelector<HTMLElement>('.struct-field-row');
-        assert.ok(!row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clicking active * deactivates the pointer button');
+        row = document.querySelector<HTMLElement>('.field-row');
+        assert.ok(!row!.querySelector<HTMLElement>('.ofe-ptr-btn')!.classList.contains('active'), 'clicking active * deactivates the pointer button');
         assert.strictEqual(row!.dataset.ptr, '', 'clicking active * clears the row pointer mark');
-        (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
-        click(dom, document.getElementById('se-save'));
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'BtnPtr';
+        click(dom, document.getElementById('oe-save'));
         const savedOff = S.types.find(d => d.name === 'BtnPtr');
         assert.ok(savedOff, 'saved type should still exist');
         assert.strictEqual(savedOff!.fields[0].isPointer, undefined, 'saved field should no longer be a pointer after second click');
@@ -2541,16 +2541,16 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="vbd"]'));
 
-        const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
-        const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.field-row'));
+        const rowByName = (name: string) => rows.find(r => (r.querySelector('.ofe-name-inp') as HTMLInputElement).value === name)!;
         // void-typed field renders pointer active (void is always a pointer).
-        const voidBtn = rowByName('raw').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
+        const voidBtn = rowByName('raw').querySelector<HTMLButtonElement>('.ofe-ptr-btn');
         assert.ok(voidBtn, 'void field row renders a pointer button');
         assert.ok(voidBtn!.classList.contains('active'), 'void-typed field renders pointer button active');
         assert.strictEqual(voidBtn!.disabled, false, 'void field pointer button is enabled');
 
         // Bit-field reference rows render the button disabled.
-        const ctlBtn = rowByName('flags').querySelector<HTMLButtonElement>('.sfe-ptr-btn');
+        const ctlBtn = rowByName('flags').querySelector<HTMLButtonElement>('.ofe-ptr-btn');
         assert.ok(ctlBtn, 'bit-field reference row renders a pointer button');
         assert.strictEqual(ctlBtn!.disabled, true, 'bit-field reference rows show the * button disabled');
         assert.ok(!ctlBtn!.classList.contains('active'), 'bit-field reference pointer button is not active');
@@ -2582,7 +2582,7 @@ suite('OverlayPanel deep-render harness', () => {
         const TEMPLATE = '96px 26px 1fr 58px 52px 28px 72px 30px 18px';
 
         // Header: Type Ptr Name Endian Alloc Hide [ ] move del.
-        const header = document.querySelector<HTMLElement>('.se-field-hdr');
+        const header = document.querySelector<HTMLElement>('.oe-field-hdr');
         assert.ok(header, 'field header should render');
         assert.deepStrictEqual(
             Array.from(header!.querySelectorAll<HTMLElement>(':scope > span')).map(s => s.textContent),
@@ -2596,8 +2596,8 @@ suite('OverlayPanel deep-render harness', () => {
             'field header uses the 9-column shared grid',
         );
 
-        // Struct-default row shares the same 9-column grid.
-        const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
+        // Type-default row shares the same 9-column grid.
+        const defaultRow = document.querySelector<HTMLElement>('.oe-type-default-row');
         assert.ok(defaultRow, 'type-default row should render');
         assert.strictEqual(
             dom.window.getComputedStyle(defaultRow!).getPropertyValue('grid-template-columns'),
@@ -2608,15 +2608,15 @@ suite('OverlayPanel deep-render harness', () => {
         // No inline bit-field authoring; only the reusable bit-field-reference
         // row carries an Alloc select (the usage-scoped override). Every other
         // row keeps an alignment placeholder cell.
-        assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no per-field bit toggle');
-        assert.strictEqual(document.querySelectorAll('.sfe-alloc-sel').length, 1, 'only the bit-field-reference row authors an alloc select');
-        assert.strictEqual(document.querySelectorAll('.sfe-alloc-placeholder').length, 3, 'every other row keeps an alignment placeholder');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'no type-level alloc select');
+        assert.strictEqual(document.querySelector('.ofe-bit-btn'), null, 'no per-field bit toggle');
+        assert.strictEqual(document.querySelectorAll('.ofe-alloc-sel').length, 1, 'only the bit-field-reference row authors an alloc select');
+        assert.strictEqual(document.querySelectorAll('.ofe-alloc-placeholder').length, 3, 'every other row keeps an alignment placeholder');
+        assert.strictEqual(document.getElementById('oe-alloc'), null, 'no type-level alloc select');
 
         // Every field row: 9-column grid, second cell is the pointer button, Hide checkbox in the Hide cell.
-        const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.field-row'));
         assert.strictEqual(rows.length, 4, 'all four field rows render');
-        const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
+        const rowByName = (name: string) => rows.find(r => (r.querySelector('.ofe-name-inp') as HTMLInputElement).value === name)!;
         for (const row of rows) {
             assert.strictEqual(
                 dom.window.getComputedStyle(row).getPropertyValue('grid-template-columns'),
@@ -2624,18 +2624,18 @@ suite('OverlayPanel deep-render harness', () => {
                 'field row uses the 9-column grid',
             );
             assert.strictEqual(row.children.length, 9, 'field row renders nine cells');
-            const btn = row.querySelector<HTMLElement>('.sfe-ptr-btn');
+            const btn = row.querySelector<HTMLElement>('.ofe-ptr-btn');
             assert.ok(btn, 'every field row renders the pointer toggle button');
             assert.strictEqual(Array.from(row.children).indexOf(btn!), 1, 'pointer button occupies the second (Ptr) cell');
-            const hide = row.querySelector<HTMLElement>('.sfe-hidden-chk');
+            const hide = row.querySelector<HTMLElement>('.ofe-hidden-chk');
             assert.ok(hide, 'every field row renders the Hide checkbox');
-            assert.strictEqual(row.querySelector<HTMLElement>('.sfe-hidden-cell')!.querySelector('.sfe-hidden-chk'), hide, 'Hide checkbox occupies the Hide cell');
+            assert.strictEqual(row.querySelector<HTMLElement>('.ofe-hidden-cell')!.querySelector('.ofe-hidden-chk'), hide, 'Hide checkbox occupies the Hide cell');
         }
 
-        assert.ok(rowByName('flags').querySelector('.sfe-alloc-sel'), 'bit-field-reference row carries the alloc select');
+        assert.ok(rowByName('flags').querySelector('.ofe-alloc-sel'), 'bit-field-reference row carries the alloc select');
         for (const name of ['plain', 'p', 'nested']) {
-            assert.strictEqual(rowByName(name).querySelector('.sfe-alloc-sel'), null, `${name} row authors no alloc select`);
-            assert.ok(rowByName(name).querySelector('.sfe-alloc-placeholder'), `${name} row keeps the alloc alignment placeholder`);
+            assert.strictEqual(rowByName(name).querySelector('.ofe-alloc-sel'), null, `${name} row authors no alloc select`);
+            assert.ok(rowByName(name).querySelector('.ofe-alloc-placeholder'), `${name} row keeps the alloc alignment placeholder`);
         }
     });
 
@@ -2651,11 +2651,11 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="cfg"]'));
 
-        const rows = document.querySelectorAll<HTMLElement>('.struct-field-row');
+        const rows = document.querySelectorAll<HTMLElement>('.field-row');
         const chkFor = (name: string): HTMLInputElement => {
             const row = Array.from(rows).find(r =>
-                (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
-            return row.querySelector('.sfe-hidden-chk') as HTMLInputElement;
+                (r.querySelector('.ofe-name-inp') as HTMLInputElement).value === name)!;
+            return row.querySelector('.ofe-hidden-chk') as HTMLInputElement;
         };
         assert.strictEqual(chkFor('reserved').checked, true, 'loaded hidden:true field shows checked');
         assert.strictEqual(chkFor('tag').checked, false, 'visible field shows unchecked');
@@ -2664,7 +2664,7 @@ suite('OverlayPanel deep-render harness', () => {
         chkFor('reserved').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         chkFor('tag').checked = true;
         chkFor('tag').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
         const saved = S.types.find(d => d.id === 'cfg')!;
         const reserved = saved.fields.find(f => f.name === 'reserved')!;
@@ -2683,9 +2683,9 @@ suite('OverlayPanel deep-render harness', () => {
     test('editor endian selects render with Auto option + inherited-source tooltip', async () => {
         await createMountedPanel();
         openKindEditor('struct');
-        const endianSel = document.getElementById('se-endian') as HTMLSelectElement | null;
+        const endianSel = document.getElementById('oe-endian') as HTMLSelectElement | null;
         assert.ok(endianSel, 'type-level endian select should render');
-        assert.ok(endianSel!.closest('.se-struct-default-row'), 'type-level endian lives in the grid-aligned type-default row');
+        assert.ok(endianSel!.closest('.oe-type-default-row'), 'type-level endian lives in the grid-aligned type-default row');
         assert.strictEqual(endianSel!.value, '', 'type endian defaults to inherited');
         assert.ok(endianSel!.options[0] && endianSel!.options[2], 'type endian tri-state Auto/LE/BE should render');
         assert.strictEqual(endianSel!.options[0].textContent, 'Auto', 'type endian Auto option label');
@@ -2693,14 +2693,14 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(endianSel!.options[2].textContent, 'BE', 'type endian BE option label');
         assert.strictEqual(endianSel!.options[0].title, 'Auto — inherits LE', 'type endian Auto tooltip shows global source');
         assert.ok(!endianSel!.classList.contains('is-explicit'), 'inherited type endian is not tinted');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'no type-level allocation select');
+        assert.strictEqual(document.getElementById('oe-alloc'), null, 'no type-level allocation select');
 
         // Plain row: field endian select renders; allocation stays a placeholder cell.
-        const plainRow = document.querySelector<HTMLElement>('.struct-field-row')!;
-        const fieldEndian = plainRow.querySelector<HTMLSelectElement>('.sfe-endian-sel');
+        const plainRow = document.querySelector<HTMLElement>('.field-row')!;
+        const fieldEndian = plainRow.querySelector<HTMLSelectElement>('.ofe-endian-sel');
         assert.ok(fieldEndian, 'plain row keeps the field endian select');
-        assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain row authors no field allocation select');
-        assert.ok(plainRow.querySelector('.sfe-alloc-placeholder'), 'plain row keeps the alloc alignment placeholder');
+        assert.strictEqual(plainRow.querySelector('.ofe-alloc-sel'), null, 'plain row authors no field allocation select');
+        assert.ok(plainRow.querySelector('.ofe-alloc-placeholder'), 'plain row keeps the alloc alignment placeholder');
         assert.strictEqual(fieldEndian!.options[0].textContent, 'Auto', 'field endian Auto option label');
         assert.strictEqual(fieldEndian!.options[0].title, 'Auto — inherits LE', 'field endian Auto tooltip shows global when the type has none');
     });
@@ -2708,20 +2708,20 @@ suite('OverlayPanel deep-render harness', () => {
     test('editor endian selects save per-type and per-field overrides', async () => {
         await createMountedPanel();
         openKindEditor('struct');
-        const typeEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        const typeEndian = document.getElementById('oe-endian') as HTMLSelectElement;
         typeEndian.value = 'be';
         overrideChange(dom, typeEndian);
         // Type-level change re-renders the editor — re-query the fresh select.
-        const freshEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        const freshEndian = document.getElementById('oe-endian') as HTMLSelectElement;
         assert.ok(!freshEndian.classList.contains('is-explicit'), 'explicit type endian does not tint the select');
         // Field endian select shows the type-level effective source.
-        const fieldEndian = document.querySelector<HTMLSelectElement>('.sfe-endian-sel')!;
+        const fieldEndian = document.querySelector<HTMLSelectElement>('.ofe-endian-sel')!;
         assert.strictEqual(fieldEndian.options[0].title, 'Auto — inherits BE', 'field endian Auto tooltip shows type override');
         fieldEndian.value = 'le';
         overrideChange(dom, fieldEndian);
         assert.ok(!fieldEndian.classList.contains('is-explicit'), 'explicit field endian does not tint the select');
-        (document.getElementById('se-name') as HTMLInputElement).value = 'Mixed';
-        click(dom, document.getElementById('se-save'));
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'Mixed';
+        click(dom, document.getElementById('oe-save'));
         const saved = S.types.find(d => d.name === 'Mixed');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.endian, 'be');
@@ -2755,30 +2755,30 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="outer"]'));
 
-        // Struct-default row: packed + endian slots; no allocation select.
-        const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
+        // Type-default row: packed + endian slots; no allocation select.
+        const defaultRow = document.querySelector<HTMLElement>('.oe-type-default-row');
         assert.ok(defaultRow, 'type-default row should render');
-        assert.ok(defaultRow!.querySelector('#se-packed'), 'packed toggle sits in the Type column of the type-default row');
+        assert.ok(defaultRow!.querySelector('#oe-packed'), 'packed toggle sits in the Type column of the type-default row');
         assert.strictEqual(
-            defaultRow!.querySelector('.se-struct-default-lbl')?.textContent,
+            defaultRow!.querySelector('.oe-type-default-lbl')?.textContent,
             'type default',
             'type-default label sits in the Name column',
         );
-        assert.ok(defaultRow!.querySelector('#se-endian'), 'type endian select sits in the Endian column');
-        assert.strictEqual(defaultRow!.querySelector('#se-alloc'), null, 'type-default row has no allocation select');
-        assert.strictEqual(document.querySelector('.se-override-row'), null, 'legacy flex override strip removed');
+        assert.ok(defaultRow!.querySelector('#oe-endian'), 'type endian select sits in the Endian column');
+        assert.strictEqual(defaultRow!.querySelector('#oe-alloc'), null, 'type-default row has no allocation select');
+        assert.strictEqual(document.querySelector('.oe-override-row'), null, 'legacy flex override strip removed');
 
         // Field rows: no bit-field reference here, so no alloc select; every
         // row keeps the alignment placeholder cell.
-        const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
-        const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
-        assert.strictEqual(document.querySelectorAll('.sfe-alloc-sel').length, 0, 'no alloc select without a bit-field reference');
-        assert.strictEqual(document.querySelectorAll('.sfe-alloc-placeholder').length, 4, 'every row keeps the alignment placeholder');
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.field-row'));
+        const rowByName = (name: string) => rows.find(r => (r.querySelector('.ofe-name-inp') as HTMLInputElement).value === name)!;
+        assert.strictEqual(document.querySelectorAll('.ofe-alloc-sel').length, 0, 'no alloc select without a bit-field reference');
+        assert.strictEqual(document.querySelectorAll('.ofe-alloc-placeholder').length, 4, 'every row keeps the alignment placeholder');
         for (const name of ['plain', 'p', 'nested', 'ctl']) {
-            assert.ok(rowByName(name).querySelector('.sfe-alloc-placeholder'), `${name} row keeps an empty alloc cell`);
-            assert.strictEqual(rowByName(name).querySelector('.sfe-alloc-sel'), null, `${name} row has no allocation select`);
+            assert.ok(rowByName(name).querySelector('.ofe-alloc-placeholder'), `${name} row keeps an empty alloc cell`);
+            assert.strictEqual(rowByName(name).querySelector('.ofe-alloc-sel'), null, `${name} row has no allocation select`);
         }
-        assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no field bit toggle anywhere');
+        assert.strictEqual(document.querySelector('.ofe-bit-btn'), null, 'no field bit toggle anywhere');
     });
 
     test('decoded rows badge explicit endian/allocation overrides', async () => {
@@ -2804,27 +2804,27 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'be', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x12, 0x34, 0x78, 0x56, 0x34, 0x12, 0x12, 0x34]);
         await createMountedPanel();
-        click(dom, document.querySelector('.si-expand-btn'));
+        click(dom, document.querySelector('.oi-expand-btn'));
 
-        const leafs = Array.from(document.querySelectorAll<HTMLElement>('.si-field'));
-        const wordRow = leafs.find(el => el.querySelector('.si-f-name')?.textContent === 'word');
+        const leafs = Array.from(document.querySelectorAll<HTMLElement>('.oi-field'));
+        const wordRow = leafs.find(el => el.querySelector('.oi-f-name')?.textContent === 'word');
         assert.ok(wordRow, 'word row should render');
-        assert.strictEqual(wordRow!.querySelector('.si-chip-endian')?.textContent, 'BE', 'scalar row badges type endian override');
+        assert.strictEqual(wordRow!.querySelector('.oi-chip-endian')?.textContent, 'BE', 'scalar row badges type endian override');
 
-        const pointerRow = leafs.find(el => el.classList.contains('si-ptr-field'));
+        const pointerRow = leafs.find(el => el.classList.contains('oi-ptr-field'));
         assert.ok(pointerRow, 'pointer row should render');
         // Pointer header rows render via pointerHeaderBodyHtml, which does
         // not include overrideBadgeHtml — badges live on scalar/bit-unit rows.
-        assert.match(elementText(pointerRow!.querySelector('.si-f-val')!), /0x78563412/, 'pointer value decodes with the inherited type endian');
+        assert.match(elementText(pointerRow!.querySelector('.oi-f-val')!), /0x78563412/, 'pointer value decodes with the inherited type endian');
 
-        const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
+        const bitHdr = document.querySelector<HTMLElement>('.oi-arr-grp-hdr.oi-bitunit-hdr');
         assert.ok(bitHdr, 'bit unit header should render');
-        assert.strictEqual(bitHdr!.querySelector('.si-chip-endian')?.textContent, 'BE', 'bit unit header badges effective endian');
-        assert.strictEqual(bitHdr!.querySelector('.si-chip-alloc')?.textContent, 'LSB', 'bit unit header badges effective allocation (vs global MSB)');
+        assert.strictEqual(bitHdr!.querySelector('.oi-chip-endian')?.textContent, 'BE', 'bit unit header badges effective endian');
+        assert.strictEqual(bitHdr!.querySelector('.oi-chip-alloc')?.textContent, 'LSB', 'bit unit header badges effective allocation (vs global MSB)');
 
         const bitChild = leafs.find(el => el.dataset.bitStart !== undefined);
         assert.ok(bitChild, 'bit child row should render');
-        assert.strictEqual(bitChild!.querySelector('.si-chip'), null, 'bit children never chip — chip lives on the bit unit parent header only');
+        assert.strictEqual(bitChild!.querySelector('.oi-chip'), null, 'bit children never chip — chip lives on the bit unit parent header only');
     });
 
     test('no override badges when everything inherits global', async () => {
@@ -2832,8 +2832,8 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         await createMountedPanel();
-        click(dom, document.querySelector('.si-expand-btn'));
-        assert.strictEqual(document.querySelector('.si-chip'), null, 'no override badges when all rows inherit global');
+        click(dom, document.querySelector('.oi-expand-btn'));
+        assert.strictEqual(document.querySelector('.oi-chip'), null, 'no override badges when all rows inherit global');
     });
 
     test('override endian changes rendered values, not just chips (REGRESSION)', async () => {
@@ -2858,26 +2858,26 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [{ id: 'pin2', typeId: 'be2', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x12, 0x34, 0x78, 0x56, 0x12, 0x34]);
         await createMountedPanel();
-        click(dom, document.querySelector('.si-expand-btn'));
+        click(dom, document.querySelector('.oi-expand-btn'));
 
         // word = [0x12,0x34]; global LE -> 0x3412, type override BE -> 0x1234.
-        const leafs = Array.from(document.querySelectorAll<HTMLElement>('.si-field'));
-        const wordRow = leafs.find(el => el.querySelector('.si-f-name')?.textContent === 'word');
+        const leafs = Array.from(document.querySelectorAll<HTMLElement>('.oi-field'));
+        const wordRow = leafs.find(el => el.querySelector('.oi-f-name')?.textContent === 'word');
         assert.ok(wordRow, 'word row should render');
         assert.match(
-            elementText(wordRow!.querySelector('.si-f-val')!),
+            elementText(wordRow!.querySelector('.oi-f-val')!),
             /0x1234/,
             'scalar value cell must render with the effective BE override, not global LE',
         );
 
         // ctl = [0x78,0x56]; global LE -> 0x5678, type override BE -> 0x7856.
-        const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
+        const bitHdr = document.querySelector<HTMLElement>('.oi-arr-grp-hdr.oi-bitunit-hdr');
         assert.ok(bitHdr, 'bit unit header should render');
         bitHdr!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const hexItem = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="disp-hex"]');
+        const hexItem = document.querySelector<HTMLElement>('.oi-field-menu .menu-item[data-cmd="disp-hex"]');
         assert.ok(hexItem, 'header hex menu item should render');
         hexItem!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        const hdrVal = elementText(document.querySelector<HTMLElement>('.si-bitunit-hdr .si-f-val')!);
+        const hdrVal = elementText(document.querySelector<HTMLElement>('.oi-bitunit-hdr .oi-f-val')!);
         assert.match(hdrVal, /0x7856/, 'bit-unit header overall value must render with the effective BE override');
     });
 
@@ -2885,14 +2885,14 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('struct');
         // Two same-named fields are rejected by validation.
-        const nameInps = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-name-inp'));
+        const nameInps = Array.from(document.querySelectorAll<HTMLInputElement>('.ofe-name-inp'));
         nameInps[0].value = 'dup';
-        click(dom, document.getElementById('se-add'));
-        const afterAdd = Array.from(document.querySelectorAll<HTMLInputElement>('.sfe-name-inp'));
+        click(dom, document.getElementById('oe-add'));
+        const afterAdd = Array.from(document.querySelectorAll<HTMLInputElement>('.ofe-name-inp'));
         afterAdd[afterAdd.length - 1].value = 'dup';
-        (document.getElementById('se-name') as HTMLInputElement).value = 'Bad';
-        click(dom, document.getElementById('se-save'));
-        assert.ok(document.querySelector('.se-error'), 'inline error should render on invalid save');
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'Bad';
+        click(dom, document.getElementById('oe-save'));
+        assert.ok(document.querySelector('.oe-error'), 'inline error should render on invalid save');
         assert.strictEqual(S.types.length, 0, 'invalid type must not be saved');
     });
 
@@ -2903,17 +2903,17 @@ suite('OverlayPanel deep-render harness', () => {
         openKindEditor('struct');
 
         const setCount = (value: string): void => {
-            const row = document.querySelector<HTMLElement>('.struct-field-row')!;
-            if (!row.querySelector('.sfe-arr-cell')?.classList.contains('is-array')) {
-                click(dom, row.querySelector<HTMLElement>('.sfe-arr-toggle'));
+            const row = document.querySelector<HTMLElement>('.field-row')!;
+            if (!row.querySelector('.ofe-arr-cell')?.classList.contains('is-array')) {
+                click(dom, row.querySelector<HTMLElement>('.ofe-arr-toggle'));
             }
-            const countInp = document.querySelector<HTMLInputElement>('.sfe-count-inp')!;
+            const countInp = document.querySelector<HTMLInputElement>('.ofe-count-inp')!;
             countInp.value = value;
             countInp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
         };
 
         setCount('270');
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
         assert.strictEqual(S.types.length, 1, 'type with large array count saves');
         assert.strictEqual(S.types[0].fields[0].count, 270, 'count 270 is preserved, not clamped to 256');
     });
@@ -2923,12 +2923,12 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
-        const row = document.querySelector<HTMLElement>('.struct-field-row')!;
-        click(dom, row.querySelector<HTMLElement>('.sfe-arr-toggle'));
-        const countInp = document.querySelector<HTMLInputElement>('.sfe-count-inp')!;
+        const row = document.querySelector<HTMLElement>('.field-row')!;
+        click(dom, row.querySelector<HTMLElement>('.ofe-arr-toggle'));
+        const countInp = document.querySelector<HTMLInputElement>('.ofe-count-inp')!;
         countInp.value = '123456';
         countInp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
         assert.strictEqual(S.types.length, 1, 'type with large array count saves');
         assert.strictEqual(S.types[0].fields[0].count, 123456, 'count is preserved, not truncated to 3 digits');
     });
@@ -2943,18 +2943,18 @@ suite('OverlayPanel deep-render harness', () => {
             inp.value = value;
             inp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
         };
-        const addBtn = (): HTMLButtonElement => document.getElementById('se-bf-def-add') as HTMLButtonElement;
+        const addBtn = (): HTMLButtonElement => document.getElementById('oe-bf-def-add') as HTMLButtonElement;
 
         // Seed is uint32 with one child (1 bit) → room remains.
         assert.strictEqual(addBtn().disabled, false, 'uint32 seed has room for more bits');
 
-        const baseSel = document.getElementById('se-base-type') as HTMLSelectElement;
+        const baseSel = document.getElementById('oe-base-type') as HTMLSelectElement;
         baseSel.value = 'uint8';
         baseSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        setWidth(document.querySelector<HTMLInputElement>('.sfe-bf-child-width')!, '8');
+        setWidth(document.querySelector<HTMLInputElement>('.ofe-bf-child-width')!, '8');
         assert.strictEqual(addBtn().disabled, true, '8/8 bits allocated disables Add bit');
 
-        setWidth(document.querySelector<HTMLInputElement>('.sfe-bf-child-width')!, '1');
+        setWidth(document.querySelector<HTMLInputElement>('.ofe-bf-child-width')!, '1');
         assert.strictEqual(addBtn().disabled, false, 'freeing bits re-enables Add bit without save/reopen');
     });
 
@@ -2967,11 +2967,11 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="preset"]'));
-        const seEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        const seEndian = document.getElementById('oe-endian') as HTMLSelectElement;
         assert.ok(seEndian, 'type endian select renders in editor');
         assert.strictEqual(seEndian.value, 'be', 'predefined type endian shows in editor');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'type allocation is no longer editable');
-        click(dom, document.getElementById('se-save'));
+        assert.strictEqual(document.getElementById('oe-alloc'), null, 'type allocation is no longer editable');
+        click(dom, document.getElementById('oe-save'));
         const saved = S.types.find(d => d.id === 'preset');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.endian, 'be', 'type endian persists after save');
@@ -2983,25 +2983,25 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
-        const fieldsEl = document.getElementById('se-fields');
-        const formEl = document.getElementById('si-types-body');
-        const nameInp = document.getElementById('se-name');
-        const packedBtn = document.getElementById('se-packed');
+        const fieldsEl = document.getElementById('oe-fields');
+        const formEl = document.getElementById('oi-types-body');
+        const nameInp = document.getElementById('oe-name');
+        const packedBtn = document.getElementById('oe-packed');
         assert.ok(fieldsEl && formEl && nameInp && packedBtn, 'editor renders');
 
-        // The section body (#si-types-body, .sb-body) is the scroll container:
+        // The section body (#oi-types-body, .sb-body) is the scroll container:
         // it is never replaced, so its scroll position survives every mutation
         // (no jump to the top).
         formEl!.scrollTop = 120;
 
-        click(dom, document.getElementById('se-add'));
-        assert.strictEqual(document.getElementById('se-fields'), fieldsEl, 'Add Field does not replace #se-fields');
-        assert.strictEqual(document.getElementById('si-types-body'), formEl, 'Add Field does not replace the scroll container');
-        assert.strictEqual(document.getElementById('se-name'), nameInp, 'Add Field does not replace the name input');
-        assert.strictEqual(document.getElementById('se-packed'), packedBtn, 'Add Field does not replace the packed toggle');
+        click(dom, document.getElementById('oe-add'));
+        assert.strictEqual(document.getElementById('oe-fields'), fieldsEl, 'Add Field does not replace #oe-fields');
+        assert.strictEqual(document.getElementById('oi-types-body'), formEl, 'Add Field does not replace the scroll container');
+        assert.strictEqual(document.getElementById('oe-name'), nameInp, 'Add Field does not replace the name input');
+        assert.strictEqual(document.getElementById('oe-packed'), packedBtn, 'Add Field does not replace the packed toggle');
         assert.strictEqual(formEl!.scrollTop, 120, 'Add Field keeps the scroll position');
-        assert.strictEqual(document.querySelectorAll('.struct-field-row').length, 2, 'Add Field appends a row');
-        assert.ok(document.querySelector('.se-preview'), 'preview stays mounted after incremental edits');
+        assert.strictEqual(document.querySelectorAll('.field-row').length, 2, 'Add Field appends a row');
+        assert.ok(document.querySelector('.oe-preview'), 'preview stays mounted after incremental edits');
     });
 
     test('editor Edit/Preview tabs swap views without losing draft state', async () => {
@@ -3011,35 +3011,35 @@ suite('OverlayPanel deep-render harness', () => {
         openKindEditor('struct');
 
         // Opens on Edit by default.
-        const editView = document.querySelector<HTMLElement>('.se-view[data-se-view="edit"]');
-        const previewView = document.querySelector<HTMLElement>('.se-view[data-se-view="preview"]');
+        const editView = document.querySelector<HTMLElement>('.oe-view[data-oe-view="edit"]');
+        const previewView = document.querySelector<HTMLElement>('.oe-view[data-oe-view="preview"]');
         assert.ok(editView && previewView, 'editor renders both views');
         assert.ok(previewView!.hidden, 'preview view is hidden until switched');
         assert.strictEqual(
-            document.querySelector<HTMLButtonElement>('.se-tab.active')?.dataset.seView,
+            document.querySelector<HTMLButtonElement>('.oe-tab.active')?.dataset.oeView,
             'edit',
             'Edit tab is active on open',
         );
 
         // Edit a field then switch to Preview: form hides, draft is preserved.
-        const nameInp = document.getElementById('se-name') as HTMLInputElement;
+        const nameInp = document.getElementById('oe-name') as HTMLInputElement;
         nameInp!.value = 'Widget';
-        click(dom, document.querySelector<HTMLElement>('.se-tab[data-se-view="preview"]'));
+        click(dom, document.querySelector<HTMLElement>('.oe-tab[data-oe-view="preview"]'));
         assert.ok(!previewView!.hidden, 'preview view is visible after switching');
         assert.ok(editView!.hidden, 'edit view is hidden in preview mode');
         assert.strictEqual(
-            document.querySelector<HTMLButtonElement>('.se-tab.active')?.dataset.seView,
+            document.querySelector<HTMLButtonElement>('.oe-tab.active')?.dataset.oeView,
             'preview',
             'Preview tab is active after switching',
         );
 
         // Switch back: the form returns with the draft intact, no re-render.
-        const previewNode = document.getElementById('se-preview')!;
-        click(dom, document.querySelector<HTMLElement>('.se-tab[data-se-view="edit"]'));
+        const previewNode = document.getElementById('oe-preview')!;
+        click(dom, document.querySelector<HTMLElement>('.oe-tab[data-oe-view="edit"]'));
         assert.ok(!editView!.hidden, 'edit view is visible after switching back');
         assert.ok(previewView!.hidden, 'preview view is hidden again');
-        assert.strictEqual((document.getElementById('se-name') as HTMLInputElement).value, 'Widget', 'draft name preserved across tab switch');
-        assert.strictEqual(document.getElementById('se-preview'), previewNode, 'preview node is not re-rendered by tab switching');
+        assert.strictEqual((document.getElementById('oe-name') as HTMLInputElement).value, 'Widget', 'draft name preserved across tab switch');
+        assert.strictEqual(document.getElementById('oe-preview'), previewNode, 'preview node is not re-rendered by tab switching');
     });
 
     // ── Reusable bit-field types ──────────────────────────────────
@@ -3070,19 +3070,19 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const groups = document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp');
+        const groups = document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp');
         assert.strictEqual(groups.length, 1, 'referenced bit-field should render one top-level group');
-        const hdr = groups[0].querySelector<HTMLElement>('.si-arr-grp-hdr')!;
-        assert.ok(hdr.classList.contains('si-bitunit-hdr'), 'group header should be a bitunit header');
-        assert.strictEqual(elementText(hdr.querySelector('.si-f-name')), 'control', 'header should use the local field name');
-        assert.strictEqual(elementText(hdr.querySelector('.si-f-type')), 'u8', 'header should use the referenced base type');
-        assert.strictEqual(hdr.querySelector('.si-bitunit-hdr'), null, 'no nested wrapper header');
-        assert.strictEqual(groups[0].querySelector('.si-arr-grp'), null, 'no extra hierarchy level');
+        const hdr = groups[0].querySelector<HTMLElement>('.oi-arr-grp-hdr')!;
+        assert.ok(hdr.classList.contains('oi-bitunit-hdr'), 'group header should be a bitunit header');
+        assert.strictEqual(elementText(hdr.querySelector('.oi-f-name')), 'control', 'header should use the local field name');
+        assert.strictEqual(elementText(hdr.querySelector('.oi-f-type')), 'u8', 'header should use the referenced base type');
+        assert.strictEqual(hdr.querySelector('.oi-bitunit-hdr'), null, 'no nested wrapper header');
+        assert.strictEqual(groups[0].querySelector('.oi-arr-grp'), null, 'no extra hierarchy level');
 
-        hdr.querySelector<HTMLElement>('.si-arr-exp-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')).map(elementText);
+        hdr.querySelector<HTMLElement>('.oi-arr-exp-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const childNames = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field .oi-f-name')).map(elementText);
         assert.deepStrictEqual(childNames, ['mode', 'code'], 'one child row per referenced bit-field child, no wrapper row');
-        assert.strictEqual(elementText(document.querySelector<HTMLElement>('.si-fields > .si-field .si-f-name')), 'after', 'sibling scalar field still renders');
+        assert.strictEqual(elementText(document.querySelector<HTMLElement>('.oi-fields > .oi-field .oi-f-name')), 'after', 'sibling scalar field still renders');
     });
 
     test('referenced bit-field array renders one group per element', async () => {
@@ -3097,7 +3097,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const elementHeaders = document.querySelectorAll<HTMLElement>('.si-arr-el-hdr.si-bitunit-hdr .si-f-name');
+        const elementHeaders = document.querySelectorAll<HTMLElement>('.oi-arr-el-hdr.oi-bitunit-hdr .oi-f-name');
         assert.deepStrictEqual(Array.from(elementHeaders).map(elementText), ['[0]', '[1]']);
     });
 
@@ -3107,7 +3107,7 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('struct');
 
-        const sel = document.querySelector<HTMLSelectElement>('#se-fields .sfe-type-sel')!;
+        const sel = document.querySelector<HTMLSelectElement>('#oe-fields .ofe-type-sel')!;
         assert.ok(sel, 'editor field type select should render');
         const opt = sel.querySelector<HTMLOptionElement>('option[value="bitfield:bits"]');
         assert.ok(opt, 'type picker should offer the bitfield reference option');
@@ -3122,24 +3122,24 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('bitfield');
 
-        assert.ok(document.getElementById('se-base-type'), 'bit-field form should render a base width select');
-        assert.strictEqual((document.getElementById('se-base-type') as HTMLSelectElement).value, 'uint32');
-        assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 1, 'seeded with one child row');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no type field grid in the bit-field form');
-        assert.strictEqual(document.getElementById('se-endian'), null, 'bit-field form edits name + base width + child rows only (no endian select)');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'bit-field form edits name + base width + child rows only (no alloc select)');
+        assert.ok(document.getElementById('oe-base-type'), 'bit-field form should render a base width select');
+        assert.strictEqual((document.getElementById('oe-base-type') as HTMLSelectElement).value, 'uint32');
+        assert.strictEqual(document.querySelectorAll('#oe-bf-def-children .ofe-bf-child-row').length, 1, 'seeded with one child row');
+        assert.strictEqual(document.querySelector('.field-row'), null, 'no type field grid in the bit-field form');
+        assert.strictEqual(document.getElementById('oe-endian'), null, 'bit-field form edits name + base width + child rows only (no endian select)');
+        assert.strictEqual(document.getElementById('oe-alloc'), null, 'bit-field form edits name + base width + child rows only (no alloc select)');
 
-        (document.getElementById('se-name') as HTMLInputElement).value = 'Flags';
-        (document.getElementById('se-base-type') as HTMLSelectElement).value = 'uint16';
-        click(dom, document.getElementById('se-bf-def-add'));
-        const rows = document.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'Flags';
+        (document.getElementById('oe-base-type') as HTMLSelectElement).value = 'uint16';
+        click(dom, document.getElementById('oe-bf-def-add'));
+        const rows = document.querySelectorAll<HTMLElement>('#oe-bf-def-children .ofe-bf-child-row');
         assert.strictEqual(rows.length, 2, 'Add bit appends a child row');
-        (rows[0].querySelector('.sfe-bf-child-name') as HTMLInputElement).value = 'a';
-        (rows[0].querySelector('.sfe-bf-child-width') as HTMLInputElement).value = '4';
-        (rows[1].querySelector('.sfe-bf-child-name') as HTMLInputElement).value = 'b';
-        (rows[1].querySelector('.sfe-bf-child-width') as HTMLInputElement).value = '5';
+        (rows[0].querySelector('.ofe-bf-child-name') as HTMLInputElement).value = 'a';
+        (rows[0].querySelector('.ofe-bf-child-width') as HTMLInputElement).value = '4';
+        (rows[1].querySelector('.ofe-bf-child-name') as HTMLInputElement).value = 'b';
+        (rows[1].querySelector('.ofe-bf-child-width') as HTMLInputElement).value = '5';
 
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
         const saved = S.types.find(d => d.kind === 'bitfield');
         assert.ok(saved, 'bit-field def should be saved');
@@ -3147,7 +3147,7 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(saved!.baseType, 'uint16');
         assert.deepStrictEqual(saved!.fields, []);
         assert.deepStrictEqual(saved!.bitFields, [{ name: 'a', bitWidth: 4 }, { name: 'b', bitWidth: 5 }]);
-        assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'bitfield', 'type list should show a kind badge');
+        assert.strictEqual(elementText(document.querySelector('.od-row .od-kind')), 'bitfield', 'type list should show a kind badge');
     });
 
     test('bit-field def editor labels its child columns with a header above the rows', async () => {
@@ -3157,24 +3157,24 @@ suite('OverlayPanel deep-render harness', () => {
         openKindEditor('bitfield');
         injectOverlayPanelCss();
 
-        const hdr = document.querySelector<HTMLElement>('.sfe-bf-child-hdr');
+        const hdr = document.querySelector<HTMLElement>('.ofe-bf-child-hdr');
         assert.ok(hdr, 'bit-field form should render a child column header');
         assert.deepStrictEqual(Array.from(hdr!.children).map(elementText), ['', 'Name', 'Bits', '', 'Enum', 'Hide', '', ''],
             'header cells label the name/width/enum/hide columns and stay blank over the indent, bit unit, move and delete cells');
-        assert.strictEqual(hdr!.closest('#se-bf-def-children'), null, 'header sits outside the refreshed row container');
-        assert.strictEqual(document.getElementById('se-bf-def-children')!.previousElementSibling, hdr, 'header sits directly above the rows');
+        assert.strictEqual(hdr!.closest('#oe-bf-def-children'), null, 'header sits outside the refreshed row container');
+        assert.strictEqual(document.getElementById('oe-bf-def-children')!.previousElementSibling, hdr, 'header sits directly above the rows');
 
-        click(dom, document.getElementById('se-bf-def-add'));
-        assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 2, 'Add bit appends a child row');
-        assert.strictEqual(document.querySelector('.sfe-bf-child-hdr'), hdr, 'header node survives the incremental row rebuild after Add');
+        click(dom, document.getElementById('oe-bf-def-add'));
+        assert.strictEqual(document.querySelectorAll('#oe-bf-def-children .ofe-bf-child-row').length, 2, 'Add bit appends a child row');
+        assert.strictEqual(document.querySelector('.ofe-bf-child-hdr'), hdr, 'header node survives the incremental row rebuild after Add');
 
-        click(dom, document.querySelector('#se-bf-def-children .sfe-bf-child-row .sfe-bf-del-child'));
-        assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 1, 'deleting a child removes its row');
-        assert.strictEqual(document.querySelector('.sfe-bf-child-hdr'), hdr, 'header node survives the incremental row rebuild after delete');
+        click(dom, document.querySelector('#oe-bf-def-children .ofe-bf-child-row .ofe-bf-del-child'));
+        assert.strictEqual(document.querySelectorAll('#oe-bf-def-children .ofe-bf-child-row').length, 1, 'deleting a child removes its row');
+        assert.strictEqual(document.querySelector('.ofe-bf-child-hdr'), hdr, 'header node survives the incremental row rebuild after delete');
 
-        const row = document.querySelector<HTMLElement>('#se-bf-def-children .sfe-bf-child-row')!;
-        assert.strictEqual(row.querySelector('.sfe-bf-child-name')!.getAttribute('aria-label'), 'Bit name');
-        assert.strictEqual(row.querySelector('.sfe-bf-child-width')!.getAttribute('aria-label'), 'Bit width in bits');
+        const row = document.querySelector<HTMLElement>('#oe-bf-def-children .ofe-bf-child-row')!;
+        assert.strictEqual(row.querySelector('.ofe-bf-child-name')!.getAttribute('aria-label'), 'Bit name');
+        assert.strictEqual(row.querySelector('.ofe-bf-child-width')!.getAttribute('aria-label'), 'Bit width in bits');
 
         // R3: the labels only line up if header and rows resolve the very same columns.
         const template = computedGridTemplate(dom, row);
@@ -3192,18 +3192,18 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="bits"]'));
+        click(dom, document.querySelector('.od-row .act-btn-edit[data-type-id="bits"]'));
 
-        const rows = document.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
+        const rows = document.querySelectorAll<HTMLElement>('#oe-bf-def-children .ofe-bf-child-row');
         assert.strictEqual(rows.length, 2, 'both bit-child rows render');
-        const chk = (i: number): HTMLInputElement => rows[i].querySelector('.sfe-bf-child-hidden') as HTMLInputElement;
+        const chk = (i: number): HTMLInputElement => rows[i].querySelector('.ofe-bf-child-hidden') as HTMLInputElement;
         assert.ok(chk(0), 'each bit-child row carries a hidden checkbox');
         assert.strictEqual(chk(0).checked, true, 'loaded hidden:true bit child shows checked');
         assert.strictEqual(chk(1).checked, false, 'visible bit child shows unchecked');
 
         setChecked(dom, chk(0), false);
         setChecked(dom, chk(1), true);
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
         const saved = S.types.find(d => d.id === 'bits')!;
         assert.strictEqual(saved.bitFields![1].hidden, true, 'checked bit child persists hidden:true');
@@ -3216,7 +3216,7 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-del[data-type-id="bits"]'));
+        click(dom, document.querySelector('.od-row .act-btn-del[data-type-id="bits"]'));
         confirmDelete(dom);
         await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -3228,25 +3228,25 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="user"]'));
+        click(dom, document.querySelector('.od-row .act-btn-edit[data-type-id="user"]'));
 
-        const refRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
+        const refRow = document.querySelector<HTMLElement>('#oe-fields .field-row[data-idx="0"]')!;
         assert.ok(refRow, 'editor should render the referencing field row');
-        assert.strictEqual((refRow.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'bitfield:bits', 'reference should be selected');
-        assert.ok((refRow.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
-        const allocSel = refRow.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+        assert.strictEqual((refRow.querySelector('.ofe-type-sel') as HTMLSelectElement).value, 'bitfield:bits', 'reference should be selected');
+        assert.ok((refRow.querySelector('.ofe-ptr-btn') as HTMLButtonElement).disabled, 'bit-field reference cannot be a pointer');
+        const allocSel = refRow.querySelector<HTMLSelectElement>('.ofe-alloc-sel');
         assert.ok(allocSel, 'bit-field-reference row authors an alloc override');
         assert.deepStrictEqual(Array.from(allocSel!.options).map(o => o.textContent), ['Auto', 'LSB', 'MSB'], 'alloc select offers Auto/LSB/MSB');
         assert.strictEqual(allocSel!.options[0].title, 'Auto — inherits MSB', 'alloc Auto tooltip shows the global source');
 
         // The sibling pure scalar row stays allocation-free (placeholder cell).
-        const scalarRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="1"]')!;
-        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'pure scalar rows author no allocation');
-        assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'pure scalar rows keep the alignment placeholder');
+        const scalarRow = document.querySelector<HTMLElement>('#oe-fields .field-row[data-idx="1"]')!;
+        assert.strictEqual(scalarRow.querySelector('.ofe-alloc-sel'), null, 'pure scalar rows author no allocation');
+        assert.ok(scalarRow.querySelector('.ofe-alloc-placeholder'), 'pure scalar rows keep the alignment placeholder');
 
         allocSel!.value = 'lsb';
         allocSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
         const saved = S.types.find(d => d.id === 'user')!;
         assert.strictEqual(saved.fields[0].allocation, 'lsb', 'bit-field-reference row saves its allocation override');
@@ -3257,29 +3257,29 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="user"]'));
+        click(dom, document.querySelector('.od-row .act-btn-edit[data-type-id="user"]'));
 
-        const scalarRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="1"]')!;
-        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'scalar row starts without an alloc select');
-        assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'scalar row starts with the alignment placeholder');
+        const scalarRow = document.querySelector<HTMLElement>('#oe-fields .field-row[data-idx="1"]')!;
+        assert.strictEqual(scalarRow.querySelector('.ofe-alloc-sel'), null, 'scalar row starts without an alloc select');
+        assert.ok(scalarRow.querySelector('.ofe-alloc-placeholder'), 'scalar row starts with the alignment placeholder');
 
-        const typeSel = scalarRow.querySelector<HTMLSelectElement>('.sfe-type-sel')!;
+        const typeSel = scalarRow.querySelector<HTMLSelectElement>('.ofe-type-sel')!;
         typeSel.value = 'bitfield:bits';
         typeSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
 
-        const allocSel = scalarRow.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
+        const allocSel = scalarRow.querySelector<HTMLSelectElement>('.ofe-alloc-sel');
         assert.ok(allocSel, 'switching to a bit-field reference authors the alloc select in place');
-        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-placeholder'), null, 'placeholder is replaced by the alloc select');
+        assert.strictEqual(scalarRow.querySelector('.ofe-alloc-placeholder'), null, 'placeholder is replaced by the alloc select');
 
         allocSel!.value = 'lsb';
         allocSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
 
         typeSel.value = 'uint8';
         typeSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-        assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'switching back removes the alloc select');
-        assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'placeholder is restored');
+        assert.strictEqual(scalarRow.querySelector('.ofe-alloc-sel'), null, 'switching back removes the alloc select');
+        assert.ok(scalarRow.querySelector('.ofe-alloc-placeholder'), 'placeholder is restored');
 
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
         const saved = S.types.find(d => d.id === 'user')!;
         assert.strictEqual(saved.fields[1].type, 'uint8', 'type select change is saved');
         assert.strictEqual(saved.fields[1].allocation, undefined, 'reverted row authors no allocation key');
@@ -3314,9 +3314,9 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        const row = document.querySelector<HTMLElement>('.si-fields > .si-field')!;
-        assert.strictEqual(elementText(row.querySelector('.si-f-name')), 'state');
-        assert.strictEqual(elementText(row.querySelector('.si-f-val')), 'ON (0x01)');
+        const row = document.querySelector<HTMLElement>('.oi-fields > .oi-field')!;
+        assert.strictEqual(elementText(row.querySelector('.oi-f-name')), 'state');
+        assert.strictEqual(elementText(row.querySelector('.oi-f-val')), 'ON (0x01)');
     });
 
     test('an unmatched enum value falls back to the plain numeric rendering', async () => {
@@ -3326,7 +3326,7 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), '0x05');
+        assert.strictEqual(elementText(document.querySelector('.oi-fields > .oi-field .oi-f-val')), '0x05');
     });
 
     test('a bit-field child with an enum ref renders the label for its value', async () => {
@@ -3335,13 +3335,13 @@ suite('OverlayPanel deep-render harness', () => {
         setBytesInSegment(0, [0x40]); // msb allocation: mode = 0b01
 
         await renderPinsAndExpandCard();
-        const hdr = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-hdr')!;
-        hdr.querySelector<HTMLElement>('.si-arr-exp-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const hdr = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp .oi-arr-grp-hdr')!;
+        hdr.querySelector<HTMLElement>('.oi-arr-exp-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const children = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field'));
-        assert.deepStrictEqual(children.map(c => elementText(c.querySelector('.si-f-name'))), ['mode', 'code']);
-        assert.strictEqual(elementText(children[0].querySelector('.si-f-val')), 'ON (0x1)');
-        assert.ok(!elementText(children[1].querySelector('.si-f-val')).includes('('), 'unlabeled child stays numeric');
+        const children = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field'));
+        assert.deepStrictEqual(children.map(c => elementText(c.querySelector('.oi-f-name'))), ['mode', 'code']);
+        assert.strictEqual(elementText(children[0].querySelector('.oi-f-val')), 'ON (0x1)');
+        assert.ok(!elementText(children[1].querySelector('.oi-f-val')).includes('('), 'unlabeled child stays numeric');
     });
 
     test('field type picker offers the enum reference and a def picker', async () => {
@@ -3350,7 +3350,7 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('struct');
 
-        const sel = document.querySelector<HTMLSelectElement>('#se-fields .sfe-type-sel')!;
+        const sel = document.querySelector<HTMLSelectElement>('#oe-fields .ofe-type-sel')!;
         const opt = sel.querySelector<HTMLOptionElement>('option[value="enum:mode"]');
         assert.ok(opt, 'type picker should offer the enum reference option');
         assert.strictEqual(opt!.textContent, 'enum Mode');
@@ -3362,12 +3362,12 @@ suite('OverlayPanel deep-render harness', () => {
         S.types = [enumModeDef(), enumUserDef()];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="user"]'));
+        click(dom, document.querySelector('.od-row .act-btn-edit[data-type-id="user"]'));
 
-        const row = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
-        assert.strictEqual((row.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'enum:mode');
-        assert.ok((row.querySelector('.sfe-ptr-btn') as HTMLButtonElement).disabled, 'enum field cannot be a pointer');
-        assert.strictEqual(row.querySelector('.sfe-alloc-sel'), null, 'enum field shows no allocation override');
+        const row = document.querySelector<HTMLElement>('#oe-fields .field-row[data-idx="0"]')!;
+        assert.strictEqual((row.querySelector('.ofe-type-sel') as HTMLSelectElement).value, 'enum:mode');
+        assert.ok((row.querySelector('.ofe-ptr-btn') as HTMLButtonElement).disabled, 'enum field cannot be a pointer');
+        assert.strictEqual(row.querySelector('.ofe-alloc-sel'), null, 'enum field shows no allocation override');
     });
 
     test('enum def editor saves base width + entries and lists a kind badge', async () => {
@@ -3376,21 +3376,21 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('enum');
 
-        assert.ok(document.getElementById('se-enum-base-type'), 'enum form should render a base width select');
-        assert.strictEqual((document.getElementById('se-enum-base-type') as HTMLSelectElement).value, 'uint8');
-        assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 1, 'seeded with one entry row');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no type field grid in the enum form');
+        assert.ok(document.getElementById('oe-enum-base-type'), 'enum form should render a base width select');
+        assert.strictEqual((document.getElementById('oe-enum-base-type') as HTMLSelectElement).value, 'uint8');
+        assert.strictEqual(document.querySelectorAll('#oe-enum-entries .ofe-enum-entry-row').length, 1, 'seeded with one entry row');
+        assert.strictEqual(document.querySelector('.field-row'), null, 'no type field grid in the enum form');
 
-        (document.getElementById('se-name') as HTMLInputElement).value = 'Mode';
-        click(dom, document.getElementById('se-enum-add'));
-        const rows = document.querySelectorAll<HTMLElement>('#se-enum-entries .sfe-enum-entry-row');
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'Mode';
+        click(dom, document.getElementById('oe-enum-add'));
+        const rows = document.querySelectorAll<HTMLElement>('#oe-enum-entries .ofe-enum-entry-row');
         assert.strictEqual(rows.length, 2, 'Add entry appends a row');
-        (rows[0].querySelector('.sfe-enum-entry-name') as HTMLInputElement).value = 'OFF';
-        (rows[0].querySelector('.sfe-enum-entry-value') as HTMLInputElement).value = '0';
-        (rows[1].querySelector('.sfe-enum-entry-name') as HTMLInputElement).value = 'ON';
-        (rows[1].querySelector('.sfe-enum-entry-value') as HTMLInputElement).value = '0x1';
+        (rows[0].querySelector('.ofe-enum-entry-name') as HTMLInputElement).value = 'OFF';
+        (rows[0].querySelector('.ofe-enum-entry-value') as HTMLInputElement).value = '0';
+        (rows[1].querySelector('.ofe-enum-entry-name') as HTMLInputElement).value = 'ON';
+        (rows[1].querySelector('.ofe-enum-entry-value') as HTMLInputElement).value = '0x1';
 
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
         const saved = S.types.find(d => d.kind === 'enum');
         assert.ok(saved, 'enum def should be saved');
@@ -3398,7 +3398,7 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(saved!.baseType, 'uint8');
         assert.deepStrictEqual(saved!.fields, []);
         assert.deepStrictEqual(saved!.entries, [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }]);
-        assert.strictEqual(elementText(document.querySelector('.sd-row .sd-kind')), 'enum', 'type list should show an enum kind badge');
+        assert.strictEqual(elementText(document.querySelector('.od-row .od-kind')), 'enum', 'type list should show an enum kind badge');
     });
 
     test('enum def editor labels its entry columns with a header above the rows', async () => {
@@ -3408,24 +3408,24 @@ suite('OverlayPanel deep-render harness', () => {
         openKindEditor('enum');
         injectOverlayPanelCss();
 
-        const hdr = document.querySelector<HTMLElement>('.sfe-enum-entry-hdr');
+        const hdr = document.querySelector<HTMLElement>('.ofe-enum-entry-hdr');
         assert.ok(hdr, 'enum form should render an entry column header');
         assert.deepStrictEqual(Array.from(hdr!.children).map(elementText), ['', 'Name', '', 'Value', '', ''],
             'header cells label the name/value columns and stay blank over the indent, =, move and delete cells');
-        assert.strictEqual(hdr!.closest('#se-enum-entries'), null, 'header sits outside the refreshed row container');
-        assert.strictEqual(document.getElementById('se-enum-entries')!.previousElementSibling, hdr, 'header sits directly above the rows');
+        assert.strictEqual(hdr!.closest('#oe-enum-entries'), null, 'header sits outside the refreshed row container');
+        assert.strictEqual(document.getElementById('oe-enum-entries')!.previousElementSibling, hdr, 'header sits directly above the rows');
 
-        click(dom, document.getElementById('se-enum-add'));
-        assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 2, 'Add entry appends a row');
-        assert.strictEqual(document.querySelector('.sfe-enum-entry-hdr'), hdr, 'header node survives the incremental row rebuild after Add');
+        click(dom, document.getElementById('oe-enum-add'));
+        assert.strictEqual(document.querySelectorAll('#oe-enum-entries .ofe-enum-entry-row').length, 2, 'Add entry appends a row');
+        assert.strictEqual(document.querySelector('.ofe-enum-entry-hdr'), hdr, 'header node survives the incremental row rebuild after Add');
 
-        click(dom, document.querySelector('#se-enum-entries .sfe-enum-entry-row .sfe-enum-del-entry'));
-        assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 1, 'deleting an entry removes its row');
-        assert.strictEqual(document.querySelector('.sfe-enum-entry-hdr'), hdr, 'header node survives the incremental row rebuild after delete');
+        click(dom, document.querySelector('#oe-enum-entries .ofe-enum-entry-row .ofe-enum-del-entry'));
+        assert.strictEqual(document.querySelectorAll('#oe-enum-entries .ofe-enum-entry-row').length, 1, 'deleting an entry removes its row');
+        assert.strictEqual(document.querySelector('.ofe-enum-entry-hdr'), hdr, 'header node survives the incremental row rebuild after delete');
 
-        const row = document.querySelector<HTMLElement>('#se-enum-entries .sfe-enum-entry-row')!;
-        assert.strictEqual(row.querySelector('.sfe-enum-entry-name')!.getAttribute('aria-label'), 'Enum entry name');
-        assert.strictEqual(row.querySelector('.sfe-enum-entry-value')!.getAttribute('aria-label'), 'Enum entry value');
+        const row = document.querySelector<HTMLElement>('#oe-enum-entries .ofe-enum-entry-row')!;
+        assert.strictEqual(row.querySelector('.ofe-enum-entry-name')!.getAttribute('aria-label'), 'Enum entry name');
+        assert.strictEqual(row.querySelector('.ofe-enum-entry-value')!.getAttribute('aria-label'), 'Enum entry value');
 
         // R3: the labels only line up if header and rows resolve the very same columns.
         const template = computedGridTemplate(dom, row);
@@ -3440,12 +3440,12 @@ suite('OverlayPanel deep-render harness', () => {
 
         await createMountedPanel();
         openKindEditor('enum');
-        (document.getElementById('se-name') as HTMLInputElement).value = 'Mode';
-        (document.querySelector('#se-enum-entries .sfe-enum-entry-value') as HTMLInputElement).value = '0x100';
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'Mode';
+        (document.querySelector('#oe-enum-entries .ofe-enum-entry-value') as HTMLInputElement).value = '0x100';
 
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
-        assert.ok(document.querySelector('.se-error'), 'oversized entry should surface an inline error');
+        assert.ok(document.querySelector('.oe-error'), 'oversized entry should surface an inline error');
         assert.strictEqual(S.types.length, 0, 'no def is committed while invalid');
     });
 
@@ -3455,14 +3455,14 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('bitfield');
 
-        const enumSel = document.querySelector<HTMLSelectElement>('#se-bf-def-children .sfe-bf-child-enum');
+        const enumSel = document.querySelector<HTMLSelectElement>('#oe-bf-def-children .ofe-bf-child-enum');
         assert.ok(enumSel, 'bit-field child row should offer an enum picker');
         assert.ok(enumSel!.querySelector('option[value="mode"]'), 'picker should list the enum def');
         enumSel!.value = 'mode';
         enumSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
 
-        (document.getElementById('se-name') as HTMLInputElement).value = 'Bits';
-        click(dom, document.getElementById('se-save'));
+        (document.getElementById('oe-name') as HTMLInputElement).value = 'Bits';
+        click(dom, document.getElementById('oe-save'));
 
         const saved = S.types.find(d => d.kind === 'bitfield');
         assert.ok(saved, 'bit-field def should save');
@@ -3475,15 +3475,15 @@ suite('OverlayPanel deep-render harness', () => {
         setBytesInSegment(0, [0x00]);
 
         await renderPinsAndExpandCard();
-        assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), 'OFF (0x00)');
+        assert.strictEqual(elementText(document.querySelector('.oi-fields > .oi-field .oi-f-val')), 'OFF (0x00)');
 
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="mode"]'));
-        const entryName = document.querySelector<HTMLInputElement>('#se-enum-entries .sfe-enum-entry-name')!;
+        click(dom, document.querySelector('.od-row .act-btn-edit[data-type-id="mode"]'));
+        const entryName = document.querySelector<HTMLInputElement>('#oe-enum-entries .ofe-enum-entry-name')!;
         entryName.value = 'OFFLINE';
         entryName.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-        click(dom, document.getElementById('se-save'));
+        click(dom, document.getElementById('oe-save'));
 
-        assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), 'OFFLINE (0x00)');
+        assert.strictEqual(elementText(document.querySelector('.oi-fields > .oi-field .oi-f-val')), 'OFFLINE (0x00)');
     });
 
     test('deleting a referenced enum strips orphan scalar + bit-child refs (pin-safe)', async () => {
@@ -3493,7 +3493,7 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-del[data-type-id="mode"]'));
+        click(dom, document.querySelector('.od-row .act-btn-del[data-type-id="mode"]'));
         confirmDelete(dom);
         await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -3506,12 +3506,12 @@ suite('OverlayPanel deep-render harness', () => {
     // ── hidden fields (Instances view filter) ──────────────
 
     function topFieldNames(): string[] {
-        return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
-            .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
+        return Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > *'))
+            .map(el => el.querySelector<HTMLElement>('.oi-f-name')?.textContent ?? '');
     }
 
     function setShowHidden(show: boolean): void {
-        const btn = document.getElementById('si-show-hidden-btn') as HTMLButtonElement | null;
+        const btn = document.getElementById('oi-show-hidden-btn') as HTMLButtonElement | null;
         assert.ok(btn, 'show-hidden toggle should render');
         if ((btn!.getAttribute('aria-pressed') === 'true') !== show) { click(dom, btn!); }
     }
@@ -3552,15 +3552,15 @@ suite('OverlayPanel deep-render harness', () => {
         await renderPinsAndExpandCard();
 
         const ctrlGroup = (): HTMLElement | undefined =>
-            Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp'))
-                .find(g => g.querySelector<HTMLElement>('.si-f-name')?.textContent === 'ctrl');
+            Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp'))
+                .find(g => g.querySelector<HTMLElement>('.oi-f-name')?.textContent === 'ctrl');
         assert.strictEqual(ctrlGroup(), undefined, 'hidden bit-field container group is not rendered');
 
         setShowHidden(true);
         const group = ctrlGroup();
         assert.ok(group, 'toggle on reveals the bit-field container group');
-        click(dom, group!.querySelector<HTMLElement>('.si-arr-exp-btn'));
-        const childNames = Array.from(group!.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name'))
+        click(dom, group!.querySelector<HTMLElement>('.oi-arr-exp-btn'));
+        const childNames = Array.from(group!.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(childNames, ['lo', 'hi'], 'revealing the container reveals its bit children');
     });
@@ -3569,18 +3569,18 @@ suite('OverlayPanel deep-render harness', () => {
         hiddenFixture();
         await renderPinsAndExpandCard();
 
-        const nodesGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp')!;
-        click(dom, nodesGroup.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn'));
-        click(dom, document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn'));
+        const nodesGroup = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp')!;
+        click(dom, nodesGroup.querySelector<HTMLElement>('.oi-arr-grp-hdr .oi-arr-exp-btn'));
+        click(dom, document.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-arr-el-exp-btn'));
 
-        const firstElement = document.querySelector<HTMLElement>('.si-arr-el-grp')!;
-        const nestedNames = Array.from(firstElement.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
+        const firstElement = document.querySelector<HTMLElement>('.oi-arr-el-grp')!;
+        const nestedNames = Array.from(firstElement.querySelectorAll<HTMLElement>('.oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(nestedNames, ['tag'], 'visible nested leaf renders, hidden nested leaf is dropped');
 
         setShowHidden(true);
-        const firstElementAfter = document.querySelector<HTMLElement>('.si-arr-el-grp')!;
-        const revealed = Array.from(firstElementAfter.querySelectorAll<HTMLElement>('.si-field .si-f-name'))
+        const firstElementAfter = document.querySelector<HTMLElement>('.oi-arr-el-grp')!;
+        const revealed = Array.from(firstElementAfter.querySelectorAll<HTMLElement>('.oi-field .oi-f-name'))
             .map(el => el.textContent ?? '');
         assert.deepStrictEqual(revealed, ['tag', 'secret'], 'toggle on reveals the nested hidden leaf too');
     });
@@ -3598,7 +3598,7 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-del[data-type-id="inner_del"]'));
+        click(dom, document.querySelector('.od-row .act-btn-del[data-type-id="inner_del"]'));
         confirmDelete(dom);
         await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -3624,18 +3624,18 @@ suite('OverlayPanel deep-render harness', () => {
 
         assert.deepStrictEqual(topFieldNames(), ['flags', 'state'], 'hidden field omitted; bit-field ref + enum render');
 
-        const group = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp')!;
-        assert.ok(group.querySelector('.si-arr-grp-hdr.si-bitunit-hdr'), 'bit-field ref renders as a bitunit group');
-        click(dom, group.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn'));
-        const childNames = Array.from(group.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')).map(elementText);
+        const group = document.querySelector<HTMLElement>('.oi-fields > .oi-arr-grp')!;
+        assert.ok(group.querySelector('.oi-arr-grp-hdr.oi-bitunit-hdr'), 'bit-field ref renders as a bitunit group');
+        click(dom, group.querySelector<HTMLElement>('.oi-arr-grp-hdr .oi-arr-exp-btn'));
+        const childNames = Array.from(group.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field .oi-f-name')).map(elementText);
         assert.deepStrictEqual(childNames, ['mode', 'code'], 'referenced bit-field children render');
-        const modeField = Array.from(group.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field'))
-            .find(el => elementText(el.querySelector('.si-f-name')) === 'mode')!;
-        assert.strictEqual(elementText(modeField.querySelector('.si-f-val')), 'ON (0x1)', 'enum-ref bit child label uses its bit width (1 hex digit)');
+        const modeField = Array.from(group.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field'))
+            .find(el => elementText(el.querySelector('.oi-f-name')) === 'mode')!;
+        assert.strictEqual(elementText(modeField.querySelector('.oi-f-val')), 'ON (0x1)', 'enum-ref bit child label uses its bit width (1 hex digit)');
 
-        const stateRow = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field'))
-            .find(el => elementText(el.querySelector('.si-f-name')) === 'state')!;
-        assert.strictEqual(elementText(stateRow.querySelector('.si-f-val')), 'ON (0x01)', 'enum scalar label uses the field width');
+        const stateRow = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-field'))
+            .find(el => elementText(el.querySelector('.oi-f-name')) === 'state')!;
+        assert.strictEqual(elementText(stateRow.querySelector('.oi-f-val')), 'ON (0x01)', 'enum scalar label uses the field width');
 
         setShowHidden(true);
         assert.deepStrictEqual(topFieldNames(), ['reserved', 'flags', 'state'], 'toggle on reveals the hidden field alongside the new features');
@@ -3644,17 +3644,17 @@ suite('OverlayPanel deep-render harness', () => {
     // ── hidden bit children (def-level, instance view) ────────────
 
     function bitUnitGroups(): HTMLElement[] {
-        return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp'));
+        return Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > .oi-arr-grp'));
     }
 
     function expandBitUnit(group: HTMLElement): void {
         if (!group.classList.contains('open')) {
-            click(dom, group.querySelector<HTMLElement>('.si-arr-grp-hdr .si-arr-exp-btn'));
+            click(dom, group.querySelector<HTMLElement>('.oi-arr-grp-hdr .oi-arr-exp-btn'));
         }
     }
 
     function bitChildNames(group: HTMLElement): string[] {
-        return Array.from(group.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-field .si-f-name')).map(elementText);
+        return Array.from(group.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-field .oi-f-name')).map(elementText);
     }
 
     test('a hidden bit child is absent by default, revealed by Show hidden, container header intact', async () => {
@@ -3669,13 +3669,13 @@ suite('OverlayPanel deep-render harness', () => {
         await renderPinsAndExpandCard();
 
         const group = bitUnitGroups()[0];
-        assert.ok(group.querySelector('.si-arr-grp-hdr.si-bitunit-hdr'), 'container header row renders');
+        assert.ok(group.querySelector('.oi-arr-grp-hdr.oi-bitunit-hdr'), 'container header row renders');
         expandBitUnit(group);
         assert.deepStrictEqual(bitChildNames(group), ['hi'], 'the hidden bit child row is omitted by default');
 
         setShowHidden(true);
         const revealed = bitUnitGroups()[0];
-        assert.ok(revealed.querySelector('.si-arr-grp-hdr.si-bitunit-hdr'), 'container header row stays after the in-place refresh');
+        assert.ok(revealed.querySelector('.oi-arr-grp-hdr.oi-bitunit-hdr'), 'container header row stays after the in-place refresh');
         expandBitUnit(revealed);
         assert.deepStrictEqual(bitChildNames(revealed), ['lo', 'hi'], 'Show hidden reveals the hidden bit child');
     });
@@ -3692,10 +3692,10 @@ suite('OverlayPanel deep-render harness', () => {
         await renderPinsAndExpandCard();
 
         const group = bitUnitGroups()[0];
-        const hdr = group.querySelector<HTMLElement>('.si-arr-grp-hdr')!;
-        assert.ok(hdr.classList.contains('si-bitunit-hdr'), 'container header row still renders');
-        assert.ok(elementText(hdr.querySelector('.si-f-name')), 'the container header keeps its name');
-        assert.ok(elementText(hdr.querySelector('.si-f-val')), 'the container header keeps its decoded value');
+        const hdr = group.querySelector<HTMLElement>('.oi-arr-grp-hdr')!;
+        assert.ok(hdr.classList.contains('oi-bitunit-hdr'), 'container header row still renders');
+        assert.ok(elementText(hdr.querySelector('.oi-f-name')), 'the container header keeps its name');
+        assert.ok(elementText(hdr.querySelector('.oi-f-val')), 'the container header keeps its decoded value');
         expandBitUnit(group);
         assert.deepStrictEqual(bitChildNames(group), [], 'no bit child rows render when all are hidden');
 
@@ -3730,16 +3730,16 @@ suite('OverlayPanel deep-render harness', () => {
     });
 
     function expandBitElements(): void {
-        document.querySelectorAll<HTMLElement>('.si-arr-grp .si-arr-el-grp').forEach(element => {
+        document.querySelectorAll<HTMLElement>('.oi-arr-grp .oi-arr-el-grp').forEach(element => {
             if (!element.classList.contains('open')) {
-                click(dom, element.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn'));
+                click(dom, element.querySelector<HTMLElement>('.oi-arr-el-hdr .oi-arr-el-exp-btn'));
             }
         });
     }
 
     function bitElementChildNames(): string[] {
         return Array.from(
-            document.querySelectorAll<HTMLElement>('.si-arr-grp-body .si-arr-el-body .si-field .si-f-name'),
+            document.querySelectorAll<HTMLElement>('.oi-arr-grp-body .oi-arr-el-body .oi-field .oi-f-name'),
         ).map(elementText);
     }
 
@@ -3783,11 +3783,11 @@ suite('OverlayPanel deep-render harness', () => {
 
         await renderPinsAndExpandCard();
 
-        click(dom, document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn'));
-        click(dom, document.querySelector<HTMLElement>('.si-ptr-child-hdr .si-arr-exp-btn'));
+        click(dom, document.querySelector<HTMLElement>('.oi-ptr-hdr .oi-arr-exp-btn'));
+        click(dom, document.querySelector<HTMLElement>('.oi-ptr-child-hdr .oi-arr-exp-btn'));
 
-        const container = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr'))
-            .find(hdr => elementText(hdr.querySelector('.si-f-name')) === 'ctrl')?.closest<HTMLElement>('.si-arr-grp');
+        const container = Array.from(document.querySelectorAll<HTMLElement>('.oi-arr-grp-hdr.oi-bitunit-hdr'))
+            .find(hdr => elementText(hdr.querySelector('.oi-f-name')) === 'ctrl')?.closest<HTMLElement>('.oi-arr-grp');
         assert.ok(container, 'the pointer target bit-field container renders inline');
         expandBitUnit(container!);
         assert.deepStrictEqual(bitChildNames(container!), ['hi'], 'the target type resolves its own hidden bit child');
@@ -3810,24 +3810,33 @@ suite('OverlayPanel deep-render harness', () => {
 
         // Instance-view golden: a pool that uses none of the new features
         // (hidden / reusable bit-field ref / enum) renders exactly as before.
-        const rendered = document.querySelector<HTMLElement>('.si-fields')!.innerHTML;
+        const rendered = document.querySelector<HTMLElement>('.oi-fields')!.innerHTML;
         assert.deepStrictEqual(
-            Array.from(document.querySelectorAll<HTMLElement>('.si-fields .si-f-name')).map(elementText),
+            Array.from(document.querySelectorAll<HTMLElement>('.oi-fields .oi-f-name')).map(elementText),
             ['count', 'items', '[0]', '[1]', 'child', 'tag'],
             'visible row names are the pre-change set',
         );
-        // The golden moved with the B1 `data-source-struct-id` → `data-source-type-id`
-        // attribute rename (the attribute mirrors the renamed persisted key). Folding
-        // the old name back in must reproduce the pre-rename hash byte-for-byte —
-        // proof that nothing else in the rendered view changed.
+        // The golden moved with the DOM/CSS vocabulary rename: the struct-derived
+        // class families became the overlay families (and the `data-source-*`
+        // attribute mirrors the renamed persisted key). Folding the legacy
+        // vocabulary back in must reproduce the pre-rename hash byte-for-byte —
+        // proof that the rename changed nothing else in the rendered view.
+        const legacyVocabulary = rendered
+            .split('ofe-').join('sfe-')
+            .split('oi-').join('si-')
+            .split('oe-').join('se-')
+            .split('oa-').join('sa-')
+            .split('om-').join('sm-')
+            .split('od-').join('sd-')
+            .split('data-source-type-id').join('data-source-struct-id');
         assert.strictEqual(
-            crypto.createHash('sha256').update(rendered.split('data-source-type-id').join('data-source-struct-id')).digest('hex'),
+            crypto.createHash('sha256').update(legacyVocabulary).digest('hex'),
             'bf39479b1e6a22aff464bd4ae3592e06f1c1dccc6648c4cd928eb04807f4a640',
-            'the only instance-view markup change is the data-source-* attribute rename',
+            'folding the pre-rename vocabulary back in reproduces the pre-rename view hash',
         );
         assert.strictEqual(
             crypto.createHash('sha256').update(rendered).digest('hex'),
-            '0dc1b9bfd8669b3d1fc77b59819763d5d2fb165d41e4e619ecab9a93abbda455',
+            '960a850f2d62f6861baaff48c97135dec3d27b9621ab2db4d737a249590c4c79',
             'instance-view HTML is byte-identical with every new feature unused',
         );
 

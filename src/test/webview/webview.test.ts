@@ -637,7 +637,7 @@ suite('Record View rendering', () => {
             assert.strictEqual(document.querySelectorAll('#sidebar-common-settings').length, 1);
             assert.ok(document.getElementById('sidebar-btn-le')!.classList.contains('active'));
             assert.strictEqual(document.getElementById('btn-le'), null);
-            assert.strictEqual(document.getElementById('sa-btn-le'), null);
+            assert.strictEqual(document.getElementById('oa-btn-le'), null);
             assert.strictEqual(document.getElementById('integrity-btn-le'), null);
             assert.ok(document.getElementById('search-btn-auto'), 'Value Search keeps its own endian control');
 
@@ -663,7 +663,7 @@ suite('Record View rendering', () => {
             const inspSection = document.getElementById('s-insp')!;
             inspSection.querySelector<HTMLElement>('.sb-section-head')!.click();
             assert.ok(inspSection.classList.contains('collapsed'), 'inspector section collapsed');
-            document.getElementById('stab-struct')!.click();
+            document.getElementById('stab-overlay')!.click();
             document.getElementById('stab-inspector')!.click();
             assert.ok(document.getElementById('s-insp')!.classList.contains('collapsed'),
                 'collapse state survives tab round-trip');
@@ -688,10 +688,10 @@ suite('Record View rendering', () => {
                 } }));
             };
             pushHidden(false);
-            document.getElementById('stab-struct')!.click();
-            document.querySelector<HTMLElement>('.si-expand-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-            const seamNames = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
-                .map(el => el.querySelector<HTMLElement>('.si-f-name')?.textContent ?? '');
+            document.getElementById('stab-overlay')!.click();
+            document.querySelector<HTMLElement>('.oi-expand-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+            const seamNames = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > *'))
+                .map(el => el.querySelector<HTMLElement>('.oi-f-name')?.textContent ?? '');
             assert.deepStrictEqual(seamNames(), ['tag'], 'hidden field omitted under the default toggle');
 
             pushHidden(true);
@@ -820,7 +820,7 @@ suite('Integrity Checks sidebar', () => {
                 },
             });
             assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'comparison is always visible');
-            assert.strictEqual(integrityCard().querySelector('.si-expand-btn'), null);
+            assert.strictEqual(integrityCard().querySelector('.oi-expand-btn'), null);
             assert.strictEqual(integrityCard().querySelector('[data-auto-fix]'), null);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             await waitForIntegrityCalculation();
