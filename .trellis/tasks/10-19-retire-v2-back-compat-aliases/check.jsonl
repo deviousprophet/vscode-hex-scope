@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify the window is narrowed without regressing the legacy migrations"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar: no weakened assertions; the behavior change is asserted explicitly"}
-{"file": ".trellis/spec/frontend/overlay-model.md", "reason": "Verify the v2 key contract and lossless legacy migration"}
