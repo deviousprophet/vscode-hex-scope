@@ -96,6 +96,10 @@ async function readJsonValue(uri: vscode.Uri): Promise<unknown> {
     return JSON.parse(await readText(uri));
 }
 
+async function exists(p: string): Promise<boolean> {
+    try { await vscode.workspace.fs.stat(vscode.Uri.file(p)); return true; } catch { return false; }
+}
+
 async function profilesOnDisk(root: string): Promise<ProfileRecord[]> {
     const read = await readJson(profilesJsonUri(root));
     if (read.status !== 'ok') { return []; }
@@ -635,11 +639,11 @@ suite('hexScopeStorage — Type Overlay v1 → v2 key migration', () => {
         const workspaceState = new FakeMemento();
         await migrateLegacyData(testRoot, docUri, { globalState, workspaceState });
 
-        // The legacy file move is non-destructive (rollback safety) ...
-        assert.strictEqual((await readJson(legacyPoolUri)).status, 'ok', 'legacy pool file left in place');
+        // The legacy pool file is removed once the rewritten pool verifies ...
+        assert.strictEqual((await readJson(legacyPoolUri)).status, 'missing', 'legacy pool file deleted');
         assert.strictEqual(globalState.get<string>(TYPES_FILE_MARKER_KEY), testRoot, 'file-move marker set');
 
-        // ... and the pool is re-seeded as types.json @ v2 with the new ref keys.
+        // ... and the pool is seeded as types.json @ v2 with the new ref keys.
         const typesOnDisk = await readJsonValue(typePoolJsonUri(testRoot)) as { $schema?: string; data: { schemaVersion: number; defs: Array<{ id: string }> } };
         assert.strictEqual(typesOnDisk.data.schemaVersion, DATA_SCHEMA_VERSION, 'rewritten as a v2 payload');
         assert.deepStrictEqual(typesOnDisk.data.defs.map(d => d.id).sort(), ['bits', 'mode', 's1', 's2'], 'no def lost');
@@ -1071,6 +1075,29 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         await writeText(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'bindings.schema.json')), JSON.stringify({ stale: true }));
         assert.deepStrictEqual(await seedSchemaCopies(testRoot), ['bindings.schema.json'], 'only the differing copy is rewritten');
         assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'back to current');
+    });
+
+    test('retired schema copies are pruned; current copies and non-schema files survive', async () => {
+        await seedSchemaCopies(testRoot);
+        const schemasDir = hexScopeSchemasDir(testRoot);
+        const retired = vscode.Uri.file(path.join(schemasDir, 'structs.schema.json'));
+        const stray = vscode.Uri.file(path.join(schemasDir, 'notes.txt'));
+        await writeText(retired, JSON.stringify({ retired: true }));
+        await writeText(stray, 'keep me');
+
+        assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'no current copy is rewritten');
+
+        assert.strictEqual(await exists(retired.fsPath), false, 'retired pre-rename copy pruned');
+        assert.strictEqual(await readText(stray), 'keep me', 'non-schema file untouched');
+        const kept = (await vscode.workspace.fs.readDirectory(vscode.Uri.file(schemasDir)))
+            .map(([name]) => name).sort();
+        assert.deepStrictEqual(kept, ['bindings.schema.json', 'notes.txt', 'profiles.schema.json', 'types.schema.json'], 'the three current copies remain');
+    });
+
+    test('schema pruning no-ops when .hexscope/schemas is absent (seeding still creates it)', async () => {
+        assert.strictEqual(await exists(hexScopeSchemasDir(testRoot)), false, 'no schema dir before the first write');
+        const written = await seedSchemaCopies(testRoot);
+        assert.deepStrictEqual(written.sort(), ['bindings.schema.json', 'profiles.schema.json', 'types.schema.json'], 'absent dir → copies seeded, no prune error');
     });
 
     test('the refresh leaves the data files byte-identical', async () => {
@@ -1514,6 +1541,179 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.strictEqual((await readJson(bindingsJsonUri(testRoot))).status, 'missing', 'no bindings created');
         assert.ok(onlyMigrationMarkerRemains(globalState), 'no legacy keys (markers aside)');
         assert.deepStrictEqual(workspaceState.keys(), []);
+    });
+});
+
+suite('hexScopeMigration — legacy pool cleanup', () => {
+    setup(makeTestRoot);
+    teardown(removeTestRoot);
+
+    const uri = () => vscode.Uri.file(path.join(testRoot, ...REL_WIN.split(path.sep)));
+    const legacyPoolUri = () => vscode.Uri.file(path.join(testRoot, '.hexscope', 'structs.json'));
+
+    async function migrate(globalState = new FakeMemento()): Promise<FakeMemento> {
+        await migrateLegacyData(testRoot, uri(), { globalState, workspaceState: new FakeMemento() });
+        return globalState;
+    }
+
+    test('legacy-only workspace: types.json is written and structs.json is deleted', async () => {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
+        await writeText(legacyPoolUri(), JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
+
+        const globalState = await migrate();
+
+        const types = await readJson(typePoolJsonUri(testRoot));
+        assert.strictEqual(types.status, 'ok', 'types.json written');
+        assert.strictEqual(await exists(legacyPoolUri().fsPath), false, 'legacy pool file hard-deleted');
+        assert.strictEqual(globalState.get<string>(TYPES_FILE_MARKER_KEY), testRoot, 'one-shot marker set');
+    });
+
+    test('both files present with a valid types.json: legacy file is deleted, types.json is byte-identical', async () => {
+        const typesText = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION, defs: [{ id: 's1', name: 'S1', fields: [] }] },
+        }, null, 2);
+        await writeText(typePoolJsonUri(testRoot), typesText);
+        await writeText(legacyPoolUri(), JSON.stringify({ version: 1, data: [{ id: 'legacy', name: 'Legacy', fields: [] }] }));
+
+        await migrate();
+
+        assert.strictEqual(await exists(legacyPoolUri().fsPath), false, 'legacy file removed on the one-shot pass');
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), typesText, 'verified types.json untouched');
+    });
+
+    test('corrupt types.json preserves the legacy file (never delete the only good copy)', async () => {
+        const corrupt = '{ not json';
+        const legacyText = JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] });
+        await writeText(typePoolJsonUri(testRoot), corrupt);
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), corrupt, 'corrupt types.json left untouched');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'legacy pool preserved');
+    });
+
+    test('a newer-than-build types.json preserves the legacy file', async () => {
+        const future = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION + 1, defs: [{ id: 'future', name: 'Future', fields: [] }] },
+        }, null, 2);
+        const legacyText = JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] });
+        await writeText(typePoolJsonUri(testRoot), future);
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), future, 'newer pool untouched (forward-only)');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'legacy pool preserved');
+    });
+
+    test('missing types.json with a corrupt legacy file does nothing', async () => {
+        await writeText(legacyPoolUri(), '{ broken');
+        await migrate();
+
+        assert.strictEqual((await readJson(typePoolJsonUri(testRoot))).status, 'missing', 'no pool fabricated');
+        assert.strictEqual(await readText(legacyPoolUri()), '{ broken', 'legacy file untouched');
+    });
+
+    test('a types.json whose defs is not an array does not license deleting the legacy file', async () => {
+        const unverified = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION, defs: { id: 'not-an-array' } },
+        }, null, 2);
+        const legacyText = JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] });
+        await writeText(typePoolJsonUri(testRoot), unverified);
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), unverified, 'unverified pool untouched');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'legacy pool preserved');
+    });
+
+    test('a types.json with an absent defs key preserves the legacy file', async () => {
+        const poolWithoutDefs = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION },
+        }, null, 2);
+        const legacyText = JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] });
+        await writeText(typePoolJsonUri(testRoot), poolWithoutDefs);
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), poolWithoutDefs, 'pool without defs untouched');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'legacy pool preserved: an absent defs payload never licenses the delete');
+    });
+
+    test('a verified types.json with an empty defs array preserves the legacy file', async () => {
+        // Hardening: an empty new pool must never licence deleting a legacy file
+        // that may still hold the only data. Empty is not proof of a safe move.
+        const emptyPool = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION, defs: [] },
+        }, null, 2);
+        const legacyText = JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] });
+        await writeText(typePoolJsonUri(testRoot), emptyPool);
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), emptyPool, 'empty pool untouched');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'legacy pool preserved: an empty defs array never licenses the delete');
+    });
+
+    test('an empty legacy defs payload is written forward but the legacy file is kept', async () => {
+        const legacyText = JSON.stringify({ version: 1, data: [] });
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        const written: { data?: unknown } = JSON.parse(await readText(typePoolJsonUri(testRoot)));
+        assert.deepStrictEqual(written.data, { schemaVersion: DATA_SCHEMA_VERSION, defs: [] }, 'empty pool written at the current shape');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'empty write-back does not license deleting the legacy file');
+    });
+
+    test('a legacy payload that is not a defs pool seeds no types.json and is kept', async () => {
+        const legacyText = JSON.stringify({ version: 1, data: { not: 'a pool' } });
+        await writeText(legacyPoolUri(), legacyText);
+
+        await migrate();
+
+        assert.strictEqual((await readJson(typePoolJsonUri(testRoot))).status, 'missing', 'no bogus pool fabricated');
+        assert.strictEqual(await readText(legacyPoolUri()), legacyText, 'legacy file untouched');
+    });
+
+    test('a failed legacy delete is non-fatal and leaves the marker unset for a retry', async () => {
+        // A non-empty directory at the legacy path is not removable by the
+        // non-recursive hard delete, so it exercises the failure branch.
+        const typesText = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION, defs: [{ id: 's1', name: 'S1', fields: [] }] },
+        }, null, 2);
+        await writeText(typePoolJsonUri(testRoot), typesText);
+        const blocked = path.join(testRoot, '.hexscope', 'structs.json');
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(blocked));
+        await writeText(vscode.Uri.file(path.join(blocked, 'blocker.txt')), 'x');
+
+        const globalState = await migrate();
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), typesText, 'verified pool intact');
+        assert.strictEqual(await exists(blocked), true, 'legacy path could not be removed');
+        assert.strictEqual(globalState.get<string>(TYPES_FILE_MARKER_KEY), undefined, 'marker withheld so a later open retries');
+    });
+
+    test('running the pass twice is a no-op', async () => {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
+        await writeText(legacyPoolUri(), JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
+        const globalState = await migrate();
+        const typesAfterFirst = await readText(typePoolJsonUri(testRoot));
+
+        await migrate(globalState);
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), typesAfterFirst, 'no rewrite on the second pass');
+        assert.strictEqual(await exists(legacyPoolUri().fsPath), false, 'still deleted');
     });
 });
 

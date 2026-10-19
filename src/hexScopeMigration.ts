@@ -36,6 +36,7 @@ import {
     withEnvelope,
     writeJson,
     writeProfileRecord,
+    type JsonRead,
     type ProfileRecord,
 } from './hexScopeStorage';
 
@@ -126,26 +127,92 @@ async function migrateProfilesDirToArray(root: string, context: MigrationContext
     await context.globalState.update(marker, root);
 }
 
-/** One-shot `.hexscope/structs.json` → `.hexscope/types.json` file move (the
+/** One-shot `.hexscope/structs.json` → `.hexscope/types.json` move (the
  *  payload is migrated forward on the way, so the new file starts at the current
- *  data-schema version). The marker is Memento (restart safe); the legacy file is
- *  left in place so a revert of this release still finds its data — the pool is
- *  re-seeded, never moved destructively. No-op when `types.json` already exists. */
+ *  data-schema version). The marker is Memento (restart safe). The legacy file is
+ *  deleted only after `types.json` reads back as a usable *non-empty* `defs`
+ *  pool — it may be the only good copy. No-op when the legacy file is absent. */
 async function migrateTypePoolFile(root: string, context: MigrationContext): Promise<void> {
     const marker = TYPES_FILE_MARKER;
     if (context.globalState.get<string>(marker) === root) { return; }
-    await moveLegacyTypePoolFile(root);
-    await context.globalState.update(marker, root);
+    // Withhold the one-shot marker when the legacy delete itself failed (a
+    // transient lock/permission error): the next open retries the cleanup
+    // instead of leaving the inert duplicate behind forever. Verification
+    // outcomes (nothing to migrate / a preserved legacy file) stay one-shot.
+    if (await moveLegacyTypePoolFile(root)) {
+        await context.globalState.update(marker, root);
+    }
 }
 
-async function moveLegacyTypePoolFile(root: string): Promise<void> {
+/**
+ * Move the pre-rename pool file forward and remove it once the new file is
+ * verified. The legacy file is the only rollback copy, so deletion is
+ * conditional on a read-back that yields a **non-empty** array `defs` payload:
+ * - `types.json` ok + readable non-empty defs → delete the legacy file (covers
+ *   a workspace that already migrated before this change);
+ * - `types.json` missing → migrate the legacy payload forward, write it, then
+ *   read back and delete only if that verification passes;
+ * - `types.json` corrupt or newer than this build → leave the legacy file
+ *   untouched (a bad new file must never cost the only good copy);
+ * - `types.json` ok but with an empty/absent/non-array `defs` → also leave the
+ *   legacy file untouched: a valid-but-empty pool never licenses the delete.
+ *   The accepted trade-off is that a genuinely emptied pool keeps its legacy
+ *   file — the safe side of the decision.
+ * A failed delete is non-fatal (logged): the verified `types.json` stands and
+ * the caller retries the cleanup on the next open.
+ * Returns `true` when the cleanup is settled (nothing left to do), `false` when
+ * the legacy file is still there because the delete failed.
+ */
+async function moveLegacyTypePoolFile(root: string): Promise<boolean> {
     const next = typePoolJsonUri(root);
-    if ((await readJson(next)).status !== 'missing') { return; }
-    const legacy = await readJson(vscode.Uri.file(path.join(root, '.hexscope', LEGACY_TYPE_POOL_FILE)));
-    if (legacy.status !== 'ok') { return; }
-    const payload = migratedPayload(legacy.value, 'defs');
-    if (payload === null) { return; }   // newer than this build: never rewrite
+    const legacy = legacyTypePoolUri(root);
+    const current = await readJson(next);
+    if (current.status === 'ok') {
+        return deleteLegacyWhenPoolVerified(current, legacy);
+    }
+    if (current.status !== 'missing') { return true; }   // corrupt/newer: preserved by design
+    return migrateLegacyPoolFile(next, legacy);
+}
+
+/** `types.json` is missing: migrate the legacy payload forward, write it, then
+ *  delete the legacy file only when the read-back verifies. */
+async function migrateLegacyPoolFile(next: vscode.Uri, legacy: vscode.Uri): Promise<boolean> {
+    const legacyRead = await readJson(legacy);
+    if (legacyRead.status !== 'ok') { return true; }
+    const payload = migratedPayload(legacyRead.value, 'defs');
+    if (!Array.isArray(payload)) { return true; }   // nothing trustworthy to seed (newer than build / not a pool)
     await writeJson(next, withEnvelope(withDataEnvelope('defs', payload)));
+    return deleteLegacyWhenPoolVerified(await readJson(next), legacy);
+}
+
+async function deleteLegacyWhenPoolVerified(read: JsonRead, legacy: vscode.Uri): Promise<boolean> {
+    if (!hasVerifiedPool(read)) { return true; }   // unverified/empty pool: keep the legacy copy
+    return removeLegacyTypePoolFile(legacy);
+}
+
+function legacyTypePoolUri(root: string): vscode.Uri {
+    return vscode.Uri.file(path.join(root, '.hexscope', LEGACY_TYPE_POOL_FILE));
+}
+
+/** A verified pool: the file reads back and carries a **non-empty** `defs`
+ *  array. Corrupt/unknown-version reads, newer-than-build payloads, and an
+ *  empty/absent/non-array `defs` all fail here: an empty new pool never
+ *  licenses deleting the legacy file, which may be the only good copy. */
+function hasVerifiedPool(read: JsonRead): boolean {
+    if (read.status !== 'ok') { return false; }
+    const payload = migratedPayload(read.value, 'defs');
+    return Array.isArray(payload) && payload.length > 0;
+}
+
+async function removeLegacyTypePoolFile(uri: vscode.Uri): Promise<boolean> {
+    if (!(await fileExists(uri))) { return true; }   // already gone
+    try {
+        await vscode.workspace.fs.delete(uri, { useTrash: false });   // permanent hard delete
+        return true;
+    } catch (error) {
+        console.warn(`HexScope: could not remove legacy ${LEGACY_TYPE_POOL_FILE}; keeping the verified types.json:`, error);
+        return false;
+    }
 }
 
 async function dirExists(p: string): Promise<boolean> {

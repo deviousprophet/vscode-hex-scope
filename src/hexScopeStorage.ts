@@ -505,7 +505,9 @@ function registryChanged(next: ProfileRecord[], current: ProfileRecord[]): boole
 
 /** Refresh .hexscope/schemas with the bundled schema copies (content-diff):
  *  each copy is written only when missing or its parsed content differs from
- *  the bundled schema. Returns the schema names actually (re)written. */
+ *  the bundled schema. Retired `*.schema.json` copies (e.g. the pre-rename
+ *  `structs.schema.json`) are pruned. Returns the schema names actually
+ *  (re)written. */
 export async function seedSchemaCopies(root: string): Promise<string[]> {
     const written: string[] = [];
     for (const { schema } of SCHEMA_FILES) {
@@ -517,7 +519,33 @@ export async function seedSchemaCopies(root: string): Promise<string[]> {
             written.push(schema);
         }
     }
+    await pruneRetiredSchemaCopies(root);
     return written;
+}
+
+/** Delete `*.schema.json` copies that fell out of `SCHEMA_FILES`. Scope is
+ *  exactly the `.hexscope/schemas/` directory, plain files only: a missing or
+ *  unreadable directory is a no-op, non-schema files are never touched, and a
+ *  failed delete is logged (the copies are tooling-only, never fatal). */
+async function pruneRetiredSchemaCopies(root: string): Promise<void> {
+    const current = new Set(SCHEMA_FILES.map(entry => entry.schema));
+    const dir = hexScopeSchemasDir(root);
+    for (const [name, type] of await readDirectorySafe(vscode.Uri.file(dir))) {
+        if (!isRetiredSchemaCopy(name, type, current)) { continue; }
+        await removeRetiredSchemaCopy(path.join(dir, name));
+    }
+}
+
+function isRetiredSchemaCopy(name: string, type: vscode.FileType, current: ReadonlySet<string>): boolean {
+    return type === vscode.FileType.File && name.endsWith('.schema.json') && !current.has(name);
+}
+
+async function removeRetiredSchemaCopy(file: string): Promise<void> {
+    try {
+        await vscode.workspace.fs.delete(vscode.Uri.file(file), { useTrash: false });
+    } catch (error) {
+        console.warn(`HexScope: could not prune retired schema copy ${file}:`, error);
+    }
 }
 
 /** Compare the parsed on-disk copy with the bundled value using the same
