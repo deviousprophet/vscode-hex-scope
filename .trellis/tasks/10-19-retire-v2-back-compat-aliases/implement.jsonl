@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Back-compat alias window, payload migration, legacy tree/Memento/per-dir paths, the both-keys precedence rule"}
+{"file": ".trellis/spec/frontend/overlay-model.md", "reason": "Persisted-key contract and the v2 naming"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "overlayAliases.ts module placement/role"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Identity-preserving alias typing/no spurious self-heal conventions"}
