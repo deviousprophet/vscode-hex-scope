@@ -2395,18 +2395,25 @@ suite('OverlayPanel deep-render harness', () => {
             assert.strictEqual(name.title, elementText(name), `row ${i} name title mirrors the full name`);
             assert.strictEqual(meta.title, expected[i].meta, `row ${i} meta title mirrors the full meta`);
         });
-        // Row order: name → kind → meta → actions.
-        assert.strictEqual(rows[0].children[0].className, 'od-name');
-        assert.ok(rows[0].children[1].classList.contains('od-kind'));
+        // Row order: kind chip → name → meta → actions.
+        assert.ok(rows[0].children[0].classList.contains('od-kind'), 'chip leads the row');
+        assert.strictEqual(rows[0].children[1].className, 'od-name');
         assert.strictEqual(rows[0].children[2].className, 'od-meta');
         assert.ok(rows[0].children[3].classList.contains('act-btn-edit'));
+        // The row title keeps the info discoverable when the narrow layout hides it.
+        rows.forEach((row, i) => {
+            assert.strictEqual(row.title, `${elementText(row.querySelector('.od-name'))} \u2014 ${expected[i].meta}`,
+                `row ${i} title carries name and meta`);
+        });
 
         // One column grid shared by every row (resolved from the real stylesheet),
-        // including when the rows are in separate grid containers.
+        // including when the rows are in separate grid containers. The leading chip
+        // track is fixed and the info is content-sized.
         injectOverlayPanelCss();
         const template = computedGridTemplate(dom, rows[0]);
         assert.notStrictEqual(template, '', 'type row grid template should resolve from the stylesheet');
-        assert.ok(template.includes('52px 58px'), 'kind and meta are fixed, aligned tracks');
+        assert.ok(template.includes('56px'), 'chip column is a fixed aligned track');
+        assert.ok(template.includes('max-content'), 'info is content-sized, not capped');
         for (const row of rows) {
             assert.strictEqual(computedGridTemplate(dom, row), template, 'every type row shares the same column grid');
         }
@@ -2421,6 +2428,8 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(elementText(name), 'a"b<c>&d', 'name text round-trips verbatim');
         assert.strictEqual(name.getAttribute('title'), 'a"b<c>&d', 'title attribute stays intact');
         assert.strictEqual(row.children.length, 5, 'no markup is injected by the name or its title');
+        assert.strictEqual(row.getAttribute('title'), 'a"b<c>&d \u2014 1 field \u00b7 1 B',
+            'the row title keeps both parts escaped and intact');
     });
 
     test('types filter bar keeps one row of shared filter controls', async () => {

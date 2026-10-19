@@ -1488,9 +1488,9 @@ private typeRowHtml(def: TypeDef, all: readonly TypeDef[]): string {
             : this.typeDefMeta(def, all);
     const badge = `<span class="od-kind od-kind-${kind}">${typeKindLabel(kind)}</span>`;
     return (
-        `<div class="od-row">` +
-        `<span class="od-name" title="${esc(def.name)}">${esc(def.name)}</span>` +
+        `<div class="od-row" title="${esc(def.name)} \u2014 ${esc(meta)}">` +
         badge +
+        `<span class="od-name" title="${esc(def.name)}">${esc(def.name)}</span>` +
         `<span class="od-meta" title="${esc(meta)}">${esc(meta)}</span>` +
         actionBtnsHtml(`data-type-id="${esc(def.id)}"`, `data-type-id="${esc(def.id)}"`) +
         `</div>`
