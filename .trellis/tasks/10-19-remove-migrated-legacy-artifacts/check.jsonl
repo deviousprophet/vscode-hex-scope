@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify the verified-then-delete matrix and schema pruning, and that no data-loss path was introduced"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify the tests assert the safe-delete matrix rather than restating the implementation"}
