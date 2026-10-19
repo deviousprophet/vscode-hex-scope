@@ -1,7 +1,0 @@
-{"file": ".trellis/spec/frontend/overlay-model.md", "reason": "Canonical struct/bit-field/enum model: type/field/instance shapes, normalization, persistence rules (read before renaming)"}
-{"file": ".trellis/spec/frontend/overlay-instance-display.md", "reason": "Instance render contract that the row renderer + value-format modules implement"}
-{"file": ".trellis/spec/frontend/components/component-sidebar-overlay-panel.md", "reason": "Overlay panel component contract: sections, editor forms, DOM ids/CSS that must NOT be renamed"}
-{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Persisted on-disk contract (structs.json / structPins / schema) that must stay byte-identical"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Directory/file layout conventions that the module renames must keep coherent"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Type/union naming + schema drift-guard conventions"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Webview state field names that reference the pool/instances"}
