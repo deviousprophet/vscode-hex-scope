@@ -2388,11 +2388,59 @@ suite('OverlayPanel deep-render harness', () => {
             assert.ok(chip.classList.contains(expected[i].modifier), `row ${i} kind modifier`);
             assert.strictEqual(elementText(row.querySelector('.od-meta')), expected[i].meta, `row ${i} meta`);
         });
+        // Ellipsized cells keep their full text reachable on hover.
+        rows.forEach((row, i) => {
+            const name = row.querySelector<HTMLElement>('.od-name')!;
+            const meta = row.querySelector<HTMLElement>('.od-meta')!;
+            assert.strictEqual(name.title, elementText(name), `row ${i} name title mirrors the full name`);
+            assert.strictEqual(meta.title, expected[i].meta, `row ${i} meta title mirrors the full meta`);
+        });
         // Row order: name → kind → meta → actions.
         assert.strictEqual(rows[0].children[0].className, 'od-name');
         assert.ok(rows[0].children[1].classList.contains('od-kind'));
         assert.strictEqual(rows[0].children[2].className, 'od-meta');
         assert.ok(rows[0].children[3].classList.contains('act-btn-edit'));
+
+        // One column grid shared by every row (resolved from the real stylesheet),
+        // including when the rows are in separate grid containers.
+        injectOverlayPanelCss();
+        const template = computedGridTemplate(dom, rows[0]);
+        assert.notStrictEqual(template, '', 'type row grid template should resolve from the stylesheet');
+        assert.ok(template.includes('52px 58px'), 'kind and meta are fixed, aligned tracks');
+        for (const row of rows) {
+            assert.strictEqual(computedGridTemplate(dom, row), template, 'every type row shares the same column grid');
+        }
+    });
+
+    test('types list escapes untrusted names in the name cell and its title', async () => {
+        S.types = [simpleDef('hostile', 'a"b<c>&d', [{ name: 'x', type: 'uint8', count: 1 }])];
+        await createMountedPanel();
+
+        const row = document.querySelector<HTMLElement>('#om-list .od-row')!;
+        const name = row.querySelector<HTMLElement>('.od-name')!;
+        assert.strictEqual(elementText(name), 'a"b<c>&d', 'name text round-trips verbatim');
+        assert.strictEqual(name.getAttribute('title'), 'a"b<c>&d', 'title attribute stays intact');
+        assert.strictEqual(row.children.length, 5, 'no markup is injected by the name or its title');
+    });
+
+    test('types filter bar keeps one row of shared filter controls', async () => {
+        S.types = [scalarDef];
+        await createMountedPanel();
+
+        const tools = document.querySelector<HTMLElement>('.od-tools');
+        assert.ok(tools, 'filter bar renders above the type list');
+        const filter = tools!.querySelector<HTMLInputElement>('#om-filter');
+        const kindFilter = tools!.querySelector<HTMLSelectElement>('#om-kind-filter');
+        assert.ok(filter, 'name filter renders in the filter bar');
+        assert.ok(kindFilter, 'kind filter renders in the filter bar');
+        assert.ok(filter!.classList.contains('od-filter'), 'name filter keeps its component class');
+        assert.ok(filter!.classList.contains('sb-input'), 'name filter keeps the input primitive');
+        assert.ok(filter!.classList.contains('sb-input-sm'), 'name filter keeps the dense-input modifier');
+        assert.ok(kindFilter!.classList.contains('od-kind-filter'), 'kind filter keeps its component class');
+        assert.ok(kindFilter!.classList.contains('sb-select'), 'kind filter keeps the select primitive');
+        assert.ok(kindFilter!.classList.contains('sb-input-sm'), 'kind filter keeps the dense-input modifier');
+        assert.deepStrictEqual(Array.from(tools!.children).map(el => el.id), ['om-filter', 'om-kind-filter'],
+            'filter bar holds exactly the two controls');
     });
 
     test('types filter narrows by name and kind, composes, and restores the full sorted list', async () => {

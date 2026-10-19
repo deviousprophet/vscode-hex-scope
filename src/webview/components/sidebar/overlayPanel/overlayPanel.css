@@ -22,22 +22,39 @@
 
 .od-empty { margin-bottom: 4px; }
 
+/* One shared column grid for every row: name | kind | meta | actions.
+   Tracks are identical across rows, so the kind chips, the meta right edge
+   and the action buttons line up down the list. The actions are two sibling
+   buttons (no wrapper), so they resolve to a trailing pair of `auto` tracks —
+   both are fixed 18px controls, identical on every row.
+   Track budget at the 260px sidebar minimum: the row measures 235px, its
+   content box 231px (2px side padding), and the fixed tracks + 4×4px gaps
+   take 162px (52 + 58 + 18 + 18 + 16) — leaving ≈69px for the name, the only
+   flexible cell. The kind track fits the widest chip ("Bit-field" measures
+   ≈46px); the meta is deliberately capped narrow because it is secondary and
+   ellipsizes. */
 .od-row {
-    display: flex; align-items: center; gap: 4px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 52px 58px auto auto;
+    align-items: center; gap: 4px;
     padding: 3px 2px; border-radius: 3px;
     border-bottom: 1px solid rgba(255,255,255,.04);
 }
 .od-row:last-child { border-bottom: none; }
 
+/* Name flexes and ellipsizes first; its `title` carries the full text. */
 .od-name {
-    flex: 1; min-width: 0;
+    min-width: 0;
     font-size: 11px; font-weight: 600; color: var(--fg);
     font-family: var(--font-ui);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Meta is capped, right-aligned (numbers line up) and ellipsizes with a `title`. */
 .od-meta {
-    flex-shrink: 0; font-size: 10px; color: var(--addr-fg);
-    font-family: var(--font-editor); white-space: nowrap;
+    min-width: 0; text-align: right;
+    font-size: 10px; color: var(--addr-fg);
+    font-family: var(--font-editor);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* Named-type discriminator badge — one shared primitive for the type list
@@ -73,13 +90,21 @@
 }
 
 /* Layout-only modifiers. */
-.od-kind { flex-shrink: 0; }
+.od-kind { justify-self: center; }
 .oe-kind-badge { justify-self: start; }
 
-/* Types filter bar: name search grows, kind filter stays compact. */
+/* Types filter bar: name search grows, kind filter stays compact; both share
+   one explicit 20px control box so the native select (UA metrics + arrow) does
+   not resolve taller than the text input. The native select arrow is kept. */
 .od-tools {
     display: flex; align-items: center; gap: 4px;
     margin-bottom: 4px;
+}
+.od-tools .od-filter,
+.od-tools .od-kind-filter {
+    height: 20px; box-sizing: border-box;
+    line-height: 1; font-family: var(--font-ui); font-size: 10px;
+    margin: 0;
 }
 .od-filter { flex: 1; min-width: 0; }
 .od-kind-filter { flex-shrink: 0; max-width: 92px; }
