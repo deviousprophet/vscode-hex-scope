@@ -120,12 +120,14 @@ Two mechanisms:
    `types.json`. The legacy file is **kept** so reverting the release still finds
    the original data.
 
-**Back-compat read window (deprecated).** The normalizers keep accepting the old
-keys for one release — `typeInstances ?? structPins ?? pins`, `typeId ?? structId`,
-`refTypeId ?? refStructId`, `sourceTypeId ?? sourceStructId` — so an old-format
-file (or a legacy `firmware_profiles/<n>/structs.json`, per-dir
-`profiles/<id>/profile.json`, or Memento-era instance array) still loads. Writers
-emit only the new names.
+**Back-compat read window (retired).** The general readers accept only the new
+keys. The v1 payload runner (`MIGRATIONS[1]`) still renames a recorded v1
+payload, and the one-time legacy migrations alias their own inputs explicitly
+(`src/core/overlay/overlayAliases.ts`) before normalizing — so a legacy
+`firmware_profiles/<n>/structs.json`, per-dir `profiles/<id>/profile.json`, or
+Memento-era instance array still loads losslessly. A current-version file
+carrying only the old keys is no longer aliased. Writers emit only the new
+names.
 
 ## External changes (silent auto-apply)
 
@@ -231,9 +233,9 @@ Three JSON Schema files describe the on-disk shapes:
   webview.
 - `src/core/overlay/overlayMigration.ts` — type-def migration/deduplication (shared by
   session and migration).
-- `src/core/overlay/overlayAliases.ts` — the deprecated pre-rename key aliases
-  (one-release read window for `structPins` / `structId` / `refStructId` /
-  `sourceStructId`).
+- `src/core/overlay/overlayAliases.ts` — migration-only pre-rename key aliases
+  (applied explicitly to the one-time legacy inputs; the general readers are
+  alias-free).
 - `src/webviewProtocol.ts` — `endianOrDefault` single shared endian normalizer.
 - `src/webview/webviewMessageModel.ts` — silent reducers for
   `typesExternalChange`, `perFileDataChange`, and `profilesState`.

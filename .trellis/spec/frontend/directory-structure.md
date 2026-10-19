@@ -40,7 +40,7 @@ src/
 │   │   ├── overlayNormalization.ts  pool normalization, identity dedupe, inline bit-field self-heal
 │   │   ├── overlayMigration.ts      type-def migration + dedupe (session, migration, tests)
 │   │   ├── overlayIdentities.ts     stable type-def identities (dedupe keys/sets)
-│   │   ├── overlayAliases.ts  deprecated pre-rename key aliases (one-release read window)
+│   │   ├── overlayAliases.ts  migration-only pre-rename key aliases (one-time legacy inputs; general readers are alias-free)
 │   │   └── bitChildren.ts    bit-field child cleanup helpers
 │   ├── diff.ts               byte-diff runs for the compare surface (DiffModel)
 │   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
