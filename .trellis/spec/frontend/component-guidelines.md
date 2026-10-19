@@ -8,8 +8,8 @@ The webview uses TypeScript modules that generate HTML strings and attach DOM li
 - `recordView.ts`: parsed-record table.
 - `components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`): Inspector, bit view, multi-byte, segments, labels.
 - `components/sidebar/integrityPanel/integrityPanel.ts`: integrity cards and actions.
-- `components/sidebar/structPanel/structPanel.ts`: struct editor, pins, decoded instance rows.
-- `components/menuController/menuController.ts`: shared menu lifecycle (hex/struct/integrity popovers); `contextCommands.ts`: command results.
+- `components/sidebar/overlayPanel/overlayPanel.ts`: type editor, instances, decoded instance rows.
+- `components/menuController/menuController.ts`: shared menu lifecycle (hex/overlay/integrity popovers); `contextCommands.ts`: command results.
 
 ## Required Pattern
 
@@ -65,7 +65,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 
 - DOM click/context-menu handlers must call feature/model functions instead of duplicating state changes.
 - Hover is transient; selection is persistent. Do not reuse one state field for both.
-- Context-menu opening selects only where the explicit feature contract requires it; struct rows intentionally do not select on menu open.
+- Context-menu opening selects only where the explicit feature contract requires it; instance rows intentionally do not select on menu open.
 - Keyboard paths must reach the same action owner as mouse paths.
 - Large memory rendering stays virtualized through `render/virtualScroll.ts`; never render the entire address space.
 - Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) — see [SearchBar Component](./components/component-search-bar.md). Shared/global CSS stays under `src/webview/styles/` (tokens, resets, layout); it does not contain component-specific rules once that component is extracted.
@@ -76,7 +76,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 - Buttons use native `<button>` where possible.
 - Tooltips must have accessible text equivalents.
 - Focus state and selected state are distinct.
-- See `struct-instance-display.md` for the strict struct-row contract.
+- See `overlay-instance-display.md` for the strict instance-row contract.
 
 ## Anti-patterns
 
@@ -89,6 +89,6 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 ## Test Anchors
 
 - `src/test/webview/webview.test.ts`: memory/record/sidebar/virtual-scroll behavior.
-- `src/test/webview/structPanel.test.ts`: complex row rendering and actions.
+- `src/test/webview/overlayPanel.test.ts`: complex row rendering and actions.
 - `src/test/webview/webviewMessageModel.test.ts`: model/invalidation split.
 - `src/test/webview/utils.test.ts`: escaping and formatting.

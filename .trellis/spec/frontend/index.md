@@ -28,10 +28,10 @@ Every self-contained webview component has one spec at `components/component-<na
 | [RecordView Component](./components/component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting |
 | [Sidebar Component](./components/component-sidebar.md) | Generic tabbed sidebar shell: tabs, resizer+persistence, header slot, injected panels |
 | [Inspector Component](./components/component-sidebar-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
-| [StructPanel Component](./components/component-sidebar-struct-panel.md) | Sidebar Struct panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
+| [OverlayPanel Component](./components/component-sidebar-overlay-panel.md) | Sidebar Overlay panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
 | [IntegrityPanel Component](./components/component-sidebar-integrity-panel.md) | Sidebar Integrity panel: checks + results, auto fix, profile library, fix-all |
 | [ScriptsPanel Component](./components/component-sidebar-scripts-panel.md) | Sidebar Scripts panel: script cards, run/cancel state machine, result blocks, output streaming |
-| [MenuController Component](./components/component-menu-controller.md) | Headless shared menu controller: hex/struct/integrity popovers, nav, dismissal |
+| [MenuController Component](./components/component-menu-controller.md) | Headless shared menu controller: hex/overlay/integrity popovers, nav, dismissal |
 
 ## Feature Code-Specs
 
@@ -45,8 +45,8 @@ Every self-contained webview component has one spec at `components/component-<na
 | [Editing, Save, and External Change](./editing-save-external-change.md) | Transactions, undo, save confirmation, file-change conflicts |
 | [HexScope On-Disk Storage](./hexscope-storage.md) | `.hexscope/` layout, envelope, `JsonStore`, profile lookup/watcher, schemas, Memento migration |
 | [Integrity Checks and Profiles](./integrity-checks.md) | Algorithms, ranges, stored comparison, fixes, profiles |
-| [Struct Definitions, Decode, Pins, and Persistence](./struct-model.md) | Layout, validation, C text, decode, pins, migration |
-| [Struct Instance Display](./struct-instance-display.md) | Struct row rendering, pointers, selection, menus, accessibility |
+| [Type Definitions, Decode, Instances, and Persistence](./overlay-model.md) | Layout, validation, C text, decode, instances, migration |
+| [Instance Display](./overlay-instance-display.md) | Instance row rendering, pointers, selection, menus, accessibility |
 | [Scripting Support](./scripting.md) | Script runner, vm sandbox, ScriptHost adapter, API surface, sidebar UI |
 
 ## Pre-Development Checklist

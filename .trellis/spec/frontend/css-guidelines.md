@@ -12,7 +12,7 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 | `hexView.css` (in components/hexView/) | Memory hex grid (component-owned) |
 | `sidebar.css` (in components/sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern + shared `.sb-*` UI primitives |
 | `inspectorPanel.css` (in components/sidebar/inspectorPanel/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
-| `structPanel.css` (in components/sidebar/structPanel/) | Struct panel: editor, instances/cards, field rows, C preview |
+| `overlayPanel.css` (in components/sidebar/overlayPanel/) | Overlay panel: editor, instances/cards, field rows, C preview |
 | `integrityPanel.css` (in components/sidebar/integrityPanel/) | Integrity panel: profiles, checks, comparison panes, auto-fix |
 | `scriptsPanel.css` (in components/sidebar/scriptsPanel/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
 | `record-view.css` | Record table |
@@ -117,7 +117,7 @@ Documented deviations from the token/type-floor rules, each with a reason. Add a
 
 Every sidebar section is a VS Code PaneView container: the fixed 22px header plus a body (`.sb-pane .sb-body`) that is the **sole scroll region** for that section (`flex:1; min-height:0; overflow-y:auto`). The scrollbar appears only when content overflows (`auto`, never `scroll`); a shorter-than-pane body shows no scrollbar and no forced fill. The body flexes to fill the pane (`.sb-body { flex:1; min-height:0 }`); short content stays top-aligned (VS Code standard) and long content scrolls the body — no wrapper stretch is used because `min-height:100%` against a flex-derived body height proved unreliable across machines.
 
-**Options considered** for the struct type editor's "fill the pane / scroll" interplay:
+**Options considered** for the type editor's "fill the pane / scroll" interplay:
 1. Inner scroller on `.se-form` pinned to pane height (via `.sb-pane .sb-body:has(> .si-editor-wrap)` flex + `overflow-y:auto`) — rejected: made the editor form non-scrollable in the real webview and violated the container rule.
 2. `min-height:100%` on `.si-editor-wrap` (short form stretches, long form scrolls body) — rejected: resolved unreliably against the flex-derived body height (void + premature scrollbar across machines); body `flex:1` already makes the body fill the pane, so the wrapper stretch is unnecessary.
 3. Short content top-aligned, body is the sole scroll container — chosen: body fills the pane via `flex:1`; short content sits at the top (VS Code standard); long content scrolls the body. No inner stretch.

@@ -27,7 +27,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 
 - Extension activation registers the custom editor and all contributed commands from `package.json`.
 - Provider uses `retainContextWhenHidden: true` and does not support multiple editors per document.
-- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, structs, pins, endian, bit-field allocation, and integrity profiles/checks.
+- Webview sends `ready`; session reports generation-bearing load progress, then responds with `init` containing binary segments, record count, labels, types, pins, endian, bit-field allocation, and integrity profiles/checks.
 - `HexEditorSession` owns file I/O, parsing, watchers, VS Code persistence, clipboard, and host-side profile/definition migration.
 - The single-file load runs its compact parse **off the extension-host thread**: `loadInitialDocument` and the external-change/quick-repair reload call `parseHexInWorker(raw, extension, signal, onProgress)` → `runParseJob({ kind: 'hexParse', source, extension })` (`src/parse/parseWorkerClient.ts`) and hydrate the returned `SerializedCompactParseResult`. The host holds `raw` (splicing, record pages, repair); the worker detects the format and reports it back. No host-thread `parseIntelHexCompact`/`parseSRecCompact` call remains in `HexEditorSession`. Segment + metadata-page buffers are transferred zero-copy; superseding a load, aborting the `AbortController`, or disposing the panel terminates the worker and posts nothing for the stale generation.
 - `hexViewer.ts` owns browser composition. It dispatches known provider messages, applies model transitions, then DOM invalidations/effects.
@@ -49,7 +49,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 | Unknown browser message | Ignore; no unchecked dynamic call. |
 | Unknown provider message | `dispatchProviderMessage` returns false. |
 | Persisted profiles/checks malformed | Normalize/drop invalid entries; report profile error when relevant. |
-| Legacy struct definitions overlap global IDs/names | Deduplicate during migration. |
+| Legacy type definitions overlap global IDs/names | Deduplicate during migration. |
 | Panel disposed | Abort active load; dispose watcher/listeners; drop raw/parsed state and active-panel ownership. |
 | Panel disposed during initial load | Run the already-registered complete cleanup; do not retain the panel in `_panels`. |
 
@@ -64,7 +64,7 @@ Full union lives only in `src/webviewProtocol.ts`.
 
 - `src/test/extension/extension.test.ts`: activation and command registration.
 - `src/test/webview/webviewMessageModel.test.ts`: unknown-message rejection, known dispatch, init and invalidations.
-- `src/test/core/provider-utils.test.ts`: format detection and legacy struct migration.
+- `src/test/core/provider-utils.test.ts`: format detection and legacy type migration.
 - Any new discriminator needs host-to-browser or browser-to-host handling assertions and a no-op unknown-message assertion.
 - Paging tests cover alignment, maximum page size, cache eviction, stale generations, and compressed record scrolling.
 - `src/test/core/disposable-store.test.ts` covers once-only reverse-order cleanup and resources registered after disposal.

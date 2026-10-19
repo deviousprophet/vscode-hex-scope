@@ -1,6 +1,6 @@
 # HexScope Storage — three-tier `.hexscope` storage
 
-Workspace-rooted `.hexscope/` tree holding struct definitions workspace-wide,
+Workspace-rooted `.hexscope/` tree holding type definitions workspace-wide,
 a single-file profile registry, and a per-file binding table. The whole tree is
 git-tracked — no `.gitignore` seeding, no local/private split. Pins, active
 checks, endian, bit-field allocation, and the show-hidden-fields view toggle are shared team state by design. No trust gating applies
@@ -10,8 +10,8 @@ to `.hexscope/` data.
 
 ```text
 .hexscope/
-├── structs.json          # workspace-wide StructDef[] pool (shared by all files)
-├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, structPins, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }] }
+├── types.json            # workspace-wide TypeDef[] pool (shared by all files)
+├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, typeInstances, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }] }
 ├── bindings.json         # { schemaVersion, bindings: [{ fileKey, profileId }] } — file's only file-specific artifact
 ├── schemas/              # generated copies of the JSON Schemas (editor + agent contract),
 │                         # content-diff refreshed on every .hexscope data write
@@ -22,12 +22,12 @@ to `.hexscope/` data.
 
 | File | `data` payload |
 |---|---|
-| `structs.json` | `{ schemaVersion, defs: StructDef[] }` (workspace pool) |
+| `types.json` | `{ schemaVersion, defs: TypeDef[] }` (workspace pool) |
 | `profiles.json` | `{ schemaVersion, records: ProfileRecord[] }` — every profile in one array (order preserved, ids unique) |
 | `bindings.json` | `{ schemaVersion, bindings: [{ fileKey, profileId }] }`, `fileKey` = workspace-relative posix path |
 
 Current `DATA_VERSION = 1` (storage envelope) and the current data shape is
-`DATA_SCHEMA_VERSION` (also `1`). On read, a future/unknown envelope `version`
+`DATA_SCHEMA_VERSION = 2`. On read, a future/unknown envelope `version`
 is refused: the file loads the empty default, warns once per file per session,
 and is never overwritten (forward protection). Unversioned payloads (a bare
 array or object) are accepted as the current storage version.
@@ -94,16 +94,49 @@ is byte-identical and never rewritten; migration is idempotent (a second open is
 a no-op). A file newer than the build is not touched at all (empty default +
 warn-once) and survives until a matching build is installed.
 
+### v2 — Type Overlay key rename
+
+`DATA_SCHEMA_VERSION` 2 renames the persisted contract:
+
+| Before (v1) | After (v2) |
+|---|---|
+| `.hexscope/structs.json` | `.hexscope/types.json` |
+| `schemas/structs.schema.json` | `schemas/types.schema.json` |
+| profile key `structPins` | `typeInstances` |
+| instance → def ref `structId` | `typeId` |
+| field / bit-child ref `refStructId` | `refTypeId` |
+| pointer-source ref `sourceStructId` | `sourceTypeId` |
+
+Two mechanisms:
+
+1. **Payload key rename** — `MIGRATIONS[1]` rewrites the keys of a recorded v1
+   payload. The runner is payload-agnostic, so the step **dispatches on shape**
+   (`defs` → def/field/bit-child refs; `records` → `structPins` / `structId` /
+   `sourceStructId`; `bindings` → identity). Keys are *renamed* (old deleted, new
+   set), so the written output is canonical.
+2. **File move** — a one-shot, Memento-marked (`hexScope.typesFile.v1`) transfer
+   that runs on first open: if `.hexscope/types.json` is absent and
+   `.hexscope/structs.json` exists, it is read, migrated forward, and written as
+   `types.json`. The legacy file is **kept** so reverting the release still finds
+   the original data.
+
+**Back-compat read window (deprecated).** The normalizers keep accepting the old
+keys for one release — `typeInstances ?? structPins ?? pins`, `typeId ?? structId`,
+`refTypeId ?? refStructId`, `sourceTypeId ?? sourceStructId` — so an old-format
+file (or a legacy `firmware_profiles/<n>/structs.json`, per-dir
+`profiles/<id>/profile.json`, or Memento-era instance array) still loads. Writers
+emit only the new names.
+
 ## External changes (silent auto-apply)
 
-The session watches the struct pool, the profile registry, and the bindings
+The session watches the type pool, the profile registry, and the bindings
 table. Genuine external edits are re-read, re-normalized, and re-broadcast to
 the open webview — no confirmation prompts anywhere:
 
 - bound `profiles.json` record → `perFileDataChange`
   (labels/segmentNames/pins/endian/bitAllocation/showHiddenFields/activeChecks)
-- `structs.json` → `structsExternalChange` (webview replaces structs and prunes
-  pins whose `structId` vanished)
+- `types.json` → `typesExternalChange` (webview replaces types and prunes
+  instances whose `typeId` vanished)
 - profile registry + bindings → profile dropdown refresh (`profilesState`)
 
 If an external edit breaks a profile file (corrupt JSON, unknown envelope
@@ -127,15 +160,20 @@ One-time, per workspace root, on first panel open (before the first
 1. **Per-dir registry era** (`profiles/<id>/profile.json`): every profile is
    merged into the single `profiles.json` array (dedupe ids + case-insensitive
    names), one-time Memento marker, dir tree left in place for rollback.
-2. **Memento-era** keys (`globalState`/`workspaceState` structs, labels,
-   segmentNames, structPins, integrityChecks, endian, global integrity
-   profiles) are read, normalized, seeded into a new registry profile
-   (`profiles_<n>`) bound to the open document, then hard-deleted.
-3. **Pre-P1 tree era** (`firmware_profiles/<n>/{index,structs,integrity}.json`):
-   every `structs.json` is merged into the workspace `structs.json` pool
-   (deduped by struct id/name via `src/core/struct/structMigration.ts`); every `index.json`
+2. **Pre-rename pool file** (`.hexscope/structs.json`): read, migrated forward to
+   the current data shape, and re-seeded as `.hexscope/types.json`; the legacy
+   file is left in place for rollback (one-time Memento marker
+   `hexScope.typesFile.v1`).
+3. **Memento-era** legacy key families (`globalState`/`workspaceState`
+   `hexScope.structs.*`, labels, segmentNames, structPins, integrityChecks,
+   endian, global integrity profiles) are read, normalized, seeded into a new
+   registry profile (`profiles_<n>`) bound to the open document, then
+   hard-deleted.
+4. **Pre-P1 tree era** (`firmware_profiles/<n>/{index,structs,integrity}.json`):
+   every `structs.json` is merged into the workspace type pool
+   (deduped by type id/name via `src/core/overlay/overlayMigration.ts`); every `index.json`
    (+ `integrity.json` template) becomes one registry profile + one binding,
-   preserving labels/structPins/endian/activeChecks/segmentNames. The legacy trees are
+   preserving labels/typeInstances/endian/activeChecks/segmentNames. The legacy trees are
    left in place so a reverted release still finds committed legacy data;
    Memento markers + per-dir `.converted` markers make the migration idempotent.
 
@@ -145,7 +183,7 @@ Three JSON Schema files describe the on-disk shapes:
 
 | Schema | File | `data` |
 |---|---|---|
-| `schemas/structs.schema.json` | `.hexscope/structs.json` | `{ schemaVersion, defs: StructDef[] }` |
+| `schemas/types.schema.json` | `.hexscope/types.json` | `{ schemaVersion, defs: TypeDef[] }` |
 | `schemas/profiles.schema.json` | `.hexscope/profiles.json` | `{ schemaVersion, records: ProfileRecord[] }` (array, `uniqueItems`; ids unique at runtime) |
 | `schemas/bindings.schema.json` | `.hexscope/bindings.json` | `{ schemaVersion, bindings: Binding[] }` |
 
@@ -156,7 +194,7 @@ Three JSON Schema files describe the on-disk shapes:
   nothing; the watcher ignores this directory). Writing a schema copy never
   re-triggers the refresh — only top-level data files do.
 - **Editor binding.** `package.json` → `contributes.jsonValidation` maps
-  `.hexscope/structs.json`, `.hexscope/profiles.json`, and
+  `.hexscope/types.json`, `.hexscope/profiles.json`, and
   `.hexscope/bindings.json` to the bundled schemas. Single-file opens (no
   workspace) get no editor validation.
 - **AI-agent discovery.** Every storage file carries a `$schema` sibling
@@ -168,7 +206,7 @@ Three JSON Schema files describe the on-disk shapes:
 - **Strictness.** The envelope root tolerates extra keys (`additionalProperties:
   true` — forward compat), `version` is `const 1`, and nested payload objects
   are strict: `additionalProperties: false` plus `required` on all scalar
-  objects, with `enum` for `StructFieldType`, `IntegrityAlgorithm`, and
+  objects, with `enum` for `TypeFieldType`, `IntegrityAlgorithm`, and
   `endian`. `data` requires `schemaVersion` (integer ≥ 1) plus the file's payload
   key; the version is not a `const` so an older file still validates for
   authoring while the runtime migrates it forward. The runtime still normalizes
@@ -183,15 +221,19 @@ Three JSON Schema files describe the on-disk shapes:
   `DATA_SCHEMA_VERSION` constant + `MIGRATIONS` table + migration runner and
   `withDataEnvelope` stamping). No Memento access; normalizers are injected per
   slot.
-- `src/hexScopeMigration.ts` — the one-time legacy transfers (per-dir registry
-  merge + Memento era + `firmware_profiles` tree era → three-tier).
+- `src/hexScopeMigration.ts` — the one-time legacy transfers (pre-rename pool
+  file move + per-dir registry merge + Memento era + `firmware_profiles` tree era
+  → three-tier).
 - `src/hexEditorSession.ts` — wires the three-tier stores to the open
   document, `withBoundProfile` per-file mutations, the binding lifecycle
   (`onDidRenameFiles`/`onDidDeleteFiles`/prune), the profile-action handlers
   (save/duplicate/rename/delete), and broadcasts external changes to the
   webview.
-- `src/core/struct/structMigration.ts` — struct-def migration/deduplication (shared by
+- `src/core/overlay/overlayMigration.ts` — type-def migration/deduplication (shared by
   session and migration).
+- `src/core/overlay/overlayAliases.ts` — the deprecated pre-rename key aliases
+  (one-release read window for `structPins` / `structId` / `refStructId` /
+  `sourceStructId`).
 - `src/webviewProtocol.ts` — `endianOrDefault` single shared endian normalizer.
 - `src/webview/webviewMessageModel.ts` — silent reducers for
-  `structsExternalChange`, `perFileDataChange`, and `profilesState`.
+  `typesExternalChange`, `perFileDataChange`, and `profilesState`.

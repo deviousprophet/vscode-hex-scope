@@ -3,15 +3,17 @@
 ## [Unreleased]
 
 ### Added
-- Reusable bit-field types: define a named bit-field type once and reference it from any struct, with its children rendered inline and no extra hierarchy level
+- Reusable bit-field types: define a named bit-field type once and reference it from any type, with its children rendered inline and no extra hierarchy level
 - Enum types: define named values once and reference them from scalar fields and bit-field children, with matched values shown as `NAME (0xNN)` and a plain numeric fallback
-- A per-field hidden flag in the struct editor plus a `Show hidden` toggle in Struct Instances, persisted per profile, that reveals hidden fields and their children
+- A per-field hidden flag in the type editor plus a `Show hidden` toggle in Instances, persisted per profile, that reveals hidden fields and their children
 - A single `New Type` chooser offering three kinds — plain struct, bit-field type, and enum — each opening its own editor
 
 ### Changed
 - Plain structs no longer author inline bit-fields; existing inline bit-field containers migrate to standalone reusable types on load, decoding byte-identically
 - Bit-field reference fields can override bit allocation (`LSB`/`MSB`) per field
 - Deleting a referenced type now reports how many fields reference it, alongside the pin count
+- Renamed the overlay feature to **Type Overlay**: the sidebar tab is now **Overlay**, the definitions section **Types**, and the instances section **Instances**, with the source modules, files, and identifiers renamed to match
+- The persisted `.hexscope` contract follows the rename: the type pool is now `.hexscope/types.json` (schema `schemas/types.schema.json`) and the stored keys are `typeInstances` / `typeId` / `refTypeId` / `sourceTypeId` (data-schema v2). An existing workspace migrates forward automatically on first open, its data is preserved, the previous `structs.json` is left in place for rollback, and the old key names keep loading for this release
 
 ## [2.25.0] - 2026-09-22
 

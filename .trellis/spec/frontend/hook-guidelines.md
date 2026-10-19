@@ -23,7 +23,7 @@
 | `search/searchEngine.ts` | Search state + execution |
 | `components/sidebar/inspectorPanel/` | Inspector panel state + rendering |
 | `components/sidebar/integrityPanel/` | Integrity check state + UI |
-| `components/sidebar/structPanel/` | Struct overlay state + rendering |
+| `components/sidebar/overlayPanel/` | Overlay state + rendering |
 | `components/sidebar/scriptsPanel/` | Script runner panel state + rendering |
 
 ---

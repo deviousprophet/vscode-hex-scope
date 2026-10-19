@@ -45,7 +45,7 @@ class InspectorPanel {
 
 - Component holds only UI/transient state (section collapse via the shared `SidebarSections` framework, sticky bit-block collapse, bit-hover column, label-form draft/range-mode/pendingWarning/lastFocused/rename, stored labels/segments/segmentNames/selection/endian). Persistent/domain state lives in the host.
 - Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte` is injected so byte access stays host-owned.
-- `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or struct-field selection).
+- `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or overlay-field selection).
 - Label mutations report `onLabelsChange`; the host persists (`saveLabels`) and invalidates (memory + labels rerender). Confirm-on-warning is component UI state.
 - Collapse toggle is the shared `SidebarSections` whole-header control (two sections: `insp`, `labels`); the internal Bits block uses its own local `.sb-inner-toggle` disclosure.
 - Markup is stable per the form contract in `inspectorLabels.ts` (same ids/classes); visual restyles change class rules, not the ids. Untrusted text escaped with `esc()`.

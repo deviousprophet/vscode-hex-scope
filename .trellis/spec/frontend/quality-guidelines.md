@@ -28,7 +28,7 @@ The health gate scores cyclomatic complexity and CRAP per function; a small read
 ```typescript
 // Trips the gate: each `...(cond ? {k: v} : {})` adds a branch (cyclo + CRAP).
 function read(row: Row) {
-    return { name: readName(row), ...(row.hidden ? { hidden: true } : {}), ...(row.refId ? { refStructId: row.refId } : {}) };
+    return { name: readName(row), ...(row.hidden ? { hidden: true } : {}), ...(row.refId ? { refTypeId: row.refId } : {}) };
 }
 ```
 
@@ -59,7 +59,7 @@ Prefer this shape over stacked conditional spreads in readers/normalizers; the s
 - Memory/search change: mapped gaps, pending edits, cancellation/latest-query behavior, address zero, selection range, and large-file chunk/virtualization behavior.
 - Edit/save change: transaction atomicity, undo, serialization, checksum recompute, and external-change lock/conflict paths.
 - Integrity change: canonical vectors, address/range validation, unmapped bytes, stored byte order, overlap exclusion, profile normalization, and fix conflict atomicity.
-- Struct change: validation, layout/alignment, arrays/nesting, pointers, bitfields, parse/text/export round-trip, persistence, and UI contract matrix.
+- Type change: validation, layout/alignment, arrays/nesting, pointers, bitfields, parse/text/export round-trip, persistence, and UI contract matrix.
 
 ## Test Quality Rules
 

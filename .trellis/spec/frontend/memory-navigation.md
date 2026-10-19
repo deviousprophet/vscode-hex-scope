@@ -52,7 +52,7 @@ Current `BPR` default/contract is 16.
 
 - Base: 16 mapped bytes at aligned address -> one data row.
 - Good: two distant segments -> ordered data rows separated by one gap row; jump uses segment index, not linear scan of address space.
-- Good: pending edit changes Memory/Inspector/struct/integrity reads without mutating original segment.
+- Good: pending edit changes Memory/Inspector/overlay/integrity reads without mutating original segment.
 - Good: compressed Record scrolling requests the target page and renders placeholders until that generation's page arrives.
 - Good: adding or deleting a label while viewing compressed Memory rows rerenders overlays without shifting the visible address.
 - Bad: flatten all firmware addresses into one giant array or fill gaps with zero.
