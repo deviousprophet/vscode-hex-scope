@@ -170,7 +170,7 @@ html, body {
 }
 
 /* ── Shared action buttons (edit ✎ / delete 🗑) ────────────────── */
-/* Used in labels, struct instance cards, and manage-types rows.    */
+/* Used in labels, overlay instance cards, and manage-types rows.    */
 .act-btn {
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 18px; padding: 0; flex-shrink: 0;

@@ -2,15 +2,15 @@
 // Headless shared menu controller: owns the single #menu container,
 // positioning, dismissal (click-outside/focusout/window-blur/Escape),
 // hover-submenus, input modality, and full keyboard navigation for
-// every popover menu in the webview (hex grid, struct field menu).
+// every popover menu in the webview (hex grid, overlay field menu).
 // The controller never renders content: callers supply innerHTML per
-// show (hex/struct) or attach a pre-authored static popover. The host
+// show (hex/overlay) or attach a pre-authored static popover. The host
 // owns all command execution — this module never imports the `S`
 // global and never posts provider messages; it reports commands via
 // per-show `emit` callbacks.
 //
 // The `menu-*` class lexicon is the single shared vocabulary; the
-// struct field menu (`si-field-menu-*`) is caller-owned and wired by
+// overlay field menu (`si-field-menu-*`) is caller-owned and wired by
 // id elsewhere (not renamed).
 //
 // One active menu: opening a menu closes any other (registry
@@ -27,7 +27,7 @@ import * as nav from './menuNav';
 const DEFAULT_FOCUS_FIRST = '.menu-item[data-cmd]:not(.menu-disabled)';
 
 interface MenuShowOpts {
-    /** Caller-rendered HTML for dynamic menus (hex, struct). Omit for static popovers. */
+    /** Caller-rendered HTML for dynamic menus (hex, overlay). Omit for static popovers. */
     innerHTML?: string;
     /** Pre-open activeElement snapshot, restored on close (skipped on window blur). */
     restore?: 'snapshot';

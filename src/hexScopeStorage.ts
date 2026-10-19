@@ -4,7 +4,7 @@
 // sits at the top level exactly because it is a host adapter.
 //
 // Three-tier layout (single-file profile registry):
-//   .hexscope/structs.json          — workspace-wide StructDef[] pool
+//   .hexscope/types.json            — workspace-wide TypeDef[] pool
 //   .hexscope/profiles.json         — ProfileRecord[] registry (all profiles in one file)
 //   .hexscope/bindings.json         — fileKey → profileId table
 //   .hexscope/schemas/              — generated schema copies (refreshed on data writes)
@@ -15,7 +15,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
-import type { BitFieldAllocation, SegmentLabel, StructPin } from './core/types';
+import { aliasLegacyProfileRecord, aliasLegacyTypeDef, aliasLegacyTypeInstance } from './core/overlay/overlayAliases';
+import type { BitFieldAllocation, SegmentLabel, TypeInstance } from './core/types';
 import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
 /** Storage envelope version (`{ version, data }`). A future/unknown value is refused on read.
@@ -24,14 +25,28 @@ export const DATA_VERSION = 1;
 
 /** Current shape version of the payload carried inside `data` (see `migrateData`).
  *  Bump this when a `.hexscope` data shape changes and add the matching step to
- *  `MIGRATIONS`; existing files then migrate forward on open. */
-export const DATA_SCHEMA_VERSION = 1;
+ *  `MIGRATIONS`; existing files then migrate forward on open.
+ *  v2 = the Type Overlay rename (`structPins`→`typeInstances`, `structId`→`typeId`,
+ *  `refStructId`→`refTypeId`, `sourceStructId`→`sourceTypeId`). */
+export const DATA_SCHEMA_VERSION = 2;
 
 /** Ordered forward migrations keyed by from-version: `MIGRATIONS[n]` turns a
- *  version-`n` payload into a version-`n+1` payload. Empty while the shape is
- *  still at its first version; the table (and the constant above) is the one
- *  source of truth shared by all three data files. */
-const MIGRATIONS: Readonly<Record<number, (data: Record<string, unknown>) => Record<string, unknown>>> = {};
+ *  version-`n` payload into a version-`n+1` payload. The table (and the constant
+ *  above) is the one source of truth shared by all three data files. */
+const MIGRATIONS: Readonly<Record<number, (data: Record<string, unknown>) => Record<string, unknown>>> = {
+    1: migrateV1ToV2,
+};
+
+/** v1 → v2 (Type Overlay rename): rewrite the payload's legacy keys. The runner
+ *  is payload-agnostic (it hands over `{ schemaVersion, <payloadKey> }`), so the
+ *  step dispatches on the payload's shape rather than on the slot's key.
+ *  `bindings.json` carries no renamed key, so its shape falls through unchanged.
+ *  Keys are renamed (old deleted, new set) so the output is canonical. */
+function migrateV1ToV2(data: Record<string, unknown>): Record<string, unknown> {
+    if (Array.isArray(data.defs)) { return { ...data, defs: data.defs.map(aliasLegacyTypeDef) }; }
+    if (Array.isArray(data.records)) { return { ...data, records: data.records.map(aliasLegacyProfileRecord) }; }
+    return data;
+}
 
 /** Payload key per data file — the object form is `{ schemaVersion, <key>: payload }`. */
 export type DataPayloadKey = 'defs' | 'records' | 'bindings';
@@ -152,7 +167,7 @@ const DEFAULT_DEBOUNCE_MS = 400;
 const SCHEMA_DIR = '.hexscope/schemas';
 const PROFILES_FILE = 'profiles.json';
 const BINDINGS_FILE = 'bindings.json';
-const STRUCT_POOL_FILE = 'structs.json';
+const TYPE_POOL_FILE = 'types.json';
 
 /** File names within the single-file registry. */
 type ProfileJsonName = 'profiles.json';
@@ -164,24 +179,24 @@ export type NormalizedValue<T> = { value: T; changed: boolean; newer?: boolean }
 
 // Bundled schemas seeded into .hexscope/schemas/; writeJson injects a
 // $schema sibling pointing here for AI-agent discovery.
-const SCHEMA_FILES: ReadonlyArray<{ file: ProfileJsonName | 'structs.json' | 'bindings.json'; schema: string }> = [
+const SCHEMA_FILES: ReadonlyArray<{ file: ProfileJsonName | 'types.json' | 'bindings.json'; schema: string }> = [
     { file: 'profiles.json', schema: 'profiles.schema.json' },
-    { file: 'structs.json', schema: 'structs.schema.json' },
+    { file: 'types.json', schema: 'types.schema.json' },
     { file: 'bindings.json', schema: 'bindings.schema.json' },
 ];
 
 // ── Three-tier domain types ──────────────────────────────────────
 
-/** A named annotation bundle (structPins/checks/endian/labels/segmentNames). Not file-owned. */
+/** A named annotation bundle (typeInstances/checks/endian/labels/segmentNames). Not file-owned. */
 export interface ProfileRecord {
     id: string;
     name: string;
-    structPins: StructPin[];
+    typeInstances: TypeInstance[];
     activeChecks: IntegrityCheckSet;
     endian: HexScopeEndian;
-    /** Global bit-field allocation (LSB-first / MSB-first) for this profile's struct decode. */
+    /** Global bit-field allocation (LSB-first / MSB-first) for this profile's type decode. */
     bitAllocation: BitFieldAllocation;
-    /** Global "show hidden fields" toggle for the Struct Instances view. Default false. */
+    /** Global "show hidden fields" toggle for the Instances view. Default false. */
     showHiddenFields: boolean;
     segmentNames: SegmentNameOverrides;
     labels: SegmentLabel[];
@@ -206,12 +221,12 @@ export function bindingsJsonUri(root: string): vscode.Uri {
     return vscode.Uri.file(path.join(root, '.hexscope', BINDINGS_FILE));
 }
 
-export function structPoolJsonUri(root: string): vscode.Uri {
-    return vscode.Uri.file(path.join(root, '.hexscope', STRUCT_POOL_FILE));
+export function typePoolJsonUri(root: string): vscode.Uri {
+    return vscode.Uri.file(path.join(root, '.hexscope', TYPE_POOL_FILE));
 }
 
 export function emptyProfileRecord(id: string, name: string): ProfileRecord {
-    return { id, name, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: false, segmentNames: {}, labels: [] };
+    return { id, name, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: false, segmentNames: {}, labels: [] };
 }
 
 // ── Version envelope ──────────────────────────────────────────────
@@ -348,7 +363,7 @@ function hexScopeRootFromDataUri(uri: vscode.Uri): string | null {
 }
 
 function isTopLevelDataFile(file: string): boolean {
-    return file === PROFILES_FILE || file === STRUCT_POOL_FILE || file === BINDINGS_FILE;
+    return file === PROFILES_FILE || file === TYPE_POOL_FILE || file === BINDINGS_FILE;
 }
 
 /** Read a directory; [] when it does not exist (shared by session + migration). */
@@ -501,7 +516,7 @@ function resolveProfileSchemaRef(uri: vscode.Uri): string | null {
     const match = SCHEMA_FILES.find(entry => entry.file === file);
     if (!match) { return null; }
     // .hexscope/profiles.json → schemas/profiles.schema.json
-    // .hexscope/structs.json → schemas/structs.schema.json
+    // .hexscope/types.json → schemas/types.schema.json
     // .hexscope/bindings.json → schemas/bindings.schema.json
     return schemaRefForParts(uri.fsPath.split(path.sep), match.schema);
 }
@@ -537,7 +552,7 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
         name: typeof candidate.name === 'string' ? candidate.name : fallback.name,
         labels: arrayOrEmpty(candidate.labels, []) as SegmentLabel[],
         segmentNames: plainStringRecord(candidate.segmentNames),
-        structPins: candidateStructPins(candidate),
+        typeInstances: candidateTypeInstances(candidate),
         activeChecks: checkSetOrDefault(candidate.activeChecks),
         endian: endianOrDefault(candidate.endian),
         bitAllocation: bitAllocationOrDefault(candidate.bitAllocation),
@@ -546,9 +561,13 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
 }
 
-/** Read the structPins field; tolerate the pre-rename `pins` key on existing files. */
-function candidateStructPins(candidate: Record<string, unknown>): StructPin[] {
-    return arrayOrEmpty(candidate.structPins ?? candidate.pins, []) as StructPin[];
+/** Read the profile's instance array. Deprecated read window: tolerate the
+ *  pre-rename keys on existing files (`structPins`, and the older `pins`) and
+ *  alias each instance's legacy `structId` / `sourceStructId`. Writers emit only
+ *  `typeInstances` with the new per-instance keys. */
+function candidateTypeInstances(candidate: Record<string, unknown>): TypeInstance[] {
+    const alias = candidate.typeInstances ?? candidate.structPins ?? candidate.pins;
+    return arrayOrEmpty(alias, []).map(entry => aliasLegacyTypeInstance(entry) as TypeInstance);
 }
 
 /** Normalize the whole registry array: drop malformed records, dedupe by
@@ -794,15 +813,15 @@ export interface ProfileWatcherOptions {
 }
 
 /**
- * Watch the three-tier storage (struct pool, profile registry, bindings)
+ * Watch the three-tier storage (type pool, profile registry, bindings)
  * so an external restructure is picked up. The session owns the
  * self-write horizon and the debounced per-slot reload.
  */
 export function attachProfileWatcher(options: ProfileWatcherOptions): vscode.Disposable {
     const watchers = [
-        // profile registry, struct pool + bindings table
+        // profile registry, type pool + bindings table
         vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `.hexscope/${PROFILES_FILE}`)),
-        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `.hexscope/${STRUCT_POOL_FILE}`)),
+        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `.hexscope/${TYPE_POOL_FILE}`)),
         vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(options.root, `.hexscope/${BINDINGS_FILE}`)),
     ];
     const notify = () => options.onProfileChanged();

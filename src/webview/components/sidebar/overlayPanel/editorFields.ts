@@ -1,101 +1,101 @@
-/** Struct panel — editor field-row markup helpers.
-Extracted verbatim from structPanel.ts (pure move). */
+/** Overlay panel — editor field-row markup helpers.
+Extracted verbatim from overlayPanel.ts (pure move). */
 import { esc } from '../../../utils';
-import { FIELD_TYPES, allStructs, isUnsignedScalarType, normalizeStructField, structDefKind } from '../../../../core/struct/structCodec.js';
-import type { BitFieldChild, StructDef, StructField } from '../../../../core/types';
+import { FIELD_TYPES, allTypes, isUnsignedScalarType, normalizeTypeField, typeDefKind } from '../../../../core/overlay/overlayCodec.js';
+import type { BitFieldChild, TypeDef, TypeField } from '../../../../core/types';
 
 /** Max chars for a `struct <name>` option label before truncating (full name in `title`). */
 const TYPE_OPTION_MAX_CHARS = 28;
 
-function fieldTypeOptionsHtml(f: StructField, draftId: string, structs: readonly StructDef[]): string {
-    f = normalizeStructField(f);
+function fieldTypeOptionsHtml(f: TypeField, draftId: string, types: readonly TypeDef[]): string {
+    f = normalizeTypeField(f);
     const scalarOptions = FIELD_TYPES.map(t =>
         `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`
     ).join('');
-    const structOptions = allStructs(structs)
-        .filter(d => structDefKind(d) === 'struct' && d.id !== draftId)
-        .map(d => structOptionHtml(f, d))
+    const typeOptions = allTypes(types)
+        .filter(d => typeDefKind(d) === 'struct' && d.id !== draftId)
+        .map(d => typeOptionHtml(f, d))
         .join('');
-    const bitFieldOptions = allStructs(structs)
-        .filter(d => structDefKind(d) === 'bitfield' && d.id !== draftId)
+    const bitFieldOptions = allTypes(types)
+        .filter(d => typeDefKind(d) === 'bitfield' && d.id !== draftId)
         .map(d => bitFieldOptionHtml(f, d))
         .join('');
-    const enumOptions = allStructs(structs)
-        .filter(d => structDefKind(d) === 'enum' && d.id !== draftId)
+    const enumOptions = allTypes(types)
+        .filter(d => typeDefKind(d) === 'enum' && d.id !== draftId)
         .map(d => enumOptionHtml(f, d))
         .join('');
     return `<optgroup label="Scalar">${scalarOptions}</optgroup>` +
-        (structOptions ? `<optgroup label="Struct">${structOptions}</optgroup>` : '') +
+        (typeOptions ? `<optgroup label="Struct">${typeOptions}</optgroup>` : '') +
         (bitFieldOptions ? `<optgroup label="Bit-field">${bitFieldOptions}</optgroup>` : '') +
         (enumOptions ? `<optgroup label="Enum">${enumOptions}</optgroup>` : '');
 }
 
-function structOptionHtml(f: StructField, d: StructDef): string {
-    f = normalizeStructField(f);
+function typeOptionHtml(f: TypeField, d: TypeDef): string {
+    f = normalizeTypeField(f);
     const val = `struct:${d.id}`;
-    const selected = isStructTypeSelected(f, d);
+    const selected = isTypeSelected(f, d);
     const full = `struct ${d.name}`;
-    // Truncate very long nested-struct names in the type select; the full
+    // Truncate very long nested type names in the type select; the full
     // name stays available via the option's title tooltip.
-    const label = truncatedStructOptionLabel(full);
-    const titleAttr = structOptionTitleAttr(label, full);
+    const label = truncatedTypeOptionLabel(full);
+    const titleAttr = typeOptionTitleAttr(label, full);
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
-function bitFieldOptionHtml(f: StructField, d: StructDef): string {
-    f = normalizeStructField(f);
+function bitFieldOptionHtml(f: TypeField, d: TypeDef): string {
+    f = normalizeTypeField(f);
     const val = `bitfield:${d.id}`;
-    const selected = f.type === 'bitfield' && f.refStructId === d.id;
+    const selected = f.type === 'bitfield' && f.refTypeId === d.id;
     const full = `bitfield ${d.name}`;
-    const label = truncatedStructOptionLabel(full);
-    const titleAttr = structOptionTitleAttr(label, full);
+    const label = truncatedTypeOptionLabel(full);
+    const titleAttr = typeOptionTitleAttr(label, full);
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
-function enumOptionHtml(f: StructField, d: StructDef): string {
-    f = normalizeStructField(f);
+function enumOptionHtml(f: TypeField, d: TypeDef): string {
+    f = normalizeTypeField(f);
     const val = `enum:${d.id}`;
-    const selected = f.type === 'enum' && f.refStructId === d.id;
+    const selected = f.type === 'enum' && f.refTypeId === d.id;
     const full = `enum ${d.name}`;
-    const label = truncatedStructOptionLabel(full);
-    const titleAttr = structOptionTitleAttr(label, full);
+    const label = truncatedTypeOptionLabel(full);
+    const titleAttr = typeOptionTitleAttr(label, full);
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
 }
 
-function isStructTypeSelected(f: StructField, d: StructDef): boolean {
-    return f.type === 'struct' && f.refStructId === d.id;
+function isTypeSelected(f: TypeField, d: TypeDef): boolean {
+    return f.type === 'struct' && f.refTypeId === d.id;
 }
 
-function truncatedStructOptionLabel(full: string): string {
+function truncatedTypeOptionLabel(full: string): string {
     return full.length > TYPE_OPTION_MAX_CHARS
         ? `${full.slice(0, TYPE_OPTION_MAX_CHARS)}\u2026`
         : full;
 }
 
-function structOptionTitleAttr(label: string, full: string): string {
+function typeOptionTitleAttr(label: string, full: string): string {
     return label !== full ? ` title="${esc(full)}"` : '';
 }
 
-function isBitContainerField(f: StructField): boolean {
-    f = normalizeStructField(f);
+function isBitContainerField(f: TypeField): boolean {
+    f = normalizeTypeField(f);
     if (f.isPointer) { return false; }
     return isUnsignedScalarType(f.type) && Array.isArray(f.bitFields) && f.bitFields.length > 0;
 }
 
 /** A field that references a standalone `kind: 'bitfield'` def. */
-function isBitFieldRefField(f: StructField): boolean {
-    f = normalizeStructField(f);
+function isBitFieldRefField(f: TypeField): boolean {
+    f = normalizeTypeField(f);
     return f.type === 'bitfield' && f.isPointer !== true;
 }
 
 /** A field that references a standalone `kind: 'enum'` def. */
-function isEnumRefField(f: StructField): boolean {
-    f = normalizeStructField(f);
+function isEnumRefField(f: TypeField): boolean {
+    f = normalizeTypeField(f);
     return f.type === 'enum' && f.isPointer !== true;
 }
 
 /** Fields that can never be pointers: bit-field containers/refs and enum refs. */
-export function isPointerBlocked(field: StructField): boolean {
+export function isPointerBlocked(field: TypeField): boolean {
     return isBitContainerField(field) || isBitFieldRefField(field) || isEnumRefField(field);
 }
 
@@ -124,8 +124,8 @@ function arrayToggleLabel(isArr: boolean): string {
         return isArr ? 'Remove array' : 'Make array';
     }
 
-function fieldHiddenCellHtml(f: StructField): string {
-        const title = 'Hide this field in the Struct Instances view';
+function fieldHiddenCellHtml(f: TypeField): string {
+        const title = 'Hide this field in the Instances view';
         return (
             `<span class="sfe-hidden-cell" title="${title}">` +
             `<input type="checkbox" class="sfe-hidden-chk" title="${title}" aria-label="${title}"${f.hidden === true ? ' checked' : ''}>` +
@@ -133,7 +133,7 @@ function fieldHiddenCellHtml(f: StructField): string {
         );
     }
 
-function fieldArrayCellHtml(f: StructField): string {
+function fieldArrayCellHtml(f: TypeField): string {
         const isArr = f.count > 1;
         const toggleLabel = arrayToggleLabel(isArr);
         return (
@@ -201,21 +201,21 @@ export function overrideHelpTitle(kind: 'endian' | 'allocation'): string {
         : 'Bit allocation for this field (first explicit value up the chain wins)';
 }
 
-function fieldIsPointerActive(f: StructField): boolean {
+function fieldIsPointerActive(f: TypeField): boolean {
     return f.isPointer === true || f.type === 'void';
 }
 
 export function fieldRowHtml(
-    f: StructField,
+    f: TypeField,
     i: number,
     isOnly: boolean,
     total: number,
     draftId: string,
-    structs: readonly StructDef[],
+    types: readonly TypeDef[],
     inheritedEndian: string,
     inheritedAlloc: string,
 ): string {
-    const typeOpts = fieldTypeOptionsHtml(f, draftId, structs);
+    const typeOpts = fieldTypeOptionsHtml(f, draftId, types);
     const blocksPointer = isPointerBlocked(f);
     const showsAlloc = isBitFieldRefField(f);
     const delCell = deleteFieldCellHtml(isOnly);
@@ -240,7 +240,7 @@ export function fieldRowHtml(
 }
 
 /** Render a single bit-field child row inside a bit-field container parent. */
-export function childFieldRowHtml(child: BitFieldChild, ci: number, total: number, structs: readonly StructDef[]): string {
+export function childFieldRowHtml(child: BitFieldChild, ci: number, total: number, types: readonly TypeDef[]): string {
     const upDis  = ci === 0        ? ' disabled' : '';
     const dnDis  = ci === total - 1 ? ' disabled' : '';
     const delCell = total <= 1
@@ -254,7 +254,7 @@ export function childFieldRowHtml(child: BitFieldChild, ci: number, total: numbe
         `<input class="sfe-bf-child-width sb-input sb-input-sm" type="text" inputmode="numeric" value="${child.bitWidth}" ` +
                `aria-label="Bit width in bits" placeholder="N" maxlength="2">` +
         `<span class="sfe-bf-child-unit">bit</span>` +
-        bitChildEnumSelectHtml(child, structs) +
+        bitChildEnumSelectHtml(child, types) +
         bitChildHiddenCellHtml(child) +
         `<div class="sfe-bf-child-move">` +
         `<button class="sfe-move-btn sfe-move-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
@@ -266,19 +266,19 @@ export function childFieldRowHtml(child: BitFieldChild, ci: number, total: numbe
 }
 
 /** Optional enum ref for a bit-field child: labels this bit value with the def's entries. */
-function bitChildEnumSelectHtml(child: BitFieldChild, structs: readonly StructDef[]): string {
-    const enums = allStructs(structs).filter(d => structDefKind(d) === 'enum');
+function bitChildEnumSelectHtml(child: BitFieldChild, types: readonly TypeDef[]): string {
+    const enums = allTypes(types).filter(d => typeDefKind(d) === 'enum');
     const options = [`<option value="">\u2014</option>`]
         .concat(enums.map(d =>
-            `<option value="${esc(d.id)}"${child.refStructId === d.id ? ' selected' : ''}>${esc(truncatedStructOptionLabel(d.name))}</option>`
+            `<option value="${esc(d.id)}"${child.refTypeId === d.id ? ' selected' : ''}>${esc(truncatedTypeOptionLabel(d.name))}</option>`
         ))
         .join('');
     return `<select class="sfe-bf-child-enum" title="Enum labels for this bit value" aria-label="Enum labels for this bit value">${options}</select>`;
 }
 
-/** Per-child "hide this bit in the Struct Instances view" checkbox (instance-view only). */
+/** Per-child "hide this bit in the Instances view" checkbox (instance-view only). */
 function bitChildHiddenCellHtml(child: BitFieldChild): string {
-    const title = 'Hide this bit in the Struct Instances view';
+    const title = 'Hide this bit in the Instances view';
     return (
         `<span class="sfe-bf-child-hidden-cell" title="${title}">` +
         `<input type="checkbox" class="sfe-hidden-chk sfe-bf-child-hidden" title="${title}" aria-label="${title}"${child.hidden === true ? ' checked' : ''}>` +

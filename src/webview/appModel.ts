@@ -19,8 +19,8 @@ export function applyInitialState(msg: InitMessage): void {
     loadParsedMemory(hydrateParseResult(msg.parseResult));
     S.labels = messageArray(msg.labels);
     S.segmentNames = messageRecord(msg.segmentNames);
-    S.structs = messageArray(msg.structs);
-    S.structPins = messageArray(msg.structPins);
+    S.types = messageArray(msg.types);
+    S.typeInstances = messageArray(msg.typeInstances);
     S.endian = endianOrDefault(msg.endian);
     S.bitFieldAllocation = bitAllocationOrDefault(msg.bitAllocation);
     S.showHiddenFields = showHiddenFieldsOrDefault(msg.showHiddenFields);

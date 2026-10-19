@@ -133,9 +133,9 @@ export function paintCell(addr: number, previewText: string | null): void {
     hexView?.paintCell(addr, previewText);
 }
 
-/** Struct-field highlight via the HexView paint seam (host never pokes cell DOM). */
-export function paintStructHighlight(addrs: readonly number[], cls: string): void {
-    hexView?.paintStructHighlight(addrs, cls);
+/** Type-field highlight via the HexView paint seam (host never pokes cell DOM). */
+export function paintTypeHighlight(addrs: readonly number[], cls: string): void {
+    hexView?.paintTypeHighlight(addrs, cls);
 }
 
 /** Selection-edit session range tint (panel via HexView paint seam). */
@@ -143,9 +143,9 @@ export function paintMemorySelEdit(range: HexViewRange | null): void {
     hexView?.paintSelEdit(range);
 }
 
-/** Struct-field clear: remove `cls` from all grid cells (class-wide parity). */
-export function paintClearStructHighlight(cls: string): void {
-    hexView?.paintClearStructHighlight(cls);
+/** Type-field clear: remove `cls` from all grid cells (class-wide parity). */
+export function paintClearTypeHighlight(cls: string): void {
+    hexView?.paintClearTypeHighlight(cls);
 }
 
 /** Called after a full page render (DOM recreated): forces header re-injection. */

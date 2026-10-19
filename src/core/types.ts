@@ -68,9 +68,9 @@ export type MemRow =
     | { type: 'data'; address: number }
     | { type: 'gap'; from: number; to: number; bytes: number };
 
-// ── Struct Overlay ────────────────────────────────────────────────
+// ── Type Overlay ────────────────────────────────────────────────
 
-export type StructScalarFieldType =
+export type TypeScalarFieldType =
     | 'void'
     | 'ascii'
     | 'uint8' | 'uint16' | 'uint32' | 'uint64'
@@ -78,10 +78,10 @@ export type StructScalarFieldType =
     | 'float32' | 'float64'
     | 'pointer';
 
-export type StructFieldType = StructScalarFieldType | 'struct' | 'bitfield' | 'enum';
+export type TypeFieldType = TypeScalarFieldType | 'struct' | 'bitfield' | 'enum';
 
-/** Runtime list mirroring StructFieldType — the JSON-schema enum drift guard. */
-export const STRUCT_FIELD_TYPES: readonly StructFieldType[] = [
+/** Runtime list mirroring TypeFieldType — the JSON-schema enum drift guard. */
+export const TYPE_FIELD_TYPES: readonly TypeFieldType[] = [
     'void', 'ascii',
     'uint8', 'uint16', 'uint32', 'uint64',
     'int8', 'int16', 'int32', 'int64',
@@ -94,8 +94,8 @@ export interface BitFieldChild {
     name: string;
     bitWidth: number;
     /** Optional `kind: 'enum'` def reference supplying labels for this bit value. */
-    refStructId?: string;
-    /** When true, this named bit is omitted from the Struct Instances view unless the
+    refTypeId?: string;
+    /** When true, this named bit is omitted from the Instances view unless the
      *  global "show hidden fields" toggle is on. Absent/false = visible. Def-level
      *  (authored on the reusable bit-field type), so it applies to every usage.
      *  Instance-view only: decode, offsets/sizes, and the C preview are unaffected. */
@@ -103,13 +103,13 @@ export interface BitFieldChild {
 }
 
 /** Unsigned integer widths usable as a bit-field storage base. */
-export type StructBaseType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
+export type TypeBaseType = 'uint8' | 'uint16' | 'uint32' | 'uint64';
 
-/** Runtime list mirroring StructBaseType — the JSON-schema enum drift guard. */
-export const STRUCT_BASE_TYPES: readonly StructBaseType[] = ['uint8', 'uint16', 'uint32', 'uint64'];
+/** Runtime list mirroring TypeBaseType — the JSON-schema enum drift guard. */
+export const TYPE_BASE_TYPES: readonly TypeBaseType[] = ['uint8', 'uint16', 'uint32', 'uint64'];
 
 /** Named-type discriminator; absent = plain struct. */
-export type StructDefKind = 'struct' | 'bitfield' | 'enum';
+export type TypeDefKind = 'struct' | 'bitfield' | 'enum';
 
 /** One `NAME = value` entry of a `kind: 'enum'` def. */
 export interface EnumEntry {
@@ -117,13 +117,13 @@ export interface EnumEntry {
     value: number;
 }
 
-export interface StructField {
+export interface TypeField {
     name: string;
-    type: StructFieldType;
-    /** When true, the field stores a pointer value whose target type is `type` / `refStructId`. */
+    type: TypeFieldType;
+    /** When true, the field stores a pointer value whose target type is `type` / `refTypeId`. */
     isPointer?: boolean;
-    /** Required when type === 'struct'; references StructDef.id. */
-    refStructId?: string;
+    /** Required when type === 'struct'; references TypeDef.id. */
+    refTypeId?: string;
     /** Named bit-field children. When present, this field is a BitField container.
      *  Only valid for unsigned integer base types (uint8/16/32/64). */
     bitFields?: BitFieldChild[];
@@ -131,27 +131,27 @@ export interface StructField {
     count: number;
     /** Whether the bit-field detail editor is collapsed. Only applies to BitField containers. */
     bitFieldsCollapsed?: boolean;
-    /** When true, this field/container is omitted from the Struct Instances view unless the
+    /** When true, this field/container is omitted from the Instances view unless the
      *  global "show hidden fields" toggle is on. Absent/false = visible. Instance-view only:
      *  decode, offsets, and the C preview are unaffected. */
     hidden?: boolean;
     /** Explicit byte order for this field's multi-byte value / bit-field unit.
-     *  Absent = inherit (field beats struct beats nested parents beats global overlay).
+     *  Absent = inherit (field beats type beats nested parents beats global overlay).
      *  Ignored for pointer values (always decode with the global overlay endian). */
     endian?: 'le' | 'be';
     /** Explicit bit allocation for this field's bit-field container unit.
-     *  Absent = inherit. Only meaningful on bit-field container / struct fields. */
+     *  Absent = inherit. Only meaningful on bit-field container / type fields. */
     allocation?: 'lsb' | 'msb';
 }
 
-export interface StructDef {
+export interface TypeDef {
     id: string;
     name: string;
-    fields: StructField[];
+    fields: TypeField[];
     /** Named-type discriminator. Absent = plain struct (`'struct'`). */
-    kind?: StructDefKind;
+    kind?: TypeDefKind;
     /** Storage width for a `kind: 'bitfield'` def (uint8/uint16/uint32/uint64). */
-    baseType?: StructBaseType;
+    baseType?: TypeBaseType;
     /** Named bit-field children for a `kind: 'bitfield'` def (its `fields` is empty). */
     bitFields?: BitFieldChild[];
     /** Ordered name/value entries for a `kind: 'enum'` def (its `fields` is empty). */
@@ -167,20 +167,20 @@ export interface StructDef {
     allocation?: 'lsb' | 'msb';
 }
 
-/** A saved struct overlay instance: one struct definition applied to one address with a user label. */
-export interface StructPointerSource {
+/** A saved overlay instance: one type definition applied to one address with a user label. */
+export interface TypePointerSource {
     sourcePinId: string;
     sourcePinName: string;
-    sourceStructId: string;
+    sourceTypeId: string;
     sourceFieldPath: string;
     pointerStorageAddress: number;
     targetAddress: number;
 }
 
-export interface StructPin {
+export interface TypeInstance {
     id: string;
-    structId: string;  // references StructDef.id
+    typeId: string;  // references TypeDef.id
     addr: number;      // base address
     name: string;      // user-provided label
-    pointerSources?: StructPointerSource[];
+    pointerSources?: TypePointerSource[];
 }

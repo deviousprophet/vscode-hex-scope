@@ -241,8 +241,8 @@
     },
     "jsonValidation": [
       {
-        "fileMatch": ".hexscope/structs.json",
-        "url": "./schemas/structs.schema.json"
+        "fileMatch": ".hexscope/types.json",
+        "url": "./schemas/types.schema.json"
       },
       {
         "fileMatch": ".hexscope/profiles.json",

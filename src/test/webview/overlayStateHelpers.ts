@@ -2,9 +2,9 @@ import { initFlatBytes } from '../../webview/memory/memoryData';
 import { S } from '../../webview/state';
 
 /**
- * Seed the webview `S` state for a struct/integrity panel test.
+ * Seed the webview `S` state for an overlay/integrity panel test.
  *
- * NOT the same helper as `src/test/shared/structTestHelpers.ts`: that one is a
+ * NOT the same helper as `src/test/shared/typeDefTestHelpers.ts`: that one is a
  * DOM/webview-free byte map for core tests. This one mutates `S` and rebuilds
  * the flat byte index, so it may only be used from webview tests.
  */

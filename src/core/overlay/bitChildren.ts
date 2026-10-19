@@ -1,5 +1,5 @@
 /**
- * Shared inline bit-field child-list helper. Runtime-neutral, so struct-def
+ * Shared inline bit-field child-list helper. Runtime-neutral, so type-def
  * normalization and the pin reference stripper rebuild children the same way
  * (same reference when nothing changed).
  */

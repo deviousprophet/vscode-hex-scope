@@ -1,27 +1,27 @@
-/** Struct panel — decoded row/group renderers and pointer renderers.
-Extracted verbatim from structPanel.ts (pure move). */
+/** Overlay panel — decoded row/group renderers and pointer renderers.
+Extracted verbatim from overlayPanel.ts (pure move). */
 import { esc, formatHex, formatHexHtml } from '../../../utils';
 import {
-    allStructs, bytesToBigUint, decodeField, decodeStruct, fieldByteSize, normalizeStructField,
-    resolveStructFieldByPath, structByteSize,
-} from '../../../../core/struct/structCodec.js';
-import type { DecodedField } from '../../../../core/struct/structCodec.js';
-import type { BitFieldAllocation, StructDef, StructField, StructFieldType, StructPin, StructScalarFieldType } from '../../../../core/types';
+    allTypes, bytesToBigUint, decodeField, decodeType, fieldByteSize, normalizeTypeField,
+    resolveTypeFieldByPath, typeByteSize,
+} from '../../../../core/overlay/overlayCodec.js';
+import type { DecodedField } from '../../../../core/overlay/overlayCodec.js';
+import type { BitFieldAllocation, TypeDef, TypeField, TypeFieldType, TypeInstance, TypeScalarFieldType } from '../../../../core/types';
 import {
     bitRowWidth, bitUnitValKey, byteHexParts, bytesFromHexParts, hasMissingByte, isBitFieldRow,
     renderBinaryFromBitRows, renderBinaryStorageUnit, rowAllocOrDefault, rowEndianOrDefault,
-} from './structBinaryView';
+} from './binaryView';
 import {
     TYPE_ABBREV, bitFieldDataAttrs, fieldFullTypeLabel, fieldOffsetLabel, fieldTypeAbbrev, fieldValueKey,
     getValForType, pointerTargetTypeLabel, typeCellHtml, valueHtmlForRow, valueTypeForRow,
-} from './structValueFormat';
-import type { ColType, StructRenderCtx } from './structValueFormat';
+} from './valueFormat';
+import type { ColType, OverlayRenderCtx } from './valueFormat';
 
 const MAX_INLINE_POINTER_HOPS = 2;
 
-type StructRenderContext = {
-    def: StructDef;
-    pin: StructPin;
+type OverlayRenderContext = {
+    def: TypeDef;
+    pin: TypeInstance;
     baseAddr: number;
     keyPrefix: string;
     pointerDepth: number;
@@ -34,25 +34,25 @@ type IndexedFieldGroup = { idx: number; rows: DecodedField[] };
 
 type NestedFieldGroup = { baseRel: string; fullBase: string; rows: DecodedField[] };
 
-type StructGroupInfo = {
-    declaredType: StructFieldType;
+type FieldGroupInfo = {
+    declaredType: TypeFieldType;
     count: number;
     isPointer: boolean;
     isArray: boolean;
-    isStruct: boolean;
+    isPlainType: boolean;
     isString: boolean;
     isBitUnit: boolean;
     isComposite: boolean;
-    structName: string;
+    typeName: string;
     summary: string;
     summaryLabel: string;
     byteCount: number;
 };
 
-type StructGroupDeclarationInfo = {
-    declaredType: StructFieldType;
+type FieldGroupDeclarationInfo = {
+    declaredType: TypeFieldType;
     count: number;
-    structName: string;
+    typeName: string;
     isPointer: boolean;
 };
 
@@ -60,16 +60,16 @@ type RenderBodyGroup = {
     rows: DecodedField[];
     baseName: string;
     key: string;
-    info: StructGroupInfo;
+    info: FieldGroupInfo;
 };
 
 type BodyRule = readonly [
     (group: RenderBodyGroup) => boolean,
-    (rctx: StructRenderCtx, ctx: StructRenderContext, group: RenderBodyGroup) => string,
+    (rctx: OverlayRenderCtx, ctx: OverlayRenderContext, group: RenderBodyGroup) => string,
 ];
 
 type PointerDerefTarget =
-    | { ok: true; addr: number; byteCount: number; def: StructDef | null }
+    | { ok: true; addr: number; byteCount: number; def: TypeDef | null }
     | { ok: false; reason: string; addr: number | null; byteCount: number };
 
 type PointerChildState = {
@@ -88,7 +88,7 @@ type PointerChildState = {
     bodyHtml: string;
 };
 
-function mkFieldRow(rctx: StructRenderCtx, r: DecodedField, bs: number, bc: number, ctx: StructRenderContext, displayName?: string): string {
+function mkFieldRow(rctx: OverlayRenderCtx, r: DecodedField, bs: number, bc: number, ctx: OverlayRenderContext, displayName?: string): string {
     const ptr = r.isPointer === true;
     const valKey = fieldValueKey(r, bs);
     const t = valueTypeForRow(rctx, r, valKey);
@@ -139,7 +139,7 @@ function fieldRowClasses(hasData: boolean, pointer: boolean): string {
 /** Explicit-override badge chips for a decoded row: shown when the row's
  *  effective endian/allocation differs from the global overlay values
  *  (i.e. an explicit override is in effect somewhere up the chain). */
-function overrideBadgeHtml(rctx: StructRenderCtx, r: DecodedField | undefined): string {
+function overrideBadgeHtml(rctx: OverlayRenderCtx, r: DecodedField | undefined): string {
     if (!r) { return ''; }
     return overrideChipHtml(r.endian, rctx.endian, 'si-chip-endian') +
         overrideChipHtml(r.allocation, rctx.bitFieldAllocation, 'si-chip-alloc');
@@ -188,7 +188,7 @@ function groupHeaderName(baseName: string): string {
     return displayFieldName(baseName);
 }
 
-function groupSummaryLabel(rctx: StructRenderCtx, rows: DecodedField[], fallback: string): string {
+function groupSummaryLabel(rctx: OverlayRenderCtx, rows: DecodedField[], fallback: string): string {
     if (!isBitUnitGroup(rows)) { return fallback; }
     const first = rows[0];
     if (!first) { return fallback; }
@@ -211,7 +211,7 @@ function isByteValue(value: number): boolean {
     return Number.isFinite(value) && value >= 0 && value <= 0xFF;
 }
 
-export function buildBitUnitAggregateRow(rctx: StructRenderCtx, rows: DecodedField[]): DecodedField | null {
+export function buildBitUnitAggregateRow(rctx: OverlayRenderCtx, rows: DecodedField[]): DecodedField | null {
     const first = rows[0];
     if (!first) { return null; }
     const usedWidth = rows.reduce((sum, row) => sum + bitRowWidth(row), 0);
@@ -232,7 +232,7 @@ export function buildBitUnitAggregateRow(rctx: StructRenderCtx, rows: DecodedFie
     };
 }
 
-function bitUnitValueSnippet(rctx: StructRenderCtx, first: DecodedField, usedWidth: number): string | undefined {
+function bitUnitValueSnippet(rctx: OverlayRenderCtx, first: DecodedField, usedWidth: number): string | undefined {
     const rawParts = byteHexParts(first.bytesHex);
     if (!canDecodeBitUnit(usedWidth, rawParts, first.hasData)) { return undefined; }
     const raw = bytesFromHexParts(rawParts);
@@ -252,7 +252,7 @@ function canDecodeBitUnit(usedWidth: number, rawParts: string[], hasData: boolea
     return usedWidth > 0 && !hasMissingByte(rawParts) && hasData;
 }
 
-function activeBitRangeForHeader(rctx: StructRenderCtx, start: number): { startBit: number; endBit: number } | null {
+function activeBitRangeForHeader(rctx: OverlayRenderCtx, start: number): { startBit: number; endBit: number } | null {
     return matchingBitRange(rctx.selectedBitRange, start) ?? matchingBitRange(rctx.hoveredBitRange, start);
 }
 
@@ -292,7 +292,7 @@ function emptyBitUnitHeaderHtml(
 }
 
 function bitUnitHeaderValueHtml(
-    rctx: StructRenderCtx, rows: DecodedField[],
+    rctx: OverlayRenderCtx, rows: DecodedField[],
     agg: DecodedField,
     valueType: ColType,
     activeRange: { startBit: number; endBit: number } | null,
@@ -305,7 +305,7 @@ function bitUnitHeaderValueHtml(
 }
 
 function bitUnitHeaderDisplayValue(
-    rctx: StructRenderCtx, rows: DecodedField[],
+    rctx: OverlayRenderCtx, rows: DecodedField[],
     agg: DecodedField,
     valueType: ColType,
     start: number,
@@ -325,7 +325,7 @@ function bitUnitByteCount(agg: DecodedField, fallback: number): number {
 }
 
 function bitUnitHeaderHtml(
-    rctx: StructRenderCtx, rows: DecodedField[],
+    rctx: OverlayRenderCtx, rows: DecodedField[],
     start: number,
     cnt: number,
     isOpen: boolean,
@@ -362,7 +362,7 @@ function collapsibleIconHtml(buttonClass: string, isOpen: boolean): string {
     }
 
 function populatedBitUnitHeaderHtml(
-        rctx: StructRenderCtx, rows: DecodedField[],
+        rctx: OverlayRenderCtx, rows: DecodedField[],
         agg: DecodedField,
         headerClass: string,
         buttonClass: string,
@@ -396,7 +396,7 @@ function populatedBitUnitHeaderHtml(
         );
     }
 
-function bitUnitHeaderValueType(rctx: StructRenderCtx, valKey: string): ColType {
+function bitUnitHeaderValueType(rctx: OverlayRenderCtx, valKey: string): ColType {
     return rctx.fieldValTypes.get(valKey) ?? 'bin';
 }
 
@@ -450,90 +450,90 @@ function sumDecodedRowBytes(rows: DecodedField[]): number {
     return rows.reduce((sum, row) => sum + decodedRowByteCount(row), 0);
 }
 
-function isCompositeStructGroup(isBitUnit: boolean, isStruct: boolean, isArray: boolean, isString: boolean): boolean {
-    if (isBitUnit || isStruct) { return true; }
+function isCompositeFieldGroup(isBitUnit: boolean, isPlainType: boolean, isArray: boolean, isString: boolean): boolean {
+    if (isBitUnit || isPlainType) { return true; }
     return isArray && !isString;
 }
 
-function structGroupSummary(type: StructFieldType, isArray: boolean, count: number, structName: string): string {
+function fieldGroupSummary(type: TypeFieldType, isArray: boolean, count: number, typeName: string): string {
     if (type === 'struct') {
-        return isArray ? `${structName}[${count}]` : structName;
+        return isArray ? `${typeName}[${count}]` : typeName;
     }
     const scalarType = TYPE_ABBREV[type] ?? type;
     return `${scalarType}[${count}]`;
 }
 
-function pointerGroupSummary(type: StructFieldType, isArray: boolean, count: number, structName: string): string {
-    const base = type === 'struct' ? structName : pointerScalarSummaryBase(type);
+function pointerGroupSummary(type: TypeFieldType, isArray: boolean, count: number, typeName: string): string {
+    const base = type === 'struct' ? typeName : pointerScalarSummaryBase(type);
     return isArray ? `${base}*[${count}]` : `${base}*`;
 }
 
-function pointerScalarSummaryBase(type: StructFieldType): string {
+function pointerScalarSummaryBase(type: TypeFieldType): string {
     if (type === 'ascii') { return 'char'; }
     return TYPE_ABBREV[type] ?? type;
 }
 
-function structGroupSummaryLabel(rctx: StructRenderCtx, rows: DecodedField[], isBitUnit: boolean, isArray: boolean, summary: string): string {
+function fieldGroupSummaryLabel(rctx: OverlayRenderCtx, rows: DecodedField[], isBitUnit: boolean, isArray: boolean, summary: string): string {
     return isBitUnit && isArray ? summary : groupSummaryLabel(rctx, rows, summary);
 }
 
-function structGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: boolean, count: number): number {
+function fieldGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: boolean, count: number): number {
     if (isBitUnit) { return decodedRowByteCount(rows[0]) * (isArray ? count : 1); }
     return sumDecodedRowBytes(rows);
 }
 
-function describeStructGroup(rctx: StructRenderCtx, def: StructDef, rows: DecodedField[], baseName: string): StructGroupInfo {
-    const declared = structGroupDeclarationInfo(rctx, def, rows, baseName);
+function describeFieldGroup(rctx: OverlayRenderCtx, def: TypeDef, rows: DecodedField[], baseName: string): FieldGroupInfo {
+    const declared = fieldGroupDeclarationInfo(rctx, def, rows, baseName);
     const isArray = declared.count > 1;
-    const isStruct = declared.declaredType === 'struct' && !declared.isPointer;
+    const isPlainType = declared.declaredType === 'struct' && !declared.isPointer;
     const isString = declared.declaredType === 'ascii' && !declared.isPointer;
     const isBitUnit = isBitUnitGroup(rows);
-    const isComposite = isCompositeStructGroup(isBitUnit, isStruct, isArray, isString);
+    const isComposite = isCompositeFieldGroup(isBitUnit, isPlainType, isArray, isString);
     const summary = groupSummaryForDeclaration(declared, isArray);
     return {
         declaredType: declared.declaredType,
         count: declared.count,
         isPointer: declared.isPointer,
         isArray,
-        isStruct,
+        isPlainType,
         isString,
         isBitUnit,
         isComposite,
-        structName: declared.structName,
+        typeName: declared.typeName,
         summary,
-        summaryLabel: structGroupSummaryLabel(rctx, rows, isBitUnit, isArray, summary),
-        byteCount: structGroupByteCount(rows, isBitUnit, isArray, declared.count),
+        summaryLabel: fieldGroupSummaryLabel(rctx, rows, isBitUnit, isArray, summary),
+        byteCount: fieldGroupByteCount(rows, isBitUnit, isArray, declared.count),
     };
 }
 
-function structGroupDeclarationInfo(rctx: StructRenderCtx, def: StructDef, rows: DecodedField[], baseName: string): StructGroupDeclarationInfo {
-    const declared = resolveStructFieldByPath(def, baseName, rctx.structs);
-    return declared ? resolvedStructGroupDeclarationInfo(declared) : inferredStructGroupDeclarationInfo(rows);
+function fieldGroupDeclarationInfo(rctx: OverlayRenderCtx, def: TypeDef, rows: DecodedField[], baseName: string): FieldGroupDeclarationInfo {
+    const declared = resolveTypeFieldByPath(def, baseName, rctx.types);
+    return declared ? resolvedFieldGroupDeclarationInfo(declared) : inferredFieldGroupDeclarationInfo(rows);
 }
 
-function resolvedStructGroupDeclarationInfo(declared: { field: StructField; structName?: string }): StructGroupDeclarationInfo {
+function resolvedFieldGroupDeclarationInfo(declared: { field: TypeField; typeName?: string }): FieldGroupDeclarationInfo {
     return {
         declaredType: declared.field.type,
         count: declared.field.count,
-        structName: declared.structName ?? 'struct',
-        isPointer: normalizeStructField(declared.field).isPointer === true,
+        typeName: declared.typeName ?? 'struct',
+        isPointer: normalizeTypeField(declared.field).isPointer === true,
     };
 }
 
-function inferredStructGroupDeclarationInfo(rows: DecodedField[]): StructGroupDeclarationInfo {
+function inferredFieldGroupDeclarationInfo(rows: DecodedField[]): FieldGroupDeclarationInfo {
     const first = rows[0];
     return {
         declaredType: first.type,
         count: rows.length,
-        structName: 'struct',
+        typeName: 'struct',
         isPointer: first.isPointer === true,
     };
 }
 
-function groupSummaryForDeclaration(declared: StructGroupDeclarationInfo, isArray: boolean): string {
+function groupSummaryForDeclaration(declared: FieldGroupDeclarationInfo, isArray: boolean): string {
     return declared.isPointer
-        ? pointerGroupSummary(declared.declaredType, isArray, declared.count, declared.structName)
-        : structGroupSummary(declared.declaredType, isArray, declared.count, declared.structName);
+        ? pointerGroupSummary(declared.declaredType, isArray, declared.count, declared.typeName)
+        : fieldGroupSummary(declared.declaredType, isArray, declared.count, declared.typeName);
 }
 
 function groupRowsByBase(rows: DecodedField[]): FieldGroup[] {
@@ -563,13 +563,13 @@ function appendIndexedFieldRow(groups: IndexedFieldGroup[], idx: number, row: De
     else { groups.push({ idx, rows: [row] }); }
 }
 
-function groupNestedRows(rows: DecodedField[], structBase: string): NestedFieldGroup[] {
-    const structPrefix = `${structBase}.`;
+function groupNestedRows(rows: DecodedField[], typeBase: string): NestedFieldGroup[] {
+    const typePrefix = `${typeBase}.`;
     const groups: NestedFieldGroup[] = [];
     for (const row of rows) {
-        const relPath = relativeStructFieldPath(row.fieldName, structPrefix);
+        const relPath = relativeTypeFieldPath(row.fieldName, typePrefix);
         const baseRel = arrayGroupBaseName(relPath);
-        const fullBase = `${structBase}.${baseRel}`;
+        const fullBase = `${typeBase}.${baseRel}`;
         const last = groups[groups.length - 1];
         if (last && last.fullBase === fullBase) { last.rows.push(row); }
         else { groups.push({ baseRel, fullBase, rows: [row] }); }
@@ -577,24 +577,24 @@ function groupNestedRows(rows: DecodedField[], structBase: string): NestedFieldG
     return groups;
 }
 
-function relativeStructFieldPath(fieldName: string, structPrefix: string): string {
-    return fieldName.startsWith(structPrefix) ? fieldName.slice(structPrefix.length) : fieldName;
+function relativeTypeFieldPath(fieldName: string, typePrefix: string): string {
+    return fieldName.startsWith(typePrefix) ? fieldName.slice(typePrefix.length) : fieldName;
 }
 
-function leafRowsHtml(rctx: StructRenderCtx, rows: DecodedField[], ctx: StructRenderContext): string {
+function leafRowsHtml(rctx: OverlayRenderCtx, rows: DecodedField[], ctx: OverlayRenderContext): string {
     const labels = disambiguateLeafNames(rows.map(r => leafName(r.fieldName)));
     return rows.map((row, idx) =>
         mkFieldRow(rctx, row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), ctx, labels[idx])
     ).join('');
 }
 
-function indexedRowsHtml(rctx: StructRenderCtx, rows: DecodedField[], ctx: StructRenderContext, baseName: string): string {
+function indexedRowsHtml(rctx: OverlayRenderCtx, rows: DecodedField[], ctx: OverlayRenderContext, baseName: string): string {
     return rows.map(row =>
         mkFieldRow(rctx, row, ctx.baseAddr + row.byteOffset, decodedRowByteCount(row), ctx, indexOnlyName(row.fieldName, baseName))
     ).join('');
 }
 
-function structArrayElementHtml(
+function arrayElementHtml(
     element: IndexedFieldGroup,
     elementKey: string,
     baseAddr: number,
@@ -606,9 +606,9 @@ function structArrayElementHtml(
 ): string {
     const first = element.rows[0];
     const byteStart = baseAddr + first.byteOffset;
-    const groupClass = structArrayElementGroupClass(isOpen);
-    const offsetAttr = structArrayElementOffsetAttr(first.byteOffset, hideOffsets);
-    const bodyStyle = structArrayElementBodyStyle(isOpen);
+    const groupClass = arrayElementGroupClass(isOpen);
+    const offsetAttr = arrayElementOffsetAttr(first.byteOffset, hideOffsets);
+    const bodyStyle = arrayElementBodyStyle(isOpen);
     return (
         `<div class="${groupClass}" data-arr-el-key="${esc(elementKey)}">` +
         `<div class="si-arr-el-hdr" data-arr-el-key="${esc(elementKey)}" data-byte-start="${byteStart}" data-byte-cnt="${byteCnt}"${offsetAttr}>` +
@@ -625,15 +625,15 @@ function structArrayElementHtml(
     );
 }
 
-function structArrayElementGroupClass(isOpen: boolean): string {
+function arrayElementGroupClass(isOpen: boolean): string {
     return isOpen ? 'si-arr-el-grp open' : 'si-arr-el-grp';
 }
 
-function structArrayElementOffsetAttr(byteOffset: number, hideOffsets: boolean): string {
+function arrayElementOffsetAttr(byteOffset: number, hideOffsets: boolean): string {
     return hideOffsets ? '' : ` data-offset-label="${offsetLabel(byteOffset)}"`;
 }
 
-function structArrayElementBodyStyle(isOpen: boolean): string {
+function arrayElementBodyStyle(isOpen: boolean): string {
     return isOpen ? '' : ' style="display:none"';
 }
 
@@ -693,36 +693,36 @@ function syncClosedCompositeHeaderOffset(
     }
 }
 
-function sourceContextDataAttrs(ctx: StructRenderContext): string {
-    return ` data-source-struct-id="${esc(ctx.def.id)}" data-source-base-addr="${ctx.baseAddr}"`;
+function sourceContextDataAttrs(ctx: OverlayRenderContext): string {
+    return ` data-source-type-id="${esc(ctx.def.id)}" data-source-base-addr="${ctx.baseAddr}"`;
 }
 
 const BODY_RULES: ReadonlyArray<BodyRule> = [
     [
-        group => group.info.isStruct && group.info.isArray,
-        (rctx, ctx, group) => renderStructArrayElements(rctx, ctx, group.rows, group.baseName, group.key, group.info.structName),
+        group => group.info.isPlainType && group.info.isArray,
+        (rctx, ctx, group) => renderArrayElements(rctx, ctx, group.rows, group.baseName, group.key, group.info.typeName),
     ],
     [
         group => group.info.isBitUnit && group.info.isArray,
         (rctx, ctx, group) => renderBitUnitArrayElements(rctx, group.rows, group.baseName, group.key, ctx),
     ],
     [
-        group => group.info.isStruct && !group.info.isArray,
-        (rctx, ctx, group) => renderStructChildren(rctx, ctx, group.rows, group.baseName, group.key),
+        group => group.info.isPlainType && !group.info.isArray,
+        (rctx, ctx, group) => renderTypeChildren(rctx, ctx, group.rows, group.baseName, group.key),
     ],
     [
         group => group.info.isBitUnit,
         (rctx, ctx, group) => renderBitUnitLeafRows(rctx, group.rows, ctx, group.baseName),
     ],
     [
-        group => !group.info.isStruct && group.info.isArray && !group.info.isString,
+        group => !group.info.isPlainType && group.info.isArray && !group.info.isString,
         (rctx, ctx, group) => indexedRowsHtml(rctx, group.rows, ctx, group.baseName),
     ],
 ];
 
-export function renderStructBody(rctx: StructRenderCtx, def: StructDef, pin: StructPin): string {
-    const rows = decodeStruct(def, pin.addr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.structs);
-    return `<div class="si-fields">${renderStructFieldGroups(rctx, {
+export function renderTypeBody(rctx: OverlayRenderCtx, def: TypeDef, pin: TypeInstance): string {
+    const rows = decodeType(def, pin.addr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.types);
+    return `<div class="si-fields">${renderTypeFieldGroups(rctx, {
         def,
         pin,
         baseAddr: pin.addr,
@@ -733,18 +733,18 @@ export function renderStructBody(rctx: StructRenderCtx, def: StructDef, pin: Str
 }
 
 function renderBitUnitLeafRows(
-    rctx: StructRenderCtx, unitRows: DecodedField[],
-    ctx: StructRenderContext,
+    rctx: OverlayRenderCtx, unitRows: DecodedField[],
+    ctx: OverlayRenderContext,
     containerPath: string,
 ): string {
     return leafRowsHtml(rctx, visibleBitChildRows(rctx, ctx.def, containerPath, unitRows), ctx);
 }
 
 function renderBitUnitArrayElements(
-    rctx: StructRenderCtx, unitRows: DecodedField[],
+    rctx: OverlayRenderCtx, unitRows: DecodedField[],
     baseName: string,
     parentKey: string,
-    ctx: StructRenderContext,
+    ctx: OverlayRenderContext,
 ): string {
     const arrayBase = bitUnitArrayBaseName(baseName);
     return groupRowsByArrayIndex(unitRows, arrayBase).map(element => {
@@ -772,28 +772,28 @@ const NO_HIDDEN_BIT_CHILDREN: ReadonlySet<string> = new Set<string>();
  * references filter identically. Render-only: decode/offsets/C stay unchanged,
  * and the container header row is unaffected (an all-hidden container keeps it).
  */
-function visibleBitChildRows(rctx: StructRenderCtx, def: StructDef, containerPath: string, rows: DecodedField[]): DecodedField[] {
+function visibleBitChildRows(rctx: OverlayRenderCtx, def: TypeDef, containerPath: string, rows: DecodedField[]): DecodedField[] {
     const hidden = hiddenBitChildNames(rctx, def, containerPath);
     if (hidden.size === 0) { return rows; }
     return rows.filter(row => !hidden.has(leafName(row.fieldName)));
 }
 
-function hiddenBitChildNames(rctx: StructRenderCtx, def: StructDef, containerPath: string): ReadonlySet<string> {
+function hiddenBitChildNames(rctx: OverlayRenderCtx, def: TypeDef, containerPath: string): ReadonlySet<string> {
     if (rctx.showHiddenFields) { return NO_HIDDEN_BIT_CHILDREN; }
-    const children = resolveStructFieldByPath(def, containerPath, rctx.structs)?.field.bitFields;
+    const children = resolveTypeFieldByPath(def, containerPath, rctx.types)?.field.bitFields;
     if (!children || children.length === 0) { return NO_HIDDEN_BIT_CHILDREN; }
     return new Set(children.filter(child => child.hidden === true).map(child => child.name));
 }
 
-function renderStructChildren(rctx: StructRenderCtx, ctx: StructRenderContext, structRows: DecodedField[], structBase: string, parentKey: string): string {
-    return groupNestedRows(structRows, structBase).map(ng => renderNestedStructGroup(rctx, ctx, ng, parentKey)).join('');
+function renderTypeChildren(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, typeRows: DecodedField[], typeBase: string, parentKey: string): string {
+    return groupNestedRows(typeRows, typeBase).map(ng => renderNestedTypeGroup(rctx, ctx, ng, parentKey)).join('');
 }
 
-function renderNestedStructGroup(rctx: StructRenderCtx, ctx: StructRenderContext, ng: NestedFieldGroup, parentKey: string): string {
+function renderNestedTypeGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, ng: NestedFieldGroup, parentKey: string): string {
     if (isHiddenDeclaredField(rctx, ctx.def, ng.fullBase)) { return ''; }
-    const info = describeStructGroup(rctx, ctx.def, ng.rows, ng.fullBase);
-    if (isStructPointerRows(ng.rows)) {
-        return renderStructPointerRows(rctx, ctx, ng.rows, parentKey, ng.baseRel, info);
+    const info = describeFieldGroup(rctx, ctx.def, ng.rows, ng.fullBase);
+    if (isPointerRows(ng.rows)) {
+        return renderPointerRows(rctx, ctx, ng.rows, parentKey, ng.baseRel, info);
     }
     if (!info.isComposite) {
         return leafRowsHtml(rctx, ng.rows, ctx);
@@ -802,7 +802,7 @@ function renderNestedStructGroup(rctx: StructRenderCtx, ctx: StructRenderContext
     const nestedKey = `${parentKey}::${ng.baseRel}`;
     const nestedOpen = rctx.expandedArrayFields.has(nestedKey);
     const nestedStart = ctx.baseAddr + ng.rows[0].byteOffset;
-    const nestedBodyHtml = renderNestedStructBody(rctx, ctx, {
+    const nestedBodyHtml = renderNestedTypeBody(rctx, ctx, {
         rows: ng.rows,
         baseName: ng.fullBase,
         key: nestedKey,
@@ -812,12 +812,12 @@ function renderNestedStructGroup(rctx: StructRenderCtx, ctx: StructRenderContext
     return compositeGroupHtml(
         nestedKey,
         nestedOpen,
-        nestedStructHeaderHtml(rctx, ctx, ng, info, nestedStart, nestedOpen),
+        nestedTypeHeaderHtml(rctx, ctx, ng, info, nestedStart, nestedOpen),
         nestedBodyHtml,
     );
 }
 
-function nestedStructHeaderHtml(rctx: StructRenderCtx, ctx: StructRenderContext, ng: NestedFieldGroup, info: StructGroupInfo, nestedStart: number, nestedOpen: boolean): string {
+function nestedTypeHeaderHtml(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, ng: NestedFieldGroup, info: FieldGroupInfo, nestedStart: number, nestedOpen: boolean): string {
     if (info.isBitUnit && !info.isArray) {
         return bitUnitHeaderHtml(rctx, ng.rows, nestedStart, info.byteCount, nestedOpen, groupHeaderName(ng.baseRel), 'group', ctx.hideOffsets);
     }
@@ -834,72 +834,72 @@ function nestedStructHeaderHtml(rctx: StructRenderCtx, ctx: StructRenderContext,
     );
 }
 
-function bodyRuleFor(group: RenderBodyGroup): ((rctx: StructRenderCtx, ctx: StructRenderContext, group: RenderBodyGroup) => string) | undefined {
+function bodyRuleFor(group: RenderBodyGroup): ((rctx: OverlayRenderCtx, ctx: OverlayRenderContext, group: RenderBodyGroup) => string) | undefined {
     return BODY_RULES.find(([matches]) => matches(group))?.[1];
 }
 
-function renderNestedStructBody(
-    rctx: StructRenderCtx,
-    ctx: StructRenderContext,
+function renderNestedTypeBody(
+    rctx: OverlayRenderCtx,
+    ctx: OverlayRenderContext,
     group: RenderBodyGroup,
 ): string {
     const rule = bodyRuleFor(group);
     return rule ? rule(rctx, ctx, group) : leafRowsHtml(rctx, group.rows, ctx);
 }
 
-function renderStructArrayElements(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+function renderArrayElements(
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     rows: DecodedField[],
     baseName: string,
     parentKey: string,
-    structName: string,
+    typeName: string,
 ): string {
     return groupRowsByArrayIndex(rows, baseName).map(element => {
         const elementKey = `${parentKey}::${element.idx}`;
         const isElementOpen = rctx.expandedArrayElements.has(elementKey);
-        const childRowsHtml = renderStructChildren(
+        const childRowsHtml = renderTypeChildren(
             rctx, ctx,
             element.rows,
             `${baseName}[${element.idx}]`,
             elementKey,
         );
-        return structArrayElementHtml(
+        return arrayElementHtml(
             element,
             elementKey,
             ctx.baseAddr,
             sumDecodedRowBytes(element.rows),
             isElementOpen,
-            structName,
+            typeName,
             ctx.hideOffsets,
             childRowsHtml,
         );
     }).join('');
 }
 
-function renderStructFieldGroups(rctx: StructRenderCtx, ctx: StructRenderContext, rows: DecodedField[]): string {
+function renderTypeFieldGroups(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, rows: DecodedField[]): string {
     return groupRowsByBase(rows)
         .filter(g => !isHiddenDeclaredField(rctx, ctx.def, g.baseName))
-        .map(g => renderStructFieldGroup(rctx, ctx, g))
+        .map(g => renderTypeFieldGroup(rctx, ctx, g))
         .join('');
 }
 
 /**
  * Whether the declaration at `fieldPath` is marked hidden. Resolved through
- * the def by full dotted path so leaf, composite, nested-struct, array, and
+ * the def by full dotted path so leaf, composite, nested type, array, and
  * bit-unit-container groups are all covered uniformly; a hidden container
  * drops its whole subtree (its rows never reach a group). The global toggle
  * short-circuits to "visible".
  */
-function isHiddenDeclaredField(rctx: StructRenderCtx, def: StructDef, fieldPath: string): boolean {
+function isHiddenDeclaredField(rctx: OverlayRenderCtx, def: TypeDef, fieldPath: string): boolean {
     if (rctx.showHiddenFields) { return false; }
-    return resolveStructFieldByPath(def, fieldPath, rctx.structs)?.field.hidden === true;
+    return resolveTypeFieldByPath(def, fieldPath, rctx.types)?.field.hidden === true;
 }
 
-function renderStructFieldGroup(rctx: StructRenderCtx, ctx: StructRenderContext, g: FieldGroup): string {
+function renderTypeFieldGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, g: FieldGroup): string {
     const r0 = g.rows[0];
-    const info = describeStructGroup(rctx, ctx.def, g.rows, g.baseName);
-    if (isStructPointerRows(g.rows)) {
-        return renderStructPointerRows(rctx, ctx, g.rows, ctx.keyPrefix, g.baseName, info);
+    const info = describeFieldGroup(rctx, ctx.def, g.rows, g.baseName);
+    if (isPointerRows(g.rows)) {
+        return renderPointerRows(rctx, ctx, g.rows, ctx.keyPrefix, g.baseName, info);
     }
     if (!info.isComposite) {
         return leafRowsHtml(rctx, g.rows, ctx);
@@ -908,7 +908,7 @@ function renderStructFieldGroup(rctx: StructRenderCtx, ctx: StructRenderContext,
     const key = `${ctx.keyPrefix}::${g.baseName}`;
     const isOpen = rctx.expandedArrayFields.has(key);
     const byteStart = ctx.baseAddr + r0.byteOffset;
-    const elHtml = renderStructFieldBody(rctx, ctx, {
+    const elHtml = renderTypeFieldBody(rctx, ctx, {
         rows: g.rows,
         baseName: g.baseName,
         key,
@@ -918,12 +918,12 @@ function renderStructFieldGroup(rctx: StructRenderCtx, ctx: StructRenderContext,
     return compositeGroupHtml(
         key,
         isOpen,
-        structFieldHeaderHtml(rctx, ctx, g, info, byteStart, isOpen),
+        fieldHeaderHtml(rctx, ctx, g, info, byteStart, isOpen),
         elHtml,
     );
 }
 
-function structFieldHeaderHtml(rctx: StructRenderCtx, ctx: StructRenderContext, g: FieldGroup, info: StructGroupInfo, byteStart: number, isOpen: boolean): string {
+function fieldHeaderHtml(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, g: FieldGroup, info: FieldGroupInfo, byteStart: number, isOpen: boolean): string {
     if (info.isBitUnit && !info.isArray) {
         return bitUnitHeaderHtml(rctx, g.rows, byteStart, info.byteCount, isOpen, undefined, 'group', ctx.hideOffsets);
     }
@@ -980,38 +980,38 @@ function compositeHeaderHtml(
         );
     }
 
-function isStructPointerRows(rows: DecodedField[]): boolean {
+function isPointerRows(rows: DecodedField[]): boolean {
     return rows.length > 0 && rows.every(row => row.isPointer === true);
 }
 
-function renderStructPointerRows(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+function renderPointerRows(
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     rows: DecodedField[],
     parentKey: string,
     baseName: string,
-    info: StructGroupInfo,
+    info: FieldGroupInfo,
 ): string {
     if (info.isArray) {
-        return renderStructPointerArrayRows(rctx, ctx, rows, parentKey, baseName, info);
+        return renderPointerArrayRows(rctx, ctx, rows, parentKey, baseName, info);
     }
     return rows.map(row => {
-        return renderStructPointerGroup(rctx, ctx, row, `${parentKey}::ptr::${row.fieldName}`, groupHeaderName(baseName));
+        return renderPointerGroup(rctx, ctx, row, `${parentKey}::ptr::${row.fieldName}`, groupHeaderName(baseName));
     }).join('');
 }
 
-function renderStructPointerArrayRows(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+function renderPointerArrayRows(
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     rows: DecodedField[],
     parentKey: string,
     baseName: string,
-    info: StructGroupInfo,
+    info: FieldGroupInfo,
 ): string {
     const key = `${parentKey}::${baseName}`;
     const isOpen = rctx.expandedArrayFields.has(key);
     const first = rows[0];
     const byteStart = ctx.baseAddr + first.byteOffset;
     const bodyHtml = rows.map(row =>
-        renderStructPointerGroup(rctx, ctx, row, `${key}::ptr::${row.fieldName}`, indexOnlyName(row.fieldName, baseName))
+        renderPointerGroup(rctx, ctx, row, `${key}::ptr::${row.fieldName}`, indexOnlyName(row.fieldName, baseName))
     ).join('');
     return compositeGroupHtml(
         key,
@@ -1021,18 +1021,18 @@ function renderStructPointerArrayRows(
     );
 }
 
-function renderStructPointerGroup(rctx: StructRenderCtx, ctx: StructRenderContext, row: DecodedField, key: string, name: string): string {
+function renderPointerGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, row: DecodedField, key: string, name: string): string {
     const target = pointerDerefTarget(rctx, row);
     if (!target.ok || !pointerHasInlinePreview(row, target)) {
-        return structPointerLeafHtml(ctx, row, key, name, target);
+        return pointerLeafHtml(ctx, row, key, name, target);
     }
     const isOpen = rctx.expandedArrayFields.has(key);
     const childKey = `${key}::child`;
     return compositeGroupHtml(
         key,
         isOpen,
-        structPointerHeaderHtml(ctx, row, key, name, target, isOpen),
-        structPointerTargetBodyHtml(rctx, ctx, row, target, childKey),
+        pointerHeaderHtml(ctx, row, key, name, target, isOpen),
+        pointerTargetBodyHtml(rctx, ctx, row, target, childKey),
     );
 }
 
@@ -1042,8 +1042,8 @@ function pointerHasInlinePreview(row: DecodedField, target: PointerDerefTarget):
     return scalarPointerTargetType(row) !== 'void';
 }
 
-function structPointerLeafHtml(
-    ctx: StructRenderContext,
+function pointerLeafHtml(
+    ctx: OverlayRenderContext,
     row: DecodedField,
     key: string,
     name: string,
@@ -1052,26 +1052,26 @@ function structPointerLeafHtml(
     const storageStart = ctx.baseAddr + row.byteOffset;
     const valKey = fieldValueKey(row, storageStart);
     return (
-        structPointerLeafOpenTag(ctx, row, target, key, storageStart, valKey) +
-        structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
+        pointerLeafOpenTag(ctx, row, target, key, storageStart, valKey) +
+        pointerHeaderPrefixHtml(row, ctx.hideOffsets) +
         `<span class="si-toggle-pad" aria-hidden="true"></span>` +
-        structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
+        pointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
 }
 
-function structPointerLeafOpenTag(
-    ctx: StructRenderContext,
+function pointerLeafOpenTag(
+    ctx: OverlayRenderContext,
     row: DecodedField,
     target: PointerDerefTarget,
     key: string,
     storageStart: number,
     valKey: string,
 ): string {
-    return structPointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-field si-ptr-hdr si-ptr-field', 0);
+    return pointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-field si-ptr-hdr si-ptr-field', 0);
 }
 
-function pointerChildState(rctx: StructRenderCtx, ctx: StructRenderContext, row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>, key: string): PointerChildState {
+function pointerChildState(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>, key: string): PointerChildState {
     const storageStart = ctx.baseAddr + row.byteOffset;
     const expandable = pointerChildExpandable(ctx, target);
     const isOpen = pointerChildIsOpen(rctx, key, expandable.ok);
@@ -1096,51 +1096,51 @@ function pointerChildName(target: Extract<PointerDerefTarget, { ok: true }>): st
     return target.def ? '{ }' : '';
 }
 
-function pointerChildIsOpen(rctx: StructRenderCtx, key: string, canExpand: boolean): boolean {
+function pointerChildIsOpen(rctx: OverlayRenderCtx, key: string, canExpand: boolean): boolean {
     return canExpand && rctx.expandedArrayFields.has(key);
 }
 
 function pointerChildBodyHtml(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     key: string,
     target: PointerDerefTarget,
     canExpand: boolean,
 ): string {
     if (!canExpand || !target.ok || !target.def) { return ''; }
     const resolvedTarget = { ...target, def: target.def };
-    return renderStructPointerBody(rctx, ctx, key, resolvedTarget);
+    return renderPointerBody(rctx, ctx, key, resolvedTarget);
 }
 
 function pointerChildSummary(row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>): string {
-    return target.def ? structPointerTargetSummary(row, target.addr, target.def) : pointerTargetTypeLabel(row, false);
+    return target.def ? pointerTargetSummary(row, target.addr, target.def) : pointerTargetTypeLabel(row, false);
 }
 
 function pointerChildSummaryTitle(row: DecodedField, target: Extract<PointerDerefTarget, { ok: true }>): string {
-    const targetName = target.def ? row.pointerTargetStructName ?? target.def.name : pointerTargetTypeLabel(row, false);
+    const targetName = target.def ? row.pointerTargetTypeName ?? target.def.name : pointerTargetTypeLabel(row, false);
     return `${targetName} @ ${formatHex(target.addr, 8)}`;
 }
 
-function structPointerTargetSummary(
+function pointerTargetSummary(
     row: DecodedField,
     addr: number,
-    def: StructDef,
+    def: TypeDef,
 ): string {
-    return `${row.pointerTargetStructName ?? def.name} @ ${formatHex(addr, 8)}`;
+    return `${row.pointerTargetTypeName ?? def.name} @ ${formatHex(addr, 8)}`;
 }
 
-function scalarPointerTargetType(row: DecodedField): StructScalarFieldType | null {
+function scalarPointerTargetType(row: DecodedField): TypeScalarFieldType | null {
     const targetType = row.pointerTargetType;
-    return targetType !== undefined && isScalarStructFieldType(targetType) ? targetType : null;
+    return targetType !== undefined && isScalarFieldType(targetType) ? targetType : null;
 }
 
 /** A pointer target type that decodes as a scalar (not a named struct/bit-field/enum). */
-function isScalarStructFieldType(type: StructFieldType): type is StructScalarFieldType {
+function isScalarFieldType(type: TypeFieldType): type is TypeScalarFieldType {
     return type !== 'struct' && type !== 'bitfield' && type !== 'enum';
 }
 
 function readScalarPointerTargetBytes(
-    rctx: StructRenderCtx, row: DecodedField,
-    targetType: StructScalarFieldType,
+    rctx: OverlayRenderCtx, row: DecodedField,
+    targetType: TypeScalarFieldType,
     addr: number,
 ): number[] | null {
     const size = Math.max(1, row.pointerTargetByteSize ?? fieldByteSize(targetType));
@@ -1153,7 +1153,7 @@ function readScalarPointerTargetBytes(
     return bytes;
 }
 
-function scalarPointerTargetRow(rctx: StructRenderCtx, row: DecodedField, targetType: StructScalarFieldType, bytes: number[]): DecodedField {
+function scalarPointerTargetRow(rctx: OverlayRenderCtx, row: DecodedField, targetType: TypeScalarFieldType, bytes: number[]): DecodedField {
     return {
         fieldName: `${row.fieldName}.*`,
         type: targetType,
@@ -1165,23 +1165,23 @@ function scalarPointerTargetRow(rctx: StructRenderCtx, row: DecodedField, target
     };
 }
 
-function pointerDerefTarget(rctx: StructRenderCtx, row: DecodedField): PointerDerefTarget {
+function pointerDerefTarget(rctx: OverlayRenderCtx, row: DecodedField): PointerDerefTarget {
     const follow = rctx.pointerFollowState(row);
     const addr = typeof row.pointerValue === 'number' ? row.pointerValue : null;
     if (!follow.ok) { return { ok: false, reason: follow.reason, addr, byteCount: 1 }; }
     return resolvedPointerTarget(rctx, row, addr!);
 }
 
-function resolvedPointerTarget(rctx: StructRenderCtx, row: DecodedField, addr: number): PointerDerefTarget {
-    const def = pointerTargetStructDef(rctx, row) ?? null;
+function resolvedPointerTarget(rctx: OverlayRenderCtx, row: DecodedField, addr: number): PointerDerefTarget {
+    const def = pointerTargetTypeDef(rctx, row) ?? null;
     if (def) {
-        return { ok: true, addr, byteCount: structByteSize(def, rctx.structs), def };
+        return { ok: true, addr, byteCount: typeByteSize(def, rctx.types), def };
     }
     return { ok: true, addr, byteCount: Math.max(1, row.pointerTargetByteSize ?? 1), def: null };
 }
 
 function pointerChildExpandable(
-    ctx: StructRenderContext,
+    ctx: OverlayRenderContext,
     target: PointerDerefTarget,
 ): { ok: true; reason: string } | { ok: false; reason: string } {
     if (!target.ok) { return { ok: false, reason: target.reason }; }
@@ -1190,8 +1190,8 @@ function pointerChildExpandable(
     return { ok: true, reason: 'Expand' };
 }
 
-function structPointerHeaderHtml(
-    ctx: StructRenderContext,
+function pointerHeaderHtml(
+    ctx: OverlayRenderContext,
     row: DecodedField,
     key: string,
     name: string,
@@ -1201,15 +1201,15 @@ function structPointerHeaderHtml(
     const storageStart = ctx.baseAddr + row.byteOffset;
     const valKey = fieldValueKey(row, storageStart);
     return (
-        structPointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
-        structPointerHeaderPrefixHtml(row, ctx.hideOffsets) +
+        pointerHeaderOpenTag(ctx, row, target, key, storageStart, valKey) +
+        pointerHeaderPrefixHtml(row, ctx.hideOffsets) +
         `<button class="si-arr-exp-btn" title="${isOpen ? 'Collapse group' : 'Expand group'}" aria-label="${isOpen ? 'Collapse group' : 'Expand group'}">›</button>` +
-        structPointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
+        pointerHeaderBodyHtml(row, target, name, storageStart, valKey) +
         `</div>`
     );
 }
 
-function structPointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): string {
+function pointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): string {
     const byteCount = decodedRowByteCount(row);
     const abbrev = fieldTypeAbbrev(row, byteCount);
     const fullTypeLabel = fieldFullTypeLabel(row, byteCount);
@@ -1219,8 +1219,8 @@ function structPointerHeaderPrefixHtml(row: DecodedField, hideOffset: boolean): 
     return offsetHtml + typeCellHtml(abbrev, fullTypeLabel);
 }
 
-function structPointerHeaderOpenTag(
-    ctx: StructRenderContext,
+function pointerHeaderOpenTag(
+    ctx: OverlayRenderContext,
     row: DecodedField,
     target: PointerDerefTarget,
     key: string,
@@ -1228,11 +1228,11 @@ function structPointerHeaderOpenTag(
     valKey: string,
 ): string {
     const targetCnt = target.ok ? target.byteCount : 0;
-    return structPointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-arr-grp-hdr si-ptr-hdr si-ptr-field', targetCnt);
+    return pointerOpenTag(ctx, row, target, key, storageStart, valKey, 'si-arr-grp-hdr si-ptr-hdr si-ptr-field', targetCnt);
 }
 
-function structPointerOpenTag(
-    ctx: StructRenderContext,
+function pointerOpenTag(
+    ctx: OverlayRenderContext,
     row: DecodedField,
     target: PointerDerefTarget,
     key: string,
@@ -1251,7 +1251,7 @@ function structPointerOpenTag(
         ` data-arr-key="${esc(key)}">`;
 }
 
-function structPointerHeaderBodyHtml(
+function pointerHeaderBodyHtml(
     row: DecodedField,
     target: PointerDerefTarget,
     name: string,
@@ -1275,7 +1275,7 @@ function pointerStatusAddressHtml(target: Extract<PointerDerefTarget, { ok: fals
     return `<span class="si-f-ptr-note">(${esc(target.reason)})</span> ${addrHtml}`;
 }
 
-function structPointerBodyHtml(ctx: StructRenderContext, row: DecodedField, child: PointerChildState): string {
+function pointerBodyHtml(ctx: OverlayRenderContext, row: DecodedField, child: PointerChildState): string {
     return (
         `<div class="si-arr-grp${child.isOpen ? ' open' : ''}" data-arr-key="${esc(child.key)}">` +
         pointerChildHeaderHtml(ctx, row, child) +
@@ -1284,7 +1284,7 @@ function structPointerBodyHtml(ctx: StructRenderContext, row: DecodedField, chil
     );
 }
 
-function pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, child: PointerChildState): string {
+function pointerChildHeaderHtml(ctx: OverlayRenderContext, row: DecodedField, child: PointerChildState): string {
     const storageStart = child.storageStart;
     const disabled = child.canExpand ? '' : ' disabled';
     return `<div class="si-arr-grp-hdr si-ptr-child-hdr si-ptr-field" data-byte-start="${child.byteStart}" data-byte-cnt="${child.byteCount}" ` +
@@ -1301,19 +1301,19 @@ function pointerChildHeaderHtml(ctx: StructRenderContext, row: DecodedField, chi
         `</div>`;
 }
 
-function structPointerTargetBodyHtml(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+function pointerTargetBodyHtml(
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     row: DecodedField,
     target: Extract<PointerDerefTarget, { ok: true }>,
     childKey: string,
 ): string {
     if (!target.def) { return scalarPointerTargetFieldHtml(rctx, ctx, row, target); }
     const child = pointerChildState(rctx, ctx, row, target, childKey);
-    return structPointerBodyHtml(ctx, row, child);
+    return pointerBodyHtml(ctx, row, child);
 }
 
 function scalarPointerTargetFieldHtml(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     row: DecodedField,
     target: Extract<PointerDerefTarget, { ok: true }>,
 ): string {
@@ -1321,7 +1321,7 @@ function scalarPointerTargetFieldHtml(
     return targetRow ? mkFieldRow(rctx, targetRow, target.addr, target.byteCount, scalarPointerTargetContext(ctx, target), '*') : '';
 }
 
-function scalarPointerTargetDecodedRow(rctx: StructRenderCtx, row: DecodedField, addr: number): DecodedField | null {
+function scalarPointerTargetDecodedRow(rctx: OverlayRenderCtx, row: DecodedField, addr: number): DecodedField | null {
     const targetType = scalarPointerTargetType(row);
     if (!targetType || targetType === 'void') { return null; }
     const bytes = readScalarPointerTargetBytes(rctx, row, targetType, addr);
@@ -1329,9 +1329,9 @@ function scalarPointerTargetDecodedRow(rctx: StructRenderCtx, row: DecodedField,
 }
 
 function scalarPointerTargetContext(
-    ctx: StructRenderContext,
+    ctx: OverlayRenderContext,
     target: Extract<PointerDerefTarget, { ok: true }>,
-): StructRenderContext {
+): OverlayRenderContext {
     return {
         ...ctx,
         baseAddr: target.addr,
@@ -1340,13 +1340,13 @@ function scalarPointerTargetContext(
     };
 }
 
-function renderStructPointerBody(
-    rctx: StructRenderCtx, ctx: StructRenderContext,
+function renderPointerBody(
+    rctx: OverlayRenderCtx, ctx: OverlayRenderContext,
     key: string,
-    target: { ok: true; addr: number; byteCount: number; def: StructDef },
+    target: { ok: true; addr: number; byteCount: number; def: TypeDef },
 ): string {
-    const rows = decodeStruct(target.def, target.addr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.structs);
-    return renderStructFieldGroups(rctx, {
+    const rows = decodeType(target.def, target.addr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.types);
+    return renderTypeFieldGroups(rctx, {
         def: target.def,
         pin: ctx.pin,
         baseAddr: target.addr,
@@ -1356,17 +1356,17 @@ function renderStructPointerBody(
     }, rows);
 }
 
-function renderStructFieldBody(
-    rctx: StructRenderCtx,
-    ctx: StructRenderContext,
+function renderTypeFieldBody(
+    rctx: OverlayRenderCtx,
+    ctx: OverlayRenderContext,
     group: RenderBodyGroup,
 ): string {
     const rule = bodyRuleFor(group);
     return rule ? rule(rctx, ctx, group) : '';
 }
-/** Resolve the struct-def a pointer row targets (moved from StructPanel). */
-export function pointerTargetStructDef(rctx: StructRenderCtx, row: DecodedField): StructDef | undefined {
-    if (row.pointerTargetType !== 'struct' || !row.pointerTargetStructId) { return undefined; }
-    return allStructs(rctx.structs).find(candidate => candidate.id === row.pointerTargetStructId);
+/** Resolve the type def a pointer row targets (moved from OverlayPanel). */
+export function pointerTargetTypeDef(rctx: OverlayRenderCtx, row: DecodedField): TypeDef | undefined {
+    if (row.pointerTargetType !== 'struct' || !row.pointerTargetTypeId) { return undefined; }
+    return allTypes(rctx.types).find(candidate => candidate.id === row.pointerTargetTypeId);
 }
 

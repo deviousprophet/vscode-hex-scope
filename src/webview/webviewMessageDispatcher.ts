@@ -16,7 +16,7 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'updateLabel',
     'copyCommand',
     'savedEdits',
-    'structsExternalChange',
+    'typesExternalChange',
     'perFileDataChange',
     'externalChange',
     'externalChangeError',

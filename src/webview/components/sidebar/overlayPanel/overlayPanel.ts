@@ -1,43 +1,43 @@
-/** Struct Overlay — UI layer. Self-contained Struct sidebar panel.
+/** Type Overlay — UI layer. Self-contained Overlay sidebar panel.
 Owns the pins/instances track + types/editor track, all their UI state
-(add/edit struct definitions, C preview, add/edit/delete pins, decoded
+(add/edit type definitions, C preview, add/edit/delete pins, decoded
 instance rows incl. bit units / arrays / pointers, bit-field allocation
 toggle, expansion state, field-value menus, pointer follow/create).
 Data is pushed via setters; actions report via callbacks. This module
 never imports the `S` global, never posts provider messages, and never
-touches the render registry. Pure codec logic lives in structCodec.ts. */
+touches the render registry. Pure codec logic lives in overlayCodec.ts. */
 
 import { esc, actionBtnsHtml, wireActionBtns, formatHex } from '../../../utils';
 import {
-    makeStructPin,
-    uniqueStructPinName as uniquePinName,
-    upsertPointerStructPin,
-    withEditedStructPin,
-    withoutStructDefinition,
-    withoutStructPin,
-} from './structPinsModel';
+    makeTypeInstance,
+    uniqueTypeInstanceName as uniquePinName,
+    upsertPointerTypeInstance,
+    withEditedTypeInstance,
+    withoutTypeDefinition,
+    withoutTypeInstance,
+} from './overlayInstancesModel';
 import {
-    fieldByteSize, structByteSize, decodeStruct, allStructs, validateStructs, MAX_NESTED_DEPTH,
-    structDefKind, isUnsignedScalarType,
-} from '../../../../core/struct/structCodec.js';
-import type { DecodedField } from '../../../../core/struct/structCodec.js';
-import type { BitFieldAllocation, BitFieldChild, EnumEntry, StructBaseType, StructDef, StructDefKind, StructField, StructFieldType, StructPin } from '../../../../core/types';
+    fieldByteSize, typeByteSize, decodeType, allTypes, validateTypes, MAX_NESTED_DEPTH,
+    typeDefKind, isUnsignedScalarType,
+} from '../../../../core/overlay/overlayCodec.js';
+import type { DecodedField } from '../../../../core/overlay/overlayCodec.js';
+import type { BitFieldAllocation, BitFieldChild, EnumEntry, TypeBaseType, TypeDef, TypeDefKind, TypeField, TypeFieldType, TypeInstance } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import { menuController } from '../../menuController/menuController';
 import { showToast } from '../../toast';
-import './structPanel.css';
-import { hydrateStructPreviews, renderStructCPreview } from './structCPreview';
+import './overlayPanel.css';
+import { hydrateTypePreviews, renderTypeCPreview } from './cPreview';
 import {
     applyBitHighlightsInPlace, bitUnitUsesFullStorage, isBitFieldRow, makeBitRowKey, parseBitRowMeta,
     parseDatasetInt, scalarValKey, singleLineCopyText,
-} from './structBinaryView';
+} from './binaryView';
 import {
     bitChildButtonState, childFieldRowHtml, fieldRowHtml, isPointerBlocked, overrideAutoTitle,
     overrideHelpTitle, overrideSelectHtml,
-} from './structEditorFields';
-import { SAMPLE_TYPE_MENUS, TYPE_LABELS, getCopyText, implicitDisplayType } from './structValueFormat';
-import type { ColType, PointerFollowState, StructRenderCtx } from './structValueFormat';
-import { buildBitUnitAggregateRow, pointerTargetStructDef, renderStructBody, syncCompositeHeaderOffset } from './structRowRenderer';
+} from './editorFields';
+import { SAMPLE_TYPE_MENUS, TYPE_LABELS, getCopyText, implicitDisplayType } from './valueFormat';
+import type { ColType, PointerFollowState, OverlayRenderCtx } from './valueFormat';
+import { buildBitUnitAggregateRow, pointerTargetTypeDef, renderTypeBody, syncCompositeHeaderOffset } from './rowRenderer';
 
 
 /** Per-kind slots filled into the shared bit-field / enum editor shell. */
@@ -50,16 +50,16 @@ interface KindDefEditorParts {
     addBtnHtml: string;
 }
 
-export interface StructCallbacks {
+export interface OverlayCallbacks {
     /** Required — host memory adapter for byte reads (keeps byte access host-owned, like Inspector). */
     readByte: (addr: number) => number | undefined;
-    /** Any struct-definition mutation (save/delete struct) → host persists + syncs. */
-    onStructsChange?: (structs: StructDef[]) => void;
+    /** Any type-definition mutation (save/delete type) → host persists + syncs. */
+    onTypesChange?: (types: TypeDef[]) => void;
     /** Any pin mutation (add/edit/delete/pointer-create) → host persists + syncs. */
-    onPinsChange?: (pins: StructPin[]) => void;
-    /** Both changed in one action (e.g. delete struct cascades pins). */
-    onStateChange?: (structs: StructDef[], pins: StructPin[]) => void;
-    /** Struct row/range selection → host sets S.selStart/selEnd + rerender.jumpTo + rerender.inspector. */
+    onPinsChange?: (pins: TypeInstance[]) => void;
+    /** Both changed in one action (e.g. delete type cascades instances). */
+    onStateChange?: (types: TypeDef[], pins: TypeInstance[]) => void;
+    /** Instance row/range selection → host sets S.selStart/selEnd + rerender.jumpTo + rerender.inspector. */
     onSelectRange?: (start: number, count: number) => void;
     /** Hex-row highlight: apply class at address range (moved highlightAddress). */
     onHighlightHex?: (addrs: number[], cls: string) => void;
@@ -67,7 +67,7 @@ export interface StructCallbacks {
     onClearHighlightHex?: (cls: string) => void;
     /** Global bit-field allocation toggle (MSB/LSB in bit-layout detail) → host persists. */
     onBitAllocationChange?: (bitAllocation: BitFieldAllocation) => void;
-    /** Global "show hidden fields" toggle (Struct Instances header) → host persists. */
+    /** Global "show hidden fields" toggle (Instances header) → host persists. */
     onShowHiddenFieldsChange?: (showHiddenFields: boolean) => void;
 }
 
@@ -80,7 +80,7 @@ type FieldValMenuOptions = {
     valKey?: string;
     keyList?: string[];
     pointerAllowCreate?: boolean;
-    sourceStructId?: string;
+    sourceTypeId?: string;
     sourceBaseAddr?: number;
 };
 
@@ -95,34 +95,34 @@ type FieldValMenuContext = {
     findFieldAt: (addr: number) => DecodedField | null;
 };
 
-type CopySourceRows = { pin: StructPin; rows: DecodedField[]; structId: string; baseAddr: number };
-type PointerMenuSource = { pin: StructPin; row: DecodedField; sourceStructId: string; sourceBaseAddr: number };
+type CopySourceRows = { pin: TypeInstance; rows: DecodedField[]; typeId: string; baseAddr: number };
+type PointerMenuSource = { pin: TypeInstance; row: DecodedField; sourceTypeId: string; sourceBaseAddr: number };
 
 type PointerFollowGuard = (row: DecodedField | null) => string | null;
 
-type StructPointerCreateState =
-    | { ok: true; def: StructDef; addr: number; structId: string }
+type PointerCreateState =
+    | { ok: true; def: TypeDef; addr: number; typeId: string }
     | { ok: false; reason: string }
     | null;
 
-export class StructPanel {
-    private readonly cb: StructCallbacks;
+export class OverlayPanel {
+    private readonly cb: OverlayCallbacks;
     private _root: HTMLElement | null = null;
     private sections: SidebarSections | null = null;
-    private _structs: StructDef[] = [];
-    private _pins: StructPin[] = [];
+    private _types: TypeDef[] = [];
+    private _pins: TypeInstance[] = [];
     private _endian: 'le' | 'be' = 'le';
     private _bitFieldAllocation: BitFieldAllocation = 'msb';
     /** Global "show hidden fields" toggle for the instance view (host-owned, pushed). */
     private _showHiddenFields = false;
-    private _activeStructAddr: number | null = null;
-    /** Whether the struct tab is the active sidebar tab (host pushes; guards add/edit address input sync). */
+    private _activeTypeAddr: number | null = null;
+    /** Whether the overlay tab is the active sidebar tab (host pushes; guards add/edit address input sync). */
     private _tabActive = false;
 
     // ── UI/transient state (component-owned) ──────────────────────
 
-    /** Struct id currently selected in the add form. */
-    private _applyStructId: string | null = null;
+    /** Type id currently selected in the add form. */
+    private _applyTypeId: string | null = null;
     /** Set of instance card ids that are expanded. */
     private _expanded = new Set<string>();
     /** Array field groups that are expanded. Key: `${pinId}::${baseName}`. Collapsed by default. */
@@ -157,30 +157,30 @@ private _selectedPinId: string | null = null;
 private _previewedPins = new Set<string>();
 /** Pin id currently being edited in the full-width editor (name/addr/type). */
 private _editingPinId: string | null = null;
-/** Struct type id selected in the inline instance-edit form (may differ from the saved pin). */
-private _editingPinDraftStructId: string | null = null;
+/** Type id selected in the inline instance-edit form (may differ from the saved pin). */
+private _editingPinDraftTypeId: string | null = null;
 /**
  * When non-null the section is in "type editor" mode.
  * `existing` is null for new types, or the original def being edited.
  * `draft` holds the working copy being modified.
  * `fromManage` is true when opened from the manage-types list.
  */
-private _editingType: { draft: StructDef; existing: StructDef | null; fromManage: boolean } | null = null;
+private _editingType: { draft: TypeDef; existing: TypeDef | null; fromManage: boolean } | null = null;
 /** True while the Types `＋ Add` action is showing the kind picker (struct / bit-field / enum). */
 private _choosingKind = false;
 private _editorError: string | null = null;
 
-constructor(cb: StructCallbacks) {
+constructor(cb: OverlayCallbacks) {
     this.cb = cb;
 }
 
-/** Renders both stacked sections into the given root (was renderStructPins onto #s-struct-pins). */
+/** Renders both stacked sections into the given root (#s-struct-pins). */
 mount(root: HTMLElement): void {
     this._root = root;
     root.innerHTML = '';
     this.sections = new SidebarSections(root, 'si', [
-        { id: 'instances', label: 'Struct Instances', mountActions: r => this.mountInstancesAction(r) },
-        { id: 'types', label: 'Struct Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
+        { id: 'instances', label: 'Instances', mountActions: r => this.mountInstancesAction(r) },
+        { id: 'types', label: 'Types', defaultCollapsed: false, mountActions: r => this.mountTypesAction(r) },
     ]);
     // Field-menu click-outside / focus-loss dismissal + keyboard nav live in the
     // shared MenuController (menuController.ts), so shell re-mounts never stack
@@ -189,29 +189,29 @@ mount(root: HTMLElement): void {
 }
 
     private addPinFormOrEmpty(): string {
-        return (this._addingPin || this._editingPinId) ? this.addStructPinFormHtml(this.pinnableStructs()) : '';
+        return (this._addingPin || this._editingPinId) ? this.addInstanceFormHtml(this.pinnableTypes()) : '';
     }
 
-    /** Re-renders the whole panel from pushed state (was renderStructPins). No-op until mounted. */
+    /** Re-renders the whole panel from pushed state (was renderInstances). No-op until mounted. */
     render(): void {
         const sec = this._root;
         if (!sec || !this.sections) { return; }
 
-        const all = allStructs(this._structs);
-        this.prepareStructPanelState();
+        const all = allTypes(this._types);
+        this.prepareOverlayPanelState();
 
         if (this.typePanelForcedOpen()) { this.sections.setCollapsed('types', false); }
 
         this.sections.setLabel('types', this.typePanelTitle());
-        this.sections.body('instances')!.innerHTML = this.structInstancesBodyHtml(
+        this.sections.body('instances')!.innerHTML = this.instancesBodyHtml(
             this.addPinFormOrEmpty(),
             this.instanceCardsHtml(),
         );
         this.sections.body('types')!.innerHTML = this.typePanelBodyHtml(this.typeRowsHtml(all));
         this.updateHeaderActions();
 
-        this.hydrateStructPreviews(sec);
-        this.wireStructPinsPanel(sec);
+        this.hydrateTypePreviews(sec);
+        this.wireOverlayPanel(sec);
 
         this.wireInstanceCards(sec);
         this.wireEditorState(sec);
@@ -245,8 +245,8 @@ mount(root: HTMLElement): void {
     private syncInstanceAddButton(root: HTMLElement): void {
         const add = root.querySelector<HTMLButtonElement>('#si-add-btn');
         if (!add) { return; }
-        add.disabled = this.instanceAddBusy() || this.noStructTypes();
-        add.title = this.noStructTypes() ? 'No struct types defined' : 'Add instance';
+        add.disabled = this.instanceAddBusy() || this.noTypes();
+        add.title = this.noTypes() ? 'No types defined' : 'Add instance';
         add.setAttribute('aria-label', add.title);
     }
 
@@ -256,13 +256,13 @@ mount(root: HTMLElement): void {
         if (addType) { addType.disabled = disabled; }
     }
 
-    private noStructTypes(): boolean {
-        return this.pinnableStructs().length === 0;
+    private noTypes(): boolean {
+        return this.pinnableTypes().length === 0;
     }
 
-    /** Plain-struct defs eligible as Struct Instances (bit-field/enum defs are not pinnable). */
-    private pinnableStructs(): StructDef[] {
-        return this._structs.filter(d => structDefKind(d) === 'struct');
+    /** Plain type defs eligible as Instances (bit-field/enum defs are not pinnable). */
+    private pinnableTypes(): TypeDef[] {
+        return this._types.filter(d => typeDefKind(d) === 'struct');
     }
 
     private instanceAddBusy(): boolean {
@@ -300,8 +300,8 @@ private mountTypesAction(root: HTMLElement): void {
 }
 
 /** Push both tracks' data (after full render / external change) and re-render. */
-setData(structs: StructDef[], pins: StructPin[]): void {
-    this._structs = structs;
+setData(types: TypeDef[], pins: TypeInstance[]): void {
+    this._types = types;
     this._pins = pins;
     this.render();
 }
@@ -324,27 +324,27 @@ setShowHiddenFields(show: boolean): void {
     this.render();
 }
 
-/** Hex-view byte selection → clear stale struct selection + sync add/edit form (was onSelectionChangeForStruct). */
+/** Hex-view byte selection → clear stale instance selection + sync add/edit form (was onSelectionChangeForOverlay). */
 setSelection(start: number | null): void {
     if (typeof document === 'undefined') { return; }
-    this.clearStructSelectionState();
+    this.clearSelectionState();
     if (start === null) { return; }
-    this._activeStructAddr = start;
-    this.updateStructAddressInputs(start);
+    this._activeTypeAddr = start;
+    this.updateTypeAddressInputs(start);
 }
 
-/** Host pushes the active sidebar tab (guards add/edit address input sync to the visible struct tab). */
+/** Host pushes the active sidebar tab (guards add/edit address input sync to the visible overlay tab). */
 setTabActive(active: boolean): void {
     this._tabActive = active;
 }
 
-/** Resets all transient view state and re-renders. Call when switching away and back (was resetStructViewState). */
+/** Resets all transient view state and re-renders. Call when switching away and back (was resetViewState). */
 resetViewState(): void {
     this._editingType             = null;
     this._choosingKind            = false;
     this._addingPin               = false;
     this._editingPinId            = null;
-    this._editingPinDraftStructId = null;
+    this._editingPinDraftTypeId = null;
     this._selectedArrElemKey      = null;
     this._selectedBitRange        = null;
     this._hoveredBitRange         = null;
@@ -360,14 +360,14 @@ private sanitizeCIdent(raw: string): string {
 }
 
 /** Dispatch the type editor form by the draft's kind (absent = plain struct). */
-private editorHtml(draft: StructDef, existing: StructDef | null): string {
-    const kind = structDefKind(draft);
+private editorHtml(draft: TypeDef, existing: TypeDef | null): string {
+    const kind = typeDefKind(draft);
     if (kind === 'bitfield') { return this.bitFieldDefEditorHtml(draft); }
     if (kind === 'enum') { return this.enumDefEditorHtml(draft); }
-    return this.structEditorHtml(draft, existing);
+    return this.typeEditorHtml(draft, existing);
 }
 
-private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
+private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
     const fieldRows = this.fieldRowsHtml(draft);
     const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
     return (
@@ -377,12 +377,12 @@ private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
         `<div class="se-form">` +
         `<label class="se-name-lbl" for="se-name">Type name</label>` +
         `<input id="se-name" class="se-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
-               `maxlength="64" placeholder="MyStruct" spellcheck="false" autocomplete="off">` +
+               `maxlength="64" placeholder="MyType" spellcheck="false" autocomplete="off">` +
         `<div class="se-struct-default-row">` +
         `<button id="se-packed" class="se-packed-btn${draft.packed ? ' active' : ''}" ` +
                `title="__attribute__((packed))" aria-label="Toggle packed struct">packed</button>` +
         `<span class="se-struct-default-ptr"></span>` +
-        `<span class="se-struct-default-lbl">struct default</span>` +
+        `<span class="se-struct-default-lbl">type default</span>` +
         this.overrideSelectHtml(draft.endian, 'endian', 'se-struct-default-sel', 'se-endian', this._endian.toUpperCase()) +
         `</div>` +
         `<div class="se-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
@@ -396,7 +396,7 @@ private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
         `</div>` +
         `</div>` +
         `<div class="se-view" data-se-view="preview" hidden>` +
-        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
+        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
@@ -405,15 +405,15 @@ private structEditorHtml(draft: StructDef, existing: StructDef | null): string {
 /** Edit/Preview tab bar that toggles which editor view is visible (markdown raw/preview style). */
 private editorTabsHtml(): string {
     return (
-        `<div class="se-tabs compact-tabs" role="tablist" aria-label="Struct editor views">` +
+        `<div class="se-tabs compact-tabs" role="tablist" aria-label="Type editor views">` +
         `<button type="button" class="se-tab active" role="tab" aria-selected="true" data-se-view="edit">Edit</button>` +
         `<button type="button" class="se-tab" role="tab" aria-selected="false" data-se-view="preview">Preview</button>` +
         `</div>`
     );
 }
 
-/** Bit-field type form: name + base unsigned width + name/width child rows (no struct fields/nesting). */
-private bitFieldDefEditorHtml(draft: StructDef): string {
+/** Bit-field type form: name + base unsigned width + name/width child rows (no type fields/nesting). */
+private bitFieldDefEditorHtml(draft: TypeDef): string {
     const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
     return this.kindDefEditorHtml(draft, {
         placeholder: 'MyBitField',
@@ -441,7 +441,7 @@ private bitFieldChildHeaderHtml(): string {
 }
 
 /** Per-kind slots for the shared bit-field / enum editor shell. */
-private kindDefEditorHtml(draft: StructDef, parts: KindDefEditorParts): string {
+private kindDefEditorHtml(draft: TypeDef, parts: KindDefEditorParts): string {
     return (
         this.kindDefEditorShellHtml(draft, parts) +
         parts.rowsHtml +
@@ -451,7 +451,7 @@ private kindDefEditorHtml(draft: StructDef, parts: KindDefEditorParts): string {
 }
 
 /** Shared editor shell: tab bar, form open, type-name input, and the base-width row. */
-private kindDefEditorShellHtml(draft: StructDef, parts: KindDefEditorParts): string {
+private kindDefEditorShellHtml(draft: TypeDef, parts: KindDefEditorParts): string {
     return (
         `<div class="si-editor-wrap">` +
         this.editorTabsHtml() +
@@ -470,7 +470,7 @@ private kindDefEditorShellHtml(draft: StructDef, parts: KindDefEditorParts): str
 }
 
 /** Shared editor tail: error slot, save/cancel buttons, and the C preview pane. */
-private kindDefEditorFooterHtml(draft: StructDef): string {
+private kindDefEditorFooterHtml(draft: TypeDef): string {
     const errorHtml = this._editorError ? `<div class="se-error">${esc(this._editorError)}</div>` : '';
     return (
         errorHtml +
@@ -481,41 +481,41 @@ private kindDefEditorFooterHtml(draft: StructDef): string {
         `</div>` +
         `</div>` +
         `<div class="se-view" data-se-view="preview" hidden>` +
-        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-struct-preview-id="${esc(draft.id)}"></pre></div>` +
+        `<div id="se-preview" class="se-preview"><pre class="si-c-preview" data-preview-id="${esc(draft.id)}"></pre></div>` +
         `</div>` +
         `</div>`
     );
 }
 
-private baseTypeOptionsHtml(selected: StructBaseType | undefined): string {
+private baseTypeOptionsHtml(selected: TypeBaseType | undefined): string {
     const value = selected ?? 'uint8';
-    return (['uint8', 'uint16', 'uint32', 'uint64'] as StructBaseType[])
+    return (['uint8', 'uint16', 'uint32', 'uint64'] as TypeBaseType[])
         .map(t => `<option value="${t}"${t === value ? ' selected' : ''}>${t}</option>`)
         .join('');
 }
 
-private availableBitFieldDefBits(def: StructDef): number {
+private availableBitFieldDefBits(def: TypeDef): number {
     const baseType = def.baseType ?? 'uint8';
     const usedBits = (def.bitFields ?? []).reduce((sum, child) => sum + child.bitWidth, 0);
     return fieldByteSize(baseType) * 8 - usedBits;
 }
 
-private refreshBitFieldDefRows(sec: HTMLElement, draft: StructDef): void {
+private refreshBitFieldDefRows(sec: HTMLElement, draft: TypeDef): void {
     const container = sec.querySelector<HTMLElement>('#se-bf-def-children');
     if (!container) { return; }
     container.innerHTML = this.bitFieldDefChildRowsHtml(draft);
     this.wireBitFieldDefChildRows(sec, draft);
     this.refreshBitFieldDefAddButton(sec, draft);
     const pre = sec.querySelector<HTMLElement>('#se-preview pre');
-    if (pre) { this.renderStructCPreview(pre, draft); }
+    if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
-private bitFieldDefChildRowsHtml(draft: StructDef): string {
+private bitFieldDefChildRowsHtml(draft: TypeDef): string {
     const children = draft.bitFields ?? [];
     return children.map((child, ci) => this.childFieldRowHtml(child, ci, children.length)).join('');
 }
 
-private refreshBitFieldDefAddButton(sec: HTMLElement, draft: StructDef): void {
+private refreshBitFieldDefAddButton(sec: HTMLElement, draft: TypeDef): void {
     const btn = sec.querySelector<HTMLButtonElement>('#se-bf-def-add');
     if (!btn) { return; }
     const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
@@ -529,7 +529,7 @@ private bitFieldChildIndex(btn: HTMLElement): number | null {
     return idx === null ? null : idx;
 }
 
-private wireBitFieldDefChildRows(sec: HTMLElement, draft: StructDef): void {
+private wireBitFieldDefChildRows(sec: HTMLElement, draft: TypeDef): void {
     const container = sec.querySelector<HTMLElement>('#se-bf-def-children');
     if (!container) { return; }
     container.querySelectorAll<HTMLInputElement>('.sfe-bf-child-name').forEach(inp =>
@@ -578,7 +578,7 @@ private wireBitFieldDefChildRows(sec: HTMLElement, draft: StructDef): void {
     });
 }
 
-private syncBitFieldDefDraft(sec: HTMLElement, draft: StructDef): void {
+private syncBitFieldDefDraft(sec: HTMLElement, draft: TypeDef): void {
     draft.name = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
     draft.baseType = this.readBaseType(this.selectValue(sec, '#se-base-type'));
     draft.fields = [];
@@ -586,16 +586,16 @@ private syncBitFieldDefDraft(sec: HTMLElement, draft: StructDef): void {
     draft.bitFields = Array.from(rows).map(row => this.readEditorBitFieldChild(row));
 }
 
-private readBaseType(value: string | undefined): StructBaseType {
-    return value !== undefined && isUnsignedScalarType(value as StructFieldType)
-        ? value as StructBaseType
+private readBaseType(value: string | undefined): TypeBaseType {
+    return value !== undefined && isUnsignedScalarType(value as TypeFieldType)
+        ? value as TypeBaseType
         : 'uint8';
 }
 
-private bitFieldDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
+private bitFieldDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
     return {
         id: draft.id,
-        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextStructName(draft.id),
+        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextTypeName(draft.id),
         kind: 'bitfield',
         baseType: draft.baseType ?? 'uint8',
         bitFields: (draft.bitFields ?? [{ name: 'bit0', bitWidth: 1 }]).map(child => ({ ...child })),
@@ -603,8 +603,8 @@ private bitFieldDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef 
     };
 }
 
-/** Enum type form: name + base unsigned width + name/value entry rows (no struct fields). */
-private enumDefEditorHtml(draft: StructDef): string {
+/** Enum type form: name + base unsigned width + name/value entry rows (no type fields). */
+private enumDefEditorHtml(draft: TypeDef): string {
     return this.kindDefEditorHtml(draft, {
         placeholder: 'MyEnum',
         badge: 'enum',
@@ -629,7 +629,7 @@ private enumEntryHeaderHtml(): string {
     );
 }
 
-private enumEntryRowsHtml(draft: StructDef): string {
+private enumEntryRowsHtml(draft: TypeDef): string {
     const entries = draft.entries ?? [];
     return entries.map((entry, i) => this.enumEntryRowHtml(entry, i, entries.length)).join('');
 }
@@ -667,16 +667,16 @@ private enumEntryIndex(btn: HTMLElement): number | null {
     return idx === null ? null : idx;
 }
 
-private refreshEnumDefRows(sec: HTMLElement, draft: StructDef): void {
+private refreshEnumDefRows(sec: HTMLElement, draft: TypeDef): void {
     const container = sec.querySelector<HTMLElement>('#se-enum-entries');
     if (!container) { return; }
     container.innerHTML = this.enumEntryRowsHtml(draft);
     this.wireEnumDefEntryRows(sec, draft);
     const pre = sec.querySelector<HTMLElement>('#se-preview pre');
-    if (pre) { this.renderStructCPreview(pre, draft); }
+    if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
-private wireEnumDefEntryRows(sec: HTMLElement, draft: StructDef): void {
+private wireEnumDefEntryRows(sec: HTMLElement, draft: TypeDef): void {
     const container = sec.querySelector<HTMLElement>('#se-enum-entries');
     if (!container) { return; }
     container.querySelectorAll<HTMLInputElement>('.sfe-enum-entry-name').forEach(inp => {
@@ -718,7 +718,7 @@ private wireEnumDefEntryRows(sec: HTMLElement, draft: StructDef): void {
     });
 }
 
-private syncEnumDefDraft(sec: HTMLElement, draft: StructDef): void {
+private syncEnumDefDraft(sec: HTMLElement, draft: TypeDef): void {
     draft.name = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
     draft.baseType = this.readBaseType(this.selectValue(sec, '#se-enum-base-type'));
     draft.fields = [];
@@ -746,10 +746,10 @@ private parseEnumEntryNumber(text: string): number {
     return isHexEnumEntryText(text) ? Number.parseInt(text.replace(/^0x/i, ''), 16) : Number.parseInt(text, 10);
 }
 
-private enumDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
+private enumDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
     return {
         id: draft.id,
-        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextStructName(draft.id),
+        name: this.sanitizeCIdent(this.inputValue(sec, '#se-name')) || this.nextTypeName(draft.id),
         kind: 'enum',
         baseType: draft.baseType ?? 'uint8',
         entries: (draft.entries ?? [{ name: 'VALUE0', value: 0 }]).map(entry => ({ ...entry })),
@@ -783,7 +783,7 @@ private editorInheritedAlloc(): string {
  * Rows markup for the current draft fields — shared by the full editor render
  * and the incremental `#se-fields` rebuild (so the two never diverge).
  */
-private fieldRowsHtml(draft: StructDef): string {
+private fieldRowsHtml(draft: TypeDef): string {
     return draft.fields.map((f, i) => this.fieldRowHtml(f, i, draft.fields.length === 1, draft.fields.length, draft.id)).join('');
 }
 
@@ -794,23 +794,23 @@ private fieldRowsHtml(draft: StructDef): string {
  * Add bit / move / delete. Then re-wire row-level controls and refresh the
  * live C preview.
  */
-private refreshFieldRows(sec: HTMLElement, draft: StructDef): void {
+private refreshFieldRows(sec: HTMLElement, draft: TypeDef): void {
     const fields = sec.querySelector<HTMLElement>('#se-fields');
     if (!fields) { return; }
     fields.innerHTML = this.fieldRowsHtml(draft);
     this.wireFieldRows(fields, sec, draft);
     const pre = sec.querySelector<HTMLElement>('#se-preview pre');
-    if (pre) { this.renderStructCPreview(pre, draft); }
+    if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
 /** Re-render the live C preview as the user edits the draft. */
-private refreshEditorPreview(sec: HTMLElement, draft: StructDef): void {
-    const kind = structDefKind(draft);
+private refreshEditorPreview(sec: HTMLElement, draft: TypeDef): void {
+    const kind = typeDefKind(draft);
     if (kind === 'bitfield') { this.syncBitFieldDefDraft(sec, draft); }
     else if (kind === 'enum') { this.syncEnumDefDraft(sec, draft); }
     else { this.syncEditorDraft(sec, draft); }
     const pre = sec.querySelector<HTMLElement>('#se-preview pre');
-    if (pre) { this.renderStructCPreview(pre, draft); }
+    if (pre) { this.renderTypeCPreview(pre, draft); }
 }
 
 /**
@@ -818,8 +818,8 @@ private refreshEditorPreview(sec: HTMLElement, draft: StructDef): void {
  * rows, move/delete, endian/alloc select). Called on initial mount and again
  * after every `#se-fields` rebuild so freshly inserted rows stay live.
  */
-private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef): void {
-    const syncedFieldForButton = (btn: HTMLElement): { row: HTMLElement; idx: number; field: StructField | undefined } => {
+private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): void {
+    const syncedFieldForButton = (btn: HTMLElement): { row: HTMLElement; idx: number; field: TypeField | undefined } => {
         const row = btn.closest<HTMLElement>('.struct-field-row')!;
         this.syncEditorDraft(sec, draft);
         const idx = parseInt(row.dataset.idx!);
@@ -941,7 +941,7 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: StructDef)
 
 /**
  * Refresh the "Auto — inherits <X>" titles (select + its Auto option) on all
- * endian/alloc override selects after the struct default changed — in place,
+ * endian/alloc override selects after the type default changed — in place,
  * no editor rebuild (mirrors the tooltip text fieldRowHtml/editorHtml render
  * on mount).
  */
@@ -952,8 +952,8 @@ private updateEditorOverrideTitles(sec: HTMLElement): void {
         this.setOverrideSelectTitles(sel, 'endian', endianInherit));
     sec.querySelectorAll<HTMLSelectElement>('.sfe-alloc-sel').forEach(sel =>
         this.setOverrideSelectTitles(sel, 'allocation', allocInherit));
-    const structEndian = sec.querySelector<HTMLSelectElement>('#se-endian');
-    if (structEndian) { this.setOverrideSelectTitles(structEndian, 'endian', this._endian.toUpperCase()); }
+    const typeEndian = sec.querySelector<HTMLSelectElement>('#se-endian');
+    if (typeEndian) { this.setOverrideSelectTitles(typeEndian, 'endian', this._endian.toUpperCase()); }
 }
 
 private overrideSelectValue(sel: HTMLSelectElement, kind: 'endian' | 'allocation'): 'le' | 'be' | 'lsb' | 'msb' | undefined {
@@ -979,7 +979,7 @@ private scrollEditorRowIntoView(sec: HTMLElement, idx: number): void {
     if (row && typeof row.scrollIntoView === 'function') { row.scrollIntoView({ block: 'nearest' }); }
 }
 
-private syncEditorDraft(sec: HTMLElement, draft: StructDef): void {
+private syncEditorDraft(sec: HTMLElement, draft: TypeDef): void {
     draft.name   = this.sanitizeCIdent(this.inputValue(sec, '#se-name'));
     draft.packed = this.inputActive(sec, '#se-packed');
     draft.endian = this.readEndianOverride(this.selectValue(sec, '#se-endian'));
@@ -1001,12 +1001,12 @@ private selectValue(sec: HTMLElement, sel: string): string | undefined {
     return sec.querySelector<HTMLSelectElement>(sel)?.value;
 }
 
-private readEditorFieldRow(row: HTMLElement): StructField {
+private readEditorFieldRow(row: HTMLElement): TypeField {
     const typeInfo = this.readEditorFieldType(row);
     return {
         name: this.sanitizeCIdent(this.rowInputValue(row, '.sfe-name-inp')),
         type: typeInfo.type,
-        refStructId: typeInfo.refStructId,
+        refTypeId: typeInfo.refTypeId,
         isPointer: typeInfo.isPointer || undefined,
         count: this.readEditorArrayCount(row),
         endian: this.readEndianOverride(this.rowSelectValue(row, '.sfe-endian-sel')),
@@ -1040,7 +1040,7 @@ private readAllocationOverride(value: string | undefined): 'lsb' | 'msb' | undef
     return value === 'lsb' || value === 'msb' ? value : undefined;
 }
 
-private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStructId: string | undefined; isPointer: boolean } {
+private readEditorFieldType(row: HTMLElement): { type: TypeFieldType; refTypeId: string | undefined; isPointer: boolean } {
     const rawType = (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value;
     const parsed = this.parseEditorFieldType(rawType);
     const ptrActive = row.dataset.ptr === '1';
@@ -1050,11 +1050,11 @@ private readEditorFieldType(row: HTMLElement): { type: StructFieldType; refStruc
     };
 }
 
-private parseEditorFieldType(rawType: string): { type: StructFieldType; refStructId: string | undefined } {
-    if (rawType.startsWith('struct:')) { return { type: 'struct', refStructId: rawType.slice('struct:'.length) }; }
-    if (rawType.startsWith('bitfield:')) { return { type: 'bitfield', refStructId: rawType.slice('bitfield:'.length) }; }
-    if (rawType.startsWith('enum:')) { return { type: 'enum', refStructId: rawType.slice('enum:'.length) }; }
-    return { type: rawType as StructFieldType, refStructId: undefined };
+private parseEditorFieldType(rawType: string): { type: TypeFieldType; refTypeId: string | undefined } {
+    if (rawType.startsWith('struct:')) { return { type: 'struct', refTypeId: rawType.slice('struct:'.length) }; }
+    if (rawType.startsWith('bitfield:')) { return { type: 'bitfield', refTypeId: rawType.slice('bitfield:'.length) }; }
+    if (rawType.startsWith('enum:')) { return { type: 'enum', refTypeId: rawType.slice('enum:'.length) }; }
+    return { type: rawType as TypeFieldType, refTypeId: undefined };
 }
 
 /** Read a bit-field child row (used by the standalone bit-field def editor). */
@@ -1064,7 +1064,7 @@ private readEditorBitFieldChild(childRow: HTMLElement): BitFieldChild {
         bitWidth: this.readBitChildWidth(childRow),
     };
     const enumRef = this.rowSelectValue(childRow, '.sfe-bf-child-enum');
-    if (enumRef) { child.refStructId = enumRef; }
+    if (enumRef) { child.refTypeId = enumRef; }
     if (this.readBitChildHiddenFlag(childRow)) { child.hidden = true; }
     return child;
 }
@@ -1096,12 +1096,12 @@ private readEditorArrayCount(row: HTMLElement): number {
 private wireEditorInSec(sec: HTMLElement): void {
     if (!this._editingType) { return; }
     const { draft } = this._editingType;
-    if (structDefKind(draft) === 'bitfield') { this.wireBitFieldDefEditor(sec, draft); return; }
-    if (structDefKind(draft) === 'enum') { this.wireEnumDefEditor(sec, draft); return; }
-    this.wireStructEditor(sec, draft);
+    if (typeDefKind(draft) === 'bitfield') { this.wireBitFieldDefEditor(sec, draft); return; }
+    if (typeDefKind(draft) === 'enum') { this.wireEnumDefEditor(sec, draft); return; }
+    this.wireTypeEditor(sec, draft);
 }
 
-private wireBitFieldDefEditor(sec: HTMLElement, draft: StructDef): void {
+private wireBitFieldDefEditor(sec: HTMLElement, draft: TypeDef): void {
     this.wireEditorTabs(sec);
     this.wireBitFieldDefChildRows(sec, draft);
 
@@ -1120,7 +1120,7 @@ private wireBitFieldDefEditor(sec: HTMLElement, draft: StructDef): void {
     this.wireEditorSaveCancel(sec, draft);
 }
 
-private wireEnumDefEditor(sec: HTMLElement, draft: StructDef): void {
+private wireEnumDefEditor(sec: HTMLElement, draft: TypeDef): void {
     this.wireEditorTabs(sec);
     this.wireEnumDefEntryRows(sec, draft);
 
@@ -1138,7 +1138,7 @@ private wireEnumDefEditor(sec: HTMLElement, draft: StructDef): void {
     this.wireEditorSaveCancel(sec, draft);
 }
 
-private wireStructEditor(sec: HTMLElement, draft: StructDef): void {
+private wireTypeEditor(sec: HTMLElement, draft: TypeDef): void {
     const packedBtn = sec.querySelector<HTMLButtonElement>('#se-packed')!;
     packedBtn.addEventListener('click', () => {
         const nowPacked = !packedBtn.classList.contains('active');
@@ -1148,7 +1148,7 @@ private wireStructEditor(sec: HTMLElement, draft: StructDef): void {
     });
 
     // Row-level controls are wired by wireFieldRows (also re-run after each
-    // incremental #se-fields rebuild). The struct-level controls below are
+    // incremental #se-fields rebuild). The type-level controls below are
     // mounted once and kept across those rebuilds.
     this.wireFieldRows(sec.querySelector<HTMLElement>('#se-fields')!, sec, draft);
 
@@ -1164,15 +1164,15 @@ private wireStructEditor(sec: HTMLElement, draft: StructDef): void {
         sec.querySelectorAll<HTMLInputElement>('.struct-field-row .sfe-name-inp')[lastIdx]?.focus();
     });
 
-    // Struct-level endian change: sync the draft, refresh per-field "Auto"
+    // Type-level endian change: sync the draft, refresh per-field "Auto"
     // tooltips in place (no rebuild — the pane keeps its height/scroll), and
     // re-render the preview.
-    this.wireStructLevelOverrideSelects(sec);
+    this.wireTypeLevelOverrideSelects(sec);
     this.wireEditorNameInput(sec, draft);
     this.wireEditorSaveCancel(sec, draft);
 }
 
-private wireStructLevelOverrideSelects(sec: HTMLElement): void {
+private wireTypeLevelOverrideSelects(sec: HTMLElement): void {
     sec.querySelector<HTMLSelectElement>('#se-endian')?.addEventListener('change', () => {
         if (!this._editingType) { return; }
         const { draft } = this._editingType;
@@ -1182,7 +1182,7 @@ private wireStructLevelOverrideSelects(sec: HTMLElement): void {
     });
 }
 
-private wireEditorNameInput(sec: HTMLElement, draft: StructDef): void {
+private wireEditorNameInput(sec: HTMLElement, draft: TypeDef): void {
     sec.querySelector<HTMLInputElement>('#se-name')!.addEventListener('input', () => {
         this.refreshEditorPreview(sec, draft);
     });
@@ -1194,7 +1194,7 @@ private wireEditorNameInput(sec: HTMLElement, draft: StructDef): void {
     });
 }
 
-private wireEditorSaveCancel(sec: HTMLElement, draft: StructDef): void {
+private wireEditorSaveCancel(sec: HTMLElement, draft: TypeDef): void {
     sec.querySelector('#se-save')!.addEventListener('click', () => {
         this.saveEditorDraft(sec, draft);
     });
@@ -1235,24 +1235,24 @@ private wireEditorTabs(sec: HTMLElement): void {
     });
 }
 
-private saveEditorDraft(sec: HTMLElement, draft: StructDef): void {
-    if (structDefKind(draft) === 'bitfield') {
+private saveEditorDraft(sec: HTMLElement, draft: TypeDef): void {
+    if (typeDefKind(draft) === 'bitfield') {
         this.syncBitFieldDefDraft(sec, draft);
-        this.commitEditorDraft(this.bitFieldDraftToStructDef(sec, draft));
+        this.commitEditorDraft(this.bitFieldDraftToTypeDef(sec, draft));
         return;
     }
-    if (structDefKind(draft) === 'enum') {
+    if (typeDefKind(draft) === 'enum') {
         this.syncEnumDefDraft(sec, draft);
-        this.commitEditorDraft(this.enumDraftToStructDef(sec, draft));
+        this.commitEditorDraft(this.enumDraftToTypeDef(sec, draft));
         return;
     }
     this.syncEditorDraft(sec, draft);
     if (draft.fields.length === 0) { return; }
-    this.commitEditorDraft(this.editorDraftToStructDef(sec, draft));
+    this.commitEditorDraft(this.editorDraftToTypeDef(sec, draft));
 }
 
-private commitEditorDraft(def: StructDef): void {
-    const validationErrors = validateStructs(this.upsertStructList(this._structs, def), MAX_NESTED_DEPTH);
+private commitEditorDraft(def: TypeDef): void {
+    const validationErrors = validateTypes(this.upsertTypeList(this._types, def), MAX_NESTED_DEPTH);
     if (validationErrors.length > 0) {
         this._editorError = validationErrors[0];
         this.render();
@@ -1260,16 +1260,16 @@ private commitEditorDraft(def: StructDef): void {
     }
 
     this._editorError = null;
-    this._structs = this.upsertStructList(this._structs, def);
-    this.cb.onStructsChange?.(this._structs);
+    this._types = this.upsertTypeList(this._types, def);
+    this.cb.onTypesChange?.(this._types);
     this.closeEditorAfterSave();
     this.render();
 }
 
-private editorDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
+private editorDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
     return {
         id: draft.id,
-        name: this.readEditorStructName(sec, draft.id),
+        name: this.readEditorTypeName(sec, draft.id),
         packed: draft.packed ?? false,
         endian: draft.endian,
         allocation: draft.allocation,
@@ -1277,21 +1277,21 @@ private editorDraftToStructDef(sec: HTMLElement, draft: StructDef): StructDef {
     };
 }
 
-private readEditorStructName(sec: HTMLElement, draftId: string): string {
+private readEditorTypeName(sec: HTMLElement, draftId: string): string {
     const nameInp = sec.querySelector<HTMLInputElement>('#se-name')!;
     const name = this.sanitizeCIdent(nameInp.value.trim());
-    return name || this.nextStructName(draftId);
+    return name || this.nextTypeName(draftId);
 }
 
-private nextStructName(draftId: string): string {
-    const otherNames = new Set(this._structs.filter(d => d.id !== draftId).map(d => d.name));
-    let candidate = 'MyStruct';
+private nextTypeName(draftId: string): string {
+    const otherNames = new Set(this._types.filter(d => d.id !== draftId).map(d => d.name));
+    let candidate = 'MyType';
     let n = 1;
-    while (otherNames.has(candidate)) { candidate = `MyStruct${n++}`; }
+    while (otherNames.has(candidate)) { candidate = `MyType${n++}`; }
     return candidate;
 }
 
-private withSavedFieldName(field: StructField, idx: number, fields: StructField[]): StructField {
+private withSavedFieldName(field: TypeField, idx: number, fields: TypeField[]): TypeField {
     if (field.name) { return { ...field }; }
     const takenNames = new Set(fields.map(f => f.name).filter(Boolean));
     let candidate = `field${idx}`;
@@ -1300,10 +1300,10 @@ private withSavedFieldName(field: StructField, idx: number, fields: StructField[
     return { ...field, name: candidate };
 }
 
-private upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
-    const idx = structs.findIndex(d => d.id === def.id);
-    if (idx < 0) { return [...structs, def]; }
-    const clone = [...structs];
+private upsertTypeList(types: TypeDef[], def: TypeDef): TypeDef[] {
+    const idx = types.findIndex(d => d.id === def.id);
+    if (idx < 0) { return [...types, def]; }
+    const clone = [...types];
     clone[idx] = def;
     return clone;
 }
@@ -1312,7 +1312,7 @@ private upsertStructList(structs: StructDef[], def: StructDef): StructDef[] {
         this._editingType = null;
     }
 
-private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelectElement): void {
+private handleFieldTypeChange(sec: HTMLElement, draft: TypeDef, sel: HTMLSelectElement): void {
     const row = sel.closest<HTMLElement>('.struct-field-row');
     if (!row) { return; }
     const isBitFieldRef = sel.value.startsWith('bitfield:');
@@ -1326,7 +1326,7 @@ private handleFieldTypeChange(sec: HTMLElement, draft: StructDef, sel: HTMLSelec
  * the alignment placeholder as the type select changes — in place, so the row
  * keeps focus and the column stays aligned.
  */
-private syncFieldAllocCell(sec: HTMLElement, draft: StructDef, row: HTMLElement, isBitFieldRef: boolean): void {
+private syncFieldAllocCell(sec: HTMLElement, draft: TypeDef, row: HTMLElement, isBitFieldRef: boolean): void {
     const sel = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
     const placeholder = row.querySelector<HTMLElement>('.sfe-alloc-placeholder');
     if (shouldInsertAllocSelect(isBitFieldRef, sel, placeholder)) {
@@ -1337,7 +1337,7 @@ private syncFieldAllocCell(sec: HTMLElement, draft: StructDef, row: HTMLElement,
 }
 
 /** Insert + live-wire the alloc override select into a bit-field-reference row. */
-private insertAllocSelect(sec: HTMLElement, draft: StructDef, row: HTMLElement, placeholder: HTMLElement | null): void {
+private insertAllocSelect(sec: HTMLElement, draft: TypeDef, row: HTMLElement, placeholder: HTMLElement | null): void {
     if (!placeholder) { return; }
     placeholder.outerHTML = this.overrideSelectHtml(undefined, 'allocation', 'sfe-alloc-sel', undefined, this.editorInheritedAlloc());
     const inserted = row.querySelector<HTMLSelectElement>('.sfe-alloc-sel');
@@ -1367,16 +1367,16 @@ private insertAllocSelect(sec: HTMLElement, draft: StructDef, row: HTMLElement, 
     return row.dataset.ptr === '1' || (row.querySelector('.sfe-type-sel') as HTMLSelectElement).value === 'void';
 }
 
-    private cannotPointTo(field: StructField, want: boolean): boolean {
+    private cannotPointTo(field: TypeField, want: boolean): boolean {
         return want && this.isPointerBlocked(field);
     }
 
-    private setFieldPointerFlag(field: StructField, row: HTMLElement, want: boolean): void {
+    private setFieldPointerFlag(field: TypeField, row: HTMLElement, want: boolean): void {
         field.isPointer = want ? true : undefined;
         row.dataset.ptr = want ? '1' : '';
     }
 
-    private toggleFieldPointer(sec: HTMLElement, draft: StructDef, row: HTMLElement, want: boolean): void {
+    private toggleFieldPointer(sec: HTMLElement, draft: TypeDef, row: HTMLElement, want: boolean): void {
         this.syncEditorDraft(sec, draft);
         const field = draft.fields[parseInt(row.dataset.idx!)];
         if (!field) { return; }
@@ -1388,7 +1388,7 @@ private insertAllocSelect(sec: HTMLElement, draft: StructDef, row: HTMLElement, 
         this.scrollEditorRowIntoView(sec, idx);
     }
 
-    private fieldPointerMenuItems(row: HTMLElement, field: StructField): string {
+    private fieldPointerMenuItems(row: HTMLElement, field: TypeField): string {
         if (this.editorRowIsPointer(row)) {
             return this.menuItemHtml('field-ptr-off', 'Clear pointer', 'Revert to a plain (non-pointer) field');
         }
@@ -1406,14 +1406,14 @@ private insertAllocSelect(sec: HTMLElement, draft: StructDef, row: HTMLElement, 
         return (ev as MouseEvent).clientY || row.getBoundingClientRect().bottom + 4;
     }
 
-    private onFieldMenuCommand(sec: HTMLElement, draft: StructDef, row: HTMLElement, cmd: string): void {
+    private onFieldMenuCommand(sec: HTMLElement, draft: TypeDef, row: HTMLElement, cmd: string): void {
         if (cmd === 'field-ptr-on' || cmd === 'field-ptr-off') {
             this.toggleFieldPointer(sec, draft, row, cmd === 'field-ptr-on');
         }
     }
 
     /** Per-field pointer context menu (right-click / Shift+F10 / focus+Enter) — secondary path alongside the * row button. */
-    private showEditorFieldPointerMenu(sec: HTMLElement, draft: StructDef, row: HTMLElement, ev: Event): void {
+    private showEditorFieldPointerMenu(sec: HTMLElement, draft: TypeDef, row: HTMLElement, ev: Event): void {
         this.syncEditorDraft(sec, draft);
         const field = draft.fields[parseInt(row.dataset.idx!)];
         if (!field) { return; }
@@ -1423,56 +1423,56 @@ private insertAllocSelect(sec: HTMLElement, draft: StructDef, row: HTMLElement, 
         });
     }
 
-private prepareStructPanelState(): void {
-    this._applyStructId = this.nextApplyStructId(this.pinnableStructs());
+private prepareOverlayPanelState(): void {
+    this._applyTypeId = this.nextApplyTypeId(this.pinnableTypes());
 }
 
-private nextApplyStructId(all: StructDef[]): string | null {
+private nextApplyTypeId(all: TypeDef[]): string | null {
     const fallbackId = all.length > 0 ? all[0].id : null;
-    if (!this._applyStructId) { return fallbackId; }
-    return all.some(d => d.id === this._applyStructId) ? this._applyStructId : fallbackId;
+    if (!this._applyTypeId) { return fallbackId; }
+    return all.some(d => d.id === this._applyTypeId) ? this._applyTypeId : fallbackId;
 }
 
-private typeRowsHtml(all: StructDef[]): string {
+private typeRowsHtml(all: TypeDef[]): string {
     if (all.length === 0) { return `<div class="sb-empty">No types defined yet.</div>`; }
-    return all.map(def => this.structTypeRowHtml(def)).join('');
+    return all.map(def => this.typeRowHtml(def)).join('');
 }
 
-private structTypeRowHtml(def: StructDef): string {
-    const kind = structDefKind(def);
+private typeRowHtml(def: TypeDef): string {
+    const kind = typeDefKind(def);
     const meta = kind === 'bitfield'
         ? this.bitFieldDefMeta(def)
         : kind === 'enum'
             ? this.enumDefMeta(def)
-            : this.structDefMeta(def);
+            : this.typeDefMeta(def);
     const badge = kind === 'struct' ? '' : `<span class="sd-kind">${kind}</span>`;
     return (
         `<div class="sd-row">` +
         `<span class="sd-name">${esc(def.name)}</span>` +
         badge +
         `<span class="sd-meta">${meta}</span>` +
-        actionBtnsHtml(`data-struct-id="${esc(def.id)}"`, `data-struct-id="${esc(def.id)}"`) +
+        actionBtnsHtml(`data-type-id="${esc(def.id)}"`, `data-type-id="${esc(def.id)}"`) +
         `</div>`
     );
 }
 
-private structDefMeta(def: StructDef): string {
+private typeDefMeta(def: TypeDef): string {
     const fieldCount = def.fields.length;
     return `${fieldCount} field${fieldCount !== 1 ? 's' : ''}`;
 }
 
-private bitFieldDefMeta(def: StructDef): string {
+private bitFieldDefMeta(def: TypeDef): string {
     const childCount = (def.bitFields ?? []).length;
     return `${def.baseType ?? 'uint8'} \u00b7 ${childCount} child${childCount !== 1 ? 'ren' : ''}`;
 }
 
-private enumDefMeta(def: StructDef): string {
+private enumDefMeta(def: TypeDef): string {
     const entryCount = (def.entries ?? []).length;
     return `${def.baseType ?? 'uint8'} \u00b7 ${entryCount} entr${entryCount !== 1 ? 'ies' : 'y'}`;
 }
 
-private addStructPinFormHtml(all: StructDef[]): string {
-    const pin = this.editingStructPin();
+private addInstanceFormHtml(all: TypeDef[]): string {
+    const pin = this.editingTypeInstance();
     return (
         `<div id="si-add-form" class="si-add-form">` +
         `<div class="sa-form-hdr ${pinFormClass(pin)}">${pinFormHeader(pin)}</div>` +
@@ -1485,7 +1485,7 @@ private addStructPinFormHtml(all: StructDef[]): string {
         `<input id="sa-addr" class="sb-input sa-addr-inp" type="text" maxlength="8" ` +
                `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(this.pinFormAddress(pin))}">` +
         `</div>` +
-        this.addStructPinTypeRowHtml(all) +
+        this.addInstanceTypeRowHtml(all) +
         `<div class="sa-row sa-btn-row">` +
         `<button id="sa-confirm" class="sb-btn sb-btn-primary"${this.saConfirmDisabledAttr()}>${pinFormConfirmLabel(pin)}</button>` +
         `<button id="sa-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
@@ -1494,60 +1494,60 @@ private addStructPinFormHtml(all: StructDef[]): string {
     );
 }
 
-private editingStructPin(): StructPin | null {
+private editingTypeInstance(): TypeInstance | null {
     if (!this._editingPinId) { return null; }
     return this._pins.find(p => p.id === this._editingPinId) ?? null;
 }
 
-private pinFormAddress(pin: StructPin | null): string {
+private pinFormAddress(pin: TypeInstance | null): string {
     if (pin) { return pin.addr.toString(16).toUpperCase().padStart(8, '0'); }
-    return this._activeStructAddr !== null
-        ? this._activeStructAddr.toString(16).toUpperCase().padStart(8, '0')
+    return this._activeTypeAddr !== null
+        ? this._activeTypeAddr.toString(16).toUpperCase().padStart(8, '0')
         : '';
 }
 
 private saConfirmDisabledAttr(): string {
-    return this.selectedApplyStructId() ? '' : ' disabled';
+    return this.selectedApplyTypeId() ? '' : ' disabled';
 }
 
-private addStructPinTypeRowHtml(all: StructDef[]): string {
-    const selectedId = this.selectedApplyStructId();
-    const structOpts = all.map(d =>
+private addInstanceTypeRowHtml(all: TypeDef[]): string {
+    const selectedId = this.selectedApplyTypeId();
+    const typeOpts = all.map(d =>
         `<option value="${esc(d.id)}"${d.id === selectedId ? ' selected' : ''}>${esc(d.name)}</option>`
     ).join('');
     const applyDef = all.find(d => d.id === selectedId);
     const previewHtml = applyDef
-        ? `<pre class="si-c-preview" data-struct-preview-id="${esc(applyDef.id)}"></pre>`
+        ? `<pre class="si-c-preview" data-preview-id="${esc(applyDef.id)}"></pre>`
         : '';
     return (
         `<div class="sa-row">` +
-        `<select id="sa-struct-sel" class="sb-select">${structOpts}</select>` +
+        `<select id="sa-struct-sel" class="sb-select">${typeOpts}</select>` +
         `</div>` +
         previewHtml
     );
 }
 
-private selectedApplyStructId(): string | null {
-    if (!this._editingPinId) { return this._applyStructId; }
-    return this._editingPinDraftStructId ?? this.editingPinStructId() ?? null;
+private selectedApplyTypeId(): string | null {
+    if (!this._editingPinId) { return this._applyTypeId; }
+    return this._editingPinDraftTypeId ?? this.editingPinTypeId() ?? null;
 }
 
-private editingPinStructId(): string | null {
+private editingPinTypeId(): string | null {
     const pin = this._pins.find(p => p.id === this._editingPinId);
-    return pin?.structId ?? null;
+    return pin?.typeId ?? null;
 }
 
 private instanceCardsHtml(): string {
     if (this._pins.length > 0) {
         return this._pins.map((pin, i) => this.buildInstanceCard(pin, i)).join('');
     }
-    const msg = this.pinnableStructs().length === 0
-        ? 'Define a struct type first.'
+    const msg = this.pinnableTypes().length === 0
+        ? 'Define a type first.'
         : 'No instances yet. Click [\uff0b Add] to create one.';
     return `<div class="sb-empty">${msg}</div>`;
 }
 
-private structInstancesBodyHtml(addFormHtml: string, instHtml: string): string {
+private instancesBodyHtml(addFormHtml: string, instHtml: string): string {
     if (addFormHtml) { return addFormHtml; }
     return (
         `<div class="si-hdr-row">` +
@@ -1569,10 +1569,10 @@ private bitLayoutToggleHtml(): string {
     );
 }
 
-/** Global "show hidden fields" toggle (Struct Instances header). Off = hidden fields omitted. */
+/** Global "show hidden fields" toggle (Instances header). Off = hidden fields omitted. */
 private showHiddenToggleHtml(): string {
     const on = this._showHiddenFields;
-    const title = 'Show fields marked hidden in the Struct Types editor';
+    const title = 'Show fields marked hidden in the Types editor';
     return (
         `<div class="si-toggle-group" title="${title}">` +
         `<div class="compact-tabs">` +
@@ -1585,7 +1585,7 @@ private showHiddenToggleHtml(): string {
 
     private typePanelTitle(): string {
         if (this._choosingKind) { return 'New Type'; }
-        if (!this._editingType) { return 'Struct Types'; }
+        if (!this._editingType) { return 'Types'; }
         return this._editingType.existing ? 'Edit Type' : 'New Type';
     }
 
@@ -1610,7 +1610,7 @@ private showHiddenToggleHtml(): string {
         );
     }
 
-    private kindTileHtml(kind: StructDefKind, label: string, hint: string): string {
+    private kindTileHtml(kind: TypeDefKind, label: string, hint: string): string {
         return (
             `<button class="sm-kind-tile" data-kind="${kind}" title="${esc(hint)}">` +
             `<span class="sm-kind-tile-name">${esc(label)}</span>` +
@@ -1619,7 +1619,7 @@ private showHiddenToggleHtml(): string {
         );
     }
 
-    private pickKind(kind: StructDefKind): void {
+    private pickKind(kind: TypeDefKind): void {
         this._choosingKind = false;
         this._editorError = null;
         const id = `user_${Date.now()}`;
@@ -1627,7 +1627,7 @@ private showHiddenToggleHtml(): string {
         this.render();
     }
 
-    private newDraftForKind(kind: StructDefKind, id: string): StructDef {
+    private newDraftForKind(kind: TypeDefKind, id: string): TypeDef {
         if (kind === 'bitfield') {
             return { id, name: '', kind: 'bitfield', baseType: 'uint32', fields: [], bitFields: [{ name: 'bit0', bitWidth: 1 }] };
         }
@@ -1651,9 +1651,9 @@ private showHiddenToggleHtml(): string {
         });
     }
 
-private wireStructPinsPanel(sec: HTMLElement): void {
+private wireOverlayPanel(sec: HTMLElement): void {
     this.wireTypesPanelControls(sec);
-    this.wireAddStructPinControls(sec);
+    this.wireAddInstanceControls(sec);
     this.wireBitLayoutTabs(sec);
     this.wireShowHiddenToggle(sec);
 }
@@ -1667,12 +1667,12 @@ private wireStructPinsPanel(sec: HTMLElement): void {
         '.act-btn-del',
         btn => {
             this._editorError = null;
-            const existing = this._structs.find(d => d.id === btn.dataset.structId) ?? null;
+            const existing = this._types.find(d => d.id === btn.dataset.typeId) ?? null;
             if (!existing) { return; }
             this._editingType = {
                 draft: {
                     id: existing.id, name: existing.name, packed: existing.packed ?? false,
-                    kind: structDefKind(existing),
+                    kind: typeDefKind(existing),
                     baseType: existing.baseType,
                     endian: existing.endian, allocation: existing.allocation,
                     fields: existing.fields.map(f => ({ ...f })),
@@ -1685,25 +1685,25 @@ private wireStructPinsPanel(sec: HTMLElement): void {
             this.render();
         },
         btn => {
-            const id = btn.dataset.structId!;
-            const next = withoutStructDefinition(this._structs, this._pins, id);
-            this._structs = next.structs;
+            const id = btn.dataset.typeId!;
+            const next = withoutTypeDefinition(this._types, this._pins, id);
+            this._types = next.types;
             this._pins = next.pins;
-            if (this._applyStructId === id) { this._applyStructId = null; }
-            this.cb.onStateChange?.(this._structs, this._pins);
+            if (this._applyTypeId === id) { this._applyTypeId = null; }
+            this.cb.onStateChange?.(this._types, this._pins);
             this.render();
         },
     );
 }
 
-private wireAddStructPinControls(sec: HTMLElement): void {
+private wireAddInstanceControls(sec: HTMLElement): void {
     if (!this._addingPin && !this._editingPinId) { return; }
 
     sec.querySelector('#sa-struct-sel')?.addEventListener('change', e => {
         const value = (e.target as HTMLSelectElement).value || null;
-        if (this._editingPinId) { this._editingPinDraftStructId = value; }
-        else { this._applyStructId = value; }
-        this.preservePendingStructAddress();
+        if (this._editingPinId) { this._editingPinDraftTypeId = value; }
+        else { this._applyTypeId = value; }
+        this.preservePendingTypeAddress();
         this.render();
     });
     sec.querySelector('#sa-addr')?.addEventListener('input', () => {
@@ -1711,15 +1711,15 @@ private wireAddStructPinControls(sec: HTMLElement): void {
         const confirmBtn = sec.querySelector<HTMLButtonElement>('#sa-confirm');
         if (!addrInp || !confirmBtn) { return; }
         const hasAddr = addrInp.value.trim().length > 0;
-        confirmBtn.disabled = !this.selectedApplyStructId() || !hasAddr;
+        confirmBtn.disabled = !this.selectedApplyTypeId() || !hasAddr;
     });
     sec.querySelector('#sa-confirm')?.addEventListener('click', () => {
-        this.confirmStructPin();
+        this.confirmInstance();
     });
     sec.querySelector('#sa-cancel')?.addEventListener('click', () => {
         this._addingPin = false;
         this._editingPinId = null;
-        this._editingPinDraftStructId = null;
+        this._editingPinDraftTypeId = null;
         this.render();
     });
 }
@@ -1759,7 +1759,7 @@ private wireShowHiddenToggle(sec: HTMLElement): void {
 }
 
 /**
- * Re-render just the Struct Instances *list* in place after the hidden-field
+ * Re-render just the Instances *list* in place after the hidden-field
  * filter changed. The header (bit-layout tabs + `#si-show-hidden-btn`) is left
  * untouched, so the toggle keeps focus and the section body keeps its scroll
  * position — no whole-body `innerHTML` rebuild (Types editor also untouched).
@@ -1769,26 +1769,26 @@ private refreshInstances(): void {
     if (!sec || !this.sections) { return; }
     const list = sec.querySelector<HTMLElement>('#si-list');
     if (!list) { return; }
-    this.prepareStructPanelState();
+    this.prepareOverlayPanelState();
     list.innerHTML = this.instanceCardsHtml();
     this.updateHeaderActions();
-    this.hydrateStructPreviews(sec);
+    this.hydrateTypePreviews(sec);
     this.wireInstanceCards(sec);
 }
 
-private confirmStructPin(): void {
-    const addr = this.structApplyAddress();
+private confirmInstance(): void {
+    const addr = this.applyAddress();
     if (addr === null) { return; }
     if (this._editingPinId) { this.applyEditedPin(addr); }
     else { this.applyNewPin(addr); }
     this.render();
 }
 
-private structApplyAddress(): number | null {
+private applyAddress(): number | null {
     const addrInp = this._root?.querySelector<HTMLInputElement>('#sa-addr');
     const nameInp = this._root?.querySelector<HTMLInputElement>('#sa-name');
-    if (!addrInp || !nameInp || !this.selectedApplyStructId()) { return null; }
-    return this.parseStructApplyAddress(addrInp);
+    if (!addrInp || !nameInp || !this.selectedApplyTypeId()) { return null; }
+    return this.parseApplyAddress(addrInp);
 }
 
 private applyEditedPin(addr: number): void {
@@ -1796,15 +1796,15 @@ private applyEditedPin(addr: number): void {
     const pin = this._pins[idx];
     const name = this.editedPinName(pin);
     if (idx >= 0) {
-        this._pins = withEditedStructPin(this._pins, idx, { name, addr, structId: this.selectedApplyStructId()! });
-        this._activeStructAddr = addr;
+        this._pins = withEditedTypeInstance(this._pins, idx, { name, addr, typeId: this.selectedApplyTypeId()! });
+        this._activeTypeAddr = addr;
         this.cb.onPinsChange?.(this._pins);
     }
     this._editingPinId = null;
-    this._editingPinDraftStructId = null;
+    this._editingPinDraftTypeId = null;
 }
 
-private editedPinName(pin: StructPin | undefined): string {
+private editedPinName(pin: TypeInstance | undefined): string {
     const raw = this.rawPinName();
     if (raw) { return raw; }
     return pin?.name || 'inst';
@@ -1815,16 +1815,16 @@ private rawPinName(): string {
 }
 
 private applyNewPin(addr: number): void {
-    const name = this.structApplyName(this._root!.querySelector<HTMLInputElement>('#sa-name')!);
-    const pin = makeStructPin({ structId: this.selectedApplyStructId()!, addr, name }, this.makePinId);
+    const name = this.applyName(this._root!.querySelector<HTMLInputElement>('#sa-name')!);
+    const pin = makeTypeInstance({ typeId: this.selectedApplyTypeId()!, addr, name }, this.makePinId);
     this._pins = [...this._pins, pin];
-    this._activeStructAddr = addr;
+    this._activeTypeAddr = addr;
     this._expanded.add(pin.id);
     this._addingPin = false;
     this.cb.onPinsChange?.(this._pins);
 }
 
-private parseStructApplyAddress(addrInp: HTMLInputElement): number | null {
+private parseApplyAddress(addrInp: HTMLInputElement): number | null {
     const addr = parseInt(addrInp.value.replace(/^0x/i, ''), 16);
     if (!isNaN(addr)) {
         addrInp.style.borderColor = '';
@@ -1834,18 +1834,18 @@ private parseStructApplyAddress(addrInp: HTMLInputElement): number | null {
     return null;
 }
 
-private structApplyName(nameInp: HTMLInputElement): string {
+private applyName(nameInp: HTMLInputElement): string {
     const name = nameInp.value.trim();
-    return name || this.nextStructApplyName();
+    return name || this.nextApplyName();
 }
 
-private nextStructApplyName(): string {
-    const applyDef = this._structs.find(d => d.id === this._applyStructId);
+private nextApplyName(): string {
+    const applyDef = this._types.find(d => d.id === this._applyTypeId);
     const base = applyDef ? applyDef.name : 'inst';
-    return this.uniqueStructPinName(`${base}_0`, n => `${base}_${n}`);
+    return this.uniqueTypeInstanceName(`${base}_0`, n => `${base}_${n}`);
 }
 
-private uniqueStructPinName(initialName: string, nextName: (n: number) => string): string {
+private uniqueTypeInstanceName(initialName: string, nextName: (n: number) => string): string {
     return uniquePinName(this._pins, initialName, nextName);
 }
 
@@ -1853,12 +1853,12 @@ private makePinId(): string {
     return `pin_${Date.now()}`;
 }
 
-private preservePendingStructAddress(): void {
-    const value = this.pendingStructAddressValue();
-    if (value !== null) { this._activeStructAddr = value; }
+private preservePendingTypeAddress(): void {
+    const value = this.pendingTypeAddressValue();
+    if (value !== null) { this._activeTypeAddr = value; }
 }
 
-private pendingStructAddressValue(): number | null {
+private pendingTypeAddressValue(): number | null {
     const curAddrInp = this.pendingAddrInput();
     if (!curAddrInp) { return null; }
     const value = parseInt(curAddrInp.value, 16);
@@ -1870,20 +1870,20 @@ private pendingAddrInput(): HTMLInputElement | null {
     return this._root?.querySelector<HTMLInputElement>('#sa-addr') ?? null;
 }
 
-private instanceTypePreviewHtml(def: StructDef | undefined, pin: StructPin): string {
+private instanceTypePreviewHtml(def: TypeDef | undefined, pin: TypeInstance): string {
     return def
         ? `<div class="si-type-preview"${this._previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
-                    `<pre class="si-c-preview" data-struct-preview-id="${esc(def.id)}"></pre>` +
+                    `<pre class="si-c-preview" data-preview-id="${esc(def.id)}"></pre>` +
           `</div>`
         : '';
 }
 
-private instanceBodyHtml(def: StructDef | undefined, pin: StructPin, expanded: boolean): string {
-    return expanded && def ? this.renderStructBody(def, pin) : '';
+private instanceBodyHtml(def: TypeDef | undefined, pin: TypeInstance, expanded: boolean): string {
+    return expanded && def ? this.renderTypeBody(def, pin) : '';
 }
 
 /** Always-visible card actions: Edit | View type | Delete. */
-private instanceActionsHtml(pin: StructPin, index: number): string {
+private instanceActionsHtml(pin: TypeInstance, index: number): string {
     const previewActive = this._previewedPins.has(pin.id) ? ' active' : '';
     return (
         `<button type="button" class="act-btn act-btn-edit" data-pin-id="${esc(pin.id)}" title="Edit" aria-label="Edit">&#9998;</button>` +
@@ -1893,7 +1893,7 @@ private instanceActionsHtml(pin: StructPin, index: number): string {
 }
 
 private instanceHeaderHtml(
-    pin: StructPin,
+    pin: TypeInstance,
     index: number,
     defName: string,
     totalBytes: number,
@@ -1918,14 +1918,14 @@ private instanceHeaderHtml(
     );
 }
 
-private instanceContentHtml(pin: StructPin, typePreviewHtml: string, bodyHtml: string): string {
+private instanceContentHtml(pin: TypeInstance, typePreviewHtml: string, bodyHtml: string): string {
     return typePreviewHtml + bodyHtml;
 }
 
-private buildInstanceCard(pin: StructPin, i: number): string {
-    const def        = allStructs(this._structs).find(d => d.id === pin.structId);
+private buildInstanceCard(pin: TypeInstance, i: number): string {
+    const def        = allTypes(this._types).find(d => d.id === pin.typeId);
     const defName    = def ? def.name : '?';
-    const totalBytes = def ? structByteSize(def, this._structs) : 0;
+    const totalBytes = def ? typeByteSize(def, this._types) : 0;
     const addrHex    = pin.addr.toString(16).toUpperCase().padStart(8, '0');
     const expanded   = this._expanded.has(pin.id);
 
@@ -2049,7 +2049,7 @@ private wireInstanceCards(sec: HTMLElement): void {
             this.followPointerHeaderValue(hdr);
         });
 
-        this.wireStructHoverRange(hdr, start, cnt);
+        this.wireHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
             if (isPointerHdr) {
@@ -2071,16 +2071,16 @@ private wireInstanceCards(sec: HTMLElement): void {
             this.toggleCompositeGroup(hdr, '.si-arr-el-grp', '.si-arr-el-body', 'arrElKey', this._expandedArrayElements);
         });
 
-        this.wireStructHoverRange(hdr, start, cnt);
+        this.wireHoverRange(hdr, start, cnt);
 
         hdr.addEventListener('click', e => {
             if ((e.target as HTMLElement).closest('.si-arr-el-exp-btn')) { return; }
-            this.clearStructSelectionVisuals();
+            this.clearSelectionVisuals();
             if (isNaN(start) || isNaN(cnt)) { return; }
             this._selectedArrElemKey = hdr.dataset.arrElKey!;
             this._selectedArrKey = null;
             this._selectedFieldAddr = null;
-            this.selectStructRange(hdr, start, cnt);
+            this.selectRange(hdr, start, cnt);
         });
     });
 
@@ -2097,7 +2097,7 @@ private wireInstanceCards(sec: HTMLElement): void {
             btn => {
                 this._editingPinId = btn.dataset.pinId!;
                 const editedPin = this._pins.find(p => p.id === this._editingPinId);
-                this._editingPinDraftStructId = editedPin?.structId ?? null;
+                this._editingPinDraftTypeId = editedPin?.typeId ?? null;
                 this._expanded.delete(this._editingPinId);
                 this.render();
             },
@@ -2105,7 +2105,7 @@ private wireInstanceCards(sec: HTMLElement): void {
                 const idx = parseInt(btn.dataset.idx!);
                 const pin = this._pins[idx];
                 if (pin) { this._expanded.delete(pin.id); }
-                this._pins = withoutStructPin(this._pins, idx);
+                this._pins = withoutTypeInstance(this._pins, idx);
                 this.cb.onPinsChange?.(this._pins);
                 this.render();
             },
@@ -2143,7 +2143,7 @@ private wireInstanceCards(sec: HTMLElement): void {
                 this.selectBitRow(row, sec);
                 return;
             }
-            this.selectStructFieldRow(row, start, cnt);
+            this.selectTypeFieldRow(row, start, cnt);
         });
 
         row.querySelector<HTMLElement>('.si-f-ptr')?.addEventListener('click', ev => {
@@ -2191,7 +2191,7 @@ private wireInstanceCards(sec: HTMLElement): void {
     });
 
     this.applyBitHighlightsInPlace(sec);
-    this.restoreStructSelection(sec);
+    this.restoreSelection(sec);
 }
 
 
@@ -2208,21 +2208,21 @@ private wireInstanceCards(sec: HTMLElement): void {
     this._selectedArrElemKey = null;
     const sel = this.cardSelection(hdr);
     if (!sel) { return; }
-    const size = structByteSize(sel.def, this._structs);
-    this._activeStructAddr = sel.pin.addr;
+    const size = typeByteSize(sel.def, this._types);
+    this._activeTypeAddr = sel.pin.addr;
     this._selectedPinId = sel.pin.id;
     sec.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('si-card-selected'));
     sel.card.classList.add('si-card-selected');
     this.cb.onSelectRange?.(sel.pin.addr, size);
 }
 
-private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: StructPin; def: StructDef } | null {
+private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: TypeInstance; def: TypeDef } | null {
     const card = hdr.closest<HTMLElement>('.sb-card');
     if (!card) { return null; }
     const idx = parseInt(card.dataset.idx!);
     const pin = this._pins[idx];
     if (!pin) { return null; }
-    const def = allStructs(this._structs).find(d => d.id === pin.structId);
+    const def = allTypes(this._types).find(d => d.id === pin.typeId);
     if (!def) { return null; }
     return { card, pin, def };
 }
@@ -2243,7 +2243,7 @@ private setTypePreviewOpen(id: string, btn: HTMLElement, preview: HTMLElement | 
     if (preview) { preview.style.display = isOpen ? '' : 'none'; }
 }
 
-private restoreStructSelection(sec: HTMLElement): void {
+private restoreSelection(sec: HTMLElement): void {
     this.restoreSelectedPin(sec);
     this.restoreSelectedValueRow(sec);
 }
@@ -2308,30 +2308,30 @@ private restoreSelectedArrayGroup(sec: HTMLElement): void {
 }
 // Floating per-field value-type menu (rendered into the shared MenuController container)
 
-/** Show a struct field menu in the shared controller container; commands route through `onCommand`. */
+/** Show an overlay field menu in the shared controller container; commands route through `onCommand`. */
 private showFieldMenu(innerHtml: string, x: number, y: number, onCommand: (cmd: string) => void): void {
     menuController.show(x, y, { innerHTML: innerHtml, emit: onCommand });
-    // The controller owns #menu; tag it with the struct modifier so the
+    // The controller owns #menu; tag it with the overlay modifier so the
     // .si-field-menu CSS (min/max width, wrapped hints) applies.
     menuController.openMenu()?.classList.add('si-field-menu');
 }
 
-private structPinAtAddress(addr: number, pinIdx: number | undefined, allDefs: StructDef[]): StructPin | undefined {
+private instanceAtAddress(addr: number, pinIdx: number | undefined, allDefs: TypeDef[]): TypeInstance | undefined {
     if (typeof pinIdx === 'number' && pinIdx >= 0) { return this._pins[pinIdx]; }
     return this._pins.find(pin => {
-        const def = allDefs.find(candidate => candidate.id === pin.structId);
+        const def = allDefs.find(candidate => candidate.id === pin.typeId);
         if (!def) { return false; }
-        const size = structByteSize(def, this._structs);
+        const size = typeByteSize(def, this._types);
         return addr >= pin.addr && addr < pin.addr + size;
     });
 }
 
-private structRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: StructDef[]): DecodedField[] {
-    const pin = this.structPinAtAddress(addr, pinIdx, allDefs);
+private instanceRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: TypeDef[]): DecodedField[] {
+    const pin = this.instanceAtAddress(addr, pinIdx, allDefs);
     if (!pin) { return []; }
-    const def = allDefs.find(candidate => candidate.id === pin.structId);
+    const def = allDefs.find(candidate => candidate.id === pin.typeId);
     if (!def) { return []; }
-    const rows = decodeStruct(def, pin.addr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._structs);
+    const rows = decodeType(def, pin.addr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types);
     return rows.filter(row => pin.addr + row.byteOffset === addr);
 }
 
@@ -2339,12 +2339,12 @@ private sourceRowsAtAddress(
     addr: number,
     pinIdx: number | undefined,
     opts: FieldValMenuOptions,
-    allDefs: StructDef[],
+    allDefs: TypeDef[],
 ): DecodedField[] {
     const source = this.findCopySourceRows(addr, pinIdx, opts);
     return source
         ? source.rows.filter(row => source.baseAddr + row.byteOffset === addr)
-        : this.structRowsAtAddress(addr, pinIdx, allDefs);
+        : this.instanceRowsAtAddress(addr, pinIdx, allDefs);
 }
 
 private parseBitValueKey(valKey: string): { bitStart: number; bitWidth: number } | null {
@@ -2498,7 +2498,7 @@ private clearFieldSelectionState(): void {
     this._selectedArrElemKey = null;
 }
 
-private selectStructFieldRow(row: HTMLElement, start: number, cnt: number): void {
+private selectTypeFieldRow(row: HTMLElement, start: number, cnt: number): void {
     this.clearArrSep();
     this.clearSelRow();
     this.clearBitSelectionState();
@@ -2519,14 +2519,14 @@ private clearBitSelectionState(): void {
 
 private selectArrayGroupHeader(e: MouseEvent, hdr: HTMLElement, start: number, cnt: number, isBitUnitHdr: boolean): void {
     if (this.shouldSkipArrayGroupClick(e, isBitUnitHdr)) { return; }
-    this.clearStructSelectionVisuals();
+    this.clearSelectionVisuals();
     if (this.hasInvalidRange(start, cnt)) { return; }
     const grp = hdr.closest<HTMLElement>('.si-arr-grp')!;
     this._selectedArrKey = grp.dataset.arrKey!;
     this._selectedArrElemKey = null;
     this._selectedFieldAddr = null;
     this.markArraySeparators(this.arrayGroupSeparatorRows(grp));
-    this.selectStructRange(hdr, start, cnt);
+    this.selectRange(hdr, start, cnt);
 }
 
 private shouldSkipArrayGroupClick(e: MouseEvent, isBitUnitHdr: boolean): boolean {
@@ -2539,9 +2539,9 @@ private hasInvalidRange(start: number, cnt: number): boolean {
 
 private selectPointerHeaderRange(e: MouseEvent, hdr: HTMLElement, start: number, cnt: number): void {
     if ((e.target as HTMLElement).closest('.si-arr-exp-btn')) { return; }
-    this.clearStructSelectionVisuals();
+    this.clearSelectionVisuals();
     if (this.hasInvalidRange(start, cnt)) { return; }
-    this.selectStructRange(hdr, start, cnt);
+    this.selectRange(hdr, start, cnt);
 }
 
 private followPointerHeaderValue(hdr: HTMLElement): void {
@@ -2627,10 +2627,10 @@ private pinIndexFromHeader(hdr: HTMLElement): number {
     return card ? parseInt(card.dataset.idx!) : -1;
 }
 
-private sourceContextOptions(el: HTMLElement): Pick<FieldValMenuOptions, 'sourceStructId' | 'sourceBaseAddr'> {
-    const sourceStructId = el.dataset.sourceStructId;
+private sourceContextOptions(el: HTMLElement): Pick<FieldValMenuOptions, 'sourceTypeId' | 'sourceBaseAddr'> {
+    const sourceTypeId = el.dataset.sourceTypeId;
     const sourceBaseAddr = this.parseOptionalInt(el.dataset.sourceBaseAddr);
-    return sourceStructId && sourceBaseAddr !== undefined ? { sourceStructId, sourceBaseAddr } : {};
+    return sourceTypeId && sourceBaseAddr !== undefined ? { sourceTypeId, sourceBaseAddr } : {};
 }
 
 private parseOptionalInt(raw: string | undefined): number | undefined {
@@ -2670,7 +2670,7 @@ private createFieldValMenuContext(
     pinIdx: number | undefined,
     opts: FieldValMenuOptions,
 ): FieldValMenuContext {
-    const allDefs = allStructs(this._structs);
+    const allDefs = allTypes(this._types);
     const findRowsAt = (addr: number): DecodedField[] => this.sourceRowsAtAddress(addr, pinIdx, opts, allDefs);
     const findFieldAt = (addr: number): DecodedField | null => findRowsAt(addr)[0] ?? null;
     const sampleField = findFieldAt(this.sampleAddress(bs, bsList));
@@ -2767,7 +2767,7 @@ private disabledMenuItemHtml(label: string, hint: string): string {
     );
 }
 
-private pointerSourceSubtitleHtml(pin: StructPin): string {
+private pointerSourceSubtitleHtml(pin: TypeInstance): string {
     const source = pin.pointerSources?.[0];
     if (!source) { return ''; }
     const addr = formatHex(source.pointerStorageAddress, 8);
@@ -2843,11 +2843,11 @@ private pointerJumpMenuHtml(row: DecodedField | null): string {
 }
 
 private pointerCreateMenuHtml(source: PointerMenuSource | null): string {
-    const create = this.structPointerCreateState(source);
+    const create = this.pointerCreateState(source);
     if (create === null) { return ''; }
     return create.ok
-        ? this.menuItemHtml('create-struct-ptr', 'Create Struct Instance')
-        : this.disabledMenuItemHtml('Create Struct Instance', create.reason);
+        ? this.menuItemHtml('create-type-ptr', 'Create Instance')
+        : this.disabledMenuItemHtml('Create Instance', create.reason);
 }
 
 private handlePointerMenuCommand(
@@ -2860,8 +2860,8 @@ private handlePointerMenuCommand(
         this.followPointerRow(row);
         return;
     }
-    if (cmd === 'create-struct-ptr') {
-        this.createStructInstanceFromPointer(source);
+    if (cmd === 'create-type-ptr') {
+        this.createTypeInstanceFromPointer(source);
         return;
     }
     this.copyPointerFieldValue(ctx);
@@ -2873,7 +2873,7 @@ private pointerMenuSource(ctx: FieldValMenuContext): PointerMenuSource | null {
     const source = this.findCopySourceRows(ctx.bs, ctx.pinIdx, ctx.opts);
     if (!source) { return null; }
     const row = this.findFieldForValueKey(source.rows, ctx.bs - source.baseAddr, ctx.opts.valKey);
-    return row ? { pin: source.pin, row, sourceStructId: source.structId, sourceBaseAddr: source.baseAddr } : null;
+    return row ? { pin: source.pin, row, sourceTypeId: source.typeId, sourceBaseAddr: source.baseAddr } : null;
 }
 
 private pointerMenuField(ctx: FieldValMenuContext): DecodedField | null {
@@ -2931,20 +2931,20 @@ private followPointerRow(row: DecodedField | null): void {
     this.selectPointerTarget(target.addr, target.byteCount);
 }
 
-private pointerFollowTarget(row: DecodedField | null): { addr: number; byteCount: number; structId?: string } | null {
+private pointerFollowTarget(row: DecodedField | null): { addr: number; byteCount: number; typeId?: string } | null {
     if (!this.pointerFollowState(row).ok) { return null; }
     return this.buildPointerFollowTarget(row as DecodedField & { pointerValue: number });
 }
 
-private buildPointerFollowTarget(row: DecodedField & { pointerValue: number }): { addr: number; byteCount: number; structId?: string } {
+private buildPointerFollowTarget(row: DecodedField & { pointerValue: number }): { addr: number; byteCount: number; typeId?: string } {
     const addr = row.pointerValue;
-    return this.structPointerFollowTarget(row, addr) ?? this.scalarPointerFollowTarget(row, addr);
+    return this.pointerTargetFromType(row, addr) ?? this.scalarPointerFollowTarget(row, addr);
 }
 
-private structPointerFollowTarget(row: DecodedField, addr: number): { addr: number; byteCount: number; structId: string } | null {
-    const def = this.pointerTargetStructDef(row);
-    if (!def || !row.pointerTargetStructId) { return null; }
-    return { addr, byteCount: structByteSize(def, this._structs), structId: row.pointerTargetStructId };
+private pointerTargetFromType(row: DecodedField, addr: number): { addr: number; byteCount: number; typeId: string } | null {
+    const def = this.pointerTargetTypeDef(row);
+    if (!def || !row.pointerTargetTypeId) { return null; }
+    return { addr, byteCount: typeByteSize(def, this._types), typeId: row.pointerTargetTypeId };
 }
 
 private scalarPointerFollowTarget(row: DecodedField, addr: number): { addr: number; byteCount: number } {
@@ -2953,44 +2953,44 @@ private scalarPointerFollowTarget(row: DecodedField, addr: number): { addr: numb
 
 
 
-private structPointerCreateState(source: PointerMenuSource | null): StructPointerCreateState {
+private pointerCreateState(source: PointerMenuSource | null): PointerCreateState {
     const row = source?.row;
-    if (!this.isStructPointerMenuRow(row)) { return null; }
-    return this.validStructPointerCreateState(row);
+    if (!this.isPointerMenuRow(row)) { return null; }
+    return this.validPointerCreateState(row);
 }
 
-private isStructPointerMenuRow(row: DecodedField | undefined): row is DecodedField {
+private isPointerMenuRow(row: DecodedField | undefined): row is DecodedField {
     return !!row && row.pointerTargetType === 'struct';
 }
 
-private validStructPointerCreateState(row: DecodedField): Exclude<StructPointerCreateState, null> {
+private validPointerCreateState(row: DecodedField): Exclude<PointerCreateState, null> {
     const follow = this.pointerFollowState(row);
     if (!follow.ok) { return { ok: false, reason: follow.reason }; }
-    return this.resolvedStructPointerCreateState(row);
+    return this.resolvedPointerCreateState(row);
 }
 
-private resolvedStructPointerCreateState(row: DecodedField): Exclude<StructPointerCreateState, null> {
-    const structId = row.pointerTargetStructId;
-    const def = this.pointerTargetStructDef(row);
-    if (!structId || !def || row.pointerValue === undefined) { return { ok: false, reason: 'unknown target' }; }
-    return { ok: true, def, addr: row.pointerValue, structId };
+private resolvedPointerCreateState(row: DecodedField): Exclude<PointerCreateState, null> {
+    const typeId = row.pointerTargetTypeId;
+    const def = this.pointerTargetTypeDef(row);
+    if (!typeId || !def || row.pointerValue === undefined) { return { ok: false, reason: 'unknown target' }; }
+    return { ok: true, def, addr: row.pointerValue, typeId };
 }
 
-private createStructInstanceFromPointer(source: PointerMenuSource | null): void {
-    const state = this.structPointerCreateState(source);
+private createTypeInstanceFromPointer(source: PointerMenuSource | null): void {
+    const state = this.pointerCreateState(source);
     if (!source || !state?.ok) { return; }
     this.applyPointerInstance(source, state);
 }
 
-private applyPointerInstance(source: PointerMenuSource, state: Extract<StructPointerCreateState, { ok: true }>): void {
-    const result = upsertPointerStructPin(this._pins, {
+private applyPointerInstance(source: PointerMenuSource, state: Extract<PointerCreateState, { ok: true }>): void {
+    const result = upsertPointerTypeInstance(this._pins, {
         sourcePin: source.pin,
-        sourceStructId: source.sourceStructId,
+        sourceTypeId: source.sourceTypeId,
         sourceFieldPath: source.row.fieldName,
         sourceFieldByteOffset: source.row.byteOffset,
         sourceBaseAddr: source.sourceBaseAddr,
         targetAddress: state.addr,
-        targetStructId: state.structId,
+        targetTypeId: state.typeId,
     }, this.makePinId);
     this._pins = result.pins;
     const pin = result.pin;
@@ -2999,11 +2999,11 @@ private applyPointerInstance(source: PointerMenuSource, state: Extract<StructPoi
     this.render();
 }
 
-private selectCreatedPointerPin(pin: StructPin, state: Extract<StructPointerCreateState, { ok: true }>): void {
+private selectCreatedPointerPin(pin: TypeInstance, state: Extract<PointerCreateState, { ok: true }>): void {
     this._expanded.add(pin.id);
     this._selectedPinId = pin.id;
-    this._activeStructAddr = state.addr;
-    this.selectPointerTarget(state.addr, structByteSize(state.def, this._structs));
+    this._activeTypeAddr = state.addr;
+    this.selectPointerTarget(state.addr, typeByteSize(state.def, this._types));
 }
 
 
@@ -3067,14 +3067,14 @@ private setScalarDisplayType(type: ColType, ctx: FieldValMenuContext): void {
     this.render();
 }
 
-private findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructDef[]): StructPin | undefined {
+private findCopySourcePin(bs: number, pinIdx: number | undefined, defs: TypeDef[]): TypeInstance | undefined {
     if (typeof pinIdx === 'number' && pinIdx >= 0) {
         return this._pins[pinIdx];
     }
     return this._pins.find(p => {
-        const def = defs.find(d => d.id === p.structId);
+        const def = defs.find(d => d.id === p.typeId);
         if (!def) { return false; }
-        const size = structByteSize(def, this._structs);
+        const size = typeByteSize(def, this._types);
         return bs >= p.addr && bs < p.addr + size;
     });
 }
@@ -3082,15 +3082,15 @@ private findCopySourcePin(bs: number, pinIdx: number | undefined, defs: StructDe
 private findCopySourceRows(bs: number, pinIdx: number | undefined, opts: FieldValMenuOptions = {}): CopySourceRows | undefined {
     const explicit = this.findExplicitCopySourceRows(pinIdx, opts);
     if (explicit) { return explicit; }
-    const all = allStructs(this._structs);
+    const all = allTypes(this._types);
     const pin = this.findCopySourcePin(bs, pinIdx, all);
     if (!pin) { return undefined; }
-    const def = all.find(d => d.id === pin.structId);
+    const def = all.find(d => d.id === pin.typeId);
     if (!def) { return undefined; }
     return {
         pin,
-        rows: decodeStruct(def, pin.addr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._structs),
-        structId: def.id,
+        rows: decodeType(def, pin.addr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types),
+        typeId: def.id,
         baseAddr: pin.addr,
     };
 }
@@ -3099,28 +3099,28 @@ private findExplicitCopySourceRows(pinIdx: number | undefined, opts: FieldValMen
     const context = this.explicitSourceContext(opts);
     if (!context) { return undefined; }
     const pin = this.copySourcePinFromIndex(pinIdx);
-    const def = this.structDefById(context.structId);
+    const def = this.typeDefById(context.typeId);
     if (!pin || !def) { return undefined; }
     return {
         pin,
-        rows: decodeStruct(def, context.baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._structs),
-        structId: def.id,
+        rows: decodeType(def, context.baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types),
+        typeId: def.id,
         baseAddr: context.baseAddr,
     };
 }
 
-private explicitSourceContext(opts: FieldValMenuOptions): { structId: string; baseAddr: number } | undefined {
-    return opts.sourceStructId && typeof opts.sourceBaseAddr === 'number'
-        ? { structId: opts.sourceStructId, baseAddr: opts.sourceBaseAddr }
+private explicitSourceContext(opts: FieldValMenuOptions): { typeId: string; baseAddr: number } | undefined {
+    return opts.sourceTypeId && typeof opts.sourceBaseAddr === 'number'
+        ? { typeId: opts.sourceTypeId, baseAddr: opts.sourceBaseAddr }
         : undefined;
 }
 
-private copySourcePinFromIndex(pinIdx: number | undefined): StructPin | undefined {
+private copySourcePinFromIndex(pinIdx: number | undefined): TypeInstance | undefined {
     return typeof pinIdx === 'number' && pinIdx >= 0 ? this._pins[pinIdx] : undefined;
 }
 
-private structDefById(structId: string): StructDef | undefined {
-    return allStructs(this._structs).find(d => d.id === structId);
+private typeDefById(typeId: string): TypeDef | undefined {
+    return allTypes(this._types).find(d => d.id === typeId);
 }
 
 private copyTextToClipboard(text: string): void {
@@ -3156,7 +3156,7 @@ private toggleCompositeGroup(
     this.syncCompositeHeaderOffset(hdr, true);
 }
 
-private wireStructHoverRange(el: HTMLElement, start: number, count: number): void {
+private wireHoverRange(el: HTMLElement, start: number, count: number): void {
     el.addEventListener('mouseenter', () => {
         const addrs: number[] = [];
         for (let i = 0; i < count; i++) { addrs.push(start + i); }
@@ -3171,7 +3171,7 @@ private highlightAddress(addr: number, className: string): void {
     this.cb.onHighlightHex?.([addr], className);
 }
 
-private clearStructSelectionVisuals(): void {
+private clearSelectionVisuals(): void {
     this.clearArrSep();
     this.clearSelRow();
     this._selectedBitRange = null;
@@ -3192,7 +3192,7 @@ private markArraySeparators(rows: HTMLElement[]): void {
     this.cb.onHighlightHex?.(addrs, 'struct-arr-sep');
 }
 
-private selectStructRange(el: HTMLElement, start: number, count: number): void {
+private selectRange(el: HTMLElement, start: number, count: number): void {
     el.classList.add('si-selected');
     this.cb.onSelectRange?.(start, count);
 }
@@ -3208,7 +3208,7 @@ private fallbackCopyText(text: string): void {
 
 // ── Selection sync ────────────────────────────────────────────────
 
-private clearStructSelectionState(): void {
+private clearSelectionState(): void {
     this.clearArrSep();
     this.clearSelRow();
     this._selectedFieldAddr = null;
@@ -3217,7 +3217,7 @@ private clearStructSelectionState(): void {
     this._selectedPinId     = null;
 }
 
-    private updateStructAddressInputs(addr: number): void {
+    private updateTypeAddressInputs(addr: number): void {
         if (!this._tabActive) { return; }
         const addrHex = addr.toString(16).toUpperCase().padStart(8, '0');
         if (this._addingPin || this._editingPinId) {
@@ -3230,7 +3230,7 @@ private clearStructSelectionState(): void {
         if (!inp) { return; }
         inp.value = addrHex;
         const confirmBtn = this.addPinConfirmButton();
-        if (confirmBtn) { confirmBtn.disabled = !this.selectedApplyStructId(); }
+        if (confirmBtn) { confirmBtn.disabled = !this.selectedApplyTypeId(); }
     }
 
     private addPinAddressInput(): HTMLInputElement | null {
@@ -3244,9 +3244,9 @@ private clearStructSelectionState(): void {
     // ── Extracted-module delegation (thin wrappers keep internal call sites stable) ──
 
     /** Narrow render context for the extracted row/value/binary render modules. */
-    private renderCtx(): StructRenderCtx {
+    private renderCtx(): OverlayRenderCtx {
         return {
-            structs: this._structs,
+            types: this._types,
             pins: this._pins,
             endian: this._endian,
             bitFieldAllocation: this._bitFieldAllocation,
@@ -3262,15 +3262,15 @@ private clearStructSelectionState(): void {
         };
     }
 
-    // C preview (structCPreview.ts)
-    private renderStructCPreview(pre: HTMLElement, def: StructDef): void {
-        renderStructCPreview(pre, def, this._structs);
+    // C preview (cPreview.ts)
+    private renderTypeCPreview(pre: HTMLElement, def: TypeDef): void {
+        renderTypeCPreview(pre, def, this._types);
     }
-    private hydrateStructPreviews(root: HTMLElement): void {
-        hydrateStructPreviews(root, this._structs, this._editingType?.draft ?? null);
+    private hydrateTypePreviews(root: HTMLElement): void {
+        hydrateTypePreviews(root, this._types, this._editingType?.draft ?? null);
     }
 
-    // Binary view (structBinaryView.ts)
+    // Binary view (binaryView.ts)
     private isBitFieldRow(r: DecodedField): boolean { return isBitFieldRow(r); }
     private makeBitRowKey(byteStart: number, bitStart: number, bitWidth: number): string { return makeBitRowKey(byteStart, bitStart, bitWidth); }
     private scalarValKey(byteStart: number): string { return scalarValKey(byteStart); }
@@ -3280,26 +3280,26 @@ private clearStructSelectionState(): void {
     private parseBitRowMeta(row: HTMLElement): { byteStart: number; bitStart: number; bitWidth: number } | null { return parseBitRowMeta(row); }
     private applyBitHighlightsInPlace(sec: HTMLElement): void { applyBitHighlightsInPlace(sec, this._selectedBitRange, this._hoveredBitRange); }
 
-    // Editor fields (structEditorFields.ts)
-    private fieldRowHtml(f: StructField, i: number, isOnly: boolean, total: number, draftId: string): string {
-        return fieldRowHtml(f, i, isOnly, total, draftId, this._structs, this.editorInheritedEndian(), this.editorInheritedAlloc());
+    // Editor fields (editorFields.ts)
+    private fieldRowHtml(f: TypeField, i: number, isOnly: boolean, total: number, draftId: string): string {
+        return fieldRowHtml(f, i, isOnly, total, draftId, this._types, this.editorInheritedEndian(), this.editorInheritedAlloc());
     }
-    private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): string { return childFieldRowHtml(child, ci, total, this._structs); }
+    private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): string { return childFieldRowHtml(child, ci, total, this._types); }
     private overrideSelectHtml(value: 'le' | 'be' | 'lsb' | 'msb' | undefined, kind: 'endian' | 'allocation', cls: string, id?: string, inherited?: string): string { return overrideSelectHtml(value, kind, cls, id, inherited); }
     private overrideAutoTitle(value: 'le' | 'be' | 'lsb' | 'msb' | undefined, inherited?: string): string | undefined { return overrideAutoTitle(value, inherited); }
     private overrideHelpTitle(kind: 'endian' | 'allocation'): string { return overrideHelpTitle(kind); }
-    private isPointerBlocked(field: StructField): boolean { return isPointerBlocked(field); }
+    private isPointerBlocked(field: TypeField): boolean { return isPointerBlocked(field); }
     private bitChildButtonState(remainingBits: number): { addBtnDisabled: string; addBtnTitle: string } { return bitChildButtonState(remainingBits); }
 
-    // Value format (structValueFormat.ts)
+    // Value format (valueFormat.ts)
     private getCopyText(r: DecodedField, valType: ColType): string { return getCopyText(this.renderCtx(), r, valType); }
     private implicitDisplayType(field: DecodedField | null | undefined, forceBinary = false): ColType { return implicitDisplayType(this.renderCtx(), field, forceBinary); }
 
-    // Row renderer (structRowRenderer.ts)
-    private renderStructBody(def: StructDef, pin: StructPin): string { return renderStructBody(this.renderCtx(), def, pin); }
+    // Row renderer (rowRenderer.ts)
+    private renderTypeBody(def: TypeDef, pin: TypeInstance): string { return renderTypeBody(this.renderCtx(), def, pin); }
     private buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null { return buildBitUnitAggregateRow(this.renderCtx(), rows); }
     private syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void { syncCompositeHeaderOffset(hdr, isOpen); }
-    private pointerTargetStructDef(row: DecodedField): StructDef | undefined { return pointerTargetStructDef(this.renderCtx(), row); }
+    private pointerTargetTypeDef(row: DecodedField): TypeDef | undefined { return pointerTargetTypeDef(this.renderCtx(), row); }
 }
 
 /** Pointer dataset flag a type change implies, or undefined to leave the row's flag untouched. */
@@ -3339,14 +3339,14 @@ function applyShowHiddenButtonState(btn: Element | null, show: boolean): void {
     btn.setAttribute('aria-pressed', show ? 'true' : 'false');
 }
 
-function pinFormHeader(pin: StructPin | null): string {
+function pinFormHeader(pin: TypeInstance | null): string {
     return pin ? '\u270E Edit Instance' : '\uff0b New Instance';
 }
 
-function pinFormClass(pin: StructPin | null): string {
+function pinFormClass(pin: TypeInstance | null): string {
     return pin ? 'sa-form-hdr-edit' : 'sa-form-hdr-new';
 }
 
-function pinFormConfirmLabel(pin: StructPin | null): string {
+function pinFormConfirmLabel(pin: TypeInstance | null): string {
     return pin ? 'Save' : 'Confirm';
 }

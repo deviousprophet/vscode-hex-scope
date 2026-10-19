@@ -7,7 +7,7 @@ import { parseIntelHexLine } from './core/parser/intelHexParser';
 import { parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/types';
 import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
-import type { SegmentLabel, SerializedRecord, StructDef, StructPin } from './core/types';
+import type { SegmentLabel, SerializedRecord, TypeDef, TypeInstance } from './core/types';
 import { buildSplicePlan, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
@@ -16,9 +16,9 @@ import { runParseJob } from './parse/parseWorkerClient';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
-import { migrateStructDefinitions } from './core/struct/structMigration';
-import { normalizeStructDefsValue } from './core/struct/structNormalization';
-import { countStructFieldRefs } from './core/struct/structCodec';
+import { migrateTypeDefinitions } from './core/overlay/overlayMigration';
+import { normalizeTypeDefsValue } from './core/overlay/overlayNormalization';
+import { countTypeFieldRefs } from './core/overlay/overlayCodec';
 import {
     messageType,
     RECORD_PAGE_SIZE,
@@ -43,7 +43,7 @@ import {
     readProfileRecord,
     removeProfileRecord,
     resolveHexScopeRoot,
-    structPoolJsonUri,
+    typePoolJsonUri,
     withDataEnvelope,
     withEnvelope,
     writeJson,
@@ -484,7 +484,7 @@ export class HexEditorSession {
             pendingExternalReload = null;
             clearTimeout(reloadTimer);
             clearTimeout(profileReloadTimer);
-            for (const store of [registryStore, structPoolStore]) { store?.dispose(); }
+            for (const store of [registryStore, typePoolStore]) { store?.dispose(); }
             this._panels.delete(webviewPanel);
             if (HexEditorSession._activePanel === webviewPanel) {
                 HexEditorSession._activePanel = undefined;
@@ -527,7 +527,7 @@ export class HexEditorSession {
         const relPath = perFileRelativePath(root, document.uri);
 
         let registryStore: JsonStore<ProfileRecord[]> | null = null;
-        let structPoolStore: JsonStore<StructDef[]> | null = null;
+        let typePoolStore: JsonStore<TypeDef[]> | null = null;
         let profileId: string | null = null;
         /** In-memory bound record for an unbound file's staged edits
          *  (out-of-workspace non-explicit writes stay in-memory; explicit
@@ -536,10 +536,10 @@ export class HexEditorSession {
         let profileReady: Promise<void> | null = null;
         let profileReloadTimer: ReturnType<typeof setTimeout> | undefined;
         let perFileOp: Promise<unknown> = Promise.resolve();
-        /** Set when a struct-deletion decline reverts the webview; the
-         *  immediately-following saveStructPins (webview posts it right after
-         *  saveStructs) then no-ops so the decline is a true no-write. */
-        let structDeletionDeclined = false;
+        /** Set when a type-deletion decline reverts the webview; the
+         *  immediately-following saveTypeInstances (webview posts it right after
+         *  saveTypes) then no-ops so the decline is a true no-write. */
+        let typeDeletionDeclined = false;
 
         // ── Deferred profile materialization ──────────────────────────
         // Nothing is written on open: .hexscope/profiles.json is only written
@@ -586,16 +586,16 @@ export class HexEditorSession {
         const migrationDone = migrateLegacyData(root, document.uri, this._context);
         ensureBindingLifecycle(root);
 
-        /** Create root-level stores once (registry array + struct pool). Idempotent. */
+        /** Create root-level stores once (registry array + type pool). Idempotent. */
         const ensureRootStores = (): void => {
-            const normalizeStructs = (raw: unknown): { value: StructDef[]; changed: boolean } => {
-                const defs = normalizeStructDefsValue(migrateStructDefinitions(raw)).defs;
+            const normalizeTypes = (raw: unknown): { value: TypeDef[]; changed: boolean } => {
+                const defs = normalizeTypeDefsValue(migrateTypeDefinitions(raw)).defs;
                 return { value: defs, changed: JSON.stringify(raw) !== JSON.stringify(defs) };
             };
             // Migration runs ahead of the shape normalizer for both slots, so an
             // older-version file is upgraded on load and self-healed once.
-            const migratableStructs = (raw: unknown): NormalizedValue<StructDef[]> =>
-                migrateAndNormalize(raw, 'defs', normalizeStructs, () => []);
+            const migratableTypes = (raw: unknown): NormalizedValue<TypeDef[]> =>
+                migrateAndNormalize(raw, 'defs', normalizeTypes, () => []);
             const migratableRegistry = (raw: unknown): NormalizedValue<ProfileRecord[]> =>
                 migrateAndNormalize(raw, 'records', normalizeProfilesRegistry, () => []);
             if (!registryStore) {
@@ -609,15 +609,15 @@ export class HexEditorSession {
                     onReload: () => { void broadcastPerFileData(); void broadcastProfilesState(); },
                 });
             }
-            if (!structPoolStore) {
-                // workspace-wide struct pool (.hexscope/structs.json)
-                structPoolStore = new JsonStore<StructDef[]>({
-                    uri: structPoolJsonUri(root),
-                    normalizer: migratableStructs,
+            if (!typePoolStore) {
+                // workspace-wide type pool (.hexscope/types.json)
+                typePoolStore = new JsonStore<TypeDef[]>({
+                    uri: typePoolJsonUri(root),
+                    normalizer: migratableTypes,
                     payloadKey: 'defs',
-                    empty: () => [...(workspaceStructPoolCache.get(root) ?? [])],
+                    empty: () => [...(workspaceTypePoolCache.get(root) ?? [])],
                     onSelfWrite: markSelfWrite,
-                    onReload: () => void broadcastStructs(),
+                    onReload: () => void broadcastTypes(),
                 });
             }
         };
@@ -648,10 +648,10 @@ export class HexEditorSession {
 
         const openStores = async (): Promise<{
             registry: JsonStore<ProfileRecord[]>;
-            structs: JsonStore<StructDef[]>;
+            types: JsonStore<TypeDef[]>;
         }> => {
             await openProfileStores();
-            return { registry: registryStore!, structs: structPoolStore! };
+            return { registry: registryStore!, types: typePoolStore! };
         };
 
         /** The bound record (or the in-memory staged record when unbound). */
@@ -728,7 +728,7 @@ export class HexEditorSession {
                 type: 'perFileDataChange',
                 labels: p.labels,
                 segmentNames: p.segmentNames,
-                pins: p.structPins,
+                pins: p.typeInstances,
                 endian: p.endian,
                 bitAllocation: p.bitAllocation,
                 showHiddenFields: p.showHiddenFields,
@@ -736,10 +736,10 @@ export class HexEditorSession {
             });
         };
 
-        const broadcastStructs = (): void => {
-            const structs = structPoolStore?.get();
-            if (!structs) { return; }
-            void postToWebview(webviewPanel.webview, { type: 'structsExternalChange', structs });
+        const broadcastTypes = (): void => {
+            const types = typePoolStore?.get();
+            if (!types) { return; }
+            void postToWebview(webviewPanel.webview, { type: 'typesExternalChange', types });
         };
 
         const broadcastProfilesState = async (): Promise<void> => {
@@ -781,7 +781,7 @@ export class HexEditorSession {
 
         const scheduleProfileReload = (): void => {
             registryStore?.scheduleReload(0);
-            structPoolStore?.scheduleReload(0);
+            typePoolStore?.scheduleReload(0);
             void broadcastProfilesState();
         };
 
@@ -790,8 +790,8 @@ export class HexEditorSession {
             postProgress('transfer', 0);
             const serialized = serializeParseResult(parseResult, format);
             postProgress('transfer', 1, 1);
-            const { registry, structs } = await openStores();
-            const structDefs = await loadWorkspaceStructs(root, structs);
+            const { registry, types } = await openStores();
+            const typeDefs = await loadWorkspaceTypes(root, types);
             const profileData = await readBoundProfile();
 
             const allProfiles = await listProfiles(root);
@@ -804,8 +804,8 @@ export class HexEditorSession {
                 parseResult: serialized,
                 labels: profileData.labels,
                 segmentNames: profileData.segmentNames,
-                structs: structDefs,
-                structPins: profileData.structPins,
+                types: typeDefs,
+                typeInstances: profileData.typeInstances,
                 endian: profileData.endian,
                 bitAllocation: profileData.bitAllocation,
                 showHiddenFields: profileData.showHiddenFields,
@@ -963,32 +963,32 @@ export class HexEditorSession {
                     }));
                 });
             },
-            saveStructs: async msg => {
+            saveTypes: async msg => {
                 await enqueuePerFileOp(async () => {
-                    const { structs } = await openStores();
-                    const previous = structs.get() ?? [];
-                    const incoming = normalizeStructDefsValue(migrateStructDefinitions(msg.structs)).defs;
-                    const result = await applyStructDeletion(
+                    const { types } = await openStores();
+                    const previous = types.get() ?? [];
+                    const incoming = normalizeTypeDefsValue(migrateTypeDefinitions(msg.types)).defs;
+                    const result = await applyTypeDeletion(
                         root,
-                        structs,
+                        types,
                         incoming,
-                        usage => confirmStructDeletion(usage),
+                        usage => confirmTypeDeletion(usage),
                     );
                     if (result === 'declined') {
-                        structDeletionDeclined = true;
-                        await revertDeclinedStructDeletion(root, webviewPanel.webview, previous, profileId);
+                        typeDeletionDeclined = true;
+                        await revertDeclinedTypeDeletion(root, webviewPanel.webview, previous, profileId);
                     }
                 });
             },
-            saveStructPins: async msg => {
+            saveTypeInstances: async msg => {
                 await enqueuePerFileOp(async () => {
-                    if (structDeletionDeclined) {
-                        // A struct-deletion decline reverted the webview already;
+                    if (typeDeletionDeclined) {
+                        // A type-deletion decline reverted the webview already;
                         // this strips nothing. Clear the latch and bail.
-                        structDeletionDeclined = false;
+                        typeDeletionDeclined = false;
                         return;
                     }
-                    await withBoundProfile(current => ({ ...current, structPins: msg.pins }));
+                    await withBoundProfile(current => ({ ...current, typeInstances: msg.pins }));
                 });
             },
             saveIntegrityChecks: async msg => {
@@ -1049,7 +1049,7 @@ export class HexEditorSession {
                             await registryStore?.load(true);
                         }
                         await registryStore?.flush();
-                        await structPoolStore?.flush();
+                        await typePoolStore?.flush();
                         broadcastPerFileData();
                         void broadcastProfilesState();
                     } finally {
@@ -1297,11 +1297,11 @@ function upsertRecord(records: ProfileRecord[], next: ProfileRecord): ProfileRec
 
 // ── Three-tier registry/binding helpers ───────────────────────────
 
-/** Per-root in-memory workspace struct pool cache (one root's defs must not
+/** Per-root in-memory workspace type pool cache (one root's defs must not
  *  leak as another root's empty default). Fallback only: reads still hit the
  *  JsonStore; this mirrors the last-loaded pool for deferred/empty sessions.
  *  Exported as a test seam for two-roots-independent-fallback coverage. */
-export const workspaceStructPoolCache = new Map<string, StructDef[]>();
+export const workspaceTypePoolCache = new Map<string, TypeDef[]>();
 
 /** Roots that attached the binding rename/delete lifecycle. Kept for the
  *  whole extension-host lifetime (not per panel), so the workspace-level
@@ -1453,15 +1453,15 @@ export async function deleteRegistryProfile(root: string, profileId: string): Pr
     }
 }
 
-/** Load workspace struct pool (from store cache or disk); empty default when absent.
+/** Load workspace type pool (from store cache or disk); empty default when absent.
  *  The per-root fallback cache is written here (keyed by root, never shared
  *  across roots). Exported as a test seam for per-root-fallback coverage. */
-export async function loadWorkspaceStructs(
+export async function loadWorkspaceTypes(
     root: string,
-    structs: JsonStore<StructDef[]>,
-): Promise<StructDef[]> {
-    const defs = await structs.load();
-    workspaceStructPoolCache.set(root, defs);
+    types: JsonStore<TypeDef[]>,
+): Promise<TypeDef[]> {
+    const defs = await types.load();
+    workspaceTypePoolCache.set(root, defs);
     return defs;
 }
 
@@ -1475,19 +1475,19 @@ export function showHiddenFieldsPatch(rec: ProfileRecord, raw: unknown): Profile
     return { ...rec, showHiddenFields: showHiddenFieldsOrDefault(raw) };
 }
 
-/** Usage of the struct types being deleted: pins + affected profiles + the
+/** Usage of the types being deleted: pins + affected profiles + the
  *  pool's referencing-field count (layouts that lose a field/ref). */
-type StructDeletionUsage = { pins: number; profileIds: string[]; fields: number };
+type TypeDeletionUsage = { pins: number; profileIds: string[]; fields: number };
 
-/** Confirm dialog for deleting struct types that other profiles pin to.
+/** Confirm dialog for deleting types that other profiles pin to.
  *  Naming pin count + affected profile count + the pool's referencing-field
  *  count (modal, explicit "Delete"). */
-async function confirmStructDeletion(usage: StructDeletionUsage): Promise<boolean> {
+async function confirmTypeDeletion(usage: TypeDeletionUsage): Promise<boolean> {
     const typeNoun = pluralize(usage.pins, 'type', 'types');
     const profileNoun = pluralize(usage.profileIds.length, 'profile', 'profiles');
     const fieldNoun = pluralize(usage.fields, 'field', 'fields');
     const confirm = await vscode.window.showWarningMessage(
-        `${usage.pins} pin${pluralSuffix(usage.pins)} in ${usage.profileIds.length} ${profileNoun} reference the struct ${typeNoun} being deleted; ` +
+        `${usage.pins} pin${pluralSuffix(usage.pins)} in ${usage.profileIds.length} ${profileNoun} reference the ${typeNoun} being deleted; ` +
         `${usage.fields} ${fieldNoun} in the pool reference it. Delete anyway?`,
         { modal: true },
         'Delete',
@@ -1505,12 +1505,12 @@ function pluralSuffix(count: number): string {
     return count === 1 ? '' : 's';
 }
 
-/** Scan every registry profile for pins whose structId is in deletedIds.
+/** Scan every registry profile for pins whose typeId is in deletedIds.
  *  Returns the total pin count + the affected profile ids. Pins of the
  *  current bound profile are still on disk at this point (the webview posts
- *  saveStructs before saveStructPins, both serialized via enqueuePerFileOp),
+ *  saveTypes before saveTypeInstances, both serialized via enqueuePerFileOp),
  *  so they count — matching "1+ pins reference it anywhere". */
-export async function collectStructDeletionUsage(
+export async function collectTypeDeletionUsage(
     root: string,
     deletedIds: string[],
 ): Promise<{ pins: number; profileIds: string[] }> {
@@ -1519,7 +1519,7 @@ export async function collectStructDeletionUsage(
     let pins = 0;
     const profileIds: string[] = [];
     for (const rec of await collectProfileRecords(root)) {
-        const count = rec.structPins.filter(pin => target.has(pin.structId)).length;
+        const count = rec.typeInstances.filter(pin => target.has(pin.typeId)).length;
         if (count > 0) {
             pins += count;
             profileIds.push(rec.id);
@@ -1529,77 +1529,77 @@ export async function collectStructDeletionUsage(
 }
 
 /** Rewrite every affected registry profile with its pins filtered to drop
- *  any pin referencing the deleted struct ids (the bound profile included —
- *  idempotent with the webview's later saveStructPins). */
-export async function stripDeletedStructPins(root: string, deletedIds: string[]): Promise<void> {
+ *  any pin referencing the deleted type ids (the bound profile included —
+ *  idempotent with the webview's later saveTypeInstances). */
+export async function stripDeletedTypeInstances(root: string, deletedIds: string[]): Promise<void> {
     const target = new Set(deletedIds);
     const read = await readPayloadForWrite(profilesJsonUri(root), 'records');
     if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
     const records = normalizeProfilesRegistry(read.payload).value;
     const next = records.map(rec => {
-const stripped = rec.structPins.filter(pin => !target.has(pin.structId));
-return stripped.length === rec.structPins.length ? rec : { ...rec, structPins: stripped };
+const stripped = rec.typeInstances.filter(pin => !target.has(pin.typeId));
+return stripped.length === rec.typeInstances.length ? rec : { ...rec, typeInstances: stripped };
     });
     if (next.some((rec, i) => rec !== records[i])) {
         await writeJson(profilesJsonUri(root), withEnvelope(withDataEnvelope('records', normalizeProfilesRegistry(next).value)));
     }
 }
 
-/** Guard struct-pool writes against deleting types that pins reference.
+/** Guard type-pool writes against deleting types that pins reference.
  *  - No deletion → plain edit writes straight through ('applied').
  *  - Deletion with no referencing pins → pool writes through ('applied').
  *  - Deletion with referencing pins → confirm(usage); declined = no writes,
  *    confirmed = strip pins from every affected profile + write the pool.
  *  Returns 'applied' only when the pool was written (or needed no confirm);
  *  'declined' leaves disk untouched (the caller reverts the webview). */
-export async function applyStructDeletion(
+export async function applyTypeDeletion(
     root: string,
-    poolStore: JsonStore<StructDef[]>,
-    incomingStructs: StructDef[],
-    confirm: (usage: StructDeletionUsage) => Promise<boolean>,
+    poolStore: JsonStore<TypeDef[]>,
+    incomingTypes: TypeDef[],
+    confirm: (usage: TypeDeletionUsage) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
     const previous = poolStore.get() ?? [];
-    const deletedIds = deletedStructIds(previous, incomingStructs);
+    const deletedIds = deletedTypeIds(previous, incomingTypes);
     if (deletedIds.length === 0) {
-        poolStore.set(incomingStructs);
+        poolStore.set(incomingTypes);
         return 'applied';
     }
-    return applyStructDeletionWithUsage(root, poolStore, incomingStructs, deletedIds, previous, confirm);
+    return applyTypeDeletionWithUsage(root, poolStore, incomingTypes, deletedIds, previous, confirm);
 }
 
-async function applyStructDeletionWithUsage(
+async function applyTypeDeletionWithUsage(
     root: string,
-    poolStore: JsonStore<StructDef[]>,
-    incomingStructs: StructDef[],
+    poolStore: JsonStore<TypeDef[]>,
+    incomingTypes: TypeDef[],
     deletedIds: string[],
-    previous: StructDef[],
-    confirm: (usage: StructDeletionUsage) => Promise<boolean>,
+    previous: TypeDef[],
+    confirm: (usage: TypeDeletionUsage) => Promise<boolean>,
 ): Promise<'applied' | 'declined'> {
-    const usage = await collectStructDeletionUsage(root, deletedIds);
+    const usage = await collectTypeDeletionUsage(root, deletedIds);
     if (usage.pins === 0) {
-        poolStore.set(incomingStructs);
+        poolStore.set(incomingTypes);
         return 'applied';
     }
-    if (!(await confirm({ ...usage, fields: countStructFieldRefs(previous, deletedIds) }))) { return 'declined'; }
-    await stripDeletedStructPins(root, deletedIds);
-    poolStore.set(incomingStructs);
+    if (!(await confirm({ ...usage, fields: countTypeFieldRefs(previous, deletedIds) }))) { return 'declined'; }
+    await stripDeletedTypeInstances(root, deletedIds);
+    poolStore.set(incomingTypes);
     return 'applied';
 }
 
-/** Struct ids present in `previous` but absent from the incoming pool. */
-function deletedStructIds(previous: StructDef[], incoming: StructDef[]): string[] {
+/** Type ids present in `previous` but absent from the incoming pool. */
+function deletedTypeIds(previous: TypeDef[], incoming: TypeDef[]): string[] {
     const incomingIds = new Set(incoming.map(def => def.id));
     return previous.filter(def => !incomingIds.has(def.id)).map(def => def.id);
 }
 
-/** Revert the webview after a declined struct deletion (no disk writes). */
-async function revertDeclinedStructDeletion(
+/** Revert the webview after a declined type deletion (no disk writes). */
+async function revertDeclinedTypeDeletion(
     root: string,
     webview: vscode.Webview,
-    previous: StructDef[],
+    previous: TypeDef[],
     boundProfileId: string | null,
 ): Promise<void> {
-    void postToWebview(webview, { type: 'structsExternalChange', structs: previous });
+    void postToWebview(webview, { type: 'typesExternalChange', types: previous });
     if (!boundProfileId) { return; }
     const rec = await readProfileRecord(root, boundProfileId);
     if (!rec) { return; }
@@ -1607,7 +1607,7 @@ async function revertDeclinedStructDeletion(
         type: 'perFileDataChange',
         labels: rec.labels,
         segmentNames: rec.segmentNames,
-        pins: rec.structPins,
+        pins: rec.typeInstances,
         endian: rec.endian,
         bitAllocation: rec.bitAllocation,
         showHiddenFields: rec.showHiddenFields,

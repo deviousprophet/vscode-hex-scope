@@ -1,20 +1,20 @@
-/** Struct panel — C preview token/line builders and render/hydrate entry points.
-Extracted verbatim from structPanel.ts (pure move). */
-import { allStructs, structToC } from '../../../../core/struct/structCodec.js';
-import type { StructDef } from '../../../../core/types';
+/** Overlay panel — C preview token/line builders and render/hydrate entry points.
+Extracted verbatim from overlayPanel.ts (pure move). */
+import { allTypes, typeDefToC } from '../../../../core/overlay/overlayCodec.js';
+import type { TypeDef } from '../../../../core/types';
 
-// ── C syntax-highlighted struct preview ─────────────────────────────────────
+// ── C syntax-highlighted type preview ─────────────────────────────────────
 
 const SC_KW   = /\b(typedef|struct|enum)\b/g;
 
 const SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
-function buildStructCPreviewNodes(def: StructDef, structs: readonly StructDef[]): DocumentFragment {
+function buildTypeCPreviewNodes(def: TypeDef, types: readonly TypeDef[]): DocumentFragment {
     const out = document.createDocumentFragment();
-    const nameEscRe = (def.name || 'MyStruct').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const nameEscRe = (def.name || 'MyType').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const nestedTypeNames = def.fields
-        .filter(f => f.type === 'struct' && f.refStructId)
-        .map(f => allStructs(structs).find(d => d.id === f.refStructId)?.name)
+        .filter(f => f.type === 'struct' && f.refTypeId)
+        .map(f => allTypes(types).find(d => d.id === f.refTypeId)?.name)
         .filter((n): n is string => typeof n === 'string')
         .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     const typeUnion = [
@@ -40,7 +40,7 @@ function buildStructCPreviewNodes(def: StructDef, structs: readonly StructDef[])
             if (idx > lastIdx) { appendText(parent, code.slice(lastIdx, idx)); }
             const tok = m[0];
             const span = document.createElement('span');
-            span.className = structCodeTokenClass(tok);
+            span.className = typeCodeTokenClass(tok);
             span.textContent = tok;
             parent.appendChild(span);
             lastIdx = idx + tok.length;
@@ -48,22 +48,22 @@ function buildStructCPreviewNodes(def: StructDef, structs: readonly StructDef[])
         if (lastIdx < code.length) { appendText(parent, code.slice(lastIdx)); }
     };
 
-    const lines = structToC(def, structs).split('\n');
+    const lines = typeDefToC(def, types).split('\n');
     lines.forEach((line, i) => {
-        appendStructPreviewLine(out, line, i, lines.length, appendTokenizedCode);
+        appendTypePreviewLine(out, line, i, lines.length, appendTokenizedCode);
     });
 
     return out;
 }
 
-function appendStructPreviewLine(
+function appendTypePreviewLine(
     out: DocumentFragment,
     line: string,
     idx: number,
     lineCount: number,
     appendTokenizedCode: (parent: DocumentFragment | HTMLElement, code: string) => void,
 ): void {
-    const parts = structPreviewLineParts(line);
+    const parts = previewLineParts(line);
     if (isPaddingPreviewLine(parts.code)) {
         appendPaddingPreviewLine(out, line, parts.code);
     } else {
@@ -73,7 +73,7 @@ function appendStructPreviewLine(
     appendPreviewLineBreak(out, idx, lineCount);
 }
 
-function structPreviewLineParts(line: string): { code: string; cmt: string } {
+function previewLineParts(line: string): { code: string; cmt: string } {
     const ci = line.indexOf('/*');
     if (ci < 0) { return { code: line, cmt: '' }; }
     return { code: line.slice(0, ci), cmt: line.slice(ci) };
@@ -108,41 +108,41 @@ function appendPreviewText(parent: DocumentFragment | HTMLElement, text: string)
 
 const SC_KEYWORD_TOKENS = new Set(['typedef', 'struct', 'enum']);
 
-function structCodeTokenClass(tok: string): string {
+function typeCodeTokenClass(tok: string): string {
     if (tok === '__attribute__((packed))') { return 'sc-attr'; }
     return SC_KEYWORD_TOKENS.has(tok) ? 'sc-kw' : 'sc-type';
 }
 
-export function renderStructCPreview(pre: HTMLElement, def: StructDef, structs: readonly StructDef[]): void {
-    pre.replaceChildren(buildStructCPreviewNodes(def, structs));
+export function renderTypeCPreview(pre: HTMLElement, def: TypeDef, types: readonly TypeDef[]): void {
+    pre.replaceChildren(buildTypeCPreviewNodes(def, types));
 }
 
-export function hydrateStructPreviews(root: HTMLElement, structs: readonly StructDef[], editingDraft: StructDef | null): void {
-    root.querySelectorAll<HTMLElement>('.si-c-preview[data-struct-preview-id]')
-        .forEach(pre => hydrateStructPreview(pre, structs, editingDraft));
+export function hydrateTypePreviews(root: HTMLElement, types: readonly TypeDef[], editingDraft: TypeDef | null): void {
+    root.querySelectorAll<HTMLElement>('.si-c-preview[data-preview-id]')
+        .forEach(pre => hydrateTypePreview(pre, types, editingDraft));
 }
 
 /** Hydrate one preview element from its def id. */
-function hydrateStructPreview(pre: HTMLElement, structs: readonly StructDef[], editingDraft: StructDef | null): void {
-    const def = previewDefForId(pre.dataset.structPreviewId, structs, editingDraft);
+function hydrateTypePreview(pre: HTMLElement, types: readonly TypeDef[], editingDraft: TypeDef | null): void {
+    const def = previewDefForId(pre.dataset.previewId, types, editingDraft);
     if (!def) {
         pre.textContent = '';
         return;
     }
-    renderStructCPreview(pre, def, structs);
+    renderTypeCPreview(pre, def, types);
 }
 
 /** Resolve the def a preview id points at, preferring the in-flight editor draft. */
-function previewDefForId(id: string | undefined, structs: readonly StructDef[], editingDraft: StructDef | null): StructDef | null {
+function previewDefForId(id: string | undefined, types: readonly TypeDef[], editingDraft: TypeDef | null): TypeDef | null {
     if (!id) { return null; }
-    return isDraftPreviewId(id, editingDraft) ? editingDraft : structDefById(structs, id);
+    return isDraftPreviewId(id, editingDraft) ? editingDraft : typeDefById(types, id);
 }
 
-function isDraftPreviewId(id: string, editingDraft: StructDef | null): boolean {
+function isDraftPreviewId(id: string, editingDraft: TypeDef | null): boolean {
     return editingDraft?.id === id;
 }
 
-function structDefById(structs: readonly StructDef[], id: string): StructDef | null {
-    return allStructs(structs).find(d => d.id === id) ?? null;
+function typeDefById(types: readonly TypeDef[], id: string): TypeDef | null {
+    return allTypes(types).find(d => d.id === id) ?? null;
 }
 

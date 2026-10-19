@@ -1,21 +1,21 @@
-/** Struct panel — decoded value formatting and copy-text helpers.
-Extracted verbatim from structPanel.ts (pure move). */
+/** Overlay panel — decoded value formatting and copy-text helpers.
+Extracted verbatim from overlayPanel.ts (pure move). */
 import { esc, formatDecimal, formatHex, formatHexHtml, getBigUint64, getBigInt64, asUint64 } from '../../../utils';
-import { bytesToBigUint, enumHexDigits, formatEnumLabel } from '../../../../core/struct/structCodec.js';
-import type { DecodedField } from '../../../../core/struct/structCodec.js';
-import type { BitFieldAllocation, StructDef, StructFieldType, StructPin } from '../../../../core/types';
+import { bytesToBigUint, enumHexDigits, formatEnumLabel } from '../../../../core/overlay/overlayCodec.js';
+import type { DecodedField } from '../../../../core/overlay/overlayCodec.js';
+import type { BitFieldAllocation, TypeDef, TypeFieldType, TypeInstance } from '../../../../core/types';
 import {
     binaryBitsForValue, binaryGroupsLowBitsFirst, bitChildValKey, formatPlainBinaryBits, isBitFieldRow,
     renderPlainBinaryBits, scalarValKey,
-} from './structBinaryView';
+} from './binaryView';
 
 /** Pointer-follow readiness shared with the row renderer and the panel class. */
 export type PointerFollowState = { ok: true } | { ok: false; reason: string };
 
 /** Narrow render context threaded through the extracted render modules. */
-export interface StructRenderCtx {
-    structs: readonly StructDef[];
-    pins: readonly StructPin[];
+export interface OverlayRenderCtx {
+    types: readonly TypeDef[];
+    pins: readonly TypeInstance[];
     endian: 'le' | 'be';
     bitFieldAllocation: BitFieldAllocation;
     showHiddenFields: boolean;
@@ -31,7 +31,7 @@ export interface StructRenderCtx {
 
 export type ColType = 'hex' | 'dec' | 'ascii' | 'bin' | 'bin-sliced' | 'ieee';
 
-const FLOAT_FIELD_TYPES: ReadonlySet<StructFieldType> = new Set(['float32', 'float64']);
+const FLOAT_FIELD_TYPES: ReadonlySet<TypeFieldType> = new Set(['float32', 'float64']);
 
 const RAW_HTML_VALUE_TYPES: ReadonlySet<ColType> = new Set(['bin', 'bin-sliced', 'ieee', 'hex']);
 
@@ -44,7 +44,7 @@ export const TYPE_LABELS: Record<ColType, string> = {
     ieee: 'IEEE754',
 };
 
-export const SAMPLE_TYPE_MENUS: Partial<Record<StructFieldType, ColType[]>> = {
+export const SAMPLE_TYPE_MENUS: Partial<Record<TypeFieldType, ColType[]>> = {
     float32: ['hex', 'dec', 'ieee', 'bin'],
     float64: ['hex', 'dec', 'ieee', 'bin'],
     ascii: ['ascii', 'hex', 'bin'],
@@ -53,7 +53,7 @@ export const SAMPLE_TYPE_MENUS: Partial<Record<StructFieldType, ColType[]>> = {
 type NumericValueFormatter = (valType: ColType, dv: DataView, le: boolean) => string;
 
 /** Get a display string for a field given the requested column display type. */
-export function getValForType(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
+export function getValForType(rctx: OverlayRenderCtx, r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
     const enumLabel = renderEnumLabelValue(rctx, r, valType);
     if (enumLabel !== null) { return enumLabel; }
@@ -61,11 +61,11 @@ export function getValForType(rctx: StructRenderCtx, r: DecodedField, valType: C
 }
 
 /** Bit-field or scalar rendering once enum-label and no-data cases are handled. */
-function renderNonEnumValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
+function renderNonEnumValue(rctx: OverlayRenderCtx, r: DecodedField, valType: ColType): string {
     if (isBitFieldRow(r)) { return renderBitFieldValue(r, valType); }
 
     const bytes = fieldBytes(r);
-    // Resolved per-row effective endian (field → struct → global), already
+    // Resolved per-row effective endian (field → type → global), already
     // threaded by the decoder; pointer rows carry the global endian in core,
     // so the pointer-always-global rule holds here too.
     const endian = r.endian ?? rctx.endian;
@@ -78,13 +78,13 @@ function renderNonEnumValue(rctx: StructRenderCtx, r: DecodedField, valType: Col
  * values (and non-default view modes) fall through to the numeric rendering.
  * Uses the shared `formatEnumLabel` for scalar enum fields and enum-ref bit children.
  */
-function renderEnumLabelValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string | null {
+function renderEnumLabelValue(rctx: OverlayRenderCtx, r: DecodedField, valType: ColType): string | null {
     if (r.enumLabel === undefined || valType !== defaultValueTypeForRow(rctx, r)) { return null; }
     const view = enumNumericView(rctx, r);
     return view ? esc(formatEnumLabel(r.enumLabel, view.value, view.hexDigits)) : null;
 }
 
-function enumNumericView(rctx: StructRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
+function enumNumericView(rctx: OverlayRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
     if (isBitFieldRow(r)) { return bitFieldEnumNumericView(r); }
     return scalarEnumNumericView(rctx, r);
 }
@@ -95,7 +95,7 @@ function bitFieldEnumNumericView(r: DecodedField): { value: bigint; hexDigits: n
 }
 
 /** Numeric view of a scalar row's bytes, or null when the bytes are missing. */
-function scalarEnumNumericView(rctx: StructRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
+function scalarEnumNumericView(rctx: OverlayRenderCtx, r: DecodedField): { value: bigint; hexDigits: number } | null {
     const bytes = fieldBytes(r);
     if (hasMissingEnumBytes(bytes)) { return null; }
     return { value: bytesToBigUint(bytes, r.endian ?? rctx.endian), hexDigits: bytes.length * 2 };
@@ -154,7 +154,7 @@ function copyBitFieldValue(r: DecodedField, valType: ColType): string {
 }
 
 function renderScalarValue(
-    rctx: StructRenderCtx, r: DecodedField,
+    rctx: OverlayRenderCtx, r: DecodedField,
     valType: ColType,
     bytes: number[],
     dv: DataView,
@@ -167,7 +167,7 @@ function renderScalarValue(
 }
 
 function renderSpecialScalarValue(
-    rctx: StructRenderCtx, r: DecodedField,
+    rctx: OverlayRenderCtx, r: DecodedField,
     valType: ColType,
     bytes: number[],
     dv: DataView,
@@ -180,7 +180,7 @@ function renderSpecialScalarValue(
 }
 
 function renderSpecialScalarByType(
-    rctx: StructRenderCtx, r: DecodedField,
+    rctx: OverlayRenderCtx, r: DecodedField,
     valType: ColType,
     bytes: number[],
     dv: DataView,
@@ -203,7 +203,7 @@ function renderSpecialScalarByValueType(
     return null;
 }
 
-function renderPointerValue(rctx: StructRenderCtx, r: DecodedField, dv: DataView, le: boolean): string {
+function renderPointerValue(rctx: OverlayRenderCtx, r: DecodedField, dv: DataView, le: boolean): string {
     const v = r.pointerValue ?? (dv.getUint32(0, le) >>> 0);
     const note = v !== 0 && rctx.readByte(v) === undefined ? ` <span class="si-f-ptr-note">(unmapped)</span>` : '';
     return `<span class="si-f-ptr-sym">\u2192</span>\u2009` + formatHexHtml(formatHex(v, 8)) + note;
@@ -351,7 +351,7 @@ function floatClassName(exp: number, isZeroMant: boolean, infinityExp: number): 
 }
 
 /** Get a plain-text representation suitable for copying. */
-export function getCopyText(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
+export function getCopyText(rctx: OverlayRenderCtx, r: DecodedField, valType: ColType): string {
     if (!r.hasData) { return '??'; }
     return copySpecialRowText(r, valType) ?? copyNonAsciiFieldValue(rctx, r, valType);
 }
@@ -374,7 +374,7 @@ function copyPointerRowText(r: DecodedField): string {
     return r.pointerValue === undefined ? '??' : formatHex(r.pointerValue, 8);
 }
 
-function copyNonAsciiFieldValue(rctx: StructRenderCtx, r: DecodedField, valType: ColType): string {
+function copyNonAsciiFieldValue(rctx: OverlayRenderCtx, r: DecodedField, valType: ColType): string {
     const bytes = fieldBytes(r);
     const endian = r.endian ?? rctx.endian;
     const le = endian === 'le';
@@ -451,16 +451,16 @@ const IMPLICIT_DISPLAY_BY_TYPE: Partial<Record<DecodedField['type'], ColType>> =
     ascii: 'ascii',
 };
 
-function fieldImplicitDisplayType(rctx: StructRenderCtx, field: DecodedField | null | undefined): ColType {
+function fieldImplicitDisplayType(rctx: OverlayRenderCtx, field: DecodedField | null | undefined): ColType {
     return field ? definedFieldImplicitDisplayType(rctx, field) : rctx.defaultValType;
 }
 
-function definedFieldImplicitDisplayType(rctx: StructRenderCtx, field: DecodedField): ColType {
+function definedFieldImplicitDisplayType(rctx: OverlayRenderCtx, field: DecodedField): ColType {
     if (isBitFieldRow(field)) { return 'bin'; }
     return field.isPointer ? 'hex' : (IMPLICIT_DISPLAY_BY_TYPE[field.type] ?? rctx.defaultValType);
 }
 
-export function implicitDisplayType(rctx: StructRenderCtx, field: DecodedField | null | undefined, forceBinary = false): ColType {
+export function implicitDisplayType(rctx: OverlayRenderCtx, field: DecodedField | null | undefined, forceBinary = false): ColType {
     return forceBinary ? 'bin' : fieldImplicitDisplayType(rctx, field);
 }
 
@@ -514,14 +514,14 @@ export function fieldValueKey(r: DecodedField, byteStart: number): string {
         : scalarValKey(byteStart);
 }
 
-function defaultValueTypeForRow(rctx: StructRenderCtx, r: DecodedField): ColType {
+function defaultValueTypeForRow(rctx: OverlayRenderCtx, r: DecodedField): ColType {
     if (isBitFieldRow(r)) { return 'bin'; }
     if (FLOAT_FIELD_TYPES.has(r.type)) { return 'dec'; }
     if (r.type === 'ascii') { return 'ascii'; }
     return rctx.defaultValType;
 }
 
-export function valueTypeForRow(rctx: StructRenderCtx, r: DecodedField, valKey: string): ColType {
+export function valueTypeForRow(rctx: OverlayRenderCtx, r: DecodedField, valKey: string): ColType {
     return rctx.fieldValTypes.get(valKey) ?? defaultValueTypeForRow(rctx, r);
 }
 
@@ -548,13 +548,13 @@ export function pointerTargetTypeLabel(r: DecodedField, abbreviated: boolean): s
     return POINTER_TARGET_LABELS[target]?.(r, abbreviated) ?? scalarPointerTargetLabel(target, abbreviated);
 }
 
-const POINTER_TARGET_LABELS: Partial<Record<StructFieldType, (row: DecodedField, abbreviated: boolean) => string>> = {
-    struct: row => row.pointerTargetStructName ?? 'struct',
+const POINTER_TARGET_LABELS: Partial<Record<TypeFieldType, (row: DecodedField, abbreviated: boolean) => string>> = {
+    struct: row => row.pointerTargetTypeName ?? 'struct',
     ascii: () => 'char',
     void: () => 'void',
 };
 
-function scalarPointerTargetLabel(target: StructFieldType, abbreviated: boolean): string {
+function scalarPointerTargetLabel(target: TypeFieldType, abbreviated: boolean): string {
     return abbreviated ? (TYPE_ABBREV[target] ?? target) : target;
 }
 
@@ -591,7 +591,7 @@ export function bitFieldDataAttrs(r: DecodedField): string {
     return ` data-bit-start="${r.bitOffset ?? 0}" data-bit-width="${r.bitWidth ?? 0}"`;
 }
 
-export function valueHtmlForRow(rctx: StructRenderCtx, r: DecodedField, valType: ColType, ptr: boolean): string {
+export function valueHtmlForRow(rctx: OverlayRenderCtx, r: DecodedField, valType: ColType, ptr: boolean): string {
     const value = getValForType(rctx, r, valType);
     return valueIsRawHtml(valType, ptr) ? value : esc(value);
 }

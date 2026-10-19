@@ -22,7 +22,7 @@ import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
 import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
-import type { StructDef, StructPin } from '../../core/types';
+import type { TypeDef, TypeInstance } from '../../core/types';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -39,9 +39,9 @@ function resetState(): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.redoStack.length = 0;
-    S.structs          = [];
+    S.types          = [];
 
-    S.structPins       = [];
+    S.typeInstances       = [];
     S.integrityHighlight = null;
     S.sidebarTab       = 'inspector';
     S.lastClickColumn  = null;
@@ -630,7 +630,7 @@ suite('Record View rendering', () => {
         try {
             document.body.innerHTML = '<div id="app"></div>';
             window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
-                type: 'init', parseResult: S.parseResult, labels: [], structs: [], structPins: [], endian: 'le',
+                type: 'init', parseResult: S.parseResult, labels: [], types: [], typeInstances: [], endian: 'le',
                 activeChecks: { schemaVersion: 1, checks: [] },
                 profile: { profiles: [], current: null, boundFileCount: 0 },
             } }));
@@ -670,17 +670,17 @@ suite('Record View rendering', () => {
             assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-byte-line'),
                 'selection data survives tab round-trip');
 
-            // Struct show-hidden provider seam: a `perFileDataChange` slice drives
+            // Overlay show-hidden provider seam: a `perFileDataChange` slice drives
             // showHiddenFieldsChanged → applyScopedInvalidations →
-            // applyShowHiddenFieldsChanged → structPanel.setShowHiddenFields.
-            const seamStructs: StructDef[] = [{
+            // applyShowHiddenFieldsChanged → overlayPanel.setShowHiddenFields.
+            const seamTypes: TypeDef[] = [{
                 id: 'cfg', name: 'Cfg', fields: [
                     { name: 'reserved', type: 'uint8', count: 1, hidden: true },
                     { name: 'tag', type: 'uint8', count: 1 },
                 ],
             }];
-            const seamPins: StructPin[] = [{ id: 'pin_seam', structId: 'cfg', addr: 0x08000000, name: 'inst' }];
-            S.structs = seamStructs;
+            const seamPins: TypeInstance[] = [{ id: 'pin_seam', typeId: 'cfg', addr: 0x08000000, name: 'inst' }];
+            S.types = seamTypes;
             const pushHidden = (showHiddenFields: boolean): void => {
                 window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
                     type: 'perFileDataChange', labels: [], pins: seamPins, endian: 'le', bitAllocation: 'msb',

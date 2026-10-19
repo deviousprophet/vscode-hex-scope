@@ -735,7 +735,7 @@ suite('webview MenuController cross-menu invariants', () => {
         assert.ok(!pop.hidden, 'popover open');
     });
 
-    test('two-step Escape on a struct-style submenu menu (second press closes)', () => {
+    test('two-step Escape on an overlay-style submenu menu (second press closes)', () => {
         const dom = installDom();
         currentDom = dom;
         const calls = emptyCalls();
@@ -752,7 +752,7 @@ suite('webview MenuController cross-menu invariants', () => {
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
         const sub = subRow.querySelector<HTMLElement>('.menu-submenu')!;
         const hexItem = sub.querySelector<HTMLElement>('.menu-item[data-cmd="disp-hex"]')!;
-        assert.strictEqual(document.activeElement, hexItem, 'ArrowRight opens struct submenu + focuses item');
+        assert.strictEqual(document.activeElement, hexItem, 'ArrowRight opens overlay submenu + focuses item');
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
         assert.strictEqual(sub.style.display, 'none', 'first Escape closes submenu');
         assert.strictEqual(document.activeElement, subRow, 'focus back on parent row');

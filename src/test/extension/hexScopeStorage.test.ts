@@ -1,6 +1,6 @@
 // ── .hexscope three-tier storage tests (extension host) ───────────
 // Runs under vscode-test where vscode.workspace.fs + real FS watchers work.
-// Covers the struct pool, single-file profile registry (profiles.json
+// Covers the type pool, single-file profile registry (profiles.json
 // array), binding table, JsonStore slots, deferred lazy-dir materialization,
 // legacy migrations, and the per-dir → array registry merge.
 
@@ -8,7 +8,7 @@ import * as assert from 'assert';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { StructDef } from '../../core/types';
+import type { TypeDef } from '../../core/types';
 import {
     DATA_SCHEMA_VERSION,
     DATA_VERSION,
@@ -34,7 +34,7 @@ import {
     renameProfileRecord,
     resolveHexScopeRoot,
     seedSchemaCopies,
-    structPoolJsonUri,
+    typePoolJsonUri,
     unwrapEnvelope,
     withDataEnvelope,
     withEnvelope,
@@ -44,24 +44,24 @@ import {
     type ProfileRecord,
 } from '../../hexScopeStorage';
 import {
-    applyStructDeletion,
+    applyTypeDeletion,
     bindFile,
     bindingsUsing,
     boundProfileId,
-    collectStructDeletionUsage,
+    collectTypeDeletionUsage,
     createBoundProfile,
     deleteRegistryProfile,
-    loadWorkspaceStructs,
+    loadWorkspaceTypes,
     pruneBindings,
     showHiddenFieldsPatch,
-    stripDeletedStructPins,
+    stripDeletedTypeInstances,
     unbindFile,
-    workspaceStructPoolCache,
+    workspaceTypePoolCache,
 } from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
 import { migrateLegacyData } from '../../hexScopeMigration';
-import { migrateStructDefinitions } from '../../core/struct/structMigration';
-import { normalizeStructDefsValue } from '../../core/struct/structNormalization';
+import { migrateTypeDefinitions } from '../../core/overlay/overlayMigration';
+import { normalizeTypeDefsValue } from '../../core/overlay/overlayNormalization';
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const FAST = 1; // near-immediate debounce for tests
@@ -136,10 +136,10 @@ function lazyRegistryStore(root: string, lazyDir: () => Promise<string | null>):
     });
 }
 
-function poolStoreFor(root: string): JsonStore<StructDef[]> {
-    return new JsonStore<StructDef[]>({
-        uri: structPoolJsonUri(root),
-        normalizer: structsNormalizer,
+function poolStoreFor(root: string): JsonStore<TypeDef[]> {
+    return new JsonStore<TypeDef[]>({
+        uri: typePoolJsonUri(root),
+        normalizer: typesNormalizer,
         payloadKey: 'defs',
         empty: () => [],
         debounceMs: FAST,
@@ -151,9 +151,9 @@ function registryNormalizer(raw: unknown): { value: ProfileRecord[]; changed: bo
     return migrateAndNormalize(raw, 'records', normalizeProfilesRegistry, () => []);
 }
 
-function structsNormalizer(raw: unknown): { value: StructDef[]; changed: boolean; newer?: boolean } {
+function typesNormalizer(raw: unknown): { value: TypeDef[]; changed: boolean; newer?: boolean } {
     const shape = (payload: unknown) => {
-        const defs = normalizeStructDefsValue(migrateStructDefinitions(payload)).defs;
+        const defs = normalizeTypeDefsValue(migrateTypeDefinitions(payload)).defs;
         return { value: defs, changed: JSON.stringify(payload) !== JSON.stringify(defs) };
     };
     return migrateAndNormalize(raw, 'defs', shape, () => []);
@@ -163,9 +163,23 @@ const REL = 'firmware/boot.hex';
 const REL_WIN = REL.split('/').join(path.sep);
 const MIGRATION_MARKER_KEY = 'hexScope.migration.v3';
 const PROFILES_ARRAY_MARKER_KEY = 'hexScope.profilesArray.v1';
+const TYPES_FILE_MARKER_KEY = 'hexScope.typesFile.v1';
 
 function onlyMigrationMarkerRemains(memento: MementoLike): boolean {
-    return memento.keys().every(key => key === MIGRATION_MARKER_KEY || key === PROFILES_ARRAY_MARKER_KEY);
+    return memento.keys().every(key => key === MIGRATION_MARKER_KEY || key === PROFILES_ARRAY_MARKER_KEY || key === TYPES_FILE_MARKER_KEY);
+}
+
+/** In-memory Memento stand-in for the one-time legacy transfers. */
+class FakeMemento implements MementoLike {
+    private data = new Map<string, unknown>();
+    get<T>(key: string, defaultValue?: T): T | undefined {
+        return this.data.has(key) ? this.data.get(key) as T : defaultValue;
+    }
+    update(key: string, value: unknown): Thenable<void> {
+        if (value === undefined) { this.data.delete(key); } else { this.data.set(key, value); }
+        return Promise.resolve();
+    }
+    keys(): string[] { return Array.from(this.data.keys()); }
 }
 
 suite('hexScopeStorage — version envelope', () => {
@@ -199,12 +213,12 @@ suite('hexScopeStorage — readJson/writeJson', () => {
     teardown(removeTestRoot);
 
     test('missing file reads as missing', async () => {
-        const read = await readJson(structPoolJsonUri(testRoot));
+        const read = await readJson(typePoolJsonUri(testRoot));
         assert.strictEqual(read.status, 'missing');
     });
 
     test('valid enveloped file reads unwrapped data', async () => {
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeText(uri, JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
         const read = await readJson(uri);
         assert.strictEqual(read.status, 'ok');
@@ -219,7 +233,7 @@ suite('hexScopeStorage — readJson/writeJson', () => {
     });
 
     test('unknown envelope version reads as corrupt (never treated as ok)', async () => {
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeText(uri, JSON.stringify({ version: 99, data: [] }));
         const read = await readJson(uri);
         assert.strictEqual(read.status, 'corrupt');
@@ -234,20 +248,20 @@ suite('hexScopeStorage — readJson/writeJson', () => {
     });
 
     test('writeIfMissing keeps an existing committed file', async () => {
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeJson(uri, { version: 1, data: [{ committed: true }] });
         await writeIfMissing(uri, { version: 1, data: [{ replaced: true }] });
         const value = await readJsonValue(uri) as { data: unknown[]; $schema?: string };
         assert.deepStrictEqual(value.data, [{ committed: true }]);
-        assert.strictEqual(value.$schema, 'schemas/structs.schema.json');
+        assert.strictEqual(value.$schema, 'schemas/types.schema.json');
     });
 
     test('writeIfMissing writes when missing', async () => {
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeIfMissing(uri, { version: 1, data: [{ seeded: true }] });
         const value = await readJsonValue(uri) as { data: unknown[]; $schema?: string };
         assert.deepStrictEqual(value.data, [{ seeded: true }]);
-        assert.strictEqual(value.$schema, 'schemas/structs.schema.json');
+        assert.strictEqual(value.$schema, 'schemas/types.schema.json');
     });
 });
 
@@ -287,7 +301,7 @@ suite('hexScopeStorage — JsonStore slots', () => {
             version: 1,
             data: [{
                 id: 'profile_1', name: 'Boot',
-                labels: [], segmentNames: {}, structPins: [], activeChecks: null, endian: 'le',
+                labels: [], segmentNames: {}, typeInstances: [], activeChecks: null, endian: 'le',
             }],
         }));
         const store = registryStoreFor(testRoot);
@@ -316,7 +330,7 @@ suite('hexScopeStorage — JsonStore slots', () => {
         await store.load();
         store.set([{ id: 's1', name: 'S1', fields: [] }]);
         await store.flush();
-        const value = await readJsonValue(structPoolJsonUri(testRoot)) as { version: number; data: { schemaVersion: number; defs: unknown[] } };
+        const value = await readJsonValue(typePoolJsonUri(testRoot)) as { version: number; data: { schemaVersion: number; defs: unknown[] } };
         assert.strictEqual(value.version, 1);
         assert.strictEqual(value.data.schemaVersion, DATA_SCHEMA_VERSION);
         assert.deepStrictEqual(value.data.defs, [{ id: 's1', name: 'S1', fields: [] }]);
@@ -340,12 +354,12 @@ suite('hexScopeStorage — JsonStore slots', () => {
         pool.set([{ id: 's1', name: 'S1', fields: [] }]);
         await pool.flush();
         assert.strictEqual((await readJson(profilesJsonUri(testRoot))).status, 'missing', 'registry untouched');
-        const value = await readJsonValue(structPoolJsonUri(testRoot)) as { data: { defs: unknown[] } };
+        const value = await readJsonValue(typePoolJsonUri(testRoot)) as { data: { defs: unknown[] } };
         assert.strictEqual(value.data.defs.length, 1);
     });
 
     test('unversioned bare array is accepted and upgraded (dedupe triggers self-heal)', async () => {
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeText(uri, '[{"id":"s1","name":"S1","fields":[]},{"id":"s1","name":"S1","fields":[]}]');
         const store = poolStoreFor(testRoot);
         const value = await store.load();
@@ -423,14 +437,14 @@ suite('hexScopeStorage — data-schema migration runner', () => {
         // Simulate a build at version 2 with a real 1→2 step by running the runner
         // directly over the shared table plus a synthetic step (the real table is
         // empty at v1 — the carrier migration below is the observable v1 behavior).
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeText(uri, JSON.stringify({ version: 1, data: { schemaVersion: 1, defs: [{ id: 's1', name: 'S1', fields: [] }] } }));
         const migrated = applyMigrationSteps({ 1: d => ({ ...d, defs: (d.defs as unknown[]).map(x => ({ ...(x as object), migrated: true })) }) }, 1, 2, 'defs', [{ id: 's1', name: 'S1', fields: [] }]);
         assert.deepStrictEqual(migrated, [{ id: 's1', name: 'S1', fields: [], migrated: true }], 'step applied');
 
         // The wired store still migrates the pre-change carrier form on load.
         const legacyUri = profilesJsonUri(testRoot);
-        await writeText(legacyUri, JSON.stringify({ version: 1, data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' }] }));
+        await writeText(legacyUri, JSON.stringify({ version: 1, data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' }] }));
         const store = registryStoreFor(testRoot);
         const value = await store.load();
         assert.strictEqual(value.length, 1, 'legacy file migrated on load');
@@ -444,7 +458,7 @@ suite('hexScopeStorage — data-schema migration runner', () => {
     });
 
     test('a current-version file is not rewritten (byte-identical)', async () => {
-        const uri = structPoolJsonUri(testRoot);
+        const uri = typePoolJsonUri(testRoot);
         await writeJson(uri, withEnvelope(withDataEnvelope('defs', [{ id: 's1', name: 'S1', fields: [] }])));
         const before = await readText(uri);
         const store = poolStoreFor(testRoot);
@@ -464,7 +478,7 @@ suite('hexScopeStorage — data-schema migration runner', () => {
 
     test('a pre-change file with no schemaVersion is treated as v1 and migrated', async () => {
         const uri = profilesJsonUri(testRoot);
-        await writeText(uri, JSON.stringify({ version: 1, data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' }] }));
+        await writeText(uri, JSON.stringify({ version: 1, data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' }] }));
         const store = registryStoreFor(testRoot);
         const value = await store.load();
         assert.strictEqual(value.length, 1, 'legacy file still loads');
@@ -473,7 +487,7 @@ suite('hexScopeStorage — data-schema migration runner', () => {
         assert.strictEqual(healed.data.records.length, 1);
     });
 
-    test('schemaVersion is stamped on every new write (structs, profiles, bindings)', async () => {
+    test('schemaVersion is stamped on every new write (types, profiles, bindings)', async () => {
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
         const profileRaw = await readJsonValue(profilesJsonUri(testRoot)) as { version: number; data: Record<string, unknown> };
         assert.strictEqual(profileRaw.version, DATA_VERSION);
@@ -484,7 +498,7 @@ suite('hexScopeStorage — data-schema migration runner', () => {
         await pool.load();
         pool.set([{ id: 's1', name: 'S1', fields: [] }]);
         await pool.flush();
-        const poolRaw = await readJsonValue(structPoolJsonUri(testRoot)) as { data: Record<string, unknown> };
+        const poolRaw = await readJsonValue(typePoolJsonUri(testRoot)) as { data: Record<string, unknown> };
         assert.strictEqual(poolRaw.data.schemaVersion, DATA_SCHEMA_VERSION);
         assert.ok(Array.isArray(poolRaw.data.defs));
 
@@ -516,7 +530,7 @@ suite('hexScopeStorage — data-schema migration runner', () => {
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_2', 'New'));   // upsert
         await removeProfileRecord(testRoot, 'profile_1');                             // delete
         await renameProfileRecord(testRoot, 'profile_1', 'Renamed');                  // rename
-        await stripDeletedStructPins(testRoot, ['s_gone']);                           // pin strip
+        await stripDeletedTypeInstances(testRoot, ['s_gone']);                           // pin strip
         await deleteRegistryProfile(testRoot, 'profile_1');                           // registry + bindings
         await migrateLegacyProfileDirs(testRoot);                                     // per-dir merge
         assert.strictEqual(await readText(profilesJsonUri(testRoot)), futureProfiles, 'newer profiles.json untouched');
@@ -529,6 +543,216 @@ suite('hexScopeStorage — data-schema migration runner', () => {
         await bindFile(testRoot, 'firmware/new.hex', 'profile_1');
         await unbindFile(testRoot, REL);
         assert.strictEqual(await readText(bindingsJsonUri(testRoot)), futureBindings, 'newer bindings.json untouched');
+    });
+});
+
+suite('hexScopeStorage — Type Overlay v1 → v2 key migration', () => {
+    setup(makeTestRoot);
+    teardown(removeTestRoot);
+
+    /** A v1 `defs` payload with the pre-rename reference keys. */
+    const defsPayloadV1 = () => ({
+        schemaVersion: 1,
+        defs: [
+            { id: 's1', name: 'Config', fields: [{ name: 'next', type: 'struct', refStructId: 's2', count: 1 }] },
+            { id: 's2', name: 'Inner', fields: [{ name: 'value', type: 'uint8', count: 1 }] },
+            { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }] },
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refStructId: 'mode' }] },
+        ],
+    });
+
+    /** A v1 `records` payload with the pre-rename profile/instance keys. */
+    const recordsPayloadV1 = () => ({
+        schemaVersion: 1,
+        records: [{
+            id: 'profile_1', name: 'Boot', labels: [{ id: 'l1', name: 'L1', startAddress: 0, length: 4, color: '#000' }],
+            segmentNames: { '0': 'Boot' },
+            structPins: [{
+                id: 'p1', structId: 's1', addr: 0x100, name: 'boot',
+                pointerSources: [{
+                    sourcePinId: 'p0', sourcePinName: 'Target', sourceStructId: 's2',
+                    sourceFieldPath: 'ptr', pointerStorageAddress: 4, targetAddress: 0x200,
+                }],
+            }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'be', bitAllocation: 'msb',
+        }],
+    });
+
+    test('migrateData: a v1 defs payload is rewritten with the new ref keys', () => {
+        const migrated = migrateData(defsPayloadV1(), 'defs');
+        assert.strictEqual(migrated.status, 'ok');
+        if (migrated.status !== 'ok') { return; }
+        assert.strictEqual(migrated.value.schemaVersion, DATA_SCHEMA_VERSION);
+        const defs = migrated.value.defs as Array<Record<string, unknown>>;
+        const fields = defs[0].fields as Array<Record<string, unknown>>;
+        assert.strictEqual(fields[0].refTypeId, 's2', 'field ref renamed');
+        assert.ok(!('refStructId' in fields[0]), 'old key deleted (renamed, not copied)');
+        const children = defs[3].bitFields as Array<Record<string, unknown>>;
+        assert.strictEqual(children[0].refTypeId, 'mode', 'bit-child ref renamed');
+        assert.deepStrictEqual(defs[1], { id: 's2', name: 'Inner', fields: [{ name: 'value', type: 'uint8', count: 1 }] }, 'clean defs untouched');
+        assert.strictEqual(migrated.changed, true);
+    });
+
+    test('migrateData: a v1 records payload is rewritten with the new profile/instance keys', () => {
+        const migrated = migrateData(recordsPayloadV1(), 'records');
+        assert.strictEqual(migrated.status, 'ok');
+        if (migrated.status !== 'ok') { return; }
+        const records = migrated.value.records as Array<Record<string, unknown>>;
+        const record = records[0];
+        assert.strictEqual(record.structPins, undefined, 'old profile key deleted');
+        const instances = record.typeInstances as Array<Record<string, unknown>>;
+        assert.strictEqual(instances[0].typeId, 's1', 'instance def ref renamed');
+        assert.strictEqual(instances[0].structId, undefined, 'old instance key deleted');
+        assert.strictEqual(instances[0].addr, 0x100, 'instance payload preserved');
+        const source = (instances[0].pointerSources as Array<Record<string, unknown>>)[0];
+        assert.strictEqual(source.sourceTypeId, 's2', 'pointer-source ref renamed');
+        assert.strictEqual(source.sourceStructId, undefined, 'old pointer-source key deleted');
+        assert.strictEqual((record.labels as unknown[]).length, 1, 'labels preserved');
+        assert.deepStrictEqual(record.segmentNames, { '0': 'Boot' });
+        assert.strictEqual(record.endian, 'be');
+    });
+
+    test('migrateData: the bindings payload is identity (only the version stamp changes)', () => {
+        const rows = [{ fileKey: REL, profileId: 'profile_1' }];
+        const migrated = migrateData({ schemaVersion: 1, bindings: rows }, 'bindings');
+        assert.strictEqual(migrated.status, 'ok');
+        if (migrated.status !== 'ok') { return; }
+        assert.deepStrictEqual(migrated.value, { schemaVersion: DATA_SCHEMA_VERSION, bindings: rows });
+        assert.strictEqual(migrated.changed, true, 'the version stamp alone is a change');
+    });
+
+    test('a pre-rename workspace migrates: structs.json (v1, old keys) → types.json (v2, new keys), data intact', async () => {
+        // Pre-rename on-disk layout: .hexscope/structs.json at schemaVersion 1 with
+        // the old ref keys, plus a v1 profiles.json carrying structPins / structId /
+        // sourceStructId.
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
+        const legacyPoolUri = vscode.Uri.file(path.join(testRoot, '.hexscope', 'structs.json'));
+        await writeText(legacyPoolUri, JSON.stringify({ version: 1, data: defsPayloadV1() }));
+        await writeText(profilesJsonUri(testRoot), JSON.stringify({ version: 1, data: recordsPayloadV1() }));
+        const docUri = vscode.Uri.file(path.join(testRoot, ...REL_WIN.split(path.sep)));
+
+        const globalState = new FakeMemento();
+        const workspaceState = new FakeMemento();
+        await migrateLegacyData(testRoot, docUri, { globalState, workspaceState });
+
+        // The legacy file move is non-destructive (rollback safety) ...
+        assert.strictEqual((await readJson(legacyPoolUri)).status, 'ok', 'legacy pool file left in place');
+        assert.strictEqual(globalState.get<string>(TYPES_FILE_MARKER_KEY), testRoot, 'file-move marker set');
+
+        // ... and the pool is re-seeded as types.json @ v2 with the new ref keys.
+        const typesOnDisk = await readJsonValue(typePoolJsonUri(testRoot)) as { $schema?: string; data: { schemaVersion: number; defs: Array<{ id: string }> } };
+        assert.strictEqual(typesOnDisk.data.schemaVersion, DATA_SCHEMA_VERSION, 'rewritten as a v2 payload');
+        assert.deepStrictEqual(typesOnDisk.data.defs.map(d => d.id).sort(), ['bits', 'mode', 's1', 's2'], 'no def lost');
+        assert.ok(!JSON.stringify(typesOnDisk).includes('refStructId'), 'old ref keys gone');
+        assert.strictEqual(typesOnDisk.$schema, 'schemas/types.schema.json', '$schema points at the renamed schema');
+
+        // The session read path aliases the legacy refs into the decoded model.
+        const pool = poolStoreFor(testRoot);
+        const defs = await pool.load();
+        pool.dispose();
+        assert.strictEqual(defs.find(d => d.id === 's1')!.fields[0].refTypeId, 's2', 'the aliased def ref reaches the decoded model');
+        assert.strictEqual(defs.find(d => d.id === 'bits')!.bitFields![0].refTypeId, 'mode', 'the aliased bit-child ref reaches the decoded model');
+
+        // The v1 profile payload self-heals to v2 through the store: labels /
+        // segment names / endian / instances all survive, old keys are gone.
+        const registry = registryStoreFor(testRoot);
+        const records = await registry.load();
+        registry.dispose();
+        await sleep(60);
+        const profile = records.find(r => r.id === 'profile_1');
+        assert.ok(profile, 'bound profile present');
+        assert.strictEqual(profile!.typeInstances.length, 1);
+        assert.strictEqual(profile!.typeInstances[0].typeId, 's1');
+        assert.strictEqual(profile!.typeInstances[0].addr, 0x100);
+        assert.strictEqual(profile!.typeInstances[0].pointerSources![0].sourceTypeId, 's2');
+        assert.strictEqual(profile!.labels.length, 1, 'labels intact');
+        assert.deepStrictEqual(profile!.segmentNames, { '0': 'Boot' });
+        assert.strictEqual(profile!.endian, 'be');
+        const profilesOnDiskText = await readText(profilesJsonUri(testRoot));
+        const profilesOnDisk = JSON.parse(profilesOnDiskText) as { data: { schemaVersion: number; records: Array<Record<string, unknown>> } };
+        assert.strictEqual(profilesOnDisk.data.schemaVersion, DATA_SCHEMA_VERSION, 'profiles.json self-healed to v2');
+        assert.strictEqual(((profilesOnDisk.data.records[0].typeInstances as Array<Record<string, unknown>>)[0]).typeId, 's1');
+        assert.ok(!profilesOnDiskText.includes('"structPins"'), 'writers emit only the new profile key');
+        assert.ok(!profilesOnDiskText.includes('structId'), 'writers emit only the new instance key');
+    });
+
+    test('a migrated v2 workspace reloads as a no-op (no spurious rewrite)', async () => {
+        // Canonical v2 files (as this build writes them): loading them changes nothing.
+        await writeJson(typePoolJsonUri(testRoot), withEnvelope(withDataEnvelope('defs', [
+            { id: 's1', name: 'Config', fields: [{ name: 'next', type: 'struct', refTypeId: 's2', count: 1 }] },
+            { id: 's2', name: 'Inner', fields: [{ name: 'value', type: 'uint8', count: 1 }] },
+        ])));
+        await writeJson(profilesJsonUri(testRoot), withEnvelope(withDataEnvelope('records', normalizeProfilesRegistry([{
+            id: 'profile_1', name: 'Boot', labels: [], segmentNames: {},
+            typeInstances: [{ id: 'p1', typeId: 's1', addr: 0x100, name: 'boot' }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: false,
+        }]).value)));
+        const typesBefore = await readText(typePoolJsonUri(testRoot));
+        const profilesBefore = await readText(profilesJsonUri(testRoot));
+
+        const pool = poolStoreFor(testRoot);
+        const registry = registryStoreFor(testRoot);
+        assert.deepStrictEqual((await pool.load()).map(d => d.id).sort(), ['s1', 's2']);
+        assert.strictEqual((await registry.load())[0].typeInstances[0].typeId, 's1');
+        pool.dispose();
+        registry.dispose();
+        await sleep(60);
+
+        assert.strictEqual(await readText(typePoolJsonUri(testRoot)), typesBefore, 'types.json byte-identical');
+        assert.strictEqual(await readText(profilesJsonUri(testRoot)), profilesBefore, 'profiles.json byte-identical');
+    });
+
+    test('an old-key payload at the current version still reads through the aliases (unsaved, no migration)', () => {
+        // No migration ran (the keys are already v2-shaped except the refs): the
+        // read-window alias is the only thing that saves the reference.
+        const defs = normalizeTypeDefsValue(defsPayloadV1().defs);
+        assert.strictEqual(defs.defs[0].fields[0].refTypeId, 's2', 'field ref aliased');
+        assert.strictEqual(defs.defs[3].bitFields![0].refTypeId, 'mode', 'bit-child ref aliased');
+        assert.strictEqual(defs.changed, true, 'the alias is a self-heal change');
+
+        const records = normalizeProfilesRegistry(recordsPayloadV1().records);
+        assert.strictEqual(records.value[0].typeInstances[0].typeId, 's1', 'instance key aliased');
+        assert.strictEqual(records.value[0].typeInstances[0].pointerSources![0].sourceTypeId, 's2', 'pointer-source key aliased');
+
+        // Deprecated v0 keys stay readable too (`structPins` and the older `pins`).
+        const legacyPins = normalizeProfilesRegistry([{
+            id: 'p', name: 'P', labels: [], segmentNames: {},
+            pins: [{ id: 'i', structId: 's1', addr: 0, name: 'x' }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }]);
+        assert.strictEqual(legacyPins.value[0].typeInstances[0].typeId, 's1', 'the v0 `pins` array is read through the alias chain');
+
+        // A record carrying the new key *and* a legacy key (the schema declares
+        // both, so it validates): the new key wins, matching the documented
+        // `typeInstances ?? structPins ?? pins` chain — and the migration's alias
+        // must not clobber the new array with the legacy one.
+        const bothKeys = {
+            id: 'b', name: 'B', labels: [], segmentNames: {},
+            typeInstances: [{ id: 'new', typeId: 's_new', addr: 1, name: 'n' }],
+            structPins: [{ id: 'old', typeId: 's_old', addr: 2, name: 'o' }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        };
+        const both = normalizeProfilesRegistry([{ ...bothKeys }]);
+        assert.deepStrictEqual(both.value[0].typeInstances.map(i => i.id), ['new'], 'the new key wins over the legacy array');
+        const migratedBoth = migrateData({ schemaVersion: 1, records: [{ ...bothKeys }] }, 'records');
+        assert.strictEqual(migratedBoth.status, 'ok');
+        if (migratedBoth.status === 'ok') {
+            const migratedRecord = (migratedBoth.value.records as Array<Record<string, unknown>>)[0];
+            assert.strictEqual(migratedRecord.structPins, undefined, 'the legacy profile key is dropped');
+            assert.deepStrictEqual(
+                (migratedRecord.typeInstances as Array<{ id: string }>).map(i => i.id),
+                ['new'],
+                'the migration keeps the new key, not the legacy one',
+            );
+        }
+    });
+
+    test('a clean current-format pool is identity-preserving (no alias, no self-heal)', () => {
+        const input = [{ id: 's1', name: 'S1', fields: [{ name: 'next', type: 'struct', refTypeId: 's2', count: 1 }] }];
+        const result = normalizeTypeDefsValue(input);
+        assert.strictEqual(result.changed, false, 'no spurious rewrite');
+        assert.strictEqual(result.defs[0], input[0], 'the def reference is preserved');
+        assert.strictEqual(result.defs[0].fields[0], input[0].fields[0], 'the field reference is preserved');
     });
 });
 
@@ -701,7 +925,7 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
         assert.deepStrictEqual(entries.map(([name]) => name).sort(), ['profiles.json', 'schemas']);
         const schemas = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeSchemasDir(testRoot)));
-        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['bindings.schema.json', 'profiles.schema.json', 'structs.schema.json']);
+        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['bindings.schema.json', 'profiles.schema.json', 'types.schema.json']);
     });
 
     test('registry files carry a $schema sibling; root pool/bindings reference schemas/', async () => {
@@ -720,7 +944,7 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         await writeText(uri, JSON.stringify({
             $schema: 'schemas/profiles.schema.json',
             version: 1,
-            data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: null, endian: 'le' }],
+            data: [{ id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, typeInstances: [], activeChecks: null, endian: 'le' }],
         }));
         const store = registryStoreFor(testRoot);
         await store.load();
@@ -815,13 +1039,13 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
     });
 
     test('a stale schema copy is re-synced to the bundled content by a data write', async () => {
-        const structsCopy = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
-        await writeText(structsCopy, JSON.stringify({ title: 'stale workspace copy' }, null, 2));
+        const typesCopy = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'types.schema.json'));
+        await writeText(typesCopy, JSON.stringify({ title: 'stale workspace copy' }, null, 2));
 
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
 
-        assert.notDeepStrictEqual(await readJsonValue(structsCopy), { title: 'stale workspace copy' }, 'stale copy replaced');
-        assert.ok((await readJsonValue(structsCopy) as { properties?: unknown }).properties, 'copy now carries the bundled schema shape');
+        assert.notDeepStrictEqual(await readJsonValue(typesCopy), { title: 'stale workspace copy' }, 'stale copy replaced');
+        assert.ok((await readJsonValue(typesCopy) as { properties?: unknown }).properties, 'copy now carries the bundled schema shape');
     });
 
     test('an absent schema copy is created by a data write (JsonStore.flush path)', async () => {
@@ -834,13 +1058,13 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         store.set([{ ...emptyProfileRecord('profile_1', 'Boot'), endian: 'be' }]);
         await store.flush();
 
-        const structsCopy = await readJson(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json')));
-        assert.strictEqual(structsCopy.status, 'ok', 'absent copy recreated by the flushed data write');
+        const typesCopy = await readJson(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'types.schema.json')));
+        assert.strictEqual(typesCopy.status, 'ok', 'absent copy recreated by the flushed data write');
     });
 
     test('seedSchemaCopies returns the written names when stale and [] when current', async () => {
         const first = await seedSchemaCopies(testRoot);
-        assert.deepStrictEqual(first.sort(), ['bindings.schema.json', 'profiles.schema.json', 'structs.schema.json'], 'absent → all written');
+        assert.deepStrictEqual(first.sort(), ['bindings.schema.json', 'profiles.schema.json', 'types.schema.json'], 'absent → all written');
         assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'current copies are not rewritten');
 
         await writeText(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'bindings.schema.json')), JSON.stringify({ stale: true }));
@@ -850,23 +1074,23 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
 
     test('the refresh leaves the data files byte-identical', async () => {
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
-        await writeJson(structPoolJsonUri(testRoot), withEnvelope([]));
+        await writeJson(typePoolJsonUri(testRoot), withEnvelope([]));
         const profilesUri = profilesJsonUri(testRoot);
-        const structsUri = structPoolJsonUri(testRoot);
+        const typesUri = typePoolJsonUri(testRoot);
         const profilesBefore = await readText(profilesUri);
-        const structsBefore = await readText(structsUri);
-        await writeText(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json')), JSON.stringify({ stale: true }));
+        const typesBefore = await readText(typesUri);
+        await writeText(vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'types.schema.json')), JSON.stringify({ stale: true }));
 
         await writeJson(bindingsJsonUri(testRoot), withEnvelope([{ fileKey: REL, profileId: 'profile_1' }]));
 
         assert.strictEqual(await readText(profilesUri), profilesBefore, 'profiles.json untouched by the refresh');
-        assert.strictEqual(await readText(structsUri), structsBefore, 'structs.json untouched by the refresh');
+        assert.strictEqual(await readText(typesUri), typesBefore, 'types.json untouched by the refresh');
     });
 
     test('a bare open of a current file refreshes no schema copy and writes no file', async () => {
         await writeJson(profilesJsonUri(testRoot), withEnvelope(withDataEnvelope('records', [])));
         const stale = JSON.stringify({ title: 'stale workspace copy' }, null, 2);
-        const copyUri = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
+        const copyUri = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'types.schema.json'));
         await writeText(copyUri, stale);
 
         const store = registryStoreFor(testRoot);
@@ -881,7 +1105,7 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         // opening it migrates forward, so the one self-heal write does refresh copies.
         await writeJson(profilesJsonUri(testRoot), withEnvelope([]));
         const stale = JSON.stringify({ title: 'stale workspace copy' }, null, 2);
-        const copyUri = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
+        const copyUri = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'types.schema.json'));
         await writeText(copyUri, stale);
 
         const store = registryStoreFor(testRoot);
@@ -894,7 +1118,7 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
     });
 
     test('a refresh does not recurse (writing a copy never re-triggers the refresh)', async () => {
-        const staleCopy = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'structs.schema.json'));
+        const staleCopy = vscode.Uri.file(path.join(hexScopeSchemasDir(testRoot), 'types.schema.json'));
         await writeText(staleCopy, JSON.stringify({ stale: true }));
 
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
@@ -904,7 +1128,7 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
         assert.deepStrictEqual(entries.map(([name]) => name).sort(), ['profiles.json', 'schemas']);
         const schemas = await vscode.workspace.fs.readDirectory(vscode.Uri.file(hexScopeSchemasDir(testRoot)));
-        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['bindings.schema.json', 'profiles.schema.json', 'structs.schema.json']);
+        assert.deepStrictEqual(schemas.map(([name]) => name).sort(), ['bindings.schema.json', 'profiles.schema.json', 'types.schema.json']);
         assert.deepStrictEqual(await seedSchemaCopies(testRoot), [], 'settled on the current copies');
     });
 });
@@ -969,18 +1193,6 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
 
     const uri = () => vscode.Uri.file(path.join(testRoot, ...REL_WIN.split(path.sep)));
 
-    class FakeMemento implements MementoLike {
-        private data = new Map<string, unknown>();
-        get<T>(key: string, defaultValue?: T): T | undefined {
-            return this.data.has(key) ? this.data.get(key) as T : defaultValue;
-        }
-        update(key: string, value: unknown): Thenable<void> {
-            if (value === undefined) { this.data.delete(key); } else { this.data.set(key, value); }
-            return Promise.resolve();
-        }
-        keys(): string[] { return Array.from(this.data.keys()); }
-    }
-
     test('Memento era: seeds registry profile + binding + pool; hard-deletes every key', async () => {
         const globalState = new FakeMemento();
         const workspaceState = new FakeMemento();
@@ -1011,15 +1223,17 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.ok(profile, 'bound profile exists in the single-file registry');
         assert.strictEqual(profile!.labels.length, 1, 'labels migrated');
         assert.deepStrictEqual(profile!.segmentNames, { '0': 'Boot' });
-        assert.strictEqual(profile!.structPins.length, 1, 'pins migrated');
+        assert.strictEqual(profile!.typeInstances.length, 1, 'pins migrated');
+        assert.strictEqual(profile!.typeInstances[0].typeId, 's1', 'the legacy per-file pin `structId` alias is read as `typeId`');
+        assert.ok(!(await readText(profilesJsonUri(testRoot))).includes('structId'), 'writers emit only the new key');
         assert.deepStrictEqual(profile!.activeChecks, { schemaVersion: 1, checks: [] });
         assert.strictEqual(profile!.endian, 'be');
 
         // Global integrity template → unbound registry profile (array entry).
         assert.strictEqual(recs.length, 2, 'open-doc profile + P1 template profile');
 
-        // Structs → workspace pool (v2 supersedes v1; per-file merged, deduped)
-        const pool = await readJsonValue(structPoolJsonUri(testRoot));
+        // Types → workspace pool (v2 supersedes v1; per-file merged, deduped)
+        const pool = await readJsonValue(typePoolJsonUri(testRoot));
         assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id).sort(), ['legacy', 's1']);
 
         assert.ok(onlyMigrationMarkerRemains(globalState), 'every global legacy key hard-deleted (markers aside)');
@@ -1041,8 +1255,8 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
 
         const bindings = await readJsonValue(bindingsJsonUri(testRoot));
         assert.strictEqual((payloadOf(bindings, 'bindings') as unknown[]).length, 1, 'first document bound');
-        const pool = await readJsonValue(structPoolJsonUri(testRoot));
-        assert.strictEqual((payloadOf(pool, 'defs') as unknown[]).length, 1, 'first document structs migrated to pool');
+        const pool = await readJsonValue(typePoolJsonUri(testRoot));
+        assert.strictEqual((payloadOf(pool, 'defs') as unknown[]).length, 1, 'first document types migrated to pool');
         assert.deepStrictEqual(workspaceState.keys(), [], 'per-file keys for BOTH documents hard-deleted');
     });
 
@@ -1077,9 +1291,9 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         globalState.update('hexScope.structs.global.v1', [{ id: 'old', name: 'Old', fields: [] }]);
         await migrateLegacyData(testRoot, uri(), { globalState, workspaceState });
 
-        // Pool got the struct (v2 supersedes v1; tree struct deduped against Memento)
-        const pool = await readJsonValue(structPoolJsonUri(testRoot));
-        assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id).sort(), ['s1'], 'tree structs + Memento v2 merged');
+        // Pool got the type (v2 supersedes v1; tree type deduped against Memento)
+        const pool = await readJsonValue(typePoolJsonUri(testRoot));
+        assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id).sort(), ['s1'], 'tree types + Memento v2 merged');
 
         // Binding created for the file; registry has the file profile.
         const bindings = await readJsonValue(bindingsJsonUri(testRoot));
@@ -1167,8 +1381,8 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         const profile = recs.find(r => r.id === relBinding!.profileId);
         assert.strictEqual(profile!.labels.length, 1, 'legacy labels migrated');
         assert.strictEqual(profile!.endian, 'be');
-        const pool = await readJsonValue(structPoolJsonUri(testRoot));
-        assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id), ['s1'], 'legacy structs merged into pool');
+        const pool = await readJsonValue(typePoolJsonUri(testRoot));
+        assert.deepStrictEqual((payloadOf(pool, 'defs') as Array<{ id: string }>).map(s => s.id), ['s1'], 'legacy types merged into pool');
         assert.strictEqual(bindingRows.find(b => b.fileKey === 'other/app.hex')?.profileId, 'profile_1', 'pre-existing binding untouched');
     });
 
@@ -1193,7 +1407,7 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         // Prior process state: registry profile + binding + migrated pool exist.
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
         await writeText(bindingsJsonUri(testRoot), JSON.stringify({ version: 1, data: [{ fileKey: REL, profileId: 'profile_1' }] }));
-        await writeText(structPoolJsonUri(testRoot), JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
+        await writeText(typePoolJsonUri(testRoot), JSON.stringify({ version: 1, data: [{ id: 's1', name: 'S1', fields: [] }] }));
 
         const before = (await collectProfileRecords(testRoot)).map(r => r.id);
         const globalState = new FakeMemento();
@@ -1203,7 +1417,7 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         const after = (await collectProfileRecords(testRoot)).map(r => r.id);
         assert.deepStrictEqual(after, before, 'no duplicate profiles created on re-run');
         assert.deepStrictEqual(await payloadOnDisk(bindingsJsonUri(testRoot), 'bindings'), [{ fileKey: REL, profileId: 'profile_1' }], 'binding untouched');
-        assert.deepStrictEqual((await payloadOnDisk(structPoolJsonUri(testRoot), 'defs') as Array<{ id: string }>).map(s => s.id), ['s1'], 'pool left untouched');
+        assert.deepStrictEqual((await payloadOnDisk(typePoolJsonUri(testRoot), 'defs') as Array<{ id: string }>).map(s => s.id), ['s1'], 'pool left untouched');
     });
 
     test('per-dir registry merges once (marker), and rerun with marker is a no-op', async () => {
@@ -1240,48 +1454,48 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
     });
 });
 
-suite('hexScopeSession — struct-storage helpers', () => {
+suite('hexScopeSession — type-storage helpers', () => {
     setup(makeTestRoot);
     teardown(removeTestRoot);
 
-    function structDef(id: string, fields: StructDef['fields'] = []): StructDef {
+    function typeDef(id: string, fields: TypeDef['fields'] = []): TypeDef {
         return { id, name: id.toUpperCase(), fields };
     }
 
-    function pin(id: string, structId: string): { id: string; structId: string; addr: number; name: string } {
-        return { id, structId, addr: 0, name: id.toUpperCase() };
+    function pin(id: string, typeId: string): { id: string; typeId: string; addr: number; name: string } {
+        return { id, typeId, addr: 0, name: id.toUpperCase() };
     }
 
-    function seedProfile(id: string, name: string, structPins: Array<{ id: string; structId: string; addr: number; name: string }>): Promise<void> {
-        return writeProfileRecord(testRoot, { ...emptyProfileRecord(id, name), structPins });
+    function seedProfile(id: string, name: string, typeInstances: Array<{ id: string; typeId: string; addr: number; name: string }>): Promise<void> {
+        return writeProfileRecord(testRoot, { ...emptyProfileRecord(id, name), typeInstances });
     }
 
-    test('collectStructDeletionUsage scans every profile, not just the bound one', async () => {
+    test('collectTypeDeletionUsage scans every profile, not just the bound one', async () => {
         await seedProfile('profile_1', 'A', [pin('a1', 's_gone'), pin('a2', 's_kept')]);
         await seedProfile('profile_2', 'B', [pin('b1', 's_gone')]);
         await seedProfile('profile_3', 'C', [pin('c1', 's_unrelated')]); // no referencing pins
 
-        const usage = await collectStructDeletionUsage(testRoot, ['s_gone']);
+        const usage = await collectTypeDeletionUsage(testRoot, ['s_gone']);
         assert.strictEqual(usage.pins, 2);
         assert.deepStrictEqual([...usage.profileIds].sort(), ['profile_1', 'profile_2']);
     });
 
-    test('stripDeletedStructPins removes orphaned pins from every affected profile only', async () => {
+    test('stripDeletedTypeInstances removes orphaned pins from every affected profile only', async () => {
         await seedProfile('profile_1', 'A', [pin('a1', 's_gone'), pin('a2', 's_kept')]);
         await seedProfile('profile_2', 'B', [pin('b1', 's_kept')]);
 
-        await stripDeletedStructPins(testRoot, ['s_gone']);
+        await stripDeletedTypeInstances(testRoot, ['s_gone']);
 
         const recA = await readProfileRecord(testRoot, 'profile_1');
-        assert.deepStrictEqual(recA?.structPins.map(p => p.id), ['a2'], 'profile A orphaned pin stripped, kept pin retained');
+        assert.deepStrictEqual(recA?.typeInstances.map(p => p.id), ['a2'], 'profile A orphaned pin stripped, kept pin retained');
         const recB = await readProfileRecord(testRoot, 'profile_2');
-        assert.deepStrictEqual(recB?.structPins.map(p => p.id), ['b1'], 'profile B untouched');
+        assert.deepStrictEqual(recB?.typeInstances.map(p => p.id), ['b1'], 'profile B untouched');
     });
 
-    test('applyStructDeletion: plain edit / no referencing pins write straight through; confirmed cascade strips across profiles; declined writes nothing', async () => {
-        const s = (defs: StructDef[]) => new JsonStore<StructDef[]>({
-            uri: structPoolJsonUri(testRoot),
-            normalizer: structsNormalizer,
+    test('applyTypeDeletion: plain edit / no referencing pins write straight through; confirmed cascade strips across profiles; declined writes nothing', async () => {
+        const s = (defs: TypeDef[]) => new JsonStore<TypeDef[]>({
+            uri: typePoolJsonUri(testRoot),
+            normalizer: typesNormalizer,
             payloadKey: 'defs',
             empty: () => [],
             debounceMs: FAST,
@@ -1290,12 +1504,12 @@ suite('hexScopeSession — struct-storage helpers', () => {
         // Seed pool + two profiles with pins referencing Header (and one unrelated).
         // `Pkt` carries a nested type:'struct' reference to Header so the delete
         // confirmation also reports the referencing-field count, not just pins.
-        const pktWithHeaderRef = (): StructDef => structDef('Pkt', [
-            { name: 'hdr', type: 'struct', refStructId: 'Header', count: 1 },
+        const pktWithHeaderRef = (): TypeDef => typeDef('Pkt', [
+            { name: 'hdr', type: 'struct', refTypeId: 'Header', count: 1 },
         ]);
-        const seedPool = s([structDef('Header'), pktWithHeaderRef()]);
+        const seedPool = s([typeDef('Header'), pktWithHeaderRef()]);
         await seedPool.load();
-        seedPool.set([structDef('Header'), pktWithHeaderRef()]);
+        seedPool.set([typeDef('Header'), pktWithHeaderRef()]);
         await seedPool.flush();
         seedPool.dispose();
         await seedProfile('profile_1', 'A', [pin('a1', 'Header')]);
@@ -1303,9 +1517,9 @@ suite('hexScopeSession — struct-storage helpers', () => {
 
         // Plain edit (no deletion) → applied, pool updated, no confirm.
         let confirmCalls = 0;
-        const plainPool = s([structDef('Header'), pktWithHeaderRef()]);
+        const plainPool = s([typeDef('Header'), pktWithHeaderRef()]);
         await plainPool.load();
-        const r1 = await applyStructDeletion(testRoot, plainPool, [structDef('Header'), pktWithHeaderRef(), structDef('Crc')], async () => { confirmCalls++; return true; });
+        const r1 = await applyTypeDeletion(testRoot, plainPool, [typeDef('Header'), pktWithHeaderRef(), typeDef('Crc')], async () => { confirmCalls++; return true; });
         assert.strictEqual(r1, 'applied');
         assert.strictEqual(confirmCalls, 0, 'no confirm for a non-delete edit');
         await plainPool.flush();
@@ -1313,10 +1527,10 @@ suite('hexScopeSession — struct-storage helpers', () => {
 
         // Deletion with referencing pins → confirmed → pool updated + all
         // affected-profile pins stripped.
-        const freshPool = s([structDef('Header'), pktWithHeaderRef(), structDef('Crc')]);
+        const freshPool = s([typeDef('Header'), pktWithHeaderRef(), typeDef('Crc')]);
         await freshPool.load();
         const seenUsage: Array<{ pins: number; profileIds: string[]; fields: number }> = [];
-        const r2 = await applyStructDeletion(testRoot, freshPool, [pktWithHeaderRef(), structDef('Crc')], async (usage) => {
+        const r2 = await applyTypeDeletion(testRoot, freshPool, [pktWithHeaderRef(), typeDef('Crc')], async (usage) => {
             seenUsage.push(usage);
             return true;
         });
@@ -1325,24 +1539,24 @@ suite('hexScopeSession — struct-storage helpers', () => {
         // and Pkt's nested field reference to Header is the one referencing field.
         assert.deepStrictEqual(seenUsage, [{ pins: 2, profileIds: ['profile_1', 'profile_2'], fields: 1 }]);
         await freshPool.flush();
-        const poolAfter = await readJsonValue(structPoolJsonUri(testRoot));
+        const poolAfter = await readJsonValue(typePoolJsonUri(testRoot));
         assert.deepStrictEqual((payloadOf(poolAfter, 'defs') as Array<{ id: string }>).map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool entry removed on confirm');
         freshPool.dispose();
         const recA = await readProfileRecord(testRoot, 'profile_1');
-        assert.deepStrictEqual(recA?.structPins, [], 'profile A orphaned pin stripped');
+        assert.deepStrictEqual(recA?.typeInstances, [], 'profile A orphaned pin stripped');
         const recB = await readProfileRecord(testRoot, 'profile_2');
-        assert.deepStrictEqual(recB?.structPins.map(p => p.id), ['b2'], 'profile B orphaned pin stripped, unrelated kept');
+        assert.deepStrictEqual(recB?.typeInstances.map(p => p.id), ['b2'], 'profile B orphaned pin stripped, unrelated kept');
 
         // Declined deletion → no writes at all, nothing stripped.
         await seedProfile('profile_3', 'C', [pin('c1', 'Pkt')]);
-        const declPool = s([structDef('Pkt'), structDef('Crc')]);
+        const declPool = s([typeDef('Pkt'), typeDef('Crc')]);
         await declPool.load();
-        const r3 = await applyStructDeletion(testRoot, declPool, [structDef('Crc')], async () => false);
+        const r3 = await applyTypeDeletion(testRoot, declPool, [typeDef('Crc')], async () => false);
         assert.strictEqual(r3, 'declined');
-        const poolBeforeDecline = await readJsonValue(structPoolJsonUri(testRoot));
+        const poolBeforeDecline = await readJsonValue(typePoolJsonUri(testRoot));
         assert.deepStrictEqual((payloadOf(poolBeforeDecline, 'defs') as Array<{ id: string }>).map(sd => sd.id).sort(), ['Crc', 'Pkt'], 'pool untouched on decline');
         const recC = await readProfileRecord(testRoot, 'profile_3');
-        assert.deepStrictEqual(recC?.structPins.map(p => p.id), ['c1'], 'affected profile pins untouched on decline');
+        assert.deepStrictEqual(recC?.typeInstances.map(p => p.id), ['c1'], 'affected profile pins untouched on decline');
         declPool.dispose();
     });
 
@@ -1356,20 +1570,20 @@ suite('hexScopeSession — struct-storage helpers', () => {
         assert.strictEqual(rec.showHiddenFields, false, 'patch is pure — the input record is untouched');
     });
 
-    test('per-root struct-pool fallback is independent (two roots never share an empty default)', async () => {
+    test('per-root type-pool fallback is independent (two roots never share an empty default)', async () => {
         // Clear any cross-test residue so the assertion starts from a clean map.
-        for (const key of Array.from(workspaceStructPoolCache.keys())) {
-            if (!key.startsWith(testRoot)) { workspaceStructPoolCache.delete(key); }
+        for (const key of Array.from(workspaceTypePoolCache.keys())) {
+            if (!key.startsWith(testRoot)) { workspaceTypePoolCache.delete(key); }
         }
 
         // Root A: registry store + pool store with defs on disk.
         const rootA = testRoot;
         await writeProfileRecord(rootA, emptyProfileRecord('profile_1', 'A'));
-        const poolUriA = structPoolJsonUri(rootA);
-        await writeJson(poolUriA, withEnvelope([structDef('s_a1'), structDef('s_a2')]));
+        const poolUriA = typePoolJsonUri(rootA);
+        await writeJson(poolUriA, withEnvelope([typeDef('s_a1'), typeDef('s_a2')]));
         const registryA = registryStoreFor(rootA);
         const poolA = poolStoreFor(rootA);
-        const defsA = await loadWorkspaceStructs(rootA, poolA);
+        const defsA = await loadWorkspaceTypes(rootA, poolA);
         assert.deepStrictEqual(defsA.map(s => s.id), ['s_a1', 's_a2']);
         registryA.dispose();
         poolA.dispose();
@@ -1379,19 +1593,19 @@ suite('hexScopeSession — struct-storage helpers', () => {
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(rootB));
         await writeProfileRecord(rootB, emptyProfileRecord('profile_1', 'B'));
         const registryB = registryStoreFor(rootB);
-        const poolB = new JsonStore<StructDef[]>({
-            uri: structPoolJsonUri(rootB),
-            normalizer: structsNormalizer,
-            empty: () => [...(workspaceStructPoolCache.get(rootB) ?? [])],
+        const poolB = new JsonStore<TypeDef[]>({
+            uri: typePoolJsonUri(rootB),
+            normalizer: typesNormalizer,
+            empty: () => [...(workspaceTypePoolCache.get(rootB) ?? [])],
             debounceMs: FAST,
         });
-        const defsB = await loadWorkspaceStructs(rootB, poolB);
+        const defsB = await loadWorkspaceTypes(rootB, poolB);
         assert.deepStrictEqual(defsB, [], 'root B empty default does not leak root A defs');
         registryB.dispose();
         poolB.dispose();
 
         // Root A's cached defs are still intact.
-        assert.deepStrictEqual((workspaceStructPoolCache.get(rootA) ?? []).map(s => s.id), ['s_a1', 's_a2']);
+        assert.deepStrictEqual((workspaceTypePoolCache.get(rootA) ?? []).map(s => s.id), ['s_a1', 's_a2']);
     });
 });
 
@@ -1457,7 +1671,7 @@ suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothin
         const pool = poolStoreFor(root);
 
         await registry.load();   // deferred mode: empty default, no fs access
-        await pool.load();       // structs.json missing: empty default, no write
+        await pool.load();       // types.json missing: empty default, no write
         registry.set([{ ...emptyProfileRecord('profile_1', 'profile_1'), endian: 'be' }]); // in-memory edit
         await registry.flush();  // resolver declined → stays in-memory
         registry.dispose();
@@ -1465,7 +1679,7 @@ suite('hexScopeStorage — P2 #7 regression: out-of-workspace open writes nothin
         await sleep(60);
 
         assert.strictEqual((await readJson(bindingsJsonUri(root))).status, 'missing', 'no bindings.json');
-        assert.strictEqual((await readJson(structPoolJsonUri(root))).status, 'missing', 'no struct pool');
+        assert.strictEqual((await readJson(typePoolJsonUri(root))).status, 'missing', 'no type pool');
         await assertNoHexScopeSibling(outRoot);
 
         // Tooth: a later explicit profile action (New Profile / Save) creates the

@@ -12,12 +12,12 @@ import {
     memRerender,
     mountHexView,
     paintCell,
-    paintClearStructHighlight,
+    paintClearTypeHighlight,
     paintMemoryLabelDraft,
     paintMemoryMatchHighlights,
     paintMemorySelEdit,
     paintMemorySelection,
-    paintStructHighlight,
+    paintTypeHighlight,
     scrollTo,
     setShowAscii as setGridShowAscii,
 } from './memory/memoryGrid';
@@ -26,11 +26,11 @@ import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionB
 import { currentSelectionRange, mappedSelectionRange, selectedBytes, type SelectionRange } from './memory/selection';
 import type { HexViewRange } from './components/hexView/hexViewRender';
 import { InspectorPanel } from './components/sidebar/inspectorPanel/inspectorPanel';
-import { StructPanel } from './components/sidebar/structPanel/structPanel';
+import { OverlayPanel } from './components/sidebar/overlayPanel/overlayPanel';
 import { clearSearch, initSearch, invalidateSearchIfDiverged, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/searchBar/searchBar';
 import { Toolbar } from './components/toolbar/toolbar';
-import type { BitFieldAllocation, LabelDraftPreview, SerializedParseResult, SerializedRecord, StructDef, StructPin } from '../core/types';
+import type { BitFieldAllocation, LabelDraftPreview, SerializedParseResult, SerializedRecord, TypeDef, TypeInstance } from '../core/types';
 import type { SidebarTab } from './components/sidebar/sidebar';
 import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
@@ -140,23 +140,23 @@ function pushInspectorState(): void {
     inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
 
-// ── Struct panel component ────────────────────────────────────────
-// Self-contained Struct panel (pins/instances + types/editor tracks).
+// ── Overlay panel component ────────────────────────────────────────
+// Self-contained Overlay panel (pins/instances + types/editor tracks).
 // Data flows via setters; mutations/selection/highlight report via
-// callbacks. Persistence (saveStructs/saveStructPins) lives here; hex
+// callbacks. Persistence (saveTypes/saveTypeInstances) lives here; hex
 // [data-addr] highlight moves from the component to host-owned helpers.
 
-const structPanel = new StructPanel({
+const overlayPanel = new OverlayPanel({
     readByte: getByte,
-    onStructsChange: applyStructs,
+    onTypesChange: applyTypes,
     onPinsChange: applyPins,
-    onStateChange: applyStructState,
-    onSelectRange: selectStructRangeHost,
+    onStateChange: applyOverlayState,
+    onSelectRange: selectRangeHost,
     onHighlightHex: (addrs, cls) => {
-        paintStructHighlight(addrs, cls);
+        paintTypeHighlight(addrs, cls);
     },
     onClearHighlightHex: cls => {
-        paintClearStructHighlight(cls);
+        paintClearTypeHighlight(cls);
     },
     onBitAllocationChange: (bitAllocation): void => {
         S.bitFieldAllocation = bitAllocation;
@@ -168,26 +168,26 @@ const structPanel = new StructPanel({
     },
 });
 
-/** Persist struct-definition mutations from the Struct panel. */
-function applyStructs(structs: StructDef[]): void {
-    S.structs = structs;
-    postProviderMessage({ type: 'saveStructs', structs });
+/** Persist type-definition mutations from the Overlay panel. */
+function applyTypes(types: TypeDef[]): void {
+    S.types = types;
+    postProviderMessage({ type: 'saveTypes', types });
 }
 
-/** Persist struct-pin mutations from the Struct panel. */
-function applyPins(pins: StructPin[]): void {
-    S.structPins = pins;
-    postProviderMessage({ type: 'saveStructPins', pins });
+/** Persist instance mutations from the Overlay panel. */
+function applyPins(pins: TypeInstance[]): void {
+    S.typeInstances = pins;
+    postProviderMessage({ type: 'saveTypeInstances', pins });
 }
 
-/** Both changed in one action (delete struct cascades pins). */
-function applyStructState(structs: StructDef[], pins: StructPin[]): void {
-    applyStructs(structs);
+/** Both changed in one action (delete type cascades instances). */
+function applyOverlayState(types: TypeDef[], pins: TypeInstance[]): void {
+    applyTypes(types);
     applyPins(pins);
 }
 
-/** Struct row/range selection → hex selection + jump + inspector sync (moved from struct module). */
-function selectStructRangeHost(start: number, count: number): void {
+/** Instance row/range selection → hex selection + jump + inspector sync (moved from overlay module). */
+function selectRangeHost(start: number, count: number): void {
     commitSelectedBytesSession();
     S.selStart = start;
     S.selEnd = start + count - 1;
@@ -195,12 +195,12 @@ function selectStructRangeHost(start: number, count: number): void {
     rerender.inspector();
 }
 
-/** Push the full Struct panel snapshot after a mount/full render. */
-function pushStructState(): void {
-    structPanel.setData(S.structs, S.structPins);
-    structPanel.setEndian(S.endian);
-    structPanel.setBitFieldAllocation(S.bitFieldAllocation);
-    structPanel.setShowHiddenFields(S.showHiddenFields);
+/** Push the full Overlay panel snapshot after a mount/full render. */
+function pushOverlayState(): void {
+    overlayPanel.setData(S.types, S.typeInstances);
+    overlayPanel.setEndian(S.endian);
+    overlayPanel.setBitFieldAllocation(S.bitFieldAllocation);
+    overlayPanel.setShowHiddenFields(S.showHiddenFields);
 }
 
 // ── Integrity panel component ────────────────────────────────────
@@ -271,7 +271,7 @@ function mappedScriptWrites(writes: Array<[number, number]>): Array<[number, num
 
 const sidebarPanels: SidebarPanel[] = [
     { id: 'inspector', label: 'Inspector', mount: root => inspectorPanel.mount(root) },
-    { id: 'struct', label: 'Struct', mount: root => structPanel.mount(root) },
+    { id: 'struct', label: 'Overlay', mount: root => overlayPanel.mount(root) },
     { id: 'integrity', label: 'Integrity', mount: root => integrityPanel.mount(root) },
     { id: 'scripts', label: 'Scripts', mount: root => scriptsPanel.mount(root) },
 ];
@@ -660,7 +660,7 @@ export function refreshAfterLocalEdit(): void {
         paintMemorySelEdit({ start: selEditSession.start, end: selEditSession.end });
     }
     inspectorPanel.setSelection(S.selStart, S.selEnd);
-    structPanel.render();
+    overlayPanel.render();
     integrityPanel.notifyBytesChanged();
 }
 
@@ -844,7 +844,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     updateLabel: handleUpdateLabelMessage,
     copyCommand: handleCopyCommandMessage,
     savedEdits: handleSavedEditsMessage,
-    structsExternalChange: handleStructsExternalChangeMessage,
+    typesExternalChange: handleTypesExternalChangeMessage,
     perFileDataChange: handlePerFileDataChangeMessage,
     externalChange: handleExternalChangeMessage,
     externalChangeError: handleExternalChangeErrorMessage,
@@ -985,7 +985,7 @@ function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): voi
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
-function handleStructsExternalChangeMessage(msg: WebviewMessageByType<'structsExternalChange'>): void {
+function handleTypesExternalChangeMessage(msg: WebviewMessageByType<'typesExternalChange'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
 }
 
@@ -1116,12 +1116,12 @@ function applyExternalChangeErrorUpdate(update: WebviewModelUpdate): void {
     );
 }
 
-/** Re-drive every endian consumer (sidebar toggle + inspector/struct/integrity panels). */
+/** Re-drive every endian consumer (sidebar toggle + inspector/overlay/integrity panels). */
 function writeEndianToConsumers(endian: HexScopeEndian): void {
     const settings = document.getElementById('sidebar-common-settings');
     if (settings) { renderEndianToggle(settings); }
     inspectorPanel.setEndian(endian);
-    structPanel.setEndian(endian);
+    overlayPanel.setEndian(endian);
     integrityPanel.notifyEndianChanged();
 }
 
@@ -1132,7 +1132,7 @@ function applyEndianChanged(): void {
 
 /** Re-drive every bit-field allocation consumer. */
 function writeBitAllocationToConsumers(bitAllocation: BitFieldAllocation): void {
-    structPanel.setBitFieldAllocation(bitAllocation);
+    overlayPanel.setBitFieldAllocation(bitAllocation);
 }
 
 /** External bit-field allocation slice. */
@@ -1142,7 +1142,7 @@ function applyBitFieldAllocationChanged(): void {
 
 /** Re-drive the "show hidden fields" consumer. */
 function applyShowHiddenFieldsChanged(): void {
-    structPanel.setShowHiddenFields(S.showHiddenFields);
+    overlayPanel.setShowHiddenFields(S.showHiddenFields);
 }
 
 function applyInvalidations(invalidations: WebviewInvalidations): void {
@@ -1161,7 +1161,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['dirtyBar', () => toolbar.setDirty(S.edits.size)],
         ['stats', renderStatsBar],
         ['segments', () => inspectorPanel.setSegments(S.parseResult?.segments ?? [])],
-        ['structPins', () => structPanel.setData(S.structs, S.structPins)],
+        ['typeInstances', () => overlayPanel.setData(S.types, S.typeInstances)],
         ['currentDataView', renderCurrentDataView],
         ['integrityBytesChanged', () => integrityPanel.notifyBytesChanged()],
         ['endianChanged', applyEndianChanged],
@@ -1306,7 +1306,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
 
 /** Host-owned per-tab side effects (moved from the old setupSideTabs switch). */
 const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
-    inspector: () => structPanel.resetViewState(),
+    inspector: () => overlayPanel.resetViewState(),
     struct: () => inspectorPanel.setLabels(S.labels, S.segmentNames),
     integrity: () => integrityPanel.setTabActive(true),
     scripts: () => scriptsPanel.setTabActive(true),
@@ -1315,7 +1315,7 @@ const SIDEBAR_TAB_EFFECTS: Record<SidebarTab, () => void> = {
 function onSidebarTabChange(tab: SidebarTab): void {
     S.sidebarTab = tab;
     sidebar.setTab(tab);
-    structPanel.setTabActive(tab === 'struct');
+    overlayPanel.setTabActive(tab === 'struct');
     SIDEBAR_TAB_EFFECTS[tab]();
 }
 
@@ -1334,13 +1334,13 @@ function mountSidebarPanel(tab: SidebarTab): void {
 /** After a full render: sync component active tab to host truth + mount active panel. */
 function syncSidebarTab(): void {
     sidebar.setTab(S.sidebarTab);
-    structPanel.setTabActive(S.sidebarTab === 'struct');
+    overlayPanel.setTabActive(S.sidebarTab === 'struct');
     mountSidebarPanel(S.sidebarTab);
 }
 
 function renderInitialViews(): void {
     pushInspectorState();
-    pushStructState();
+    pushOverlayState();
     renderStatsBar();
     renderCurrentDataView();
     searchBar.setCount(S.matchAddrs.length, S.matchIdx);
@@ -1374,7 +1374,7 @@ function updateByteSelection(start: number, end: number, keepGridAnchor = false)
     paintMemorySelection();
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     inspectorPanel.syncLabelForm();
-    structPanel.setSelection(S.selStart);
+    overlayPanel.setSelection(S.selStart);
 }
 
 function onHexViewClick(addr: number, shift: boolean, column: 'hex' | 'char'): void {

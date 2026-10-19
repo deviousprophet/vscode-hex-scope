@@ -663,12 +663,12 @@ suite('HexView paint methods', () => {
         assert.ok(!decoy.querySelector('.sel'), 'outside-root elements untouched');
     });
 
-    test('paintStructHighlight adds a class per address; clear removes it root-scoped (H1)', () => {
+    test('paintTypeHighlight adds a class per address; clear removes it root-scoped (H1)', () => {
         currentDom = installDom();
         const { hex } = installHexView();
         renderGrid(standardInput());
 
-        hex.paintStructHighlight([ADDR_BASE, ADDR_BASE + 2], 'struct-h');
+        hex.paintTypeHighlight([ADDR_BASE, ADDR_BASE + 2], 'struct-h');
         assert.ok(hexCell(ADDR_BASE).classList.contains('struct-h'));
         assert.ok(charCell(ADDR_BASE).classList.contains('struct-h'), 'char cell shares the address class');
         assert.ok(hexCell(ADDR_BASE + 2).classList.contains('struct-h'));
@@ -679,7 +679,7 @@ suite('HexView paint methods', () => {
         decoy.innerHTML = decoyHtml;
         document.body.appendChild(decoy);
 
-        hex.paintClearStructHighlight('struct-h');
+        hex.paintClearTypeHighlight('struct-h');
         assert.ok(!hexCell(ADDR_BASE).classList.contains('struct-h'));
         assert.ok(!hexCell(ADDR_BASE + 2).classList.contains('struct-h'));
         assert.ok(decoy.querySelector('.struct-h'), 'outside-root elements are untouched by clear');

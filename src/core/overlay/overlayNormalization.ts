@@ -1,42 +1,50 @@
 /**
- * Struct-definition normalization. Runtime-neutral, so both the extension
+ * Type-definition normalization. Runtime-neutral, so both the extension
  * host (session + migration) and tests share it.
  */
 
-import type { BitFieldChild, EnumEntry, StructDef, StructField } from '../types';
-import { enumValueBound, migrateInlineBitFields } from './structCodec';
-import { withCleanedBitChildren } from './structBitChildren';
-import { hasSeenStructDefIdentity, rememberStructDefIdentity, structDefIdentity } from './structIdentities';
+import type { BitFieldChild, EnumEntry, TypeDef, TypeField } from '../types';
+import { enumValueBound, migrateInlineBitFields } from './overlayCodec';
+import { aliasLegacyTypeDefs } from './overlayAliases';
+import { withCleanedBitChildren } from './bitChildren';
+import { hasSeenTypeDefIdentity, rememberTypeDefIdentity, typeDefIdentity } from './overlayIdentities';
 
-export type StructDefsNormalization = { defs: StructDef[]; changed: boolean };
+export type TypeDefsNormalization = { defs: TypeDef[]; changed: boolean };
 
-export function normalizeStructDefsValue(value: unknown): StructDefsNormalization {
+export function normalizeTypeDefsValue(value: unknown): TypeDefsNormalization {
     if (!Array.isArray(value)) { return { defs: [], changed: false }; }
-    const collected = collectUniqueStructDefs(value);
+    // Deprecated read window: alias the pre-rename ref keys before any pass reads them.
+    const aliased = aliasLegacyTypeDefs(value);
+    const collected = collectUniqueTypeDefs(aliased.value as unknown[]);
     // Legacy inline bit-field containers migrate before enum sanitization so the
     // generated `kind: 'bitfield'` defs' child enum refs are cleaned too.
     const migrated = migrateInlineBitFields(collected.defs);
     const sanitized = sanitizeEnumDefs(migrated.defs);
-    return { defs: sanitized.defs, changed: collected.changed || migrated.changed || sanitized.changed };
+    return { defs: sanitized.defs, changed: anyPassChanged([aliased, collected, migrated, sanitized]) };
+}
+
+/** Any normalization pass reporting a change (keeps the orchestrator branch-light). */
+function anyPassChanged(passes: ReadonlyArray<{ changed: boolean }>): boolean {
+    return passes.some(pass => pass.changed);
 }
 
 /** Keep the first occurrence of each def identity; report whether any item was dropped. */
-function collectUniqueStructDefs(value: unknown[]): { defs: StructDef[]; changed: boolean } {
-    const out: StructDef[] = [];
+function collectUniqueTypeDefs(value: unknown[]): { defs: TypeDef[]; changed: boolean } {
+    const out: TypeDef[] = [];
     const seenIds = new Set<string>();
     const seenNames = new Set<string>();
     let changed = false;
     for (const item of value) {
-        if (!appendUniqueStructDef(item, out, seenIds, seenNames)) { changed = true; }
+        if (!appendUniqueTypeDef(item, out, seenIds, seenNames)) { changed = true; }
     }
     return { defs: out, changed };
 }
 
-function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
-    const identity = structDefIdentity(item);
-    if (!identity || hasSeenStructDefIdentity(identity, seenIds, seenNames)) { return false; }
-    rememberStructDefIdentity(identity, seenIds, seenNames);
-    out.push(item as StructDef);
+function appendUniqueTypeDef(item: unknown, out: TypeDef[], seenIds: Set<string>, seenNames: Set<string>): boolean {
+    const identity = typeDefIdentity(item);
+    if (!identity || hasSeenTypeDefIdentity(identity, seenIds, seenNames)) { return false; }
+    rememberTypeDefIdentity(identity, seenIds, seenNames);
+    out.push(item as TypeDef);
     return true;
 }
 
@@ -45,51 +53,51 @@ function appendUniqueStructDef(item: unknown, out: StructDef[], seenIds: Set<str
  * strip references to enum defs that are missing or not enums, without breaking
  * load. Returns the original defs untouched (same references) when clean.
  */
-function sanitizeEnumDefs(defs: StructDef[]): StructDefsNormalization {
+function sanitizeEnumDefs(defs: TypeDef[]): TypeDefsNormalization {
     const enumIds = new Set(defs.filter(isEnumDefLike).map(def => def.id));
     let changed = false;
     const next = defs.map(def => {
-        const cleaned = sanitizeStructDef(def, enumIds);
+        const cleaned = sanitizeTypeDef(def, enumIds);
         if (cleaned !== def) { changed = true; }
         return cleaned;
     });
     return { defs: next, changed };
 }
 
-function isEnumDefLike(def: StructDef): boolean {
+function isEnumDefLike(def: TypeDef): boolean {
     return def.kind === 'enum';
 }
 
-function sanitizeStructDef(def: StructDef, enumIds: Set<string>): StructDef {
+function sanitizeTypeDef(def: TypeDef, enumIds: Set<string>): TypeDef {
     let next = sanitizeEnumEntriesForDef(def);
-    next = sanitizeStructDefFields(next, enumIds);
+    next = sanitizeTypeDefFields(next, enumIds);
     return withCleanedBitChildren(next, child => sanitizeBitChild(child, enumIds));
 }
 
 /** Drop enum entries that do not fit the base width (same ref when clean). */
-function sanitizeEnumEntriesForDef(def: StructDef): StructDef {
+function sanitizeEnumEntriesForDef(def: TypeDef): TypeDef {
     if (!isEnumDefLike(def) || !Array.isArray(def.entries)) { return def; }
     const entries = sanitizeEnumEntries(def.entries, def.baseType);
     return entries === def.entries ? def : { ...def, entries };
 }
 
 /** Strip dangling enum fields and clean each remaining field's inline children. */
-function sanitizeStructDefFields(def: StructDef, enumIds: Set<string>): StructDef {
+function sanitizeTypeDefFields(def: TypeDef, enumIds: Set<string>): TypeDef {
     const fields = Array.isArray(def.fields) ? def.fields : [];
     const cleanedFields = fields
         .filter(field => !isDanglingEnumField(field, enumIds))
         .map(field => withCleanedBitChildren(field, child => sanitizeBitChild(child, enumIds)));
-    return structFieldListChanged(fields, cleanedFields) ? { ...def, fields: cleanedFields } : def;
+    return fieldListChanged(fields, cleanedFields) ? { ...def, fields: cleanedFields } : def;
 }
 
-function structFieldListChanged(before: readonly StructField[], after: readonly StructField[]): boolean {
+function fieldListChanged(before: readonly TypeField[], after: readonly TypeField[]): boolean {
     return before.length !== after.length || before.some((f, i) => f !== after[i]);
 }
 
 /** A `type: 'enum'` field whose reference does not resolve to an enum def is unusable. */
-function isDanglingEnumField(field: StructField, enumIds: Set<string>): boolean {
+function isDanglingEnumField(field: TypeField, enumIds: Set<string>): boolean {
     if (field.type !== 'enum') { return false; }
-    return field.isPointer === true || !field.refStructId || !enumIds.has(field.refStructId);
+    return field.isPointer === true || !field.refTypeId || !enumIds.has(field.refTypeId);
 }
 
 function sanitizeBitChild(child: BitFieldChild, enumIds: Set<string>): BitFieldChild {
@@ -98,8 +106,8 @@ function sanitizeBitChild(child: BitFieldChild, enumIds: Set<string>): BitFieldC
 
 /** Strip a bit child's enum ref when it does not resolve to an enum def (same ref when clean). */
 function dropDanglingBitChildEnumRef(child: BitFieldChild, enumIds: Set<string>): BitFieldChild {
-    if (child.refStructId === undefined || enumIds.has(child.refStructId)) { return child; }
-    const { refStructId: _ref, ...rest } = child;
+    if (child.refTypeId === undefined || enumIds.has(child.refTypeId)) { return child; }
+    const { refTypeId: _ref, ...rest } = child;
     return rest;
 }
 

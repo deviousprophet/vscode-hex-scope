@@ -1,4 +1,4 @@
-﻿/* -- Struct Overlay sidebar panel ------------------------------ */
+﻿/* -- Type Overlay sidebar panel ------------------------------ */
 
 /* Shared layout tokens */
 .struct-addr-pfx {
@@ -18,7 +18,7 @@
 #si-add-btn { flex-shrink: 0; }
 #sm-close-btn { flex-shrink: 0; }
 
-/* -- Struct Types list (#s-struct) ------------------------------ */
+/* -- Types list (#s-struct) ------------------------------ */
 
 .sd-empty { margin-bottom: 4px; }
 
@@ -57,10 +57,10 @@
 .sd-kind { flex-shrink: 0; }
 .se-kind-badge { justify-self: start; }
 
-/* -- Struct form editor (#s-struct when editing) ----------------- */
+/* -- Type form editor (#s-struct when editing) ----------------- */
 
 /* The section body (.sb-pane .sb-body) stays the only scroll container for
-   the editor, like every other sidebar section: the whole form (name, struct
+   the editor, like every other sidebar section: the whole form (name, type
    default, field rows, Add Field, Save/Cancel, C preview) flows in it and
    scrolls together. The wrapper does not stretch to fill the pane —
    `min-height:100%` against a flex-derived body height proved unreliable
@@ -115,7 +115,7 @@
     flex: 1; min-width: 0;
 }
 
-/* Shared select control: appearance, caret, spacing — struct-default, type, endian, alloc */
+/* Shared select control: appearance, caret, spacing — type-default, type, endian, alloc */
 .se-struct-default-sel,
 .sfe-type-sel,
 .sfe-endian-sel,
@@ -407,7 +407,7 @@
 
 /* -- Saved instances (expandable cards) -------------------------- */
 
-/* Struct cards ride the shared .sb-card primitive; state borders carried as modifiers */
+/* Overlay cards ride the shared .sb-card primitive; state borders carried as modifiers */
 .sb-card.si-expanded { border-color: rgba(79,195,247,.35); }
 .sb-card.si-card-selected { border-color: rgba(79,195,247,.6); }
 
@@ -449,8 +449,8 @@
     flex-shrink: 0; display: flex; align-items: center; gap: 0;
 }
 
-/* Struct field menus live in the shared #menu container; the si-field-menu
-   modifier adds the struct-specific sizing/word-break + wrapped hints. */
+/* Overlay field menus live in the shared #menu container; the si-field-menu
+   modifier adds the type-specific sizing/word-break + wrapped hints. */
 .si-field-menu {
     min-width: 260px;
     max-width: 340px;
@@ -486,7 +486,7 @@
     margin-bottom: 8px;
 }
 
-/* Inline struct type definition preview */
+/* Inline type definition preview */
 .si-type-preview {
     border-top: 1px dashed rgba(255,255,255,.1);
     background: rgba(0,0,0,.15);
@@ -497,7 +497,7 @@
     max-height: 180px; overflow-y: auto;
 }
 
-/* Packed toggle button in struct editor (Type column of the struct-default row) */
+/* Packed toggle button in type editor (Type column of the type-default row) */
 .se-packed-btn {
     display: inline-block; justify-self: start; align-self: center; margin: 0;
     padding: 2px 7px; border-radius: 3px;
@@ -514,7 +514,7 @@
     border-color: #569cd6; background: rgba(86,156,214,.12);
 }
 
-/* Live C preview inside the struct editor. No fixed height and no inner
+/* Live C preview inside the type editor. No fixed height and no inner
    scroll: the preview flows in the section body and scrolls with it; long
    lines wrap to the pane width. */
 .se-preview {
@@ -583,7 +583,7 @@
     border-bottom: 1px dotted rgba(255,255,255,.2);
     margin-bottom: 2px; align-self: flex-end;
 }
-/* Explicit-override badges (per-field/struct endian + allocation) */
+/* Explicit-override badges (per-field/type endian + allocation) */
 .si-chip {
     flex-shrink: 0;
     font-family: var(--font-ui);

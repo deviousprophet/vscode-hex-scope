@@ -4,16 +4,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
 
-import type { StructPanel } from '../../../../../webview/components/sidebar/structPanel/structPanel';
+import type { OverlayPanel } from '../../../../../webview/components/sidebar/overlayPanel/overlayPanel';
 import { S } from '../../../../../webview/state';
 import { getByte } from '../../../../../webview/memory/memoryData';
-import type { StructDef, StructPin } from '../../../../../core/types';
-import { structToC } from '../../../../../core/struct/structCodec';
-import { setBytesInSegment } from '../../../structStateHelpers';
+import type { TypeDef, TypeInstance } from '../../../../../core/types';
+import { typeDefToC } from '../../../../../core/overlay/overlayCodec';
+import { setBytesInSegment } from '../../../overlayStateHelpers';
 
-function resetStructState(): void {
-    S.structs = [];
-    S.structPins = [];
+function resetOverlayState(): void {
+    S.types = [];
+    S.typeInstances = [];
     S.parseResult = null;
     S.segmentIndex = [];
     S.endian = 'le';
@@ -26,9 +26,9 @@ function elementText(element: Element | null): string {
 }
 
 /** Inject the real panel stylesheet so computed layout reflects the authored grid rules. */
-function injectStructPanelCss(): void {
+function injectOverlayPanelCss(): void {
     const css = fs.readFileSync(
-        path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'structPanel', 'structPanel.css'),
+        path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'overlayPanel', 'overlayPanel.css'),
         'utf8',
     );
     const styleEl = document.createElement('style');
@@ -59,24 +59,24 @@ function confirmDelete(dom: JSDOM): void {
     click(dom, yes);
 }
 
-function simpleDef(id: string, name: string, fields: StructDef['fields']): StructDef {
+function simpleDef(id: string, name: string, fields: TypeDef['fields']): TypeDef {
     return { id, name, fields };
 }
 
-const scalarDef: StructDef = simpleDef('scalar', 'Scalar', [
+const scalarDef: TypeDef = simpleDef('scalar', 'Scalar', [
     { name: 'count', type: 'uint16', count: 1 },
 ]);
-const childDef: StructDef = simpleDef('child', 'ChildNode', [
+const childDef: TypeDef = simpleDef('child', 'ChildNode', [
     { name: 'tag', type: 'uint8', count: 1 },
 ]);
-const parentDef: StructDef = {
+const parentDef: TypeDef = {
     id: 'parent',
     name: 'Parent',
     packed: true,
-    fields: [{ name: 'hdr', type: 'struct', refStructId: 'child', isPointer: true, count: 1 }],
+    fields: [{ name: 'hdr', type: 'struct', refTypeId: 'child', isPointer: true, count: 1 }],
 };
 
-function getTopStructFieldHeaders(): string[] {
+function getTopFieldHeaders(): string[] {
     return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name'))
         .map(el => el.textContent ?? '');
 }
@@ -87,7 +87,7 @@ function openValueMenuLabels(target: HTMLElement, dom: JSDOM): string[] {
         .map(el => el.textContent ?? '');
 }
 
-suite('StructPanel deep-render harness', () => {
+suite('OverlayPanel deep-render harness', () => {
     let dom: JSDOM;
 
     setup(() => {
@@ -122,11 +122,11 @@ suite('StructPanel deep-render harness', () => {
         (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame =
             () => 0;
 
-        resetStructState();
+        resetOverlayState();
     });
 
     teardown(() => {
-        resetStructState();
+        resetOverlayState();
         dom.window.close();
         delete (globalThis as unknown as { window?: Window }).window;
         delete (globalThis as unknown as { document?: Document }).document;
@@ -135,16 +135,16 @@ suite('StructPanel deep-render harness', () => {
         delete (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame;
     });
 
-    async function createMountedPanel(): Promise<StructPanel> {
-        const { StructPanel } = await import('../../../../../webview/components/sidebar/structPanel/structPanel.js');
-        const panel = new StructPanel({
+    async function createMountedPanel(): Promise<OverlayPanel> {
+        const { OverlayPanel } = await import('../../../../../webview/components/sidebar/overlayPanel/overlayPanel.js');
+        const panel = new OverlayPanel({
             readByte: getByte,
-            onStateChange: (structs, pins) => { S.structs = structs; S.structPins = pins; },
-            onStructsChange: structs => { S.structs = structs; },
-            onPinsChange: pins => { S.structPins = pins; },
+            onStateChange: (types, pins) => { S.types = types; S.typeInstances = pins; },
+            onTypesChange: types => { S.types = types; },
+            onPinsChange: pins => { S.typeInstances = pins; },
             onSelectRange: (start, count) => { S.selStart = start; S.selEnd = start + count - 1; },
         });
-        panel.setData(S.structs, S.structPins);
+        panel.setData(S.types, S.typeInstances);
         panel.setEndian(S.endian);
         panel.setBitFieldAllocation(S.bitFieldAllocation);
         panel.setTabActive(true);
@@ -164,7 +164,7 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.querySelector<HTMLElement>(`.sm-kind-tile[data-kind="${kind}"]`));
     }
 
-    async function renderPinsAndExpandCard(): Promise<StructPanel> {
+    async function renderPinsAndExpandCard(): Promise<OverlayPanel> {
         const panel = await createMountedPanel();
         const expandCard = document.querySelector<HTMLElement>('.si-expand-btn');
         assert.ok(expandCard, 'expand button should render');
@@ -185,29 +185,29 @@ suite('StructPanel deep-render harness', () => {
         return writes;
     }
 
-    function setupStructPointerFixture(ids: { header: string; parent: string; pin: string }): StructDef {
-        const header: StructDef = {
+    function setupTypePointerFixture(ids: { header: string; parent: string; pin: string }): TypeDef {
+        const header: TypeDef = {
             id: ids.header,
             name: 'HeaderCreate',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: ids.parent,
             name: 'ParentCreate',
             packed: true,
-            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'hdr', type: 'struct', refTypeId: header.id, isPointer: true, count: 1 }],
         };
         const bytes = new Array(0x40).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0xAB;
-        S.structs = [header, parent];
-        S.structPins = [{ id: ids.pin, structId: parent.id, addr: 0, name: 'parentInst' }];
+        S.types = [header, parent];
+        S.typeInstances = [{ id: ids.pin, typeId: parent.id, addr: 0, name: 'parentInst' }];
         setBytesInSegment(0, bytes);
         return header;
     }
 
     function setupUnmappedPointerFixture(): void {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'ptr_unmapped',
             name: 'PtrUnmapped',
             packed: true,
@@ -215,13 +215,13 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'next', type: 'uint16', isPointer: true, count: 1 },
             ],
         };
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ptr_unmapped', structId: def.id, addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_ptr_unmapped', typeId: def.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x00, 0x00, 0x00, 0x20]);
     }
 
     function setupNullPointerFixture(): void {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'ptr_null',
             name: 'PtrNull',
             packed: true,
@@ -229,13 +229,13 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'next', type: 'uint16', isPointer: true, count: 1 },
             ],
         };
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ptr_null', structId: def.id, addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_ptr_null', typeId: def.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x00, 0x00, 0x00, 0x00]);
     }
 
     function setupVoidPointerFixture(type: 'void' | 'pointer' = 'void'): void {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: `ptr_${type}`,
             name: 'PtrVoid',
             packed: true,
@@ -246,8 +246,8 @@ suite('StructPanel deep-render harness', () => {
         const bytes = new Array(0x30).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0xAB;
-        S.structs = [def];
-        S.structPins = [{ id: `pin_ptr_${type}`, structId: def.id, addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: `pin_ptr_${type}`, typeId: def.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, bytes);
     }
 
@@ -298,7 +298,7 @@ suite('StructPanel deep-render harness', () => {
     }
 
     function setupScalarPointerPreviewFixture(): void {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'ptr_scalar_preview',
             name: 'PtrScalarPreview',
             packed: true,
@@ -312,8 +312,8 @@ suite('StructPanel deep-render harness', () => {
         bytes[0x21] = 0x33;
         bytes[0x22] = 0x43;
         bytes[0x23] = 0x38;
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ptr_scalar_preview', structId: def.id, addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_ptr_scalar_preview', typeId: def.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, bytes);
     }
 
@@ -348,7 +348,7 @@ suite('StructPanel deep-render harness', () => {
     }
 
     function setupOffsetVisiblePointerFixture(): void {
-        const header: StructDef = {
+        const header: TypeDef = {
             id: 'header_offset_visible',
             name: 'HeaderOffsetVisible',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
@@ -357,25 +357,25 @@ suite('StructPanel deep-render harness', () => {
         const bytes = new Array(0x40).fill(0);
         bytes[1] = 0x20;
         bytes[0x20] = 0xAB;
-        S.structs = [header, parent];
-        S.structPins = [{ id: 'pin_parent_offset_visible', structId: parent.id, addr: 0, name: 'parentInst' }];
+        S.types = [header, parent];
+        S.typeInstances = [{ id: 'pin_parent_offset_visible', typeId: parent.id, addr: 0, name: 'parentInst' }];
         setBytesInSegment(0, bytes);
     }
 
-    function offsetVisiblePointerParent(headerId: string): StructDef {
+    function offsetVisiblePointerParent(headerId: string): TypeDef {
         return {
             id: 'parent_offset_visible',
             name: 'ParentOffsetVisible',
             packed: true,
             fields: [
                 { name: 'prefix', type: 'uint8', count: 1 },
-                { name: 'hdr', type: 'struct', refStructId: headerId, isPointer: true, count: 1 },
+                { name: 'hdr', type: 'struct', refTypeId: headerId, isPointer: true, count: 1 },
             ],
         };
     }
 
     function assertPointerOffsetVisibleAfterExpand(dom: JSDOM): void {
-        const headerRow = requiredPointerHeader('struct pointer header should render');
+        const headerRow = requiredPointerHeader('type pointer header should render');
         assert.strictEqual(pointerHeaderOffset(headerRow), '+001', 'collapsed pointer header should show storage offset');
         expandPointerHeader(headerRow, dom);
         assert.strictEqual(pointerHeaderOffset(requiredPointerHeader('expanded pointer header should render')), '+001', 'expanded pointer header should keep its offset visible');
@@ -395,33 +395,33 @@ suite('StructPanel deep-render harness', () => {
 
     function expandPointerHeader(headerRow: HTMLElement, dom: JSDOM): void {
         const expand = headerRow.querySelector<HTMLElement>('.si-arr-exp-btn');
-        assert.ok(expand, 'struct pointer expand button should render');
+        assert.ok(expand, 'type pointer expand button should render');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     }
 
-    function triggerCreateStructInstance(dom: JSDOM, message: string): void {
+    function triggerCreateTypeInstance(dom: JSDOM, message: string): void {
         const parentHeader = document.querySelector<HTMLElement>('.si-ptr-hdr');
         assert.ok(parentHeader, message);
         const expand = parentHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
-        assert.ok(expand, 'struct pointer header should have expand button');
+        assert.ok(expand, 'type pointer header should have expand button');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         const childHeader = document.querySelector<HTMLElement>('.si-ptr-child-hdr[data-pointer-allow-create="true"]');
-        assert.ok(childHeader, 'struct pointer child header should render create-enabled menu source');
+        assert.ok(childHeader, 'type pointer child header should render create-enabled menu source');
         childHeader!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-struct-ptr"]');
-        assert.ok(create, 'create struct instance command should be enabled');
+        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-type-ptr"]');
+        assert.ok(create, 'create instance command should be enabled');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     }
 
-    function pinsForTarget(structId: string, addr: number): StructPin[] {
-        const matches: StructPin[] = [];
-        for (const pin of S.structPins) {
-            if (pin.structId === structId && pin.addr === addr) { matches.push(pin); }
+    function pinsForTarget(typeId: string, addr: number): TypeInstance[] {
+        const matches: TypeInstance[] = [];
+        for (const pin of S.typeInstances) {
+            if (pin.typeId === typeId && pin.addr === addr) { matches.push(pin); }
         }
         return matches;
     }
 
-    function assertPointerCreateMetadata(pin: StructPin): void {
+    function assertPointerCreateMetadata(pin: TypeInstance): void {
         assert.strictEqual(pin.name, 'parentInst.hdr @00000020');
         const source = pin.pointerSources?.[0];
         assert.ok(source, 'created pin should store pointer source metadata');
@@ -431,14 +431,14 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(elementText(document.querySelector('.si-csource')), 'from parentInst.hdr @0x00000000');
     }
 
-    function assertSinglePointerTarget(structId: string): StructPin {
-        const targetPins = pinsForTarget(structId, 0x20);
-        assert.strictEqual(targetPins.length, 1, 'create should add target struct pin once');
+    function assertSinglePointerTarget(typeId: string): TypeInstance {
+        const targetPins = pinsForTarget(typeId, 0x20);
+        assert.strictEqual(targetPins.length, 1, 'create should add target instance once');
         return targetPins[0];
     }
 
-    test('uses declared struct type and element count for nested struct array header', async () => {
-        const child: StructDef = {
+    test('uses declared type and element count for nested type array header', async () => {
+        const child: TypeDef = {
             id: 'child',
             name: 'ChildNode',
             fields: [
@@ -446,22 +446,22 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'b', type: 'uint16', count: 1 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'child', count: 3 },
+                { name: 'nodes', type: 'struct', refTypeId: 'child', count: 3 },
             ],
         };
-        const pin: StructPin = {
+        const pin: TypeInstance = {
             id: 'pin_2',
-            structId: 'parent',
+            typeId: 'parent',
             addr: 0,
             name: 'parentInst',
         };
 
-        S.structs = [child, parent];
-        S.structPins = [pin];
+        S.types = [child, parent];
+        S.typeInstances = [pin];
 
         await renderPinsAndExpandCard();
 
@@ -473,13 +473,13 @@ suite('StructPanel deep-render harness', () => {
 
         assert.ok(text.includes('[3]'), `expected element count [3] in header text, got: ${text}`);
         assert.ok(title.includes('[3]'), `expected element count [3] in header title, got: ${title}`);
-        assert.ok(text.includes('ChildNode'), `expected struct name ChildNode in header text, got: ${text}`);
-        assert.ok(title.includes('ChildNode'), `expected struct name ChildNode in header title, got: ${title}`);
+        assert.ok(text.includes('ChildNode'), `expected type name ChildNode in header text, got: ${text}`);
+        assert.ok(title.includes('ChildNode'), `expected type name ChildNode in header title, got: ${title}`);
         assert.ok(!text.includes('[6]'), `header should not use flattened child row count, got: ${text}`);
     });
 
-    test('renders nested struct arrays as element groups with leaf-only labels', async () => {
-        const child: StructDef = {
+    test('renders nested type arrays as element groups with leaf-only labels', async () => {
+        const child: TypeDef = {
             id: 'child',
             name: 'ChildNode',
             fields: [
@@ -488,22 +488,22 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'field2', type: 'uint8', count: 2 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'child', count: 2 },
+                { name: 'nodes', type: 'struct', refTypeId: 'child', count: 2 },
             ],
         };
-        const pin: StructPin = {
+        const pin: TypeInstance = {
             id: 'pin_1',
-            structId: 'parent',
+            typeId: 'parent',
             addr: 0,
             name: 'parentInst',
         };
 
-        S.structs = [child, parent];
-        S.structPins = [pin];
+        S.types = [child, parent];
+        S.typeInstances = [pin];
 
         await renderPinsAndExpandCard();
 
@@ -514,7 +514,7 @@ suite('StructPanel deep-render harness', () => {
         const topArrayHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
             .map(el => el.textContent ?? '');
         const nodesHeaderCount = topArrayHeaders.filter(name => name === 'nodes').length;
-        assert.strictEqual(nodesHeaderCount, 1, 'parent struct-array group should not be split by nested arrays');
+        assert.strictEqual(nodesHeaderCount, 1, 'parent type-array group should not be split by nested arrays');
 
         const firstElementBody = document.querySelector<HTMLElement>('.si-arr-el-body');
         assert.ok(firstElementBody, 'nested element body should be rendered');
@@ -528,8 +528,8 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(elementHeaderName, 'element header name should be rendered');
         assert.strictEqual(elementHeaderName!.textContent ?? '', '[0]', 'element header should only show index');
         const elementHeaderMeta = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-addr');
-        assert.ok(elementHeaderMeta, 'element header should show struct summary');
-        assert.strictEqual(elementHeaderMeta!.textContent ?? '', 'ChildNode', 'element header should show struct type');
+        assert.ok(elementHeaderMeta, 'element header should show type summary');
+        assert.strictEqual(elementHeaderMeta!.textContent ?? '', 'ChildNode', 'element header should show type');
 
         const firstLeafName = document.querySelector<HTMLElement>('.si-arr-el-body .si-field .si-f-name');
         assert.ok(firstLeafName, 'leaf row name should be rendered after expanding an element');
@@ -558,38 +558,38 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(!nestedLeafNames.some(name => name.includes('nodes[')), 'nested leaf labels should not include parent array path');
     });
 
-    test('uses local node label for scalar-struct nested scalar array', async () => {
-        const child: StructDef = {
+    test('uses local node label for scalar-type nested scalar array', async () => {
+        const child: TypeDef = {
             id: 'child',
-            name: 'MyStruct',
+            name: 'MyType',
             fields: [
                 { name: 'field0', type: 'uint32', count: 1 },
                 { name: 'field1', type: 'uint8', count: 1 },
                 { name: 'field2', type: 'uint8', count: 2 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent',
             name: 'Parent',
             fields: [
-                { name: 'field3', type: 'struct', refStructId: 'child', count: 1 },
+                { name: 'field3', type: 'struct', refTypeId: 'child', count: 1 },
             ],
         };
-        const pin: StructPin = {
-            id: 'pin_scalar_struct',
-            structId: 'parent',
+        const pin: TypeInstance = {
+            id: 'pin_scalar_type',
+            typeId: 'parent',
             addr: 0,
             name: 'parentInst',
         };
 
-        S.structs = [child, parent];
-        S.structPins = [pin];
+        S.types = [child, parent];
+        S.typeInstances = [pin];
 
         await renderPinsAndExpandCard();
 
         const topHeaders = Array.from(document.querySelectorAll<HTMLElement>('.si-arr-grp-hdr .si-f-name'))
             .map(el => el.textContent ?? '');
-        assert.ok(topHeaders.includes('field3'), 'scalar struct node should be labeled with local field name');
+        assert.ok(topHeaders.includes('field3'), 'scalar type node should be labeled with local field name');
         assert.ok(topHeaders.includes('field2'), 'nested scalar-array node should be labeled with local field name');
         assert.ok(!topHeaders.includes('field3.field2'), 'nested scalar-array node should not include parent path');
 
@@ -598,18 +598,18 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(topLevelHeaders, ['field3'], 'nested scalar-array node should not be rendered at top level');
 
         const parentGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp');
-        assert.ok(parentGroup, 'scalar struct group should exist');
+        assert.ok(parentGroup, 'scalar type group should exist');
         const parentExpandBtn = parentGroup!.querySelector<HTMLElement>('.si-arr-exp-btn');
-        assert.ok(parentExpandBtn, 'scalar struct group should be expandable');
+        assert.ok(parentExpandBtn, 'scalar type group should be expandable');
         parentExpandBtn!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const nestedHeader = parentGroup!.querySelector<HTMLElement>('.si-arr-grp-body .si-arr-grp-hdr .si-f-name');
-        assert.ok(nestedHeader, 'nested scalar-array header should render inside scalar struct body');
+        assert.ok(nestedHeader, 'nested scalar-array header should render inside scalar type body');
         assert.strictEqual(nestedHeader!.textContent ?? '', 'field2', 'nested scalar-array header should keep local name');
     });
 
     test('keeps child composite nodes collapsed by default after opening parent', async () => {
-        const child: StructDef = {
+        const child: TypeDef = {
             id: 'child_collapse',
             name: 'ChildCollapse',
             fields: [
@@ -617,16 +617,16 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'field1', type: 'uint8', count: 2 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent_collapse',
             name: 'ParentCollapse',
             fields: [
-                { name: 'field3', type: 'struct', refStructId: 'child_collapse', count: 1 },
+                { name: 'field3', type: 'struct', refTypeId: 'child_collapse', count: 1 },
             ],
         };
 
-        S.structs = [child, parent];
-        S.structPins = [{ id: 'pin_collapse', structId: 'parent_collapse', addr: 0, name: 'inst' }];
+        S.types = [child, parent];
+        S.typeInstances = [{ id: 'pin_collapse', typeId: 'parent_collapse', addr: 0, name: 'inst' }];
 
         await renderPinsAndExpandCard();
 
@@ -647,77 +647,77 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(nestedBody!.style.display, 'none', 'nested composite should remain collapsed by default');
     });
 
-    test('renders scalar struct node even when it has only one leaf child', async () => {
-        const child: StructDef = {
+    test('renders scalar type node even when it has only one leaf child', async () => {
+        const child: TypeDef = {
             id: 'single_leaf_child',
             name: 'SingleLeafChild',
             fields: [
                 { name: 'only', type: 'uint16', count: 1 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'single_leaf_parent',
             name: 'SingleLeafParent',
             fields: [
-                { name: 'wrap', type: 'struct', refStructId: 'single_leaf_child', count: 1 },
+                { name: 'wrap', type: 'struct', refTypeId: 'single_leaf_child', count: 1 },
             ],
         };
 
-        S.structs = [child, parent];
-        S.structPins = [{ id: 'pin_single_leaf', structId: 'single_leaf_parent', addr: 0, name: 'inst' }];
+        S.types = [child, parent];
+        S.typeInstances = [{ id: 'pin_single_leaf', typeId: 'single_leaf_parent', addr: 0, name: 'inst' }];
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = getTopStructFieldHeaders();
-        assert.deepStrictEqual(topHeaders, ['wrap'], 'struct field should render as a composite node header even with one leaf child');
+        const topHeaders = getTopFieldHeaders();
+        assert.deepStrictEqual(topHeaders, ['wrap'], 'type field should render as a composite node header even with one leaf child');
 
         const leafAtTop = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-field .si-f-name'))
             .map(el => el.textContent ?? '');
         assert.ok(!leafAtTop.includes('only'), 'child leaf should not render at top level');
     });
 
-    test('supports rendering nested structs at max depth with local labels', async () => {
-        const level3: StructDef = {
+    test('supports rendering nested types at max depth with local labels', async () => {
+        const level3: TypeDef = {
             id: 'depth_l3',
             name: 'DepthL3',
             fields: [
                 { name: 'bytes', type: 'uint8', count: 2 },
             ],
         };
-        const level2: StructDef = {
+        const level2: TypeDef = {
             id: 'depth_l2',
             name: 'DepthL2',
             fields: [
-                { name: 'inner', type: 'struct', refStructId: 'depth_l3', count: 1 },
+                { name: 'inner', type: 'struct', refTypeId: 'depth_l3', count: 1 },
             ],
         };
-        const level1: StructDef = {
+        const level1: TypeDef = {
             id: 'depth_l1',
             name: 'DepthL1',
             fields: [
-                { name: 'outer', type: 'struct', refStructId: 'depth_l2', count: 1 },
+                { name: 'outer', type: 'struct', refTypeId: 'depth_l2', count: 1 },
             ],
         };
 
-        S.structs = [level3, level2, level1];
-        S.structPins = [{ id: 'pin_depth', structId: 'depth_l1', addr: 0, name: 'inst' }];
+        S.types = [level3, level2, level1];
+        S.typeInstances = [{ id: 'pin_depth', typeId: 'depth_l1', addr: 0, name: 'inst' }];
 
         await renderPinsAndExpandCard();
 
         const topHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-f-name');
-        assert.ok(topHeader, 'top nested struct header should render');
-        assert.strictEqual(topHeader!.textContent ?? '', 'outer', 'top nested struct should use local label');
+        assert.ok(topHeader, 'top nested type header should render');
+        assert.strictEqual(topHeader!.textContent ?? '', 'outer', 'top nested type should use local label');
 
         const topExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
-        assert.ok(topExpand, 'top nested struct expand button should render');
+        assert.ok(topExpand, 'top nested type expand button should render');
         topExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const innerHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-arr-grp-hdr .si-f-name');
-        assert.ok(innerHeader, 'second-level struct header should render at max depth boundary');
-        assert.strictEqual(innerHeader!.textContent ?? '', 'inner', 'second-level struct should use local label');
+        assert.ok(innerHeader, 'second-level type header should render at max depth boundary');
+        assert.strictEqual(innerHeader!.textContent ?? '', 'inner', 'second-level type should use local label');
 
         const innerExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body .si-arr-grp-hdr .si-arr-exp-btn');
-        assert.ok(innerExpand, 'second-level struct expand button should render');
+        assert.ok(innerExpand, 'second-level type expand button should render');
         innerExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const bytesHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body .si-arr-grp-body .si-arr-grp-hdr .si-f-name');
@@ -726,7 +726,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('moves array offset from collapsed header to expanded child rows', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'array_offset',
             name: 'ArrayOffset',
             fields: [
@@ -735,8 +735,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_array_offset', structId: 'array_offset', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_array_offset', typeId: 'array_offset', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xAA, 0x11, 0x22, 0x33, 0x44]);
 
         await renderPinsAndExpandCard();
@@ -758,8 +758,8 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded array children should keep their own offsets');
     });
 
-    test('moves nested struct offset from collapsed header to expanded child rows', async () => {
-        const child: StructDef = {
+    test('moves nested type offset from collapsed header to expanded child rows', async () => {
+        const child: TypeDef = {
             id: 'nested_offset_child',
             name: 'NestedOffsetChild',
             fields: [
@@ -767,55 +767,55 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'b', type: 'uint16', count: 1 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'nested_offset_parent',
             name: 'NestedOffsetParent',
             fields: [
                 { name: 'prefix', type: 'uint8', count: 1 },
-                { name: 'node', type: 'struct', refStructId: 'nested_offset_child', count: 1 },
+                { name: 'node', type: 'struct', refTypeId: 'nested_offset_child', count: 1 },
             ],
         };
 
-        S.structs = [child, parent];
-        S.structPins = [{ id: 'pin_nested_offset', structId: 'nested_offset_parent', addr: 0, name: 'inst' }];
+        S.types = [child, parent];
+        S.typeInstances = [{ id: 'pin_nested_offset', typeId: 'nested_offset_parent', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xAA, 0x11, 0x22, 0x33]);
 
         await renderPinsAndExpandCard();
 
-        const structHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
-        assert.ok(structHeader, 'nested struct header should render');
-        assert.strictEqual(structHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+002', 'collapsed nested struct header should show first child offset');
+        const typeHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
+        assert.ok(typeHeader, 'nested type header should render');
+        assert.strictEqual(typeHeader!.querySelector<HTMLElement>('.si-f-off')?.textContent ?? '', '+002', 'collapsed nested type header should show first child offset');
 
-        const expandStruct = structHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
-        assert.ok(expandStruct, 'nested struct expand button should render');
-        expandStruct!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        const expandInstance = typeHeader!.querySelector<HTMLElement>('.si-arr-exp-btn');
+        assert.ok(expandInstance, 'nested type expand button should render');
+        expandInstance!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const expandedHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr');
-        assert.ok(expandedHeader, 'expanded nested struct header should render');
-        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off'), null, 'expanded nested struct header should not duplicate child offsets');
+        assert.ok(expandedHeader, 'expanded nested type header should render');
+        assert.strictEqual(expandedHeader!.querySelector<HTMLElement>('.si-f-off'), null, 'expanded nested type header should not duplicate child offsets');
 
         const childOffsets = Array.from(document.querySelectorAll<HTMLElement>('.si-fields > .si-arr-grp .si-arr-grp-body > .si-field .si-f-off'))
             .map(el => el.textContent ?? '');
-        assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded nested struct children should keep their own offsets');
+        assert.deepStrictEqual(childOffsets, ['+002', '+004'], 'expanded nested type children should keep their own offsets');
     });
 
     test('renders ascii string field as scalar leaf without collapse node', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'str_leaf',
             name: 'StrLeaf',
             fields: [
                 { name: 'name', type: 'ascii', count: 8 },
             ],
         };
-        const pin: StructPin = {
+        const pin: TypeInstance = {
             id: 'pin_str_leaf',
-            structId: 'str_leaf',
+            typeId: 'str_leaf',
             addr: 0,
             name: 'inst',
         };
 
-        S.structs = [def];
-        S.structPins = [pin];
+        S.types = [def];
+        S.typeInstances = [pin];
 
         await renderPinsAndExpandCard();
 
@@ -832,8 +832,8 @@ suite('StructPanel deep-render harness', () => {
         const def = simpleDef('ascii_sp', 'AsciiSp', [
             { name: 'text', type: 'ascii', count: 5 },
         ]);
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ascii_sp', structId: 'ascii_sp', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_ascii_sp', typeId: 'ascii_sp', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x41, 0x20, 0x20, 0x42, 0x20]);
         await renderPinsAndExpandCard();
 
@@ -842,45 +842,45 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(val!.textContent, "'A  B '", 'decoded value should keep both 0x20 spaces');
 
         const css = fs.readFileSync(
-            path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'structPanel', 'structPanel.css'),
+            path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'src', 'webview', 'components', 'sidebar', 'overlayPanel', 'overlayPanel.css'),
             'utf8',
         );
         const rule = css.match(/\.si-f-val\[data-val-type="ascii"\]\s*\{([^}]*)\}/);
-        assert.ok(rule, 'ascii value rule should exist in structPanel.css');
+        assert.ok(rule, 'ascii value rule should exist in overlayPanel.css');
         assert.match(rule![1], /white-space:\s*pre/, 'ascii value rule should declare white-space: pre');
     });
 
-    test('recurses nested struct arrays without disambiguation suffix labels', async () => {
-        const leaf: StructDef = {
+    test('recurses nested type arrays without disambiguation suffix labels', async () => {
+        const leaf: TypeDef = {
             id: 'leaf_suffix',
             name: 'LeafSuffix',
             fields: [
                 { name: 'field0', type: 'uint8', count: 1 },
             ],
         };
-        const mid: StructDef = {
+        const mid: TypeDef = {
             id: 'mid_suffix',
             name: 'MidSuffix',
             fields: [
-                { name: 'children', type: 'struct', refStructId: 'leaf_suffix', count: 2 },
+                { name: 'children', type: 'struct', refTypeId: 'leaf_suffix', count: 2 },
             ],
         };
-        const top: StructDef = {
+        const top: TypeDef = {
             id: 'top_suffix',
             name: 'TopSuffix',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'mid_suffix', count: 2 },
+                { name: 'nodes', type: 'struct', refTypeId: 'mid_suffix', count: 2 },
             ],
         };
-        const pin: StructPin = {
+        const pin: TypeInstance = {
             id: 'pin_suffix',
-            structId: 'top_suffix',
+            typeId: 'top_suffix',
             addr: 0,
             name: 'inst',
         };
 
-        S.structs = [leaf, mid, top];
-        S.structPins = [pin];
+        S.types = [leaf, mid, top];
+        S.typeInstances = [pin];
 
         await renderPinsAndExpandCard();
 
@@ -901,9 +901,9 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('groups bit fields by storage unit with child rows', async () => {
-        const def: StructDef = {
-            id: 'bit_struct',
-            name: 'BitStruct',
+        const def: TypeDef = {
+            id: 'bit_type',
+            name: 'BitType',
             fields: [
                 {
                     name: 'field0',
@@ -926,8 +926,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bits', structId: 'bit_struct', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bits', typeId: 'bit_type', addr: 0, name: 'inst' }];
 
         await renderPinsAndExpandCard();
 
@@ -979,7 +979,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('clicking non-array bit-field parent selects its storage unit size, not child sum', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_parent_size',
             name: 'BitParentSize',
             fields: [
@@ -996,8 +996,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_parent_size', structId: 'bit_parent_size', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_parent_size', typeId: 'bit_parent_size', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xAB, 0xCD]);
 
         await renderPinsAndExpandCard();
@@ -1016,7 +1016,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('uses shared byte order with a local bit-layout toggle', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_alloc_toggle',
             name: 'BitAllocToggle',
             fields: [
@@ -1032,8 +1032,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_alloc_toggle', structId: 'bit_alloc_toggle', addr: 0x600, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_alloc_toggle', typeId: 'bit_alloc_toggle', addr: 0x600, name: 'inst' }];
         setBytesInSegment(0x600, [0xB1]);
 
         const panel = await createMountedPanel();
@@ -1044,7 +1044,7 @@ suite('StructPanel deep-render harness', () => {
         S.bitFieldAllocation = 'lsb';
         const toggleGroups = Array.from(document.querySelectorAll<HTMLElement>('.si-toggle-group'))
             .map(el => el.getAttribute('title') ?? '');
-        assert.ok(!toggleGroups.some(title => title.includes('Byte endianness')), 'Struct must use shared sidebar byte order');
+        assert.ok(!toggleGroups.some(title => title.includes('Byte endianness')), 'Overlay must use shared sidebar byte order');
         assert.ok(toggleGroups.some(title => title.includes('Bit-field allocation')), 'bit-field allocation detail should be available on hover');
         assert.strictEqual(S.bitFieldAllocation, 'lsb', 'bit-field allocation should be LSB after explicit set');
         assert.ok(document.getElementById('sa-btn-bit-lsb'), 'LSB bit-field button should render');
@@ -1077,7 +1077,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('bit-layout allocation toggle reports persistent changes to the host', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_alloc_report',
             name: 'BitAllocReport',
             fields: [
@@ -1092,18 +1092,18 @@ suite('StructPanel deep-render harness', () => {
                 },
             ],
         };
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_alloc_report', structId: 'bit_alloc_report', addr: 0x600, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_alloc_report', typeId: 'bit_alloc_report', addr: 0x600, name: 'inst' }];
         S.bitFieldAllocation = 'msb';
 
-        const { StructPanel } = await import('../../../../../webview/components/sidebar/structPanel/structPanel.js');
+        const { OverlayPanel } = await import('../../../../../webview/components/sidebar/overlayPanel/overlayPanel.js');
         const reported: string[] = [];
-        const panel = new StructPanel({
+        const panel = new OverlayPanel({
             readByte: getByte,
-            onStateChange: (structs, pins) => { S.structs = structs; S.structPins = pins; },
+            onStateChange: (types, pins) => { S.types = types; S.typeInstances = pins; },
             onBitAllocationChange: alloc => { reported.push(alloc); },
         });
-        panel.setData(S.structs, S.structPins);
+        panel.setData(S.types, S.typeInstances);
         panel.setEndian(S.endian);
         panel.setBitFieldAllocation(S.bitFieldAllocation);
         panel.setTabActive(true);
@@ -1123,23 +1123,23 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('Instances "Show hidden" toggle reports the new value and host push is authoritative', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'cfg', name: 'Cfg', fields: [
                 { name: 'reserved', type: 'uint8', count: 1, hidden: true },
                 { name: 'tag', type: 'uint8', count: 1 },
             ],
         };
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_sh', structId: 'cfg', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_sh', typeId: 'cfg', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x00, 0x11]);
 
-        const { StructPanel } = await import('../../../../../webview/components/sidebar/structPanel/structPanel.js');
+        const { OverlayPanel } = await import('../../../../../webview/components/sidebar/overlayPanel/overlayPanel.js');
         const reported: boolean[] = [];
-        const panel = new StructPanel({
+        const panel = new OverlayPanel({
             readByte: getByte,
             onShowHiddenFieldsChange: value => { reported.push(value); },
         });
-        panel.setData(S.structs, S.structPins);
+        panel.setData(S.types, S.typeInstances);
         panel.setTabActive(true);
         panel.mount(document.getElementById('s-struct-pins')!);
         click(dom, document.querySelector<HTMLElement>('.si-expand-btn'));
@@ -1161,8 +1161,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('toggling Show hidden refreshes only the instances and leaves an open editor draft intact', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [];
+        S.types = [scalarDef];
+        S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
 
@@ -1180,14 +1180,14 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('toggling Show hidden updates the instances in place (focus + scroll preserved)', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'cfg', name: 'Cfg', fields: [
                 { name: 'reserved', type: 'uint8', count: 1, hidden: true },
                 { name: 'tag', type: 'uint8', count: 1 },
             ],
         };
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_inplace', structId: 'cfg', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_inplace', typeId: 'cfg', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x00, 0x11]);
         await createMountedPanel();
         click(dom, document.querySelector<HTMLElement>('.si-expand-btn'));
@@ -1216,7 +1216,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('renders scalar values using shared byte order', async () => {
-        const fields: StructDef['fields'] = [
+        const fields: TypeDef['fields'] = [
             { name: 'u16', type: 'uint16', count: 1 },
             { name: 'i16', type: 'int16', count: 1 },
             { name: 'u32', type: 'uint32', count: 1 },
@@ -1244,16 +1244,16 @@ suite('StructPanel deep-render harness', () => {
         ];
 
         const renderValues = async (endian: 'le' | 'be', bytes: number[]) => {
-            resetStructState();
+            resetOverlayState();
             S.endian = endian;
-            const def: StructDef = {
+            const def: TypeDef = {
                 id: `scalar_${endian}`,
                 name: `Scalar${endian.toUpperCase()}`,
                 packed: true,
                 fields,
             };
-            S.structs = [def];
-            S.structPins = [{ id: `pin_${endian}`, structId: def.id, addr: 0, name: 'inst' }];
+            S.types = [def];
+            S.typeInstances = [{ id: `pin_${endian}`, typeId: def.id, addr: 0, name: 'inst' }];
             setBytesInSegment(0, bytes);
             await renderPinsAndExpandCard();
             return Array.from(document.querySelectorAll<HTMLElement>('.si-field > .si-f-body > .si-f-val'))
@@ -1328,7 +1328,7 @@ suite('StructPanel deep-render harness', () => {
         row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
         const jump = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="jump-ptr"]');
         assert.ok(jump, 'jump pointer command should be enabled for mapped void pointer');
-        assert.strictEqual(document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-struct-ptr"]'), null, 'void pointer should not offer create struct instance');
+        assert.strictEqual(document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-type-ptr"]'), null, 'void pointer should not offer create instance');
 
         row.querySelector<HTMLElement>('.si-f-ptr')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(S.selStart, 0x20);
@@ -1342,7 +1342,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('following scalar pointer selects target byte span', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'ptr_scalar_follow',
             name: 'PtrScalarFollow',
             packed: true,
@@ -1354,8 +1354,8 @@ suite('StructPanel deep-render harness', () => {
         bytes[0] = 0x20;
         bytes[0x20] = 0x34;
         bytes[0x21] = 0x12;
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_ptr_scalar_follow', structId: def.id, addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_ptr_scalar_follow', typeId: def.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
@@ -1387,75 +1387,75 @@ suite('StructPanel deep-render harness', () => {
         assertScalarPointerTargetPreview(row!);
     });
 
-    test('struct pointer click jumps without creating destination pin', async () => {
-        const header: StructDef = {
+    test('type pointer click jumps without creating destination pin', async () => {
+        const header: TypeDef = {
             id: 'header_follow',
             name: 'HeaderFollow',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent_follow',
             name: 'ParentFollow',
             packed: true,
-            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'hdr', type: 'struct', refTypeId: header.id, isPointer: true, count: 1 }],
         };
         const bytes = new Array(0x40).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0xAB;
-        S.structs = [header, parent];
-        S.structPins = [{ id: 'pin_parent_follow', structId: parent.id, addr: 0, name: 'parentInst' }];
+        S.types = [header, parent];
+        S.typeInstances = [{ id: 'pin_parent_follow', typeId: parent.id, addr: 0, name: 'parentInst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
 
         const value = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-ptr');
-        assert.ok(value, 'struct pointer value should render');
+        assert.ok(value, 'type pointer value should render');
         value!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
-        const targetPins = S.structPins.filter(pin => pin.structId === header.id && pin.addr === 0x20);
-        assert.strictEqual(targetPins.length, 0, 'jump should not create target struct pin');
+        const targetPins = S.typeInstances.filter(pin => pin.typeId === header.id && pin.addr === 0x20);
+        assert.strictEqual(targetPins.length, 0, 'jump should not create target instance');
         assert.strictEqual(S.selStart, 0x20);
         assert.strictEqual(S.selEnd, 0x20);
     });
 
-    test('struct pointer menu creates or reuses destination pin with source metadata', async () => {
-        const header = setupStructPointerFixture({ header: 'header_create', parent: 'parent_create', pin: 'pin_parent_create' });
+    test('type pointer menu creates or reuses destination pin with source metadata', async () => {
+        const header = setupTypePointerFixture({ header: 'header_create', parent: 'parent_create', pin: 'pin_parent_create' });
 
         await renderPinsAndExpandCard();
 
-        triggerCreateStructInstance(dom, 'struct pointer header should render');
+        triggerCreateTypeInstance(dom, 'type pointer header should render');
 
         const targetPin = assertSinglePointerTarget(header.id);
         assertPointerCreateMetadata(targetPin);
 
-        triggerCreateStructInstance(dom, 'struct pointer header should render after create');
+        triggerCreateTypeInstance(dom, 'type pointer header should render after create');
         assert.strictEqual(pinsForTarget(header.id, 0x20).length, 1, 'create should reuse existing target pin');
         assert.strictEqual(targetPin.pointerSources?.length, 1, 'duplicate source metadata should not be added');
     });
 
-    test('expanding struct pointer decodes target fields inline', async () => {
-        const header: StructDef = {
+    test('expanding type pointer decodes target fields inline', async () => {
+        const header: TypeDef = {
             id: 'header_inline',
             name: 'HeaderInline',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent_inline',
             name: 'ParentInline',
             packed: true,
-            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'hdr', type: 'struct', refTypeId: header.id, isPointer: true, count: 1 }],
         };
         const bytes = new Array(0x40).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0xAB;
-        S.structs = [header, parent];
-        S.structPins = [{ id: 'pin_parent_inline', structId: parent.id, addr: 0, name: 'parentInst' }];
+        S.types = [header, parent];
+        S.typeInstances = [{ id: 'pin_parent_inline', typeId: parent.id, addr: 0, name: 'parentInst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
 
         const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
-        assert.ok(expand, 'struct pointer should render expandable row');
+        assert.ok(expand, 'type pointer should render expandable row');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const child = document.querySelector<HTMLElement>('.si-ptr-hdr + .si-arr-grp-body .si-field');
@@ -1465,31 +1465,31 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(child!.querySelector<HTMLElement>('.si-f-name')?.textContent, 'tag');
     });
 
-    test('expanded struct pointer header keeps its offset visible', async () => {
+    test('expanded type pointer header keeps its offset visible', async () => {
         setupOffsetVisiblePointerFixture();
         await renderPinsAndExpandCard();
         assertPointerOffsetVisibleAfterExpand(dom);
     });
 
-    test('renders struct pointer arrays with parent and pointer element rows', async () => {
-        const node: StructDef = {
+    test('renders type pointer arrays with parent and pointer element rows', async () => {
+        const node: TypeDef = {
             id: 'ptr_array_node',
             name: 'Node',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'ptr_array_parent',
             name: 'PtrArrayParent',
             packed: true,
-            fields: [{ name: 'nodes', type: 'struct', refStructId: node.id, isPointer: true, count: 2 }],
+            fields: [{ name: 'nodes', type: 'struct', refTypeId: node.id, isPointer: true, count: 2 }],
         };
         const bytes = new Array(0x40).fill(0);
         bytes[0] = 0x20;
         bytes[4] = 0x30;
         bytes[0x20] = 0xAA;
         bytes[0x30] = 0xBB;
-        S.structs = [node, parent];
-        S.structPins = [{ id: 'pin_ptr_array_parent', structId: parent.id, addr: 0, name: 'inst' }];
+        S.types = [node, parent];
+        S.typeInstances = [{ id: 'pin_ptr_array_parent', typeId: parent.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
@@ -1521,65 +1521,65 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(child?.querySelector<HTMLElement>('.si-f-off')?.textContent, '+000');
     });
 
-    test('compacts long struct pointer type labels in the data type column', async () => {
-        const longName = 'VeryLongTelemetryHeaderStruct';
-        const header: StructDef = {
+    test('compacts long type pointer type labels in the data type column', async () => {
+        const longName = 'VeryLongTelemetryHeaderType';
+        const header: TypeDef = {
             id: 'long_ptr_header',
             name: longName,
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'long_ptr_parent',
             name: 'LongPtrParent',
             packed: true,
-            fields: [{ name: 'hdr', type: 'struct', refStructId: header.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'hdr', type: 'struct', refTypeId: header.id, isPointer: true, count: 1 }],
         };
         const bytes = new Array(0x30).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0xAB;
-        S.structs = [header, parent];
-        S.structPins = [{ id: 'pin_long_ptr_parent', structId: parent.id, addr: 0, name: 'inst' }];
+        S.types = [header, parent];
+        S.typeInstances = [{ id: 'pin_long_ptr_parent', typeId: parent.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
 
         const typeCell = document.querySelector<HTMLElement>('.si-ptr-hdr .si-f-type');
-        assert.ok(typeCell, 'struct pointer type cell should render');
-        assert.strictEqual(typeCell!.textContent, 'VeryL...truct*');
+        assert.ok(typeCell, 'type pointer type cell should render');
+        assert.strictEqual(typeCell!.textContent, 'VeryL...rType*');
         assert.strictEqual(typeCell!.getAttribute('title'), `${longName}*`);
         assert.strictEqual(typeCell!.getAttribute('aria-label'), `${longName}*`);
     });
 
-    test('nested inline struct pointer uses inline source for jump and create', async () => {
-        const leaf: StructDef = {
+    test('nested inline type pointer uses inline source for jump and create', async () => {
+        const leaf: TypeDef = {
             id: 'leaf_inline_ptr',
             name: 'LeafInlinePtr',
             fields: [{ name: 'flag', type: 'uint8', count: 1 }],
         };
-        const inner: StructDef = {
+        const inner: TypeDef = {
             id: 'inner_inline_ptr',
             name: 'InnerInlinePtr',
             packed: true,
-            fields: [{ name: 'next', type: 'struct', refStructId: leaf.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'next', type: 'struct', refTypeId: leaf.id, isPointer: true, count: 1 }],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent_inline_ptr',
             name: 'ParentInlinePtr',
             packed: true,
-            fields: [{ name: 'inner', type: 'struct', refStructId: inner.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'inner', type: 'struct', refTypeId: inner.id, isPointer: true, count: 1 }],
         };
         const bytes = new Array(0x60).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0x30;
         bytes[0x30] = 0x7F;
-        S.structs = [leaf, inner, parent];
-        S.structPins = [{ id: 'pin_parent_inline_ptr', structId: parent.id, addr: 0, name: 'parentInst' }];
+        S.types = [leaf, inner, parent];
+        S.typeInstances = [{ id: 'pin_parent_inline_ptr', typeId: parent.id, addr: 0, name: 'parentInst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
 
         const expand = document.querySelector<HTMLElement>('.si-ptr-hdr .si-arr-exp-btn');
-        assert.ok(expand, 'parent struct pointer should render expandable row');
+        assert.ok(expand, 'parent type pointer should render expandable row');
         expand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const headers = Array.from(document.querySelectorAll<HTMLElement>('.si-ptr-hdr'));
@@ -1592,10 +1592,10 @@ suite('StructPanel deep-render harness', () => {
         const nestedChild = nested!
             .closest<HTMLElement>('.si-arr-grp')!
             .querySelector<HTMLElement>('.si-arr-grp-body .si-ptr-child-hdr[data-pointer-allow-create="true"]');
-        assert.ok(nestedChild, 'nested struct pointer should expose create-enabled child row');
+        assert.ok(nestedChild, 'nested type pointer should expose create-enabled child row');
         nestedChild!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
-        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-struct-ptr"]');
-        assert.ok(create, 'nested struct pointer should enable create');
+        const create = document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="create-type-ptr"]');
+        assert.ok(create, 'nested type pointer should enable create');
         create!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const targetPins = pinsForTarget(leaf.id, 0x30);
@@ -1603,14 +1603,14 @@ suite('StructPanel deep-render harness', () => {
         const source = targetPins[0].pointerSources?.[0];
         assert.ok(source, 'nested create should store source metadata');
         assert.strictEqual(source!.sourcePinId, 'pin_parent_inline_ptr');
-        assert.strictEqual(source!.sourceStructId, inner.id);
+        assert.strictEqual(source!.sourceTypeId, inner.id);
         assert.strictEqual(source!.sourceFieldPath, 'next');
         assert.strictEqual(source!.pointerStorageAddress, 0x20);
         assert.strictEqual(source!.targetAddress, 0x30);
     });
 
     test('defaults bit-field parent binary to full storage range', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_binary_modes',
             name: 'BitBinaryModes',
             fields: [
@@ -1628,8 +1628,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_binary_modes', structId: 'bit_binary_modes', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_binary_modes', typeId: 'bit_binary_modes', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x33]);
 
         await renderPinsAndExpandCard();
@@ -1681,7 +1681,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('omits sliced binary when bit fields fill parent storage', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_full_range_menu',
             name: 'BitFullRangeMenu',
             fields: [
@@ -1697,8 +1697,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_full_range_menu', structId: 'bit_full_range_menu', addr: 0x200, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_full_range_menu', typeId: 'bit_full_range_menu', addr: 0x200, name: 'inst' }];
         setBytesInSegment(0x200, [0x33]);
 
         await renderPinsAndExpandCard();
@@ -1713,7 +1713,7 @@ suite('StructPanel deep-render harness', () => {
     test('copies bit-field parent and child values from the clicked row', async () => {
         const writes = captureClipboardWrites();
 
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_copy_rows',
             name: 'BitCopyRows',
             fields: [
@@ -1730,8 +1730,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_copy_rows', structId: 'bit_copy_rows', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_copy_rows', typeId: 'bit_copy_rows', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xB1]);
 
         await renderPinsAndExpandCard();
@@ -1757,9 +1757,9 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(writes.pop(), '6', 'child copy should use the clicked bit-field child value');
     });
 
-    test('copies every struct value format as a single line', async () => {
+    test('copies every overlay value format as a single line', async () => {
         const writes = captureClipboardWrites();
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'single_line_copy',
             name: 'SingleLineCopy',
             fields: [
@@ -1778,8 +1778,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_single_line_copy', structId: 'single_line_copy', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_single_line_copy', typeId: 'single_line_copy', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
             0x00, 0x00, 0x80, 0x3F,
@@ -1833,7 +1833,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('wraps wide bit-field parent binary like scalar binary values', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'wide_bit_parent_binary',
             name: 'WideBitParentBinary',
             fields: [
@@ -1849,8 +1849,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_wide_bit_parent_binary', structId: 'wide_bit_parent_binary', addr: 0x500, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_wide_bit_parent_binary', typeId: 'wide_bit_parent_binary', addr: 0x500, name: 'inst' }];
         setBytesInSegment(0x500, [0x12, 0x34, 0x56, 0x78]);
 
         await renderPinsAndExpandCard();
@@ -1878,7 +1878,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('groups bit-field child binary from lower bits first', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_child_binary_grouping',
             name: 'BitChildBinaryGrouping',
             fields: [
@@ -1893,8 +1893,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_child_binary_grouping', structId: 'bit_child_binary_grouping', addr: 0x300, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_child_binary_grouping', typeId: 'bit_child_binary_grouping', addr: 0x300, name: 'inst' }];
         setBytesInSegment(0x300, [0x00]);
 
         await renderPinsAndExpandCard();
@@ -1909,7 +1909,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('array header view changes direct bit-field elements only', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_array_view_scope',
             name: 'BitArrayViewScope',
             fields: [
@@ -1925,8 +1925,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_array_view_scope', structId: 'bit_array_view_scope', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_array_view_scope', typeId: 'bit_array_view_scope', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x33, 0x55]);
 
         await renderPinsAndExpandCard();
@@ -1957,7 +1957,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('highlights array bit-field parent bits and selected child row', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'bit_array_highlight',
             name: 'BitArrayHighlight',
             fields: [
@@ -1973,8 +1973,8 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_bit_array_highlight', structId: 'bit_array_highlight', addr: 0x100, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_bit_array_highlight', typeId: 'bit_array_highlight', addr: 0x100, name: 'inst' }];
         setBytesInSegment(0x100, [0x33, 0x55]);
 
         await renderPinsAndExpandCard();
@@ -2002,7 +2002,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('renders nested bit-field arrays with declared field names', async () => {
-        const child: StructDef = {
+        const child: TypeDef = {
             id: 'child_bits',
             name: 'ChildBits',
             fields: [
@@ -2018,25 +2018,25 @@ suite('StructPanel deep-render harness', () => {
                 { name: 'payload', type: 'uint8', count: 2 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent_bits',
             name: 'ParentBits',
             fields: [
-                { name: 'nodes', type: 'struct', refStructId: 'child_bits', count: 2 },
+                { name: 'nodes', type: 'struct', refTypeId: 'child_bits', count: 2 },
             ],
         };
 
-        S.structs = [child, parent];
-        S.structPins = [{ id: 'pin_nested_bits', structId: 'parent_bits', addr: 0, name: 'inst' }];
+        S.types = [child, parent];
+        S.typeInstances = [{ id: 'pin_nested_bits', typeId: 'parent_bits', addr: 0, name: 'inst' }];
 
         await renderPinsAndExpandCard();
 
         const parentGroupExpand = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp .si-arr-exp-btn');
-        assert.ok(parentGroupExpand, 'nested struct array group should be expandable');
+        assert.ok(parentGroupExpand, 'nested type array group should be expandable');
         parentGroupExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const elementExpand = document.querySelector<HTMLElement>('.si-arr-el-hdr .si-arr-el-exp-btn');
-        assert.ok(elementExpand, 'nested struct array element should be expandable');
+        assert.ok(elementExpand, 'nested type array element should be expandable');
         elementExpand!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const nestedBitGroup = document.querySelector<HTMLElement>('.si-arr-el-body .si-arr-grp-hdr .si-f-name');
@@ -2060,14 +2060,14 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('renders nested single bit-field groups like top-level bit-field groups', async () => {
-        S.structs = nestedSingleBitFieldStructs();
-        S.structPins = [{ id: 'pin_nested_single_bits', structId: 'parent_single_bits', addr: 0x40, name: 'inst' }];
+        S.types = nestedSingleBitFieldTypes();
+        S.typeInstances = [{ id: 'pin_nested_single_bits', typeId: 'parent_single_bits', addr: 0x40, name: 'inst' }];
         setBytesInSegment(0x40, [0x0B]);
 
         await renderPinsAndExpandCard();
 
         const expandNode = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-hdr .si-arr-exp-btn');
-        assert.ok(expandNode, 'nested struct node should be expandable');
+        assert.ok(expandNode, 'nested type node should be expandable');
         expandNode!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 
         const nestedBitHeader = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp > .si-arr-grp-body > .si-arr-grp > .si-bitunit-hdr');
@@ -2108,8 +2108,8 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(childNames.includes('enabled'), 'nested bit-field child row should contain enabled');
     }
 
-    function nestedSingleBitFieldStructs(): StructDef[] {
-        const child: StructDef = {
+    function nestedSingleBitFieldTypes(): TypeDef[] {
+        const child: TypeDef = {
             id: 'child_single_bits',
             name: 'ChildSingleBits',
             fields: [
@@ -2124,18 +2124,18 @@ suite('StructPanel deep-render harness', () => {
                 },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'parent_single_bits',
             name: 'ParentSingleBits',
             fields: [
-                { name: 'node', type: 'struct', refStructId: 'child_single_bits', count: 1 },
+                { name: 'node', type: 'struct', refTypeId: 'child_single_bits', count: 1 },
             ],
         };
         return [child, parent];
     }
 
     test('keeps scalar arrays separate from bit-field groups', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'mixed_bits',
             name: 'MixedBits',
             fields: [
@@ -2161,12 +2161,12 @@ suite('StructPanel deep-render harness', () => {
             ],
         };
 
-        S.structs = [def];
-        S.structPins = [{ id: 'pin_mixed_bits', structId: 'mixed_bits', addr: 0, name: 'inst' }];
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_mixed_bits', typeId: 'mixed_bits', addr: 0, name: 'inst' }];
 
         await renderPinsAndExpandCard();
 
-        const topHeaders = getTopStructFieldHeaders();
+        const topHeaders = getTopFieldHeaders();
         assert.deepStrictEqual(topHeaders, ['field0', 'data', 'field1'], 'mixed sibling groups should keep their declared order and names');
 
         const dataGroup = document.querySelector<HTMLElement>('.si-fields > .si-arr-grp:nth-child(2)');
@@ -2183,7 +2183,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(!scalarArrayNames.includes('BitField'), 'scalar arrays should not be reclassified as bit-field groups');
     });
 
-    // ── Contract-folded assertions (formerly struct.test.ts) ───────────────
+    // ── Contract-folded assertions (formerly the codec suite) ───────────────
 
     test('renders pane-view sections with empty states', async () => {
         await createMountedPanel();
@@ -2204,15 +2204,15 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(instancesHead.getAttribute('role'), 'button');
         assert.strictEqual(instancesHead.getAttribute('aria-expanded'), 'true');
         assert.ok(instancesHead.querySelector('.sb-section-chevron'));
-        assert.match(document.getElementById('si-instances')!.textContent!, /Define a struct type first/);
+        assert.match(document.getElementById('si-instances')!.textContent!, /Define a type first/);
         assert.strictEqual(document.querySelector('#si-types .sb-empty')?.textContent, 'No types defined yet.');
         assert.strictEqual(document.getElementById('si-types-btn'), null, 'no hamburger manage-types control');
         assert.strictEqual(document.getElementById('si-track'), null, 'no slide-track container');
     });
 
     test('mount is idempotent: re-mount into the same root re-renders without errors', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin2', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin2', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
         panel.mount(document.getElementById('s-struct-pins')!);
@@ -2221,8 +2221,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('re-mount registers no additional document click listener (no handler stacking)', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin3', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin3', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         let docClickCount = 0;
         const origAdd = document.addEventListener.bind(document);
@@ -2241,8 +2241,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('setData renders instance cards; expansion persists across re-render', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
         assert.strictEqual(document.querySelector('.si-cname')?.textContent, 'inst');
@@ -2259,8 +2259,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('row click selects the decoded range and paints the row selected', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         await renderPinsAndExpandCard();
         const row = document.querySelector<HTMLElement>('.si-field');
@@ -2272,8 +2272,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('setEndian re-decodes scalar values live', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         const panel = await createMountedPanel();
         click(dom, document.querySelector('.si-expand-btn'));
@@ -2300,7 +2300,7 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.getElementById('sm-kind-cancel'));
         assert.strictEqual(document.getElementById('sm-kind-picker'), null, 'cancel returns to the list');
         assert.ok(document.getElementById('sm-list'), 'cancel shows the type list again');
-        assert.strictEqual(S.structs.length, 0, 'cancel creates nothing');
+        assert.strictEqual(S.types.length, 0, 'cancel creates nothing');
     });
 
     test('each kind tile opens that kind’s own form', async () => {
@@ -2309,17 +2309,17 @@ suite('StructPanel deep-render harness', () => {
         openKindPicker();
         click(dom, document.querySelector<HTMLElement>('.sm-kind-tile[data-kind="struct"]'));
         assert.ok(document.querySelector('.se-field-hdr'), 'Struct tile opens the field grid');
-        assert.strictEqual(document.getElementById('se-base-type'), null, 'struct form has no bit-field base select');
+        assert.strictEqual(document.getElementById('se-base-type'), null, 'type form has no bit-field base select');
 
         click(dom, document.getElementById('se-cancel'));
         openKindEditor('bitfield');
         assert.ok(document.getElementById('se-base-type'), 'Bit-field tile opens the base width select');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'bit-field form has no struct field grid');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'bit-field form has no type field grid');
 
         click(dom, document.getElementById('se-cancel'));
         openKindEditor('enum');
         assert.ok(document.getElementById('se-enum-base-type'), 'Enum tile opens the enum base width select');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'enum form has no struct field grid');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'enum form has no type field grid');
     });
 
     test('new type editor saves and renders C preview', async () => {
@@ -2333,28 +2333,28 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(preview && preview.textContent!.length > 0, 'C preview should render');
 
         click(dom, document.getElementById('se-save'));
-        assert.strictEqual(S.structs.length, 1);
-        assert.strictEqual(S.structs[0].name, 'MyNewType');
-        assert.strictEqual(S.structs[0].fields.length, 1);
+        assert.strictEqual(S.types.length, 1);
+        assert.strictEqual(S.types[0].name, 'MyNewType');
+        assert.strictEqual(S.types[0].fields.length, 1);
     });
 
-    test('delete struct cascades dependent pins via state sync', async () => {
-        S.structs = [childDef, parentDef];
-        S.structPins = [{ id: 'pin1', structId: 'parent', addr: 0, name: 'inst' }];
+    test('delete type cascades dependent pins via state sync', async () => {
+        S.types = [childDef, parentDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'parent', addr: 0, name: 'inst' }];
         await createMountedPanel();
-        const delBtn = document.querySelector<HTMLElement>('.sd-row .act-btn-del[data-struct-id="parent"]');
+        const delBtn = document.querySelector<HTMLElement>('.sd-row .act-btn-del[data-type-id="parent"]');
         assert.ok(delBtn, 'type row delete button should render');
         click(dom, delBtn);
         confirmDelete(dom);
         // Flush the inline-confirm popover's deferred listener timer before teardown.
         await new Promise(resolve => setTimeout(resolve, 0));
-        assert.deepStrictEqual(S.structs.map(d => d.id), ['child']);
-        assert.deepStrictEqual(S.structPins, []);
+        assert.deepStrictEqual(S.types.map(d => d.id), ['child']);
+        assert.deepStrictEqual(S.typeInstances, []);
     });
 
     test('add form confirms a new pin', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [];
+        S.types = [scalarDef];
+        S.typeInstances = [];
         await createMountedPanel();
         click(dom, document.getElementById('si-add-btn'));
         const nameInp = document.getElementById('sa-name') as HTMLInputElement | null;
@@ -2363,15 +2363,15 @@ suite('StructPanel deep-render harness', () => {
         nameInp!.value = 'newInst';
         addrInp!.value = '00001000';
         click(dom, document.getElementById('sa-confirm'));
-        assert.strictEqual(S.structPins.length, 1);
-        assert.strictEqual(S.structPins[0].structId, 'scalar');
-        assert.strictEqual(S.structPins[0].addr, 0x1000);
-        assert.strictEqual(S.structPins[0].name, 'newInst');
+        assert.strictEqual(S.typeInstances.length, 1);
+        assert.strictEqual(S.typeInstances[0].typeId, 'scalar');
+        assert.strictEqual(S.typeInstances[0].addr, 0x1000);
+        assert.strictEqual(S.typeInstances[0].name, 'newInst');
     });
 
     test('setSelection fills the open add-form address', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [];
+        S.types = [scalarDef];
+        S.typeInstances = [];
         const panel = await createMountedPanel();
         click(dom, document.getElementById('si-add-btn'));
         panel.setSelection(0x2000);
@@ -2379,8 +2379,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('edit form save updates the pin via inline add form', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         click(dom, document.querySelector('.sb-card .act-btn-edit'));
         assert.ok(document.getElementById('si-add-form'), 'inline edit form should open');
@@ -2389,14 +2389,14 @@ suite('StructPanel deep-render harness', () => {
         (document.getElementById('sa-name') as HTMLInputElement).value = 'renamed';
         (document.getElementById('sa-addr') as HTMLInputElement).value = '00001111';
         click(dom, document.getElementById('sa-confirm'));
-        assert.strictEqual(S.structPins[0].name, 'renamed');
-        assert.strictEqual(S.structPins[0].addr, 0x1111);
+        assert.strictEqual(S.typeInstances[0].name, 'renamed');
+        assert.strictEqual(S.typeInstances[0].addr, 0x1111);
         assert.strictEqual(document.getElementById('si-add-form'), null, 'form should close after save');
     });
 
     test('instance card always-visible actions: view-type, edit cancel', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
 
         const card = document.querySelector<HTMLElement>('.sb-card');
@@ -2419,23 +2419,23 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(document.getElementById('si-add-form'), 'edit should open the inline form');
         click(dom, document.getElementById('sa-cancel'));
         assert.strictEqual(document.getElementById('si-add-form'), null, 'cancel should close the form');
-        assert.strictEqual(S.structPins[0].name, 'inst', 'cancel should not mutate the pin');
+        assert.strictEqual(S.typeInstances[0].name, 'inst', 'cancel should not mutate the pin');
     });
 
     test('delete pin removes it via card action', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         click(dom, document.querySelector('.sb-card .act-btn-del'));
         confirmDelete(dom);
         // Flush the inline-confirm popover's deferred listener timer before teardown.
         await new Promise(resolve => setTimeout(resolve, 0));
-        assert.deepStrictEqual(S.structPins, []);
+        assert.deepStrictEqual(S.typeInstances, []);
     });
 
     test('types section header handles click and keyboard collapse', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         const head = document.querySelector<HTMLElement>('#si-types .sb-section-head')!;
         click(dom, head);
@@ -2451,8 +2451,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('editor field rows expose pointer via visible toggle button and context menu', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         openKindEditor('struct');
         let row = document.querySelector<HTMLElement>('.struct-field-row');
@@ -2484,32 +2484,32 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.querySelector<HTMLElement>('.si-field-menu .menu-item[data-cmd="field-ptr-on"]'));
         (document.getElementById('se-name') as HTMLInputElement).value = 'PtrType';
         click(dom, document.getElementById('se-save'));
-        const saved = S.structs.find(d => d.name === 'PtrType');
+        const saved = S.types.find(d => d.name === 'PtrType');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.fields[0].isPointer, true, 'saved field should be a pointer');
     });
 
     test('pointer row button toggles field pointer on click and persists on save', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         await createMountedPanel();
         openKindEditor('struct');
         (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
 
         let row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row, 'editor field row should render');
-        // Click ON: button activates and the pointer flag lands in the saved struct.
+        // Click ON: button activates and the pointer flag lands in the saved type.
         click(dom, row!.querySelector<HTMLElement>('.sfe-ptr-btn'));
         row = document.querySelector<HTMLElement>('.struct-field-row');
         assert.ok(row!.querySelector<HTMLElement>('.sfe-ptr-btn')!.classList.contains('active'), 'clicking * activates the pointer button');
         assert.strictEqual(row!.dataset.ptr, '1', 'clicking * marks the row as pointer');
         click(dom, document.getElementById('se-save'));
-        const savedOn = S.structs.find(d => d.name === 'BtnPtr');
+        const savedOn = S.types.find(d => d.name === 'BtnPtr');
         assert.ok(savedOn, 'saved type should exist');
         assert.strictEqual(savedOn!.fields[0].isPointer, true, 'saved field should be a pointer after button click');
 
         // Re-open the editor: button renders active from persisted state.
-        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="' + savedOn!.id + '"]'));
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="' + savedOn!.id + '"]'));
         row = document.querySelector<HTMLElement>('.struct-field-row');
         const btnOn = row!.querySelector<HTMLElement>('.sfe-ptr-btn');
         assert.ok(btnOn!.classList.contains('active'), 'persisted pointer field re-opens with active button');
@@ -2522,24 +2522,24 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(row!.dataset.ptr, '', 'clicking active * clears the row pointer mark');
         (document.getElementById('se-name') as HTMLInputElement).value = 'BtnPtr';
         click(dom, document.getElementById('se-save'));
-        const savedOff = S.structs.find(d => d.name === 'BtnPtr');
+        const savedOff = S.types.find(d => d.name === 'BtnPtr');
         assert.ok(savedOff, 'saved type should still exist');
         assert.strictEqual(savedOff!.fields[0].isPointer, undefined, 'saved field should no longer be a pointer after second click');
     });
 
     test('pointer button is disabled for bit-field container fields and stays active for void fields', async () => {
-        const voidBitDef: StructDef = {
+        const voidBitDef: TypeDef = {
             id: 'vbd',
             name: 'VoidBit',
             fields: [
                 { name: 'raw', type: 'void', count: 1 },
-                { name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 },
+                { name: 'flags', type: 'bitfield', refTypeId: 'bits', count: 1 },
             ],
         };
-        S.structs = [reusableBitsDef(), voidBitDef];
-        S.structPins = [];
+        S.types = [reusableBitsDef(), voidBitDef];
+        S.typeInstances = [];
         await createMountedPanel();
-        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="vbd"]'));
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="vbd"]'));
 
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
         const rowByName = (name: string) => rows.find(r => (r.querySelector('.sfe-name-inp') as HTMLInputElement).value === name)!;
@@ -2557,27 +2557,27 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('editor grid shares 9 columns; only bit-field-reference rows author an Alloc select', async () => {
-        const inner: StructDef = {
+        const inner: TypeDef = {
             id: 'inner',
             name: 'Inner',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const outer: StructDef = {
+        const outer: TypeDef = {
             id: 'outer',
             name: 'Outer',
             fields: [
                 { name: 'plain', type: 'uint16', count: 1 },
                 { name: 'p', type: 'void', isPointer: true, count: 1 },
-                { name: 'nested', type: 'struct', refStructId: 'inner', count: 1 },
-                { name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 },
+                { name: 'nested', type: 'struct', refTypeId: 'inner', count: 1 },
+                { name: 'flags', type: 'bitfield', refTypeId: 'bits', count: 1 },
             ],
         };
-        S.structs = [inner, reusableBitsDef(), outer];
+        S.types = [inner, reusableBitsDef(), outer];
         await createMountedPanel();
-        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="outer"]'));
 
         // Inject the real stylesheet so computed grid templates reflect the shared columns.
-        injectStructPanelCss();
+        injectOverlayPanelCss();
 
         const TEMPLATE = '96px 26px 1fr 58px 52px 28px 72px 30px 18px';
 
@@ -2598,11 +2598,11 @@ suite('StructPanel deep-render harness', () => {
 
         // Struct-default row shares the same 9-column grid.
         const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
-        assert.ok(defaultRow, 'struct-default row should render');
+        assert.ok(defaultRow, 'type-default row should render');
         assert.strictEqual(
             dom.window.getComputedStyle(defaultRow!).getPropertyValue('grid-template-columns'),
             TEMPLATE,
-            'struct-default row shares the 9-column grid',
+            'type-default row shares the 9-column grid',
         );
 
         // No inline bit-field authoring; only the reusable bit-field-reference
@@ -2611,7 +2611,7 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(document.querySelector('.sfe-bit-btn'), null, 'no per-field bit toggle');
         assert.strictEqual(document.querySelectorAll('.sfe-alloc-sel').length, 1, 'only the bit-field-reference row authors an alloc select');
         assert.strictEqual(document.querySelectorAll('.sfe-alloc-placeholder').length, 3, 'every other row keeps an alignment placeholder');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level alloc select');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'no type-level alloc select');
 
         // Every field row: 9-column grid, second cell is the pointer button, Hide checkbox in the Hide cell.
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.struct-field-row'));
@@ -2640,16 +2640,16 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('Hide checkbox reflects a loaded hidden field and saves the flag (false dropped)', async () => {
-        const def: StructDef = {
+        const def: TypeDef = {
             id: 'cfg', name: 'Cfg', fields: [
                 { name: 'reserved', type: 'uint8', count: 1, hidden: true },
                 { name: 'tag', type: 'uint8', count: 1 },
             ],
         };
-        S.structs = [def];
-        S.structPins = [];
+        S.types = [def];
+        S.typeInstances = [];
         await createMountedPanel();
-        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="cfg"]'));
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="cfg"]'));
 
         const rows = document.querySelectorAll<HTMLElement>('.struct-field-row');
         const chkFor = (name: string): HTMLInputElement => {
@@ -2666,7 +2666,7 @@ suite('StructPanel deep-render harness', () => {
         chkFor('tag').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         click(dom, document.getElementById('se-save'));
 
-        const saved = S.structs.find(d => d.id === 'cfg')!;
+        const saved = S.types.find(d => d.id === 'cfg')!;
         const reserved = saved.fields.find(f => f.name === 'reserved')!;
         const tag = saved.fields.find(f => f.name === 'tag')!;
         assert.strictEqual(reserved.hidden, undefined, 'unchecked field drops hidden (false is never persisted)');
@@ -2674,7 +2674,7 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(JSON.stringify(reserved).includes('hidden'), false, 'false value is omitted from the serialized field');
     });
 
-    // ── per-field / per-struct endian overrides ──
+    // ── per-field / per-type endian overrides ──
 
     const overrideChange = (dom: JSDOM, sel: HTMLSelectElement): void => {
         sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
@@ -2684,16 +2684,16 @@ suite('StructPanel deep-render harness', () => {
         await createMountedPanel();
         openKindEditor('struct');
         const endianSel = document.getElementById('se-endian') as HTMLSelectElement | null;
-        assert.ok(endianSel, 'struct-level endian select should render');
-        assert.ok(endianSel!.closest('.se-struct-default-row'), 'struct-level endian lives in the grid-aligned struct-default row');
-        assert.strictEqual(endianSel!.value, '', 'struct endian defaults to inherited');
-        assert.ok(endianSel!.options[0] && endianSel!.options[2], 'struct endian tri-state Auto/LE/BE should render');
-        assert.strictEqual(endianSel!.options[0].textContent, 'Auto', 'struct endian Auto option label');
-        assert.strictEqual(endianSel!.options[1].textContent, 'LE', 'struct endian LE option label');
-        assert.strictEqual(endianSel!.options[2].textContent, 'BE', 'struct endian BE option label');
-        assert.strictEqual(endianSel!.options[0].title, 'Auto — inherits LE', 'struct endian Auto tooltip shows global source');
-        assert.ok(!endianSel!.classList.contains('is-explicit'), 'inherited struct endian is not tinted');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'no struct-level allocation select');
+        assert.ok(endianSel, 'type-level endian select should render');
+        assert.ok(endianSel!.closest('.se-struct-default-row'), 'type-level endian lives in the grid-aligned type-default row');
+        assert.strictEqual(endianSel!.value, '', 'type endian defaults to inherited');
+        assert.ok(endianSel!.options[0] && endianSel!.options[2], 'type endian tri-state Auto/LE/BE should render');
+        assert.strictEqual(endianSel!.options[0].textContent, 'Auto', 'type endian Auto option label');
+        assert.strictEqual(endianSel!.options[1].textContent, 'LE', 'type endian LE option label');
+        assert.strictEqual(endianSel!.options[2].textContent, 'BE', 'type endian BE option label');
+        assert.strictEqual(endianSel!.options[0].title, 'Auto — inherits LE', 'type endian Auto tooltip shows global source');
+        assert.ok(!endianSel!.classList.contains('is-explicit'), 'inherited type endian is not tinted');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'no type-level allocation select');
 
         // Plain row: field endian select renders; allocation stays a placeholder cell.
         const plainRow = document.querySelector<HTMLElement>('.struct-field-row')!;
@@ -2702,46 +2702,46 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(plainRow.querySelector('.sfe-alloc-sel'), null, 'plain row authors no field allocation select');
         assert.ok(plainRow.querySelector('.sfe-alloc-placeholder'), 'plain row keeps the alloc alignment placeholder');
         assert.strictEqual(fieldEndian!.options[0].textContent, 'Auto', 'field endian Auto option label');
-        assert.strictEqual(fieldEndian!.options[0].title, 'Auto — inherits LE', 'field endian Auto tooltip shows global when struct has none');
+        assert.strictEqual(fieldEndian!.options[0].title, 'Auto — inherits LE', 'field endian Auto tooltip shows global when the type has none');
     });
 
-    test('editor endian selects save per-struct and per-field overrides', async () => {
+    test('editor endian selects save per-type and per-field overrides', async () => {
         await createMountedPanel();
         openKindEditor('struct');
-        const structEndian = document.getElementById('se-endian') as HTMLSelectElement;
-        structEndian.value = 'be';
-        overrideChange(dom, structEndian);
-        // Struct-level change re-renders the editor — re-query the fresh select.
+        const typeEndian = document.getElementById('se-endian') as HTMLSelectElement;
+        typeEndian.value = 'be';
+        overrideChange(dom, typeEndian);
+        // Type-level change re-renders the editor — re-query the fresh select.
         const freshEndian = document.getElementById('se-endian') as HTMLSelectElement;
-        assert.ok(!freshEndian.classList.contains('is-explicit'), 'explicit struct endian does not tint the select');
-        // Field endian select shows the struct-level effective source.
+        assert.ok(!freshEndian.classList.contains('is-explicit'), 'explicit type endian does not tint the select');
+        // Field endian select shows the type-level effective source.
         const fieldEndian = document.querySelector<HTMLSelectElement>('.sfe-endian-sel')!;
-        assert.strictEqual(fieldEndian.options[0].title, 'Auto — inherits BE', 'field endian Auto tooltip shows struct override');
+        assert.strictEqual(fieldEndian.options[0].title, 'Auto — inherits BE', 'field endian Auto tooltip shows type override');
         fieldEndian.value = 'le';
         overrideChange(dom, fieldEndian);
         assert.ok(!fieldEndian.classList.contains('is-explicit'), 'explicit field endian does not tint the select');
         (document.getElementById('se-name') as HTMLInputElement).value = 'Mixed';
         click(dom, document.getElementById('se-save'));
-        const saved = S.structs.find(d => d.name === 'Mixed');
+        const saved = S.types.find(d => d.name === 'Mixed');
         assert.ok(saved, 'saved type should exist');
         assert.strictEqual(saved!.endian, 'be');
         assert.strictEqual(saved!.fields[0].endian, 'le');
-        assert.strictEqual(saved!.fields[0].allocation, undefined, 'pure struct no longer authors field allocation');
+        assert.strictEqual(saved!.fields[0].allocation, undefined, 'pure type no longer authors field allocation');
     });
 
-    test('struct-default row is grid-aligned; non-bit-field rows keep an alloc placeholder', async () => {
-        const inner: StructDef = {
+    test('type-default row is grid-aligned; non-bit-field rows keep an alloc placeholder', async () => {
+        const inner: TypeDef = {
             id: 'inner',
             name: 'Inner',
             fields: [{ name: 'tag', type: 'uint8', count: 1 }],
         };
-        const outer: StructDef = {
+        const outer: TypeDef = {
             id: 'outer',
             name: 'Outer',
             fields: [
                 { name: 'plain', type: 'uint16', count: 1 },
                 { name: 'p', type: 'void', isPointer: true, count: 1 },
-                { name: 'nested', type: 'struct', refStructId: 'inner', count: 1 },
+                { name: 'nested', type: 'struct', refTypeId: 'inner', count: 1 },
                 {
                     name: 'ctl', type: 'uint16', count: 1,
                     bitFields: [
@@ -2751,21 +2751,21 @@ suite('StructPanel deep-render harness', () => {
                 },
             ],
         };
-        S.structs = [inner, outer];
+        S.types = [inner, outer];
         await createMountedPanel();
-        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="outer"]'));
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="outer"]'));
 
         // Struct-default row: packed + endian slots; no allocation select.
         const defaultRow = document.querySelector<HTMLElement>('.se-struct-default-row');
-        assert.ok(defaultRow, 'struct-default row should render');
-        assert.ok(defaultRow!.querySelector('#se-packed'), 'packed toggle sits in the Type column of the struct-default row');
+        assert.ok(defaultRow, 'type-default row should render');
+        assert.ok(defaultRow!.querySelector('#se-packed'), 'packed toggle sits in the Type column of the type-default row');
         assert.strictEqual(
             defaultRow!.querySelector('.se-struct-default-lbl')?.textContent,
-            'struct default',
-            'struct-default label sits in the Name column',
+            'type default',
+            'type-default label sits in the Name column',
         );
-        assert.ok(defaultRow!.querySelector('#se-endian'), 'struct endian select sits in the Endian column');
-        assert.strictEqual(defaultRow!.querySelector('#se-alloc'), null, 'struct-default row has no allocation select');
+        assert.ok(defaultRow!.querySelector('#se-endian'), 'type endian select sits in the Endian column');
+        assert.strictEqual(defaultRow!.querySelector('#se-alloc'), null, 'type-default row has no allocation select');
         assert.strictEqual(document.querySelector('.se-override-row'), null, 'legacy flex override strip removed');
 
         // Field rows: no bit-field reference here, so no alloc select; every
@@ -2782,9 +2782,9 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('decoded rows badge explicit endian/allocation overrides', async () => {
-        const beStruct: StructDef = {
+        const beType: TypeDef = {
             id: 'be',
-            name: 'BeStruct',
+            name: 'BeType',
             packed: true,
             endian: 'be',
             allocation: 'lsb',
@@ -2800,8 +2800,8 @@ suite('StructPanel deep-render harness', () => {
                 },
             ],
         };
-        S.structs = [beStruct];
-        S.structPins = [{ id: 'pin1', structId: 'be', addr: 0, name: 'inst' }];
+        S.types = [beType];
+        S.typeInstances = [{ id: 'pin1', typeId: 'be', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x12, 0x34, 0x78, 0x56, 0x34, 0x12, 0x12, 0x34]);
         await createMountedPanel();
         click(dom, document.querySelector('.si-expand-btn'));
@@ -2809,13 +2809,13 @@ suite('StructPanel deep-render harness', () => {
         const leafs = Array.from(document.querySelectorAll<HTMLElement>('.si-field'));
         const wordRow = leafs.find(el => el.querySelector('.si-f-name')?.textContent === 'word');
         assert.ok(wordRow, 'word row should render');
-        assert.strictEqual(wordRow!.querySelector('.si-chip-endian')?.textContent, 'BE', 'scalar row badges struct endian override');
+        assert.strictEqual(wordRow!.querySelector('.si-chip-endian')?.textContent, 'BE', 'scalar row badges type endian override');
 
         const pointerRow = leafs.find(el => el.classList.contains('si-ptr-field'));
         assert.ok(pointerRow, 'pointer row should render');
-        // Pointer header rows render via structPointerHeaderBodyHtml, which does
+        // Pointer header rows render via pointerHeaderBodyHtml, which does
         // not include overrideBadgeHtml — badges live on scalar/bit-unit rows.
-        assert.match(elementText(pointerRow!.querySelector('.si-f-val')!), /0x78563412/, 'pointer value decodes with the inherited struct endian');
+        assert.match(elementText(pointerRow!.querySelector('.si-f-val')!), /0x78563412/, 'pointer value decodes with the inherited type endian');
 
         const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
         assert.ok(bitHdr, 'bit unit header should render');
@@ -2828,8 +2828,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('no override badges when everything inherits global', async () => {
-        S.structs = [scalarDef];
-        S.structPins = [{ id: 'pin1', structId: 'scalar', addr: 0, name: 'inst' }];
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin1', typeId: 'scalar', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12]);
         await createMountedPanel();
         click(dom, document.querySelector('.si-expand-btn'));
@@ -2837,9 +2837,9 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('override endian changes rendered values, not just chips (REGRESSION)', async () => {
-        const beStruct: StructDef = {
+        const beType: TypeDef = {
             id: 'be2',
-            name: 'BeStruct2',
+            name: 'BeType2',
             packed: true,
             endian: 'be',
             allocation: 'lsb',
@@ -2854,13 +2854,13 @@ suite('StructPanel deep-render harness', () => {
                 },
             ],
         };
-        S.structs = [beStruct];
-        S.structPins = [{ id: 'pin2', structId: 'be2', addr: 0, name: 'inst' }];
+        S.types = [beType];
+        S.typeInstances = [{ id: 'pin2', typeId: 'be2', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x12, 0x34, 0x78, 0x56, 0x12, 0x34]);
         await createMountedPanel();
         click(dom, document.querySelector('.si-expand-btn'));
 
-        // word = [0x12,0x34]; global LE -> 0x3412, struct override BE -> 0x1234.
+        // word = [0x12,0x34]; global LE -> 0x3412, type override BE -> 0x1234.
         const leafs = Array.from(document.querySelectorAll<HTMLElement>('.si-field'));
         const wordRow = leafs.find(el => el.querySelector('.si-f-name')?.textContent === 'word');
         assert.ok(wordRow, 'word row should render');
@@ -2870,7 +2870,7 @@ suite('StructPanel deep-render harness', () => {
             'scalar value cell must render with the effective BE override, not global LE',
         );
 
-        // ctl = [0x78,0x56]; global LE -> 0x5678, struct override BE -> 0x7856.
+        // ctl = [0x78,0x56]; global LE -> 0x5678, type override BE -> 0x7856.
         const bitHdr = document.querySelector<HTMLElement>('.si-arr-grp-hdr.si-bitunit-hdr');
         assert.ok(bitHdr, 'bit unit header should render');
         bitHdr!.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 4, clientY: 4 }));
@@ -2881,7 +2881,7 @@ suite('StructPanel deep-render harness', () => {
         assert.match(hdrVal, /0x7856/, 'bit-unit header overall value must render with the effective BE override');
     });
 
-    test('invalid struct save shows an inline error and does not save', async () => {
+    test('invalid type save shows an inline error and does not save', async () => {
         await createMountedPanel();
         openKindEditor('struct');
         // Two same-named fields are rejected by validation.
@@ -2893,12 +2893,12 @@ suite('StructPanel deep-render harness', () => {
         (document.getElementById('se-name') as HTMLInputElement).value = 'Bad';
         click(dom, document.getElementById('se-save'));
         assert.ok(document.querySelector('.se-error'), 'inline error should render on invalid save');
-        assert.strictEqual(S.structs.length, 0, 'invalid struct must not be saved');
+        assert.strictEqual(S.types.length, 0, 'invalid type must not be saved');
     });
 
     test('array count above 256 saves with the entered value', async () => {
-        S.structs = [];
-        S.structPins = [];
+        S.types = [];
+        S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
 
@@ -2914,13 +2914,13 @@ suite('StructPanel deep-render harness', () => {
 
         setCount('270');
         click(dom, document.getElementById('se-save'));
-        assert.strictEqual(S.structs.length, 1, 'struct with large array count saves');
-        assert.strictEqual(S.structs[0].fields[0].count, 270, 'count 270 is preserved, not clamped to 256');
+        assert.strictEqual(S.types.length, 1, 'type with large array count saves');
+        assert.strictEqual(S.types[0].fields[0].count, 270, 'count 270 is preserved, not clamped to 256');
     });
 
     test('array count with many digits is not truncated on save', async () => {
-        S.structs = [];
-        S.structPins = [];
+        S.types = [];
+        S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
         const row = document.querySelector<HTMLElement>('.struct-field-row')!;
@@ -2929,13 +2929,13 @@ suite('StructPanel deep-render harness', () => {
         countInp.value = '123456';
         countInp.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
         click(dom, document.getElementById('se-save'));
-        assert.strictEqual(S.structs.length, 1, 'struct with large array count saves');
-        assert.strictEqual(S.structs[0].fields[0].count, 123456, 'count is preserved, not truncated to 3 digits');
+        assert.strictEqual(S.types.length, 1, 'type with large array count saves');
+        assert.strictEqual(S.types[0].fields[0].count, 123456, 'count is preserved, not truncated to 3 digits');
     });
 
     test('bit-field def editor disables Add bit when the base width is fully allocated', async () => {
-        S.structs = [];
-        S.structPins = [];
+        S.types = [];
+        S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('bitfield');
 
@@ -2958,29 +2958,29 @@ suite('StructPanel deep-render harness', () => {
         assert.strictEqual(addBtn().disabled, false, 'freeing bits re-enables Add bit without save/reopen');
     });
 
-    test('editing a struct preserves a legacy struct allocation it can no longer edit', async () => {
-        const preset: StructDef = {
+    test('editing a type preserves a legacy type allocation it can no longer edit', async () => {
+        const preset: TypeDef = {
             id: 'preset', name: 'Preset', packed: true, endian: 'be', allocation: 'msb',
             fields: [{ name: 'w', type: 'uint16', count: 1 }],
         };
-        S.structs = [preset];
-        S.structPins = [];
+        S.types = [preset];
+        S.typeInstances = [];
         await createMountedPanel();
-        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-struct-id="preset"]'));
+        click(dom, document.querySelector<HTMLElement>('.act-btn-edit[data-type-id="preset"]'));
         const seEndian = document.getElementById('se-endian') as HTMLSelectElement;
-        assert.ok(seEndian, 'struct endian select renders in editor');
-        assert.strictEqual(seEndian.value, 'be', 'predefined struct endian shows in editor');
-        assert.strictEqual(document.getElementById('se-alloc'), null, 'struct allocation is no longer editable');
+        assert.ok(seEndian, 'type endian select renders in editor');
+        assert.strictEqual(seEndian.value, 'be', 'predefined type endian shows in editor');
+        assert.strictEqual(document.getElementById('se-alloc'), null, 'type allocation is no longer editable');
         click(dom, document.getElementById('se-save'));
-        const saved = S.structs.find(d => d.id === 'preset');
+        const saved = S.types.find(d => d.id === 'preset');
         assert.ok(saved, 'saved type should exist');
-        assert.strictEqual(saved!.endian, 'be', 'struct endian persists after save');
-        assert.strictEqual(saved!.allocation, 'msb', 'legacy struct allocation is preserved through save');
+        assert.strictEqual(saved!.endian, 'be', 'type endian persists after save');
+        assert.strictEqual(saved!.allocation, 'msb', 'legacy type allocation is preserved through save');
     });
 
     test('Add Field mutates rows in place without replacing the editor container', async () => {
-        S.structs = [];
-        S.structPins = [];
+        S.types = [];
+        S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
         const fieldsEl = document.getElementById('se-fields');
@@ -3005,8 +3005,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('editor Edit/Preview tabs swap views without losing draft state', async () => {
-        S.structs = [];
-        S.structPins = [];
+        S.types = [];
+        S.typeInstances = [];
         await createMountedPanel();
         openKindEditor('struct');
 
@@ -3044,7 +3044,7 @@ suite('StructPanel deep-render harness', () => {
 
     // ── Reusable bit-field types ──────────────────────────────────
 
-    const reusableBitsDef = (): StructDef => ({
+    const reusableBitsDef = (): TypeDef => ({
         id: 'bits',
         name: 'Bits',
         kind: 'bitfield',
@@ -3053,19 +3053,19 @@ suite('StructPanel deep-render harness', () => {
         bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }],
     });
 
-    const referencedBitFieldUserDef = (): StructDef => ({
+    const referencedBitFieldUserDef = (): TypeDef => ({
         id: 'user',
         name: 'User',
         packed: true,
         fields: [
-            { name: 'control', type: 'bitfield', refStructId: 'bits', count: 1 },
+            { name: 'control', type: 'bitfield', refTypeId: 'bits', count: 1 },
             { name: 'after', type: 'uint8', count: 1 },
         ],
     });
 
     test('referenced bit-field renders inline with one row per child and no wrapper level', async () => {
-        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
-        S.structPins = [{ id: 'pin_ref_bits', structId: 'user', addr: 0, name: 'inst' }];
+        S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
+        S.typeInstances = [{ id: 'pin_ref_bits', typeId: 'user', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0b1010_1100, 0x34]);
 
         await renderPinsAndExpandCard();
@@ -3087,12 +3087,12 @@ suite('StructPanel deep-render harness', () => {
 
     test('referenced bit-field array renders one group per element', async () => {
         const bits = reusableBitsDef();
-        const user: StructDef = {
+        const user: TypeDef = {
             id: 'user_arr', name: 'UserArr', packed: true,
-            fields: [{ name: 'regs', type: 'bitfield', refStructId: 'bits', count: 2 }],
+            fields: [{ name: 'regs', type: 'bitfield', refTypeId: 'bits', count: 2 }],
         };
-        S.structs = [bits, user];
-        S.structPins = [{ id: 'pin_ref_arr', structId: 'user_arr', addr: 0, name: 'inst' }];
+        S.types = [bits, user];
+        S.typeInstances = [{ id: 'pin_ref_arr', typeId: 'user_arr', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0b1010_1100, 0b0011_0101]);
 
         await renderPinsAndExpandCard();
@@ -3102,7 +3102,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('field type picker offers the bit-field reference', async () => {
-        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+        S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
         openKindEditor('struct');
@@ -3117,7 +3117,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('bit-field def editor saves base width + children and lists a kind badge', async () => {
-        S.structs = [];
+        S.types = [];
 
         await createMountedPanel();
         openKindEditor('bitfield');
@@ -3125,7 +3125,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(document.getElementById('se-base-type'), 'bit-field form should render a base width select');
         assert.strictEqual((document.getElementById('se-base-type') as HTMLSelectElement).value, 'uint32');
         assert.strictEqual(document.querySelectorAll('#se-bf-def-children .sfe-bf-child-row').length, 1, 'seeded with one child row');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no struct field grid in the bit-field form');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no type field grid in the bit-field form');
         assert.strictEqual(document.getElementById('se-endian'), null, 'bit-field form edits name + base width + child rows only (no endian select)');
         assert.strictEqual(document.getElementById('se-alloc'), null, 'bit-field form edits name + base width + child rows only (no alloc select)');
 
@@ -3141,7 +3141,7 @@ suite('StructPanel deep-render harness', () => {
 
         click(dom, document.getElementById('se-save'));
 
-        const saved = S.structs.find(d => d.kind === 'bitfield');
+        const saved = S.types.find(d => d.kind === 'bitfield');
         assert.ok(saved, 'bit-field def should be saved');
         assert.strictEqual(saved!.name, 'Flags');
         assert.strictEqual(saved!.baseType, 'uint16');
@@ -3151,11 +3151,11 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('bit-field def editor labels its child columns with a header above the rows', async () => {
-        S.structs = [];
+        S.types = [];
 
         await createMountedPanel();
         openKindEditor('bitfield');
-        injectStructPanelCss();
+        injectOverlayPanelCss();
 
         const hdr = document.querySelector<HTMLElement>('.sfe-bf-child-hdr');
         assert.ok(hdr, 'bit-field form should render a child column header');
@@ -3185,14 +3185,14 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('bit-field def editor child hidden checkbox reflects the loaded flag and saves it (false dropped)', async () => {
-        S.structs = [{
+        S.types = [{
             id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
             bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }],
         }];
-        S.structPins = [];
+        S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="bits"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="bits"]'));
 
         const rows = document.querySelectorAll<HTMLElement>('#se-bf-def-children .sfe-bf-child-row');
         assert.strictEqual(rows.length, 2, 'both bit-child rows render');
@@ -3205,30 +3205,30 @@ suite('StructPanel deep-render harness', () => {
         setChecked(dom, chk(1), true);
         click(dom, document.getElementById('se-save'));
 
-        const saved = S.structs.find(d => d.id === 'bits')!;
+        const saved = S.types.find(d => d.id === 'bits')!;
         assert.strictEqual(saved.bitFields![1].hidden, true, 'checked bit child persists hidden:true');
         assert.strictEqual('hidden' in saved.bitFields![0], false, 'unchecked bit child drops hidden (false is never persisted)');
         assert.strictEqual(JSON.stringify(saved.bitFields![0]).includes('hidden'), false, 'false value is omitted from the serialized child');
     });
 
     test('deleting a referenced bit-field strips orphan field references', async () => {
-        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
-        S.structPins = [];
+        S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
+        S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-del[data-struct-id="bits"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-del[data-type-id="bits"]'));
         confirmDelete(dom);
         await new Promise(resolve => setTimeout(resolve, 0));
 
-        assert.deepStrictEqual(S.structs.map(d => d.id), ['user']);
-        assert.deepStrictEqual(S.structs[0].fields.map(f => f.name), ['after']);
+        assert.deepStrictEqual(S.types.map(d => d.id), ['user']);
+        assert.deepStrictEqual(S.types[0].fields.map(f => f.name), ['after']);
     });
 
-    test('editing a struct authors an Alloc override on a bit-field-reference row only', async () => {
-        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+    test('editing a type authors an Alloc override on a bit-field-reference row only', async () => {
+        S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="user"]'));
 
         const refRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
         assert.ok(refRow, 'editor should render the referencing field row');
@@ -3248,16 +3248,16 @@ suite('StructPanel deep-render harness', () => {
         allocSel!.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         click(dom, document.getElementById('se-save'));
 
-        const saved = S.structs.find(d => d.id === 'user')!;
+        const saved = S.types.find(d => d.id === 'user')!;
         assert.strictEqual(saved.fields[0].allocation, 'lsb', 'bit-field-reference row saves its allocation override');
         assert.strictEqual(saved.fields[1].allocation, undefined, 'pure scalar row saves no allocation');
     });
 
     test('switching a field type to/from a bit-field reference swaps the Alloc cell in place', async () => {
-        S.structs = [reusableBitsDef(), referencedBitFieldUserDef()];
+        S.types = [reusableBitsDef(), referencedBitFieldUserDef()];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="user"]'));
 
         const scalarRow = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="1"]')!;
         assert.strictEqual(scalarRow.querySelector('.sfe-alloc-sel'), null, 'scalar row starts without an alloc select');
@@ -3280,36 +3280,36 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(scalarRow.querySelector('.sfe-alloc-placeholder'), 'placeholder is restored');
 
         click(dom, document.getElementById('se-save'));
-        const saved = S.structs.find(d => d.id === 'user')!;
+        const saved = S.types.find(d => d.id === 'user')!;
         assert.strictEqual(saved.fields[1].type, 'uint8', 'type select change is saved');
         assert.strictEqual(saved.fields[1].allocation, undefined, 'reverted row authors no allocation key');
     });
 
     // ── Enums ─────────────────────────────────────────────────────
 
-    const enumModeDef = (): StructDef => ({
+    const enumModeDef = (): TypeDef => ({
         id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [],
         entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }],
     });
 
-    const enumUserDef = (): StructDef => ({
+    const enumUserDef = (): TypeDef => ({
         id: 'user', name: 'User', packed: true,
-        fields: [{ name: 'state', type: 'enum', refStructId: 'mode', count: 1 }],
+        fields: [{ name: 'state', type: 'enum', refTypeId: 'mode', count: 1 }],
     });
 
-    const enumBitsDef = (): StructDef => ({
+    const enumBitsDef = (): TypeDef => ({
         id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
-        bitFields: [{ name: 'mode', bitWidth: 2, refStructId: 'mode' }, { name: 'code', bitWidth: 6 }],
+        bitFields: [{ name: 'mode', bitWidth: 2, refTypeId: 'mode' }, { name: 'code', bitWidth: 6 }],
     });
 
-    const enumHolderDef = (): StructDef => ({
+    const enumHolderDef = (): TypeDef => ({
         id: 'holder', name: 'Holder', packed: true,
-        fields: [{ name: 'ctl', type: 'bitfield', refStructId: 'bits', count: 1 }],
+        fields: [{ name: 'ctl', type: 'bitfield', refTypeId: 'bits', count: 1 }],
     });
 
     test('an enum-typed scalar field renders NAME (0xNN) for a matched value', async () => {
-        S.structs = [enumModeDef(), enumUserDef()];
-        S.structPins = [{ id: 'pin_enum', structId: 'user', addr: 0, name: 'inst' }];
+        S.types = [enumModeDef(), enumUserDef()];
+        S.typeInstances = [{ id: 'pin_enum', typeId: 'user', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x01]);
 
         await renderPinsAndExpandCard();
@@ -3320,8 +3320,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('an unmatched enum value falls back to the plain numeric rendering', async () => {
-        S.structs = [enumModeDef(), enumUserDef()];
-        S.structPins = [{ id: 'pin_enum2', structId: 'user', addr: 0, name: 'inst' }];
+        S.types = [enumModeDef(), enumUserDef()];
+        S.typeInstances = [{ id: 'pin_enum2', typeId: 'user', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x05]);
 
         await renderPinsAndExpandCard();
@@ -3330,8 +3330,8 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('a bit-field child with an enum ref renders the label for its value', async () => {
-        S.structs = [enumModeDef(), enumBitsDef(), enumHolderDef()];
-        S.structPins = [{ id: 'pin_bits_enum', structId: 'holder', addr: 0, name: 'inst' }];
+        S.types = [enumModeDef(), enumBitsDef(), enumHolderDef()];
+        S.typeInstances = [{ id: 'pin_bits_enum', typeId: 'holder', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x40]); // msb allocation: mode = 0b01
 
         await renderPinsAndExpandCard();
@@ -3345,7 +3345,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('field type picker offers the enum reference and a def picker', async () => {
-        S.structs = [enumModeDef(), enumUserDef()];
+        S.types = [enumModeDef(), enumUserDef()];
 
         await createMountedPanel();
         openKindEditor('struct');
@@ -3359,10 +3359,10 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('an enum-typed field row blocks the pointer toggle and shows no alloc override', async () => {
-        S.structs = [enumModeDef(), enumUserDef()];
+        S.types = [enumModeDef(), enumUserDef()];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="user"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="user"]'));
 
         const row = document.querySelector<HTMLElement>('#se-fields .struct-field-row[data-idx="0"]')!;
         assert.strictEqual((row.querySelector('.sfe-type-sel') as HTMLSelectElement).value, 'enum:mode');
@@ -3371,7 +3371,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('enum def editor saves base width + entries and lists a kind badge', async () => {
-        S.structs = [];
+        S.types = [];
 
         await createMountedPanel();
         openKindEditor('enum');
@@ -3379,7 +3379,7 @@ suite('StructPanel deep-render harness', () => {
         assert.ok(document.getElementById('se-enum-base-type'), 'enum form should render a base width select');
         assert.strictEqual((document.getElementById('se-enum-base-type') as HTMLSelectElement).value, 'uint8');
         assert.strictEqual(document.querySelectorAll('#se-enum-entries .sfe-enum-entry-row').length, 1, 'seeded with one entry row');
-        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no struct field grid in the enum form');
+        assert.strictEqual(document.querySelector('.struct-field-row'), null, 'no type field grid in the enum form');
 
         (document.getElementById('se-name') as HTMLInputElement).value = 'Mode';
         click(dom, document.getElementById('se-enum-add'));
@@ -3392,7 +3392,7 @@ suite('StructPanel deep-render harness', () => {
 
         click(dom, document.getElementById('se-save'));
 
-        const saved = S.structs.find(d => d.kind === 'enum');
+        const saved = S.types.find(d => d.kind === 'enum');
         assert.ok(saved, 'enum def should be saved');
         assert.strictEqual(saved!.name, 'Mode');
         assert.strictEqual(saved!.baseType, 'uint8');
@@ -3402,11 +3402,11 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('enum def editor labels its entry columns with a header above the rows', async () => {
-        S.structs = [];
+        S.types = [];
 
         await createMountedPanel();
         openKindEditor('enum');
-        injectStructPanelCss();
+        injectOverlayPanelCss();
 
         const hdr = document.querySelector<HTMLElement>('.sfe-enum-entry-hdr');
         assert.ok(hdr, 'enum form should render an entry column header');
@@ -3436,7 +3436,7 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('enum def editor rejects an entry that does not fit the base width', async () => {
-        S.structs = [];
+        S.types = [];
 
         await createMountedPanel();
         openKindEditor('enum');
@@ -3446,11 +3446,11 @@ suite('StructPanel deep-render harness', () => {
         click(dom, document.getElementById('se-save'));
 
         assert.ok(document.querySelector('.se-error'), 'oversized entry should surface an inline error');
-        assert.strictEqual(S.structs.length, 0, 'no def is committed while invalid');
+        assert.strictEqual(S.types.length, 0, 'no def is committed while invalid');
     });
 
     test('bit-field def editor exposes an enum picker per child and saves the ref', async () => {
-        S.structs = [enumModeDef()];
+        S.types = [enumModeDef()];
 
         await createMountedPanel();
         openKindEditor('bitfield');
@@ -3464,20 +3464,20 @@ suite('StructPanel deep-render harness', () => {
         (document.getElementById('se-name') as HTMLInputElement).value = 'Bits';
         click(dom, document.getElementById('se-save'));
 
-        const saved = S.structs.find(d => d.kind === 'bitfield');
+        const saved = S.types.find(d => d.kind === 'bitfield');
         assert.ok(saved, 'bit-field def should save');
-        assert.strictEqual(saved!.bitFields![0].refStructId, 'mode');
+        assert.strictEqual(saved!.bitFields![0].refTypeId, 'mode');
     });
 
     test('editing an enum re-renders referencing instances with the new label', async () => {
-        S.structs = [enumModeDef(), enumUserDef()];
-        S.structPins = [{ id: 'pin_enum_edit', structId: 'user', addr: 0, name: 'inst' }];
+        S.types = [enumModeDef(), enumUserDef()];
+        S.typeInstances = [{ id: 'pin_enum_edit', typeId: 'user', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x00]);
 
         await renderPinsAndExpandCard();
         assert.strictEqual(elementText(document.querySelector('.si-fields > .si-field .si-f-val')), 'OFF (0x00)');
 
-        click(dom, document.querySelector('.sd-row .act-btn-edit[data-struct-id="mode"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-edit[data-type-id="mode"]'));
         const entryName = document.querySelector<HTMLInputElement>('#se-enum-entries .sfe-enum-entry-name')!;
         entryName.value = 'OFFLINE';
         entryName.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -3489,21 +3489,21 @@ suite('StructPanel deep-render harness', () => {
     test('deleting a referenced enum strips orphan scalar + bit-child refs (pin-safe)', async () => {
         const bits = enumBitsDef();
         bits.bitFields![0].hidden = true;
-        S.structs = [enumModeDef(), bits, enumUserDef()];
-        S.structPins = [];
+        S.types = [enumModeDef(), bits, enumUserDef()];
+        S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-del[data-struct-id="mode"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-del[data-type-id="mode"]'));
         confirmDelete(dom);
         await new Promise(resolve => setTimeout(resolve, 0));
 
-        assert.deepStrictEqual(S.structs.map(d => d.id), ['bits', 'user']);
-        assert.strictEqual(S.structs[0].bitFields![0].refStructId, undefined);
-        assert.strictEqual(S.structs[0].bitFields![0].hidden, true, 'pin-safe ref strip preserves the bit-child hidden flag');
-        assert.deepStrictEqual(S.structs[1].fields, []);
+        assert.deepStrictEqual(S.types.map(d => d.id), ['bits', 'user']);
+        assert.strictEqual(S.types[0].bitFields![0].refTypeId, undefined);
+        assert.strictEqual(S.types[0].bitFields![0].hidden, true, 'pin-safe ref strip preserves the bit-child hidden flag');
+        assert.deepStrictEqual(S.types[1].fields, []);
     });
 
-    // ── hidden fields (Struct Instances view filter) ──────────────
+    // ── hidden fields (Instances view filter) ──────────────
 
     function topFieldNames(): string[] {
         return Array.from(document.querySelectorAll<HTMLElement>('.si-fields > *'))
@@ -3517,23 +3517,23 @@ suite('StructPanel deep-render harness', () => {
     }
 
     function hiddenFixture(): void {
-        const child: StructDef = {
+        const child: TypeDef = {
             id: 'child', name: 'ChildNode', packed: true, fields: [
                 { name: 'tag', type: 'uint8', count: 1 },
                 { name: 'secret', type: 'uint8', count: 1, hidden: true },
             ],
         };
-        const root: StructDef = {
+        const root: TypeDef = {
             id: 'root', name: 'Root', packed: true, fields: [
                 { name: 'reserved', type: 'uint8', count: 1, hidden: true },
                 { name: 'tag', type: 'uint16', count: 1 },
                 { name: 'ctrl', type: 'uint8', count: 1, hidden: true, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
-                { name: 'nodes', type: 'struct', refStructId: 'child', count: 2 },
+                { name: 'nodes', type: 'struct', refTypeId: 'child', count: 2 },
                 { name: 'data', type: 'uint8', count: 2, hidden: true },
             ],
         };
-        S.structs = [child, root];
-        S.structPins = [{ id: 'pin_hidden', structId: 'root', addr: 0, name: 'rootInst' }];
+        S.types = [child, root];
+        S.typeInstances = [{ id: 'pin_hidden', typeId: 'root', addr: 0, name: 'rootInst' }];
         setBytesInSegment(0, [0x00, 0x34, 0x12, 0xA5, 0x01, 0x02, 0x03, 0x04, 0x08, 0x09]);
     }
 
@@ -3565,7 +3565,7 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(childNames, ['lo', 'hi'], 'revealing the container reveals its bit children');
     });
 
-    test('a hidden nested-struct leaf is dropped from its visible container subtree', async () => {
+    test('a hidden nested type leaf is dropped from its visible container subtree', async () => {
         hiddenFixture();
         await renderPinsAndExpandCard();
 
@@ -3585,39 +3585,39 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(revealed, ['tag', 'secret'], 'toggle on reveals the nested hidden leaf too');
     });
 
-    test('deleting a referenced struct strips orphan nested type:struct refs across the pool', async () => {
-        const inner: StructDef = { id: 'inner_del', name: 'InnerDel', fields: [{ name: 'tag', type: 'uint8', count: 1 }] };
-        const holder: StructDef = {
+    test('deleting a referenced type strips orphan nested type:struct refs across the pool', async () => {
+        const inner: TypeDef = { id: 'inner_del', name: 'InnerDel', fields: [{ name: 'tag', type: 'uint8', count: 1 }] };
+        const holder: TypeDef = {
             id: 'holder_del', name: 'HolderDel', packed: true,
             fields: [
-                { name: 'kid', type: 'struct', refStructId: 'inner_del', count: 1 },
+                { name: 'kid', type: 'struct', refTypeId: 'inner_del', count: 1 },
                 { name: 'after', type: 'uint8', count: 1 },
             ],
         };
-        S.structs = [inner, holder];
-        S.structPins = [];
+        S.types = [inner, holder];
+        S.typeInstances = [];
 
         await createMountedPanel();
-        click(dom, document.querySelector('.sd-row .act-btn-del[data-struct-id="inner_del"]'));
+        click(dom, document.querySelector('.sd-row .act-btn-del[data-type-id="inner_del"]'));
         confirmDelete(dom);
         await new Promise(resolve => setTimeout(resolve, 0));
 
-        assert.deepStrictEqual(S.structs.map(d => d.id), ['holder_del']);
-        assert.deepStrictEqual(S.structs[0].fields.map(f => f.name), ['after'], 'nested type:struct ref stripped, sibling kept');
+        assert.deepStrictEqual(S.types.map(d => d.id), ['holder_del']);
+        assert.deepStrictEqual(S.types[0].fields.map(f => f.name), ['after'], 'nested type:struct ref stripped, sibling kept');
     });
 
     test('composition: hidden field + reusable bit-field ref + enum render together, toggle off/on', async () => {
         const bits = enumBitsDef();
-        const root: StructDef = {
+        const root: TypeDef = {
             id: 'compose', name: 'Compose', packed: true,
             fields: [
                 { name: 'reserved', type: 'uint8', count: 1, hidden: true },
-                { name: 'flags', type: 'bitfield', refStructId: 'bits', count: 1 },
-                { name: 'state', type: 'enum', refStructId: 'mode', count: 1 },
+                { name: 'flags', type: 'bitfield', refTypeId: 'bits', count: 1 },
+                { name: 'state', type: 'enum', refTypeId: 'mode', count: 1 },
             ],
         };
-        S.structs = [enumModeDef(), bits, root];
-        S.structPins = [{ id: 'pin_compose', structId: 'compose', addr: 0, name: 'inst' }];
+        S.types = [enumModeDef(), bits, root];
+        S.typeInstances = [{ id: 'pin_compose', typeId: 'compose', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xAA, 0b01_000101, 0x01]);
 
         await renderPinsAndExpandCard();
@@ -3658,12 +3658,12 @@ suite('StructPanel deep-render harness', () => {
     }
 
     test('a hidden bit child is absent by default, revealed by Show hidden, container header intact', async () => {
-        S.structs = [{
+        S.types = [{
             id: 'regs', name: 'Regs', packed: true, fields: [
                 { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
             ],
         }];
-        S.structPins = [{ id: 'pin_hidden_bit', structId: 'regs', addr: 0, name: 'inst' }];
+        S.typeInstances = [{ id: 'pin_hidden_bit', typeId: 'regs', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xA5]);
 
         await renderPinsAndExpandCard();
@@ -3681,12 +3681,12 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('a container with every bit child hidden keeps its header row and drops every child row', async () => {
-        S.structs = [{
+        S.types = [{
             id: 'regs', name: 'Regs', packed: true, fields: [
                 { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4, hidden: true }] },
             ],
         }];
-        S.structPins = [{ id: 'pin_all_hidden', structId: 'regs', addr: 0, name: 'inst' }];
+        S.typeInstances = [{ id: 'pin_all_hidden', typeId: 'regs', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xA5]);
 
         await renderPinsAndExpandCard();
@@ -3706,18 +3706,18 @@ suite('StructPanel deep-render harness', () => {
     });
 
     test('hiding a bit child on a reusable type drops it in every referencing field (def-level)', async () => {
-        const bits: StructDef = {
+        const bits: TypeDef = {
             id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
             bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }],
         };
-        const user: StructDef = {
+        const user: TypeDef = {
             id: 'user', name: 'User', packed: true, fields: [
-                { name: 'a', type: 'bitfield', refStructId: 'bits', count: 1 },
-                { name: 'b', type: 'bitfield', refStructId: 'bits', count: 1 },
+                { name: 'a', type: 'bitfield', refTypeId: 'bits', count: 1 },
+                { name: 'b', type: 'bitfield', refTypeId: 'bits', count: 1 },
             ],
         };
-        S.structs = [bits, user];
-        S.structPins = [{ id: 'pin_ref_hidden', structId: 'user', addr: 0, name: 'inst' }];
+        S.types = [bits, user];
+        S.typeInstances = [{ id: 'pin_ref_hidden', typeId: 'user', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xA5, 0x3C]);
 
         await renderPinsAndExpandCard();
@@ -3744,12 +3744,12 @@ suite('StructPanel deep-render harness', () => {
     }
 
     test('a hidden bit child is dropped per element of a bit-field array', async () => {
-        S.structs = [{
+        S.types = [{
             id: 'regs', name: 'Regs', packed: true, fields: [
                 { name: 'cfg', type: 'uint8', count: 2, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
             ],
         }];
-        S.structPins = [{ id: 'pin_bit_arr', structId: 'regs', addr: 0, name: 'inst' }];
+        S.typeInstances = [{ id: 'pin_bit_arr', typeId: 'regs', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0xA5, 0x3C]);
 
         await renderPinsAndExpandCard();
@@ -3764,21 +3764,21 @@ suite('StructPanel deep-render harness', () => {
         assert.deepStrictEqual(bitElementChildNames(), ['lo', 'hi', 'lo', 'hi'], 'the toggle reveals the hidden bit child in every element');
     });
 
-    test('a hidden bit child inside a pointer target struct is dropped from the inline preview', async () => {
-        const target: StructDef = {
+    test('a hidden bit child inside a pointer target type is dropped from the inline preview', async () => {
+        const target: TypeDef = {
             id: 'bf_target', name: 'BfTarget', packed: true, fields: [
                 { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4 }] },
             ],
         };
-        const parent: StructDef = {
+        const parent: TypeDef = {
             id: 'bf_parent', name: 'BfParent', packed: true,
-            fields: [{ name: 'hdr', type: 'struct', refStructId: target.id, isPointer: true, count: 1 }],
+            fields: [{ name: 'hdr', type: 'struct', refTypeId: target.id, isPointer: true, count: 1 }],
         };
         const bytes = new Array(0x40).fill(0);
         bytes[0] = 0x20;
         bytes[0x20] = 0xA5;
-        S.structs = [target, parent];
-        S.structPins = [{ id: 'pin_bf_ptr', structId: parent.id, addr: 0, name: 'inst' }];
+        S.types = [target, parent];
+        S.typeInstances = [{ id: 'pin_bf_ptr', typeId: parent.id, addr: 0, name: 'inst' }];
         setBytesInSegment(0, bytes);
 
         await renderPinsAndExpandCard();
@@ -3790,21 +3790,21 @@ suite('StructPanel deep-render harness', () => {
             .find(hdr => elementText(hdr.querySelector('.si-f-name')) === 'ctrl')?.closest<HTMLElement>('.si-arr-grp');
         assert.ok(container, 'the pointer target bit-field container renders inline');
         expandBitUnit(container!);
-        assert.deepStrictEqual(bitChildNames(container!), ['hi'], 'the target struct resolves its own hidden bit child');
+        assert.deepStrictEqual(bitChildNames(container!), ['hi'], 'the target type resolves its own hidden bit child');
     });
 
     test('parity golden: unused new features keep the instance view and C preview byte-identical', async () => {
-        const child: StructDef = { id: 'par', name: 'Par', fields: [{ name: 'tag', type: 'uint8', count: 1 }] };
-        const root: StructDef = {
+        const child: TypeDef = { id: 'par', name: 'Par', fields: [{ name: 'tag', type: 'uint8', count: 1 }] };
+        const root: TypeDef = {
             id: 'baseline', name: 'Baseline', packed: true,
             fields: [
                 { name: 'count', type: 'uint16', count: 1 },
                 { name: 'items', type: 'uint8', count: 2 },
-                { name: 'child', type: 'struct', refStructId: 'par', count: 1 },
+                { name: 'child', type: 'struct', refTypeId: 'par', count: 1 },
             ],
         };
-        S.structs = [child, root];
-        S.structPins = [{ id: 'pin_baseline', structId: 'baseline', addr: 0, name: 'inst' }];
+        S.types = [child, root];
+        S.typeInstances = [{ id: 'pin_baseline', typeId: 'baseline', addr: 0, name: 'inst' }];
         setBytesInSegment(0, [0x34, 0x12, 0xAA, 0xBB, 0x7F]);
         await renderPinsAndExpandCard();
 
@@ -3816,15 +3816,24 @@ suite('StructPanel deep-render harness', () => {
             ['count', 'items', '[0]', '[1]', 'child', 'tag'],
             'visible row names are the pre-change set',
         );
+        // The golden moved with the B1 `data-source-struct-id` → `data-source-type-id`
+        // attribute rename (the attribute mirrors the renamed persisted key). Folding
+        // the old name back in must reproduce the pre-rename hash byte-for-byte —
+        // proof that nothing else in the rendered view changed.
+        assert.strictEqual(
+            crypto.createHash('sha256').update(rendered.split('data-source-type-id').join('data-source-struct-id')).digest('hex'),
+            'bf39479b1e6a22aff464bd4ae3592e06f1c1dccc6648c4cd928eb04807f4a640',
+            'the only instance-view markup change is the data-source-* attribute rename',
+        );
         assert.strictEqual(
             crypto.createHash('sha256').update(rendered).digest('hex'),
-            'bf39479b1e6a22aff464bd4ae3592e06f1c1dccc6648c4cd928eb04807f4a640',
+            '0dc1b9bfd8669b3d1fc77b59819763d5d2fb165d41e4e619ecab9a93abbda455',
             'instance-view HTML is byte-identical with every new feature unused',
         );
 
         // C-preview golden: same guarantee for the exported layout.
         assert.strictEqual(
-            structToC(root, [child, root]),
+            typeDefToC(root, [child, root]),
             [
                 'typedef struct __attribute__((packed)) {',
                 '    uint16_t count;                         /* +  0  2B */',

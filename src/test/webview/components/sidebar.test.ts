@@ -50,7 +50,7 @@ function cleanupDom(): void {
 function makePanels(): SidebarPanel[] {
     return [
         { id: 'inspector', label: 'Inspector', mount: root => { root.innerHTML = '<div class="insp-content"></div>'; } },
-        { id: 'struct', label: 'Struct', mount: root => { root.innerHTML = '<div class="struct-content"></div>'; } },
+        { id: 'struct', label: 'Overlay', mount: root => { root.innerHTML = '<div class="overlay-content"></div>'; } },
     ];
 }
 
@@ -71,7 +71,7 @@ suite('Sidebar shell render', () => {
         assert.ok(body.querySelector('#sbp-struct'));
         assert.strictEqual(body.querySelector('#sbp-struct')!.textContent, '');
         assert.strictEqual(body.querySelector('#stab-inspector')!.textContent, 'Inspector');
-        assert.strictEqual(body.querySelector('#stab-struct')!.textContent, 'Struct');
+        assert.strictEqual(body.querySelector('#stab-struct')!.textContent, 'Overlay');
         assert.strictEqual(body.querySelectorAll('#sidebar .sb-tab-panel').length, 2);
         assert.strictEqual(body.querySelectorAll('#side-tabs .stab').length, 2);
         dom.window.close();
@@ -156,7 +156,7 @@ suite('Sidebar interaction', () => {
         assert.deepStrictEqual(changes, ['struct']);
         assert.deepStrictEqual(activates, ['struct']);
         assert.ok(document.getElementById('sbp-struct')!.classList.contains('active'));
-        assert.ok(document.getElementById('sbp-struct')!.querySelector('.struct-content'), 'panel mounted on first activation');
+        assert.ok(document.getElementById('sbp-struct')!.querySelector('.overlay-content'), 'panel mounted on first activation');
 
         // Clicking the active tab again: reports change, does not re-activate
         document.getElementById('stab-struct')!.click();
