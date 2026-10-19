@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/hexscope-storage.md", "reason": "Verify the frozen persisted names were not renamed (round-trip + literals)"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar, no weakened assertions, renames are behavior-preserving"}
+{"file": ".trellis/spec/frontend/overlay-model.md", "reason": "Verify the renamed types/fields keep identical semantics and decode/size/C parity"}
+{"file": ".trellis/spec/frontend/components/component-sidebar-overlay-panel.md", "reason": "Verify DOM ids/CSS prefixes were NOT renamed and the panel contract is intact"}
