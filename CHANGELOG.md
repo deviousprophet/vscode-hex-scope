@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [3.0.0] - 2026-10-19
 
 ### Added
 - Reusable bit-field types: define a named bit-field type once and reference it from any type, with its children rendered inline and no extra hierarchy level
