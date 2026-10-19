@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/components/component-sidebar-overlay-panel.md", "reason": "Verify ids/classes match the documented panel contract and no rule is orphaned"}
-{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "Verify the renamed classes follow the naming conventions"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification bar: string selectors are untested by the compiler, so the suite is the gate"}

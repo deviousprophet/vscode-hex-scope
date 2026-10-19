@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/frontend/components/component-sidebar-overlay-panel.md", "reason": "Documents the panel's DOM ids/classes (sections, editor rows, instance cards) that this task renames"}
-{"file": ".trellis/spec/frontend/components/component-hex-view.md", "reason": "Hex-view highlight classes (.struct-h/.struct-arr-sep) and their emit/clear contract"}
-{"file": ".trellis/spec/frontend/overlay-instance-display.md", "reason": "Instance row markup/classes emitted by the renderer"}
-{"file": ".trellis/spec/frontend/css-guidelines.md", "reason": "CSS/class naming conventions the new prefixes must follow"}
