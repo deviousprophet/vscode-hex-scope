@@ -14,7 +14,8 @@ to `.hexscope/` data.
 ├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, typeInstances, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }] }
 ├── bindings.json         # { schemaVersion, bindings: [{ fileKey, profileId }] } — file's only file-specific artifact
 ├── schemas/              # generated copies of the JSON Schemas (editor + agent contract),
-│                         # content-diff refreshed on every .hexscope data write
+│                         # content-diff refreshed on every .hexscope data write; retired
+│                         # *.schema.json copies are pruned
 └── scripts/              # unchanged (script runner panes)
 ```
 
@@ -74,7 +75,11 @@ writes are read-modify-write on the whole array; every `.hexscope` **data**
 write content-diff refreshes `.hexscope/schemas/` (a copy is rewritten only
 when missing or different from the bundled schema, so an extension update
 re-syncs an existing workspace on its next write; the data files are never
-touched by the refresh, and a refresh failure never fails the write). On panel
+touched by the refresh, and a refresh failure never fails the write). The same
+refresh prunes retired `*.schema.json` copies the current build no longer ships
+(e.g. the pre-rename `structs.schema.json`); only plain files directly inside
+`.hexscope/schemas/` are considered, so non-schema files, subdirectories, and
+other directories are never touched. On panel
 close the slots flush. Host writes are
 self-write-marked so the watcher ignores them. Out-of-workspace files stage
 their edits in-memory until an explicit Save/profile action — a bare open or
@@ -117,8 +122,15 @@ Two mechanisms:
 2. **File move** — a one-shot, Memento-marked (`hexScope.typesFile.v1`) transfer
    that runs on first open: if `.hexscope/types.json` is absent and
    `.hexscope/structs.json` exists, it is read, migrated forward, and written as
-   `types.json`. The legacy file is **kept** so reverting the release still finds
-   the original data.
+   `types.json`; the new file is then read back and the legacy file is
+   **hard-deleted only when that verification yields a non-empty array `defs`
+   payload**. A corrupt or newer-than-build `types.json` (or a non-array, empty,
+   or absent `defs` payload) preserves the legacy file — it may be the only good
+   copy. A pre-existing valid `types.json` also licenses deleting a lingering
+   legacy file on the same one-shot pass. The rollback trade-off is explicit: a
+   downgrade to a pre-rename build finds no pool. The non-empty requirement has
+   its own accepted trade-off: a genuinely emptied pool keeps its legacy file —
+   the safe side of the decision.
 
 **Back-compat read window (retired).** The general readers accept only the new
 keys. The v1 payload runner (`MIGRATIONS[1]`) still renames a recorded v1
@@ -164,8 +176,13 @@ One-time, per workspace root, on first panel open (before the first
    names), one-time Memento marker, dir tree left in place for rollback.
 2. **Pre-rename pool file** (`.hexscope/structs.json`): read, migrated forward to
    the current data shape, and re-seeded as `.hexscope/types.json`; the legacy
-   file is left in place for rollback (one-time Memento marker
-   `hexScope.typesFile.v1`).
+   file is then hard-deleted once `types.json` reads back with a **non-empty**
+   array `defs` payload (one-time Memento marker `hexScope.typesFile.v1`). A
+   missing/corrupt/newer `types.json`, or an empty/absent/non-array `defs`,
+   preserves the legacy file; a failed delete is logged and non-fatal and is
+   retried on the next open, while verification outcomes stay one-shot. A
+   genuinely emptied pool therefore keeps its legacy file — the safe side of the
+   decision.
 3. **Memento-era** legacy key families (`globalState`/`workspaceState`
    `hexScope.structs.*`, labels, segmentNames, structPins, integrityChecks,
    endian, global integrity profiles) are read, normalized, seeded into a new
@@ -193,8 +210,10 @@ Three JSON Schema files describe the on-disk shapes:
   (bundled into the extension). On every `.hexscope` data write the workspace
   copies in `.hexscope/schemas/` are content-diff refreshed to the bundled
   schemas (rewritten only when missing or different; a bare open writes
-  nothing; the watcher ignores this directory). Writing a schema copy never
-  re-triggers the refresh — only top-level data files do.
+  nothing; the watcher ignores this directory). Retired `*.schema.json` copies
+  (e.g. `structs.schema.json`) are pruned by the same refresh; non-schema files
+  and subdirectories survive. Writing a schema copy never re-triggers the
+  refresh — only top-level data files do.
 - **Editor binding.** `package.json` → `contributes.jsonValidation` maps
   `.hexscope/types.json`, `.hexscope/profiles.json`, and
   `.hexscope/bindings.json` to the bundled schemas. Single-file opens (no
