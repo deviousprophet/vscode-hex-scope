@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { HexEditorSession } from './hexEditorSession';
-import { migrateStructDefinitions } from './core/structMigration';
+import { migrateTypeDefinitions } from './core/overlay/overlayMigration';
 
-export { migrateStructDefinitions };
+export { migrateTypeDefinitions };
 
 export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 

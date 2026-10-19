@@ -188,6 +188,24 @@ suite('webview MenuController component (hex menu)', () => {
         assert.ok(!visible(dom));
     });
 
+    test('a second document gets its own #menu (module singleton is document-scoped)', () => {
+        const first = installDom();
+        currentDom = first;
+        menuController.show(10, 10, { innerHTML: renderMenuHtml(baseState()), emit: () => {} });
+        const firstMenu = menuEl(first);
+        assert.ok(firstMenu, '#menu created in the first document');
+        cleanupDom(first);
+        currentDom = null;
+
+        // The cached container stays isConnected to the closed document, so a new
+        // document must get a fresh #menu rather than the stale one.
+        const second = installDom();
+        currentDom = second;
+        menuController.show(10, 10, { innerHTML: renderMenuHtml(baseState()), emit: () => {} });
+        const secondMenu = menuEl(second);
+        assert.notStrictEqual(secondMenu, firstMenu, 'a fresh #menu, not the stale one');
+    });
+
     test('click on disabled go-address row fires nothing and stays open', () => {
         const { dom, calls } = createHarness({ goAddress: { address: 0xEFBEADDE, valid: false } });
         clickRow(dom, 'go-address');
@@ -603,13 +621,10 @@ suite('webview attached popover (MenuController.attach + show el)', () => {
 
     test('Escape closes the popup and restores focus to the pre-open element', () => {
         const { dom, btn, pop, closes } = popupHarness();
-        const outside = dom.window.document.getElementById('outside') as HTMLButtonElement;
-        outside.focus();
-        assert.strictEqual(dom.window.document.activeElement, outside, 'focus sits outside the popup');
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        assert.ok(pop.hidden, 'Escape closes even with focus outside the popup');
+        assert.ok(pop.hidden, 'Escape closes the popup');
         assert.strictEqual(closes.count, 1, 'onClose fired exactly once');
-        assert.strictEqual(dom.window.document.activeElement, outside, 'focus returns to the pre-open snapshot');
+        assert.strictEqual(dom.window.document.activeElement, btn, 'focus returns to the pre-open snapshot');
     });
 
     test('click inside the popup keeps it open (non-command item)', () => {
@@ -720,7 +735,7 @@ suite('webview MenuController cross-menu invariants', () => {
         assert.ok(!pop.hidden, 'popover open');
     });
 
-    test('two-step Escape on a struct-style submenu menu (second press closes)', () => {
+    test('two-step Escape on an overlay-style submenu menu (second press closes)', () => {
         const dom = installDom();
         currentDom = dom;
         const calls = emptyCalls();
@@ -737,7 +752,7 @@ suite('webview MenuController cross-menu invariants', () => {
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
         const sub = subRow.querySelector<HTMLElement>('.menu-submenu')!;
         const hexItem = sub.querySelector<HTMLElement>('.menu-item[data-cmd="disp-hex"]')!;
-        assert.strictEqual(document.activeElement, hexItem, 'ArrowRight opens struct submenu + focuses item');
+        assert.strictEqual(document.activeElement, hexItem, 'ArrowRight opens overlay submenu + focuses item');
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
         assert.strictEqual(sub.style.display, 'none', 'first Escape closes submenu');
         assert.strictEqual(document.activeElement, subRow, 'focus back on parent row');

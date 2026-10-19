@@ -1,8 +1,8 @@
 import type { CopyCommand } from '../core/byteTools/copyCommand';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from '../core/integrity';
 import type { ProviderToWebviewMessage, ProfileSummary } from '../webviewProtocol';
-import type { SegmentLabel, StructPin } from '../core/types';
-import { bitAllocationOrDefault, endianOrDefault } from '../webviewProtocol';
+import type { SegmentLabel, TypeInstance } from '../core/types';
+import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault } from '../webviewProtocol';
 import { S } from './state';
 import {
     addLabel,
@@ -28,11 +28,12 @@ export type WebviewInvalidations = {
     dirtyBar?: boolean;
     stats?: boolean;
     segments?: boolean;
-    structPins?: boolean;
+    typeInstances?: boolean;
     currentDataView?: boolean;
     integrityBytesChanged?: boolean;
     endianChanged?: boolean;
     bitFieldAllocationChanged?: boolean;
+    showHiddenFieldsChanged?: boolean;
 };
 
 export type ExternalChangeErrorDetails = {
@@ -70,7 +71,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     updateLabel: applyUpdateLabelMessage,
     copyCommand: applyCopyCommandMessage,
     savedEdits: applySavedEditsMessage,
-    structsExternalChange: applyStructsExternalChangeMessage,
+    typesExternalChange: applyTypesExternalChangeMessage,
     perFileDataChange: applyPerFileDataChangeMessage,
     externalChange: applyExternalChangeMessage,
     externalChangeError: applyExternalChangeErrorMessage,
@@ -149,30 +150,32 @@ function applyCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): Webv
     return { copyCommand: msg.command, invalidations: {} };
 }
 
-function applyStructsExternalChangeMessage(msg: WebviewMessageByType<'structsExternalChange'>): WebviewModelUpdate {
-    S.structs = Array.isArray(msg.structs) ? msg.structs : [];
-    // Prune pins whose definition vanished (external structs replace the set).
-    const liveIds = new Set(S.structs.map(def => def.id));
-    S.structPins = S.structPins.filter(pin => liveIds.has(pin.structId));
-    return { invalidations: { structPins: true } };
+function applyTypesExternalChangeMessage(msg: WebviewMessageByType<'typesExternalChange'>): WebviewModelUpdate {
+    S.types = Array.isArray(msg.types) ? msg.types : [];
+    // Prune pins whose definition vanished (external types replace the set).
+    const liveIds = new Set(S.types.map(def => def.id));
+    S.typeInstances = S.typeInstances.filter(pin => liveIds.has(pin.typeId));
+    return { invalidations: { typeInstances: true } };
 }
 
 function applyPerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): WebviewModelUpdate {
     S.labels = labelArrayOrEmpty(msg.labels);
     S.segmentNames = recordOrEmpty(msg.segmentNames);
-    S.structPins = pinArrayOrEmpty(msg.pins);
+    S.typeInstances = pinArrayOrEmpty(msg.pins);
     S.endian = endianOrDefault(msg.endian);
     S.bitFieldAllocation = bitAllocationOrDefault(msg.bitAllocation);
+    S.showHiddenFields = showHiddenFieldsOrDefault(msg.showHiddenFields);
     const activeChecks = normalizeIntegrityCheckSet(msg.activeChecks);
     return {
         activeChecks: activeChecks ?? undefined,
         invalidations: {
             labelsAndMemory: true,
-            structPins: true,
+            typeInstances: true,
             currentDataView: true,
             integrityBytesChanged: true,
             endianChanged: true,
             bitFieldAllocationChanged: true,
+            showHiddenFieldsChanged: true,
         },
     };
 }
@@ -181,7 +184,7 @@ function labelArrayOrEmpty(value: SegmentLabel[] | undefined): SegmentLabel[] {
     return Array.isArray(value) ? value : [];
 }
 
-function pinArrayOrEmpty(value: StructPin[] | undefined): StructPin[] {
+function pinArrayOrEmpty(value: TypeInstance[] | undefined): TypeInstance[] {
     return Array.isArray(value) ? value : [];
 }
 
@@ -201,7 +204,7 @@ function applySavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): Webvie
                 dirtyBar: true,
                 stats: true,
                 segments: true,
-                structPins: true,
+                typeInstances: true,
                 currentDataView: true,
                 integrityBytesChanged: true,
             },
@@ -262,7 +265,7 @@ function applyExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChan
         invalidations: {
             lockState: true,
             segments: true,
-            structPins: true,
+            typeInstances: true,
             currentDataView: true,
             integrityBytesChanged: true,
         },
@@ -286,7 +289,7 @@ function applyRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>)
             dirtyBar: true,
             stats: true,
             segments: true,
-            structPins: true,
+            typeInstances: true,
             currentDataView: true,
             integrityBytesChanged: true,
         },

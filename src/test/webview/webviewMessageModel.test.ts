@@ -6,7 +6,7 @@ import type { SegmentLabel, WireParseResult } from '../../core/types';
 import { dispatchProviderMessage } from '../../webview/webviewMessageDispatcher';
 import { S } from '../../webview/state';
 import { applyProviderMessageToModel } from '../../webview/webviewMessageModel';
-import { bitAllocationOrDefault, endianOrDefault } from '../../webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault } from '../../webviewProtocol';
 
 function resetState(): void {
     S.parseResult = null;
@@ -17,8 +17,8 @@ function resetState(): void {
     S.editMode = false;
     S.edits.clear();
     S.undoStack.length = 0;
-    S.structs = [];
-    S.structPins = [];
+    S.types = [];
+    S.typeInstances = [];
     S.lockedDueToExternalChange = false;
     S.endian = 'le';
     S.bitFieldAllocation = 'msb';
@@ -64,10 +64,11 @@ suite('applyProviderMessageToModel()', () => {
             generation: 1,
             parseResult,
             labels: [labelForTest()],
-            structs: [],
-            structPins: [],
+            types: [],
+            typeInstances: [],
             endian: 'be',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -76,6 +77,7 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(S.labels.length, 1);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(S.bitFieldAllocation, 'msb');
+        assert.strictEqual(S.showHiddenFields, false, 'showHiddenFields defaults off on init');
         assert.strictEqual(update.invalidations.fullRender, true);
         assert.deepStrictEqual(update.activeChecks, { schemaVersion: 1, checks: [] });
     });
@@ -90,10 +92,11 @@ suite('applyProviderMessageToModel()', () => {
             generation: 1,
             parseResult: parseResultForTest(),
             labels: [],
-            structs: [],
-            structPins: [],
+            types: [],
+            typeInstances: [],
             endian: 'le',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [{ id: 'p1', name: 'Bootloader v3' }], current: 'p1', boundFileCount: 2 },
         });
@@ -147,10 +150,11 @@ suite('applyProviderMessageToModel()', () => {
                 totalDataBytes: 3,
             }),
             labels: [],
-            structs: [],
-            structPins: [],
+            types: [],
+            typeInstances: [],
             endian: 'le',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
@@ -186,21 +190,21 @@ suite('applyProviderMessageToModel()', () => {
         assert.strictEqual(update.externalChange?.hasUnsavedEdits, true);
     });
 
-    test('structsExternalChange replaces structs and prunes orphaned pins', () => {
-        S.structs = [{ id: 'gone', name: 'Gone', fields: [] }];
-        S.structPins = [
-            { id: 'p1', structId: 'gone', addr: 0, name: 'P1' },
-            { id: 'p2', structId: 'kept', addr: 8, name: 'P2' },
+    test('typesExternalChange replaces types and prunes orphaned pins', () => {
+        S.types = [{ id: 'gone', name: 'Gone', fields: [] }];
+        S.typeInstances = [
+            { id: 'p1', typeId: 'gone', addr: 0, name: 'P1' },
+            { id: 'p2', typeId: 'kept', addr: 8, name: 'P2' },
         ];
 
         const update = applyProviderMessageToModel({
-            type: 'structsExternalChange',
-            structs: [{ id: 'kept', name: 'Kept', fields: [] }],
+            type: 'typesExternalChange',
+            types: [{ id: 'kept', name: 'Kept', fields: [] }],
         });
 
-        assert.deepStrictEqual(S.structs.map(def => def.id), ['kept']);
-        assert.deepStrictEqual(S.structPins.map(pin => pin.id), ['p2'], 'pin of vanished structId pruned');
-        assert.strictEqual(update.invalidations.structPins, true);
+        assert.deepStrictEqual(S.types.map(def => def.id), ['kept']);
+        assert.deepStrictEqual(S.typeInstances.map(pin => pin.id), ['p2'], 'pin of vanished typeId pruned');
+        assert.strictEqual(update.invalidations.typeInstances, true);
     });
 
     test('perFileDataChange replaces labels, segment names, pins, endian, allocation, and active checks', () => {
@@ -209,17 +213,18 @@ suite('applyProviderMessageToModel()', () => {
             generation: 1,
             parseResult: parseResultForTest(),
 labels: [],
-            structs: [],
-            structPins: [],
+            types: [],
+            typeInstances: [],
             endian: 'le',
             bitAllocation: 'msb',
+            showHiddenFields: false,
             activeChecks: { schemaVersion: 1, checks: [] },
             profile: { profiles: [], current: null, boundFileCount: 0 },
         });
 
         const labels = [labelForTest({ id: 'x', name: 'X' })];
         const segmentNames = { '0': 'Boot' };
-        const pins = [{ id: 'pin', structId: 's', addr: 0, name: 'P' }];
+        const pins = [{ id: 'pin', typeId: 's', addr: 0, name: 'P' }];
         const activeChecks: IntegrityCheckSet = { schemaVersion: 1, checks: [] };
 
         const update = applyProviderMessageToModel({
@@ -229,19 +234,22 @@ labels: [],
             pins,
             endian: 'be',
             bitAllocation: 'lsb',
+            showHiddenFields: true,
             activeChecks,
         });
 
         assert.deepStrictEqual(S.labels, labels);
         assert.deepStrictEqual(S.segmentNames, segmentNames);
-        assert.deepStrictEqual(S.structPins, pins);
+        assert.deepStrictEqual(S.typeInstances, pins);
         assert.strictEqual(S.endian, 'be');
         assert.strictEqual(S.bitFieldAllocation, 'lsb');
+        assert.strictEqual(S.showHiddenFields, true, 'showHiddenFields round-trips from perFileDataChange');
         assert.deepStrictEqual(update.activeChecks, activeChecks);
         assert.strictEqual(update.invalidations.labelsAndMemory, true);
-        assert.strictEqual(update.invalidations.structPins, true);
+        assert.strictEqual(update.invalidations.typeInstances, true);
         assert.strictEqual(update.invalidations.endianChanged, true);
         assert.strictEqual(update.invalidations.bitFieldAllocationChanged, true);
+        assert.strictEqual(update.invalidations.showHiddenFieldsChanged, true);
     });
 
     test('profilesState update returns the profileState field so the dropdown re-renders', () => {
@@ -280,6 +288,14 @@ labels: [],
         assert.strictEqual(bitAllocationOrDefault('bogus'), 'msb');
         assert.strictEqual(bitAllocationOrDefault(undefined), 'msb');
     });
+
+    test('showHiddenFieldsOrDefault is the shared single normalizer (defaults off)', () => {
+        assert.strictEqual(showHiddenFieldsOrDefault(true), true);
+        assert.strictEqual(showHiddenFieldsOrDefault(false), false);
+        assert.strictEqual(showHiddenFieldsOrDefault('true'), false);
+        assert.strictEqual(showHiddenFieldsOrDefault(1), false);
+        assert.strictEqual(showHiddenFieldsOrDefault(undefined), false);
+    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -292,7 +308,7 @@ function noOpHandlers(): ProviderMessageHandlers {
         updateLabel: () => {},
         copyCommand: () => {},
         savedEdits: () => {},
-        structsExternalChange: () => {},
+        typesExternalChange: () => {},
         perFileDataChange: () => {},
         externalChange: () => {},
         externalChangeError: () => {},

@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/deviousprophet/vscode-hex-scope?label=Latest%20Release&color=brightgreen&logo=github)](https://github.com/deviousprophet/vscode-hex-scope/releases)
 [![License](https://img.shields.io/github/license/deviousprophet/vscode-hex-scope?color=yellow)](https://github.com/deviousprophet/vscode-hex-scope/blob/master/LICENSE)
 
-Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SREC files as address-aware memory, inspect binary data, decode C structs, verify integrity values, and patch bytes without leaving the editor.
+Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SREC files as address-aware memory, inspect binary data, decode C types, verify integrity values, and patch bytes without leaving the editor.
 
 ![Demo](https://raw.githubusercontent.com/deviousprophet/vscode-hex-scope/main/images/demo.gif)
 
@@ -27,7 +27,7 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 ### Inspect
 
 - **Inspector** — decode selected bytes as common scalar types in the shared per-file LE/BE byte order
-- **Struct Overlay** — define C-style structs with arrays, nested structs, pointers, and bit fields; pin them at an address and re-decode live as selection or data changes
+- **Type Overlay** — define C-style types with arrays, nested types, pointers, and bit fields; pin them at an address and re-decode live as selection or data changes
 - **Search** — `Ctrl+F` / `Cmd+F`: byte sequence, numeric value (Auto/LE/BE), ASCII string, or address; matches highlight and jump in the Memory view
 
 ### Verify
@@ -63,7 +63,7 @@ TypeScript or JavaScript scripts in `.hexscope/scripts/` read/write hex data (wr
 | Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums |
 | Save & checksums | **Save** rewrites records and recomputes record checksums |
 | Quick Repair | Right-click broken file → **Quick Repair Checksums** |
-| Struct Overlay | Define C structs in the sidebar, pin them at addresses, decode live memory |
+| Type Overlay | Define C types in the sidebar, pin them at addresses, decode live memory |
 | Integrity | Configure checks in the sidebar, compare stored CRC values, reuse saved profiles |
 | Scripts | Open the Scripts sidebar tab, pick a script from `.hexscope/scripts/`, run it |
 

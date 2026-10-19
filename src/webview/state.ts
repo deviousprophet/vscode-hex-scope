@@ -1,7 +1,7 @@
 // ── Shared mutable state ─────────────────────────────────────────
 // All modules import this object and mutate it directly.
 
-import type { SerializedParseResult, SegmentLabel, LabelDraftPreview, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, StructDef, StructPin } from '../core/types';
+import type { SerializedParseResult, SegmentLabel, LabelDraftPreview, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, TypeDef, TypeInstance } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
 import type { ProfileSummary } from '../webviewProtocol';
 import type { SidebarTab } from './components/sidebar/sidebar';
@@ -21,6 +21,8 @@ export const S = {
     selEnd:       null   as number | null,
     endian:       'le'   as 'le' | 'be',
     bitFieldAllocation: 'msb' as BitFieldAllocation,
+    /** Global "show hidden fields" toggle for the Instances view (per profile). */
+    showHiddenFields: false as boolean,
     searchMode:   'bytes'  as SearchMode,
     searchEndianness: 'auto' as SearchEndianness,
     matchAddrs:   []     as number[],
@@ -32,8 +34,8 @@ export const S = {
     edits:        new Map<number, number>(),   // addr → new value (pending saves)
     undoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, prevVal] transactions
     redoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, newVal] inverse transactions
-    structs:      [] as StructDef[],           // user-defined struct definitions
-    structPins:   [] as StructPin[],           // saved (structId, addr) overlay instances
+    types:            [] as TypeDef[],             // user-defined type definitions
+    typeInstances:    [] as TypeInstance[],        // saved (typeId, addr) overlay instances
     integrityHighlight: null as null | {
         rangeStart: number;
         rangeEnd: number;

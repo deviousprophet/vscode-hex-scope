@@ -60,6 +60,28 @@ suite('webview toast', () => {
         assert.strictEqual(toasts[0].textContent, 'last', 'latest message wins');
     });
 
+    test('a second document gets its own toast (module singleton is document-scoped)', () => {
+        showToast('first');
+        const first = document.querySelector('.sb-toast');
+        assert.ok(first, 'toast created in the first document');
+
+        // A module singleton outlives the document it rendered into; the cached
+        // node stays isConnected to the closed one, so it must not be reused.
+        const next = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://hexscope.test/' });
+        const g = globalThis as unknown as Globalish;
+        g.window = next.window as unknown as Window;
+        g.document = next.window.document as unknown as Document;
+        g.getComputedStyle = next.window.getComputedStyle.bind(next.window) as typeof getComputedStyle;
+        try {
+            showToast('second');
+            const second = next.window.document.querySelector('.sb-toast');
+            assert.ok(second, 'toast renders into the new document');
+            assert.notStrictEqual(second, first, 'a fresh element, not the stale one');
+        } finally {
+            next.window.close();
+        }
+    });
+
     test('auto-hides after the lifecycle', async () => {
         showToast('Copied ✓');
         const toast = document.querySelector<HTMLElement>('.sb-toast')!;

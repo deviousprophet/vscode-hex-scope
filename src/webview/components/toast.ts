@@ -20,10 +20,19 @@ export interface ToastOptions {
 let toastEl: HTMLElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** The reusable toast node, or a freshly created one. A module singleton outlives
+    the document it rendered into (a fresh JSDOM per test) and a stale node stays
+    `isConnected` to its old document, so it is reusable only while it belongs to
+    the document in scope. */
+function currentToastElement(): HTMLElement {
+    if (toastEl !== null && toastEl.isConnected && toastEl.ownerDocument === document) { return toastEl; }
+    return createToast();
+}
+
 /** Show a transient toast. Positioned near (x, y) when given, clamped to the
     webview viewport; falls back to top-center otherwise. */
 export function showToast(message: string, opts: ToastOptions = {}): void {
-    if (!toastEl || !toastEl.isConnected) { toastEl = createToast(); }
+    toastEl = currentToastElement();
     toastEl.textContent = message;
     positionToast(toastEl, opts.x, opts.y);
     if (hideTimer !== null) { clearTimeout(hideTimer); }

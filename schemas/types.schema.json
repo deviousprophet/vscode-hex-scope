@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "hexscope-structs.schema.json",
-  "title": "Hex Scope struct pool",
-  "description": "Workspace-wide StructDef[] in the three-tier profile system. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
+  "$id": "hexscope-types.schema.json",
+  "title": "Hex Scope type pool",
+  "description": "Workspace-wide TypeDef[] in the three-tier profile system. Envelope root tolerates extra keys (forward compat); nested payload objects are strict.",
   "type": "object",
   "required": [
     "version",
@@ -13,10 +13,25 @@
       "const": 1
     },
     "data": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/structDef"
-      }
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "defs"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only)."
+        },
+        "defs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/typeDef"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "$schema": {
       "type": "string"
@@ -24,7 +39,7 @@
   },
   "additionalProperties": true,
   "definitions": {
-    "structDef": {
+    "typeDef": {
       "type": "object",
       "required": [
         "id",
@@ -41,7 +56,34 @@
         "fields": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/structField"
+            "$ref": "#/definitions/typeField"
+          }
+        },
+        "kind": {
+          "enum": [
+            "struct",
+            "bitfield",
+            "enum"
+          ]
+        },
+        "baseType": {
+          "enum": [
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64"
+          ]
+        },
+        "bitFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/bitFieldChild"
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/enumEntry"
           }
         },
         "packed": {
@@ -62,7 +104,7 @@
       },
       "additionalProperties": false
     },
-    "structField": {
+    "typeField": {
       "type": "object",
       "required": [
         "name",
@@ -74,12 +116,12 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/definitions/structFieldType"
+          "$ref": "#/definitions/typeFieldType"
         },
         "isPointer": {
           "type": "boolean"
         },
-        "refStructId": {
+        "refTypeId": {
           "type": "string"
         },
         "bitFields": {
@@ -92,6 +134,9 @@
           "type": "number"
         },
         "bitFieldsCollapsed": {
+          "type": "boolean"
+        },
+        "hidden": {
           "type": "boolean"
         },
         "endian": {
@@ -121,11 +166,33 @@
         },
         "bitWidth": {
           "type": "number"
+        },
+        "refTypeId": {
+          "type": "string"
+        },
+        "hidden": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
     },
-    "structFieldType": {
+    "enumEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "typeFieldType": {
       "type": "string",
       "enum": [
         "void",
@@ -141,7 +208,9 @@
         "float32",
         "float64",
         "pointer",
-        "struct"
+        "struct",
+        "bitfield",
+        "enum"
       ]
     }
   }

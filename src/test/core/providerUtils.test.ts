@@ -8,10 +8,10 @@ import {
     serializeSRec,
     serializeSRecAsync,
 } from '../../core/document';
-import { migrateStructDefinitions } from '../../hexEditorProvider';
+import { migrateTypeDefinitions } from '../../hexEditorProvider';
 import { parseSRec } from '../../core/parser/srecParser';
 import { parseIntelHex } from '../../core/parser/intelHexParser';
-import type { StructDef } from '../../core/types';
+import type { TypeDef } from '../../core/types';
 
 // ── detectFormatFromParts ─────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ suite('detectFormatFromParts()', () => {
     });
 });
 
-suite('migrateStructDefinitions()', () => {
+suite('migrateTypeDefinitions()', () => {
     test('passes through definitions, preserving per-field endian overrides', () => {
         const stored = [{
             id: 'saved',
@@ -78,7 +78,7 @@ suite('migrateStructDefinitions()', () => {
             ],
         }];
 
-        const migrated = migrateStructDefinitions(stored) as StructDef[];
+        const migrated = migrateTypeDefinitions(stored) as TypeDef[];
 
         assert.deepStrictEqual(migrated[0].fields, [
             { name: 'word', type: 'uint16', count: 1, endian: 'be' },
@@ -87,10 +87,10 @@ suite('migrateStructDefinitions()', () => {
     });
 
     test('copies clean definitions into the new storage shape', () => {
-        const clean: StructDef = {
+        const clean: TypeDef = {
             id: 'clean', name: 'Clean', fields: [{ name: 'word', type: 'uint16', count: 1 }],
         };
-        assert.deepStrictEqual(migrateStructDefinitions([clean]), [clean]);
+        assert.deepStrictEqual(migrateTypeDefinitions([clean]), [clean]);
     });
 });
 

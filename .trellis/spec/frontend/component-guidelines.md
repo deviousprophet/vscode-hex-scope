@@ -8,8 +8,8 @@ The webview uses TypeScript modules that generate HTML strings and attach DOM li
 - `recordView.ts`: parsed-record table.
 - `components/sidebar/inspectorPanel/inspectorPanel.ts` (+ `inspectorLabels.ts`): Inspector, bit view, multi-byte, segments, labels.
 - `components/sidebar/integrityPanel/integrityPanel.ts`: integrity cards and actions.
-- `components/sidebar/structPanel/structPanel.ts`: struct editor, pins, decoded instance rows.
-- `components/menuController/menuController.ts`: shared menu lifecycle (hex/struct/integrity popovers); `contextCommands.ts`: command results.
+- `components/sidebar/overlayPanel/overlayPanel.ts`: type editor, instances, decoded instance rows.
+- `components/menuController/menuController.ts`: shared menu lifecycle (hex/overlay/integrity popovers); `contextCommands.ts`: command results.
 
 ## Required Pattern
 
@@ -31,6 +31,25 @@ A component under `src/webview/components/<Name>/` owns its markup, UI state, in
 - Component CSS is imported by the component's `.ts` and bundled via esbuild; global CSS (tokens/resets/layout) stays in `src/webview/styles/`.
 - A component extraction is behavior-preserving: UI gestures the pre-refactor code only used to update shared state must not start triggering new actions.
 
+## Module Singletons & Document Ownership
+
+A module-level singleton that caches a DOM node (`menuController`'s `#menu`
+container, `toast.ts`'s toast element) must be **document-scoped**, not just
+`isConnected`-guarded.
+
+**Why:** a node stays `isConnected` to the document that owns it even after that
+document is torn down (jsdom's `window.close()` does not detach the tree), so an
+`isConnected`-only check wrongly reuses a node the live document cannot see. That
+is invisible in the running webview (one document for the page's life) but breaks
+every test that installs a fresh jsdom per case — `#menu`/`.sb-toast` renders into
+the previous test's document and the current one finds nothing.
+
+**Rule:** before reusing a cached node, confirm it belongs to the ambient
+`document` (`node.ownerDocument === document`); when the document changes, drop
+the cached node and any per-document state (registry, active element, focus
+snapshot) so the next use rebuilds against the new document. Per-document listener
+WeakSets are the same idea and already key off the `Document`.
+
 ## Rerender Registry
 
 `src/webview/render/registry.ts` breaks a real circular dependency between feature modules and the composition root. `hexViewer.ts` assigns:
@@ -46,7 +65,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 
 - DOM click/context-menu handlers must call feature/model functions instead of duplicating state changes.
 - Hover is transient; selection is persistent. Do not reuse one state field for both.
-- Context-menu opening selects only where the explicit feature contract requires it; struct rows intentionally do not select on menu open.
+- Context-menu opening selects only where the explicit feature contract requires it; instance rows intentionally do not select on menu open.
 - Keyboard paths must reach the same action owner as mouse paths.
 - Large memory rendering stays virtualized through `render/virtualScroll.ts`; never render the entire address space.
 - Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) — see [SearchBar Component](./components/component-search-bar.md). Shared/global CSS stays under `src/webview/styles/` (tokens, resets, layout); it does not contain component-specific rules once that component is extracted.
@@ -57,7 +76,7 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 - Buttons use native `<button>` where possible.
 - Tooltips must have accessible text equivalents.
 - Focus state and selected state are distinct.
-- See `struct-instance-display.md` for the strict struct-row contract.
+- See `overlay-instance-display.md` for the strict instance-row contract.
 
 ## Anti-patterns
 
@@ -70,6 +89,6 @@ Add a callback only when two modules genuinely require the seam. Keep callback s
 ## Test Anchors
 
 - `src/test/webview/webview.test.ts`: memory/record/sidebar/virtual-scroll behavior.
-- `src/test/webview/structPanel.test.ts`: complex row rendering and actions.
+- `src/test/webview/overlayPanel.test.ts`: complex row rendering and actions.
 - `src/test/webview/webviewMessageModel.test.ts`: model/invalidation split.
 - `src/test/webview/utils.test.ts`: escaping and formatting.

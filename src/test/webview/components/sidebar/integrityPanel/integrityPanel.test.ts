@@ -4,7 +4,7 @@ import '../../../cssImportHook';
 
 import { IntegrityPanel, type IntegrityHighlight } from '../../../../../webview/components/sidebar/integrityPanel/integrityPanel';
 import { getByte } from '../../../../../webview/memory/memoryData';
-import { setBytesInSegment } from '../../../structStateHelpers';
+import { setBytesInSegment } from '../../../overlayStateHelpers';
 import { S } from '../../../../../webview/state';
 import { calculateIntegrity, integrityValueToBytes } from '../../../../../core/integrity';
 

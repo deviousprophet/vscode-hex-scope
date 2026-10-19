@@ -54,7 +54,7 @@ body:
         - Records view
         - Search
         - Inspector
-        - Struct Overlay
+        - Type Overlay
         - Integrity checks / stored values
         - Editing / Save
         - Copy & export

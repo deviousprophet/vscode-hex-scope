@@ -1,7 +1,7 @@
 # Component Spec — MenuController
 
 > Built from `component-template.md`. One headless menu controller owns every
-> popover menu in the webview (hex grid ctx menu, struct field menu, integrity
+> popover menu in the webview (hex grid ctx menu, overlay field menu, integrity
 > ⋮ menu): positioning, dismissal, hover submenus, keyboard navigation, and
 > input modality. Replaces the pre-unification `ContextMenu` class (hex only)
 > and the sidebar `wireMenuPopup` registry (popovers) — see task
@@ -17,9 +17,9 @@ command execution: the controller never reads/writes `S`, never posts provider
 messages, never executes commands — it reports via **per-show `emit`**.
 
 Boundary rule: the controller is headless — it never renders content of its
-own. Callers supply `innerHTML` per `show()` (hex, struct) or `attach()` a
-pre-authored static popover (struct field menu). Integration-specific classes
-(`si-field-menu`) stay caller-owned and are NOT renamed.
+own. Callers supply `innerHTML` per `show()` (hex, overlay) or `attach()` a
+pre-authored static popover (overlay field menu). Integration-specific classes
+(`oi-field-menu`) stay caller-owned and are NOT renamed.
 
 ## Layout
 
@@ -32,7 +32,7 @@ src/webview/components/menuController/
     menuFill.ts         hex-menu "Patch / Fill" custom-input wiring
     menu.css            renamed from contextMenu.css; `ctx-*` → `menu-*`
 src/webview/hexViewer.ts                hex grid show/emit wiring
-src/webview/components/sidebar/structPanel/structPanel.ts   struct field menu
+src/webview/components/sidebar/overlayPanel/overlayPanel.ts   overlay field menu
 src/test/webview/components/menuController/menuController.test.ts   (mocha + jsdom)
 ```
 
@@ -76,9 +76,14 @@ export const menuController = new MenuController();   // module-wide singleton
 ```
 
 Opening a menu closes any other open menu (one active at a time). The dynamic
-`#menu` container is created once on first `show()` and reused. Attached
-static popovers are shown with `show(x, y, { el, anchor })` and keep their own
-`hidden` attribute/CSS positioning.
+`#menu` container is created on first `show()` and reused **within one document**:
+the singleton is document-scoped, so when the ambient `document` changes,
+`syncDocument()` drops the cached container, registry, and focus state and the
+next `show()`/`attach()` creates a fresh container in the new document. (A module
+singleton outlives the document it rendered into — a fresh jsdom per test — and a
+stale node stays `isConnected` to the closed one, so an `isConnected`-only guard
+would wrongly reuse it.) Attached static popovers are shown with
+`show(x, y, { el, anchor })` and keep their own `hidden` attribute/CSS positioning.
 
 ## Rules
 
@@ -139,8 +144,8 @@ static popovers are shown with `show(x, y, { el, anchor })` and keep their own
   carries the `edit-selected` row (rendered when `bytes.length >= 2`; disabled
   unless `editMode && !locked`) — the host starts the selection-edit session on
   emit.
-- Struct field menu: `showFieldMenu` (structPanel.ts) renders per-field html
-  (value-type/pointer disambiguators, struct value kinds) into the shared
+- Field menu: `showFieldMenu` (overlayPanel.ts) renders per-field html
+  (value-type/pointer disambiguators, overlay value kinds) into the shared
   container with its own `emit`; right-click/copy/pointer commands unchanged.
 - Integrity ⋮ menu: static popover `#integrity-profile-menu-pop` +
   `#integrity-profile-menu-btn`; `attach()` then `show({ el, anchor, focusFirst })`.
@@ -161,6 +166,7 @@ static popovers are shown with `show(x, y, { el, anchor })` and keep their own
 | ArrowRight on submenu row / ArrowLeft in submenu / Home / End | Submenu opens+focuses first / closes+parent refocus / jump to first / last enabled item. |
 | Hover submenu row | Submenu shown (flip-aware). |
 | Menu disconnected (re-render) | Registry entry pruned on next interaction; active close path avoids stale DOM. |
+| Ambient `document` changes (fresh jsdom per test) | `syncDocument()` drops the cached container/registry/focus state; `show()`/`attach()` rebuilds in the new document. |
 
 ## Tests Required
 
@@ -170,8 +176,10 @@ valid+invalid), positioning/submenu flip, full keyboard matrix (arrows wrap +
 skip-disabled, Home/End, submenu two-step, ArrowRight/Left,
 Enter-on-submenu, Enter-left-to-native-button, Escape two-step), dismissal
 (click-outside, focusout, window blur + skipRestore, Escape), focus restore,
-input modality, single-active-menu invariants, attach/popover aria sync. Host
-suites continue covering hexViewer/structPanel/integrityPanel integrations.
+input modality, single-active-menu invariants, attach/popover aria sync,
+document-scoped singleton (a second document gets its own `#menu`, not the stale
+one). Host suites continue covering hexViewer/overlayPanel/integrityPanel
+integrations.
 
 ## Anti-patterns
 
@@ -180,9 +188,9 @@ suites continue covering hexViewer/structPanel/integrityPanel integrations.
 - Executing commands (must report via per-show `emit`).
 - Re-introducing a second popover-menu implementation (one controller).
 - Duplicating `positionMenu`/`wireMenuSubmenus` (reuse from `utils.ts`).
-- Renaming `integrity-profile-menu-*` / `si-field-menu` classes (caller-owned).
+- Renaming `integrity-profile-menu-*` / `oi-field-menu` classes (caller-owned).
 - Guarding host shortcuts with an `#ctx-menu` proximity check — capture-phase
   interception in the controller subsumes it (host `inContextMenu` deleted in
-  the unification task; Ctrl+S while a menu is open now saves, matching struct
+  the unification task; Ctrl+S while a menu is open now saves, matching overlay
   behaviour). Re-add a `openMenu()`-based guard only if modal strictness is
   explicitly wanted.

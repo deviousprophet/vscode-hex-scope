@@ -274,7 +274,7 @@ export function formatHexHtml(hexStr: string): string {
     if (!hexStr) { return ''; }
     const prefix = esc(hexStr.slice(0, 2));
     const body = esc(hexStr.slice(2));
-    return `<span class="si-hex-prefix">${prefix}</span><span class="si-hex-body">${body}</span>`;
+    return `<span class="oi-hex-prefix">${prefix}</span><span class="oi-hex-body">${body}</span>`;
 }
 
 /**

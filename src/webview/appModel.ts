@@ -1,6 +1,6 @@
 import type { SegmentLabel, SerializedParseResult, WireParseResult } from '../core/types';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
-import { bitAllocationOrDefault, endianOrDefault } from '../webviewProtocol';
+import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault } from '../webviewProtocol';
 import { buildMemRows, initFlatBytes } from './memory/memoryData';
 import { S } from './state';
 
@@ -19,10 +19,11 @@ export function applyInitialState(msg: InitMessage): void {
     loadParsedMemory(hydrateParseResult(msg.parseResult));
     S.labels = messageArray(msg.labels);
     S.segmentNames = messageRecord(msg.segmentNames);
-    S.structs = messageArray(msg.structs);
-    S.structPins = messageArray(msg.structPins);
+    S.types = messageArray(msg.types);
+    S.typeInstances = messageArray(msg.typeInstances);
     S.endian = endianOrDefault(msg.endian);
     S.bitFieldAllocation = bitAllocationOrDefault(msg.bitAllocation);
+    S.showHiddenFields = showHiddenFieldsOrDefault(msg.showHiddenFields);
     S.currentView = 'memory';
     S.lastClickColumn = null;
 }

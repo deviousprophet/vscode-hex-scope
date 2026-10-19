@@ -170,7 +170,7 @@ html, body {
 }
 
 /* ── Shared action buttons (edit ✎ / delete 🗑) ────────────────── */
-/* Used in labels, struct instance cards, and manage-types rows.    */
+/* Used in labels, overlay instance cards, and manage-types rows.    */
 .act-btn {
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 18px; padding: 0; flex-shrink: 0;
@@ -182,11 +182,11 @@ html, body {
 /* Parent hover (or keyboard focus within) reveals the buttons */
 [data-act-host]:hover .act-btn,
 .label-item:hover    .act-btn,
-.sd-row:hover        .act-btn,
+.od-row:hover        .act-btn,
 .sb-card:hover       .act-btn,
 [data-act-host]:focus-within .act-btn,
 .label-item:focus-within    .act-btn,
-.sd-row:focus-within        .act-btn,
+.od-row:focus-within        .act-btn,
 .sb-card:focus-within       .act-btn { opacity: 1; }
 
 .act-btn:hover       { background: rgba(255,255,255,.08); color: var(--fg); }

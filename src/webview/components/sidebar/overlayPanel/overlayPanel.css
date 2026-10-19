@@ -1,0 +1,819 @@
+﻿/* -- Type Overlay sidebar panel ------------------------------ */
+
+/* Shared layout tokens */
+.addr-pfx {
+    flex-shrink: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg); line-height: 1;
+    padding: 2px 0 2px 2px;
+    user-select: none;
+}
+
+/* -- Shared .sb-* primitive adaptation ----------------------------- */
+/* Spacing now comes from the primitives (sidebar.css): .sb-btn 2px 8px,
+   .sb-btn-add 5px 8px. Only non-spacing adaptations stay here. */
+.oa-row .sb-select { flex: 1; min-width: 0; }
+/* Add Field: compact, centered in the form, not full-width. */
+.oe-form > .sb-btn-add { align-self: center; width: auto; padding: 3px 12px; }
+#oi-add-btn { flex-shrink: 0; }
+#om-close-btn { flex-shrink: 0; }
+
+/* -- Types list (#s-types) ------------------------------ */
+
+.od-empty { margin-bottom: 4px; }
+
+/* One shared column grid for every row: kind | name | meta | actions.
+   The leading kind track is fixed so every chip renders as an identical-width
+   badge in one aligned column. The name is the only flexible cell and absorbs
+   slack; the meta track is content-sized so the info shows in full (it only
+   shrinks as an overflow safety-valve). The actions are two sibling buttons
+   (no wrapper), so they resolve to a trailing pair of `auto` tracks — both are
+   fixed 18px controls, identical on every row.
+   56px fits the widest label ("Bit-field", ≈46px of text). */
+.od-row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) minmax(0, max-content) auto auto;
+    align-items: center; gap: 4px;
+    padding: 3px 2px; border-radius: 3px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.od-row:last-child { border-bottom: none; }
+
+/* The list is the container for the narrow-layout query: the sidebar width is
+   not the viewport width. */
+#om-list { container-type: inline-size; }
+
+/* Below 300px the info would squeeze the name, so it is hidden and its grid
+   track is dropped too (hiding the item alone would leave the track reserved). */
+@container (max-width: 299px) {
+    .od-row { grid-template-columns: 56px minmax(0, 1fr) auto auto; }
+    .od-meta { display: none; }
+}
+
+/* Name flexes and ellipsizes first; its `title` carries the full text. */
+.od-name {
+    min-width: 0;
+    font-size: 11px; font-weight: 600; color: var(--fg);
+    font-family: var(--font-ui);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Meta is content-sized, so it renders in full when visible; the ellipsis is
+   only the final overflow safety-valve. Its `title` carries the full text. */
+.od-meta {
+    min-width: 0;
+    font-size: 10px; color: var(--addr-fg);
+    font-family: var(--font-editor);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Named-type discriminator badge — one shared primitive for the type list
+   (`.od-kind`) and the editor default row (`.oe-kind-badge`); only layout
+   differs between the two. Sentence-case label, 10px type floor. */
+.od-kind,
+.oe-kind-badge {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0; line-height: 1.5;
+    color: var(--addr-fg);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 2px; padding: 0 3px;
+    font-family: var(--font-ui);
+    text-transform: none;
+}
+
+/* Per-kind accents (component-local; meta stays monochrome so it does not compete). */
+.od-kind-struct {
+    color: var(--high-color);
+    background: rgba(156, 220, 254, .10);
+    border-color: rgba(156, 220, 254, .45);
+}
+.od-kind-bitfield {
+    color: var(--warn);
+    background: rgba(229, 168, 0, .12);
+    border-color: rgba(229, 168, 0, .45);
+}
+.od-kind-enum {
+    color: #c586c0;
+    background: rgba(197, 134, 192, .12);
+    border-color: rgba(197, 134, 192, .45);
+}
+
+/* Layout-only modifiers. The type-list chip fills its fixed leading track so
+   every kind renders at the same width; the editor badge hugs its label. */
+.od-kind {
+    justify-self: stretch; width: 100%; box-sizing: border-box;
+    text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.oe-kind-badge { justify-self: start; }
+
+/* Types filter bar: name search grows, kind filter stays compact; both share
+   one explicit 20px control box so the native select (UA metrics + arrow) does
+   not resolve taller than the text input. The native select arrow is kept. */
+.od-tools {
+    display: flex; align-items: center; gap: 4px;
+    margin-bottom: 4px;
+}
+.od-tools .od-filter,
+.od-tools .od-kind-filter {
+    height: 20px; box-sizing: border-box;
+    line-height: 1; font-family: var(--font-ui); font-size: 10px;
+    margin: 0;
+}
+.od-filter { flex: 1; min-width: 0; }
+.od-kind-filter { flex-shrink: 0; max-width: 92px; }
+
+/* -- Type form editor (#s-types when editing) ----------------- */
+
+/* The section body (.sb-pane .sb-body) stays the only scroll container for
+   the editor, like every other sidebar section: the whole form (name, type
+   default, field rows, Add Field, Save/Cancel, C preview) flows in it and
+   scrolls together. The wrapper does not stretch to fill the pane —
+   `min-height:100%` against a flex-derived body height proved unreliable
+   across machines (void + premature scrollbar); short forms top-align
+   (VS Code standard), long forms scroll the body. Nothing inside takes over
+   scrolling. */
+.oi-editor-wrap {
+    display: flex;
+    flex-direction: column;
+}
+.oe-form {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; gap: 5px;
+}
+
+/* Edit/Preview views: only one visible at a time; the section body remains the
+   sole scroll container (no inner scroll in either view). */
+.oe-view { min-height: 0; }
+.oe-view[data-oe-view="edit"] {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.oe-view[hidden] { display: none; }
+
+/* Edit/Preview tabs: inline shrink-to-fit toggle, not a full-width segmented bar. */
+.oe-tabs { align-self: flex-start; }
+.oe-tabs .oe-tab { flex: 0 0 auto; }
+
+.oe-name-inp {
+    width: 100%;
+    font-family: var(--font-ui); font-weight: 600;
+}
+
+.oe-name-lbl {
+    font-size: 10px; font-weight: 600;
+    color: var(--addr-fg); font-family: var(--font-ui);
+}
+
+/* Type-default row: grid-aligned so Endian shares the field grid column */
+.oe-type-default-row {
+    display: grid;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
+    gap: 3px; align-items: center; padding: 1px 0;
+    margin-top: 3px;
+}
+.oe-type-default-lbl {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 10px; font-weight: 600; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.oe-type-default-sel {
+    flex: 1; min-width: 0;
+}
+
+/* Shared select control: appearance, caret, spacing — type-default, type, endian, alloc */
+.oe-type-default-sel,
+.ofe-type-sel,
+.ofe-endian-sel,
+.ofe-alloc-sel {
+    appearance: none;
+    background-color: var(--input-bg);
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="7" height="4" viewBox="0 0 7 4"><path d="M0 0h7L3.5 4z" fill="%23777"/></svg>');
+    background-repeat: no-repeat; background-position: right 3px center; background-size: 7px 4px;
+    border: 1px solid var(--input-bdr);
+    border-radius: 2px; color: var(--input-fg); font-family: var(--font-ui);
+    font-size: 10px; padding: 1px 12px 1px 4px; outline: none; width: 100%;
+    box-sizing: border-box;
+}
+.oe-type-default-sel:focus,
+.ofe-type-sel:focus,
+.ofe-endian-sel:focus,
+.ofe-alloc-sel:focus { border-color: var(--focus-bdr); }
+
+/* Empty cell kept so non-bit-field-ref rows stay grid-aligned with ref rows. */
+.ofe-alloc-placeholder { display: block; }
+
+.oe-field-hdr {
+    display: grid;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
+    gap: 3px; align-items: center;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+    padding-bottom: 3px; border-bottom: 1px solid var(--border);
+}
+.oe-field-hdr > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.field-row {
+    display: grid;
+    grid-template-columns: 96px 26px 1fr 58px 52px 28px 72px 30px 18px;
+    gap: 3px; align-items: center; padding: 1px 0;
+}
+.field-row:focus { outline: 1px solid var(--focus-bdr); outline-offset: -1px; }
+
+.ofe-name-inp {
+    width: 100%;
+}
+
+.ofe-type-sel,
+.ofe-endian-sel,
+.ofe-alloc-sel { width: 100%; }
+
+/* Pointer toggle button (*): fills its grid cell between Type and Name */
+.ofe-ptr-btn {
+    width: 100%; text-align: center;
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 11px; cursor: pointer; padding: 0; line-height: 1.4;
+    white-space: nowrap; transition: border-color .1s, color .1s, background .1s;
+}
+.ofe-ptr-btn:hover:not(:disabled)        { border-color: var(--high-color); color: var(--high-color); }
+.ofe-ptr-btn.active                      { border-style: solid; border-color: var(--high-color);
+                                           color: var(--high-color); background: rgba(79,195,247,.1); }
+.ofe-ptr-btn.active:hover                { border-color: var(--err); color: var(--err);
+                                           background: rgba(255,80,80,.08); }
+.ofe-ptr-btn:disabled                    { opacity: .35; cursor: not-allowed; }
+
+/* Hidden-in-instance-view checkbox cell */
+.ofe-hidden-cell {
+    display: flex; align-items: center; justify-content: center;
+}
+.ofe-hidden-chk {
+    width: 12px; height: 12px; margin: 0; cursor: pointer;
+    accent-color: var(--high-color);
+}
+
+/* Array cell */
+.ofe-arr-cell {
+    display: flex; align-items: center; gap: 2px; width: 100%;
+}
+.ofe-arr-toggle {
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-size: 10px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
+    white-space: nowrap; flex-shrink: 0; text-align: center;
+    transition: border-color .1s, color .1s, background .1s;
+}
+.ofe-arr-toggle:hover        { border-color: var(--high-color); color: var(--high-color); }
+.ofe-arr-toggle.active       { border-style: solid; border-color: var(--high-color);
+                                color: var(--high-color); background: rgba(79,195,247,.1); }
+.ofe-arr-toggle.active:hover { border-color: var(--err); color: var(--err);
+                                background: rgba(255,80,80,.08); }
+.ofe-count-inp,
+.ofe-bf-child-width {
+    width: 32px; text-align: center;
+    appearance: textfield;
+}
+.ofe-count-inp { display: none; }
+.ofe-count-inp::-webkit-outer-spin-button,
+.ofe-count-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ofe-arr-cell.is-array .ofe-count-inp { display: block; }
+
+.ofe-del-btn {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.ofe-del-btn:hover { color: var(--err); }
+.ofe-del-placeholder { display: block; width: 18px; }
+
+.oi-f-ptr-note {
+    color: var(--addr-fg);
+    opacity: .8;
+    font-family: var(--font-ui);
+    font-size: 10px;
+}
+
+/* -- Bit-field children container ------------------------------- */
+.ofe-bf-children {
+    grid-column: 1 / -1;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 3px 0 0 0; margin: 0;
+    border-top: 1px solid rgba(255,255,255,.06);
+    background: rgba(0,0,0,.1);
+}
+/* Child column header + child rows share one grid template so every label sits over its input. */
+.ofe-bf-child-hdr,
+.ofe-bf-child-row {
+    display: grid;
+    grid-template-columns: 8px 1fr 32px 20px minmax(0, 90px) 28px 20px 18px;
+    gap: 3px; align-items: center;
+    padding: 1px 4px 1px 8px;
+}
+.ofe-bf-child-hdr {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.ofe-bf-child-hdr > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofe-bf-child-indent { width: 8px; }
+.ofe-bf-child-name { width: 100%; min-width: 0; }
+.ofe-bf-child-width::-webkit-outer-spin-button,
+.ofe-bf-child-width::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ofe-bf-child-unit {
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
+    user-select: none;
+}
+.ofe-bf-child-move {
+    display: flex; align-items: center; justify-content: center; gap: 1px;
+}
+.ofe-bf-del-child {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.ofe-bf-del-child:hover { color: var(--err); }
+.ofe-bf-child-enum {
+    width: 100%; max-width: 90px; min-width: 0;
+    font-size: 10px; font-family: var(--font-ui);
+    background: var(--input-bg, transparent); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 2px;
+    padding: 0 2px;
+}
+.ofe-bf-child-hidden-cell {
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* -- Enum entry rows -------------------------------------------- */
+.ofe-enum-entries {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 3px 0 0 0; margin: 0;
+}
+/* Entry column header + entry rows share one grid template so every label sits over its input. */
+.ofe-enum-entry-hdr,
+.ofe-enum-entry-row {
+    display: grid;
+    grid-template-columns: 8px 1fr 12px 56px 20px 18px;
+    gap: 3px; align-items: center;
+    padding: 1px 4px 1px 8px;
+}
+.ofe-enum-entry-hdr {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.ofe-enum-entry-hdr > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofe-enum-entry-name {
+    width: 100%; min-width: 0;
+}
+.ofe-enum-entry-value {
+    width: 56px; text-align: right;
+}
+.ofe-enum-del-entry {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 10px; cursor: pointer; padding: 0; line-height: 1; text-align: center;
+}
+.ofe-enum-del-entry:hover { color: var(--err); }
+
+.ofe-move-btns {
+    display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1px;
+}
+.ofe-move-btn {
+    background: transparent; border: none; color: var(--addr-fg);
+    font-size: 11px; line-height: 1; padding: 0 1px; cursor: pointer;
+    transition: color .1s;
+    display: inline-block;
+}
+.ofe-move-btn:hover:not(:disabled) { color: var(--fg); }
+.ofe-move-btn:disabled { opacity: .2; cursor: default; }
+
+.oe-btns { display: flex; gap: 6px; margin-top: 2px; }
+.oe-error {
+    margin-top: 6px;
+    color: var(--err);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+/* Type-kind picker (shown in the Types body after the single ＋ Add action) */
+.om-kind-picker { display: flex; flex-direction: column; gap: 8px; }
+.om-kind-hdr {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--addr-fg); font-family: var(--font-ui);
+}
+.om-kind-tiles { display: flex; flex-direction: column; gap: 6px; }
+.om-kind-tile {
+    display: flex; flex-direction: column; gap: 2px; text-align: left;
+    background: var(--input-bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 6px 8px; cursor: pointer;
+    transition: border-color .1s, background .1s;
+}
+.om-kind-tile:hover { border-color: var(--high-color); background: rgba(79,195,247,.08); }
+.om-kind-tile-name { font-size: 11px; font-weight: 600; font-family: var(--font-ui); }
+.om-kind-tile-hint { font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui); }
+
+/* Header row: body controls below the framework section header */
+.oi-hdr-row {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-bottom: 8px;
+}
+.oi-toggle-group {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    flex-shrink: 0;
+}
+.oi-toggle-group .compact-tabs button { padding: 1px 5px; }
+
+/* Global "show hidden fields" toggle button in the Instances header */
+.oi-show-hidden-btn {
+    padding: 1px 5px; white-space: nowrap;
+}
+
+/* Inline add form */
+.oi-add-form {
+    display: flex; flex-direction: column; gap: 5px;
+    background: rgba(0,0,0,.18); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px; margin-bottom: 8px;
+}
+
+/* Form mode header (+ New Instance / ? Edit Instance) */
+.oa-form-hdr {
+    font-size: 10px; font-weight: 600; font-family: var(--font-ui);
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1px;
+    user-select: none;
+}
+.oa-form-hdr-new  { color: var(--high-color); }
+.oa-form-hdr-edit { color: var(--addr-fg); }
+
+.oa-row { display: flex; align-items: center; gap: 4px; }
+.oa-btn-row { gap: 6px; }
+.oa-bit-order-tabs { flex-shrink: 0; }
+
+/* C-code type preview (used in add-form and card type-preview) */
+.oa-preview {
+    background: rgba(0,0,0,.18); border: 1px solid var(--border);
+    border-radius: 3px; padding: 0;
+    max-height: 160px; overflow-y: auto;
+}
+.oi-c-preview {
+    margin: 0; padding: 5px 7px;
+    font-family: var(--font-editor); font-size: 10px; line-height: 1.5;
+    color: var(--fg); white-space: pre; tab-size: 4;
+    background: transparent; border: none;
+    overflow-x: auto;
+}
+/* C syntax token colors */
+.sc-kw        { color: #569cd6; }          /* typedef struct */
+.sc-attr      { color: #c586c0; }          /* __attribute__((packed)) */
+.sc-type      { color: #4ec9b0; }          /* uint8_t uint32_t float … */
+.sc-cmt       { color: #6a9955; }          /* C comments */
+
+.oa-addr-inp { flex: 0 0 90px; min-width: 0; }
+
+.oa-name-inp {
+    flex: 1; min-width: 0;
+}
+
+/* -- Saved instances (expandable cards) -------------------------- */
+
+/* Overlay cards ride the shared .sb-card primitive; state borders carried as modifiers */
+.sb-card.oi-expanded { border-color: rgba(79,195,247,.35); }
+.sb-card.oi-card-selected { border-color: rgba(79,195,247,.6); }
+
+.oi-expand-btn {
+    flex-shrink: 0; width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; padding: 0;
+    color: var(--addr-fg); font-size: 14px; cursor: pointer;
+    line-height: 1; align-self: flex-start; margin-top: 2px;
+    transition: transform .12s ease;
+}
+
+.oi-cname {
+    font-size: 11px; font-weight: 600; color: var(--fg);
+    font-family: var(--font-ui);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.oi-cmeta-row {
+    display: flex; align-items: baseline; gap: 5px;
+}
+.oi-ctype {
+    font-size: 10px; color: var(--high-color); opacity: .65;
+    font-family: var(--font-editor); white-space: nowrap;
+    flex-shrink: 0;
+}
+.oi-caddr {
+    font-size: 10px; color: var(--addr-fg);
+    font-family: var(--font-editor); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
+.oi-csource {
+    font-size: 10px; color: var(--muted-fg);
+    font-family: var(--font-editor); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Action button group (edit + delete + view-type) at top-right of card */
+.oi-card-actions {
+    flex-shrink: 0; display: flex; align-items: center; gap: 0;
+}
+
+/* Overlay field menus live in the shared #menu container; the oi-field-menu
+   modifier adds the type-specific sizing/word-break + wrapped hints. */
+.oi-field-menu {
+    min-width: 260px;
+    max-width: 340px;
+    word-break: break-word;
+}
+.oi-field-menu .menu-hint {
+    display: block;
+    padding: 6px 12px 0 12px;
+    font-size: 12px;
+    color: var(--addr-fg);
+    white-space: normal;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+/* + new-type button in add form type row */
+.oi-add-type-btn {
+    flex-shrink: 0;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 3px; color: var(--addr-fg);
+    font-size: 11px; padding: 1px 5px; cursor: pointer; line-height: 1.4;
+    transition: background .1s, border-color .1s, color .1s;
+}
+.oi-add-type-btn:hover { background: rgba(255,255,255,.08); border-color: var(--fg); color: var(--fg); }
+
+/* "No types yet" row in add form */
+.oa-no-types-row { gap: 8px; }
+.oa-no-types-msg { flex: 1; font-size: 10px; color: var(--addr-fg); opacity: .7; }
+
+/* Editor header row */
+.oi-editor-hdr-row {
+    display: flex; align-items: center;
+    margin-bottom: 8px;
+}
+
+/* Inline type definition preview */
+.oi-type-preview {
+    border-top: 1px dashed rgba(255,255,255,.1);
+    background: rgba(0,0,0,.15);
+    overflow-x: auto;
+}
+.oi-type-preview .oi-c-preview {
+    padding: 4px 8px 5px;
+    max-height: 180px; overflow-y: auto;
+}
+
+/* Packed toggle button in type editor (Type column of the type-default row) */
+.oe-packed-btn {
+    display: inline-block; justify-self: start; align-self: center; margin: 0;
+    padding: 2px 7px; border-radius: 3px;
+    font-size: 10px; font-family: var(--font-editor);
+    color: var(--addr-fg); background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer; opacity: .55; transition: opacity .1s, border-color .1s, color .1s;
+    
+    user-select: none;
+}
+.oe-packed-btn:hover { opacity: .8; border-color: var(--addr-active-fg); }
+.oe-packed-btn.active {
+    opacity: 1; color: #569cd6;
+    border-color: #569cd6; background: rgba(86,156,214,.12);
+}
+
+/* Live C preview inside the type editor. No fixed height and no inner
+   scroll: the preview flows in the section body and scrolls with it; long
+   lines wrap to the pane width. */
+.oe-preview {
+    border: 1px solid var(--border); border-radius: 3px;
+    background: rgba(0,0,0,.18); overflow: hidden;
+    margin-top: 2px;
+}
+.oe-preview .oi-c-preview {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* Expanded field rows */
+.oi-fields {
+    --oi-col-off: 30px;
+    --oi-col-type: clamp(72px, 22%, 112px);
+    --oi-col-toggle: 18px;
+    --oi-col-gap: 2px;
+    --oi-col-pad-left: 6px;
+    --oi-indent-step: 8px;
+    --oi-toggle-x: calc(var(--oi-col-pad-left) + var(--oi-col-off) + var(--oi-col-gap) + var(--oi-col-type) + var(--oi-col-gap) + (var(--oi-col-toggle) / 2));
+    border-top: 1px solid var(--border);
+    padding: 3px 0;
+}
+/* Grid: [offset] [type] [toggle] [body] */
+.oi-field {
+    display: grid;
+    grid-template-columns: var(--oi-col-off) var(--oi-col-type) var(--oi-col-toggle) 1fr;
+    gap: var(--oi-col-gap);
+    align-items: baseline;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .1s;
+}
+.oi-field:hover    { background: var(--hover-bg); }
+.oi-field.oi-selected { background: rgba(79,195,247,.12) !important; }
+
+.oi-f-off  { font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor); font-variant-numeric: tabular-nums; }
+.oi-f-type {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10px;
+    color: var(--addr-fg);
+    opacity: .55;
+    font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.oi-toggle-pad { display: block; width: var(--oi-col-toggle); height: 1px; }
+
+/* name + dotted leader + value */
+.oi-f-body {
+    display: flex; align-items: baseline; gap: 3px;
+    min-width: 0; overflow: hidden;
+}
+.oi-f-name {
+    font-size: 10px; color: var(--fg); font-family: var(--font-editor);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex-shrink: 1; min-width: 0;
+}
+.oi-f-lead {
+    flex: 1; min-width: 8px;
+    border-bottom: 1px dotted rgba(255,255,255,.2);
+    margin-bottom: 2px; align-self: flex-end;
+}
+/* Explicit-override badges (per-field/type endian + allocation) */
+.oi-chip {
+    flex-shrink: 0;
+    font-family: var(--font-ui);
+    font-size: 9px; font-weight: 700;
+    border-radius: 7px; padding: 0 5px;
+    line-height: 13px;
+    letter-spacing: .02em;
+    align-self: center;
+    user-select: none;
+}
+.oi-chip-endian { background: rgba(79,195,247,.16); color: var(--high-color); }
+.oi-chip-alloc  { background: rgba(255,193,7,.14);  color: var(--warn); }
+.oi-f-pri { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; flex-shrink: 0; }
+.oi-f-val { font-size: 10px; color: var(--high-color); font-family: var(--font-editor); white-space: nowrap; flex-shrink: 0; }
+.oi-f-val[data-val-type="hex"]   { color: var(--val-hex-color); }
+.oi-f-val[data-val-type="dec"]   { color: var(--val-dec-color); }
+.oi-f-val[data-val-type="ieee"]  { color: var(--val-ieee-color); white-space: normal; }
+.oi-ieee {
+    color: var(--val-ieee-color);
+    white-space: pre; /* preserve spacing in the <pre> block so labels align */
+    font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+}
+.oi-hex-prefix { color: var(--val-hex-prefix-color); font-weight: 700; margin-right: 0; }
+.oi-hex-body { display: inline-block; color: var(--val-hex-color); }
+.oi-ieee-label {
+    color: var(--val-ieee-label-color);
+    font-weight: 700;
+    display: inline-block;
+    width: 10ch; /* fixed label width (monospace-ch units) to align values */
+    text-align: right;
+    padding-right: .5ch;
+}
+.oi-ieee-val { color: var(--val-ieee-value-color); font-weight: 600; }
+.oi-f-val[data-val-type="ascii"] { color: var(--print-color); white-space: pre; }
+.oi-f-val[data-val-type="bin"]   { color: var(--fg); white-space: normal; }
+.oi-bit { font-family: var(--font-editor); display: inline-block; letter-spacing: 0; padding: 0 .25ch; }
+.oi-bit.one  { color: var(--fg); font-weight: 700; }
+.oi-bit.zero { color: var(--fg); opacity: .70; }
+.oi-bit.unknown { color: var(--addr-fg); opacity: .75; }
+.oi-bit.sel {
+    background: var(--sel-bg);
+    color: var(--sel-fg, var(--fg));
+    border-radius: 2px;
+    opacity: 1;
+}
+.oi-bit.hov {
+    background: rgba(79,195,247,.12);
+    box-shadow: inset 0 -1px 0 rgba(79,195,247,.55);
+    border-radius: 2px;
+}
+.oi-bin-wrap { display: inline-block; max-width: 100%; white-space: normal; }
+.oi-bin-wrap br { display: block; line-height: 1.1; }
+.oi-f-ptr { color: #e8a020 !important; font-style: italic; }
+.oi-f-ptr-sym { color: var(--addr-fg); font-style: normal; opacity: .8; }
+.oi-no-data { opacity: .4; }
+
+/* Composite node header rows */
+.oi-arr-grp-hdr {
+    display: grid;
+    grid-template-columns: var(--oi-col-off) var(--oi-col-type) var(--oi-col-toggle) 1fr;
+    gap: var(--oi-col-gap);
+    align-items: center;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .1s;
+    border-top: 1px solid rgba(255,255,255,.05);
+    position: relative;
+    border-radius: 3px;
+}
+
+.oi-val-row { padding: 6px 10px; cursor: pointer; font-size: 12px; color: var(--fg); }
+.oi-val-row:hover { background: var(--hover-bg); }
+.oi-val-row.active { font-weight: 700; color: var(--high-color); }
+.oi-arr-grp-hdr:hover      { background: var(--hover-bg); }
+.oi-arr-grp-hdr.oi-selected { background: rgba(79,195,247,.12) !important; }
+.oi-arr-exp-btn,
+.oi-arr-el-exp-btn {
+    width: 100%;
+    height: 18px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; padding: 0;
+    color: var(--addr-fg); font-size: 12px; cursor: pointer; line-height: 1;
+    position: relative;
+    z-index: 2;
+    transition: transform .12s ease;
+}
+.oi-arr-exp-btn {
+    border-radius: 3px;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+}
+.oi-arr-exp-btn:hover,
+.oi-arr-el-exp-btn:hover {
+    background: rgba(255,255,255,.08);
+    color: var(--fg);
+}
+/* Chevron `›` points right when collapsed; open groups rotate it down. */
+.sb-card.oi-expanded .oi-expand-btn,
+.oi-arr-grp.open > .oi-arr-grp-hdr .oi-arr-exp-btn,
+.oi-arr-el-grp.open > .oi-arr-el-hdr .oi-arr-el-exp-btn {
+    transform: rotate(90deg);
+}
+.oi-arr-addr {
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; flex-shrink: 0;
+}
+.oi-node-pad {
+    width: var(--oi-col-off);
+    height: 1px;
+}
+.oi-node-type-pad {
+    width: var(--oi-col-type);
+    height: 1px;
+}
+
+.oi-arr-grp-body,
+.oi-arr-el-body {
+    position: relative;
+    margin-left: 0;
+    border-left: none;
+}
+
+.oi-arr-grp-body::before,
+.oi-arr-el-body::before {
+    content: '';
+    position: absolute;
+    left: var(--oi-toggle-x);
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid rgba(255,255,255,.14);
+    pointer-events: none;
+}
+
+.oi-arr-el-hdr {
+    display: grid;
+    grid-template-columns: var(--oi-col-off) var(--oi-col-type) var(--oi-col-toggle) 1fr;
+    gap: var(--oi-col-gap);
+    align-items: center;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .1s;
+    position: relative;
+    border-radius: 3px;
+}
+.oi-arr-el-hdr:hover { background: var(--hover-bg); }
+.oi-arr-el-hdr.oi-selected { background: rgba(79,195,247,.12) !important; }
+.oi-arr-grp-hdr.oi-bitunit-hdr,
+.oi-arr-el-hdr.oi-bitunit-hdr { align-items: flex-end; }
+.oi-bitunit-hdr .oi-chip { align-self: flex-end; }
+.oi-bitunit-hdr .oi-f-lead { align-self: baseline; margin-bottom: 0; height: 0; }
+.oi-field .oi-f-body,
+.oi-arr-grp-hdr .oi-f-body,
+.oi-arr-el-hdr .oi-f-body {
+    padding-left: calc(var(--oi-level, 0) * var(--oi-indent-step));
+}
+
+.oi-arr-grp-hdr .oi-arr-exp-btn,
+.oi-arr-el-hdr .oi-arr-el-exp-btn {
+    margin-left: calc(var(--oi-level, 0) * var(--oi-indent-step));
+}
+
+.oi-arr-grp-body::before,
+.oi-arr-el-body::before {
+    left: calc(var(--oi-toggle-x) + ((var(--oi-level, 1) - 1) * var(--oi-indent-step)));
+}

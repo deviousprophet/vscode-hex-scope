@@ -7,9 +7,9 @@ import * as assert from 'assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Ajv = require('ajv');
-import { DATA_VERSION } from '../../hexScopeStorage';
+import { DATA_SCHEMA_VERSION, DATA_VERSION } from '../../hexScopeStorage';
 import { INTEGRITY_ALGORITHMS } from '../../core/integrity';
-import { STRUCT_FIELD_TYPES } from '../../core/types';
+import { TYPE_BASE_TYPES, TYPE_FIELD_TYPES } from '../../core/types';
 
 const SCHEMAS_DIR = path.resolve(__dirname, '..', '..', '..', 'schemas');
 
@@ -27,9 +27,10 @@ function errorsFor(schema: object, data: unknown): string[] {
     return check(data) ? [] : (check.errors ?? []).map(error => error.message ?? 'invalid');
 }
 
-const structsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/structs.schema.json' });
-const profileEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/profiles.schema.json' });
-const bindingsEnvelope = (data: unknown) => ({ version: DATA_VERSION, data, $schema: '../../schemas/bindings.schema.json' });
+/** Envelope + data payload with the current data-schema version and payload key. */
+const typesEnvelope = (defs: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, defs }, $schema: 'schemas/types.schema.json' });
+const profileEnvelope = (records: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, records }, $schema: 'schemas/profiles.schema.json' });
+const bindingsEnvelope = (bindings: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, bindings }, $schema: 'schemas/bindings.schema.json' });
 
 suite('hexScope schemas — positive fixtures', () => {
     test('profiles.json accepts a full ProfileRecord[] (with unique ids)', () => {
@@ -40,13 +41,13 @@ suite('hexScope schemas — positive fixtures', () => {
                 name: 'Boot',
                 labels: [{ id: 'l1', name: 'Boot', startAddress: 0, length: 256, color: '#ff0000', hidden: true }],
                 segmentNames: { '0': 'Boot' },
-                structPins: [{
+                typeInstances: [{
                     id: 'p1',
-                    structId: 's1',
+                    typeId: 's1',
                     addr: 0,
                     name: 'Pin A',
                     pointerSources: [{
-                        sourcePinId: 'p0', sourcePinName: 'Target', sourceStructId: 's2',
+                        sourcePinId: 'p0', sourcePinName: 'Target', sourceTypeId: 's2',
                         sourceFieldPath: 'ptr', pointerStorageAddress: 4, targetAddress: 0x1000,
                     }],
                 }],
@@ -57,7 +58,7 @@ suite('hexScope schemas — positive fixtures', () => {
                 endian: 'be',
                 bitAllocation: 'lsb',
             },
-            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' },
+            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' },
         ];
         assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
@@ -66,20 +67,31 @@ suite('hexScope schemas — positive fixtures', () => {
         const { schema } = loadSchema('profiles.schema.json');
         // JSON Schema uniqueItems compares item equality; id/name uniqueness
         // beyond exact duplicates is enforced at runtime by normalizeProfilesRegistry.
-        const record = { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' };
+        const record = { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' };
         const data = [record, { ...record, labels: [] }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
-    test('profiles.json accepts the deprecated pre-rename `pins` key on a record', () => {
+    test('profiles.json accepts the deprecated v1 `structPins` key on a record', () => {
         const { schema } = loadSchema('profiles.schema.json');
-        // The schema keeps structPins required for new files but declares the
-        // legacy `pins` property as deprecated (additionalProperties: false
-        // would otherwise reject it); the runtime normalizer reads pins via
-        // `structPins ?? pins` and self-heals on the next write.
+        // The schema keeps typeInstances required for new files but declares the
+        // legacy `structPins` (v1) and `pins` (v0) properties as deprecated
+        // (additionalProperties: false would otherwise reject them). They describe
+        // the v1 on-disk shape only: `MIGRATIONS[1]` renames them for a recorded
+        // v1 payload, while the general profile reader no longer tolerates them.
         const data = [{
             id: 'profile_1', name: 'Legacy', labels: [], segmentNames: {},
-            structPins: [], pins: [{ id: 'p1', structId: 's1', addr: 0, name: 'Pin A' }],
+            typeInstances: [], structPins: [{ id: 'p1', typeId: 's1', addr: 0, name: 'Pin A' }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'lsb',
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts the deprecated pre-rename `pins` key on a record', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{
+            id: 'profile_1', name: 'Legacy', labels: [], segmentNames: {},
+            typeInstances: [], pins: [{ id: 'p1', typeId: 's1', addr: 0, name: 'Pin A' }],
             activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'lsb',
         }];
         assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
@@ -94,24 +106,24 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, bindingsEnvelope(data)), []);
     });
 
-    test('structs.json accepts a full StructDef[]', () => {
-        const { schema } = loadSchema('structs.schema.json');
+    test('types.json accepts a full TypeDef[]', () => {
+        const { schema } = loadSchema('types.schema.json');
         const data = [
             {
                 id: 's1', name: 'Config', packed: true,
                 fields: [
                     { name: 'magic', type: 'uint8', count: 1 },
                     { name: 'flags', type: 'uint8', count: 1, bitFields: [{ name: 'enabled', bitWidth: 1 }], bitFieldsCollapsed: true },
-                    { name: 'next', type: 'struct', refStructId: 's2', count: 1, isPointer: true },
+                    { name: 'next', type: 'struct', refTypeId: 's2', count: 1, isPointer: true },
                 ],
             },
             { id: 's2', name: 'Inner', fields: [{ name: 'value', type: 'float32', count: 4 }] },
         ];
-        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
     });
 
-    test('structs.json accepts endian/allocation overrides on structs and fields', () => {
-        const { schema } = loadSchema('structs.schema.json');
+    test('types.json accepts endian/allocation overrides on types and fields', () => {
+        const { schema } = loadSchema('types.schema.json');
         const data = [
             {
                 id: 's1', name: 'Config', endian: 'be', allocation: 'msb',
@@ -121,13 +133,52 @@ suite('hexScope schemas — positive fixtures', () => {
                 ],
             },
         ];
-        assert.deepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('types.json accepts a hidden field flag on a leaf and a bit-field container', () => {
+        const { schema } = loadSchema('types.schema.json');
+        const data = [
+            {
+                id: 's1', name: 'Config', fields: [
+                    { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                    { name: 'ctrl', type: 'uint8', count: 1, hidden: true, bitFields: [{ name: 'lo', bitWidth: 4 }, { name: 'hi', bitWidth: 4 }] },
+                    { name: 'tag', type: 'uint8', count: 1, hidden: false },
+                ],
+            },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('types.json accepts a hidden flag on a bit-field child (inline and reusable)', () => {
+        const { schema } = loadSchema('types.schema.json');
+        const data = [
+            {
+                id: 's1', name: 'Config', fields: [
+                    { name: 'ctrl', type: 'uint8', count: 1, bitFields: [{ name: 'lo', bitWidth: 4, hidden: true }, { name: 'hi', bitWidth: 4, hidden: false }] },
+                ],
+            },
+            {
+                id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [],
+                bitFields: [{ name: 'a', bitWidth: 3, hidden: true }, { name: 'b', bitWidth: 5 }],
+            },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts a showHiddenFields profile flag', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [
+            { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: true },
+            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
     test('integrity checks nested in a profile accept full configs', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{
-            id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, structPins: [], endian: 'le', bitAllocation: 'msb',
+            id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, typeInstances: [], endian: 'le', bitAllocation: 'msb',
             activeChecks: {
                 schemaVersion: 1,
                 checks: [
@@ -142,63 +193,150 @@ suite('hexScope schemas — positive fixtures', () => {
 
 suite('hexScope schemas — negative cases', () => {
     test('wrong envelope version is refused everywhere', () => {
-        for (const name of ['profiles.schema.json', 'structs.schema.json', 'bindings.schema.json']) {
+        const payloads: Array<[string, Record<string, unknown>]> = [
+            ['profiles.schema.json', { schemaVersion: DATA_SCHEMA_VERSION, records: [] }],
+            ['types.schema.json', { schemaVersion: DATA_SCHEMA_VERSION, defs: [] }],
+            ['bindings.schema.json', { schemaVersion: DATA_SCHEMA_VERSION, bindings: [] }],
+        ];
+        for (const [name, data] of payloads) {
             const { schema } = loadSchema(name);
-            assert.notDeepStrictEqual(errorsFor(schema, { version: 2, data: [] }), [], `${name} rejects version 2`);
+            assert.deepStrictEqual(errorsFor(schema, { version: DATA_VERSION, data }), [], `${name} accepts a valid payload at version 1`);
+            assert.notDeepStrictEqual(errorsFor(schema, { version: 2, data }), [], `${name} rejects version 2`);
         }
     });
 
     test('bad endian fails profiles.json', () => {
         const { schema } = loadSchema('profiles.schema.json');
-        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'big', bitAllocation: 'msb' }];
+        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'big', bitAllocation: 'msb' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
     test('bad allocation fails profiles.json', () => {
         const { schema } = loadSchema('profiles.schema.json');
-        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, structPins: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'sideways' }];
+        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'sideways' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
-    test('unknown type enum fails structs.json', () => {
-        const { schema } = loadSchema('structs.schema.json');
-        const data = [{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint7', count: 1 }] }];
-        assert.notDeepStrictEqual(errorsFor(schema, structsEnvelope(data)), []);
-    });
-
-    test('invalid endian/allocation enums fail structs.json', () => {
-        const { schema } = loadSchema('structs.schema.json');
+    test('non-boolean hidden fails types.json and non-boolean showHiddenFields fails profiles.json', () => {
+        const types = loadSchema('types.schema.json');
         assert.notDeepStrictEqual(
-            errorsFor(schema, structsEnvelope([{ id: 's1', name: 'S1', endian: 'big', fields: [] }])),
+            errorsFor(types.schema, typesEnvelope([{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, hidden: 'yes' }] }])),
             [],
         );
         assert.notDeepStrictEqual(
-            errorsFor(schema, structsEnvelope([{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, allocation: 'sideways' }] }])),
+            errorsFor(types.schema, typesEnvelope([
+                { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'a', bitWidth: 3, hidden: 'yes' }] },
+            ])),
+            [],
+            'a non-boolean bit-child hidden is rejected',
+        );
+        const profile = loadSchema('profiles.schema.json');
+        const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', showHiddenFields: 'yes' }];
+        assert.notDeepStrictEqual(errorsFor(profile.schema, profileEnvelope(data)), []);
+    });
+
+    test('unknown type enum fails types.json', () => {
+        const { schema } = loadSchema('types.schema.json');
+        const data = [{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint7', count: 1 }] }];
+        assert.notDeepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('types.json accepts a named bit-field type and its referencing field', () => {
+        const { schema } = loadSchema('types.schema.json');
+        const data = [
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'mode', bitWidth: 2 }, { name: 'code', bitWidth: 6 }] },
+            { id: 's1', name: 'S1', fields: [{ name: 'ctl', type: 'bitfield', refTypeId: 'bits', count: 1 }] },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('types.json rejects an unknown kind / baseType / field kind', () => {
+        const { schema } = loadSchema('types.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 'b', name: 'B', kind: 'sideways', fields: [] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 'b', name: 'B', kind: 'bitfield', baseType: 'int8', fields: [] }])),
+            [],
+        );
+    });
+
+    test('types.json accepts a named enum, its referencing field, and a bit-child ref', () => {
+        const { schema } = loadSchema('types.schema.json');
+        const data = [
+            { id: 'mode', name: 'Mode', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }] },
+            { id: 'bits', name: 'Bits', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refTypeId: 'mode' }] },
+            { id: 's1', name: 'S1', fields: [{ name: 'state', type: 'enum', refTypeId: 'mode', count: 1 }] },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('types.json rejects a malformed enum entry and a non-string child ref', () => {
+        const { schema } = loadSchema('types.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [], entries: [{ name: 'A' }] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 'b', name: 'B', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refTypeId: 7 }] }])),
+            [],
+        );
+    });
+
+    test('invalid endian/allocation enums fail types.json', () => {
+        const { schema } = loadSchema('types.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 's1', name: 'S1', endian: 'big', fields: [] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 's1', name: 'S1', fields: [{ name: 'f', type: 'uint8', count: 1, allocation: 'sideways' }] }])),
             [],
         );
     });
 
     test('missing required field fails profiles.json and bindings.json', () => {
         const { schema } = loadSchema('profiles.schema.json');
-        const data = [{ id: 'profile_1' }]; // name/pins/activeChecks/endian/segmentNames/labels missing
+        const data = [{ id: 'profile_1' }]; // name/typeInstances/activeChecks/endian/segmentNames/labels missing
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
         const bindings = loadSchema('bindings.schema.json');
         assert.notDeepStrictEqual(errorsFor(bindings.schema, bindingsEnvelope([{ fileKey: 'a.hex' }])), []);
     });
 
-    test('data not an array fails structs.json + bindings.json + profiles.json', () => {
-        const structs = loadSchema('structs.schema.json');
-        assert.notDeepStrictEqual(errorsFor(structs.schema, structsEnvelope({ id: 's1' })), []);
+    test('a bare-array (legacy) data payload fails the object-form schemas', () => {
+        // The schemas describe the versioned object form `{ schemaVersion, <payload> }`;
+        // a legacy bare array is readable at runtime but no longer schema-valid.
+        const types = loadSchema('types.schema.json');
+        assert.notDeepStrictEqual(errorsFor(types.schema, { version: DATA_VERSION, data: [{ id: 's1' }] }), []);
         const bindings = loadSchema('bindings.schema.json');
-        assert.notDeepStrictEqual(errorsFor(bindings.schema, bindingsEnvelope({ fileKey: 'a.hex' })), []);
+        assert.notDeepStrictEqual(errorsFor(bindings.schema, { version: DATA_VERSION, data: [{ fileKey: 'a.hex' }] }), []);
         const profile = loadSchema('profiles.schema.json');
-        assert.notDeepStrictEqual(errorsFor(profile.schema, profileEnvelope({ id: 'x' })), []);
+        assert.notDeepStrictEqual(errorsFor(profile.schema, { version: DATA_VERSION, data: [{ id: 'x' }] }), []);
+    });
+
+    test('a data payload missing schemaVersion or its payload key fails every schema', () => {
+        const types = loadSchema('types.schema.json');
+        assert.notDeepStrictEqual(errorsFor(types.schema, { version: DATA_VERSION, data: { defs: [] } }), [], 'missing schemaVersion');
+        assert.notDeepStrictEqual(errorsFor(types.schema, { version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION } }), [], 'missing defs');
+        const profile = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(profile.schema, { version: DATA_VERSION, data: { records: [] } }), [], 'missing schemaVersion');
+        const bindings = loadSchema('bindings.schema.json');
+        assert.notDeepStrictEqual(errorsFor(bindings.schema, { version: DATA_VERSION, data: { bindings: [] } }), [], 'missing schemaVersion');
+    });
+
+    test('a non-integer / sub-1 schemaVersion fails every schema', () => {
+        for (const [name, key] of [['types.schema.json', 'defs'], ['profiles.schema.json', 'records'], ['bindings.schema.json', 'bindings']] as const) {
+            const { schema } = loadSchema(name);
+            assert.notDeepStrictEqual(errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: 1.5, [key]: [] } }), [], `${name} rejects fractional schemaVersion`);
+            assert.notDeepStrictEqual(errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: 0, [key]: [] } }), [], `${name} rejects schemaVersion 0`);
+        }
     });
 });
 
 suite('hexScope schemas — drift guard against TS types', () => {
     test('every schema pins version to DATA_VERSION', () => {
-        for (const name of ['profiles.schema.json', 'structs.schema.json', 'bindings.schema.json']) {
+        for (const name of ['profiles.schema.json', 'types.schema.json', 'bindings.schema.json']) {
             const { schema } = loadSchema(name);
             const envelope = schema as { properties?: { version?: { const?: unknown } } };
             assert.strictEqual(envelope.properties?.version?.const, DATA_VERSION, `${name} version const`);
@@ -211,9 +349,46 @@ suite('hexScope schemas — drift guard against TS types', () => {
         assert.deepStrictEqual((profile.defs.integrityAlgorithm as { enum: unknown[] }).enum, expected);
     });
 
-    test('structFieldType enum matches STRUCT_FIELD_TYPES', () => {
-        const structs = loadSchema('structs.schema.json');
-        const enumValue = (structs.defs.structFieldType as { enum: unknown[] }).enum;
-        assert.deepStrictEqual(enumValue, Array.from(STRUCT_FIELD_TYPES));
+    test('typeFieldType enum matches TYPE_FIELD_TYPES', () => {
+        const types = loadSchema('types.schema.json');
+        const enumValue = (types.defs['typeFieldType'] as { enum: unknown[] }).enum;
+        assert.deepStrictEqual(enumValue, Array.from(TYPE_FIELD_TYPES));
+    });
+
+    test('typeDef baseType enum matches TYPE_BASE_TYPES', () => {
+        const types = loadSchema('types.schema.json');
+        const typeDef = types.defs['typeDef'] as { properties: { baseType: { enum: unknown[] } } };
+        assert.deepStrictEqual(typeDef.properties.baseType.enum, Array.from(TYPE_BASE_TYPES));
+    });
+
+    test('the three schemas declare an identical data.schemaVersion rule and the runtime constant is accepted', () => {
+        const keys: Record<string, string> = {
+            'profiles.schema.json': 'records',
+            'types.schema.json': 'defs',
+            'bindings.schema.json': 'bindings',
+        };
+        const rules: Array<{ schemaVersion: unknown; requiresVersion: boolean }> = [];
+        for (const [name, payloadKey] of Object.entries(keys)) {
+            const { schema } = loadSchema(name);
+            const data = (schema as { properties: { data: { required?: string[]; properties?: Record<string, unknown> } } }).properties.data;
+            assert.ok(data.required?.includes('schemaVersion'), `${name} requires data.schemaVersion`);
+            assert.ok(data.required?.includes(payloadKey), `${name} requires data.${payloadKey}`);
+            assert.deepStrictEqual(Object.keys(data.properties ?? {}).sort(), ['schemaVersion', payloadKey].sort(), `${name} declares exactly schemaVersion + ${payloadKey}`);
+            rules.push({ schemaVersion: (data.properties as Record<string, unknown>).schemaVersion, requiresVersion: !!data.required?.includes('schemaVersion') });
+        }
+        assert.deepStrictEqual(rules[1], rules[0], 'types and profiles declare the same data.schemaVersion rule');
+        assert.deepStrictEqual(rules[2], rules[0], 'bindings and profiles declare the same data.schemaVersion rule');
+        // The schemas pin `minimum: 1` and no `const` (older files stay authorable);
+        // the runtime constant must satisfy that floor, and a payload stamped with
+        // it must validate for all three — the drift guard against a bare bump.
+        assert.deepStrictEqual(rules[0].schemaVersion, { type: 'integer', minimum: 1, description: 'Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only).' }, 'the shared data.schemaVersion rule is the version floor (no const)');
+        for (const [name, payloadKey] of Object.entries(keys)) {
+            const { schema } = loadSchema(name);
+            assert.deepStrictEqual(
+                errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, [payloadKey]: [] } }),
+                [],
+                `${name} accepts a DATA_SCHEMA_VERSION payload`,
+            );
+        }
     });
 });

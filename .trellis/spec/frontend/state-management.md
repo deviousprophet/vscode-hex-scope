@@ -6,7 +6,7 @@
 - `src/webview/appModel.ts`: shared state transitions for init, parsed memory, labels, external-change lock, and edit clearing.
 - `src/webview/webviewMessageModel.ts`: provider-message reducers returning `WebviewInvalidations`.
 - `src/hexEditorSession.ts`: host-side file/session state and the per-session `.hexscope` profile stores; `src/hexScopeStorage.ts` owns the I/O.
-- Integrity and struct modules own feature-local transient UI state but persist through typed protocol messages.
+- Integrity and overlay modules own feature-local transient UI state but persist through typed protocol messages.
 - `S.labelDraft` (`LabelDraftPreview | null`) is a host-owned transient grid preview (same category as `S.integrityHighlight`): the Inspector panel reports it via `onLabelDraftChange`; `hexViewer.ts` stores it and `memoryGrid.paintMemoryLabelDraft()` repaints it (also after every slice re-render). It is never persisted.
 
 ## Core Invariants
@@ -34,33 +34,34 @@ Reverse flow uses `WebviewToProviderMessage` through `postProviderMessage`. The 
 
 ## Persistence Scope
 
-- Per-firmware-document state (labels, segment name overrides, struct pins, active integrity check set, endian, bit-field allocation) lives in the file's **bound `ProfileRecord`** inside `.hexscope/profiles.json`, keyed by a `bindings.json` entry (`fileKey → profileId`).
-- Shared/global state (struct definitions) lives in the workspace pool `.hexscope/structs.json`; integrity profiles were removed — checks live only as `activeChecks` inside a `ProfileRecord`.
+- Per-firmware-document state (labels, segment name overrides, type instances, active integrity check set, endian, bit-field allocation, show-hidden-fields) lives in the file's **bound `ProfileRecord`** inside `.hexscope/profiles.json`, keyed by a `bindings.json` entry (`fileKey → profileId`).
+- Shared/global state (type definitions) lives in the workspace pool `.hexscope/types.json`; integrity profiles were removed — checks live only as `activeChecks` inside a `ProfileRecord`.
 - Single-file profile registry: `.hexscope/profiles.json` holds the whole `ProfileRecord[]` array (one file for all profiles, order preserved, ids unique). No per-profile directories.
 - Host adapter: `src/hexScopeStorage.ts` owns all `.hexscope/` I/O (envelope read/write, per-slot `JsonStore`, registry-array lookup/upsert/delete, watcher). Normalization functions are injected per slot from the owning module.
 - Per-session wiring: `src/hexEditorSession.ts` opens the root `registryStore: JsonStore<ProfileRecord[]>` + pool store, applies per-file mutations through `withBoundProfile(patch)` (materialize when unbound; in-memory `boundProfileCache` for out-of-workspace non-explicit; explicit Save materializes), and broadcasts genuine external edits to the webview (silent auto-apply — no prompt dialogs):
 
-  - `profiles.json` bound-record changes → `perFileDataChange` (labels/segmentNames/pins/endian/bitAllocation/activeChecks).
+  - `profiles.json` bound-record changes → `perFileDataChange` (labels/segmentNames/pins/endian/bitAllocation/showHiddenFields/activeChecks).
   - `profiles.json` / bindings registry changes → `profilesState` refresh (toolbar dropdown, `boundFileCount`).
-  - `.hexscope/structs.json` (workspace pool) changes → `structsExternalChange`; the webview replaces `S.structs` and prunes pins whose `structId` vanished.
+  - `.hexscope/types.json` (workspace pool) changes → `typesExternalChange`; the webview replaces `S.types` and prunes pins whose `typeId` vanished.
 
 - Repositories are never read from browser feature logic — the webview only consumes typed `ProviderToWebviewMessage` slices.
-- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer and `bitAllocationOrDefault` the single shared bit-field allocation normalizer (session + webview model); `normalizeProfilesRegistry` in `src/hexScopeStorage.ts` is the single registry normalizer.
-- Struct migration/deduplication belongs in `src/core/structMigration.ts` (`migrateStructDefinitions`, `normalizeStructDefsValue`, `mergeLegacyStructDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code.
-- Legacy Memento keys (global structs v2/v1 + per-file keys, integrity profiles, per-file labels/names/pins/checks/endian) are migrated once per workspace root by `src/hexScopeMigration.ts` and then hard-deleted; the per-dir `profiles/<id>/` registry merges into `profiles.json` once (Memento marker).
+- Schema-bearing values (`IntegrityProfile`, `IntegrityCheckSet`) must be normalized from `unknown` before use; `endianOrDefault` in `src/webviewProtocol.ts` is the single shared endian normalizer and `bitAllocationOrDefault` the single shared bit-field allocation normalizer (session + webview model); `showHiddenFieldsOrDefault` is the single shared show-hidden-fields normalizer, and the host `saveShowHiddenFields` handler routes its raw payload through it via `showHiddenFieldsPatch` (no hand-rolled `typeof` guard); `normalizeProfilesRegistry` in `src/hexScopeStorage.ts` is the single registry normalizer.
+- Type migration/deduplication belongs in `src/core/overlay/overlayMigration.ts` (`migrateTypeDefinitions`, `normalizeTypeDefsValue`, `mergeLegacyTypeDefs`), shared by the session and `src/hexScopeMigration.ts` — not in render code. `normalizeTypeDefsValue` additionally runs `migrateInlineBitFields` (from `src/core/overlay/overlayCodec.ts`) after identity dedupe, converting legacy inline bit-fields into reusable `kind:'bitfield'` defs and self-healing the pool once.
+- Legacy Memento keys (global types v2/v1 + per-file keys, integrity profiles, per-file labels/names/pins/checks/endian) are migrated once per workspace root by `src/hexScopeMigration.ts` and then hard-deleted; the per-dir `profiles/<id>/` registry merges into `profiles.json` once (Memento marker).
 
 ## WebviewToProviderMessage additions (profile actions)
 
-`saveProfile` (explicit flush; materializes out-of-workspace), `duplicateProfile` (Save as…: copies the bound profile, binds the current file to the copy), `renameProfile`, `deleteProfile` (confirms with bound-file count). All run inside `enqueuePerFileOp` and end with `broadcastPerFileData()` + `broadcastProfilesState()`. In the webview these are the four `ProfileAction` commands of the typed `PROFILE_ACTION_MESSAGES: Record<ProfileAction, WebviewToProviderMessage>` map guarded by `isProfileAction(cmd)` in `src/webview/profilePicker.ts`.
+`saveProfile` (explicit flush; materializes out-of-workspace), `duplicateProfile` (Save as…: copies the bound profile, binds the current file to the copy), `renameProfile`, `deleteProfile` (confirms with bound-file count). The endian/bit-allocation/show-hidden-fields toggles each persist through their own `saveEndian`/`saveBitAllocation`/`saveShowHiddenFields` message (with the shared `*OrDefault` normalizer), and their `init` + `perFileDataChange` slices re-drive the webview consumer on refresh. All profile actions run inside `enqueuePerFileOp` and end with `broadcastPerFileData()` + `broadcastProfilesState()`. In the webview these are the four `ProfileAction` commands of the typed `PROFILE_ACTION_MESSAGES: Record<ProfileAction, WebviewToProviderMessage>` map guarded by `isProfileAction(cmd)` in `src/webview/profilePicker.ts`.
 
 The webview profile payload shape is the shared `ProfileSummary { id; name }` (`src/webviewProtocol.ts`), used uniformly by the init/profile + `profilesState` message types, `S.profileState.profiles` (`state.ts`), `WebviewProfileState` in `webviewMessageModel.ts`, and the host's `listProfiles()` return type.
 
 ## On-disk JSON Schema contract
 
-- Three strict JSON Schemas describe the `.hexscope/` on-disk shapes so editors and AI agents can validate/author team state: `schemas/{profiles,structs,bindings}.schema.json` in the repo (bundled in the VSIX) and seeded into `.hexscope/schemas/` on the first registry write.
+- Three strict JSON Schemas describe the `.hexscope/` on-disk shapes so editors and AI agents can validate/author team state: `schemas/{profiles,types,bindings}.schema.json` in the repo (bundled in the VSIX) and content-diff refreshed into `.hexscope/schemas/` on every `.hexscope` data write.
 - Every storage file is envelope `{ version: const 1, data, $schema? }`; `$schema` is a **relative path** to the workspace-seeded schema copy (`schemas/<name>.schema.json`) so terminal agents resolve the contract from the file itself. `readJson` unwraps the envelope before normalizing, so normalizers never see `$schema`; `writeJson` re-injects the canonical sibling on every write — self-heal cannot strip it.
-- Editors bind via `contributes.jsonValidation` globs (`.hexscope/profiles.json`, `.hexscope/structs.json`, `.hexscope/bindings.json`). Schemas are **strict for authoring** (`required` everywhere, enums for struct types / integrity algorithms / endian, nested `additionalProperties: false`, `profiles.json` data is an array with `uniqueItems`), but the runtime **remains lenient** — normalizers tolerate the extra fields the schema flags, corrupt/unknown-version files load empty + warn once, never overwrite. Id/name uniqueness beyond exact duplicates is runtime-enforced by `normalizeProfilesRegistry`. `profiles.schema.json` keeps `structPins` required and additionally declares the legacy `pins` key as a deprecated property so pre-rename files pass strict validation (runtime reads `structPins ?? pins`).
-- Drift guard: `ajv` (devDependency, test-only) validates fixtures in `src/test/schemas/schemaValidation.test.ts`, pinned to `DATA_VERSION` and the source enum consts.
+- `data` is a **versioned object** `{ schemaVersion, <payload key> }` (`defs` / `records` / `bindings`). `schemaVersion` is the **data-schema** version (`DATA_SCHEMA_VERSION`), distinct from the storage envelope `version` (never bumped). On load the shared migration runner (`migrateData`/`migrateAndNormalize` + the ordered `MIGRATIONS` table) upgrades an older payload to the current shape and the existing `changed`-driven self-heal writes it once; a payload newer than the build maps to the `corrupt` path (empty + warn-once, never overwritten — forward-only, no downgrade). Legacy bare-array `data` reads as version 1.
+- Editors bind via `contributes.jsonValidation` globs (`.hexscope/profiles.json`, `.hexscope/types.json`, `.hexscope/bindings.json`). Schemas are **strict for authoring** (`required` everywhere, enums for overlay types / integrity algorithms / endian, nested `additionalProperties: false`, `schemaVersion` required integer ≥ 1, `profiles.json` `records` is an array with `uniqueItems`), but the runtime **remains lenient** — normalizers tolerate the extra fields the schema flags, corrupt/unknown-version/newer files load empty + warn once, never overwrite. Id/name uniqueness beyond exact duplicates is runtime-enforced by `normalizeProfilesRegistry`. `profiles.schema.json` keeps `typeInstances` required and declares the legacy v1 `structPins` and pre-rename `pins` keys as deprecated properties so a record still carrying them alongside `typeInstances` validates under `additionalProperties: false` (a legacy-key-only record fails strict authoring exactly as it did before the rename; the pre-rename read window is retired — the general profile reader reads only `typeInstances`, and the one-time legacy migrations alias their own inputs explicitly).
+- Drift guard: `ajv` (devDependency, test-only) validates fixtures in `src/test/schemas/schemaValidation.test.ts`, pinned to `DATA_VERSION` / `DATA_SCHEMA_VERSION` and the source enum consts; the three schemas' `data.schemaVersion` rule is asserted identical.
 
 ## Update Pattern
 
@@ -91,7 +92,7 @@ When adding state:
 
 - `src/test/webview/webviewMessageModel.test.ts`
 - `src/test/webview/webview.test.ts` (`initFlatBytes`, defaults, memory rows)
-- `src/test/core/provider-utils.test.ts` (format detection and struct migration)
+- `src/test/core/provider-utils.test.ts` (format detection and type migration)
 - `src/test/extension/hexScopeStorage.test.ts` (storage slots, envelopes, migration, watcher)
 - `src/test/webview/integrityCheckModel.test.ts`
-- `src/test/webview/structPinsModel.test.ts`
+- `src/test/webview/overlayInstancesModel.test.ts`

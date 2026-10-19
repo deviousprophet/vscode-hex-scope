@@ -2,7 +2,7 @@
 // Converts the pre-P1 per-file `firmware_profiles/<n>/` layout into the
 // three-tier shape:
 //   (a) merge every firmware_profiles/<n>/structs.json into the workspace
-//       struct pool (.hexscope/structs.json), deduped via structMigration
+//       type pool (.hexscope/types.json), deduped via overlayMigration
 //   (b) each index.json + integrity.json pair → one registry profile in
 //       .hexscope/profiles.json + one binding (fileKey → profileId)
 // Also merges the per-directory profile registry (`.hexscope/profiles/<id>/`)
@@ -14,24 +14,29 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { normalizeIntegrityProfiles } from './core/integrity';
 import { arrayField, arrayOrEmpty, plainObject, plainStringRecord, stringField } from './core/fromUnknown';
-import { migrateStructDefinitions, mergeLegacyStructDefs } from './core/structMigration';
-import { normalizeStructDefsValue } from './core/structNormalization';
-import type { StructDef } from './core/types';
+import { migrateTypeDefinitions, mergeLegacyTypeDefs } from './core/overlay/overlayMigration';
+import { normalizeTypeDefsValue } from './core/overlay/overlayNormalization';
+import { aliasLegacyProfileRecord, aliasLegacyTypeDefs, aliasLegacyTypeInstance } from './core/overlay/overlayAliases';
+import type { TypeDef } from './core/types';
 import {
     bindingsJsonUri,
     collectProfileRecords,
     emptyProfileRecord,
     migrateLegacyProfileDirs,
+    migratedPayload,
     nextProfileOrdinal,
     normalizeBindings,
     perFileRelativePath,
     readDirectorySafe,
     readJson,
+    readPayloadForWrite,
     resolveHexScopeRoot,
-    structPoolJsonUri,
+    typePoolJsonUri,
+    withDataEnvelope,
     withEnvelope,
     writeJson,
     writeProfileRecord,
+    type JsonRead,
     type ProfileRecord,
 } from './hexScopeStorage';
 
@@ -46,6 +51,9 @@ const PER_FILE_CHECKS_PREFIX = 'hexScope.integrityChecks.';
 const PER_FILE_ENDIAN_PREFIX = 'hexScope.endian.';
 const MIGRATION_MARKER = 'hexScope.migration.v3';
 const PROFILES_ARRAY_MARKER = 'hexScope.profilesArray.v1';
+const TYPES_FILE_MARKER = 'hexScope.typesFile.v1';
+/** Pre-rename workspace pool file name, read once by the file migration. */
+const LEGACY_TYPE_POOL_FILE = 'structs.json';
 
 export interface MementoLike {
     get<T>(key: string, defaultValue?: T): T | undefined;
@@ -81,6 +89,8 @@ async function ensureMigrationComplete(root: string, relPath: string, uri: vscod
     // Current-release per-dir registry → single-file array (before the
     // firmware_profiles tree below pushes more records into the array).
     await migrateProfilesDirToArray(root, context);
+    // Pre-rename workspace pool file (.hexscope/structs.json → types.json).
+    await migrateTypePoolFile(root, context);
 
     const legacyTree = path.join(root, '.hexscope', 'firmware_profiles');
     const hasLegacy = await dirExists(legacyTree);
@@ -110,9 +120,99 @@ async function migrateProfilesDirToArray(root: string, context: MigrationContext
     const marker = PROFILES_ARRAY_MARKER;
     if (context.globalState.get<string>(marker) === root) { return; }
     if (await dirExists(path.join(root, '.hexscope', 'profiles'))) {
-        await migrateLegacyProfileDirs(root);
+        // Legacy per-dir records still carry the pre-rename keys; the migration
+        // layer is the only alias consumer now (the general reader is retired).
+        await migrateLegacyProfileDirs(root, aliasLegacyProfileRecord);
     }
     await context.globalState.update(marker, root);
+}
+
+/** One-shot `.hexscope/structs.json` → `.hexscope/types.json` move (the
+ *  payload is migrated forward on the way, so the new file starts at the current
+ *  data-schema version). The marker is Memento (restart safe). The legacy file is
+ *  deleted only after `types.json` reads back as a usable *non-empty* `defs`
+ *  pool — it may be the only good copy. No-op when the legacy file is absent. */
+async function migrateTypePoolFile(root: string, context: MigrationContext): Promise<void> {
+    const marker = TYPES_FILE_MARKER;
+    if (context.globalState.get<string>(marker) === root) { return; }
+    // Withhold the one-shot marker when the legacy delete itself failed (a
+    // transient lock/permission error): the next open retries the cleanup
+    // instead of leaving the inert duplicate behind forever. Verification
+    // outcomes (nothing to migrate / a preserved legacy file) stay one-shot.
+    if (await moveLegacyTypePoolFile(root)) {
+        await context.globalState.update(marker, root);
+    }
+}
+
+/**
+ * Move the pre-rename pool file forward and remove it once the new file is
+ * verified. The legacy file is the only rollback copy, so deletion is
+ * conditional on a read-back that yields a **non-empty** array `defs` payload:
+ * - `types.json` ok + readable non-empty defs → delete the legacy file (covers
+ *   a workspace that already migrated before this change);
+ * - `types.json` missing → migrate the legacy payload forward, write it, then
+ *   read back and delete only if that verification passes;
+ * - `types.json` corrupt or newer than this build → leave the legacy file
+ *   untouched (a bad new file must never cost the only good copy);
+ * - `types.json` ok but with an empty/absent/non-array `defs` → also leave the
+ *   legacy file untouched: a valid-but-empty pool never licenses the delete.
+ *   The accepted trade-off is that a genuinely emptied pool keeps its legacy
+ *   file — the safe side of the decision.
+ * A failed delete is non-fatal (logged): the verified `types.json` stands and
+ * the caller retries the cleanup on the next open.
+ * Returns `true` when the cleanup is settled (nothing left to do), `false` when
+ * the legacy file is still there because the delete failed.
+ */
+async function moveLegacyTypePoolFile(root: string): Promise<boolean> {
+    const next = typePoolJsonUri(root);
+    const legacy = legacyTypePoolUri(root);
+    const current = await readJson(next);
+    if (current.status === 'ok') {
+        return deleteLegacyWhenPoolVerified(current, legacy);
+    }
+    if (current.status !== 'missing') { return true; }   // corrupt/newer: preserved by design
+    return migrateLegacyPoolFile(next, legacy);
+}
+
+/** `types.json` is missing: migrate the legacy payload forward, write it, then
+ *  delete the legacy file only when the read-back verifies. */
+async function migrateLegacyPoolFile(next: vscode.Uri, legacy: vscode.Uri): Promise<boolean> {
+    const legacyRead = await readJson(legacy);
+    if (legacyRead.status !== 'ok') { return true; }
+    const payload = migratedPayload(legacyRead.value, 'defs');
+    if (!Array.isArray(payload)) { return true; }   // nothing trustworthy to seed (newer than build / not a pool)
+    await writeJson(next, withEnvelope(withDataEnvelope('defs', payload)));
+    return deleteLegacyWhenPoolVerified(await readJson(next), legacy);
+}
+
+async function deleteLegacyWhenPoolVerified(read: JsonRead, legacy: vscode.Uri): Promise<boolean> {
+    if (!hasVerifiedPool(read)) { return true; }   // unverified/empty pool: keep the legacy copy
+    return removeLegacyTypePoolFile(legacy);
+}
+
+function legacyTypePoolUri(root: string): vscode.Uri {
+    return vscode.Uri.file(path.join(root, '.hexscope', LEGACY_TYPE_POOL_FILE));
+}
+
+/** A verified pool: the file reads back and carries a **non-empty** `defs`
+ *  array. Corrupt/unknown-version reads, newer-than-build payloads, and an
+ *  empty/absent/non-array `defs` all fail here: an empty new pool never
+ *  licenses deleting the legacy file, which may be the only good copy. */
+function hasVerifiedPool(read: JsonRead): boolean {
+    if (read.status !== 'ok') { return false; }
+    const payload = migratedPayload(read.value, 'defs');
+    return Array.isArray(payload) && payload.length > 0;
+}
+
+async function removeLegacyTypePoolFile(uri: vscode.Uri): Promise<boolean> {
+    if (!(await fileExists(uri))) { return true; }   // already gone
+    try {
+        await vscode.workspace.fs.delete(uri, { useTrash: false });   // permanent hard delete
+        return true;
+    } catch (error) {
+        console.warn(`HexScope: could not remove legacy ${LEGACY_TYPE_POOL_FILE}; keeping the verified types.json:`, error);
+        return false;
+    }
 }
 
 async function dirExists(p: string): Promise<boolean> {
@@ -126,12 +226,12 @@ async function dirExists(p: string): Promise<boolean> {
 
 /** Convert every legacy firmware_profiles/<n> dir into a registry profile + binding. */
 async function migrateLegacyTree(root: string, uri: vscode.Uri, context: MigrationContext): Promise<void> {
-    // Also consume any remaining Memento-era data (global structs, global
-    // integrity templates, per-file structs) so nothing is lost.
+    // Also consume any remaining Memento-era data (global types, global
+    // integrity templates, per-file types) so nothing is lost.
     const uriStr = uri.toString();
     const mementoLegacy = readLegacyKeys(uriStr, context);
-    const mementoStructs = legacyStructDefs(mementoLegacy.globalStructV2, mementoLegacy.globalStructV1, mementoLegacy.perFileStructs);
-    if (mementoStructs.length > 0) { await mergeIntoPool(root, mementoStructs); }
+    const mementoTypes = legacyTypeDefs(mementoLegacy.globalTypeV2, mementoLegacy.globalTypeV1, mementoLegacy.perFileTypes);
+    if (mementoTypes.length > 0) { await mergeIntoPool(root, mementoTypes); }
     await migrateIntegrityTemplates(root, mementoLegacy.globalProfiles, []);
 
     const legacyContainer = vscode.Uri.file(path.join(root, '.hexscope', 'firmware_profiles'));
@@ -153,7 +253,7 @@ async function migrateLegacyEntry(root: string, name: string, dir: string): Prom
     if (!index) { return; }
 
     // (a) merge structs.json into workspace pool
-    await mergeIntoPool(root, await readLegacyStructs(dir));
+    await mergeIntoPool(root, await readLegacyTypes(dir));
 
     // (b) integrity.json template registry → activeChecks seeds.
     const legacyProfiles = await readLegacyIntegrityProfiles(dir);
@@ -201,9 +301,9 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
     }
 }
 
-async function readLegacyStructs(dir: string): Promise<StructDef[]> {
+async function readLegacyTypes(dir: string): Promise<TypeDef[]> {
     const raw = await readJson(vscode.Uri.file(path.join(dir, 'structs.json')));
-    return raw.status === 'ok' ? normalizeStructDefsValue(migrateStructDefinitions(raw.value)).defs : [];
+    return raw.status === 'ok' ? normalizeLegacyDefs(raw.value) : [];
 }
 
 async function readLegacyIntegrityProfiles(dir: string): Promise<IntegrityProfileVal[]> {
@@ -229,7 +329,7 @@ async function ensureProfileLegacy(
         activeChecks: (index.activeChecks.checks.length > 0 ? index.activeChecks : legacyActiveChecks(legacyProfiles)) as ProfileRecord['activeChecks'],
         labels: index.labels as ProfileRecord['labels'],
         segmentNames: index.segmentNames,
-        structPins: index.pins as ProfileRecord['structPins'],
+        typeInstances: aliasLegacyInstances(index.pins),
         endian: index.endian,
     });
     return profileId;
@@ -246,10 +346,12 @@ function legacyActiveChecks(profiles: IntegrityProfileVal[]): IntegrityCheckVal 
 async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
     if (!fileKey) { return; }
     const bindingsUri = bindingsJsonUri(root);
-    const current = await readBindings(root);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const current = read.status === 'ok' ? normalizeBindings(withDataEnvelope('bindings', read.payload)).value : [];
     const without = current.filter(b => b.fileKey !== fileKey);
     const next = [...without, { fileKey, profileId }];
-    await writeJson(bindingsUri, withEnvelope(normalizeBindings(next).value));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', normalizeBindings(next).value)));
 }
 
 function profileNameFromIndex(index: ProfileIndexData, sourceDirName: string): string {
@@ -260,26 +362,23 @@ function profileNameFromRel(relPath: string): string {
     return path.basename(relPath, path.extname(relPath)) || 'Firmware';
 }
 
-async function readBindings(root: string): Promise<BindingVal[]> {
-    const read = await readJson(bindingsJsonUri(root));
-    if (read.status !== 'ok') { return []; }
-    return normalizeBindings(read.value).value;
-}
-
-/** Merge legacy struct defs into the pool, deduped via structMigration. */
-async function mergeIntoPool(root: string, legacy: StructDef[]): Promise<void> {
-    const poolUri = structPoolJsonUri(root);
-    const existing = await readStructPool(root);
-    const merged = mergeLegacyStructDefs(existing, legacy);
+/** Merge legacy type defs into the pool, deduped via overlayMigration. */
+async function mergeIntoPool(root: string, legacy: TypeDef[]): Promise<void> {
+    const poolUri = typePoolJsonUri(root);
+    const read = await readPayloadForWrite(poolUri, 'defs');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const existing = await readTypePool(root);
+    const merged = mergeLegacyTypeDefs(existing, legacy);
     if (merged.changed) {
-        await writeJson(poolUri, withEnvelope(merged.defs));
+        await writeJson(poolUri, withEnvelope(withDataEnvelope('defs', merged.defs)));
     }
 }
 
-async function readStructPool(root: string): Promise<StructDef[]> {
-    const read = await readJson(structPoolJsonUri(root));
+async function readTypePool(root: string): Promise<TypeDef[]> {
+    const read = await readJson(typePoolJsonUri(root));
     if (read.status !== 'ok') { return []; }
-    return normalizeStructDefsValue(migrateStructDefinitions(read.value)).defs;
+    const payload = migratedPayload(read.value, 'defs');
+    return payload === null ? [] : normalizeTypeDefsValue(migrateTypeDefinitions(payload)).defs;
 }
 
 // ── Legacy Memento seeding (open doc) ─────────────────────────────
@@ -289,9 +388,9 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
     const legacy = readLegacyKeys(uriStr, context);
     if (!hasLegacyData(legacy)) { return; }
 
-    // Memento global/per-file structs → workspace pool (deduped).
-    const legacyStructs = legacyStructDefs(legacy.globalStructV2, legacy.globalStructV1, legacy.perFileStructs);
-    await mergeIntoPool(root, legacyStructs);
+    // Memento global/per-file types → workspace pool (deduped).
+    const legacyTypes = legacyTypeDefs(legacy.globalTypeV2, legacy.globalTypeV1, legacy.perFileTypes);
+    await mergeIntoPool(root, legacyTypes);
 
     // Legacy global integrity templates → registry profiles (unbound, so the
     // dropdown can re-select them; the open doc gets its own profile below).
@@ -304,7 +403,7 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
         ...emptyProfileRecord(profileId, name),
         labels: arrayOrEmpty(legacy.labels) as ProfileRecord['labels'],
         segmentNames: plainStringRecord(legacy.segmentNames),
-        structPins: arrayOrEmpty(legacy.pins) as ProfileRecord['structPins'],
+        typeInstances: aliasLegacyInstances(legacy.pins),
         activeChecks: normalizeChecks(legacy.checks) as ProfileRecord['activeChecks'],
         endian: legacy.endian === 'be' ? 'be' : 'le',
     };
@@ -314,19 +413,33 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
     await bindFile(root, relPath, profileId);
 }
 
-/** Merge Memento era struct sources (global v2/v1 + per-file) deduped. */
-function legacyStructDefs(v2: unknown, v1: unknown, perFile: unknown): StructDef[] {
-    const globalArr = v2 === undefined ? legacySourceDefs(v1) : normalizeStructDefsValue(v2).defs;
+/** Merge Memento era type sources (global v2/v1 + per-file) deduped. */
+function legacyTypeDefs(v2: unknown, v1: unknown, perFile: unknown): TypeDef[] {
+    const globalArr = v2 === undefined ? legacySourceDefs(v1) : normalizeLegacyDefs(v2);
     const legacyArr = legacySourceDefs(perFile);
-    return dedupeStructDefs([...globalArr, ...legacyArr]);
+    return dedupeTypeDefs([...globalArr, ...legacyArr]);
 }
 
-function legacySourceDefs(source: unknown): StructDef[] {
-    return normalizeStructDefsValue(migrateStructDefinitions(source ?? [])).defs;
+/** One-time legacy input: explicitly alias the pre-rename ref keys (including
+ *  every inline bit-child enum ref) before the alias-free general normalizer
+ *  reads the payload. A bare/undefined source normalizes to `[]`. */
+function normalizeLegacyDefs(source: unknown): TypeDef[] {
+    const aliased = aliasLegacyTypeDefs(source);
+    return normalizeTypeDefsValue(migrateTypeDefinitions(aliased.value)).defs;
 }
 
-function dedupeStructDefs(defs: StructDef[]): StructDef[] {
-    const byId = new Map<string, StructDef>();
+function legacySourceDefs(source: unknown): TypeDef[] {
+    return normalizeLegacyDefs(source ?? []);
+}
+
+/** One-time legacy input: alias a pin array's pre-rename instance refs
+ *  (`structId` / `sourceStructId` → `typeId` / `sourceTypeId`). */
+function aliasLegacyInstances(source: unknown): ProfileRecord['typeInstances'] {
+    return arrayOrEmpty(source).map(aliasLegacyTypeInstance) as ProfileRecord['typeInstances'];
+}
+
+function dedupeTypeDefs(defs: TypeDef[]): TypeDef[] {
+    const byId = new Map<string, TypeDef>();
     const seenNames = new Set<string>();
     for (const s of defs) {
         if (byId.has(s.id) || seenNames.has(s.name.toLowerCase())) { continue; }
@@ -372,10 +485,10 @@ function toIntegrityProfileValue(o: Record<string, unknown>): IntegrityProfileVa
 
 function readLegacyKeys(uriStr: string, context: MigrationContext): LegacyValues {
     return {
-        globalStructV2: context.globalState.get<unknown>(STRUCTS_V2_KEY),
-        globalStructV1: context.globalState.get<unknown>(STRUCTS_V1_KEY),
+        globalTypeV2: context.globalState.get<unknown>(STRUCTS_V2_KEY),
+        globalTypeV1: context.globalState.get<unknown>(STRUCTS_V1_KEY),
         globalProfiles: context.globalState.get<unknown>(INTEGRITY_PROFILES_KEY),
-        perFileStructs: context.workspaceState.get<unknown>(PER_FILE_STRUCTS_PREFIX + uriStr),
+        perFileTypes: context.workspaceState.get<unknown>(PER_FILE_STRUCTS_PREFIX + uriStr),
         labels: context.workspaceState.get<unknown>(PER_FILE_LABELS_PREFIX + uriStr),
         segmentNames: context.workspaceState.get<unknown>(PER_FILE_SEGMENT_NAMES_PREFIX + uriStr),
         pins: context.workspaceState.get<unknown>(PER_FILE_PINS_PREFIX + uriStr),
@@ -447,10 +560,10 @@ function normalizeIndexPayload(raw: unknown): ProfileIndexData | null {
 }
 
 interface LegacyValues {
-    globalStructV2: unknown;
-    globalStructV1: unknown;
+    globalTypeV2: unknown;
+    globalTypeV1: unknown;
     globalProfiles: unknown;
-    perFileStructs: unknown;
+    perFileTypes: unknown;
     labels: unknown;
     segmentNames: unknown;
     pins: unknown;
@@ -478,7 +591,3 @@ interface IntegrityProfileVal {
     checks: unknown[];
 }
 
-interface BindingVal {
-    fileKey: string;
-    profileId: string;
-}

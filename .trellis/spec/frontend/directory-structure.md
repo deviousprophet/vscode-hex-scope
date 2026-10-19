@@ -6,7 +6,7 @@ Hex Scope is one VS Code extension package with two runtimes:
 
 - Extension host: `src/extension.ts`, `src/hexEditorProvider.ts`, `src/hexEditorSession.ts`.
 - Webview: `src/webview/hexViewer.ts` and feature modules under `src/webview/`.
-- Runtime-neutral core: parsers, memory, search, integrity, structs, and byte tools under `src/core/`.
+- Runtime-neutral core: parsers, memory, search, integrity, types, and byte tools under `src/core/`.
 
 No framework component or hook layer exists. Keep browser-only DOM work in `src/webview/`; keep logic that can run without DOM or VS Code in `src/core/`.
 
@@ -35,8 +35,13 @@ src/
 │   ├── memory.ts             indexed byte lookup and memory-row model
 │   ├── search.ts             cancellable/chunked search engine
 │   ├── integrity.ts          validation, algorithms, stored-value conversion
-│   ├── structCodec.ts        struct layout, parse/export, decode
-│   ├── structMigration.ts    struct-def migration + dedupe (session, migration, tests)
+│   ├── overlay/              overlay modules (codec, normalization, migration, identities, bit children)
+│   │   ├── overlayCodec.ts         type layout, parse/export, decode
+│   │   ├── overlayNormalization.ts  pool normalization, identity dedupe, inline bit-field self-heal
+│   │   ├── overlayMigration.ts      type-def migration + dedupe (session, migration, tests)
+│   │   ├── overlayIdentities.ts     stable type-def identities (dedupe keys/sets)
+│   │   ├── overlayAliases.ts  migration-only pre-rename key aliases (one-time legacy inputs; general readers are alias-free)
+│   │   └── bitChildren.ts    bit-field child cleanup helpers
 │   ├── diff.ts               byte-diff runs for the compare surface (DiffModel)
 │   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
 │   ├── pathName.ts           shared basename/extension helper (compare selection + diff panel + hex session)
@@ -64,11 +69,11 @@ src/
         ├── menuController/   menuController.ts + menu.css
         └── sidebar/          sidebar.ts + sidebar.css (shell + shared `.sb-*` primitives; exports SidebarTab; panels injected)
             ├── inspectorPanel/    inspectorPanel.ts + inspectorLabels.ts + inspectorRender.ts + inspectorLabelForm.ts + inspectorPanel.css
-            ├── structPanel/       structPanel.ts + structPinsModel.ts + structPanel.css
+            ├── overlayPanel/       overlayPanel.ts + overlayInstancesModel.ts + cPreview.ts + binaryView.ts + editorFields.ts + valueFormat.ts + rowRenderer.ts + overlayPanel.css
             ├── integrityPanel/    integrityPanel.ts + integrityCheckModel.ts + integrityResultRender.ts + integrityCalculation.ts + integrityHighlight.ts + integrityPanel.css
             └── scriptsPanel/      scriptsPanel.ts + scriptsPanel.css (script runner panel)
 
-schemas/                          JSON Schemas for .hexscope/ on-disk shapes (index/structs/integrity); bundled + jsonValidation globs
+schemas/                          JSON Schemas for .hexscope/ on-disk shapes (profiles/types/bindings); bundled + jsonValidation globs
 ```
 
 ## Placement Rules
@@ -76,7 +81,7 @@ schemas/                          JSON Schemas for .hexscope/ on-disk shapes (in
 - Put source-format rules in `src/core/parser/` or `src/core/document.ts`; UI code consumes `ParseResult`/`SerializedParseResult`, never reparses records.
 - Put extension-host filesystem, VS Code storage, clipboard, and watcher effects in `HexEditorSession` or the smallest host adapter.
 - Add cross-runtime messages in the owning runtime union: `src/webviewProtocol.ts` for the single-file editor, `src/diffProtocol.ts` (the diff carve-out) for the isolated diff panel/webview. Then update both session handling and webview dispatch/model handling for the affected seam.
-- Put shared state mutation in `appModel.ts`; feature modules may own transient UI state when it has one owner, as integrity and struct modules do.
+- Put shared state mutation in `appModel.ts`; feature modules may own transient UI state when it has one owner, as integrity and overlay modules do.
 - Self-contained UI components live in `src/webview/components/<Name>/<Name>.ts` + `<Name>.css`. A component owns its markup, UI state, input behaviours, and styles; the host (`hexViewer.ts`) owns execution, data, and feedback. A component never reads/writes the `S` global — it is seeded on construction and reports through callbacks. See [SearchBar Component](./components/component-search-bar.md) for the contract.
 - Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) so esbuild emits a bundled `dist/webview.css`; `styles/*.css` holds only shared/global concerns (tokens, resets, layout) during the transition.
 - `hexViewer.ts` is the composition root. It wires `rerender` callbacks and effects; it must not become a second owner for parsing or feature rules.
@@ -87,7 +92,7 @@ schemas/                          JSON Schemas for .hexscope/ on-disk shapes (in
 - `src/core/document.ts` hides record rewriting/checksum preservation behind format-level functions.
 - `src/core/search.ts` hides debounce, chunking, cancellation tokens, and match parsing behind `SearchEngine`.
 - `src/core/integrity.ts` owns validation and algorithms; DOM code does not reproduce them.
-- `src/core/structCodec.ts` owns struct syntax/layout/decode; render code consumes decoded rows.
+- `src/core/overlay/overlayCodec.ts` owns type syntax/layout/decode; render code consumes decoded rows.
 - `src/webviewProtocol.ts` is the interface between host and browser runtimes (single-file editor).
 - `src/diffProtocol.ts` is the interface between the diff host panel and the isolated diff webview (`diffViewer.ts`); it does not share the single-file union.
 

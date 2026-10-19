@@ -12,7 +12,7 @@ All CSS belongs under `src/webview/styles/`. One file per feature area:
 | `hexView.css` (in components/hexView/) | Memory hex grid (component-owned) |
 | `sidebar.css` (in components/sidebar/) | Sidebar shell: skeleton, tabs, resizer, common settings, shared section pattern + shared `.sb-*` UI primitives |
 | `inspectorPanel.css` (in components/sidebar/inspectorPanel/) | Inspector panel: address/vals, bit view, multi-byte, segments, labels, label form |
-| `structPanel.css` (in components/sidebar/structPanel/) | Struct panel: editor, instances/cards, field rows, C preview |
+| `overlayPanel.css` (in components/sidebar/overlayPanel/) | Overlay panel: editor, instances/cards, field rows, C preview |
 | `integrityPanel.css` (in components/sidebar/integrityPanel/) | Integrity panel: profiles, checks, comparison panes, auto-fix |
 | `scriptsPanel.css` (in components/sidebar/scriptsPanel/) | Scripts panel: toolbar, cards, run/cancel button, result blocks, output log |
 | `record-view.css` | Record table |
@@ -100,7 +100,7 @@ The section header is the collapse control (VS Code model): every `.sb-section-h
 - Sidebar panels use `scrollbar-gutter: stable` to prevent content shift when scrollbar appears/disappears
 - Tab strip buttons use `writing-mode: vertical-rl` for compact vertical labels
 - Horizontal spacing baseline: `12px` (sidebar padding), `6px` (gap between related items)
-- Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; record-view grid tags are the sole retained `9px` exception)
+- Font-size baseline: `10px` for dense UI labels and metadata/badges (10px type floor; the remaining `9px` marks are documented in the Exception Log)
 
 ## Exception Log
 
@@ -111,28 +111,29 @@ Documented deviations from the token/type-floor rules, each with a reason. Add a
 | No hardcoded color without a token | `diff.css:2` `--diff-split-bg: var(--vscode-editorIndentGuide-activeBackground, var(--border))` | Uses the VS Code indent-guide theme color (the intended higher-contrast splitter token); the fallback is the existing `--border` token, not a literal hex. |
 | 10px type floor | `.diff-action-glyph` 14px (`.diff-action-text` stays 10px) | The glyph span holds a Unicode icon (`▲▼≡≠⇄⇅`), not text — sized for legibility like the `.act-btn` icon precedent; the accompanying label stays on the 10px floor. |
 | 10px metadata floor | `.diff-summary` 11px (`.diff-count` badges inherit) | `.diff-summary` is a toolbar/stat band, not a dense field label; it matches the single-file stats bar (`statsBar.css` 11px) and the VS Code pane-header type. |
+| 10px metadata floor | Record-view grid tags (`.rbadge`, `.cerr-tag`) and type override chips (`.oi-chip`) at 9px | Pre-existing dense tag/chip marks rendered inline inside data grids/rows next to data; surrounding labels and body text stay on the 10px floor. |
 
 ## Design Decision: Section Body Is the Only Scroll Container
 
 Every sidebar section is a VS Code PaneView container: the fixed 22px header plus a body (`.sb-pane .sb-body`) that is the **sole scroll region** for that section (`flex:1; min-height:0; overflow-y:auto`). The scrollbar appears only when content overflows (`auto`, never `scroll`); a shorter-than-pane body shows no scrollbar and no forced fill. The body flexes to fill the pane (`.sb-body { flex:1; min-height:0 }`); short content stays top-aligned (VS Code standard) and long content scrolls the body — no wrapper stretch is used because `min-height:100%` against a flex-derived body height proved unreliable across machines.
 
-**Options considered** for the struct type editor's "fill the pane / scroll" interplay:
-1. Inner scroller on `.se-form` pinned to pane height (via `.sb-pane .sb-body:has(> .si-editor-wrap)` flex + `overflow-y:auto`) — rejected: made the editor form non-scrollable in the real webview and violated the container rule.
-2. `min-height:100%` on `.si-editor-wrap` (short form stretches, long form scrolls body) — rejected: resolved unreliably against the flex-derived body height (void + premature scrollbar across machines); body `flex:1` already makes the body fill the pane, so the wrapper stretch is unnecessary.
+**Options considered** for the type editor's "fill the pane / scroll" interplay:
+1. Inner scroller on `.oe-form` pinned to pane height (via `.sb-pane .sb-body:has(> .oi-editor-wrap)` flex + `overflow-y:auto`) — rejected: made the editor form non-scrollable in the real webview and violated the container rule.
+2. `min-height:100%` on `.oi-editor-wrap` (short form stretches, long form scrolls body) — rejected: resolved unreliably against the flex-derived body height (void + premature scrollbar across machines); body `flex:1` already makes the body fill the pane, so the wrapper stretch is unnecessary.
 3. Short content top-aligned, body is the sole scroll container — chosen: body fills the pane via `flex:1`; short content sits at the top (VS Code standard); long content scrolls the body. No inner stretch.
 
 **Rules:**
-- No inner element inside a section body may become a second scroller or pin content height. The only exceptions are deliberately bounded sub-panels (`max-height` + their own `overflow-y:auto`), e.g. the struct C preview (`.se-preview .si-c-preview`).
+- No inner element inside a section body may become a second scroller or pin content height. The only exceptions are deliberately bounded sub-panels (`max-height` + their own `overflow-y:auto`), e.g. the type C preview (`.oe-preview .oi-c-preview`).
 - Never use `.has(...)` to turn the section body into a flex column for a scroll takeover.
 
 ```css
 /* Correct: body stays the only scroller; short forms top-align, long forms scroll the body. */
-.si-editor-wrap { display: flex; flex-direction: column; }
-.se-form        { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; }
+.oi-editor-wrap { display: flex; flex-direction: column; }
+.oe-form        { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; }
 ```
 
 ```css
 /* Wrong: inner scroller pinned via :has — the form stops scrolling in the real webview. */
-.sb-pane .sb-body:has(> .si-editor-wrap) { display: flex; flex-direction: column; min-height: 0; }
-.se-form { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.sb-pane .sb-body:has(> .oi-editor-wrap) { display: flex; flex-direction: column; min-height: 0; }
+.oe-form { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 ```

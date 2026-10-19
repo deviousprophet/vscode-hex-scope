@@ -139,8 +139,8 @@ export class HexView {
         cell.textContent = previewText;
     }
 
-    /** Host-invoked struct-field highlight: add `cls` to every cell (hex + char) at `addrs` (root-scoped). */
-    paintStructHighlight(addrs: readonly number[], cls: string): void {
+    /** Host-invoked overlay field highlight: add `cls` to every cell (hex + char) at `addrs` (root-scoped). */
+    paintTypeHighlight(addrs: readonly number[], cls: string): void {
         const root = this.rootEl();
         if (!root) { return; }
         for (const addr of addrs) {
@@ -148,8 +148,8 @@ export class HexView {
         }
     }
 
-    /** Host-invoked struct-field clear: remove `cls` from every cell in the grid root. */
-    paintClearStructHighlight(cls: string): void {
+    /** Host-invoked overlay field clear: remove `cls` from every cell in the grid root. */
+    paintClearTypeHighlight(cls: string): void {
         const root = this.rootEl();
         if (!root) { return; }
         root.querySelectorAll<HTMLElement>(`.${cls}`).forEach(el => el.classList.remove(cls));

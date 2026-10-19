@@ -37,7 +37,7 @@ body:
         - Records view
         - Search
         - Inspector
-        - Struct Overlay
+        - Type Overlay
         - Integrity checks / stored values / auto fix
         - Editing / Save
         - Quick Repair Checksums
@@ -105,7 +105,7 @@ body:
     attributes:
       label: Related `.hexscope/` data or script (optional)
       description: |
-        For Struct Overlay, Integrity, Profile, or Scripting bugs, paste the relevant part of `.hexscope/structs.json`, `.hexscope/profiles.json`, `.hexscope/bindings.json`, or the script from `.hexscope/scripts/` inside a code fence.
+        For Type Overlay, Integrity, Profile, or Scripting bugs, paste the relevant part of `.hexscope/types.json`, `.hexscope/profiles.json`, `.hexscope/bindings.json`, or the script from `.hexscope/scripts/` inside a code fence.
     validations:
       required: false
 

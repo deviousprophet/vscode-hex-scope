@@ -152,14 +152,14 @@
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
 }
 
-/* Struct field hover highlight */
-.data-cell.struct-h, .char-cell.struct-h {
+/* Overlay field hover highlight */
+.data-cell.type-h, .char-cell.type-h {
     background: rgba(255,200,60,.18) !important;
     outline: 1px solid rgba(255,200,60,.5);
 }
 /* Array element boundary separator */
-.data-cell.struct-arr-sep { border-left: 2px solid rgba(255,200,60,.8); }
-.char-cell.struct-arr-sep { border-left: 2px solid rgba(255,200,60,.8); }
+.data-cell.type-arr-sep { border-left: 2px solid rgba(255,200,60,.8); }
+.char-cell.type-arr-sep { border-left: 2px solid rgba(255,200,60,.8); }
 
 /* ── Gap row ─────────────────────────────────────────────────── */
 .gap-row {

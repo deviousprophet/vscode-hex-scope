@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "hexscope-profiles.schema.json",
   "title": "Hex Scope profile registry",
-  "description": "The single-file profile registry: one ProfileRecord[] array of named annotation bundles (structPins, active integrity checks, endian, segment names, labels). Not file-owned. Envelope root tolerates extra keys; nested payload objects are strict; item ids are unique.",
+  "description": "The single-file profile registry: one ProfileRecord[] array of named annotation bundles (typeInstances, active integrity checks, endian, segment names, labels). Not file-owned. Envelope root tolerates extra keys; nested payload objects are strict; item ids are unique.",
   "type": "object",
   "required": [
     "version",
@@ -13,11 +13,26 @@
       "const": 1
     },
     "data": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "$ref": "#/definitions/profileRecord"
-      }
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "records"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only)."
+        },
+        "records": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/profileRecord"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "$schema": {
       "type": "string"
@@ -30,7 +45,7 @@
       "required": [
         "id",
         "name",
-        "structPins",
+        "typeInstances",
         "activeChecks",
         "endian",
         "bitAllocation",
@@ -44,18 +59,26 @@
         "name": {
           "type": "string"
         },
-        "structPins": {
+        "typeInstances": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/structPin"
+            "$ref": "#/definitions/typeInstance"
+          }
+        },
+        "structPins": {
+          "deprecated": true,
+          "description": "Deprecated v1 alias for typeInstances. Accepted for strict authoring of files still carrying the pre-rename key; the runtime normalizer reads typeInstances ?? structPins ?? pins. New files must use typeInstances.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/typeInstance"
           }
         },
         "pins": {
           "deprecated": true,
-          "description": "Pre-rename alias for structPins. Accepted for strict authoring of files still carrying the old key; the runtime normalizer reads structPins ?? pins. New files must use structPins.",
+          "description": "Deprecated pre-rename alias for typeInstances. Accepted for strict authoring of files still carrying the old key; the runtime normalizer reads typeInstances ?? structPins ?? pins. New files must use typeInstances.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/structPin"
+            "$ref": "#/definitions/typeInstance"
           }
         },
         "activeChecks": {
@@ -72,6 +95,10 @@
             "lsb",
             "msb"
           ]
+        },
+        "showHiddenFields": {
+          "type": "boolean",
+          "description": "Global toggle for the Instances view: when true, fields marked hidden in the types editor are rendered. Absent = false."
         },
         "segmentNames": {
           "type": "object",
@@ -119,11 +146,11 @@
       },
       "additionalProperties": false
     },
-    "structPin": {
+    "typeInstance": {
       "type": "object",
       "required": [
         "id",
-        "structId",
+        "typeId",
         "addr",
         "name"
       ],
@@ -131,7 +158,7 @@
         "id": {
           "type": "string"
         },
-        "structId": {
+        "typeId": {
           "type": "string"
         },
         "addr": {
@@ -143,18 +170,18 @@
         "pointerSources": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/structPointerSource"
+            "$ref": "#/definitions/typePointerSource"
           }
         }
       },
       "additionalProperties": false
     },
-    "structPointerSource": {
+    "typePointerSource": {
       "type": "object",
       "required": [
         "sourcePinId",
         "sourcePinName",
-        "sourceStructId",
+        "sourceTypeId",
         "sourceFieldPath",
         "pointerStorageAddress",
         "targetAddress"
@@ -166,7 +193,7 @@
         "sourcePinName": {
           "type": "string"
         },
-        "sourceStructId": {
+        "sourceTypeId": {
           "type": "string"
         },
         "sourceFieldPath": {

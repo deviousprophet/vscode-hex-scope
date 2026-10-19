@@ -50,7 +50,7 @@ function cleanupDom(): void {
 function makePanels(): SidebarPanel[] {
     return [
         { id: 'inspector', label: 'Inspector', mount: root => { root.innerHTML = '<div class="insp-content"></div>'; } },
-        { id: 'struct', label: 'Struct', mount: root => { root.innerHTML = '<div class="struct-content"></div>'; } },
+        { id: 'overlay', label: 'Overlay', mount: root => { root.innerHTML = '<div class="overlay-content"></div>'; } },
     ];
 }
 
@@ -68,10 +68,10 @@ suite('Sidebar shell render', () => {
 
         // Panels: slot + tab per configured panel
         assert.ok(body.querySelector('#sbp-inspector'));
-        assert.ok(body.querySelector('#sbp-struct'));
-        assert.strictEqual(body.querySelector('#sbp-struct')!.textContent, '');
+        assert.ok(body.querySelector('#sbp-overlay'));
+        assert.strictEqual(body.querySelector('#sbp-overlay')!.textContent, '');
         assert.strictEqual(body.querySelector('#stab-inspector')!.textContent, 'Inspector');
-        assert.strictEqual(body.querySelector('#stab-struct')!.textContent, 'Struct');
+        assert.strictEqual(body.querySelector('#stab-overlay')!.textContent, 'Overlay');
         assert.strictEqual(body.querySelectorAll('#sidebar .sb-tab-panel').length, 2);
         assert.strictEqual(body.querySelectorAll('#side-tabs .stab').length, 2);
         dom.window.close();
@@ -84,9 +84,9 @@ suite('Sidebar shell render', () => {
         body.innerHTML = sidebar.toHtml();
 
         assert.strictEqual(body.querySelector('#sbp-inspector')!.className, 'sb-tab-panel active');
-        assert.strictEqual(body.querySelector('#sbp-struct')!.className, 'sb-tab-panel');
+        assert.strictEqual(body.querySelector('#sbp-overlay')!.className, 'sb-tab-panel');
         assert.strictEqual(body.querySelector('#stab-inspector')!.className, 'stab active');
-        assert.strictEqual(body.querySelector('#stab-struct')!.className, 'stab');
+        assert.strictEqual(body.querySelector('#stab-overlay')!.className, 'stab');
         dom.window.close();
     });
 
@@ -152,16 +152,16 @@ suite('Sidebar interaction', () => {
         sidebar.setCallbacks({ onTabChange: t => changes.push(t), onPanelActivate: mountPanel });
         sidebar.mount();
 
-        document.getElementById('stab-struct')!.click();
-        assert.deepStrictEqual(changes, ['struct']);
-        assert.deepStrictEqual(activates, ['struct']);
-        assert.ok(document.getElementById('sbp-struct')!.classList.contains('active'));
-        assert.ok(document.getElementById('sbp-struct')!.querySelector('.struct-content'), 'panel mounted on first activation');
+        document.getElementById('stab-overlay')!.click();
+        assert.deepStrictEqual(changes, ['overlay']);
+        assert.deepStrictEqual(activates, ['overlay']);
+        assert.ok(document.getElementById('sbp-overlay')!.classList.contains('active'));
+        assert.ok(document.getElementById('sbp-overlay')!.querySelector('.overlay-content'), 'panel mounted on first activation');
 
         // Clicking the active tab again: reports change, does not re-activate
-        document.getElementById('stab-struct')!.click();
-        assert.deepStrictEqual(changes, ['struct', 'struct']);
-        assert.deepStrictEqual(activates, ['struct']);
+        document.getElementById('stab-overlay')!.click();
+        assert.deepStrictEqual(changes, ['overlay', 'overlay']);
+        assert.deepStrictEqual(activates, ['overlay']);
     });
 
     test('setTab paints classes and reports onPanelActivate only on change', () => {
@@ -169,17 +169,17 @@ suite('Sidebar interaction', () => {
         sidebar.setCallbacks({ onPanelActivate: t => activates.push(t) });
         sidebar.mount();
 
-        sidebar.setTab('struct');
-        assert.deepStrictEqual(activates, ['struct']);
+        sidebar.setTab('overlay');
+        assert.deepStrictEqual(activates, ['overlay']);
         assert.strictEqual(document.getElementById('sbp-inspector')!.className, 'sb-tab-panel');
         assert.strictEqual(document.getElementById('stab-inspector')!.className, 'stab');
-        assert.strictEqual(document.getElementById('sbp-struct')!.className, 'sb-tab-panel active');
+        assert.strictEqual(document.getElementById('sbp-overlay')!.className, 'sb-tab-panel active');
 
-        sidebar.setTab('struct');
-        assert.deepStrictEqual(activates, ['struct'], 'no re-activate on same tab');
+        sidebar.setTab('overlay');
+        assert.deepStrictEqual(activates, ['overlay'], 'no re-activate on same tab');
 
         sidebar.setTab('inspector');
-        assert.deepStrictEqual(activates, ['struct', 'inspector']);
+        assert.deepStrictEqual(activates, ['overlay', 'inspector']);
     });
 
     test('mount is idempotent: re-mount does not double-report', () => {
@@ -191,9 +191,9 @@ suite('Sidebar interaction', () => {
         sidebar.mount();
 
         document.getElementById('stab-inspector')!.click();
-        document.getElementById('stab-struct')!.click();
-        assert.deepStrictEqual(changes, ['inspector', 'struct']);
-        assert.deepStrictEqual(activates, ['struct'], 'inspector is default-active; only struct activates once');
+        document.getElementById('stab-overlay')!.click();
+        assert.deepStrictEqual(changes, ['inspector', 'overlay']);
+        assert.deepStrictEqual(activates, ['overlay'], 'inspector is default-active; only overlay activates once');
     });
 
     test('setCallbacks swaps the reporters', () => {
@@ -203,9 +203,9 @@ suite('Sidebar interaction', () => {
         sidebar.mount();
         sidebar.setCallbacks({ onTabChange: t => second.push(t) });
 
-        document.getElementById('stab-struct')!.click();
+        document.getElementById('stab-overlay')!.click();
         assert.deepStrictEqual(first, []);
-        assert.deepStrictEqual(second, ['struct']);
+        assert.deepStrictEqual(second, ['overlay']);
     });
 });
 

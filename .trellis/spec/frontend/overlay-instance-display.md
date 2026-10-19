@@ -1,31 +1,31 @@
-# Struct Instance Display Code-Spec
+# Instance Display Code-Spec
 
-This is a user-visible UX checklist for Struct Overlay instance rendering and behavior.
+This is a user-visible UX checklist for Type Overlay instance rendering and behavior.
 
 Scope:
-- Struct instance body rows in the Struct Overlay panel.
+- Instance body rows in the Type Overlay panel.
 - What users can see/click/right-click.
 - Focus on what the user sees, understands, clicks, and right-clicks.
 
-This file is normative for Struct Overlay row rendering and interaction. Detailed
+This file is normative for Type Overlay row rendering and interaction. Detailed
 sections below preserve the complete UX contract; the opening scenario maps that
 contract to current code boundaries and executable checks.
 
-## Scenario: Render and interact with a struct instance
+## Scenario: Render and interact with an instance
 
 ### 1. Scope / Trigger
 
-- Trigger: any change to Struct Overlay decoded rows, grouping, pointer following,
+- Trigger: any change to Type Overlay decoded rows, grouping, pointer following,
   hover/selection sync, context menus, value modes, keyboard behavior, or row CSS.
-- UI owner: `src/webview/components/sidebar/structPanel/structPanel.ts`.
-- Decode owner: `src/core/structCodec.ts`.
+- UI owner: `src/webview/components/sidebar/overlayPanel/overlayPanel.ts`.
+- Decode owner: `src/core/overlay/overlayCodec.ts`.
 - Shared domain types: `src/core/types.ts`.
 - Cross-layer flow:
 
-      StructField / StructDef + memory bytes
-        -> decodeStruct(...)
+      TypeField / TypeDef + memory bytes
+        -> decodeType(...)
         -> DecodedField[]
-        -> Struct Overlay row/group renderer
+        -> Type Overlay row/group renderer
         -> hover, selection, Inspector, Memory view, context menu
 
 - This contract does not add pointer-to-bitfield-storage semantics. Bitfield pointer
@@ -36,37 +36,45 @@ contract to current code boundaries and executable checks.
 Current source contracts that implementations must preserve or intentionally migrate:
 
 ```typescript
-export interface StructField {
+export interface TypeField {
     name: string;
-    type: StructFieldType;
+    type: TypeFieldType;
     isPointer?: boolean;
-    refStructId?: string;
+    refTypeId?: string;
     bitFields?: BitFieldChild[];
     count: number;
     bitFieldsCollapsed?: boolean;
+    hidden?: boolean;
 }
 
-export interface StructDef {
+export interface BitFieldChild {
+    name: string;
+    bitWidth: number;
+    refTypeId?: string;
+    hidden?: boolean;   // def-level, instance-view only
+}
+
+export interface TypeDef {
     id: string;
     name: string;
-    fields: StructField[];
+    fields: TypeField[];
     packed?: boolean;
 }
 
-export interface StructPin {
+export interface TypeInstance {
     id: string;
-    structId: string;
+    typeId: string;
     addr: number;
     name: string;
-    pointerSources?: StructPointerSource[];
+    pointerSources?: TypePointerSource[];
 }
 
 export interface DecodedField {
     fieldName: string;
-    type: StructScalarFieldType;
-    pointerTargetType?: StructFieldType;
-    pointerTargetStructId?: string;
-    pointerTargetStructName?: string;
+    type: TypeScalarFieldType;
+    pointerTargetType?: TypeFieldType;
+    pointerTargetTypeId?: string;
+    pointerTargetTypeName?: string;
     pointerTargetByteSize?: number;
     pointerValue?: number;
     isPointer?: boolean;
@@ -82,25 +90,25 @@ export interface DecodedField {
     bitValueUnsigned?: string;
 }
 
-export function decodeStruct(
-    def: StructDef,
+export function decodeType(
+    def: TypeDef,
     baseAddr: number,
     getByte: (addr: number) => number | undefined,
     globalEndian: 'le' | 'be',
     bitFieldAllocation: BitFieldAllocation = 'msb',
-    defs: readonly StructDef[] = [],
+    defs: readonly TypeDef[] = [],
 ): DecodedField[];
 ```
 
-Renderer-side source/target separation is represented by `StructRenderContext`,
+Renderer-side source/target separation is represented by `OverlayRenderContext`,
 `PointerDerefTarget`, `pointerDerefTarget`, and pointer row/header render helpers in
-`src/webview/components/sidebar/structPanel/structPanel.ts`. If these names change, update this anchor while
+`src/webview/components/sidebar/overlayPanel/overlayPanel.ts`. If these names change, update this anchor while
 preserving the behavior contracts below.
 
 ### 3. Contracts
 
-- Input contract: a `StructDef`, base address, memory-byte accessor, endianness,
-  bitfield allocation, and referenced struct definitions decode into `DecodedField[]`.
+- Input contract: a `TypeDef`, base address, memory-byte accessor, endianness,
+  bitfield allocation, and referenced type definitions decode into `DecodedField[]`.
 - Row identity contract: sticky value mode, open state, hover, and selection must use a
   stable identity that distinguishes instance, field path, array index, bit child, and
   pointer target context.
@@ -115,6 +123,21 @@ preserving the behavior contracts below.
   values with unavailable targets use status text, not missing-data text.
 - Accessibility contract: every mouse interaction has the keyboard/accessibility
   equivalent defined below.
+- Hidden-field contract: a field/container whose declared `TypeField.hidden === true`
+  is omitted from the rendered rows. The filter runs at the decode-to-render seam
+  (group the decoded rows, drop a group whose declaration resolves hidden by full
+  field path), so decode, offsets/address math, and the C preview are unaffected.
+  A hidden container drops its whole subtree (leaf, composite, nested type, array,
+  and bit-unit children alike). Hidden is field/container level, **plus** a def-level
+  per-bit-child flag: a `BitFieldChild.hidden === true` drops that one named bit row
+  from the bit-unit body while the container header row stays (an all-hidden container
+  still renders its header). Both flags are display-only and load-preserving (a
+  persisted `hidden:false` is not rewritten on load; the editor omits `false` when
+  saving). The Instances header owns one global "show hidden fields" toggle
+  (default off, persisted per profile); turning it on updates the instances **in
+  place** (the list's contents are refreshed while the header/toggle and section
+  body node are kept), preserving toggle focus and body scroll, without reopening
+  the editor and without rebuilding the Types editor.
 - No environment keys or external API payloads participate in this feature.
 
 ### 4. Validation & Error Matrix
@@ -125,14 +148,16 @@ preserving the behavior contracts below.
 | Pointer value is null | Show `(null) 0x00000000`; no arrow, expansion, connector, jump, or create action. |
 | Pointer target is unmapped/missing | Show status before stored address, e.g. `(unmapped) 0x00800000`; no arrow or child preview. |
 | Unknown C pointer target type | Degrade to `void*`; storage row only. |
-| Followable non-struct pointer | Allow target jump; render compact scalar dereference preview when supported; never render an empty object root. |
-| Followable struct pointer | Allow struct target preview and optional instance creation. |
+| Followable scalar (non-type) pointer | Allow target jump; render compact scalar dereference preview when supported; never render an empty object root. |
+| Followable type pointer | Allow type target preview and optional instance creation. |
 | Pointer expansion reaches max depth | Disable expansion and expose reason `max depth`. |
-| Pointer target is not a struct | Disable create/struct expansion and expose reason `non-struct target`. |
+| Pointer target is not a named type | Disable create/type expansion and expose reason `non-struct target`. |
 | Selected range disappears after remap/layout change | Clear selection; never retain stale row/range state. |
 | Type label exceeds available width | Middle-compact visible label, CSS-clip as needed, preserve full accessible tooltip text. |
 | Duplicate local leaf name | Add stable `#2`, `#3`, ... suffixes. |
 | Bitfield pointer or pointer array requested | Treat as unsupported/future; do not synthesize target semantics. |
+| Field/container marked `hidden` | Omit the group and its whole subtree from the instance view (unless the global toggle is on); decode, offsets, and the C preview stay unchanged. |
+| Bit child marked `hidden` | Omit that child row from the bit-unit body (unless the global toggle is on); the container header row stays even when all children are hidden; decode, offsets, and the C preview stay unchanged. |
 
 ### 5. Good/Base/Bad Cases
 
@@ -150,10 +175,10 @@ preserving the behavior contracts below.
 ### 6. Tests Required
 
 - Decoder unit tests: assert field kind/shape metadata, direct/pointer addresses,
-  missing-data state, nested struct offsets, arrays, bit offsets, and LE/BE values.
+  missing-data state, nested type offsets, arrays, bit offsets, and LE/BE values.
 - Renderer tests for every Quick Coverage Matrix cell: assert column text, labels,
   collapsed/expanded offsets, indentation/connectors, and default value format.
-- Pointer tests: assert null, unmapped, `void*`, scalar target, struct target, pointer
+- Pointer tests: assert null, unmapped, `void*`, scalar target, type target, pointer
   array, max-depth, jump eligibility, create eligibility, and source/target metadata.
 - Interaction tests: assert hover enter/leave, exclusive selection, expand without
   selection, context menu without selection, pointer-value follow, target-child select,
@@ -191,7 +216,7 @@ metadata retains target address and byte range while visible `+000` stays hidden
 
 ## Column Contract
 
-Every struct instance row should read as:
+Every instance row should read as:
 
     Offset | Type | Name | Value
 
@@ -206,14 +231,14 @@ Every struct instance row should read as:
 
 ## Classification Model
 
-Classify every struct instance field with two axes:
+Classify every instance field with two axes:
 
 1. Value Kind: what the field ultimately represents.
 2. Shape / Access Variant: how the value is stored or reached.
 
 Value kinds:
 - Scalar: integer, float, ascii/char/string-like direct bytes.
-- Struct: nested named struct value.
+- Struct: nested named type value.
 - Bitfield: storage integer with named logical bit children.
 
 Shape / access variants:
@@ -275,10 +300,10 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Render only the pointer storage row (`void* raw`).
 - Do not render an expand button, child preview, or decoded target value.
 - Jump to Address is available only when the stored pointer is non-null and mapped.
-- Create Struct Instance is not available.
+- Create Instance is not available.
 - Unknown C pointer types degrade to `void*` until their target type is known.
 
-- Struct pointer target preview should use `{ }` as the target object root, then show struct member children:
+- Struct pointer target preview should use `{ }` as the target object root, then show type member children:
 
         +001 | Header*| ⌄ hdr          | -> 0x00000020
               |        | ⌄ { }          | Header @ 0x00000020
@@ -286,7 +311,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
         +001 | u16    | size           | 0x0010
 
 - Pointer array parent should show array summary; pointer element rows own pointer actions.
-- Pointer array element expansion follows the same scalar/struct target preview rules.
+- Pointer array element expansion follows the same scalar/type target preview rules.
 
 ## Hover And Selection Contract
 
@@ -294,15 +319,15 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Hover is transient and must not change persistent selection.
 - Moving the pointer away clears hover preview.
 - Selecting a row makes that row visually selected and syncs Memory view/Inspector to the same range.
-- Only one primary struct row, group header, array element, bit row, or instance card should appear selected at a time.
+- Only one primary instance row, group header, array element, bit row, or instance card should appear selected at a time.
 - Expand/collapse button click only opens/closes children; it must not select the parent or child range.
 - Context menu open should not change selection by itself.
 - Scalar row click selects that scalar byte range.
 - Scalar array parent click selects the full array byte range.
 - Scalar array child click selects that element byte range.
-- Struct parent click selects the full nested struct byte range.
+- Struct parent click selects the full nested type byte range.
 - Struct child row click selects the child byte range.
-- Struct array parent click selects the full struct-array byte range.
+- Struct array parent click selects the full type-array byte range.
 - Struct array element header click selects that element byte range.
 - Bitfield parent click selects the storage unit bytes.
 - Bitfield child click selects the bit range inside the storage unit and highlights matching bits in the parent value.
@@ -313,7 +338,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 - Pointer inline target child click selects target preview range, not pointer storage.
 - Created pointer instance selection should move focus to the new/existing target instance card and target bytes.
 - Selection state should survive re-render when the selected row/card still exists.
-- If selected bytes disappear because data becomes unmapped or struct layout changes, selection should clear rather than point at a stale row.
+- If selected bytes disappear because data becomes unmapped or type layout changes, selection should clear rather than point at a stale row.
 
 ## Shared UI Surface (applies to all row families)
 
@@ -322,7 +347,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
   - Bit-field child rows display bit offsets as `.N`, relative to the containing storage unit.
 - Data type column:
   - Abbreviated type label is shown (examples: `u16`, `i32`, `f32`, `char`, `bit:3`, `Header*`).
-  - The type column should be adaptively wide enough for common struct names before yielding space to name/value.
+  - The type column should be adaptively wide enough for common type names before yielding space to name/value.
   - Long type labels must stay inside the type column. Compact the visible label with middle ellipsis (for example `VeryL...truct*`) and clip with CSS ellipsis if needed.
   - Full type appears as tooltip on the type cell.
 - Value column:
@@ -345,7 +370,7 @@ Pointer rules apply to Scalar + Pointer, Scalar + Pointer array, Struct + Pointe
 | Array parent | `Copy address` + `View as` for direct value children |
 | Struct/composite parent | `Copy address` + `View as` only when direct value children exist |
 | Array element parent | Same as parent role for that element; no action if it has no direct value rows |
-| Pointer storage row | `Copy value` + `Jump to Address` + optional `Create Struct Instance` |
+| Pointer storage row | `Copy value` + `Jump to Address` + optional `Create Instance` |
 | Pointer target preview | Same pointer actions as its source pointer storage row |
 | Bitfield storage parent | `Copy address` + bitfield-aware `View as` |
 | Bitfield child | `Copy as` + `View as` |
@@ -367,7 +392,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Scalar (single field / leaf row)
 
 - Render shape:
-  - Leaf row (`.si-field`) with: offset, type, name, value.
+  - Leaf row (`.oi-field`) with: offset, type, name, value.
   - Preview:
 
         +000 | u16    | count          | 0x1234
@@ -378,7 +403,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Value display defaults:
   - Integers: Hex by default.
   - Floats: Decimal by default.
-  - Ascii fields: ASCII by default. Ascii value cells use `white-space: pre` (`.si-f-val[data-val-type="ascii"]`) so runs of `0x20`, leading, and trailing spaces render exactly as decoded; non-printable bytes still show `.`.
+  - Ascii fields: ASCII by default. Ascii value cells use `white-space: pre` (`.oi-f-val[data-val-type="ascii"]`) so runs of `0x20`, leading, and trailing spaces render exactly as decoded; non-printable bytes still show `.`.
 - Value display menu options (`View as`):
   - Integer-like: Hex, Decimal, Binary, ASCII.
   - `float32/float64`: Hex, Decimal, IEEE754, Binary.
@@ -390,7 +415,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 ### Scalar array
 
 - Render shape:
-  - Collapsible array group header (`.si-arr-grp-hdr`) for the parent field.
+  - Collapsible array group header (`.oi-arr-grp-hdr`) for the parent field.
   - Expanded body shows index-only child rows (`[0]`, `[1]`, ...).
   - Preview:
 
@@ -435,10 +460,10 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 
 ## Struct
 
-### Struct (single struct field)
+### Struct (single type field)
 
 - Render shape:
-  - Collapsible composite group header (`.si-arr-grp-hdr`) with nested child rows/groups.
+  - Collapsible composite group header (`.oi-arr-grp-hdr`) with nested child rows/groups.
   - Preview:
 
         Collapsed:
@@ -452,7 +477,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Collapsed: header shows first child offset.
   - Expanded: header offset is removed to avoid duplication; children show offsets.
 - Data type display:
-  - Header summary shows struct type name (declared target struct name).
+  - Header summary shows the type name (declared target type name).
   - Child rows/groups show their own types.
 - Value display:
   - Header shows summary/meta text.
@@ -460,14 +485,14 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Field name display:
   - Header uses local field name.
   - Nested headers/rows also use local names.
-- Context menu (right-click struct header):
+- Context menu (right-click type header):
   - `Copy address`.
   - `View as` submenu for directly addressable value children.
 
 ### Struct array
 
 - Render shape:
-  - Parent collapsible array group for the struct field.
+  - Parent collapsible array group for the type field.
   - Expanded list of element headers (`[i]`), each expandable into that element's child rows/groups.
   - Preview:
 
@@ -489,8 +514,8 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - Parent follows collapsed/expanded offset rule.
   - Element headers show own offsets (unless inherited hidden context in pointer-inline rendering).
 - Data type display:
-  - Parent summary: `<StructName>[count]`.
-  - Element summary: struct type name.
+  - Parent summary: `<TypeName>[count]`.
+  - Element summary: type name.
 - Value display:
   - Primarily via nested child rows.
 - Field name display:
@@ -505,7 +530,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 
 - Classification: Struct + Pointer.
 - The pointer storage row uses pointer variant behavior.
-- Target preview, when expanded, renders the pointed struct's children inline.
+- Target preview, when expanded, renders the pointed type's children inline.
 - Example: `Header* hdr`.
 
 ### Struct pointer array
@@ -513,15 +538,19 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Classification: Struct + Pointer array.
 - Parent row represents an array of pointer storage values.
 - Expanded parent shows pointer element rows (`[0]`, `[1]`, ...).
-- Each pointer element may expand into a target preview for the pointed struct.
+- Each pointer element may expand into a target preview for the pointed type.
 - Example: `Header* hdrs[2]`.
 
 ## Bitfields
 
 ### Bitfield container (single bitfield parent field)
 
+- A field that references a named `kind: 'bitfield'` type resolves at the decode boundary to the **same group shape an inline container produces today**: the field's own bitunit header is the container row, its children are the def's children, and there is no extra wrapper/nested type level. Arrays (`count > 1`) render one bitunit group per element. Field-level endian/allocation overrides apply exactly as on an inline container.
+- A child marked `hidden` (`BitFieldChild.hidden === true`, def-level) has its row dropped from the expanded bitunit body; the container header row is unaffected (an all-hidden container still shows its header row). The global "show hidden fields" toggle reveals hidden child rows. Render-only: decode, offsets/sizes, and the C preview are unchanged.
+- An enum-typed scalar field, or a bit-field child carrying an enum ref, renders a matched value as `NAME (0x<digits>)` in the value cell, where the digit count follows the value width (`enumHexDigits`: the bit-child width, or the field byte width for a scalar enum; no forced 2-digit minimum); an unmatched value (or a non-default display mode) falls back to the plain numeric rendering. Enum is presentation-only: offset/endianness/allocation/bytes are unchanged, and per-element labels apply for scalar arrays and bit-container arrays. `Copy as` stays numeric.
+
 - Render shape:
-  - Scalar-like collapsible header row (`.si-bitunit-hdr.si-field`) with type/name/value columns.
+  - Scalar-like collapsible header row (`.oi-bitunit-hdr.oi-field`) with type/name/value columns.
   - Expanded body shows bitfield child rows.
   - Preview:
 
@@ -547,9 +576,9 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
   - `Binary (bit fields only)` appears only when used bit width is less than full storage width.
 - Bit hover highlight:
   - Hovering/selecting bit ranges paints the recalled bits in the parent binary value.
-  - Hover paint adds a 1px solid underscore per hovered `.si-bit`, rendered `box-shadow` inset (no `border-bottom`) so hovering adds no layout space and the value row never shifts.
+  - Hover paint adds a 1px solid underscore per hovered `.oi-bit`, rendered `box-shadow` inset (no `border-bottom`) so hovering adds no layout space and the value row never shifts.
 - Multi-line binary alignment:
-  - Values wider than 16 bits (u32/u64, or wide `Binary (bit fields only)` slices) wrap after 16 bits; the header cluster (`>` chevron, field name, endian/allocation chips, dotted leader) sits together on the binary value's **last** line, with the dotted leader sharing the same baseline as the name/bit text. Expandable struct headers (`.si-arr-grp-hdr` / `.si-arr-el-hdr`) render no `::before` tree stub; the vertical body guide lines remain.
+  - Values wider than 16 bits (u32/u64, or wide `Binary (bit fields only)` slices) wrap after 16 bits; the header cluster (`>` chevron, field name, endian/allocation chips, dotted leader) sits together on the binary value's **last** line, with the dotted leader sharing the same baseline as the name/bit text. Expandable type headers (`.oi-arr-grp-hdr` / `.oi-arr-el-hdr`) render no `::before` tree stub; the vertical body guide lines remain.
 - Context menu:
   - Header (array-header style): `Copy address`, `View as`.
   - Child rows (scalar style): `Copy as`, `View as`.
@@ -602,7 +631,7 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 - Endianness affects decode/value output but binary value view represents decoded numeric value consistently for LE/BE (not raw byte order display).
 - Pointer rows can show disabled actions with clear reason text in menu.
 - Missing direct field bytes display as `??`; pointer follow problems display as status text or disabled action reasons.
-- Struct instances created from pointer menu are visible as new pins/cards and include source subtitle (`from <pin>.<field> @<addr>`).
+- Instances created from pointer menu are visible as new pins/cards and include source subtitle (`from <pin>.<field> @<addr>`).
 - Pointer jump action selects bytes at pointed target without necessarily creating a new instance.
 - Context menus differ by row family:
   - Scalar row: `Copy as` + `View as`.
@@ -615,5 +644,5 @@ Disabled menu items should stay visible with a short reason (`unmapped`, `null`,
 | Value kind | Single model | Array model | Pointer model | Pointer array model |
 |---|---|---|---|---|
 | Scalar | Scalar leaf row | Scalar array parent -> element rows `[i]` | Pointer storage parent -> scalar target value preview | Pointer array parent -> pointer element parents `[i]` -> scalar target value preview |
-| Struct | Struct parent -> member rows/groups | Struct array parent -> element parents `[i]` -> member rows/groups | Pointer storage parent -> struct target preview `{ }` -> member rows/groups | Pointer array parent -> pointer element parents `[i]` -> struct target preview `{ }` -> member rows/groups |
+| Struct | Type parent -> member rows/groups | Type array parent -> element parents `[i]` -> member rows/groups | Pointer storage parent -> type target preview `{ }` -> member rows/groups | Pointer array parent -> pointer element parents `[i]` -> type target preview `{ }` -> member rows/groups |
 | Bitfield | Bitunit parent -> bit child rows | Bitfield array parent -> bitunit element parents `[i]` -> bit child rows | Unsupported / future | Unsupported / future |

@@ -35,8 +35,8 @@ suite('webview utils formatting', () => {
 
     test('formatHexHtml splits prefix and body into spans', () => {
         const html = formatHexHtml('0x1A2B');
-        assert.ok(html.includes('<span class="si-hex-prefix">0x</span>'));
-        assert.ok(html.includes('<span class="si-hex-body">1A2B</span>'));
+        assert.ok(html.includes('<span class="oi-hex-prefix">0x</span>'));
+        assert.ok(html.includes('<span class="oi-hex-body">1A2B</span>'));
     });
 
     test('asUint64 converts negative BigInt to two\'s-complement unsigned', () => {

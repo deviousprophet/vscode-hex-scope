@@ -2,15 +2,15 @@
 // Headless shared menu controller: owns the single #menu container,
 // positioning, dismissal (click-outside/focusout/window-blur/Escape),
 // hover-submenus, input modality, and full keyboard navigation for
-// every popover menu in the webview (hex grid, struct field menu).
+// every popover menu in the webview (hex grid, overlay field menu).
 // The controller never renders content: callers supply innerHTML per
-// show (hex/struct) or attach a pre-authored static popover. The host
+// show (hex/overlay) or attach a pre-authored static popover. The host
 // owns all command execution — this module never imports the `S`
 // global and never posts provider messages; it reports commands via
 // per-show `emit` callbacks.
 //
 // The `menu-*` class lexicon is the single shared vocabulary; the
-// struct field menu (`si-field-menu-*`) is caller-owned and wired by
+// overlay field menu (`oi-field-menu-*`) is caller-owned and wired by
 // id elsewhere (not renamed).
 //
 // One active menu: opening a menu closes any other (registry
@@ -27,7 +27,7 @@ import * as nav from './menuNav';
 const DEFAULT_FOCUS_FIRST = '.menu-item[data-cmd]:not(.menu-disabled)';
 
 interface MenuShowOpts {
-    /** Caller-rendered HTML for dynamic menus (hex, struct). Omit for static popovers. */
+    /** Caller-rendered HTML for dynamic menus (hex, overlay). Omit for static popovers. */
     innerHTML?: string;
     /** Pre-open activeElement snapshot, restored on close (skipped on window blur). */
     restore?: 'snapshot';
@@ -74,6 +74,8 @@ function mergeEntry(prior: MenuEntry | undefined, opts: MenuShowOpts, attached: 
 class MenuController {
     /** The one dynamic-menu container (#menu), created lazily on first show and reused. */
     private container: HTMLElement | null = null;
+    /** Ambient document the cached container/registry belong to; a swap resets them. */
+    private doc: Document | null = null;
     /** Registered menus: the #menu container's per-show opts + attached static popovers. */
     private readonly registry = new Map<HTMLElement, MenuEntry>();
     /** The single open menu right now, or null. */
@@ -91,6 +93,7 @@ class MenuController {
 
     /** Attach a pre-authored static popover (integrity ⋮ menu). Registers only; show() displays it. */
     attach(el: HTMLElement, opts: Pick<MenuShowOpts, 'emit' | 'onClose'> = {}): void {
+        this.syncDocument();
         this.registry.set(el, mergeEntry(this.registry.get(el), opts, true));
     }
 
@@ -102,6 +105,7 @@ class MenuController {
 
     /** Open a menu: the internal #menu container by default, or an attached el. */
     show(x: number, y: number, opts: MenuShowOpts & { el?: HTMLElement } = {}): void {
+        this.syncDocument();
         const el = opts.el ?? this.ensureContainer();
         if (!el) { return; }
         // One active menu: opening one closes any other (without focus restore —
@@ -225,6 +229,23 @@ if (opts.innerHTML !== undefined) {
         document.body.appendChild(el);
         this.container = el;
         return el;
+    }
+
+    /**
+     * Drop cached DOM state when the ambient document changes. The controller is a
+     * module singleton that outlives the document it rendered into (a fresh JSDOM
+     * per test; never in the running webview), and a stale container stays
+     * `isConnected` to its old document — so `ensureContainer` would reuse a node
+     * the live document cannot see. Per-document listeners already key off the
+     * document (`*Docs` WeakSets); this keeps the container/registry consistent.
+     */
+    private syncDocument(): void {
+        if (this.doc === document) { return; }
+        this.doc = document;
+        this.container = null;
+        this.activeEl = null;
+        this.restoreEl = null;
+        this.registry.clear();
     }
 
     // ── Dismissal ────────────────────────────────────────────────

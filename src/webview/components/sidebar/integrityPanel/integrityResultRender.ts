@@ -172,7 +172,7 @@ export function checkCardHtml(check: IntegrityCheckState, cardClass: string, bod
 
 export function checkCardClass(id: number, highlightedCheckId: number | null): string {
     const selected = highlightedCheckId === id ? ' integrity-card-selected' : '';
-    return `sb-card integrity-card si-expanded${selected}`;
+    return `sb-card integrity-card oi-expanded${selected}`;
 }
 
 export function checkCardBodyHtml(

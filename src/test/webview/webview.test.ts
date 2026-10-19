@@ -22,6 +22,7 @@ import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
 import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
+import type { TypeDef, TypeInstance } from '../../core/types';
 
 function resetState(): void {
     S.parseResult  = null;
@@ -38,9 +39,9 @@ function resetState(): void {
     S.edits.clear();
     S.undoStack.length = 0;
     S.redoStack.length = 0;
-    S.structs          = [];
+    S.types          = [];
 
-    S.structPins       = [];
+    S.typeInstances       = [];
     S.integrityHighlight = null;
     S.sidebarTab       = 'inspector';
     S.lastClickColumn  = null;
@@ -629,14 +630,14 @@ suite('Record View rendering', () => {
         try {
             document.body.innerHTML = '<div id="app"></div>';
             window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
-                type: 'init', parseResult: S.parseResult, labels: [], structs: [], structPins: [], endian: 'le',
+                type: 'init', parseResult: S.parseResult, labels: [], types: [], typeInstances: [], endian: 'le',
                 activeChecks: { schemaVersion: 1, checks: [] },
                 profile: { profiles: [], current: null, boundFileCount: 0 },
             } }));
             assert.strictEqual(document.querySelectorAll('#sidebar-common-settings').length, 1);
             assert.ok(document.getElementById('sidebar-btn-le')!.classList.contains('active'));
             assert.strictEqual(document.getElementById('btn-le'), null);
-            assert.strictEqual(document.getElementById('sa-btn-le'), null);
+            assert.strictEqual(document.getElementById('oa-btn-le'), null);
             assert.strictEqual(document.getElementById('integrity-btn-le'), null);
             assert.ok(document.getElementById('search-btn-auto'), 'Value Search keeps its own endian control');
 
@@ -662,12 +663,39 @@ suite('Record View rendering', () => {
             const inspSection = document.getElementById('s-insp')!;
             inspSection.querySelector<HTMLElement>('.sb-section-head')!.click();
             assert.ok(inspSection.classList.contains('collapsed'), 'inspector section collapsed');
-            document.getElementById('stab-struct')!.click();
+            document.getElementById('stab-overlay')!.click();
             document.getElementById('stab-inspector')!.click();
             assert.ok(document.getElementById('s-insp')!.classList.contains('collapsed'),
                 'collapse state survives tab round-trip');
             assert.ok(document.getElementById('insp-vals')!.querySelector('.insp-byte-line'),
                 'selection data survives tab round-trip');
+
+            // Overlay show-hidden provider seam: a `perFileDataChange` slice drives
+            // showHiddenFieldsChanged → applyScopedInvalidations →
+            // applyShowHiddenFieldsChanged → overlayPanel.setShowHiddenFields.
+            const seamTypes: TypeDef[] = [{
+                id: 'cfg', name: 'Cfg', fields: [
+                    { name: 'reserved', type: 'uint8', count: 1, hidden: true },
+                    { name: 'tag', type: 'uint8', count: 1 },
+                ],
+            }];
+            const seamPins: TypeInstance[] = [{ id: 'pin_seam', typeId: 'cfg', addr: 0x08000000, name: 'inst' }];
+            S.types = seamTypes;
+            const pushHidden = (showHiddenFields: boolean): void => {
+                window.dispatchEvent(new dom.window.MessageEvent('message', { data: {
+                    type: 'perFileDataChange', labels: [], pins: seamPins, endian: 'le', bitAllocation: 'msb',
+                    showHiddenFields, activeChecks: { schemaVersion: 1, checks: [] },
+                } }));
+            };
+            pushHidden(false);
+            document.getElementById('stab-overlay')!.click();
+            document.querySelector<HTMLElement>('.oi-expand-btn')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+            const seamNames = (): string[] => Array.from(document.querySelectorAll<HTMLElement>('.oi-fields > *'))
+                .map(el => el.querySelector<HTMLElement>('.oi-f-name')?.textContent ?? '');
+            assert.deepStrictEqual(seamNames(), ['tag'], 'hidden field omitted under the default toggle');
+
+            pushHidden(true);
+            assert.deepStrictEqual(seamNames(), ['reserved', 'tag'], 'showHiddenFieldsChanged invalidation reveals the hidden field through the panel');
         } finally {
             api.vscode.postMessage = originalPostMessage;
         }
@@ -792,7 +820,7 @@ suite('Integrity Checks sidebar', () => {
                 },
             });
             assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'comparison is always visible');
-            assert.strictEqual(integrityCard().querySelector('.si-expand-btn'), null);
+            assert.strictEqual(integrityCard().querySelector('.oi-expand-btn'), null);
             assert.strictEqual(integrityCard().querySelector('[data-auto-fix]'), null);
             assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
             await waitForIntegrityCalculation();
