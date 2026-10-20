@@ -39,14 +39,14 @@ type ScopeOption = {
 const PROMPT_CLASS = 'script-perm';
 
 /** Human sentence for the capability being requested. */
-export function capabilityPhrase(capability: ScriptCapability): string {
+function capabilityPhrase(capability: ScriptCapability): string {
     if (capability === 'write') { return 'write bytes to this file'; }
     if (capability === 'exec') { return 'run an external command'; }
     return 'make a network request';
 }
 
 /** Scope choices offered for one request (workspace is never offered for exec). */
-export function scopeOptions(request: ScriptPermissionRequest): ScopeOption[] {
+function scopeOptions(request: ScriptPermissionRequest): ScopeOption[] {
     const cap = request.capability;
     const options: ScopeOption[] = [
         { scope: 'script', grant: cap, label: `Allow ${cap} in this script` },

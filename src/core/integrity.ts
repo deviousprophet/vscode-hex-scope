@@ -53,14 +53,6 @@ export interface IntegrityScriptCheckConfig extends IntegrityCheckBase {
  */
 export type IntegrityCheckConfig = IntegrityBuiltinCheckConfig | IntegrityScriptCheckConfig;
 
-export function isScriptCheck(config: IntegrityCheckConfig): config is IntegrityScriptCheckConfig {
-    return config.kind === 'script';
-}
-
-export function isBuiltinCheck(config: IntegrityCheckConfig): config is IntegrityBuiltinCheckConfig {
-    return config.kind === 'builtin';
-}
-
 export interface IntegrityProfile {
     schemaVersion: typeof INTEGRITY_PROFILE_SCHEMA_VERSION;
     id: string;

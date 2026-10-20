@@ -27,8 +27,7 @@ export function normalizeScriptValue(entry: ScriptEntry, value: unknown): Script
     }
 }
 
-export function contractError(entry: ScriptEntry, reason: string): ScriptValidation<never> {
-    return { ok: false, error: `Script entry '${entry}' ${reason}.` };
+function contractError(entry: ScriptEntry, reason: string): ScriptValidation<never> {    return { ok: false, error: `Script entry '${entry}' ${reason}.` };
 }
 
 function normalizeAddress(value: unknown): ScriptValidation<number> {

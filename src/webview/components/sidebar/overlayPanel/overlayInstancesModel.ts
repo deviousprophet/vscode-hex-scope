@@ -276,7 +276,7 @@ export function withEditedTypeInstance(
 }
 
 /** Trim parameter-source paths; empty paths author no source. */
-export function cleanParamSources(
+function cleanParamSources(
     sources: Record<string, TypeInstanceParamSource> | undefined,
 ): Record<string, TypeInstanceParamSource> | undefined {
     if (!sources) { return undefined; }

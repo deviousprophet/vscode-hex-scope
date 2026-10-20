@@ -33,12 +33,11 @@ export interface IntegrityResultRenderDeps {
     isAutoFixSuppressed: (check: IntegrityCheckState) => boolean;
 }
 
-export function algorithmLabel(algorithm: IntegrityAlgorithm): string {
-    return ALGORITHM_LABELS.find(([value]) => value === algorithm)?.[1] ?? algorithm;
+function algorithmLabel(algorithm: IntegrityAlgorithm): string {    return ALGORITHM_LABELS.find(([value]) => value === algorithm)?.[1] ?? algorithm;
 }
 
 /** Card title: custom name, else the script file name / algorithm label. */
-export function checkTitle(check: IntegrityCheckState): string {
+function checkTitle(check: IntegrityCheckState): string {
     if (check.name) { return check.name; }
     if (check.kind === 'script') { return integrityScriptName(check.scriptPath) || 'Script'; }
     return algorithmLabel(check.algorithm);

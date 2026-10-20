@@ -83,7 +83,7 @@ export interface IntegrityHighlight {
 }
 
 /** One discovered script offered by the add/edit form's script picker. */
-export interface IntegrityScriptOption {
+interface IntegrityScriptOption {
     name: string;
     relativePath: string;
     roles?: string[];
