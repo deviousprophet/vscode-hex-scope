@@ -118,6 +118,8 @@ export function getIntegrityValue(api: HexScopeAPI): Uint8Array {
 - Role entries receive the same `api` plus `api.context` describing the request (instance,
   parameter, resolved sibling values, document size, selection, and stored range where
   relevant). `run` scripts see an empty context.
+- Role scripts are read-only: `api.hex.write()` is denied without a prompt. Use a `run`
+  script when a write is intentional.
 - `.d.ts` files and files in subdirectories are not scanned; use
   `.hexscope/scripts/types/hexscope.d.ts` for shared types.
 
