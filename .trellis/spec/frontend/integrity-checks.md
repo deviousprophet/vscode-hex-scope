@@ -13,23 +13,35 @@ type IntegrityAlgorithm =
     | 'crc16-ccitt-false' | 'crc32-iso-hdlc'
     | 'md5' | 'sha-1' | 'sha-256' | 'sha-512';
 
-interface IntegrityCheckConfig {
-    algorithm: IntegrityAlgorithm;
+interface IntegrityCheckBase {
     startAddress: number;
     endAddress: number;
     storedAddress?: number;
     autoFixStoredValue: boolean;
+    name?: string;
 }
+
+// Discriminated on `kind`; missing `kind` on load infers `script` only when a
+// non-empty `scriptPath` exists, otherwise `builtin`. Writers always emit `kind`.
+type IntegrityCheckConfig =
+    | (IntegrityCheckBase & { kind: 'builtin'; algorithm: IntegrityAlgorithm })
+    | (IntegrityCheckBase & { kind: 'script'; scriptPath: string });
 
 // Retained only for legacy-migration normalization (hexScopeMigration.ts);
 // the webview Integrity panel shows checks, never IntegrityProfile templates.
 interface IntegrityProfile { schemaVersion: 1; id: string; name: string; checks: IntegrityCheckConfig[]; }
 interface IntegrityCheckSet { schemaVersion: 1; checks: IntegrityCheckConfig[]; }
 
+type IntegrityResult =
+    | { kind: 'builtin'; algorithm: IntegrityAlgorithm; value: string; byteCount: number }
+    | { kind: 'script'; valid?: boolean; valueBytes?: Uint8Array; byteCount: number; scriptName: string };
+
+function validateIntegrityAddressRange(startRaw, endRaw): IntegrityValidation<{ startAddress; endAddress }>;
 function validateIntegrityRange(...): IntegrityValidation<IntegrityRequest>;
 function collectIntegrityBytes(...): IntegrityValidation<Uint8Array>;
 function collectIntegrityBytesAsync(..., options?: WorkBudgetOptions): Promise<IntegrityValidation<Uint8Array>>;
-function calculateIntegrity(algorithm, bytes, options?: WorkBudgetOptions): Promise<IntegrityResult>;
+function calculateIntegrity(algorithm, bytes, options?: WorkBudgetOptions): Promise<IntegrityBuiltinResult>;
+function scriptCheckPassed(result: IntegrityResult | null, storedBytes?: Uint8Array | null): boolean | undefined;
 function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 ```
 
@@ -47,6 +59,11 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 - Per-file active checks persist as `IntegrityCheckSet` inside the bound file profile (`activeChecks` in `.hexscope/profiles.json`); the standalone `IntegrityProfile[]` template registry is retired from the UI — legacy templates still migrate into registry profiles (see hexscope-storage.md).
 - Profile normalization (legacy templates only) drops malformed entries and case-insensitive duplicate names.
 - Selected/hovered check highlights calculation range plus optional stored range with match/mismatch/unverified status.
+- Script checks (`kind: 'script'`) run `getIntegrityValue` then `verifyIntegrity` through the shared named-entry runner (host-side `src/integrityScriptRunner.ts`); `verifyIntegrity` is authoritative for pass/fail and `getIntegrityValue` supplies verbatim fix bytes. Missing exports are "absent", not errors; a failing entry never erases the other's result.
+- Script bytes are written verbatim (no endian conversion) and the stored pane is labelled `Stored` with no endian tag.
+- Script checks read the current bytes including pending edits (host overlays them, bounded to `MAX_INTEGRITY_EDIT_ENTRIES`); they receive the range + stored range through `ScriptContext.selection` / `storedStart` / `storedEnd` and must exclude an overlapping stored field themselves.
+- Script checks refresh on tab activation, document open, save, and explicit refresh; a byte change marks the result `Stale — refresh` instead of scheduling. Per-check request ids + document generation discard stale responses.
+- Script checks are read-only: `hex.write` is denied without a prompt; `exec`/`fetch` keep the normal fingerprint-scoped approvals. Persisted `scriptPath` is workspace-relative.
 
 ### 4. Validation & Error Matrix
 
@@ -61,14 +78,22 @@ function mergeIntegrityEdits(groups): IntegrityValidation<IntegrityEdit[]>;
 | Duplicate profile name ignoring case | Keep one valid unique name; reject/drop duplicate. |
 | Fix groups write different values to same address | `Fix all conflict at 0x........`; apply none. |
 | Check result token becomes stale | Ignore stale async result. |
+| Script check has neither contract export | Row-level contract error; no mutation. |
+| `verifyIntegrity` returns a non-boolean / `getIntegrityValue` returns a non-byte or empty value | Row-level contract error; no fix. |
+| Script missing / untrusted / above the pending-edit bound | Row-level error; other checks and Fix all unaffected. |
+| Script response generation no longer matches the document | Discard and re-request the check. |
 
 ### 5. Good/Base/Bad Cases
 
 - Base: SHA-256 over one mapped inclusive range shows digest and byte count; an optional full-digest stored field compares, highlights, and fixes.
 - Good: an integrity stored field overlaps range; bytes are excluded, expected value converted to selected byte order for checksums (natural order for hashes), mismatch is highlighted, fix is undoable.
 - Good: profile round-trip preserves `activeChecks` as normalized schema-v1 config inside the bound profile.
+- Good: a value-only script check compares returned bytes with the stored field, highlights the mismatch, and auto-fixes verbatim bytes; a verify-only check shows Verified/Failed with no fix control.
+- Good: a both-exports script check reports the verify verdict and offers the value-based fix only when it fails.
 - Bad: calculate across a gap by skipping missing bytes.
 - Bad: partially apply Fix all before discovering an overlap conflict.
+- Bad: endian-reverse script-supplied bytes or let a verified script check contribute a fix.
+- Bad: re-run a script check on every keystroke instead of marking the result stale.
 
 ### 6. Tests Required
 

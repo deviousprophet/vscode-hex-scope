@@ -816,7 +816,7 @@ suite('Integrity Checks sidebar', () => {
                 type: 'saveIntegrityChecks',
                 state: {
                     schemaVersion: 1,
-                    checks: [{ algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
+                    checks: [{ kind: 'builtin', algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
                 },
             });
             assert.ok(!integrityCard().querySelector<HTMLElement>('[data-check-body]')!.hidden, 'comparison is always visible');
@@ -883,7 +883,7 @@ suite('Integrity Checks sidebar', () => {
             assert.ok(integrityCard(1).querySelector('[data-auto-fix]'));
             const hashConfig = (posted.at(-1) as { state: { checks: Array<{ storedAddress?: number; autoFixStoredValue: boolean }> } }).state.checks[1];
             assert.deepStrictEqual(hashConfig, {
-                algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false,
+                kind: 'builtin', algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x1003, storedAddress: 0x1000, autoFixStoredValue: false,
             });
             integrityCard(1).querySelector<HTMLElement>('.act-btn-edit')!.click();
             integrityForm('edit-2').querySelector<HTMLElement>('[data-form-action="cancel"]')!.click();

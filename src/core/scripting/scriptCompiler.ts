@@ -26,7 +26,9 @@ async function getCompiler(): Promise<CompileFn | null> {
 }
 
 export function isScriptFile(name: string): boolean {
-    return name.endsWith('.js') || name.endsWith('.ts');
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.d.ts')) { return false; }
+    return lower.endsWith('.js') || lower.endsWith('.ts');
 }
 
 function needsCompile(name: string): boolean {

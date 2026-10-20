@@ -28,7 +28,44 @@ interface ScriptInfo {
     name: string;
     filePath: string;
     capabilities: string[];
+    roles: ScriptRole[];
+    fingerprint: string;
 }
+
+type ScriptRole = 'integrity' | 'address' | 'size';
+type ScriptEntry = 'run' | 'verifyIntegrity' | 'getIntegrityValue' | 'getAddress' | 'getSize';
+type ScriptValue = number | boolean | number[];
+
+interface ScriptContext {
+    instance?: { id: string; name: string; typeId: string; typeName: string };
+    param?: string;
+    paramValues?: Record<string, number>;
+    documentSize?: number;
+    selection?: { start: number; end: number };
+    storedStart?: number;
+    storedEnd?: number;
+}
+
+type ScriptCapability = 'write' | 'exec' | 'fetch';
+type ScriptCapabilityGrant = ScriptCapability | '*';
+type ScriptPermissionScope = 'once' | 'script' | 'session' | 'workspace';
+
+// Grant store (src/scriptPermissions.ts, host-owned)
+class ScriptGrantStore {
+    constructor(state: GrantMemento);                      // workspaceState subset
+    check(scriptPath: string, fingerprint: string, capability: ScriptCapability): boolean;
+    grant(scope: ScriptPermissionScope, scriptPath: string, fingerprint: string, capability: ScriptCapabilityGrant): void;
+    revokeScript(scriptPath: string): void;
+    revokeStaleFingerprint(scriptPath: string, fingerprint: string): boolean;
+    listWorkspaceGrants(): ScriptWorkspaceGrant[];
+    revokeWorkspaceGrant(scriptPath: string, capability: ScriptCapabilityGrant): void;
+}
+function offeredScopes(capability: ScriptCapability): ScriptPermissionScope[];
+function acceptedGrant(
+    capability: ScriptCapability,
+    scopes: readonly ScriptPermissionScope[],
+    response: { decision: 'allow' | 'deny'; scope: ScriptPermissionScope; capability?: ScriptCapabilityGrant },
+): ScriptCapabilityGrant | null;
 
 interface FetchOptions extends RequestInit {
     maxSize?: number;
@@ -56,18 +93,62 @@ interface ScriptOutput {
     errorType?: ScriptErrorType;
 }
 
-type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel';
+type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract';
 
 // Runner
 function scanScripts(workspaceRoot: string, trusted?: boolean): ScriptInfo[];
 function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?: AbortSignal): Promise<ScriptOutput>;
+function executeEntry(
+    filePath: string,
+    entry: ScriptEntry,
+    host: ScriptHost,
+    options?: { timeoutMs?: number; signal?: AbortSignal; trusted?: boolean; context?: ScriptContext },
+): Promise<ScriptOutput>;
 ```
+
+### 2b. Script-resolved instance addresses and parameter sizes
+
+`@script address` / `getAddress(api): number | Promise<number>` is consumed by the Type
+Overlay, not the Scripts panel. The host batches `resolveInstanceAddresses`
+(`requestId`, `generation`, `edits`, `entries[{ pinId, scriptPath, context }]`) through
+`runInstanceAddresses` (`src/instanceAddressRunner.ts`): one `executeEntry(..., 'getAddress')`
+run per entry, sequential, with the `VSCodeScriptHost` edits overlay, a per-entry
+`documentSize` added to `api.context`, path resolution/search-root clamping reused from
+`integrityScriptRunner`, read-only semantics (`write` denied without a prompt, `exec`/`fetch`
+prompt and revoke stale fingerprints), a `MAX_INSTANCE_ADDRESS_ENTRIES` bound, and partial
+results. Contract failures are surfaced as `Invalid address from script`; missing scripts as
+`Script not found: <path>`. The response `instanceAddressesResolved` carries the same
+`requestId`/`generation` plus `results`; the webview discards stale ids, marks the last
+address stale, and schedules one 400 ms debounced retry. Resolved addresses are transient:
+never persisted in `profiles.json` and never sent back as authored data. Concurrent worker
+use is serialized behind the session's script queue (a user run aborts an in-flight batch).
+
+`@script size` / `getSize(api): number | Promise<number>` follows the same pattern through
+`resolveInstanceParams` / `instanceParamsResolved` and `runInstanceParams` (`getSize` entry,
+`MAX_INSTANCE_PARAM_ENTRIES`, partial results). `api.context` adds `param` and the already
+resolved/effective sibling `paramValues`; the value must be a positive safe integer.
+`MAX_SCRIPT_PARAM_SIZE` (1,000,000) bounds script-produced counts. The webview resolves one
+parameter round per instance (so later parameters see earlier resolved siblings), then
+requests addresses with the effective parameter map; a failed parameter blocks only its
+instance. Resolved values are transient; only `paramSources` is persisted.
 
 ### 3. Contracts
 
 - Both VS Code extension and future CLI tool use the same `ScriptHost` adapter interface
 - Scripts live in `.hexscope/scripts/` relative to workspace root (falls back to document directory if no workspace folder)
-- Scripts export a `run(api: HexScopeAPI)` function — anything else is ignored
+- Scripts export a `run(api: HexScopeAPI)` function for side effects, and/or a role entry
+  (`verifyIntegrity`, `getIntegrityValue`, `getAddress`, `getSize`) for typed values
+- Role discovery uses `@script integrity|address|size` header tags parsed from the first
+  2048 bytes. Discovery never compiles or executes user code; the exported function name is
+  the call contract
+- `executeEntry()` shares compile, Worker, timeout, cancellation, output, and trust with
+  `execute()`; there is no second runner. `run` has no value contract; role entries return a
+  structured-clone-safe value normalized by `normalizeScriptValue`
+- Contract failures (missing export, non-function, wrong value type/range) report
+  `errorType: 'contract'` and never reach a model
+- Role runs receive `api.context`; `run` scripts receive an empty context
+- `scanScripts` reads only direct child files (never recurses) and skips `.d.ts`, so
+  `scripts/types/` support files cannot appear as runnable scripts
 - Scripts execute in a `worker_threads.Worker` — each Worker has its own V8 isolate (separate heap from extension host). Inside the Worker, `vm.createContext` provides the sandbox, but any escape is contained within the Worker's heap
 - `scriptWorker.ts` is the Worker entry point. It creates a `vm.createContext` sandbox, injects globals (`console`, `setTimeout`, `Buffer`, `URL`, `Uint8Array`), and runs the user script's `run()` function
 - API calls from user scripts use synchronous RPC via `Atomics.wait`+`SharedArrayBuffer` — the Worker posts a `{ type: 'api', id, method, args }` message, blocks with `Atomics.wait`, and the main thread responds via `Atomics.notify`
@@ -75,14 +156,23 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?
 - `.ts` files compiled with dynamic `import('esbuild')` — no mtime caching, compile every run
 - `.ts` shown in UI with disabled Run button + "requires esbuild" tooltip when compiler unavailable
 - Timeout kills Worker via `worker.terminate()` after 30s (configurable per call). Also uses `setTimeout` directly (not Promise-based) to avoid Electron microtask edge cases
-- VS Code `VSCodeScriptHost` confirms `write`/`exec`/`fetch` via `vscode.window.showWarningMessage` modal
+- **Inline approval, no modal**: `VSCodeScriptHost.confirm(type, detail)` is unchanged, but the session implementation checks the grant store first and otherwise posts `scriptPermissionRequest` to the webview. There is no `vscode.window.showWarningMessage` for script permissions
+- **Grant key**: absolute script path + the script file's fingerprint (mtime from `scriptFingerprint()` / `scanScripts`) + capability. `check` matches an exact entry or a same-fingerprint `*`
+- **Grant lifetimes**: `once` is never stored; `script` and `session` are in-memory on the `HexEditorSession` grant store (host lifetime); `workspace` persists in `context.workspaceState` under one versioned key. A `session` grant is a wildcard across scripts/fingerprints; a `script` grant is path+fingerprint scoped
+- **`exec` never persists**: `grant('workspace', …, 'exec')` downgrades to `session`, and `offeredScopes('exec')` omits `workspace`. A workspace `*` grant covers `write`/`fetch` only
+- **Fingerprint revocation**: `runScript` and `requestScriptList` call `revokeStaleFingerprint()`; `revokeScript()` removes every path-scoped entry (not the session wildcard)
+- **Approval timeout / denial**: an unanswered prompt denies after 120 s; panel disposal, cancel, and a replacement prompt deny the stale request; unknown `requestId` responses are ignored
+- **Commit on success**: on a clean run the session posts `scriptWritesCommit` with the staged `[address, value]` pairs. On error/timeout/cancel it posts nothing and reports `discardedWriteCount`
+- **Auto-save**: the webview stages the commit through `stageIntegrityEditTransaction()` (one undoable transaction) and calls `saveEdits()`; a failed save keeps the staged edits and uses the normal save-error path
+- **Revocable workspace list**: `scriptPermissions` carries `{ scriptPath, capability }` entries to the Scripts panel; `revokeScriptPermission` removes one entry
 - Script results collected by the Worker and sent back in the `result` message. The main thread replays results through `host.setResult()` and `host.output()` to maintain compatibility with existing consumers
+- **Integrity checks**: `src/integrityScriptRunner.ts` runs `getIntegrityValue` then `verifyIntegrity` (two sequenced `executeEntry` calls) over a `VSCodeScriptHost` seeded with the webview's pending edits. A missing export is treated as absent, not an error; `verifyIntegrity` is authoritative, `getIntegrityValue` supplies verbatim fix bytes. The run is read-only (`write` is denied without a prompt), refuses >`MAX_INTEGRITY_EDIT_ENTRIES` pending edits, resolves workspace-relative paths ("Script not found" otherwise), and returns a structured outcome consumed by the webview Integrity panel (`integrityScriptResult`)
 - Results embedded inside the corresponding script card (not a separate output section)
 - Re-running a script replaces its previous result
 - Cancel via `AbortController` kill-switch — `finish()` calls `worker.terminate()` and resolves with `cancel` error type
 - On cancel: keep previous results visible; show partial output with "Cancelled" banner if no prior run
 - Errors stringified before crossing Worker boundary (no stack traces to user)
-- **Capability manifest**: scripts declare required capabilities via JSDoc `@requires exec` / `@requires network` tags. `scanScripts()` parses these from the first 2048 bytes of each file. `ScriptInfo` carries `capabilities: string[]` for sidebar display
+- **Capability manifest**: scripts declare required capabilities via JSDoc `@requires exec` / `@requires network` tags. `scanScripts()` parses these from the first 2048 bytes of each file. `ScriptInfo` carries `capabilities: string[]`, shown as `.script-cap` badges on the card. There is no pre-run gate — the per-command prompt is the only approval
 - **Workspace Trust**: `scanScripts()` and `execute()` accept a `trusted` boolean. When `false`, `execute()` returns an error immediately, and the sidebar disables the Run button with a "Workspace not trusted" tooltip
 - **`fetch` hardening**: default 1 MiB response size cap, loopback (127.0.0.1, ::1) and link-local (169.254.x.x, fe80::) blocked by default. Override via `fetch(url, { allowLoopback: true, maxSize: n })`
 - **`exec` hardening**: runs with minimal `env` (only `PATH` + `SHELL`) and pinned `cwd` from `host.workspaceRoot ?? process.cwd()`, instead of inheriting the extension host's full environment
@@ -96,7 +186,19 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?
 | Script exports no `run` function | Error: "Script must export a 'run' function" |
 | Script times out | Error with timeout message, `errorType: 'timeout'` |
 | Script throws | Error caught, message in `ScriptOutput.error`, `errorType: 'runtime'` |
-| User denies confirm dialog | Method returns `null` or `false`, no action |
+| Role export missing or not a function | `errorType: 'contract'`, message names the entry |
+| Role value has the wrong type or range | `errorType: 'contract'`, `value` is absent |
+| `.d.ts` or subdirectory file in scripts | Ignored by `scanScripts` |
+| User denies a prompt | `write` returns `false`, `exec`/`fetch` return `null`; no write, no save |
+| Prompt unanswered for 120 s / panel disposed / run cancelled | Denies; the call returns `false`/`null` |
+| Response for an unknown or replaced `requestId` | Ignored by the host |
+| Response scope not offered, or capability mismatch | Denied (`acceptedGrant` → null) |
+| `workspace` scope requested for `exec` | Not offered; a granted request is downgraded to `session` |
+| Grant exists for path + fingerprint + capability | `confirm` resolves `true` without prompting |
+| Script file edited (fingerprint changed) | `revokeStaleFingerprint` drops its grants; next call prompts |
+| Approved writes + clean run | `scriptWritesCommit` posted; webview stages one transaction + saves |
+| Approved writes + error/timeout/cancel | No commit; staged bytes discarded; `discardedWriteCount` > 0 |
+| Script save fails | Staged edits stay; the normal save-error path reports it |
 | Address out of range | `readBytes` returns empty `Uint8Array` |
 | `host.stale` is true after confirm | `hex.write` returns `false` without writing |
 | Missing `.hexscope/scripts/` dir | `scanScripts` returns `[]` (no error) |
@@ -109,11 +211,12 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?
 ### 5. Good/Base/Bad Cases
 
 - Base: user writes CRC verify script, clicks Run in sidebar, sees CRC32 result under the card
-- Good: script uses `exec()` to call external tool, user clicks Allow in dialog
-- Good: script writes hex bytes, user confirms, edits staged for save
+- Good: script calls `api.hex.write`, one inline prompt names the address/byte count, the user picks "Allow once", bytes save when the run ends, Ctrl+Z restores them
+- Good: script uses `exec()` to call external tool, user clicks Allow once in the prompt
+- Good: user chooses "Always allow write in this workspace", the entry appears under Permissions and can be revoked
 - Bad: script attempts `require('fs')` — sandbox throws, error displayed under card
 - Bad: TypeScript syntax error — compile failure, error shown under card
-- Bad: Windows file path with backslashes — `querySelector` CSS selector must escape them
+- Bad: Windows file path with backslashes — `querySelector` CSS selector must escape them (the prompt component matches cards by `data-path`, avoiding selectors)
 
 ### 6. Protocol Messages
 
@@ -121,11 +224,21 @@ function execute(filePath: string, host: ScriptHost, timeoutMs?: number, signal?
 // Webview → Provider
 | { type: 'requestScriptList' }
 | { type: 'runScript'; scriptPath: string; generation: number; selectionRange?: { start: number; end: number } }
+| { type: 'resolveInstanceParams'; requestId: number; generation: number; edits: Array<[number, number]>; entries: InstanceParamRequestEntry[] }
+| { type: 'resolveInstanceAddresses'; requestId: number; generation: number; edits: Array<[number, number]>; entries: InstanceAddressRequestEntry[] }
+| { type: 'scriptPermissionResponse'; requestId: number; decision: 'allow' | 'deny'; scope: ScriptPermissionScope; capability?: ScriptCapabilityGrant }
+| { type: 'revokeScriptPermission'; scriptPath: string; capability: ScriptCapabilityGrant }
+| { type: 'addExampleScripts' }
 
 // Provider → Webview
-| { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[] }>; trusted: boolean }
-| { type: 'scriptResult'; scriptPath: string; result: ScriptOutput | null; error: string; errorType?: ScriptErrorType; pendingWriteCount: number }
+| { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[]; roles: string[]; fingerprint: string }>; trusted: boolean }
+| { type: 'scriptResult'; scriptPath: string; result: ScriptOutput | null; error: string; errorType?: ScriptErrorType; pendingWriteCount: number; discardedWriteCount?: number }
+| { type: 'instanceParamsResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceParamResult[] }
+| { type: 'instanceAddressesResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceAddressResult[] }
 | { type: 'scriptOutput'; scriptPath: string; text: string }
+| { type: 'scriptPermissionRequest'; requestId: number; capability: ScriptCapability; detail: string; scriptPath: string; scriptName: string; fingerprint: string; scopes: ScriptPermissionScope[] }
+| { type: 'scriptPermissions'; grants: Array<{ scriptPath: string; capability: ScriptCapabilityGrant }> }
+| { type: 'scriptWritesCommit'; scriptPath: string; writes: Array<[number, number]> }
 | { type: 'activateScriptsTab' }
 ```
 
@@ -205,13 +318,16 @@ Plain text with the path shown so the user knows where to create files.
 - Lines appended to the running script's result log
 - Alternating row backgrounds for readability
 
-#### Write pending notification
+#### Write notice
 
 ```
-💾 3 byte(s) written (not yet saved)
+💾 3 byte(s) written and saved
+💾 3 byte(s) written, discarded — nothing was saved
 ```
 
-Shown inside the result block when `pendingWriteCount > 0`. Informational only — the user saves edits through the normal Save flow.
+Shown inside the result block when `pendingWriteCount > 0` (clean run, auto-saved) or
+`discardedWriteCount > 0` (error/timeout/cancel). Informational only — there is no
+Apply & Save / Discard control.
 
 ### 8. Design decisions
 
@@ -240,6 +356,18 @@ Shown inside the result block when `pendingWriteCount > 0`. Informational only �
 | D21 | SSRF block | Loopback (127/8, ::1) + link-local (169.254/16, fe80::) blocked by default, `allowLoopback` override |
 | D22 | exec env | `{ PATH, SHELL }` only — no `NODE_*`, `VSCODE_*`, `HOME` leakage |
 | D23 | exec cwd | Pinned to `host.workspaceRoot ?? process.cwd()`, not inherited from extension host |
+| D24 | Named entries | One entry per Worker run; `run` delegates to `executeEntry('run')` |
+| D25 | Role discovery | `@script` header tags; no evaluation during scan |
+| D26 | Contract values | Plain numbers/booleans/byte arrays; normalized at the boundary |
+| D27 | Support files | `.d.ts` skipped and scanning never descends into subdirectories |
+| D28 | Dangerous-call approval | One inline prompt owned by the Scripts panel; no modal `showWarningMessage` |
+| D29 | Grant identity | scriptPath + fingerprint + capability (plus `*` breadth); edit revokes |
+| D30 | Grant lifetimes | `script`/`session` in memory (host lifetime), `workspace` in `workspaceState`, `once` not stored |
+| D31 | `exec` persistence | Never workspace-scoped; downgraded to `session`, workspace options not offered |
+| D32 | Approval timeout | 120 s, then deny; dispose/cancel/replacement also deny |
+| D33 | Write commit | Staged during the run, committed on clean completion via `scriptWritesCommit` |
+| D34 | Write undo | Commit is one `stageIntegrityEditTransaction`; Ctrl+Z restores pre-run bytes |
+| D35 | Pre-run gate | Removed — capabilities stay as card badges; per-command prompt is the only ask |
 
 ### 9. Gotchas
 
@@ -310,6 +438,25 @@ if (runResult && typeof runResult.then === 'function') {
 
 `.sb-section` headers are rendered by `SidebarSections` (`.sb-section-head`/`.sb-section-title`/`.sb-section-actions`); `.sb-hdr` no longer exists. Section header actions ride `.sb-section-actions`/`.sb-section-action`, so no specificity override is needed.
 
+#### 9.7 Approval bridge must cross the event loop
+
+`host.confirm` is awaited while the script Worker is blocked in `Atomics.wait`, so the main
+thread must return to the event loop for the `scriptPermissionResponse` message to arrive.
+Never resolve a permission from a modal (`showWarningMessage` blocks the same loop) and always
+settle the previous pending request before posting a new one — an unresolved promise would keep
+the script alive until the 120 s timeout.
+
+```typescript
+// Wrong — modal on the same loop the webview response needs
+confirm: async (type, detail) => (await vscode.window.showWarningMessage(detail, { modal: true }, 'Allow')) === 'Allow';
+
+// Correct — check grants, then bridge request/response through the webview
+confirm: async (type, detail) =>
+    grants.check(scriptPath, fingerprint, type)
+        ? true
+        : requestPermission({ capability: type, detail, scriptPath, scriptName, fingerprint, scopes: offeredScopes(type) });
+```
+
 ### 10. Patterns
 
 #### 10.1 Result block embedded in card
@@ -336,9 +483,24 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
 
 ### 11. Tests Required
 
-- `src/test/core/scripting-runner.test.ts` — core runner with mock ScriptHost, compile + execute round-trip
+- `src/test/core/scriptingRunner.test.ts` - core runner with mock ScriptHost, compile + execute round-trip
+- Named entries: sync/async contract exports, missing export, invalid value, byte transport, context
+- Scanning: role tags, `.d.ts` exclusion, non-recursive subdirectory handling
+- `src/test/extension/instanceAddressRunner.test.ts`: batched `getAddress` / `getSize` context/document size, edits overlay, invalid/oversized values, partial failure isolation, missing script/export, untrusted block, batch bound, workspace-relative address and parameter sources
+- `src/test/core/scriptPermissions.test.ts` - scope matrix, `*` breadth, fingerprint invalidation,
+  workspace persistence + revocation, `exec` workspace downgrade, response validation
+- `src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts` - prompt DOM (scope
+  options, Escape, focus return, one-at-a-time, result/cancel close), Permissions list, writes notice
 - Protocol tests: new message types tested in `webviewMessageModel.test.ts`
 - Integration: manual test with sample .js/.ts scripts run from sidebar
+- `src/test/core/scriptingExamples.test.ts` - catalog shape, install manifest ↔ catalog parity,
+  role tags/capabilities via `scanScripts`, mock-host runs for every example (approval, denial,
+  unmapped ranges, boundary-valid role values), and `hexscope.d.ts` coverage. `npm run
+  check-examples` (`tsc -p examples/tsconfig.json`) type-checks the typed samples against the
+  shipped declaration.
+- `src/test/extension/addExampleScripts.test.ts` - fresh install, second-run skip, partial
+  install, untrusted/no-workspace refusal, result-message actions, missing catalog file, VSIX
+  packaging rules, command contribution + registration
 - `VSCodeScriptHost` tests: edit passthrough, unmapped address, totalSize
 
 ### 12. Wrong vs Correct

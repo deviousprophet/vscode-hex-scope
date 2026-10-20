@@ -12,12 +12,14 @@ in integrityHighlight.ts. */
 import {
     formatIntegrityAddress,
     integrityBytesToHex,
+    integrityScriptName,
     mergeIntegrityEdits,
     normalizeIntegrityCheckSet,
     parseIntegrityAddress,
-    validateIntegrityRange,
+    validateIntegrityAddressRange,
     type IntegrityAlgorithm,
     type IntegrityCheckConfig,
+    type IntegrityCheckKind,
     type IntegrityCheckSet,
 } from '../../../../core/integrity';
 import { esc, flashCopied } from '../../../utils';
@@ -34,7 +36,8 @@ import {
 } from './integrityCheckModel';
 import {
     ALGORITHM_LABELS,
-    algorithmLabel,
+    calculatedCopyLabel,
+    calculatedCopyValue,
     checkCardBodyHtml,
     checkCardClass,
     checkCardHtml,
@@ -45,9 +48,13 @@ import {
     type IntegrityResultRenderDeps,
 } from './integrityResultRender';
 import {
+    applyIntegrityScriptError,
+    applyIntegrityScriptResult,
     cancelPendingCalculation,
     scheduleIntegrityCalculation,
     type IntegrityCalculationHooks,
+    type IntegrityScriptOutcome,
+    type IntegrityScriptRunPayload,
 } from './integrityCalculation';
 import {
     clearHighlight,
@@ -60,7 +67,8 @@ import './integrityPanel.css';
 
 const EMPTY_INTEGRITY_CHECK_SET: IntegrityCheckSet = { schemaVersion: 1, checks: [] };
 const INTEGRITY_STATUS_SYMBOLS: Record<string, string> = {
-    Match: '✓', Mismatch: '✕', Calculated: '∑', Calculating: '…', Error: '!', 'Not configured': '–',
+    Match: '✓', Mismatch: '✕', Verified: '✓', Failed: '✕', Stale: '↻',
+    Calculated: '∑', Calculating: '…', Error: '!', 'Not configured': '–',
 };
 
 type DraftValidation = { ok: true; value: IntegrityDraft } | { ok: false; error: string };
@@ -72,6 +80,28 @@ export interface IntegrityHighlight {
     storedStart?: number;
     storedLength?: number;
     status: 'match' | 'mismatch' | 'unverified';
+}
+
+/** One discovered script offered by the add/edit form's script picker. */
+export interface IntegrityScriptOption {
+    name: string;
+    relativePath: string;
+    roles?: string[];
+}
+
+/** Host request for one script check run (the panel owns the ids). */
+export interface IntegrityScriptRunRequest extends IntegrityScriptRunPayload {
+    requestId: number;
+    checkId: number;
+}
+
+/** Host result pushed back for a script check run. */
+export interface IntegrityScriptResultMessage {
+    requestId: number;
+    checkId: number;
+    generation: number;
+    result?: IntegrityScriptOutcome;
+    error?: string;
 }
 
 export interface IntegrityCallbacks {
@@ -91,6 +121,16 @@ export interface IntegrityCallbacks {
     onPersistChecks?: (state: IntegrityCheckSet) => void;
     /** Highlight of a check range/stored field → host sets S.integrityHighlight + rerender.memory(). */
     onHighlightChange?: (highlight: IntegrityHighlight | null) => void;
+    /** Script check run → host posts runIntegrityScript. */
+    onScriptCheckRequest?: (request: IntegrityScriptRunRequest) => void;
+    /** Open-script action → host opens the file in the normal editor. */
+    onOpenScript?: (scriptPath: string) => void;
+    /** Script picker discovery → host posts requestScriptList. */
+    onRequestScriptList?: () => void;
+    /** Pending edits (same shape as saveEdits) for a host script run. */
+    getPendingEdits?: () => Array<[number, number]>;
+    /** Document generation; stale script responses are discarded and re-requested. */
+    getGeneration?: () => number;
 }
 
 export class IntegrityPanel {
@@ -98,6 +138,7 @@ export class IntegrityPanel {
     private _panel: HTMLElement | null = null;
     private sections: SidebarSections | null = null;
     private nextCheckId = 1;
+    private nextScriptRequestId = 1;
     private actionError = '';
     addCheckDraft: IntegrityDraft | null = null;
     editingCheckId: number | null = null;
@@ -105,6 +146,8 @@ export class IntegrityPanel {
     private formLastFocused: 'start' | 'end' | null = null;
     private highlightedCheckId: number | null = null;
     private initialized = false;
+    private availableScripts: IntegrityScriptOption[] = [];
+    private scriptsTrusted = true;
     checks: IntegrityCheckState[] = [];
 
     constructor(cb: IntegrityCallbacks) {
@@ -147,37 +190,106 @@ export class IntegrityPanel {
         this.editingCheckId = null;
         this.highlightedCheckId = null;
         this.clearHighlight();
+        if (this.initialized) { this.render(); }
     }
 
-    /** Recalculate all checks against the current bytes (was notifyIntegrityBytesChanged). */
+    /**
+     * Byte change → built-ins recalculate; script results are marked stale
+     * instead of re-run (run scripts stay explicit: activation/open/save/refresh).
+     */
     notifyBytesChanged(): void {
-        if (this.initialized) {
-            this.checks.forEach(check => this.scheduleIntegrityCalculation(check, true));
+        if (!this.initialized) { return; }
+        for (const check of this.checks) {
+            if (check.kind === 'script') { this.markScriptStale(check); }
+            else { this.scheduleIntegrityCalculation(check, true); }
         }
+        this.syncHighlight();
     }
 
     /** Recalculate after pending edits were discarded (was notifyIntegrityEditsDiscarded). */
     notifyEditsDiscarded(): void {
         if (!this.initialized) { return; }
         for (const check of this.checks) {
+            if (check.kind === 'script') { this.markScriptStale(check); continue; }
             check.suppressAutoFixOnNextResult = check.autoFixStoredValue && !!check.storedRaw;
             this.scheduleIntegrityCalculation(check, true);
         }
+        this.syncHighlight();
     }
 
     /** Re-decode results for the new shared byte order (was notifyIntegrityEndianChanged). */
     notifyEndianChanged(): void {
         this.checks.forEach(check => this.clearAutoFixSuppression(check));
         this.render();
-        this.checks.forEach(check => this.scheduleIntegrityCalculation(check, true));
+        this.checks.forEach(check => {
+            if (check.kind === 'builtin') { this.scheduleIntegrityCalculation(check, true); }
+        });
+    }
+
+    /** Document saved → script checks re-run against the now-saved bytes. */
+    notifyDocumentSaved(): void {
+        if (!this.initialized) { return; }
+        for (const check of this.checks) {
+            if (check.kind === 'script') { this.scheduleIntegrityCalculation(check, true); }
+        }
+    }
+
+    /** Fresh document (init) → re-run every check against the new bytes. */
+    notifyDocumentOpened(): void {
+        if (!this.initialized) { return; }
+        this.render();
+        this.checks.forEach(check => this.scheduleIntegrityCalculation(check));
     }
 
     /** Host pushes the active sidebar tab (lazy-init gate was activateIntegrity). */
     setTabActive(active: boolean): void {
         if (!active || this.initialized) { return; }
         this.initialized = true;
+        this.cb.onRequestScriptList?.();
         this.render();
         this.checks.forEach(check => this.scheduleIntegrityCalculation(check));
+    }
+
+    /** Host pushes the discovered script list (from the shared requestScriptList scan). */
+    setAvailableScripts(
+        scripts: ReadonlyArray<{ name: string; relativePath?: string; roles?: string[] }>,
+        trusted: boolean,
+    ): void {
+        this.scriptsTrusted = trusted;
+        this.availableScripts = scripts
+            .filter(script => (script.roles ?? []).includes('integrity'))
+            .map(script => ({
+                name: script.name,
+                relativePath: script.relativePath ?? script.name,
+                roles: script.roles,
+            }));
+        if (this.addCheckDraft || this.editingCheckId !== null) { this.render(); }
+    }
+
+    /** Host pushes a completed script check run. */
+    acceptScriptResult(msg: IntegrityScriptResultMessage): void {
+        const check = this.checks.find(item => item.id === msg.checkId);
+        if (!check || check.requestId !== msg.requestId) { return; }
+        check.requestId = 0;
+        if (msg.generation !== (this.cb.getGeneration?.() ?? 0)) {
+            this.scheduleIntegrityCalculation(check, true);
+            return;
+        }
+        const hooks = this.calcHooks();
+        if (msg.error) { applyIntegrityScriptError(check, check.token, msg.error, hooks); return; }
+        if (!msg.result) { applyIntegrityScriptError(check, check.token, 'Script returned no result.', hooks); return; }
+        applyIntegrityScriptResult(check, check.token, msg.result, hooks);
+    }
+
+    /** Byte change while a script run is in flight: drop it and mark the row stale. */
+    private markScriptStale(check: IntegrityCheckState): void {
+        if (check.calculating) {
+            check.token++;
+            check.requestId = 0;
+            check.calculating = false;
+        }
+        if (check.result || check.error) { check.stale = true; }
+        this.updateCheckCard(check);
     }
 
     // ── Shared byte-order source ───────────────────────────────────
@@ -286,8 +398,9 @@ export class IntegrityPanel {
                     placeholder="e.g. Flash checksum" value="${esc(draft.name)}" autocomplete="off" spellcheck="false">
             </label>
             <label class="integrity-form-field"><span>Algorithm</span>
-                <select data-draft-control="algorithm" class="sb-select">${this.algorithmOptionsHtml(draft.algorithm)}</select>
+                <select data-draft-control="algorithm" class="sb-select">${this.algorithmOptionsHtml(draft)}</select>
             </label>
+            ${this.scriptFieldHtml(draft)}
             <div class="integrity-form-grid">
                 ${this.addressInputHtml('Start address', 'start', draft.startRaw, '08000000')}
                 ${this.addressInputHtml('End address (inclusive)', 'end', draft.endRaw, '080000FF')}
@@ -301,6 +414,40 @@ export class IntegrityPanel {
                 <button class="sb-btn sb-btn-secondary" data-form-action="cancel">Cancel</button>
             </div>
         </div>`;
+    }
+
+    /** Script picker + fallback path input, shown when the kind select is `script`. */
+    private scriptFieldHtml(draft: IntegrityDraft): string {
+        const isScript = draft.kind === 'script';
+        return `
+            <div class="integrity-script-field" data-script-field${isScript ? '' : ' hidden'}>
+                <label class="integrity-form-field"><span>Integrity script</span>
+                    <select data-draft-control="script-pick" class="sb-select">${this.scriptOptionsHtml(draft.scriptPath)}</select>
+                </label>
+                <label class="integrity-form-field"><span>Script path (relative to workspace)</span>
+                    <input data-draft-control="scriptPath" class="sb-input" type="text"
+                        placeholder=".hexscope/scripts/verify-integrity.js" value="${esc(draft.scriptPath)}"
+                        autocomplete="off" spellcheck="false">
+                </label>
+                <div class="integrity-script-hint">${this.scriptPickerHint()}</div>
+            </div>`;
+    }
+
+    private scriptOptionsHtml(selectedPath: string): string {
+        const options = ['<option value="">— Select a discovered script —</option>'];
+        for (const script of this.availableScripts) {
+            const selected = script.relativePath === selectedPath ? ' selected' : '';
+            options.push(`<option value="${esc(script.relativePath)}"${selected}>${esc(script.name)}</option>`);
+        }
+        return options.join('');
+    }
+
+    private scriptPickerHint(): string {
+        if (!this.scriptsTrusted) { return 'Workspace is not trusted: script checks will not run.'; }
+        if (this.availableScripts.length === 0) {
+            return 'No scripts tagged @script integrity were found. Enter a path to run one anyway.';
+        }
+        return 'Only scripts tagged @script integrity are listed; a path can be typed for unscanned scripts.';
     }
 
     private checkFormPresentation(formId: string): {
@@ -325,9 +472,12 @@ export class IntegrityPanel {
         </label>`;
     }
 
-    private algorithmOptionsHtml(selected: IntegrityAlgorithm): string {
-        return ALGORITHM_LABELS.map(([value, label]) =>
-            `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`).join('');
+    private algorithmOptionsHtml(draft: IntegrityDraft): string {
+        const selectedValue = draft.kind === 'script' ? 'script' : draft.algorithm;
+        const options = ALGORITHM_LABELS.map(([value, label]) =>
+            `<option value="${value}"${value === selectedValue ? ' selected' : ''}>${label}</option>`);
+        options.push(`<option value="script"${selectedValue === 'script' ? ' selected' : ''}>Script</option>`);
+        return options.join('');
     }
 
     private stripHexPrefix(value: string): string {
@@ -335,7 +485,15 @@ export class IntegrityPanel {
     }
 
     private draftFromCheck(check: IntegrityCheckState): IntegrityDraft {
-        return { algorithm: check.algorithm, name: check.name, startRaw: check.startRaw, endRaw: check.endRaw, storedRaw: check.storedRaw };
+        return {
+            kind: check.kind,
+            algorithm: check.algorithm,
+            scriptPath: check.scriptPath,
+            name: check.name,
+            startRaw: check.startRaw,
+            endRaw: check.endRaw,
+            storedRaw: check.storedRaw,
+        };
     }
 
     // ── Header + card wiring ───────────────────────────────────────
@@ -370,23 +528,48 @@ export class IntegrityPanel {
         panel.querySelectorAll<HTMLElement>('.integrity-card .act-btn-del').forEach(button => {
             button.addEventListener('click', () => this.deleteCheck(Number(button.dataset.checkId)));
         });
+        panel.querySelectorAll<HTMLElement>('.integrity-card [data-script-refresh]').forEach(button => {
+            button.addEventListener('click', event => {
+                event.stopPropagation();
+                this.refreshScriptCheck(Number(button.dataset.checkId));
+            });
+        });
+        panel.querySelectorAll<HTMLElement>('.integrity-card [data-script-open]').forEach(button => {
+            button.addEventListener('click', event => {
+                event.stopPropagation();
+                this.openScriptCheck(Number(button.dataset.checkId));
+            });
+        });
         panel.addEventListener('click', event => this.copyCalculatedValue(event));
         if (this.editingCheckId !== null) { this.wireCheckForm(`edit-${this.editingCheckId}`); }
     }
 
-    private notifyCopied(check: IntegrityCheckState, result: IntegrityCheckState['result']): void {
-        this.cb.onCopyText?.(`0x${result!.value}`, `${algorithmLabel(check.algorithm)} calculated value`);
+    private notifyCopied(check: IntegrityCheckState): void {
+        const text = calculatedCopyValue(check);
+        if (!text) { return; }
+        this.cb.onCopyText?.(text, calculatedCopyLabel(check));
     }
 
     private copyCalculatedValue(event: MouseEvent): void {
         const button = (event.target as HTMLElement).closest<HTMLElement>('[data-copy-calculated]');
         if (!button) { return; }
         const check = this.checks.find(item => item.id === Number(button.dataset.checkId));
-        const result = check?.result;
-        if (!result) { return; }
-        this.notifyCopied(check, result);
+        if (!check?.result) { return; }
+        this.notifyCopied(check);
         showToast('Copied ✓', { x: event.clientX, y: event.clientY });
         flashCopied(button);
+    }
+
+    private refreshScriptCheck(id: number): void {
+        const check = this.checks.find(item => item.id === id);
+        if (!check || check.kind !== 'script') { return; }
+        this.scheduleIntegrityCalculation(check, true);
+    }
+
+    private openScriptCheck(id: number): void {
+        const check = this.checks.find(item => item.id === id);
+        if (!check || check.kind !== 'script' || !check.scriptPath) { return; }
+        this.cb.onOpenScript?.(check.scriptPath);
     }
 
     private toggleHighlightedCheck(id: number): void {
@@ -486,6 +669,21 @@ export class IntegrityPanel {
         form.querySelector('[data-form-action="cancel"]')?.addEventListener('click', () => this.cancelCheckForm(formId));
         form.querySelector<HTMLInputElement>('[data-draft-control="start"]')?.addEventListener('focus', () => { this.formLastFocused = 'start'; });
         form.querySelector<HTMLInputElement>('[data-draft-control="end"]')?.addEventListener('focus', () => { this.formLastFocused = 'end'; });
+        form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')?.addEventListener('change', () => this.syncFormKind(form));
+        form.querySelector<HTMLSelectElement>('[data-draft-control="script-pick"]')?.addEventListener('change', event => {
+            const select = event.target as HTMLSelectElement;
+            const path = form.querySelector<HTMLInputElement>('[data-draft-control="scriptPath"]');
+            if (path && select.value) { path.value = select.value; }
+        });
+        this.syncFormKind(form);
+    }
+
+    /** Swap the algorithm/script controls when the kind select is `script`. */
+    private syncFormKind(form: HTMLElement): void {
+        const select = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]');
+        const field = form.querySelector<HTMLElement>('[data-script-field]');
+        if (!select || !field) { return; }
+        field.hidden = select.value !== 'script';
     }
 
     private saveCheckForm(formId: string, form: HTMLElement): void {
@@ -496,25 +694,41 @@ export class IntegrityPanel {
     }
 
     private readDraft(form: HTMLElement): DraftValidation {
-        const algorithm = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value as IntegrityAlgorithm;
+        const selected = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value;
+        const kind: IntegrityCheckKind = selected === 'script' ? 'script' : 'builtin';
+        const algorithm = (kind === 'builtin' ? selected : 'crc32-iso-hdlc') as IntegrityAlgorithm;
         const nameDraft = this.readDraftName(form);
         if (!nameDraft.ok) { return nameDraft; }
         const startRaw = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!.value;
         const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
-        const range = validateIntegrityRange(startRaw, endRaw, algorithm);
+        const range = validateIntegrityAddressRange(startRaw, endRaw);
         if (!range.ok) { return range; }
         const stored = this.readStoredDraft(form);
         if (!stored.ok) { return stored; }
+        const scriptPath = this.readScriptPathDraft(form, kind);
+        if (!scriptPath.ok) { return scriptPath; }
         return {
             ok: true,
             value: {
+                kind,
                 algorithm,
+                scriptPath: scriptPath.value,
                 name: nameDraft.name,
                 startRaw: formatIntegrityAddress(range.value.startAddress),
                 endRaw: formatIntegrityAddress(range.value.endAddress),
                 storedRaw: stored.value,
             },
         };
+    }
+
+    private readScriptPathDraft(
+        form: HTMLElement,
+        kind: IntegrityCheckKind,
+    ): { ok: true; value: string } | { ok: false; error: string } {
+        if (kind !== 'script') { return { ok: true, value: '' }; }
+        const path = (form.querySelector<HTMLInputElement>('[data-draft-control="scriptPath"]')?.value ?? '').trim();
+        if (!path) { return { ok: false, error: 'Script path is required.' }; }
+        return { ok: true, value: path };
     }
 
     private readDraftName(form: HTMLElement): { ok: true; name: string } | { ok: false; error: string } {
@@ -628,7 +842,16 @@ export class IntegrityPanel {
             updateCheckCard: check => this.updateCheckCard(check),
             syncHighlight: () => this.syncHighlight(),
             onCalculated: check => this.maybeAutoFix(check),
+            getPendingEdits: () => this.cb.getPendingEdits?.() ?? [],
+            getGeneration: () => this.cb.getGeneration?.() ?? 0,
+            startScriptRun: (check, payload) => this.startScriptRun(check, payload),
         };
+    }
+
+    private startScriptRun(check: IntegrityCheckState, payload: IntegrityScriptRunPayload): void {
+        const requestId = ++this.nextScriptRequestId;
+        check.requestId = requestId;
+        this.cb.onScriptCheckRequest?.({ requestId, checkId: check.id, ...payload });
     }
 
     scheduleIntegrityCalculation(check: IntegrityCheckState, preserveResult = false): void {
@@ -715,7 +938,8 @@ export class IntegrityPanel {
     private autoFixMismatchKey(check: IntegrityCheckState): string {
         if (!isMismatchedCheck(check) || !check.expectedBytes || !check.storedBytes) { return ''; }
         return [
-            check.algorithm,
+            check.kind,
+            check.kind === 'builtin' ? check.algorithm : check.scriptPath,
             check.startRaw,
             check.endRaw,
             check.storedRaw,

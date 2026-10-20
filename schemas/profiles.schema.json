@@ -167,6 +167,43 @@
         "name": {
           "type": "string"
         },
+        "paramValues": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "paramSources": {
+          "type": "object",
+          "description": "Optional @script size sources keyed by parameter name. The resolved value is transient and never persisted; paramValues (manual) wins when both exist.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "scriptPath"
+            ],
+            "properties": {
+              "scriptPath": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "addressSource": {
+          "type": "object",
+          "description": "Optional @script address source. The resolved address is transient and never persisted; addr stays the fixed fallback.",
+          "required": [
+            "scriptPath"
+          ],
+          "properties": {
+            "scriptPath": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
         "pointerSources": {
           "type": "array",
           "items": {
@@ -230,14 +267,24 @@
     "integrityCheckConfig": {
       "type": "object",
       "required": [
-        "algorithm",
         "startAddress",
         "endAddress",
         "autoFixStoredValue"
       ],
       "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "builtin",
+            "script"
+          ]
+        },
         "algorithm": {
           "$ref": "#/definitions/integrityAlgorithm"
+        },
+        "scriptPath": {
+          "type": "string",
+          "minLength": 1
         },
         "startAddress": {
           "type": "number"
@@ -252,9 +299,79 @@
           "type": "boolean"
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 40
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "script"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "scriptPath"
+            ],
+            "not": {
+              "required": [
+                "algorithm"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "builtin"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "algorithm"
+            ],
+            "not": {
+              "required": [
+                "scriptPath"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "required": [
+                "kind"
+              ]
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "algorithm"
+                ]
+              },
+              {
+                "required": [
+                  "scriptPath"
+                ]
+              }
+            ]
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "integrityAlgorithm": {

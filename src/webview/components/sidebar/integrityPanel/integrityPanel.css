@@ -125,6 +125,58 @@
     color: var(--high-color);
 }
 
+.integrity-card-status.verified {
+    border-color: rgba(78,201,160,.45);
+    color: var(--ok);
+}
+
+.integrity-card-status.failed {
+    border-color: rgba(241,76,76,.45);
+    color: var(--err);
+}
+
+.integrity-card-status.stale {
+    border-color: rgba(225,165,45,.45);
+    color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* Script badge in the card meta row (full path lives in the title tooltip). */
+.integrity-script-chip {
+    background: rgba(79,195,247,.14);
+    border: 1px solid rgba(79,195,247,.4);
+    border-radius: 8px;
+    color: var(--high-color);
+    font-family: var(--font-ui);
+    font-size: 9px;
+    padding: 0 5px;
+    text-transform: none;
+}
+
+.integrity-script-btn { font: inherit; line-height: 1; }
+
+.integrity-stale-note {
+    color: var(--vscode-editorWarning-foreground, #cca700);
+    font-family: var(--font-ui);
+    font-size: 10px;
+    margin-bottom: 3px;
+}
+
+.integrity-script-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.integrity-script-field[hidden] { display: none; }
+
+.integrity-script-hint {
+    color: var(--addr-fg);
+    font-family: var(--font-ui);
+    font-size: 9px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
 .integrity-auto-fix {
     align-items: center;
     background: transparent;

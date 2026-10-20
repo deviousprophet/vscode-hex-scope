@@ -5,6 +5,7 @@ import {
     allTypes, parseTypeText, fieldsToText, validateTypes, typeDefToC, resolveTypeFieldByPath,
     typeDefKind, materializeBitFieldRefs, migrateInlineBitFields, formatEnumLabel, matchEnumEntry,
     normalizeTypeField, isUnsignedScalarType, bytesToBigUint,
+    resolveTypeParams, resolvedFieldCount, validateInstanceParamValues,
 } from '../../core/overlay/overlayCodec';
 import { getByte, setBytesInSegment } from '../shared/typeDefTestHelpers';
 import type { BitFieldChild, TypeDef, TypeField } from '../../core/types';
@@ -1805,3 +1806,183 @@ function referencedHiddenBitChildDef(hidden: boolean | undefined): HiddenRefDef 
 }
 
 
+
+// -- Struct template parameters ------------------------------------
+
+function paramDef(defaultCount?: number): TypeDef {
+    const param = defaultCount === undefined
+        ? { name: 'ITEM_COUNT', kind: 'size' as const }
+        : { name: 'ITEM_COUNT', kind: 'size' as const, default: defaultCount };
+    return {
+        id: 'templated', name: 'Config', packed: true,
+        params: [param],
+        fields: [{ name: 'items', type: 'uint8', count: defaultCount ?? 1, countParam: 'ITEM_COUNT' }],
+    };
+}
+
+function literalDef(count: number): TypeDef {
+    return { id: 'literal', name: 'ConfigLiteral', packed: true, fields: [{ name: 'items', type: 'uint8', count }] };
+}
+
+suite('resolveTypeParams()', () => {
+    test('uses the declared default when no instance values are supplied', () => {
+        const resolved = resolveTypeParams(paramDef(4));
+        assert.deepStrictEqual(resolved, { ok: true, value: { ITEM_COUNT: 4 } });
+    });
+
+    test('instance value overrides the default', () => {
+        assert.deepStrictEqual(resolveTypeParams(paramDef(4), { ITEM_COUNT: 7 }), { ok: true, value: { ITEM_COUNT: 7 } });
+    });
+
+    test('missing value and missing default is an error naming the parameter', () => {
+        const resolved = resolveTypeParams(paramDef());
+        assert.strictEqual(resolved.ok, false);
+        assert.ok(!resolved.ok && resolved.error.includes('ITEM_COUNT'));
+    });
+
+    test('zero, negative, fractional and non-finite values are rejected', () => {
+        for (const value of [0, -3, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+            const resolved = resolveTypeParams(paramDef(2), { ITEM_COUNT: value });
+            assert.strictEqual(resolved.ok, false, `rejects ${value}`);
+        }
+    });
+
+    test('no-parameter types resolve to an empty map', () => {
+        assert.deepStrictEqual(resolveTypeParams(literalDef(2)), { ok: true, value: {} });
+    });
+
+    test('validateInstanceParamValues reports unknown, missing and invalid names', () => {
+        const noDefault = paramDef();
+        assert.deepStrictEqual(validateInstanceParamValues(noDefault, {}), ['Type "Config": parameter "ITEM_COUNT" has no value.']);
+        assert.deepStrictEqual(validateInstanceParamValues(noDefault, { ITEM_COUNT: 2 }), []);
+        assert.deepStrictEqual(validateInstanceParamValues(noDefault, { ITEM_COUNT: 2, OTHER: 3 }), ['Type "Config": unknown parameter "OTHER".']);
+        assert.deepStrictEqual(validateInstanceParamValues(noDefault, { ITEM_COUNT: 0 }), ['Type "Config": parameter "ITEM_COUNT" must be a positive integer.']);
+    });
+});
+
+suite('resolvedFieldCount()', () => {
+    test('literal counts pass through and bound counts use the resolved parameter', () => {
+        assert.strictEqual(resolvedFieldCount({ name: 'a', type: 'uint8', count: 3 }, {}), 3);
+        assert.strictEqual(resolvedFieldCount({ name: 'a', type: 'uint8', count: 3, countParam: 'N' }, { N: 5 }), 5);
+    });
+
+    test('a missing parameter yields 0 (no silent 1)', () => {
+        assert.strictEqual(resolvedFieldCount({ name: 'a', type: 'uint8', count: 3, countParam: 'N' }, {}), 0);
+    });
+});
+
+suite('typeByteSize() / decodeType() with parameters', () => {
+    test('size and decode equal the literal-count layout for the same value', () => {
+        setBytesInSegment(0, [1, 2, 3, 4, 5]);
+        const templated = paramDef(2);
+        const literal = literalDef(2);
+        assert.strictEqual(typeByteSize(templated, [templated]), typeByteSize(literal));
+        assert.strictEqual(typeByteSize(templated, [templated], { ITEM_COUNT: 4 }), typeByteSize(literalDef(4)));
+        assert.deepStrictEqual(
+            decodeType(templated, 0, getByte, 'le', 'msb', [templated], { ITEM_COUNT: 3 }),
+            decodeType(literalDef(3), 0, getByte, 'le', 'msb'),
+        );
+    });
+
+    test('omitting the params argument falls back to the default', () => {
+        setBytesInSegment(0, [1, 2, 3, 4]);
+        assert.strictEqual(typeByteSize(paramDef(3), [paramDef(3)]), 3);
+        assert.strictEqual(decodeType(paramDef(3), 0, getByte, 'le', 'msb', [paramDef(3)]).length, 3);
+    });
+
+    test('a missing value with no default decodes no elements', () => {
+        const def = paramDef();
+        assert.strictEqual(typeByteSize(def, [def]), 0);
+        assert.deepStrictEqual(decodeType(def, 0, getByte, 'le', 'msb', [def]), []);
+    });
+});
+
+suite('validateTypes() parameter rules', () => {
+    test('accepts a type with one size parameter and a bound field', () => {
+        assert.deepStrictEqual(validateTypes([paramDef(4)]), []);
+    });
+
+    test('rejects empty, non-identifier and duplicate parameter names', () => {
+        const emptyName = paramDef(2);
+        emptyName.params![0].name = '';
+        assert.ok(validateTypes([emptyName]).some(e => e.includes('must not be empty')));
+        const invalidName = paramDef(2);
+        invalidName.params![0].name = '1bad';
+        assert.ok(validateTypes([invalidName]).some(e => e.includes('must be a C identifier')));
+        const duplicate = paramDef(2);
+        duplicate.params!.push({ name: 'ITEM_COUNT', kind: 'size', default: 1 });
+        assert.ok(validateTypes([duplicate]).some(e => e.includes('duplicate parameter name')));
+    });
+
+    test('rejects an invalid default, kind and params on a named kind', () => {
+        for (const value of [0, -1, 1.5]) {
+            const bad = paramDef(2);
+            bad.params![0].default = value;
+            assert.ok(validateTypes([bad]).some(e => e.includes('default must be a positive integer')), `default ${value}`);
+        }
+        const badKind = paramDef(2);
+        (badKind.params![0] as { kind: string }).kind = 'count';
+        assert.ok(validateTypes([badKind]).some(e => e.includes('invalid kind')));
+        const enumWithParams: TypeDef = {
+            id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [], entries: [],
+            params: [{ name: 'N', kind: 'size', default: 1 }],
+        };
+        assert.ok(validateTypes([enumWithParams]).some(e => e.includes('only a struct type can declare parameters')));
+    });
+
+    test('rejects an unknown countParam reference', () => {
+        const def = paramDef(2);
+        def.fields[0].countParam = 'MISSING';
+        assert.ok(validateTypes([def]).some(e => e.includes('references unknown parameter "MISSING"')));
+    });
+
+    test('rejects a nested templated reference without defaults', () => {
+        const child = paramDef();
+        const parent: TypeDef = { id: 'p', name: 'Parent', fields: [{ name: 'cfg', type: 'struct', refTypeId: child.id, count: 1 }] };
+        assert.ok(validateTypes([parent, child]).some(e => e.includes('whose parameter "ITEM_COUNT" has no default')));
+        const defaulted = paramDef(3);
+        assert.deepStrictEqual(validateTypes([{ ...parent, fields: [{ name: 'cfg', type: 'struct', refTypeId: defaulted.id, count: 1 }] }, defaulted]), []);
+    });
+
+    test('nested templated sizing uses the child default', () => {
+        const child = paramDef(3);
+        const parent: TypeDef = { id: 'p', name: 'Parent', fields: [{ name: 'cfg', type: 'struct', refTypeId: child.id, count: 1 }] };
+        assert.strictEqual(typeByteSize(parent, [parent, child]), 3);
+    });
+});
+
+suite('typeDefToC() parameter macros', () => {
+    test('emits a #define for each used parameter and uses it as the array dimension', () => {
+        const text = typeDefToC(paramDef(5), [paramDef(5)]);
+        assert.ok(text.includes('#define ITEM_COUNT 5 /* size parameter */'), text);
+        assert.ok(text.includes('uint8_t items[ITEM_COUNT];'), text);
+        assert.ok(!text.includes('items[5]'), 'never fakes a fixed array length');
+    });
+
+    test('a parameter without a default emits 0 with a set-per-instance note', () => {
+        const text = typeDefToC(paramDef(), [paramDef()]);
+        assert.ok(text.includes('#define ITEM_COUNT 0 /* size parameter \u2014 no default; set per instance */'), text);
+    });
+
+    test('colliding macro base names are prefixed with the type name', () => {
+        const def: TypeDef = {
+            id: 'c', name: 'Cfg', packed: true,
+            params: [{ name: 'count', kind: 'size', default: 1 }, { name: 'COUNT', kind: 'size', default: 2 }],
+            fields: [
+                { name: 'a', type: 'uint8', count: 1, countParam: 'count' },
+                { name: 'b', type: 'uint8', count: 2, countParam: 'COUNT' },
+            ],
+        };
+        const text = typeDefToC(def, [def]);
+        assert.ok(text.includes('#define CFG_COUNT 1'), text);
+        assert.ok(text.includes('#define CFG_COUNT_1 2'), text);
+        assert.ok(text.includes('uint8_t a[CFG_COUNT];'), text);
+        assert.ok(text.includes('uint8_t b[CFG_COUNT_1];'), text);
+    });
+
+    test('a literal-count type emits no macros and is unchanged', () => {
+        const text = typeDefToC(literalDef(4));
+        assert.ok(!text.includes('#define'), text);
+        assert.ok(text.includes('uint8_t items[4];'), text);
+    });
+});

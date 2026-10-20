@@ -16,6 +16,7 @@ import * as vscode from 'vscode';
 import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integrity';
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
 import { aliasLegacyProfileRecord, aliasLegacyTypeDef } from './core/overlay/overlayAliases';
+import { normalizeTypeInstances } from './core/overlay/overlayNormalization';
 import type { BitFieldAllocation, SegmentLabel, TypeInstance } from './core/types';
 import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
@@ -612,7 +613,7 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
  *  keys and the old per-instance refs are not aliased on the general read path.
  *  The one-time legacy migrations alias their own input before writing. */
 function candidateTypeInstances(candidate: Record<string, unknown>): TypeInstance[] {
-    return arrayOrEmpty(candidate.typeInstances) as TypeInstance[];
+    return normalizeTypeInstances(arrayOrEmpty(candidate.typeInstances)).instances;
 }
 
 /** Normalize the whole registry array: drop malformed records, dedupe by

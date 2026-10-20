@@ -3,6 +3,10 @@ import { JSDOM } from 'jsdom';
 import '../../../cssImportHook';
 
 import { ScriptsPanel, type ScriptInfo } from '../../../../../webview/components/sidebar/scriptsPanel/scriptsPanel';
+import {
+    PermissionPrompt,
+    type ScriptPermissionRequest,
+} from '../../../../../webview/components/sidebar/scriptsPanel/permissionPrompt';
 
 let currentDom: JSDOM | null = null;
 let currentPanel: ScriptsPanel | null = null;
@@ -14,12 +18,15 @@ type Globalish = {
     navigator: Navigator;
 };
 
+type Decision = { requestId: number; decision: string; scope: string; capability?: string };
+
 type Cb = {
     requested: number;
+    added: number;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
     cancels: string[];
-    applied: Array<[string, Array<[number, number]>]>;
-    discarded: string[];
+    decisions: Decision[];
+    revokes: Array<[string, string]>;
 };
 
 type Harness = {
@@ -39,6 +46,21 @@ const SCRIPTS: ScriptInfo[] = [
     { name: 'hello.js', filePath: B, capabilities: [], fingerprint: 'fp-3' },
 ];
 
+const PERMISSION_REQUEST: ScriptPermissionRequest = {
+    type: 'scriptPermissionRequest',
+    requestId: 11,
+    capability: 'write',
+    detail: 'Write 2 bytes at 0x8000000',
+    scriptPath: A,
+    scriptName: 'crc-check.js',
+    fingerprint: 'fp-1',
+    scopes: ['once', 'script', 'session', 'workspace'],
+};
+
+function permissionRequest(overrides: Partial<ScriptPermissionRequest> = {}): ScriptPermissionRequest {
+    return { ...PERMISSION_REQUEST, ...overrides };
+}
+
 function installDom(): Harness {
     const dom = new JSDOM('<!doctype html><html><body><div id="host"></div></body></html>', { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as Globalish;
@@ -51,17 +73,20 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, runs: [], cancels: [], applied: [], discarded: [] };
+    const cb: Cb = { requested: 0, added: 0, runs: [], cancels: [], decisions: [], revokes: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
         onRequestList: () => { cb.requested++; },
+        onAddExampleScripts: () => { cb.added++; },
         onRunScript: (scriptPath, gen, selectionRange) => {
             cb.runs.push({ path: scriptPath, generation: gen, selection: selectionRange });
         },
         onCancelScript: path => { cb.cancels.push(path); },
-        onApplyScriptWrites: (path, writes) => { cb.applied.push([path, writes]); },
-        onDiscardScriptWrites: path => { cb.discarded.push(path); },
+        onScriptPermissionDecision: (requestId, decision, scope, capability) => {
+            cb.decisions.push({ requestId, decision, scope, capability });
+        },
+        onRevokeScriptPermission: (path, capability) => { cb.revokes.push([path, capability]); },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -99,11 +124,14 @@ function runBtn(path: string): HTMLButtonElement {
     return cardFor(path).querySelector<HTMLButtonElement>('.script-run-btn')!;
 }
 
-/** Clicks a run button and accepts the run-time capability confirm if one appears. */
+/** Clicks a run button; the per-command prompt only appears when the host asks. */
 function startRun(dom: JSDOM, path: string): void {
     click(dom, runBtn(path));
-    const ok = document.querySelector('.script-caps-confirm [data-caps-run]');
-    if (ok) { click(dom, ok); }
+}
+
+function keydown(dom: JSDOM, el: Element | null, key: string): void {
+    assert.ok(el, 'target element should exist');
+    el!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true }));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -130,14 +158,36 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(document.getElementById('s-scripts'));
         const label = document.querySelector('#s-scripts .sb-section-label')!;
         assert.strictEqual(label.childNodes[0]?.textContent?.trim(), 'Scripts', 'title text renders via sb-section-label');
-        assert.strictEqual(document.querySelector('.sb-empty')?.textContent, 'No scripts found in .hexscope/scripts/');
+        assert.strictEqual(document.querySelector('.sb-empty div')?.textContent, 'No scripts found in .hexscope/scripts/');
         assert.strictEqual(document.querySelectorAll('.script-card').length, 0);
         assert.ok(document.getElementById('scripts-refresh'));
         assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-btn-secondary'), 'refresh rides sb-btn-secondary');
         assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-section-action'), 'refresh is a compact header action');
+        assert.ok(document.getElementById('scripts-add-examples'), 'header exposes the catalog install action');
         const badge = document.querySelector<HTMLElement>('#s-scripts .sb-badge')!;
         assert.ok(badge, 'framework badge span exists');
         assert.ok(badge.hidden, 'count badge hidden when no scripts');
+    });
+
+    test('empty state offers the "Add example scripts" action', () => {
+        const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-add-examples]');
+        assert.ok(btn, 'empty-state install button exists');
+        assert.strictEqual(btn!.textContent?.trim(), 'Add example scripts');
+        assert.strictEqual(btn!.tagName, 'BUTTON', 'a native button is the keyboard entry point');
+        cb.added = 0;
+        click(dom, btn);
+        assert.strictEqual(cb.added, 1, 'empty-state action reports onAddExampleScripts');
+        assert.strictEqual(cb.requested, 0, 'installing is not a list refresh');
+    });
+
+    test('header add action reports onAddExampleScripts', () => {
+        const btn = document.getElementById('scripts-add-examples')!;
+        assert.ok(btn.classList.contains('sb-btn-secondary'), 'install rides sb-btn-secondary');
+        assert.ok(btn.classList.contains('sb-section-action'), 'install is a compact header action');
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Add example scripts');
+        cb.added = 0;
+        click(dom, btn);
+        assert.strictEqual(cb.added, 1);
     });
 
     test('refresh button reports onRequestList', () => {
@@ -151,6 +201,8 @@ suite('ScriptsPanel mount + render', () => {
         assert.strictEqual(document.querySelectorAll('#s-scripts').length, 1);
         assert.strictEqual(document.querySelectorAll('#s-scripts .sb-section').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-refresh').length, 1);
+        assert.strictEqual(document.querySelectorAll('#scripts-add-examples').length, 1);
+        assert.strictEqual(document.querySelectorAll('[data-add-examples]').length, 1, 'one empty-state install action');
     });
 });
 
@@ -178,7 +230,9 @@ suite('ScriptsPanel setScripts', () => {
         assert.strictEqual(card.querySelector('.script-name')?.textContent, 'crc-check.js');
         assert.strictEqual(card.querySelector('.script-name')?.getAttribute('title'), A);
         assert.strictEqual(card.querySelector('.script-ext')?.textContent, 'js');
-        assert.strictEqual(card.querySelector('.script-cap'), null, 'capability emoji badges removed from cards');
+        assert.strictEqual(card.querySelectorAll('.script-cap').length, 1, 'declared capability badge stays visible');
+        assert.strictEqual(card.querySelector('.script-cap')?.textContent, 'exec');
+        assert.strictEqual(card.querySelector('.script-cap')?.getAttribute('title'), 'Requires approval: exec');
         assert.ok(runBtn(A).classList.contains('sb-btn-primary'), 'run button rides sb-btn-primary');
         assert.ok(card.querySelector('.sb-status-dot.idle'));
         assert.strictEqual((card.querySelector('.sb-status-dot') as HTMLElement).title, 'Not yet run');
@@ -191,6 +245,17 @@ suite('ScriptsPanel setScripts', () => {
         assert.ok(badge().hidden);
         panel.setScripts([], true);
         assert.ok(badge().hidden);
+    });
+
+    test('empty-state install action follows the script list', () => {
+        panel.setScripts(SCRIPTS, true);
+        assert.strictEqual(document.querySelectorAll('[data-add-examples]').length, 0, 'no install action while scripts exist');
+        panel.setScripts([], true);
+        const btn = document.querySelector<HTMLButtonElement>('[data-add-examples]')!;
+        assert.ok(btn, 'install action returns with the empty state');
+        cb.added = 0;
+        click(dom, btn);
+        assert.strictEqual(cb.added, 1, 're-rendered empty state stays wired');
     });
 
     test('untrusted workspace disables run buttons with tooltip', () => {
@@ -214,6 +279,20 @@ suite('ScriptsPanel setScripts', () => {
         assert.match(btn.title, /require esbuild/);
         assert.ok(!runBtn(A).classList.contains('disabled-ts'));
         assert.ok(!runBtn(A).disabled, 'js scripts stay enabled');
+    });
+
+    test('renders declared role badges', () => {
+        panel.setScripts([{ ...SCRIPTS[0], roles: ['address', 'size'] }, ...SCRIPTS.slice(1)], true);
+        const badges = cardFor(A).querySelectorAll('.script-role');
+        assert.strictEqual(badges.length, 2);
+        assert.strictEqual(badges[0].textContent, 'address');
+        assert.strictEqual(badges[1].textContent, 'size');
+    });
+
+    test('renders a contract error header', () => {
+        panel.setScripts(SCRIPTS, true);
+        panel.showResult(A, [], [], 'Script entry getAddress failed.', 'contract', 0);
+        assert.match(document.querySelector('.script-output-hdr')?.textContent ?? '', /Contract Error/);
     });
 
     test('status dot flips to ok/err after showResult', () => {
@@ -404,7 +483,7 @@ suite('ScriptsPanel run history', () => {
     });
 });
 
-suite('ScriptsPanel capability gate', () => {
+suite('ScriptsPanel permission prompt', () => {
     let harness: Harness;
     let dom: JSDOM;
     let panel: ScriptsPanel;
@@ -421,80 +500,198 @@ suite('ScriptsPanel capability gate', () => {
 
     teardown(cleanupDom);
 
-    test('first run of capability-bearing script shows confirm listing caps; accept runs and persists per script', () => {
-        click(dom, runBtn(A));
-        const confirm = document.querySelector('.script-caps-confirm')!;
-        assert.ok(confirm, 'confirm panel appears before first run');
-        assert.match(confirm.textContent!, /crc-check\.js/);
-        assert.match(confirm.textContent!, /exec/, 'confirm lists the capability');
-        assert.strictEqual(cb.runs.length, 0, 'no run before accept');
-
-        click(dom, confirm.querySelector('[data-caps-run]'));
-        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0);
+    test('renders one inline prompt inside the card naming script, capability, and detail', () => {
+        click(dom, runBtn(A)); // runs start immediately — no pre-run gate
         assert.deepStrictEqual(cb.runs, [{ path: A, generation: 0, selection: undefined }]);
 
+        panel.showPermissionRequest(permissionRequest());
+        const prompt = cardFor(A).querySelector('.script-perm')!;
+        assert.ok(prompt, 'prompt lives inside the script card');
+        assert.ok(prompt.previousElementSibling?.classList.contains('script-card-info'), 'above the result area');
+        assert.match(prompt.querySelector('.script-perm-title')!.textContent!, /crc-check\.js/);
+        assert.match(prompt.querySelector('.script-perm-title')!.textContent!, /write bytes/);
+        assert.strictEqual(prompt.querySelector('.script-perm-detail')!.textContent, 'Write 2 bytes at 0x8000000');
+        assert.strictEqual(document.querySelectorAll('.script-perm').length, 1);
+    });
+
+    test('Allow once sends an allow decision and returns focus to the run button', () => {
+        panel.showPermissionRequest(permissionRequest());
+        const allow = document.querySelector<HTMLElement>('.script-perm [data-perm-allow]')!;
+        assert.strictEqual(document.activeElement, allow, 'primary action focused');
+        click(dom, allow);
+        assert.deepStrictEqual(cb.decisions, [
+            { requestId: 11, decision: 'allow', scope: 'once', capability: 'write' },
+        ]);
+        assert.strictEqual(document.querySelector('.script-perm'), null, 'prompt closed');
+        assert.strictEqual(document.activeElement, runBtn(A), 'focus returns to the card run button');
+    });
+
+    test('broader scope options send the chosen scope + grant breadth', () => {
+        panel.showPermissionRequest(permissionRequest());
+        const menuBtn = document.querySelector<HTMLElement>('.script-perm [data-perm-menu]')!;
+        const menu = document.querySelector<HTMLElement>('.script-perm .script-perm-menu')!;
+        assert.ok(menu.hidden, 'menu starts collapsed');
+        click(dom, menuBtn);
+        assert.strictEqual(menuBtn.getAttribute('aria-expanded'), 'true');
+        assert.ok(!menu.hidden);
+        const options = [...menu.querySelectorAll<HTMLElement>('.script-perm-option')];
+        assert.deepStrictEqual(options.map(o => o.dataset.scope), [
+            'script', 'script', 'session', 'session', 'workspace', 'workspace',
+        ]);
+        assert.match(options[0].textContent!, /Allow write in this script/);
+        assert.match(options[5].textContent!, /all non-exec capabilities in this workspace/);
+
+        click(dom, options[0]);
+        assert.deepStrictEqual(cb.decisions, [
+            { requestId: 11, decision: 'allow', scope: 'script', capability: 'write' },
+        ]);
+        assert.strictEqual(document.querySelector('.script-perm'), null);
+    });
+
+    test('all-capabilities option sends the "*" grant', () => {
+        panel.showPermissionRequest(permissionRequest());
+        click(dom, document.querySelector('.script-perm [data-perm-menu]'));
+        const all = [...document.querySelectorAll<HTMLElement>('.script-perm-option')][1];
+        click(dom, all);
+        assert.deepStrictEqual(cb.decisions, [
+            { requestId: 11, decision: 'allow', scope: 'script', capability: '*' },
+        ]);
+    });
+
+    test('exec requests never offer workspace scope', () => {
+        panel.showPermissionRequest(permissionRequest({
+            capability: 'exec',
+            detail: 'openssl dgst -sha256 firmware.bin',
+            scopes: ['once', 'script', 'session'],
+        }));
+        click(dom, document.querySelector('.script-perm [data-perm-menu]'));
+        const scopes = [...document.querySelectorAll<HTMLElement>('.script-perm-option')].map(o => o.dataset.scope);
+        assert.deepStrictEqual(scopes, ['script', 'script', 'session', 'session']);
+    });
+
+    test('Escape denies, the Deny button denies, and focus returns to Run', () => {
+        panel.showPermissionRequest(permissionRequest());
+        keydown(dom, document.querySelector('.script-perm'), 'Escape');
+        assert.deepStrictEqual(cb.decisions, [
+            { requestId: 11, decision: 'deny', scope: 'once', capability: 'write' },
+        ]);
+        assert.strictEqual(document.querySelector('.script-perm'), null);
+        assert.strictEqual(document.activeElement, runBtn(A));
+
+        panel.showPermissionRequest(permissionRequest({ requestId: 12 }));
+        click(dom, document.querySelector('.script-perm [data-perm-deny]'));
+        assert.deepStrictEqual(cb.decisions[1], { requestId: 12, decision: 'deny', scope: 'once', capability: 'write' });
+    });
+
+    test('a new request replaces the stale prompt and denies the old id', () => {
+        panel.showPermissionRequest(permissionRequest({ requestId: 11 }));
+        panel.showPermissionRequest(permissionRequest({ requestId: 12, detail: 'Write 4 bytes at 0x8000010' }));
+        assert.deepStrictEqual(cb.decisions, [
+            { requestId: 11, decision: 'deny', scope: 'once', capability: 'write' },
+        ]);
+        assert.strictEqual(document.querySelectorAll('.script-perm').length, 1);
+        assert.match(document.querySelector('.script-perm-detail')!.textContent!, /0x8000010/);
+    });
+
+    test('a terminal result closes the open prompt', () => {
+        panel.showPermissionRequest(permissionRequest());
         panel.showResult(A, [], [], '', undefined, 0);
-        click(dom, runBtn(A));
-        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0, 'accepted run skips re-confirm');
-        assert.strictEqual(cb.runs.length, 2);
+        assert.strictEqual(document.querySelector('.script-perm'), null);
+        assert.strictEqual(cb.decisions[0].decision, 'deny');
     });
 
-    test('declined confirm does not start the script and leaves state clean', () => {
-        click(dom, runBtn(A));
-        click(dom, document.querySelector('.script-caps-confirm [data-caps-cancel]'));
-        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0);
-        assert.strictEqual(cb.runs.length, 0, 'no run on decline');
-        assert.strictEqual(cb.cancels.length, 0);
-        assert.ok(!runBtn(A).classList.contains('running'), 'no partial run state');
-        assert.ok(!runBtn(B).disabled, 'other buttons stay enabled');
-
-        click(dom, runBtn(A));
-        assert.ok(document.querySelector('.script-caps-confirm'), 'declined script still asks again');
-        assert.strictEqual(cb.runs.length, 0);
+    test('cancelling the run denies the pending prompt', () => {
+        startRun(dom, A);
+        panel.showPermissionRequest(permissionRequest());
+        click(dom, runBtn(A)); // running button = cancel
+        assert.deepStrictEqual(cb.cancels, [A]);
+        assert.strictEqual(document.querySelector('.script-perm'), null);
+        assert.strictEqual(cb.decisions[0].decision, 'deny');
     });
 
-    test('capability-less script runs without confirm', () => {
-        click(dom, runBtn(B));
-        assert.strictEqual(document.querySelectorAll('.script-caps-confirm').length, 0);
-        assert.deepStrictEqual(cb.runs, [{ path: B, generation: 0, selection: undefined }]);
+    test('prompt for an unknown script path denies immediately', () => {
+        panel.showPermissionRequest(permissionRequest({ scriptPath: 'D:\\missing\\gone.js', requestId: 13 }));
+        assert.strictEqual(document.querySelector('.script-perm'), null);
+        assert.deepStrictEqual(cb.decisions, [
+            { requestId: 13, decision: 'deny', scope: 'once', capability: 'write' },
+        ]);
     });
+});
 
-    test('confirmation resets on panel remount', () => {
-        click(dom, runBtn(A));
-        click(dom, document.querySelector('.script-caps-confirm [data-caps-run]'));
-        assert.strictEqual(cb.runs.length, 1);
+suite('ScriptsPanel workspace permissions list', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
 
-        cleanupDom();
-        harness = installDom();
+    setup(() => {
+        const harness = installDom();
         dom = harness.dom;
         panel = harness.panel;
         cb = harness.cb;
         currentDom = dom;
         panel.setScripts(SCRIPTS, true);
-        click(dom, runBtn(A));
-        assert.ok(document.querySelector('.script-caps-confirm'), 'fresh panel re-confirms capabilities');
     });
 
-    test('approval resets when the script fingerprint changes', () => {
-        click(dom, runBtn(A));
-        click(dom, document.querySelector('.script-caps-confirm [data-caps-run]'));
-        assert.strictEqual(cb.runs.length, 1);
-        panel.showResult(A, [], [], '', undefined, 0); // clear the running state
+    teardown(cleanupDom);
 
-        // Same fingerprint pushed again → approval kept.
-        panel.setScripts(SCRIPTS.map(s => ({ ...s })), true);
-        click(dom, runBtn(A));
-        assert.strictEqual(cb.runs.length, 2, 'same fingerprint keeps the approval');
-        panel.showResult(A, [], [], '', undefined, 0);
+    test('renders revocable workspace grants above the script list', () => {
+        panel.setPermissionGrants([
+            { scriptPath: A, capability: 'write' },
+            { scriptPath: 'D:\\sample\\tools\\sign.js', capability: '*' },
+        ]);
+        const section = document.querySelector('.script-perms-section')!;
+        assert.ok(section, 'permissions section rendered');
+        assert.match(section.querySelector('.script-perms-title')!.textContent!, /Permissions/);
+        assert.strictEqual(section.querySelectorAll('.script-perm-row').length, 2);
+        const rows = [...section.querySelectorAll<HTMLElement>('.script-perm-row')];
+        assert.strictEqual(rows[0].querySelector('.script-perm-name')!.textContent, 'crc-check.js');
+        assert.strictEqual(rows[1].querySelector('.script-perm-name')!.textContent, 'sign.js');
+        assert.strictEqual(rows[1].querySelector('.script-perm-ability')!.textContent, 'all non-exec');
+        assert.ok(section.compareDocumentPosition(document.querySelector('.script-list')!) & 4, 'section precedes the list');
 
-        // Fingerprint changed → approval revoked, confirm re-asks.
-        panel.setScripts(SCRIPTS.map(s => s.filePath === A ? { ...s, fingerprint: 'fp-changed' } : s), true);
-        click(dom, runBtn(A));
-        assert.ok(document.querySelector('.script-caps-confirm'), 'modified script re-confirms');
-        assert.strictEqual(cb.runs.length, 2, 'no run before re-accept');
+        click(dom, rows[0].querySelector('[data-revoke]'));
+        assert.deepStrictEqual(cb.revokes, [[A, 'write']]);
+    });
 
-        click(dom, document.querySelector('.script-caps-confirm [data-caps-run]'));
-        assert.strictEqual(cb.runs.length, 3, 're-accept runs');
+    test('an empty grant list removes the section', () => {
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write' }]);
+        assert.ok(document.querySelector('.script-perms-section'));
+        panel.setPermissionGrants([]);
+        assert.strictEqual(document.querySelector('.script-perms-section'), null);
+    });
+
+    test('permission list updates never clear existing result areas', () => {
+        panel.showResult(A, [{ label: 'CRC32', value: '0x1' }], [], '', undefined, 0);
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write' }]);
+        assert.strictEqual(cardFor(A).querySelector('.script-result-label')?.textContent, 'CRC32');
+    });
+});
+
+suite('PermissionPrompt timeout mirror', () => {
+    let panel: ScriptsPanel;
+
+    setup(() => {
+        const harness = installDom();
+        panel = harness.panel;
+        currentDom = harness.dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    test('an unanswered prompt closes without sending a duplicate deny', async () => {
+        const decisions: Decision[] = [];
+        const prompt = new PermissionPrompt({
+            onDecision: (requestId, decision, scope, capability) => {
+                decisions.push({ requestId, decision, scope, capability });
+            },
+        }, 10);
+        prompt.show(permissionRequest());
+        assert.ok(document.querySelector('.script-perm'));
+        await sleep(25);
+        assert.strictEqual(document.querySelector('.script-perm'), null, 'mirror timeout closes the prompt');
+        assert.deepStrictEqual(decisions, [], 'the host already denied on its own timeout');
+        prompt.dispose();
     });
 });
 
@@ -502,13 +699,11 @@ suite('ScriptsPanel showResult', () => {
     let harness: Harness;
     let dom: JSDOM;
     let panel: ScriptsPanel;
-    let cb: Cb;
 
     setup(() => {
         harness = installDom();
         dom = harness.dom;
         panel = harness.panel;
-        cb = harness.cb;
         currentDom = dom;
         panel.setScripts(SCRIPTS, true);
     });
@@ -557,39 +752,29 @@ suite('ScriptsPanel showResult', () => {
         assert.strictEqual(cardFor(A).querySelector('.script-output-log')?.textContent, 'partial output');
     });
 
-    test('writes notice when pendingWriteCount > 0', () => {
-        panel.showResult(A, [], [], '', undefined, 3);
-        assert.match(cardFor(A).querySelector('.script-output-writes')?.textContent!, /3 byte\(s\) written \(not yet saved\)/);
-    });
-
-    test('writes row with list renders Apply & Save / Discard and wires callbacks', () => {
-        panel.showResult(A, [], [], '', undefined, 2, [[0x0000, 0xAA], [0x0001, 0x55]]);
-        const latestWrites = () => cardFor(A).querySelector('.script-output-block:not(.script-run-row) .script-output-writes') as HTMLElement | null;
-        const row = latestWrites();
-        assert.ok(row, 'actionable writes row');
-        assert.match(row!.textContent!, /2 byte/);
-        const applyBtn = row!.querySelector('[data-writes-apply]') as HTMLButtonElement | null;
-        const discardBtn = row!.querySelector('[data-writes-discard]') as HTMLButtonElement | null;
-        assert.ok(applyBtn && discardBtn);
-        applyBtn!.click();
-        assert.deepStrictEqual(cb.applied, [[A, [[0x0000, 0xAA], [0x0001, 0x55]]]]);
-        discardBtn!.click();
-        assert.deepStrictEqual(cb.discarded, [A]);
-        assert.strictEqual(latestWrites(), null, 'row removed after discard');
-    });
-
-    test('writes row renders plain notice (no buttons) when list absent', () => {
+    test('writes notice reports auto-saved bytes with no action control', () => {
         panel.showResult(A, [], [], '', undefined, 3);
         const row = cardFor(A).querySelector('.script-output-writes') as HTMLElement | null;
         assert.ok(row);
-        assert.strictEqual(row!.querySelector('[data-writes-apply]'), null, 'no action buttons for legacy payload');
+        assert.match(row!.textContent!, /3 byte\(s\) written and saved/);
+        assert.strictEqual(row!.querySelector('button'), null, 'no Apply & Save / Discard controls remain');
+        assert.strictEqual(document.querySelector('[data-writes-apply]'), null);
+        assert.strictEqual(document.querySelector('[data-writes-discard]'), null);
     });
 
-    test('next run without writes clears the stored writes row', () => {
-        panel.showResult(A, [], [], '', undefined, 1, [[0x0000, 0x09]]);
-        assert.ok(cardFor(A).querySelector('.script-output-block:not(.script-run-row) [data-writes-apply]'));
-        panel.showResult(A, [], [], '', undefined, 1);
-        assert.strictEqual(cardFor(A).querySelector('.script-output-block:not(.script-run-row) [data-writes-apply]'), null);
+    test('failed run reports discarded writes and nothing saved', () => {
+        panel.showResult(A, [], [], 'boom', 'runtime', 0, 2);
+        const row = cardFor(A).querySelector('.script-output-writes') as HTMLElement | null;
+        assert.ok(row);
+        assert.match(row!.textContent!, /2 byte\(s\) written, discarded/);
+        assert.match(row!.textContent!, /nothing was saved/);
+        assert.ok(row!.classList.contains('script-output-writes-discarded'));
+        assert.strictEqual(row!.querySelector('button'), null);
+    });
+
+    test('a run without writes renders no writes notice', () => {
+        panel.showResult(A, [], [], '', undefined, 0);
+        assert.strictEqual(cardFor(A).querySelector('.script-output-writes'), null);
     });
 
     test('re-run collapses prior result into history row and shows latest', () => {

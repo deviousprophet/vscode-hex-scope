@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 
 import { aliasLegacyTypeDefs } from '../../core/overlay/overlayAliases';
-import { normalizeTypeDefsValue } from '../../core/overlay/overlayNormalization';
+import { normalizeTypeDefsValue, normalizeTypeInstances } from '../../core/overlay/overlayNormalization';
 import type { TypeDef, TypeField } from '../../core/types';
 
 function enumDef(): TypeDef {
@@ -359,5 +359,175 @@ suite('normalizeTypeDefsValue() — retired pre-rename aliases', () => {
             'mode',
             'the unknown legacy key survives untouched',
         );
+    });
+});
+
+// -- Template parameters / instance values -------------------------
+
+function templatedDef(overrides: Partial<TypeDef> = {}): TypeDef {
+    return {
+        id: 'templated', name: 'Config', packed: true,
+        params: [{ name: 'ITEM_COUNT', kind: 'size', default: 4 }],
+        fields: [{ name: 'items', type: 'uint8', count: 4, countParam: 'ITEM_COUNT' }],
+        ...overrides,
+    };
+}
+
+suite('normalizeTypeDefsValue() - template parameters', () => {
+    test('keeps a well-formed templated pool by reference (no write)', () => {
+        const def = templatedDef();
+        const pool = [def];
+        const result = normalizeTypeDefsValue(pool);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.defs[0], def);
+    });
+
+    test('drops malformed parameter entries and clears their dangling count references', () => {
+        const def: TypeDef = {
+            id: 't', name: 'Config', packed: true,
+            params: [
+                { name: 'GOOD', kind: 'size', default: 2 },
+                { name: '', kind: 'size', default: 1 },
+                { name: 'bad name', kind: 'size', default: 1 },
+                { name: 'BAD_KIND', kind: 'count' as 'size', default: 1 },
+                { name: 'ZERO', kind: 'size', default: 0 },
+                { name: 'GOOD', kind: 'size', default: 9 },
+            ],
+            fields: [
+                { name: 'kept', type: 'uint8', count: 2, countParam: 'GOOD' },
+                { name: 'droppedRef', type: 'uint8', count: 3, countParam: 'ZERO' },
+            ],
+        };
+        const result = normalizeTypeDefsValue([def]);
+        assert.strictEqual(result.changed, true);
+        assert.deepStrictEqual(result.defs[0].params, [{ name: 'GOOD', kind: 'size', default: 2 }]);
+        assert.strictEqual(result.defs[0].fields[0].countParam, 'GOOD');
+        assert.strictEqual(result.defs[0].fields[1].countParam, undefined);
+        assert.strictEqual(result.defs[0].fields[1].count, 3);
+    });
+
+    test('a non-array params value is dropped', () => {
+        const def = templatedDef({ params: 'nope' as unknown as TypeDef['params'] });
+        const result = normalizeTypeDefsValue([def]);
+        assert.strictEqual(result.changed, true);
+        assert.strictEqual(result.defs[0].params, undefined);
+    });
+
+    test('params on a named kind are dropped', () => {
+        const def: TypeDef = {
+            id: 'e', name: 'E', kind: 'enum', baseType: 'uint8', fields: [], entries: [],
+            params: [{ name: 'N', kind: 'size', default: 1 }],
+        };
+        const result = normalizeTypeDefsValue([def]);
+        assert.strictEqual(result.changed, true);
+        assert.strictEqual(result.defs[0].params, undefined);
+    });
+});
+
+suite('normalizeTypeInstances()', () => {
+    test('keeps a clean instance array by reference (no write)', () => {
+        const pin = { id: 'p', typeId: 't', addr: 0, name: 'inst', paramValues: { ITEM_COUNT: 3 } };
+        const pool = [pin];
+        const result = normalizeTypeInstances(pool);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.instances[0], pin);
+    });
+
+    test('drops non-integer / sub-1 values and keeps valid siblings', () => {
+        const pin = { id: 'p', typeId: 't', addr: 0, name: 'inst', paramValues: { A: 2, B: 0, C: 1.5, D: '3' } };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, true);
+        assert.deepStrictEqual(result.instances[0].paramValues, { A: 2 });
+        assert.strictEqual(result.instances[0].id, 'p');
+    });
+
+    test('an all-invalid paramValues map removes the key', () => {
+        const pin = { id: 'p', typeId: 't', addr: 0, name: 'inst', paramValues: { A: 0 } };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, true);
+        assert.strictEqual('paramValues' in result.instances[0], false);
+    });
+
+    test('instances without paramValues are untouched and a non-array input yields empty', () => {
+        const pin = { id: 'p', typeId: 't', addr: 0, name: 'inst' };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.instances[0], pin);
+        assert.deepStrictEqual(normalizeTypeInstances('nope'), { instances: [], changed: false });
+    });
+
+    test('keeps a clean addressSource by reference and never rewrites addr', () => {
+        const pin = {
+            id: 'p', typeId: 't', addr: 0x100, name: 'inst',
+            addressSource: { scriptPath: '.hexscope/scripts/follow.js' },
+        };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.instances[0], pin);
+        assert.strictEqual(result.instances[0].addr, 0x100);
+    });
+
+    test('drops an empty/malformed addressSource without touching addr', () => {
+        const empty = { id: 'a', typeId: 't', addr: 0x100, name: 'a', addressSource: { scriptPath: '   ' } };
+        const malformed = { id: 'b', typeId: 't', addr: 0x200, name: 'b', addressSource: { other: 1 } };
+        const result = normalizeTypeInstances([empty, malformed]);
+        assert.strictEqual(result.changed, true);
+        assert.strictEqual('addressSource' in result.instances[0], false);
+        assert.strictEqual('addressSource' in result.instances[1], false);
+        assert.strictEqual(result.instances[0].addr, 0x100);
+        assert.strictEqual(result.instances[1].addr, 0x200);
+    });
+
+    test('drops an addressSource that conflicts with pointer metadata', () => {
+        const pin = {
+            id: 'p', typeId: 't', addr: 0x100, name: 'inst',
+            addressSource: { scriptPath: 'follow.js' },
+            pointerSources: [{
+                sourcePinId: 'src', sourcePinName: 'Src', sourceTypeId: 't',
+                sourceFieldPath: 'next', pointerStorageAddress: 4, targetAddress: 0x100,
+            }],
+        };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, true);
+        assert.strictEqual('addressSource' in result.instances[0], false);
+        assert.strictEqual(result.instances[0].pointerSources?.length, 1, 'pointer metadata is preserved');
+    });
+
+    test('keeps clean parameter sources by reference and never rewrites addr', () => {
+        const pin = {
+            id: 'p', typeId: 't', addr: 0x100, name: 'inst',
+            paramSources: { ITEM_COUNT: { scriptPath: '.hexscope/scripts/size.js' } },
+        };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, false);
+        assert.strictEqual(result.instances[0], pin);
+        assert.strictEqual(result.instances[0].addr, 0x100);
+    });
+
+    test('drops empty/malformed parameter sources and manual-shadowed entries', () => {
+        const pin = {
+            id: 'p', typeId: 't', addr: 0, name: 'inst',
+            paramValues: { N: 3 },
+            paramSources: {
+                N: { scriptPath: 'size.js' },
+                M: { scriptPath: '   ' },
+                'bad-name': { scriptPath: 'size.js' },
+                P: 'size.js',
+            },
+        };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, true);
+        assert.strictEqual('paramSources' in result.instances[0], false,
+            'every entry is invalid once the manual-shadowed one is dropped');
+    });
+
+    test('keeps valid parameter sources when malformed siblings are dropped', () => {
+        const pin = {
+            id: 'p', typeId: 't', addr: 0, name: 'inst',
+            paramSources: { N: { scriptPath: 'size.js' }, EMPTY: { scriptPath: ' ' } },
+        };
+        const result = normalizeTypeInstances([pin]);
+        assert.strictEqual(result.changed, true);
+        assert.deepStrictEqual(result.instances[0].paramSources, { N: { scriptPath: 'size.js' } });
     });
 });

@@ -10,6 +10,7 @@ import type {
     TypeDefKind,
     TypeField,
     TypeFieldType,
+    TypeParam,
     TypeScalarFieldType,
 } from '../types';
 
@@ -62,6 +63,84 @@ function isUnsignedBaseType(type: string | undefined): type is TypeBaseType {
 export function typeDefKind(def: TypeDef): TypeDefKind {
     return def.kind === 'bitfield' || def.kind === 'enum' ? def.kind : 'struct';
 }
+
+// -- Template parameters (size only) -------------------------------
+
+/** Resolved size-parameter values for one type usage. */
+export type LayoutParams = Readonly<Record<string, number>>;
+
+/** Discriminated result for expected parameter-resolution failures. */
+export type LayoutValidation<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/** A valid resolved count/parameter value: positive safe integer (never 0/negative/fractional). */
+function isValidLayoutValue(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+}
+
+/**
+ * Resolve a type's parameter values: explicit instance values win, then the
+ * declared default. The first missing/invalid parameter is reported by name.
+ * Unknown keys in `instanceValues` are ignored here (validation reports them).
+ */
+export function resolveTypeParams(def: TypeDef, instanceValues?: LayoutParams): LayoutValidation<LayoutParams> {
+    const values: Record<string, number> = {};
+    for (const param of def.params ?? []) {
+        const raw = instanceValues && Object.prototype.hasOwnProperty.call(instanceValues, param.name)
+            ? instanceValues[param.name]
+            : param.default;
+        if (raw === undefined) {
+            return { ok: false, error: `Type "${def.name}": parameter "${param.name}" has no value.` };
+        }
+        if (!isValidLayoutValue(raw)) {
+            return { ok: false, error: `Type "${def.name}": parameter "${param.name}" must be a positive integer.` };
+        }
+        values[param.name] = raw;
+    }
+    return { ok: true, value: values };
+}
+
+/** Resolve to a plain map, falling back to `{}` when a required value is missing. */
+function layoutParams(def: TypeDef, instanceValues?: LayoutParams): LayoutParams {
+    const resolved = resolveTypeParams(def, instanceValues);
+    return resolved.ok ? resolved.value : {};
+}
+
+/**
+ * The element count a field contributes to layout: its resolved parameter when
+ * `countParam` is set, otherwise the literal `count`. A missing/invalid parameter
+ * yields `0` (no decode), never a silent 1 — validation reports it first.
+ */
+export function resolvedFieldCount(field: TypeField, params: LayoutParams): number {
+    if (field.countParam === undefined) { return field.count; }
+    const value = params[field.countParam];
+    return isValidLayoutValue(value) ? value : 0;
+}
+
+/**
+ * Validate an instance's explicit parameter values against a type: unknown
+ * names, missing values without a default, and non-positive/invalid values.
+ */
+export function validateInstanceParamValues(def: TypeDef, values: LayoutParams | undefined): string[] {
+    const errors: string[] = [];
+    const declared = new Set((def.params ?? []).map(param => param.name));
+    for (const key of Object.keys(values ?? {})) {
+        if (!declared.has(key)) {
+            errors.push(`Type "${def.name}": unknown parameter "${key}".`);
+        }
+    }
+    for (const param of def.params ?? []) {
+        const value = values && Object.prototype.hasOwnProperty.call(values, param.name)
+            ? values[param.name]
+            : param.default;
+        if (value === undefined) {
+            errors.push(`Type "${def.name}": parameter "${param.name}" has no value.`);
+        } else if (!isValidLayoutValue(value)) {
+            errors.push(`Type "${def.name}": parameter "${param.name}" must be a positive integer.`);
+        }
+    }
+    return errors;
+}
+
 
 /**
  * Resolve a `kind: 'enum'` target from a reference id. Returns null when the
@@ -450,7 +529,9 @@ function scalarOrPointerFieldSize(field: TypeField): number | null {
 function nestedTypeFieldSize(field: TypeField, map: Map<string, TypeDef>, depth: number): number {
     if (depth >= MAX_NESTED_DEPTH) { return 0; }
     const child = referencedType(field, map);
-    return child ? typeByteSizeWithDefs(child, map, depth + 1) : 0;
+    // Nested references resolve their own parameter defaults (validation rejects
+    // a nested templated type that has a parameter without a default).
+    return child ? typeByteSizeWithDefs(child, map, depth + 1, layoutParams(child)) : 0;
 }
 
 function fieldAlignWithDefs(field: TypeField, map: Map<string, TypeDef>, depth: number): number {
@@ -483,7 +564,7 @@ function typeAlignmentWithDefs(def: TypeDef, map: Map<string, TypeDef>, depth: n
     return maxAlign;
 }
 
-function typeByteSizeWithDefs(def: TypeDef, map: Map<string, TypeDef>, depth: number): number {
+function typeByteSizeWithDefs(def: TypeDef, map: Map<string, TypeDef>, depth: number, params: LayoutParams): number {
     let offset = 0;
     let maxAlign = 1;
 
@@ -492,7 +573,7 @@ function typeByteSizeWithDefs(def: TypeDef, map: Map<string, TypeDef>, depth: nu
         const align = def.packed ? 1 : fieldAlignWithDefs(f, map, depth);
         maxAlign = Math.max(maxAlign, align);
         offset = alignUp(offset, align);
-        offset += sz * f.count;
+        offset += sz * resolvedFieldCount(f, params);
     }
 
     if (def.packed) { return offset; }
@@ -502,10 +583,11 @@ function typeByteSizeWithDefs(def: TypeDef, map: Map<string, TypeDef>, depth: nu
 /**
  * Compute byte size of a type, respecting alignment padding unless packed.
  * Includes trailing padding so that arrays of the type are correctly aligned.
+ * `params` supplies instance values for a templated type; omitted = defaults.
  */
-export function typeByteSize(def: TypeDef, defs: readonly TypeDef[] = []): number {
+export function typeByteSize(def: TypeDef, defs: readonly TypeDef[] = [], params?: LayoutParams): number {
     const { def: resolved, map } = materializedDefsMap(def, defs);
-    return typeByteSizeWithDefs(resolved, map, 1);
+    return typeByteSizeWithDefs(resolved, map, 1, layoutParams(resolved, params));
 }
 
 /** Validate nested type references, cycles, and max depth constraints. */
@@ -526,6 +608,7 @@ export function validateTypes(defs: TypeDef[], maxDepth = MAX_NESTED_DEPTH): str
 function validateTypeDefPoolEntry(d: TypeDef, byId: Map<string, TypeDef>, errors: string[]): void {
     validateEndianAllocationOverrides(d, errors);
     validateTypeDefKind(d, errors);
+    validateTypeParams(d, errors);
     validateDuplicateFieldNames(d, errors);
     if (typeDefKind(d) === 'bitfield') {
         validateBitFieldDefShape(d, byId, errors);
@@ -535,16 +618,86 @@ function validateTypeDefPoolEntry(d: TypeDef, byId: Map<string, TypeDef>, errors
         validateEnumDefShape(d, errors);
         return;
     }
+    validateFieldCountParams(d, errors);
     for (const f of d.fields) {
         validateTypeFieldEntry(d, f, byId, errors);
+    }
+}
+
+const PARAM_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Parameter declarations: unique C identifiers, `kind: 'size'`, positive-integer defaults, struct-only. */
+function validateTypeParams(def: TypeDef, errors: string[]): void {
+    if (def.params === undefined) { return; }
+    const ctx = `Type "${def.name}"`;
+    if (!Array.isArray(def.params)) {
+        errors.push(`${ctx}: params must be an array.`);
+        return;
+    }
+    if (def.params.length > 0 && typeDefKind(def) !== 'struct') {
+        errors.push(`${ctx}: only a struct type can declare parameters.`);
+    }
+    const seen = new Set<string>();
+    for (const param of def.params) {
+        validateTypeParam(param, ctx, seen, errors);
+    }
+}
+
+function validateTypeParam(param: TypeParam, ctx: string, seen: Set<string>, errors: string[]): void {
+    if (!param || typeof param.name !== 'string' || param.name.trim() === '') {
+        errors.push(`${ctx}: parameter name must not be empty.`);
+        return;
+    }
+    if (!PARAM_NAME_RE.test(param.name)) {
+        errors.push(`${ctx}: invalid parameter name "${param.name}" (must be a C identifier).`);
+    }
+    if (seen.has(param.name)) {
+        errors.push(`${ctx}: duplicate parameter name "${param.name}".`);
+    }
+    seen.add(param.name);
+    if (param.kind !== 'size') {
+        errors.push(`${ctx}: parameter "${param.name}" has invalid kind "${param.kind}" (expected "size").`);
+    }
+    if (param.default !== undefined && !isValidLayoutValue(param.default)) {
+        errors.push(`${ctx}: parameter "${param.name}" default must be a positive integer.`);
+    }
+}
+
+/** Every `countParam` must name a parameter declared by the containing type. */
+function validateFieldCountParams(def: TypeDef, errors: string[]): void {
+    const names = new Set((def.params ?? []).map(param => param.name));
+    for (const field of def.fields) {
+        if (field.countParam !== undefined && !names.has(field.countParam)) {
+            errors.push(`Type "${def.name}": field "${field.name}" references unknown parameter "${field.countParam}".`);
+        }
     }
 }
 
 /** One field: reference check plus inline bit-field container validation. */
 function validateTypeFieldEntry(d: TypeDef, f: TypeField, byId: Map<string, TypeDef>, errors: string[]): void {
     validateTypeReference(d, f, byId, errors);
+    validateNestedParamDefaults(d, f, byId, errors);
     if (isBitFieldContainer(f)) {
         validateBitFieldContainer(d, f, byId, errors);
+    }
+}
+
+/**
+ * First-release restriction: a templated struct nested as a field has no
+ * per-usage values, so every parameter must carry a default.
+ */
+function validateNestedParamDefaults(def: TypeDef, field: TypeField, byId: Map<string, TypeDef>, errors: string[]): void {
+    field = normalizeTypeField(field);
+    if (field.type !== 'struct' || field.isPointer || !field.refTypeId) { return; }
+    const target = byId.get(field.refTypeId);
+    if (!target || typeDefKind(target) !== 'struct') { return; }
+    for (const param of target.params ?? []) {
+        if (param.default === undefined) {
+            errors.push(
+                `Type "${def.name}": field "${field.name}" references templated type "${target.name}" ` +
+                `whose parameter "${param.name}" has no default.`,
+            );
+        }
     }
 }
 
@@ -949,23 +1102,27 @@ export interface DecodedField {
 export interface ResolvedTypeFieldPath {
     field: TypeField;
     typeName?: string;
+    /** Resolved element count (parameter value when `countParam` is set). */
+    count: number;
 }
 
 /**
  * Resolve a dotted field path (optionally containing array indices) to the declared field.
  * Example accepted paths: "nodes", "nodes[0]", "outer[1].nodes".
+ * `params` supplies the top-level type's instance values; nested defs use defaults.
  */
 export function resolveTypeFieldByPath(
     def: TypeDef,
     fieldPath: string,
     defs: readonly TypeDef[] = [],
+    params?: LayoutParams,
 ): ResolvedTypeFieldPath | null {
     const parts = parseTypeFieldPathParts(fieldPath);
     if (!parts) { return null; }
 
     const { def: resolved, map: byId } = materializedDefsMap(def, defs);
-    const field = resolveTypePathParts(resolved, parts, byId);
-    return field ? buildResolvedTypeFieldPath(field, byId) : null;
+    const found = resolveTypePathParts(resolved, parts, byId, layoutParams(resolved, params));
+    return found ? buildResolvedTypeFieldPath(found.field, byId, found.params) : null;
 }
 
 function parseTypeFieldPathParts(fieldPath: string): string[] | null {
@@ -978,13 +1135,14 @@ function resolveTypePathParts(
     def: TypeDef,
     parts: string[],
     byId: Map<string, TypeDef>,
-): TypeField | null {
+    params: LayoutParams,
+): { field: TypeField; params: LayoutParams } | null {
     const field = findTypeField(def, parts[0]);
     if (!field) { return null; }
-    if (parts.length === 1) { return field; }
+    if (parts.length === 1) { return { field, params }; }
     const child = resolveChildTypeDef(field, byId);
     if (!child) { return null; }
-    return resolveTypePathParts(child, parts.slice(1), byId);
+    return resolveTypePathParts(child, parts.slice(1), byId, layoutParams(child));
 }
 
 function findTypeField(def: TypeDef, fieldName: string): TypeField | undefined {
@@ -996,10 +1154,15 @@ function resolveChildTypeDef(field: TypeField, byId: Map<string, TypeDef>): Type
     return byId.get(field.refTypeId) ?? null;
 }
 
-function buildResolvedTypeFieldPath(field: TypeField, byId: Map<string, TypeDef>): ResolvedTypeFieldPath {
-    if (field.type !== 'struct') { return { field }; }
+function buildResolvedTypeFieldPath(
+    field: TypeField,
+    byId: Map<string, TypeDef>,
+    params: LayoutParams,
+): ResolvedTypeFieldPath {
+    const count = resolvedFieldCount(field, params);
+    if (field.type !== 'struct') { return { field, count }; }
     const child = field.refTypeId ? byId.get(field.refTypeId) : null;
-    return { field, typeName: child?.name };
+    return { field, typeName: child?.name, count };
 }
 
 type FieldDecoder = (dv: DataView, le: boolean) => string;
@@ -1069,6 +1232,8 @@ interface DecodeContext {
     depth: number;
     pathPrefix: string;
     baseOffset: number;
+    /** Resolved parameter values for the type being decoded at this level. */
+    params: LayoutParams;
 }
 
 function readFieldBytes(ctx: DecodeContext, absOffset: number, count: number): number[] {
@@ -1128,14 +1293,15 @@ function decodeBitFieldContainer(
     const unitBytes = fieldByteSize(field.type as UnsignedScalarType);
     const unitBits = unitBytes * 8;
     const alignedOffset = alignUp(offset, align);
+    const count = resolvedFieldCount(field, ctx.params);
 
-    for (let idx = 0; idx < field.count; idx++) {
+    for (let idx = 0; idx < count; idx++) {
         const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + alignedOffset + idx * unitBytes;
         decodeBitFieldChildren(ctx, field, fieldPath, idx, absOffset, unitBytes, unitBits, endian, allocation);
     }
 
-    return alignedOffset + unitBytes * field.count;
+    return alignedOffset + unitBytes * count;
 }
 
 function decodeBitFieldChildren(
@@ -1254,7 +1420,8 @@ function decodeAsciiField(
 ): number {
     const absOffset = ctx.baseOffset + offset;
     const normalized = normalizeTypeField(field);
-    const totalBytes = normalized.isPointer ? POINTER_BYTE_SIZE * field.count : elemSize * field.count;
+    const count = resolvedFieldCount(field, ctx.params);
+    const totalBytes = normalized.isPointer ? POINTER_BYTE_SIZE * count : elemSize * count;
     const raw = readFieldBytes(ctx, absOffset, totalBytes);
     const hasData = raw.every(v => v >= 0);
     if (normalized.isPointer) {
@@ -1291,7 +1458,7 @@ function pointerTargetByteSize(field: TypeField, map: Map<string, TypeDef>, dept
 
 function pointerTargetTypeByteSize(field: TypeField, map: Map<string, TypeDef>, depth: number): number {
     const child = referencedType(field, map);
-    return child ? typeByteSizeWithDefs(child, map, depth + 1) : 1;
+    return child ? typeByteSizeWithDefs(child, map, depth + 1, layoutParams(child)) : 1;
 }
 
 function enumPointerTargetByteSize(field: TypeField, map: Map<string, TypeDef>): number {
@@ -1316,7 +1483,8 @@ function decodePointerElements(
     offset: number,
     endian: 'le' | 'be',
 ): void {
-    for (let idx = 0; idx < field.count; idx++) {
+    const count = resolvedFieldCount(field, ctx.params);
+    for (let idx = 0; idx < count; idx++) {
         const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + offset + idx * POINTER_BYTE_SIZE;
         const raw = readFieldBytes(ctx, absOffset, POINTER_BYTE_SIZE);
@@ -1432,6 +1600,7 @@ function decodeNestedTypeField(
         absOffset,
         inheritedEndian,
         inheritedAllocation,
+        layoutParams(child),
     );
 }
 
@@ -1444,12 +1613,13 @@ function decodeFieldElements(
     allocation: BitFieldAllocation,
 ): number {
     field = normalizeTypeField(field);
+    const count = resolvedFieldCount(field, ctx.params);
     if (field.isPointer) {
         decodePointerElements(ctx, field, offset, endian);
-        return offset + POINTER_BYTE_SIZE * field.count;
+        return offset + POINTER_BYTE_SIZE * count;
     }
     let nextOffset = offset;
-    for (let idx = 0; idx < field.count; idx++) {
+    for (let idx = 0; idx < count; idx++) {
         const fieldPath = fieldElementPath(ctx, field, idx);
         const absOffset = ctx.baseOffset + nextOffset;
         if (field.type === 'struct') {
@@ -1464,7 +1634,7 @@ function decodeFieldElements(
 
 function fieldElementPath(ctx: DecodeContext, field: TypeField, idx: number): string {
     field = normalizeTypeField(field);
-    const elementName = field.count > 1 ? `${field.name}[${idx}]` : field.name;
+    const elementName = resolvedFieldCount(field, ctx.params) > 1 ? `${field.name}[${idx}]` : field.name;
     return joinFieldPath(ctx.pathPrefix, elementName);
 }
 
@@ -1481,9 +1651,10 @@ function decodeTypeRecursive(
     baseOffset: number,
     effectiveEndian: 'le' | 'be',
     effectiveAllocation: BitFieldAllocation,
+    params: LayoutParams,
 ): number {
     let offset = 0;
-    const ctx: DecodeContext = { baseAddr, getByte, bitFieldAllocation, globalEndian, map, rows, depth, pathPrefix, baseOffset };
+    const ctx: DecodeContext = { baseAddr, getByte, bitFieldAllocation, globalEndian, map, rows, depth, pathPrefix, baseOffset, params };
 
     // First explicit value up the chain wins — this type's override beats whatever
     // the enclosing type/field/global passed down as effective.
@@ -1544,10 +1715,14 @@ export function decodeType(
     globalEndian: 'le' | 'be',
     bitFieldAllocation: BitFieldAllocation = 'msb',
     defs: readonly TypeDef[] = [],
+    params?: LayoutParams,
 ): DecodedField[] {
     const rows: DecodedField[] = [];
     const { def: resolved, map } = materializedDefsMap(def, defs);
-    decodeTypeRecursive(resolved, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows, 1, '', 0, globalEndian, bitFieldAllocation);
+    decodeTypeRecursive(
+        resolved, baseAddr, getByte, globalEndian, bitFieldAllocation, map, rows,
+        1, '', 0, globalEndian, bitFieldAllocation, layoutParams(resolved, params),
+    );
     return rows;
 }
 
@@ -1938,6 +2113,8 @@ type TypeCEmitState = {
     offset: number;
     maxAlign: number;
     packed: boolean;
+    params: LayoutParams;
+    paramMacros: Map<string, string>;
 };
 
 function emitTypeCField(f: TypeField, fieldIndex: number, state: TypeCEmitState): void {
@@ -1955,13 +2132,14 @@ function emitBitFieldContainerC(f: TypeField, state: TypeCEmitState): void {
     applyTypeCAlignment(align, state);
 
     const cType = fieldTypeToC(f, state.byId);
-    const arr = f.count > 1 ? `[${f.count}]` : '';
+    const count = resolvedFieldCount(f, state.params);
+    const arr = typeCArrayDimension(f, state);
     const fieldName = f.name || 'bitfield';
 
     state.lines.push(`    struct {`);
     appendBitFieldChildrenC(f, cType, state.lines);
     state.lines.push(`    } ${fieldName}${arr};`);
-    state.offset += unitBytes * f.count;
+    state.offset += unitBytes * count;
 }
 
 function appendBitFieldChildrenC(f: TypeField, cType: string, lines: string[]): void {
@@ -1984,13 +2162,26 @@ function emitScalarTypeFieldC(f: TypeField, fieldIndex: number, state: TypeCEmit
 
     const cType = fieldTypeToC(f, state.byId).padEnd(state.maxTypeLen);
     const displayFieldName = f.name || `field${fieldIndex}`;
-    const arr = f.count > 1 ? `[${f.count}]` : '';
-    const fieldBytes = fieldSize * f.count;
+    const count = resolvedFieldCount(f, state.params);
+    const arr = typeCArrayDimension(f, state);
+    const fieldBytes = fieldSize * count;
     state.lines.push(
         `    ${cType} ${displayFieldName}${arr};`.padEnd(44) +
         `/* +${state.offset.toString().padStart(3)}  ${fieldBytes}B${enumFieldNote(f, state.byId)} */`
     );
     state.offset += fieldBytes;
+}
+
+/**
+ * C array dimension for a field: the bound parameter's macro (never a fake
+ * fixed length), a literal count when > 1, or nothing for a scalar.
+ */
+function typeCArrayDimension(f: TypeField, state: TypeCEmitState): string {
+    if (f.countParam !== undefined) {
+        return `[${state.paramMacros.get(f.countParam) ?? f.countParam}]`;
+    }
+    const count = resolvedFieldCount(f, state.params);
+    return count > 1 ? `[${count}]` : '';
 }
 
 function applyTypeCAlignment(align: number, state: TypeCEmitState): void {
@@ -2014,8 +2205,17 @@ function maxTypeCTypeLength(fields: TypeField[], byId: Map<string, TypeDef>): nu
     return typeLens.length > 0 ? Math.max(...typeLens) : 8;
 }
 
-function createTypeCEmitState(def: TypeDef, lines: string[], byId: Map<string, TypeDef>): TypeCEmitState {
-    return { byId, lines, maxTypeLen: maxTypeCTypeLength(def.fields, byId), offset: 0, maxAlign: 1, packed: !!def.packed };
+function createTypeCEmitState(
+    def: TypeDef,
+    lines: string[],
+    byId: Map<string, TypeDef>,
+    params: LayoutParams,
+    paramMacros: Map<string, string>,
+): TypeCEmitState {
+    return {
+        byId, lines, maxTypeLen: maxTypeCTypeLength(def.fields, byId),
+        offset: 0, maxAlign: 1, packed: !!def.packed, params, paramMacros,
+    };
 }
 
 function appendTypeCFooter(def: TypeDef, lines: string[], totalBytes: number, alignNote: string): void {
@@ -2043,16 +2243,19 @@ function typeCAlignNote(def: TypeDef, maxAlign: number): string {
 }
 
 /** Render a TypeDef as a C typedef with per-field offset comments. */
-export function typeDefToC(def: TypeDef, defs: readonly TypeDef[] = []): string {
+export function typeDefToC(def: TypeDef, defs: readonly TypeDef[] = [], params?: LayoutParams): string {
     const { def: resolved, map: byId } = materializedDefsMap(def, defs);
     if (typeDefKind(resolved) === 'bitfield') { return bitFieldDefToC(resolved); }
     if (typeDefKind(resolved) === 'enum') { return enumDefToC(resolved); }
 
+    const resolvedParams = layoutParams(resolved, params);
+    const paramMacros = paramMacroNames(resolved);
     const attr = resolved.packed ? ' __attribute__((packed))' : '';
     const lines: string[] = [];
+    appendParamMacros(resolved, resolvedParams, paramMacros, lines);
     lines.push(`typedef struct${attr} {`);
 
-    const state = createTypeCEmitState(resolved, lines, byId);
+    const state = createTypeCEmitState(resolved, lines, byId, resolvedParams, paramMacros);
 
     emitTypeCFields(resolved, state);
 
@@ -2065,6 +2268,62 @@ export function typeDefToC(def: TypeDef, defs: readonly TypeDef[] = []): string 
     appendTypeCFooter(resolved, lines, totalBytes, alignNote);
 
     return lines.join('\n');
+}
+
+/** Parameter names referenced by at least one field's `countParam` (declaration order). */
+function usedParamNames(def: TypeDef): string[] {
+    const used = new Set(def.fields.map(field => field.countParam).filter((n): n is string => n !== undefined));
+    return (def.params ?? []).map(param => param.name).filter(name => used.has(name));
+}
+
+/**
+ * Collision-safe macro names for a def's parameters: uppercase C identifiers,
+ * prefixed with the uppercased type name when two parameters map to the same
+ * base name. A name that still collides gets a numeric suffix.
+ */
+function paramMacroNames(def: TypeDef): Map<string, string> {
+    const groups = new Map<string, string[]>();
+    for (const param of def.params ?? []) {
+        const base = parameterMacroBase(param.name);
+        const group = groups.get(base) ?? [];
+        group.push(param.name);
+        groups.set(base, group);
+    }
+    const prefix = parameterMacroBase(def.name || 'TYPE');
+    const out = new Map<string, string>();
+    for (const [base, names] of groups) {
+        if (names.length === 1) {
+            out.set(names[0], base);
+            continue;
+        }
+        names.forEach((name, i) => out.set(name, `${prefix}_${base}${i > 0 ? `_${i}` : ''}`));
+    }
+    return out;
+}
+
+function parameterMacroBase(name: string): string {
+    return (sanitizeTypeIdentifier(name) || 'PARAM').toUpperCase();
+}
+
+/** `#define` lines for every parameter used by a field count, above the typedef. */
+function appendParamMacros(
+    def: TypeDef,
+    params: LayoutParams,
+    macros: Map<string, string>,
+    lines: string[],
+): void {
+    const used = usedParamNames(def);
+    if (used.length === 0) { return; }
+    const byName = new Map((def.params ?? []).map(param => [param.name, param]));
+    for (const name of used) {
+        const param = byName.get(name);
+        const value = isValidLayoutValue(params[name]) ? params[name] : 0;
+        const note = param?.default !== undefined
+            ? 'size parameter'
+            : 'size parameter \u2014 no default; set per instance';
+        lines.push(`#define ${macros.get(name) ?? parameterMacroBase(name)} ${value} /* ${note} */`);
+    }
+    lines.push('');
 }
 
 /** Render a standalone `kind: 'bitfield'` def as a C typedef of its storage unit. */

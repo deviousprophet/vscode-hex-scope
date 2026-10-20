@@ -5,7 +5,7 @@
 
 import {
     parseIntegrityAddress,
-    validateIntegrityRange,
+    validateIntegrityAddressRange,
 } from '../../../../core/integrity';
 import type { IntegrityCheckState, StoredValueUpdate } from './integrityCheckModel';
 import { hasStoredValue, highlightStatus } from './integrityResultRender';
@@ -29,7 +29,7 @@ export function syncHighlight(
 }
 
 function highlightForCheck(check: IntegrityCheckState): IntegrityHighlight | null {
-    const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
+    const range = validateIntegrityAddressRange(check.startRaw, check.endRaw);
     if (!range.ok) { return null; }
     const highlight: IntegrityHighlight = {
         rangeStart: range.value.startAddress,
@@ -44,8 +44,18 @@ function addStoredHighlight(highlight: IntegrityHighlight, check: IntegrityCheck
     if (!hasStoredValue(check)) { return; }
     const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!stored.ok) { return; }
+    const byteLength = storedByteLength(check);
+    if (!byteLength) { return; }
     highlight.storedStart = stored.value;
-    highlight.storedLength = integrityOutputByteLength(check.algorithm);
+    highlight.storedLength = byteLength;
+}
+
+/** Built-in length comes from the algorithm; script length from the value bytes. */
+function storedByteLength(check: IntegrityCheckState): number | null {
+    if (check.kind === 'script') {
+        return check.expectedBytes?.length ?? check.storedBytes?.length ?? null;
+    }
+    return integrityOutputByteLength(check.algorithm);
 }
 
 export function clearHighlight(hooks: IntegrityHighlightHooks): void {

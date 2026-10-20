@@ -22,9 +22,12 @@ import { countTypeFieldRefs } from './core/overlay/overlayCodec';
 import {
     messageType,
     RECORD_PAGE_SIZE,
+    SCRIPT_PERMISSION_TIMEOUT_MS,
     showHiddenFieldsOrDefault,
     type ProfileSummary,
     type ProviderToWebviewMessage,
+    type ScriptCapability,
+    type ScriptPermissionScope,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
 import {
@@ -55,8 +58,12 @@ import {
 } from './hexScopeStorage';
 import { migrateLegacyData } from './hexScopeMigration';
 
-import { scanScripts, execute } from './core/scripting/scriptRunner';
-import { VSCodeScriptHost } from './scriptHost';
+import { scanScripts, execute, scriptFingerprint } from './core/scripting/scriptRunner';
+import { VSCodeScriptHost, scriptWritePlan } from './scriptHost';
+import { ScriptGrantStore, ScriptPermissionBroker } from './scriptPermissions';
+import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths } from './integrityScriptRunner';
+import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
+import { addExampleScriptsAt } from './addExampleScripts';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
@@ -442,6 +449,16 @@ export class HexEditorSession {
         private readonly _context: vscode.ExtensionContext,
     ) {}
 
+    private _scriptGrants: ScriptGrantStore | null = null;
+
+    /** Host-lifetime grant store: session grants live in memory, workspace grants persist. */
+    private scriptGrants(): ScriptGrantStore {
+        if (!this._scriptGrants) {
+            this._scriptGrants = new ScriptGrantStore(this._context.workspaceState);
+        }
+        return this._scriptGrants;
+    }
+
     async resolveCustomEditor(
         document: vscode.CustomDocument,
         webviewPanel: vscode.WebviewPanel,
@@ -456,10 +473,40 @@ export class HexEditorSession {
         let disposed = false;
         let activeLoad: AbortController | null = new AbortController();
         let currentAbort: AbortController | null = null;
+        let addressAbort: AbortController | null = null;
+        // One Worker at a time: user-initiated runs and instance address batches
+        // are serialized so they cannot compete for the single-run UI.
+        let scriptQueue: Promise<unknown> = Promise.resolve();
+        const enqueueScript = <T>(task: () => Promise<T>): Promise<T> => {
+            const run = scriptQueue.then(task, task);
+            scriptQueue = run.then(() => undefined, () => undefined);
+            return run;
+        };
         let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+        let permissionBroker: ScriptPermissionBroker | null = null;
         const resources = new DisposableStore();
         resources.add(token.onCancellationRequested(() => activeLoad?.abort()));
+
+        /** Post the revocable workspace-grant list for the panel's Permissions section. */
+        const postPermissions = (): void => {
+            void postToWebview(webviewPanel.webview, {
+                type: 'scriptPermissions',
+                grants: this.scriptGrants().listWorkspaceGrants(),
+            });
+        };
+
+        /** Lazily-created approval bridge (grant hit → allow, else one inline prompt). */
+        const permissionBrokerFor = (): ScriptPermissionBroker => {
+            if (!permissionBroker) {
+                permissionBroker = new ScriptPermissionBroker(
+                    this.scriptGrants(),
+                    request => void postToWebview(webviewPanel.webview, request),
+                    SCRIPT_PERMISSION_TIMEOUT_MS,
+                );
+            }
+            return permissionBroker;
+        };
 
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
@@ -477,8 +524,11 @@ export class HexEditorSession {
         resources.add(incomingDisposable);
         resources.add(() => {
             disposed = true;
+            permissionBroker?.denyPending();
             activeLoad?.abort();
             activeLoad = null;
+            addressAbort?.abort();
+            addressAbort = null;
             raw = '';
             parseResult = null;
             pendingExternalReload = null;
@@ -988,14 +1038,20 @@ export class HexEditorSession {
                         typeDeletionDeclined = false;
                         return;
                     }
-                    await withBoundProfile(current => ({ ...current, typeInstances: msg.pins }));
+                    // Script paths persist workspace-relative; a conflicting or
+                    // empty address source is dropped rather than written.
+                    await withBoundProfile(current => ({
+                        ...current,
+                        typeInstances: withRelativeAddressSources(root, msg.pins),
+                    }));
                 });
             },
             saveIntegrityChecks: async msg => {
                 const state = normalizeIntegrityCheckSet(msg.state);
                 if (!state) { return; }
+                const normalized = withRelativeScriptPaths(root, state);
                 await enqueuePerFileOp(async () => {
-                    await withBoundProfile(current => ({ ...current, activeChecks: state }));
+                    await withBoundProfile(current => ({ ...current, activeChecks: normalized }));
                 });
             },
             saveEndian: async msg => {
@@ -1172,39 +1228,256 @@ export class HexEditorSession {
                 const folder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const root = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
                 const trusted = vscode.workspace.isTrusted;
-                const scripts = scanScripts(root, trusted);
+                const scripts = scanScripts(root, trusted).map(script => ({
+                    ...script,
+                    relativePath: path.relative(root, script.filePath).split(path.sep).join('/'),
+                }));
+                const grants = this.scriptGrants();
+                // Edited scripts lose their approvals; the list refreshes with them.
+                for (const script of scripts) {
+                    grants.revokeStaleFingerprint(script.filePath, script.fingerprint);
+                }
                 void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts });
+                postPermissions();
             },
-            runScript: async msg => {
-                if (!parseResult) { return; }
-                if (disposed) { return; }
-                currentAbort = new AbortController();
-                const scriptPath = msg.scriptPath;
-                const signal = currentAbort.signal;
-                const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
-                const host = new VSCodeScriptHost(parseResult.segments, {
-                    output: post,
-                    confirm: async (type, detail) => {
-                        const btn = await vscode.window.showWarningMessage(
-                            `Script "${scriptPath}" wants to ${type}: ${detail}`, { modal: true }, 'Allow');
-                        return btn === 'Allow';
-                    },
-                    selectionRange: msg.selectionRange,
+            runScript: msg => {
+                // A user run wins the single worker slot: stop any address batch now.
+                addressAbort?.abort();
+                addressAbort = null;
+                return enqueueScript(async () => {
+                    if (!parseResult) { return; }
+                    if (disposed) { return; }
+                    currentAbort = new AbortController();
+                    const scriptPath = msg.scriptPath;
+                    const signal = currentAbort.signal;
+                    const grants = this.scriptGrants();
+                    const fingerprint = scriptFingerprint(scriptPath);
+                    if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
+                    const scriptName = path.basename(scriptPath);
+                    const broker = permissionBrokerFor();
+                    const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
+                    const host = new VSCodeScriptHost(parseResult.segments, {
+                        output: post,
+                        confirm: async (type, detail) => {
+                            if (disposed || signal.aborted) { return false; }
+                            const allow = await broker.confirm({ capability: type, detail, scriptPath, scriptName, fingerprint });
+                            return allow && !disposed && !signal.aborted;
+                        },
+                        selectionRange: msg.selectionRange,
+                        workspaceRoot: root,
+                    });
+                    const trusted = vscode.workspace.isTrusted;
+                    const output = await execute(scriptPath, host, undefined, signal, trusted);
+                    if (currentAbort?.signal === signal) { currentAbort = null; }
+                    const plan = scriptWritePlan(output.error, host.pendingWrites);
+                    // Approved writes commit as one transaction only on a clean run.
+                    if (plan.commit.length > 0) {
+                        void postToWebview(webviewPanel.webview, { type: 'scriptWritesCommit', scriptPath, writes: plan.commit });
+                    }
+                    void postToWebview(webviewPanel.webview, {
+                        type: 'scriptResult', scriptPath, result: output,
+                        error: output.error ?? '', errorType: output.errorType,
+                        pendingWriteCount: plan.pendingWriteCount,
+                        discardedWriteCount: plan.discardedWriteCount,
+                    });
                 });
-                const trusted = vscode.workspace.isTrusted;
-                const output = await execute(scriptPath, host, undefined, signal, trusted);
-                // ponytail: guard with `if (currentAbort?.signal === signal)` if runs can overlap
-                currentAbort = null;
-                void postToWebview(webviewPanel.webview, {
-                    type: 'scriptResult', scriptPath, result: output,
-                    error: output.error ?? '', errorType: output.errorType,
-                    pendingWriteCount: host.pendingWrites.length,
-                    pendingWrites: host.pendingWrites.map(w => [w.address, w.value] as [number, number]),
+            },
+            scriptPermissionResponse: async msg => {
+                permissionBrokerFor().respond(msg);
+                postPermissions();
+            },
+            revokeScriptPermission: async msg => {
+                this.scriptGrants().revokeWorkspaceGrant(msg.scriptPath, msg.capability);
+                postPermissions();
+            },
+            addExampleScripts: async () => {
+                // The panel's root is the same one requestScriptList scans; install there,
+                // then rescan so the new cards appear without a manual refresh.
+                const installed = await addExampleScriptsAt(root, this._context);
+                if (installed && installed.added.length > 0) {
+                    await messageHandlers.requestScriptList?.({ type: 'requestScriptList' });
+                }
+            },
+            runIntegrityScript: async msg => {
+                if (!parseResult || disposed) { return; }
+                if (msg.generation !== currentGeneration) {
+                    void postToWebview(webviewPanel.webview, {
+                        type: 'integrityScriptResult',
+                        requestId: msg.requestId,
+                        checkId: msg.checkId,
+                        generation: msg.generation,
+                        error: 'Stale request: the document changed.',
+                        errorType: 'cancel',
+                    });
+                    return;
+                }
+                // Fire-and-forget: a slow check must not block other webview messages
+                // (edits/saves keep flowing; the panel discards stale generations).
+                const segments = parseResult.segments;
+                void (async () => {
+                    const outcome = await runIntegrityScript({
+                        root,
+                        scriptPath: msg.scriptPath,
+                        segments,
+                        edits: msg.edits,
+                        trusted: vscode.workspace.isTrusted,
+                        startAddress: msg.startAddress,
+                        endAddress: msg.endAddress,
+                        storedAddress: msg.storedAddress,
+                        storedLength: msg.storedLength,
+                        confirm: async (type, detail) => {
+                            if (disposed) { return false; }
+                            // Script checks are read-only: never prompt for (or allow) writes.
+                            if (type === 'write') { return false; }
+                            const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                            if (!scriptPath) { return false; }
+                            const fingerprint = scriptFingerprint(scriptPath);
+                            const grants = this.scriptGrants();
+                            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
+                            return permissionBrokerFor().confirm({
+                                capability: type,
+                                detail,
+                                scriptPath,
+                                scriptName: path.basename(scriptPath),
+                                fingerprint,
+                            });
+                        },
+                    });
+                    if (disposed) { return; }
+                    void postToWebview(webviewPanel.webview, outcome.ok
+                        ? {
+                            type: 'integrityScriptResult',
+                            requestId: msg.requestId,
+                            checkId: msg.checkId,
+                            generation: msg.generation,
+                            result: outcome.value,
+                        }
+                        : {
+                            type: 'integrityScriptResult',
+                            requestId: msg.requestId,
+                            checkId: msg.checkId,
+                            generation: msg.generation,
+                            error: outcome.error,
+                            errorType: outcome.errorType,
+                        });
+                })();
+            },
+            resolveInstanceAddresses: msg => {
+                // A newer batch supersedes the in-flight one immediately.
+                addressAbort?.abort();
+                return enqueueScript(async () => {
+                    if (!parseResult || disposed) { return; }
+                    const batchAbort = new AbortController();
+                    addressAbort = batchAbort;
+                    if (msg.generation !== currentGeneration) {
+                        if (addressAbort === batchAbort) { addressAbort = null; }
+                        void postToWebview(webviewPanel.webview, {
+                            type: 'instanceAddressesResolved',
+                            requestId: msg.requestId,
+                            generation: msg.generation,
+                            stale: true,
+                            results: [],
+                        });
+                        return;
+                    }
+                    const results = await runInstanceAddresses({
+                        root,
+                        entries: msg.entries,
+                        segments: parseResult.segments,
+                        edits: msg.edits,
+                        trusted: vscode.workspace.isTrusted,
+                        signal: batchAbort.signal,
+                        confirm: async (scriptPath, type, detail) => {
+                            if (disposed || batchAbort.signal.aborted) { return false; }
+                            // Address scripts are read-only: writes are never prompted for or allowed.
+                            if (type === 'write') { return false; }
+                            const fingerprint = scriptFingerprint(scriptPath);
+                            const grants = this.scriptGrants();
+                            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
+                            return permissionBrokerFor().confirm({
+                                capability: type,
+                                detail,
+                                scriptPath,
+                                scriptName: path.basename(scriptPath),
+                                fingerprint,
+                            });
+                        },
+                    });
+                    if (addressAbort === batchAbort) { addressAbort = null; }
+                    if (disposed) { return; }
+                    void postToWebview(webviewPanel.webview, {
+                        type: 'instanceAddressesResolved',
+                        requestId: msg.requestId,
+                        generation: msg.generation,
+                        ...(batchAbort.signal.aborted ? { stale: true } : {}),
+                        results,
+                    });
                 });
+            },
+            resolveInstanceParams: msg => {
+                // A newer batch supersedes the in-flight one immediately.
+                addressAbort?.abort();
+                return enqueueScript(async () => {
+                    if (!parseResult || disposed) { return; }
+                    const batchAbort = new AbortController();
+                    addressAbort = batchAbort;
+                    if (msg.generation !== currentGeneration) {
+                        if (addressAbort === batchAbort) { addressAbort = null; }
+                        void postToWebview(webviewPanel.webview, {
+                            type: 'instanceParamsResolved',
+                            requestId: msg.requestId,
+                            generation: msg.generation,
+                            stale: true,
+                            results: [],
+                        });
+                        return;
+                    }
+                    const results = await runInstanceParams({
+                        root,
+                        entries: msg.entries,
+                        segments: parseResult.segments,
+                        edits: msg.edits,
+                        trusted: vscode.workspace.isTrusted,
+                        signal: batchAbort.signal,
+                        confirm: async (scriptPath, type, detail) => {
+                            if (disposed || batchAbort.signal.aborted) { return false; }
+                            // Size scripts are read-only: writes are never prompted for or allowed.
+                            if (type === 'write') { return false; }
+                            const fingerprint = scriptFingerprint(scriptPath);
+                            const grants = this.scriptGrants();
+                            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
+                            return permissionBrokerFor().confirm({
+                                capability: type,
+                                detail,
+                                scriptPath,
+                                scriptName: path.basename(scriptPath),
+                                fingerprint,
+                            });
+                        },
+                    });
+                    if (addressAbort === batchAbort) { addressAbort = null; }
+                    if (disposed) { return; }
+                    void postToWebview(webviewPanel.webview, {
+                        type: 'instanceParamsResolved',
+                        requestId: msg.requestId,
+                        generation: msg.generation,
+                        ...(batchAbort.signal.aborted ? { stale: true } : {}),
+                        results,
+                    });
+                });
+            },
+            openScript: async msg => {
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(scriptPath));
+                await vscode.window.showTextDocument(doc, { preview: true });
             },
             cancelScript: async msg => {
+                permissionBroker?.denyPending();
                 currentAbort?.abort();
                 currentAbort = null;
+                addressAbort?.abort();
+                addressAbort = null;
             },
             closePanel: async () => {
                 webviewPanel.dispose();

@@ -6,6 +6,7 @@ import {
     collectIntegrityBytesAsync,
     integrityBytesEqual,
     integrityBytesToValueHex,
+    integrityScriptName,
     integrityValueToBytes,
     isChecksumAlgorithm,
     mergeIntegrityEdits,
@@ -13,6 +14,7 @@ import {
     normalizeIntegrityProfiles,
     parseIntegrityAddress,
     readStoredIntegrityBytes,
+    scriptCheckPassed,
     type IntegrityAlgorithm,
     validateIntegrityRange,
 } from '../../core/integrity';
@@ -201,6 +203,7 @@ suite('integrity profile normalization', () => {
             }],
         }]);
         assert.deepStrictEqual(profiles[0].checks[0], {
+            kind: 'builtin',
             algorithm: 'sha-256', startAddress: 0x1000, endAddress: 0x10FF,
             storedAddress: 0x1100, autoFixStoredValue: true,
         });
@@ -250,8 +253,7 @@ suite('integrity check-set normalization', () => {
     });
 });
 
-suite('integrity edit merging', () => {
-    test('deduplicates compatible overlapping fixes', () => {
+suite('integrity edit merging', () => {    test('deduplicates compatible overlapping fixes', () => {
         assert.deepStrictEqual(mergeIntegrityEdits([
             [[0x1000, 0xAA], [0x1001, 0xBB]],
             [[0x1001, 0xBB], [0x1002, 0xCC]],
@@ -263,5 +265,72 @@ suite('integrity edit merging', () => {
             [[0x1000, 0xAA]],
             [[0x1000, 0xBB]],
         ]), { ok: false, error: 'Fix all conflict at 0x00001000.' });
+    });
+});
+
+suite('integrity check union normalization', () => {
+    const base = { startAddress: 0x1000, endAddress: 0x10FF, autoFixStoredValue: false };
+    const set = (checks: unknown[]) => normalizeIntegrityCheckSet({ schemaVersion: 1, checks });
+
+    test('older profiles without kind default to a built-in check', () => {
+        const normalized = set([{ ...base, algorithm: 'crc32-iso-hdlc' }]);
+        assert.deepStrictEqual(normalized, {
+            schemaVersion: 1,
+            checks: [{ kind: 'builtin', ...base, algorithm: 'crc32-iso-hdlc' }],
+        });
+    });
+
+    test('a non-empty scriptPath without kind infers a script check', () => {
+        const normalized = set([{ ...base, scriptPath: ' .hexscope/scripts/verify.js ' }]);
+        assert.deepStrictEqual(normalized, {
+            schemaVersion: 1,
+            checks: [{ kind: 'script', ...base, scriptPath: '.hexscope/scripts/verify.js' }],
+        });
+    });
+
+    test('explicit kinds round-trip with stored settings and names', () => {
+        const normalized = set([
+            { kind: 'builtin', ...base, algorithm: 'sha-256', storedAddress: 0x1100, autoFixStoredValue: true, name: ' App hash ' },
+        ]);
+        assert.deepStrictEqual(normalized?.checks[0], {
+            kind: 'builtin', ...base, algorithm: 'sha-256', storedAddress: 0x1100, autoFixStoredValue: true, name: 'App hash',
+        });
+        const script = set([
+            { kind: 'script', ...base, scriptPath: '.hexscope/scripts/v.js', storedAddress: 0x1100, autoFixStoredValue: true },
+        ]);
+        assert.deepStrictEqual(script?.checks[0], {
+            kind: 'script', ...base, scriptPath: '.hexscope/scripts/v.js', storedAddress: 0x1100, autoFixStoredValue: true,
+        });
+    });
+
+    test('rejects conflicting kind fields and unknown kinds', () => {
+        assert.strictEqual(set([{ kind: 'builtin', ...base, algorithm: 'md5', scriptPath: 'a.js' }]), null);
+        assert.strictEqual(set([{ kind: 'script', ...base, scriptPath: 'a.js', algorithm: 'md5' }]), null);
+        assert.strictEqual(set([{ kind: 'script', ...base }]), null);
+        assert.strictEqual(set([{ kind: 'builtin', ...base }]), null);
+        assert.strictEqual(set([{ kind: 'plugin', ...base, algorithm: 'md5' }]), null);
+    });
+
+    test('scriptCheckPassed prefers verify, falls back to byte equality', () => {
+        const stored = new Uint8Array([1, 2, 3]);
+        assert.strictEqual(scriptCheckPassed({ kind: 'script', valid: true, byteCount: 3, scriptName: 'v.js' }, stored), true);
+        assert.strictEqual(scriptCheckPassed({ kind: 'script', valid: false, byteCount: 3, scriptName: 'v.js' }, stored), false);
+        assert.strictEqual(scriptCheckPassed({
+            kind: 'script', valueBytes: new Uint8Array([1, 2, 3]), byteCount: 3, scriptName: 'v.js',
+        }, stored), true);
+        assert.strictEqual(scriptCheckPassed({
+            kind: 'script', valueBytes: new Uint8Array([1, 2, 4]), byteCount: 3, scriptName: 'v.js',
+        }, stored), false);
+        assert.strictEqual(scriptCheckPassed({
+            kind: 'script', valueBytes: new Uint8Array([1, 2, 3]), byteCount: 3, scriptName: 'v.js',
+        }, null), undefined);
+        assert.strictEqual(scriptCheckPassed({ kind: 'script', byteCount: 3, scriptName: 'v.js' }, stored), undefined);
+        assert.strictEqual(scriptCheckPassed(null, stored), undefined);
+    });
+
+    test('integrityScriptName reads the base name across separators', () => {
+        assert.strictEqual(integrityScriptName('.hexscope/scripts/verify.js'), 'verify.js');
+        assert.strictEqual(integrityScriptName('.hexscope\\scripts\\verify.ts'), 'verify.ts');
+        assert.strictEqual(integrityScriptName('verify.js'), 'verify.js');
     });
 });

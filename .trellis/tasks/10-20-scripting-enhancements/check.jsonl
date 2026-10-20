@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/scripting.md", "reason": "Verify the foundation keeps the documented runner and host contracts."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify gates and test coverage for the integration review."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify dependency direction and module placement across children."}

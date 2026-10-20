@@ -2,11 +2,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import * as assert from 'assert';
-import { execute, scanScripts } from '../../core/scripting/scriptRunner';
+import { execute, executeEntry, scanScripts } from '../../core/scripting/scriptRunner';
 import { isPrivateHost, oversizeResponse } from '../../core/scripting/api/fetchAPI';
 import { isScriptFile, readScript } from '../../core/scripting/scriptCompiler';
 import type { ScriptHost as IScriptHost } from '../../core/scripting/types';
-import { VSCodeScriptHost } from '../../scriptHost';
+import { VSCodeScriptHost, scriptWritePlan } from '../../scriptHost';
 
 function makeHost(overrides: Partial<IScriptHost> = {}): IScriptHost {
     const log: string[] = [];
@@ -510,6 +510,107 @@ test('VSCodeScriptHost totalSize sums all segments', () => {
         { startAddress: 10, data: new Uint8Array([3]) },
     ], { output: () => {}, setResult: () => {}, confirm: async () => false });
     assert.equal(host.totalSize, 3);
+});
+
+test('executeEntry calls a synchronous contract export', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'address.js', `module.exports = { getAddress() { return 0x1234; } };`);
+        const out = await executeEntry(fp, 'getAddress', makeHost());
+        assert.equal(out.error, undefined);
+        assert.equal(out.value, 0x1234);
+    } finally { rmDir(dir); }
+});
+
+test('executeEntry calls an asynchronous contract export', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'address-async.js', `module.exports = { getAddress: async () => 0x2000 };`);
+        const out = await executeEntry(fp, 'getAddress', makeHost());
+        assert.equal(out.error, undefined);
+        assert.equal(out.value, 0x2000);
+    } finally { rmDir(dir); }
+});
+
+test('executeEntry reports a missing contract export', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'empty.js', `module.exports = {};`);
+        const out = await executeEntry(fp, 'getSize', makeHost());
+        assert.equal(out.errorType, 'contract');
+        assert.ok(out.error?.includes('getSize'));
+    } finally { rmDir(dir); }
+});
+
+test('executeEntry rejects invalid contract values', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'bad-address.js', `module.exports = { getAddress() { return -1; } };`);
+        const out = await executeEntry(fp, 'getAddress', makeHost());
+        assert.equal(out.errorType, 'contract');
+        assert.equal(out.value, undefined);
+    } finally { rmDir(dir); }
+});
+
+test('executeEntry transports integrity bytes', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'bytes.js', `
+            module.exports = { getIntegrityValue() { return new Uint8Array([1, 2, 0xFF]); } };
+        `);
+        const out = await executeEntry(fp, 'getIntegrityValue', makeHost());
+        assert.equal(out.error, undefined);
+        assert.deepEqual(out.value, [1, 2, 0xFF]);
+    } finally { rmDir(dir); }
+});
+
+test('executeEntry receives role context', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'context.js', `
+            module.exports = { getAddress(api) { return api.context.instance.name === 'test' ? 0x10 : 0; } };
+        `);
+        const out = await executeEntry(fp, 'getAddress', makeHost(), {
+            context: { instance: { id: 'p1', name: 'test', typeId: 't1', typeName: 'Config' } },
+        });
+        assert.equal(out.error, undefined);
+        assert.equal(out.value, 0x10);
+    } finally { rmDir(dir); }
+});
+
+test('scanScripts parses roles and ignores .d.ts and subdirectories', () => {
+    const dir = tmpDir();
+    try {
+        const scriptsDir = path.join(dir, '.hexscope', 'scripts');
+        fs.mkdirSync(path.join(scriptsDir, 'types'), { recursive: true });
+        fs.writeFileSync(path.join(scriptsDir, 'roles.js'), '/** @script integrity @script address */\nmodule.exports = {};', 'utf-8');
+        fs.writeFileSync(path.join(scriptsDir, 'types', 'hexscope.d.ts'), 'interface HexScopeAPI {}', 'utf-8');
+        fs.mkdirSync(path.join(scriptsDir, 'nested'));
+        fs.writeFileSync(path.join(scriptsDir, 'nested', 'deep.js'), 'module.exports = {};', 'utf-8');
+        const scripts = scanScripts(dir);
+        assert.deepEqual(scripts.map(s => s.name), ['roles.js']);
+        assert.deepEqual(scripts[0].roles, ['integrity', 'address']);
+        assert.equal(isScriptFile('hexscope.d.ts'), false);
+    } finally { rmDir(dir); }
+});
+
+test('scriptWritePlan commits only on a clean run and reports discarded bytes on failure', () => {
+    const writes = [{ address: 0x10, value: 0xAA }, { address: 0x11, value: 0x55 }];
+    assert.deepEqual(scriptWritePlan(undefined, writes), {
+        commit: [[0x10, 0xAA], [0x11, 0x55]],
+        pendingWriteCount: 2,
+        discardedWriteCount: 0,
+    });
+    assert.deepEqual(scriptWritePlan('boom', writes), {
+        commit: [],
+        pendingWriteCount: 0,
+        discardedWriteCount: 2,
+    }, 'error/timeout/cancel never commits');
+    assert.deepEqual(scriptWritePlan(undefined, []), {
+        commit: [],
+        pendingWriteCount: 0,
+        discardedWriteCount: 0,
+    });
 });
 
 });

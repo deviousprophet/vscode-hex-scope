@@ -72,6 +72,10 @@ import {
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { showToast } from './components/toast';
 import { formatCopyCommand } from '../core/byteTools/copy';
+import type { InstanceAddressRequestEntry, InstanceParamRequestEntry } from '../webviewProtocol';
+import {
+    effectiveInstanceParams, instanceUsesScriptAddress, instanceUsesScriptParams,
+} from './components/sidebar/overlayPanel/overlayInstancesModel';
 import { menuController } from './components/menuController/menuController';
 import { renderMenuHtml, type MenuState } from './components/menuController/menuRender';
 import { Sidebar, type SidebarPanel } from './components/sidebar/sidebar';
@@ -166,6 +170,9 @@ const overlayPanel = new OverlayPanel({
         S.showHiddenFields = showHiddenFields;
         postProviderMessage({ type: 'saveShowHiddenFields', showHiddenFields });
     },
+    onRefreshAddresses: () => scheduleInstanceAddressResolution(0),
+    onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
+    onRequestScripts: () => postProviderMessage({ type: 'requestScriptList' }),
 });
 
 /** Persist type-definition mutations from the Overlay panel. */
@@ -178,6 +185,226 @@ function applyTypes(types: TypeDef[]): void {
 function applyPins(pins: TypeInstance[]): void {
     S.typeInstances = pins;
     postProviderMessage({ type: 'saveTypeInstances', pins });
+    // A new/edited/deleted dynamic instance changes the batch immediately.
+    scheduleInstanceAddressResolution(0);
+}
+
+// ── Script-resolved instance addresses and parameter sizes (transient) ──
+// The overlay panel owns the per-instance resolution maps; the host owns
+// scheduling and the batched host requests. Nothing here is persisted.
+
+const ADDRESS_RESOLUTION_DEBOUNCE_MS = 400;
+let addressRequestTimer: ReturnType<typeof setTimeout> | undefined;
+let resolutionRequestSeq = 0;
+let pendingParamRequestId: number | null = null;
+let pendingAddressRequestId: number | null = null;
+
+function dynamicAddressPins(): TypeInstance[] {
+    return S.typeInstances.filter(pin => instanceUsesScriptAddress(pin));
+}
+
+function scriptResolvedPins(): TypeInstance[] {
+    return S.typeInstances.filter(pin => instanceUsesScriptAddress(pin) || instanceUsesScriptParams(pin));
+}
+
+function hasDynamicInstances(): boolean {
+    return scriptResolvedPins().length > 0;
+}
+
+/** Debounced re-resolution: no request per keystroke. */
+function scheduleInstanceAddressResolution(delayMs: number = ADDRESS_RESOLUTION_DEBOUNCE_MS): void {
+    if (typeof setTimeout === 'undefined') { return; }
+    clearTimeout(addressRequestTimer);
+    // Any in-flight batch is now superseded; its response must not apply.
+    pendingParamRequestId = null;
+    pendingAddressRequestId = null;
+    if (!hasDynamicInstances()) {
+        overlayPanel.clearAddressResolutions();
+        overlayPanel.clearParamResolutions();
+        return;
+    }
+    // The visible values are no longer current; keep them visible but not decodable.
+    overlayPanel.markAddressesStale(S.documentGeneration);
+    overlayPanel.markParamsStale(S.documentGeneration);
+    addressRequestTimer = setTimeout(() => {
+        addressRequestTimer = undefined;
+        startInstanceResolution();
+    }, delayMs);
+}
+
+/** Begin one resolution tick: parameters first, then every address. */
+function startInstanceResolution(): void {
+    pendingParamRequestId = null;
+    pendingAddressRequestId = null;
+    requestNextInstanceParams();
+}
+
+/**
+ * Resolve script-sourced parameters one round at a time: each instance sends
+ * its next unresolved parameter only, so a later parameter sees the values
+ * resolved by earlier rounds. A failed parameter blocks that instance's
+ * remaining parameters (and its address); other instances continue.
+ */
+function requestNextInstanceParams(): void {
+    const entries = paramRequestEntries();
+    if (entries.length === 0) {
+        requestInstanceAddresses();
+        return;
+    }
+    resolutionRequestSeq += 1;
+    pendingParamRequestId = resolutionRequestSeq;
+    overlayPanel.markParamsResolving(entries.map(entry => ({ pinId: entry.pinId, param: entry.param })));
+    postProviderMessage({
+        type: 'resolveInstanceParams',
+        requestId: resolutionRequestSeq,
+        generation: S.documentGeneration,
+        edits: Array.from(S.edits.entries()),
+        entries,
+    });
+}
+
+function paramRequestEntries(): InstanceParamRequestEntry[] {
+    const selection = currentSelectionRange();
+    const entries: InstanceParamRequestEntry[] = [];
+    for (const pin of S.typeInstances) {
+        const def = S.types.find(candidate => candidate.id === pin.typeId);
+        if (!def || !def.params || def.params.length === 0) { continue; }
+        if (!instanceUsesScriptParams(pin)) { continue; }
+        const entry = nextParamEntry(pin, def, selection);
+        if (entry) { entries.push(entry); }
+    }
+    return entries;
+}
+
+function nextParamEntry(
+    pin: TypeInstance,
+    def: TypeDef,
+    selection: SelectionRange | null,
+): InstanceParamRequestEntry | null {
+    const resolved = overlayPanel.resolvedParamValues(pin.id, S.documentGeneration);
+    const siblingValues = siblingParamValues(def, pin, resolved);
+    for (const param of def.params ?? []) {
+        if (Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param.name)) { continue; }
+        const source = pin.paramSources?.[param.name];
+        if (!source) { continue; }
+        const resolution = overlayPanel.paramResolution(pin.id, param.name);
+        if (resolution?.status === 'error') { return null; }
+        if (resolution?.status === 'resolved' && resolution.generation === S.documentGeneration) { continue; }
+        return {
+            pinId: pin.id,
+            param: param.name,
+            scriptPath: source.scriptPath,
+            context: {
+                instance: {
+                    id: pin.id,
+                    name: pin.name,
+                    typeId: pin.typeId,
+                    typeName: def.name,
+                },
+                param: param.name,
+                paramValues: siblingValues,
+                ...(selection ? { selection: { start: selection.start, end: selection.end } } : {}),
+            },
+        };
+    }
+    return null;
+}
+
+/** Read-only sibling values: defaults, resolved/source values, then authored values. */
+function siblingParamValues(
+    def: TypeDef,
+    pin: TypeInstance,
+    resolved: ReadonlyMap<string, number>,
+): Record<string, number> {
+    const values: Record<string, number> = {};
+    for (const param of def.params ?? []) {
+        if (param.default !== undefined) { values[param.name] = param.default; }
+    }
+    for (const [name, value] of resolved) { values[name] = value; }
+    for (const [name, value] of Object.entries(pin.paramValues ?? {})) { values[name] = value; }
+    return values;
+}
+
+/** One host message for every dynamic instance (one script run per instance). */
+function requestInstanceAddresses(): void {
+    const pins = dynamicAddressPins().filter(pin => !overlayPanel.paramBlockReason(pin.id));
+    const dynamic = dynamicAddressPins();
+    if (dynamic.length === 0) {
+        overlayPanel.clearAddressResolutions();
+        return;
+    }
+    if (pins.length === 0) { return; }
+    const selection = currentSelectionRange();
+    const entries: InstanceAddressRequestEntry[] = pins.map(pin => {
+        const def = S.types.find(candidate => candidate.id === pin.typeId);
+        const resolved = overlayPanel.resolvedParamValues(pin.id, S.documentGeneration);
+        const effective = def ? effectiveInstanceParams(def, pin, resolved) : null;
+        return {
+            pinId: pin.id,
+            scriptPath: pin.addressSource!.scriptPath,
+            context: {
+                instance: {
+                    id: pin.id,
+                    name: pin.name,
+                    typeId: pin.typeId,
+                    typeName: def?.name ?? '?',
+                },
+                // Address scripts see the effective (authored + resolved + default) values.
+                paramValues: effective?.ok ? { ...effective.value } : { ...(pin.paramValues ?? {}) },
+                ...(selection ? { selection: { start: selection.start, end: selection.end } } : {}),
+            },
+        };
+    });
+    resolutionRequestSeq += 1;
+    pendingAddressRequestId = resolutionRequestSeq;
+    overlayPanel.markAddressesResolving(entries.map(entry => entry.pinId));
+    postProviderMessage({
+        type: 'resolveInstanceAddresses',
+        requestId: resolutionRequestSeq,
+        generation: S.documentGeneration,
+        edits: Array.from(S.edits.entries()),
+        entries,
+    });
+}
+
+function handleInstanceParamsResolvedMessage(msg: WebviewMessageByType<'instanceParamsResolved'>): void {
+    if (msg.requestId !== pendingParamRequestId) { return; }
+    if (msg.stale || msg.generation !== S.documentGeneration) {
+        pendingParamRequestId = null;
+        overlayPanel.markParamsStale(S.documentGeneration);
+        scheduleInstanceAddressResolution(ADDRESS_RESOLUTION_DEBOUNCE_MS);
+        return;
+    }
+    pendingParamRequestId = null;
+    overlayPanel.applyParamResults(msg.results, msg.generation);
+    // A resolved parameter may unblock the next one; errors block the instance.
+    requestNextInstanceParams();
+}
+
+function handleInstanceAddressesResolvedMessage(msg: WebviewMessageByType<'instanceAddressesResolved'>): void {
+    if (msg.requestId !== pendingAddressRequestId) { return; }
+    if (msg.stale || msg.generation !== S.documentGeneration) {
+        pendingAddressRequestId = null;
+        overlayPanel.markAddressesStale(S.documentGeneration);
+        scheduleInstanceAddressResolution(ADDRESS_RESOLUTION_DEBOUNCE_MS);
+        return;
+    }
+    pendingAddressRequestId = null;
+    overlayPanel.applyAddressResults(msg.results, msg.generation);
+}
+
+/** Profile switch / fresh document: drop every transient resolved value. */
+function resetInstanceAddressResolutions(reason: 'init' | 'profile'): void {
+    clearTimeout(addressRequestTimer);
+    addressRequestTimer = undefined;
+    pendingParamRequestId = null;
+    pendingAddressRequestId = null;
+    overlayPanel.clearAddressResolutions();
+    overlayPanel.clearParamResolutions();
+    if (reason === 'init') {
+        // The Overlay editor's script pickers need the role-tagged list.
+        postProviderMessage({ type: 'requestScriptList' });
+    }
 }
 
 /** Both changed in one action (delete type cascades instances). */
@@ -218,6 +445,11 @@ const integrityPanel = new IntegrityPanel({
     onHighlightChange: applyIntegrityHighlight,
     onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
     onPersistChecks: state => postProviderMessage({ type: 'saveIntegrityChecks', state }),
+    onScriptCheckRequest: request => postProviderMessage({ type: 'runIntegrityScript', ...request }),
+    onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
+    onRequestScriptList: () => postProviderMessage({ type: 'requestScriptList' }),
+    getPendingEdits: () => Array.from(S.edits.entries()),
+    getGeneration: () => S.documentGeneration,
 });
 
 /** Integrity check range/stored-field highlight (was S.integrityHighlight + rerender.memory in the module). */
@@ -247,21 +479,21 @@ const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
-    onApplyScriptWrites: (_scriptPath, writes) => applyScriptWrites(writes),
-    onDiscardScriptWrites: () => {},
+    onScriptPermissionDecision: (requestId, decision, scope, capability) =>
+        postProviderMessage({ type: 'scriptPermissionResponse', requestId, decision, scope, capability }),
+    onRevokeScriptPermission: (scriptPath, capability) =>
+        postProviderMessage({ type: 'revokeScriptPermission', scriptPath, capability }),
+    onAddExampleScripts: () => postProviderMessage({ type: 'addExampleScripts' }),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
 
-/** Stage script-written bytes as viewer edits (mapped addresses only), then save. */
+/** Commit script-written bytes: one undoable transaction, then auto-save (mapped addresses only). */
 function applyScriptWrites(writes: Array<[number, number]>): void {
     const mapped = mappedScriptWrites(writes);
-    if (mapped.length === 0) { return; }
-    for (const [addr, value] of mapped) { S.edits.set(addr, value); }
-    S.editMode = true;
-    toolbar.setEditMode(true);
+    if (mapped.length === 0 || stageIntegrityEditTransaction(mapped) === 0) { return; }
     saveEdits();
-    refreshAfterLocalEdit();
+    refreshAfterIntegrityEdits();
 }
 
 function mappedScriptWrites(writes: Array<[number, number]>): Array<[number, number]> {
@@ -852,7 +1084,13 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     profilesState: profilePicker.handleProfilesState,
     scriptInfo: handleScriptInfoMessage,
     scriptResult: handleScriptResultMessage,
+    integrityScriptResult: handleIntegrityScriptResultMessage,
+    instanceAddressesResolved: handleInstanceAddressesResolvedMessage,
+    instanceParamsResolved: handleInstanceParamsResolvedMessage,
     scriptOutput: handleScriptOutputMessage,
+    scriptPermissionRequest: handleScriptPermissionRequestMessage,
+    scriptPermissions: handleScriptPermissionsMessage,
+    scriptWritesCommit: handleScriptWritesCommitMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
     activateProfilePicker: profilePicker.handleActivatePicker,
 };
@@ -930,6 +1168,9 @@ function handleInitMessage(msg: WebviewMessageByType<'init'>): void {
     discardSelectedBytesSession();
     resetRecordPages(msg.generation);
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    integrityPanel.notifyDocumentOpened();
+    resetInstanceAddressResolutions('init');
+    scheduleInstanceAddressResolution(0);
 }
 
 function handleLoadProgressMessage(msg: WebviewMessageByType<'loadProgress'>): void {
@@ -987,10 +1228,14 @@ function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): voi
 
 function handleTypesExternalChangeMessage(msg: WebviewMessageByType<'typesExternalChange'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    scheduleInstanceAddressResolution(0);
 }
 
 function handlePerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): void {
+    // A profile switch swaps the whole instance list: drop old resolutions first.
+    resetInstanceAddressResolutions('profile');
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    scheduleInstanceAddressResolution(0);
 }
 
 function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
@@ -998,6 +1243,8 @@ function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void 
     resetRecordPages(msg.generation);
     clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    integrityPanel.notifyDocumentSaved();
+    scheduleInstanceAddressResolution();
 }
 
 function handleExternalChangeMessage(msg: WebviewMessageByType<'externalChange'>): void {
@@ -1014,18 +1261,40 @@ function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>
     resetRecordPages(msg.generation);
     clearLoadProgress();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
+    scheduleInstanceAddressResolution();
 }
 
 function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void {
     scriptsPanel.setScripts(msg.scripts, msg.trusted);
+    integrityPanel.setAvailableScripts(msg.scripts, msg.trusted);
+    overlayPanel.setScripts(msg.scripts, msg.trusted);
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
-    scriptsPanel.showResult(msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType, msg.pendingWriteCount, msg.pendingWrites);
+    scriptsPanel.showResult(
+        msg.scriptPath, msg.result?.results, msg.result?.log, msg.error, msg.errorType,
+        msg.pendingWriteCount, msg.discardedWriteCount ?? 0,
+    );
+}
+
+function handleIntegrityScriptResultMessage(msg: WebviewMessageByType<'integrityScriptResult'>): void {
+    integrityPanel.acceptScriptResult(msg);
 }
 
 function handleScriptOutputMessage(msg: WebviewMessageByType<'scriptOutput'>): void {
     scriptsPanel.appendOutput(msg.scriptPath, msg.text);
+}
+
+function handleScriptPermissionRequestMessage(msg: WebviewMessageByType<'scriptPermissionRequest'>): void {
+    scriptsPanel.showPermissionRequest(msg);
+}
+
+function handleScriptPermissionsMessage(msg: WebviewMessageByType<'scriptPermissions'>): void {
+    scriptsPanel.setPermissionGrants(msg.grants);
+}
+
+function handleScriptWritesCommitMessage(msg: WebviewMessageByType<'scriptWritesCommit'>): void {
+    applyScriptWrites(msg.writes);
 }
 
 function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScriptsTab'>): void {
@@ -1183,6 +1452,7 @@ function applyExternalChangeAndUnlock(incoming: IncomingFile): void {
     unlockExternalChange();
     updateLockState();
     render();
+    scheduleInstanceAddressResolution(0);
     postProviderMessage({ type: 'reloadAccepted' });
 }
 

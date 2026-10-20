@@ -9,19 +9,31 @@ touches the render registry. Pure codec logic lives in overlayCodec.ts. */
 
 import { esc, actionBtnsHtml, wireActionBtns, formatHex } from '../../../utils';
 import {
+    addressSourceError,
+    effectiveInstanceAddress,
+    effectiveInstanceParams,
+    instanceParamResolutionError,
+    instanceUsesScriptAddress,
+    instanceUsesScriptParams,
+    instanceUsesScriptResolution,
     makeTypeInstance,
+    paramResolutionKey,
+    resolvedInstanceParams,
     uniqueTypeInstanceName as uniquePinName,
     upsertPointerTypeInstance,
+    validateInstanceParamConfig,
     withEditedTypeInstance,
     withoutTypeDefinition,
     withoutTypeInstance,
 } from './overlayInstancesModel';
+import type { AddressResolution, ParamResolution } from './overlayInstancesModel';
+import type { InstanceAddressResult, InstanceParamResult } from '../../../../webviewProtocol';
 import {
     fieldByteSize, typeByteSize, decodeType, allTypes, validateTypes, MAX_NESTED_DEPTH,
     typeDefKind, isUnsignedScalarType,
 } from '../../../../core/overlay/overlayCodec.js';
 import type { DecodedField } from '../../../../core/overlay/overlayCodec.js';
-import type { BitFieldAllocation, BitFieldChild, EnumEntry, TypeBaseType, TypeDef, TypeDefKind, TypeField, TypeFieldType, TypeInstance } from '../../../../core/types';
+import type { BitFieldAllocation, BitFieldChild, EnumEntry, TypeBaseType, TypeDef, TypeDefKind, TypeField, TypeFieldType, TypeInstance, TypeInstanceParamSource, TypeParam } from '../../../../core/types';
 import { SidebarSections } from '../sidebar';
 import { menuController } from '../../menuController/menuController';
 import { showToast } from '../../toast';
@@ -39,6 +51,28 @@ import { SAMPLE_TYPE_MENUS, TYPE_LABELS, getCopyText, implicitDisplayType } from
 import type { ColType, PointerFollowState, OverlayRenderCtx } from './valueFormat';
 import { buildBitUnitAggregateRow, pointerTargetTypeDef, renderTypeBody, syncCompositeHeaderOffset } from './rowRenderer';
 
+
+/** One discovered script as pushed by the host (roles drive the address picker). */
+export interface OverlayScriptInfo {
+    name: string;
+    filePath: string;
+    relativePath?: string;
+    capabilities: string[];
+    roles: string[];
+    fingerprint: string;
+}
+
+/** Instance-form address-source draft (fixed address or a `@script address` script). */
+interface PinSourceDraft {
+    mode: 'fixed' | 'script';
+    scriptPath: string;
+}
+
+/** Per-parameter source draft in the instance form (manual value or a `@script size` script). */
+interface PinParamSourceDraft {
+    mode: 'manual' | 'script';
+    scriptPath: string;
+}
 
 /** Per-kind slots filled into the shared bit-field / enum editor shell. */
 interface KindDefEditorParts {
@@ -92,6 +126,12 @@ export interface OverlayCallbacks {
     onBitAllocationChange?: (bitAllocation: BitFieldAllocation) => void;
     /** Global "show hidden fields" toggle (Instances header) → host persists. */
     onShowHiddenFieldsChange?: (showHiddenFields: boolean) => void;
+    /** Re-run every script-resolved instance address (card refresh or the panel action). */
+    onRefreshAddresses?: (pinId?: string) => void;
+    /** Open a script path in the normal editor. */
+    onOpenScript?: (scriptPath: string) => void;
+    /** Ask the host for the role-tagged script list (instance source picker). */
+    onRequestScripts?: () => void;
 }
 
 type ValueKeyKind = 'default' | 'bit' | 'bitunit';
@@ -196,6 +236,17 @@ private _editorError: string | null = null;
 private _typeFilter = '';
 /** Types-list kind filter (transient view state, never persisted). */
 private _typeKindFilter: TypeDefKind | 'all' = 'all';
+/** Transient script-address resolutions, keyed by instance id. Never persisted. */
+private _addressResolutions = new Map<string, AddressResolution>();
+/** Transient script-size resolutions, keyed by `paramResolutionKey(pinId, param)`. Never persisted. */
+private _paramResolutions = new Map<string, ParamResolution>();
+/** Role-tagged scripts pushed by the host (source picker + card tooltips). */
+private _scripts: OverlayScriptInfo[] = [];
+private _scriptsTrusted = true;
+/** Address-source draft of the open add/edit instance form. */
+private _pinSourceDraft: PinSourceDraft = { mode: 'fixed', scriptPath: '' };
+/** Per-parameter source drafts of the open add/edit instance form. */
+private _pinParamSourceDrafts = new Map<string, PinParamSourceDraft>();
 
 constructor(cb: OverlayCallbacks) {
     this.cb = cb;
@@ -304,6 +355,9 @@ private mountInstancesAction(root: HTMLElement): void {
     add.textContent = '\uff0b Add';
     add.addEventListener('click', () => {
         this._addingPin = true;
+        this._pinSourceDraft = { mode: 'fixed', scriptPath: '' };
+        this._pinParamSourceDrafts.clear();
+        this.cb.onRequestScripts?.();
         this.render();
         this._root?.querySelector<HTMLInputElement>('#oa-name')?.focus();
     });
@@ -330,7 +384,27 @@ private mountTypesAction(root: HTMLElement): void {
 setData(types: TypeDef[], pins: TypeInstance[]): void {
     this._types = types;
     this._pins = pins;
+    this.pruneAddressResolutions();
+    this.pruneParamResolutions();
     this.render();
+}
+
+/** Drop resolutions whose instance vanished or no longer uses a script source. */
+private pruneAddressResolutions(): void {
+    for (const id of Array.from(this._addressResolutions.keys())) {
+        if (!this._pins.some(pin => pin.id === id && instanceUsesScriptAddress(pin))) {
+            this._addressResolutions.delete(id);
+        }
+    }
+}
+
+/** Drop parameter resolutions whose instance/source vanished or is now manual. */
+private pruneParamResolutions(): void {
+    for (const key of Array.from(this._paramResolutions.keys())) {
+        if (!this._pins.some(pin => pinParamSourceExists(pin, key))) {
+            this._paramResolutions.delete(key);
+        }
+    }
 }
 
 /** Shared byte-order decode source (host pushes S.endian). */
@@ -349,6 +423,226 @@ setBitFieldAllocation(alloc: BitFieldAllocation): void {
 setShowHiddenFields(show: boolean): void {
     this._showHiddenFields = show;
     this.render();
+}
+
+/** Role-tagged script list (host pushes `scriptInfo`); drives the address picker. */
+setScripts(scripts: OverlayScriptInfo[], trusted: boolean): void {
+    this._scripts = scripts;
+    this._scriptsTrusted = trusted;
+    if (this.instanceFormOpen()) {
+        // Never rebuild the form: only refresh the picker in place.
+        this.refreshSourceScriptSelect();
+        return;
+    }
+    this.refreshInstances();
+}
+
+/** Drop every transient resolution (document close / profile switch). */
+clearAddressResolutions(): void {
+    if (this._addressResolutions.size === 0) { return; }
+    this._addressResolutions.clear();
+    this.refreshInstances();
+}
+
+/** Keep the last resolved address visible but not current; no decode runs until re-resolved. */
+markAddressesStale(generation: number): void {
+    const ids = new Set(this._pins.map(pin => pin.id));
+    for (const id of Array.from(this._addressResolutions.keys())) {
+        if (!ids.has(id)) { this._addressResolutions.delete(id); }
+    }
+    let changed = false;
+    for (const pin of this._pins) {
+        if (!instanceUsesScriptAddress(pin)) { continue; }
+        const current = this._addressResolutions.get(pin.id);
+        if (current?.status === 'resolving') { continue; }
+        const addr = current?.status === 'resolved' || current?.status === 'stale'
+            ? current.addr
+            : current?.status === 'error' ? current.lastAddr : undefined;
+        this._addressResolutions.set(pin.id, {
+            status: 'stale',
+            ...(addr === undefined ? {} : { addr }),
+            generation,
+        });
+        changed = true;
+    }
+    if (changed) { this.refreshInstances(); }
+}
+
+/** Mark the batched request's instances as in flight. */
+markAddressesResolving(pinIds: readonly string[]): void {
+    if (pinIds.length === 0) { return; }
+    for (const pinId of pinIds) { this._addressResolutions.set(pinId, { status: 'resolving' }); }
+    this.refreshInstances();
+}
+
+/** Apply one batch of host results (partial results allowed). */
+applyAddressResults(results: readonly InstanceAddressResult[], generation: number): void {
+    for (const result of results) {
+        if (result.ok) {
+            this._addressResolutions.set(result.pinId, { status: 'resolved', addr: result.addr, generation });
+            continue;
+        }
+        const current = this._addressResolutions.get(result.pinId);
+        const lastAddr = current?.status === 'resolved' || current?.status === 'stale' ? current.addr : undefined;
+        this._addressResolutions.set(result.pinId, {
+            status: 'error',
+            message: result.error || 'Invalid address from script',
+            generation,
+            ...(result.errorType ? { errorType: result.errorType } : {}),
+            ...(lastAddr === undefined ? {} : { lastAddr }),
+        });
+    }
+    this.refreshInstances();
+}
+
+/** Drop every transient parameter resolution (document close / profile switch). */
+clearParamResolutions(): void {
+    if (this._paramResolutions.size === 0) { return; }
+    this._paramResolutions.clear();
+    this.refreshInstances();
+}
+
+/** Keep the last resolved value visible but not current; no decode runs until re-resolved. */
+markParamsStale(generation: number): void {
+    let changed = false;
+    for (const pin of this._pins) {
+        if (!instanceUsesScriptParams(pin)) { continue; }
+        for (const param of Object.keys(pin.paramSources ?? {})) {
+            if (Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param)) { continue; }
+            const key = paramResolutionKey(pin.id, param);
+            const current = this._paramResolutions.get(key);
+            const value = current?.status === 'resolved' || current?.status === 'stale'
+                ? current.value
+                : current?.status === 'error' ? current.lastValue : undefined;
+            this._paramResolutions.set(key, {
+                status: 'stale',
+                ...(value === undefined ? {} : { value }),
+                generation,
+            });
+            changed = true;
+        }
+    }
+    if (changed) { this.refreshInstances(); }
+}
+
+/** Mark the batched round's parameters as in flight. */
+markParamsResolving(entries: readonly { pinId: string; param: string }[]): void {
+    if (entries.length === 0) { return; }
+    for (const entry of entries) {
+        this._paramResolutions.set(paramResolutionKey(entry.pinId, entry.param), { status: 'resolving' });
+    }
+    this.refreshInstances();
+}
+
+/** Apply one batch of host size results (partial results allowed). */
+applyParamResults(results: readonly InstanceParamResult[], generation: number): void {
+    for (const result of results) {
+        const key = paramResolutionKey(result.pinId, result.param);
+        if (result.ok) {
+            this._paramResolutions.set(key, { status: 'resolved', value: result.value, generation });
+            continue;
+        }
+        const current = this._paramResolutions.get(key);
+        const lastValue = current?.status === 'resolved' || current?.status === 'stale' ? current.value : undefined;
+        this._paramResolutions.set(key, {
+            status: 'error',
+            message: result.error || 'Invalid size from script',
+            generation,
+            ...(result.errorType ? { errorType: result.errorType } : {}),
+            ...(lastValue === undefined ? {} : { lastValue }),
+        });
+    }
+    this.refreshInstances();
+}
+
+/** One parameter's transient resolution (undefined until the first request). */
+paramResolution(pinId: string, param: string): ParamResolution | undefined {
+    return this._paramResolutions.get(paramResolutionKey(pinId, param));
+}
+
+/** Successful resolved values for one instance in the current generation. */
+resolvedParamValues(pinId: string, generation: number): ReadonlyMap<string, number> {
+    const pin = this._pins.find(candidate => candidate.id === pinId);
+    const values = new Map<string, number>();
+    if (!pin) { return values; }
+    const resolved = resolvedInstanceParams(pinId, this._paramResolutions);
+    for (const [name, value] of resolved) {
+        if (!this.paramSourceStillActive(pin, name)) { continue; }
+        const resolution = this._paramResolutions.get(paramResolutionKey(pinId, name));
+        if (resolution?.status === 'resolved' && resolution.generation === generation) {
+            values.set(name, value);
+        }
+    }
+    return values;
+}
+
+/** Why an instance cannot decode yet: a pending/stale/failed source or invalid params. */
+paramBlockReason(pinId: string): string | undefined {
+    const pin = this._pins.find(candidate => candidate.id === pinId);
+    if (!pin) { return undefined; }
+    const def = this.allTypesById().find(candidate => candidate.id === pin.typeId);
+    if (!def) { return undefined; }
+    const resolutionError = instanceParamResolutionError(def, pin, this._paramResolutions);
+    if (resolutionError) { return resolutionError; }
+    const effective = this.pinLayoutParams(pin, def);
+    return effective ? undefined : this.effectiveParamsError(pin, def);
+}
+
+/** Effective layout params for one instance (undefined on any parameter error). */
+private pinLayoutParams(pin: TypeInstance, def: TypeDef): Record<string, number> | undefined {
+    const resolved = this.resolvedParamValuesFor(pin);
+    const effective = effectiveInstanceParams(def, pin, resolved);
+    return effective.ok ? effective.value : undefined;
+}
+
+private effectiveParamsError(pin: TypeInstance, def: TypeDef): string | undefined {
+    const effective = effectiveInstanceParams(def, pin, this.resolvedParamValuesFor(pin));
+    return effective.ok ? undefined : effective.error;
+}
+
+private resolvedParamValuesFor(pin: TypeInstance): ReadonlyMap<string, number> {
+    const values = new Map<string, number>();
+    for (const [key, resolution] of this._paramResolutions) {
+        if (!key.startsWith(`${pin.id}\u0000`) || resolution.status !== 'resolved') { continue; }
+        const name = key.slice(pin.id.length + 1);
+        if (!this.paramSourceStillActive(pin, name)) { continue; }
+        values.set(name, resolution.value);
+    }
+    return values;
+}
+
+/** A resolution only counts while its authored source is still live (manual wins). */
+private paramSourceStillActive(pin: TypeInstance, name: string): boolean {
+    if (!pin.paramSources?.[name]?.scriptPath?.trim()) { return false; }
+    return !Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, name);
+}
+
+private allTypesById(): TypeDef[] {
+    return allTypes(this._types);
+}
+
+/** Effective base address for one instance (null while resolving/stale/error). */
+private instanceAddress(pin: TypeInstance): number | null {
+    return effectiveInstanceAddress(pin, this._addressResolutions);
+}
+
+private instanceResolution(pin: TypeInstance): AddressResolution | undefined {
+    return pin.addressSource ? this._addressResolutions.get(pin.id) : undefined;
+}
+
+/** A dynamic card has rows only after every script source and parameter succeeds. */
+private instanceRenderable(pin: TypeInstance): boolean {
+    if (this.paramBlockReason(pin.id)) { return false; }
+    if (!instanceUsesScriptAddress(pin)) { return true; }
+    return this._addressResolutions.get(pin.id)?.status === 'resolved';
+}
+
+private instanceFormOpen(): boolean {
+    return this._addingPin || this._editingPinId !== null;
+}
+
+private hasDynamicInstances(): boolean {
+    return this._pins.some(pin => instanceUsesScriptResolution(pin));
 }
 
 /** Hex-view byte selection → clear stale instance selection + sync add/edit form (was onSelectionChangeForOverlay). */
@@ -374,6 +668,8 @@ resetViewState(): void {
     this._addingPin               = false;
     this._editingPinId            = null;
     this._editingPinDraftTypeId = null;
+    this._pinSourceDraft          = { mode: 'fixed', scriptPath: '' };
+    this._pinParamSourceDrafts.clear();
     this._selectedArrElemKey      = null;
     this._selectedBitRange        = null;
     this._hoveredBitRange         = null;
@@ -403,7 +699,7 @@ private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
         `<div class="oi-editor-wrap">` +
         this.editorTabsHtml() +
         `<div class="oe-view" data-oe-view="edit">` +
-        `<div class="oe-form">` +
+        `<div class="oe-form${(draft.params?.length ?? 0) > 0 ? ' has-params' : ''}">` +
         `<label class="oe-name-lbl" for="oe-name">Type name</label>` +
         `<input id="oe-name" class="oe-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="MyType" spellcheck="false" autocomplete="off">` +
@@ -414,6 +710,7 @@ private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
         `<span class="oe-type-default-lbl">type default</span>` +
         this.overrideSelectHtml(draft.endian, 'endian', 'oe-type-default-sel', 'oe-endian', this._endian.toUpperCase()) +
         `</div>` +
+        this.paramsSectionHtml(draft) +
         `<div class="oe-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="oe-fields">${fieldRows}</div>` +
         `<button id="oe-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
@@ -431,9 +728,181 @@ private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
     );
 }
 
-/** Edit/Preview tab bar that toggles which editor view is visible (markdown raw/preview style). */
-private editorTabsHtml(): string {
+/**
+ * Type-editor Parameters section: add/rename/reorder/delete size parameters
+ * and their optional defaults. Lives above the field grid; the field row's
+ * array control binds to these names through `countParam`.
+ */
+private paramsSectionHtml(draft: TypeDef): string {
     return (
+        `<div class="oe-params">` +
+        `<div class="oe-params-hdr">` +
+        `<span class="oe-params-lbl">Parameters</span>` +
+        `<button id="oe-param-add" class="sb-btn sb-btn-add" type="button" title="Add a size parameter">+ Add parameter</button>` +
+        `</div>` +
+        `<div id="oe-params-list" class="ofe-params-list">${this.paramRowsHtml(draft)}</div>` +
+        `<div id="oe-param-error" class="oe-error" hidden></div>` +
+        `</div>`
+    );
+}
+
+private paramRowsHtml(draft: TypeDef): string {
+    const params = draft.params ?? [];
+    return params.map((param, i) => this.paramRowHtml(param, i, params.length)).join('');
+}
+
+private paramRowHtml(param: TypeParam, i: number, total: number): string {
+    const upDis = i === 0 ? ' disabled' : '';
+    const dnDis = i === total - 1 ? ' disabled' : '';
+    return (
+        `<div class="ofe-param-row" data-param-idx="${i}" data-param-name="${esc(param.name)}">` +
+        `<input class="ofe-param-name sb-input sb-input-sm" type="text" value="${esc(param.name)}" maxlength="64" ` +
+               `aria-label="Parameter name" placeholder="COUNT" spellcheck="false" autocomplete="off">` +
+        `<span class="ofe-param-eq">=</span>` +
+        `<input class="ofe-param-default sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+               `value="${param.default !== undefined ? param.default : ''}" placeholder="N" aria-label="Parameter default value">` +
+        `<div class="ofe-bf-child-move">` +
+        `<button class="ofe-move-btn ofe-param-up" title="Move up" aria-label="Move up"${upDis}>&#x2191;</button>` +
+        `<button class="ofe-move-btn ofe-param-dn" title="Move down" aria-label="Move down"${dnDis}>&#x2193;</button>` +
+        `</div>` +
+        `<button class="ofe-param-del" title="Delete parameter" aria-label="Delete parameter">\u2715</button>` +
+        `</div>`
+    );
+}
+
+/** Read the parameters section back into the draft (names sanitized, defaults numeric). */
+private syncEditorParams(sec: HTMLElement, draft: TypeDef): void {
+    const rows = sec.querySelectorAll<HTMLElement>('#oe-params-list .ofe-param-row');
+    draft.params = Array.from(rows).map((row, i) => this.readEditorParam(row, i));
+}
+
+private readEditorParam(row: HTMLElement, i: number): TypeParam {
+    const nameInp = row.querySelector<HTMLInputElement>('.ofe-param-name');
+    const defaultInp = row.querySelector<HTMLInputElement>('.ofe-param-default');
+    const param: TypeParam = {
+        name: this.sanitizeCIdent(nameInp?.value ?? '') || `param${i}`,
+        kind: 'size',
+    };
+    const rawDefault = defaultInp?.value.trim() ?? '';
+    if (rawDefault !== '') {
+        const value = Number(rawDefault);
+        if (Number.isFinite(value)) { param.default = value; }
+    }
+    return param;
+}
+
+private paramIndex(btn: HTMLElement): number | null {
+    const row = btn.closest<HTMLElement>('.ofe-param-row');
+    return this.parseDatasetInt(row?.dataset.paramIdx);
+}
+
+private wireParamRows(sec: HTMLElement, draft: TypeDef): void {
+    sec.querySelector('#oe-param-add')?.addEventListener('click', () => {
+        this.syncEditorDraft(sec, draft);
+        if (!draft.params) { draft.params = []; }
+        draft.params.push({ name: this.nextParamName(draft), kind: 'size', default: 2 });
+        this.clearParamError(sec);
+        this.refreshParamSection(sec, draft);
+    });
+
+    const list = sec.querySelector<HTMLElement>('#oe-params-list');
+    if (!list) { return; }
+
+    list.querySelectorAll<HTMLInputElement>('.ofe-param-name').forEach(inp => {
+        inp.addEventListener('blur', () => this.onParamRename(sec, draft, inp));
+        inp.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter') { (ev.target as HTMLInputElement).blur(); }
+        });
+    });
+    list.querySelectorAll<HTMLInputElement>('.ofe-param-default').forEach(inp =>
+        inp.addEventListener('input', () => {
+            this.syncEditorDraft(sec, draft);
+            this.clearParamError(sec);
+            this.refreshEditorPreview(sec, draft);
+        }));
+    this.wireClicks(list, '.ofe-param-up', btn => this.moveParam(sec, draft, btn, -1));
+    this.wireClicks(list, '.ofe-param-dn', btn => this.moveParam(sec, draft, btn, 1));
+    this.wireClicks(list, '.ofe-param-del', btn => this.deleteParam(sec, draft, btn));
+}
+
+private onParamRename(sec: HTMLElement, draft: TypeDef, inp: HTMLInputElement): void {
+    const row = inp.closest<HTMLElement>('.ofe-param-row');
+    const oldName = row?.dataset.paramName ?? '';
+    const clean = this.sanitizeCIdent(inp.value) || oldName || 'param';
+    inp.value = clean;
+    this.syncEditorDraft(sec, draft);
+    if (oldName && oldName !== clean) {
+        for (const field of draft.fields) {
+            if (field.countParam === oldName) { field.countParam = clean; }
+        }
+    }
+    this.clearParamError(sec);
+    this.refreshParamSection(sec, draft);
+}
+
+private nextParamName(draft: TypeDef): string {
+    const taken = new Set((draft.params ?? []).map(param => param.name));
+    let n = 0;
+    let candidate = 'COUNT';
+    while (taken.has(candidate)) { candidate = `COUNT${n++}`; }
+    return candidate;
+}
+
+private moveParam(sec: HTMLElement, draft: TypeDef, btn: HTMLElement, delta: number): void {
+    const i = this.paramIndex(btn);
+    if (i === null) { return; }
+    this.syncEditorDraft(sec, draft);
+    const params = draft.params ?? [];
+    const target = i + delta;
+    if (target < 0 || target >= params.length) { return; }
+    [params[i], params[target]] = [params[target], params[i]];
+    this.clearParamError(sec);
+    this.refreshParamSection(sec, draft);
+}
+
+private deleteParam(sec: HTMLElement, draft: TypeDef, btn: HTMLElement): void {
+    const i = this.paramIndex(btn);
+    if (i === null) { return; }
+    this.syncEditorDraft(sec, draft);
+    const params = draft.params ?? [];
+    const param = params[i];
+    if (!param) { return; }
+    const referencingField = draft.fields.find(field => field.countParam === param.name);
+    if (referencingField) {
+        this.showParamError(sec, `Parameter "${param.name}" is used by field "${referencingField.name}" \u2014 change its count first.`);
+        return;
+    }
+    params.splice(i, 1);
+    this.clearParamError(sec);
+    this.refreshParamSection(sec, draft);
+}
+
+private refreshParamSection(sec: HTMLElement, draft: TypeDef): void {
+    sec.querySelector<HTMLElement>('.oe-form')?.classList.toggle('has-params', (draft.params?.length ?? 0) > 0);
+    const list = sec.querySelector<HTMLElement>('#oe-params-list');
+    if (list) {
+        list.innerHTML = this.paramRowsHtml(draft);
+        this.wireParamRows(sec, draft);
+    }
+    this.refreshFieldRows(sec, draft);
+}
+
+private showParamError(sec: HTMLElement, message: string): void {
+    const el = sec.querySelector<HTMLElement>('#oe-param-error');
+    if (!el) { return; }
+    el.textContent = message;
+    el.hidden = false;
+}
+
+private clearParamError(sec: HTMLElement): void {
+    const el = sec.querySelector<HTMLElement>('#oe-param-error');
+    if (!el) { return; }
+    el.textContent = '';
+    el.hidden = true;
+}
+
+/** Edit/Preview tab bar that toggles which editor view is visible (markdown raw/preview style). */
+private editorTabsHtml(): string {    return (
         `<div class="oe-tabs compact-tabs" role="tablist" aria-label="Type editor views">` +
         `<button type="button" class="oe-tab active" role="tab" aria-selected="true" data-oe-view="edit">Edit</button>` +
         `<button type="button" class="oe-tab" role="tab" aria-selected="false" data-oe-view="preview">Preview</button>` +
@@ -899,7 +1368,10 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
             btn.classList.toggle('active', nowArr);
             btn.title = nowArr ? 'Remove array' : 'Make array';
             btn.setAttribute('aria-label', btn.title);
-            if (nowArr) {
+            const paramSel = cell.querySelector<HTMLSelectElement>('.ofe-count-param');
+            if (!nowArr && paramSel) { paramSel.value = ''; }
+            cell.classList.toggle('has-param', nowArr && !!paramSel?.value);
+            if (nowArr && !paramSel?.value) {
                 const inp = cell.querySelector<HTMLInputElement>('.ofe-count-inp')!;
                 if (!inp.value) { inp.value = '2'; }
                 inp.focus(); inp.select();
@@ -933,6 +1405,20 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
     fieldsEl.querySelectorAll<HTMLInputElement>('.ofe-count-inp').forEach(inp => {
         inp.addEventListener('input', () => {
             inp.value = inp.value.replace(/\D/g, '');
+            this.refreshEditorPreview(sec, draft);
+        });
+    });
+
+    // Literal ↔ parameter count switch: no row rebuild, so the select keeps focus.
+    fieldsEl.querySelectorAll<HTMLSelectElement>('.ofe-count-param').forEach(sel => {
+        sel.addEventListener('change', () => {
+            const cell = sel.closest<HTMLElement>('.ofe-arr-cell')!;
+            const hasParam = sel.value !== '';
+            cell.classList.toggle('has-param', hasParam);
+            cell.classList.toggle('is-array', hasParam || cell.classList.contains('is-array'));
+            const toggle = cell.querySelector<HTMLElement>('.ofe-arr-toggle');
+            toggle?.classList.toggle('active', cell.classList.contains('is-array'));
+            this.syncEditorDraft(sec, draft);
             this.refreshEditorPreview(sec, draft);
         });
     });
@@ -1012,9 +1498,10 @@ private syncEditorDraft(sec: HTMLElement, draft: TypeDef): void {
     draft.name   = this.sanitizeCIdent(this.inputValue(sec, '#oe-name'));
     draft.packed = this.inputActive(sec, '#oe-packed');
     draft.endian = this.readEndianOverride(this.selectValue(sec, '#oe-endian'));
+    this.syncEditorParams(sec, draft);
     const rows = sec.querySelectorAll<HTMLElement>('.field-row');
     draft.fields = Array.from(rows).map(row => {
-        return this.readEditorFieldRow(row);
+        return this.readEditorFieldRow(row, draft);
     });
 }
 
@@ -1030,20 +1517,33 @@ private selectValue(sec: HTMLElement, sel: string): string | undefined {
     return sec.querySelector<HTMLSelectElement>(sel)?.value;
 }
 
-private readEditorFieldRow(row: HTMLElement): TypeField {
+private readEditorFieldRow(row: HTMLElement, draft: TypeDef): TypeField {
     const typeInfo = this.readEditorFieldType(row);
+    const countParam = this.readFieldCountParam(row);
     return {
         name: this.sanitizeCIdent(this.rowInputValue(row, '.ofe-name-inp')),
         type: typeInfo.type,
         refTypeId: typeInfo.refTypeId,
         isPointer: typeInfo.isPointer || undefined,
-        count: this.readEditorArrayCount(row),
+        count: countParam ? this.mirroredParamCount(draft, countParam) : this.readEditorArrayCount(row),
+        countParam,
         endian: this.readEndianOverride(this.rowSelectValue(row, '.ofe-endian-sel')),
         // Only bit-field-reference rows render an alloc select; other rows hold
         // a placeholder, so this reads undefined and authors no allocation.
         allocation: this.readAllocationOverride(this.rowSelectValue(row, '.ofe-alloc-sel')),
         hidden: this.readHiddenFlag(row),
     };
+}
+
+/** A row's bound parameter name, or undefined for a literal/absent array. */
+private readFieldCountParam(row: HTMLElement): string | undefined {
+    return this.rowSelectValue(row, '.ofe-count-param') || undefined;
+}
+
+/** `count` mirrors the parameter default (or 1 when it has none) for old-build fallback. */
+private mirroredParamCount(draft: TypeDef, name: string): number {
+    const param = draft.params?.find(candidate => candidate.name === name);
+    return param?.default ?? 1;
 }
 
 /** Read a text input's current value inside a row. */
@@ -1180,6 +1680,7 @@ private wireTypeEditor(sec: HTMLElement, draft: TypeDef): void {
     // incremental #oe-fields rebuild). The type-level controls below are
     // mounted once and kept across those rebuilds.
     this.wireFieldRows(sec.querySelector<HTMLElement>('#oe-fields')!, sec, draft);
+    this.wireParamRows(sec, draft);
 
     this.wireEditorTabs(sec);
 
@@ -1296,7 +1797,7 @@ private commitEditorDraft(def: TypeDef): void {
 }
 
 private editorDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
-    return {
+    const def: TypeDef = {
         id: draft.id,
         name: this.readEditorTypeName(sec, draft.id),
         packed: draft.packed ?? false,
@@ -1304,6 +1805,10 @@ private editorDraftToTypeDef(sec: HTMLElement, draft: TypeDef): TypeDef {
         allocation: draft.allocation,
         fields: draft.fields.map((field, idx) => this.withSavedFieldName(field, idx, draft.fields)),
     };
+    if (draft.params && draft.params.length > 0) {
+        def.params = draft.params.map(param => ({ ...param }));
+    }
+    return def;
 }
 
 private readEditorTypeName(sec: HTMLElement, draftId: string): string {
@@ -1522,12 +2027,11 @@ private addInstanceFormHtml(all: TypeDef[]): string {
         `<input id="oa-name" class="oa-name-inp sb-input" type="text" maxlength="40" ` +
                `placeholder="instance name" spellcheck="false" autocomplete="off" value="${esc(pin?.name ?? '')}">` +
         `</div>` +
-        `<div class="oa-row">` +
-        `<span class="addr-pfx">0x</span>` +
-        `<input id="oa-addr" class="sb-input oa-addr-inp" type="text" maxlength="8" ` +
-               `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(this.pinFormAddress(pin))}">` +
-        `</div>` +
+        this.addInstanceAddressSourceHtml(pin) +
         this.addInstanceTypeRowHtml(all) +
+        this.addInstanceParamsHtml(this.selectedApplyDef()) +
+        `<div id="oa-source-error" class="oe-error" hidden></div>` +
+        `<div id="oa-param-error" class="oe-error" hidden></div>` +
         `<div class="oa-row oa-btn-row">` +
         `<button id="oa-confirm" class="sb-btn sb-btn-primary"${this.saConfirmDisabledAttr()}>${pinFormConfirmLabel(pin)}</button>` +
         `<button id="oa-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
@@ -1548,8 +2052,121 @@ private pinFormAddress(pin: TypeInstance | null): string {
         : '';
 }
 
+/** Fixed-address input plus the Fixed address / From script source selector. */
+private addInstanceAddressSourceHtml(pin: TypeInstance | null): string {
+    const fromScript = this._pinSourceDraft.mode === 'script';
+    const locked = Boolean(pin?.pointerSources?.length);
+    const lockTitle = 'Pointer-created instances must use a fixed address';
+    return (
+        `<div class="oa-row oa-src-row">` +
+        `<select id="oa-addr-source" class="sb-select" aria-label="Address source"` +
+               `${locked ? ` title="${lockTitle}"` : ''}>` +
+        `<option value="fixed"${fromScript ? '' : ' selected'}>Fixed address</option>` +
+        `<option value="script"${fromScript ? ' selected' : ''}${locked ? ' disabled' : ''}>From script</option>` +
+        `</select>` +
+        `</div>` +
+        `<div class="oa-row oa-addr-row"${fromScript ? ' hidden' : ''}>` +
+        `<span class="addr-pfx">0x</span>` +
+        `<input id="oa-addr" class="sb-input oa-addr-inp" type="text" maxlength="8" ` +
+               `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(this.pinFormAddress(pin))}">` +
+        `</div>` +
+        `<div class="oa-row oa-script-row"${fromScript ? '' : ' hidden'}>` +
+        `<select id="oa-script-sel" class="sb-select oa-script-sel" aria-label="Address script">` +
+               `${this.addressScriptOptionsHtml(this._pinSourceDraft.scriptPath)}</select>` +
+        `<button type="button" id="oa-script-open" class="sb-btn sb-btn-secondary oa-script-open"` +
+               `${this._pinSourceDraft.scriptPath ? '' : ' disabled'}>Open</button>` +
+        `</div>` +
+        `<div id="oa-script-untrusted" class="oa-hint"${this._scriptsTrusted ? ' hidden' : ''}>` +
+        `Workspace not trusted \u2014 scripts cannot run.</div>`
+    );
+}
+
+private addressScripts(): Array<{ path: string; label: string }> {
+    const seen = new Set<string>();
+    const options: Array<{ path: string; label: string }> = [];
+    for (const script of this._scripts) {
+        if (!script.roles.includes('address')) { continue; }
+        const path = script.relativePath || script.filePath;
+        if (!path || seen.has(path)) { continue; }
+        seen.add(path);
+        options.push({ path, label: path });
+    }
+    return options;
+}
+
+private addressScriptOptionsHtml(selected: string): string {
+    const options = this.addressScripts();
+    if (selected && !options.some(option => option.path === selected)) {
+        options.unshift({ path: selected, label: `${selected} (not found)` });
+    }
+    if (options.length === 0) {
+        return `<option value="">No @script address scripts</option>`;
+    }
+    return options.map(option =>
+        `<option value="${esc(option.path)}"${option.path === selected ? ' selected' : ''}>${esc(option.label)}</option>`,
+    ).join('');
+}
+
+/** Form's current script selection: draft value, else the mounted select's value. */
+private selectedAddressScript(): string {
+    const fromDom = this._root?.querySelector<HTMLSelectElement>('#oa-script-sel')?.value ?? '';
+    return (fromDom || this._pinSourceDraft.scriptPath).trim();
+}
+
+/** Refresh only the picker options after `scriptInfo` arrives (keeps form input). */
+private refreshSourceScriptSelect(): void {
+    const sel = this._root?.querySelector<HTMLSelectElement>('#oa-script-sel');
+    if (sel) {
+        sel.innerHTML = this.addressScriptOptionsHtml(this._pinSourceDraft.scriptPath);
+        this.syncScriptOpenButton();
+    }
+    this._root?.querySelectorAll<HTMLSelectElement>('.oa-param-script').forEach(paramSel => {
+        const name = paramSel.closest<HTMLElement>('.oa-param-row')?.dataset.paramName ?? '';
+        const selected = this._pinParamSourceDrafts.get(name)?.scriptPath || paramSel.value;
+        paramSel.innerHTML = this.sizeScriptOptionsHtml(selected);
+    });
+    this.syncParamOpenButtons();
+    const untrusted = this._root?.querySelector<HTMLElement>('#oa-script-untrusted');
+    if (untrusted) { untrusted.hidden = this._scriptsTrusted; }
+}
+
+private syncParamOpenButtons(): void {
+    this._root?.querySelectorAll<HTMLButtonElement>('.oa-param-row .oa-param-open').forEach(open => {
+        const name = open.closest<HTMLElement>('.oa-param-row')?.dataset.paramName ?? '';
+        open.disabled = !this.selectedParamScript(name);
+    });
+}
+
+private syncScriptOpenButton(): void {
+    const open = this._root?.querySelector<HTMLButtonElement>('#oa-script-open');
+    if (open) { open.disabled = !this.selectedAddressScript(); }
+}
+
+private instanceConfirmDisabled(): boolean {
+    if (!this.selectedApplyTypeId()) { return true; }
+    if (this._pinSourceDraft.mode === 'script') { return !this.selectedAddressScript(); }
+    if (this.paramSourcesPendingSelection()) { return true; }
+    const addrInput = this.pendingAddrInput();
+    if (addrInput) { return addrInput.value.trim().length === 0; }
+    return this.pinFormAddress(this.editingTypeInstance()).length === 0;
+}
+
+/** True when a parameter row is in script mode without a selected script. */
+private paramSourcesPendingSelection(): boolean {
+    for (const row of Array.from(this._root?.querySelectorAll<HTMLElement>('#oa-params .oa-param-row') ?? [])) {
+        if (row.querySelector<HTMLSelectElement>('.oa-param-source')?.value !== 'script') { continue; }
+        if (!this.selectedParamScript(row.dataset.paramName ?? '')) { return true; }
+    }
+    return false;
+}
+
+private refreshInstanceConfirmState(): void {
+    const btn = this._root?.querySelector<HTMLButtonElement>('#oa-confirm');
+    if (btn) { btn.disabled = this.instanceConfirmDisabled(); }
+}
+
 private saConfirmDisabledAttr(): string {
-    return this.selectedApplyTypeId() ? '' : ' disabled';
+    return this.instanceConfirmDisabled() ? ' disabled' : '';
 }
 
 private addInstanceTypeRowHtml(all: TypeDef[]): string {
@@ -1574,6 +2191,136 @@ private selectedApplyTypeId(): string | null {
     return this._editingPinDraftTypeId ?? this.editingPinTypeId() ?? null;
 }
 
+private selectedApplyDef(): TypeDef | undefined {
+    const id = this.selectedApplyTypeId();
+    return id ? allTypes(this._types).find(d => d.id === id) : undefined;
+}
+
+/** One input per declared size parameter, pre-filled from the instance/defaults. */
+private addInstanceParamsHtml(def: TypeDef | undefined): string {
+    const params = def?.params ?? [];
+    if (params.length === 0) { return ''; }
+    const pin = this.editingTypeInstance();
+    const rows = params.map(param => {
+        const value = pin?.typeId === def?.id ? pin?.paramValues?.[param.name] : undefined;
+        const initial = value ?? param.default;
+        const draft = this.paramSourceDraft(param.name, pin?.typeId === def?.id ? pin?.paramSources?.[param.name] : undefined);
+        const fromScript = draft.mode === 'script';
+        return (
+            `<div class="oa-param-row" data-param-name="${esc(param.name)}">` +
+            `<span class="oa-param-lbl">${esc(param.name)}</span>` +
+            `<select class="oa-param-source sb-select" aria-label="Parameter ${esc(param.name)} source">` +
+            `<option value="manual"${fromScript ? '' : ' selected'}>Manual</option>` +
+            `<option value="script"${fromScript ? ' selected' : ''}>From script</option>` +
+            `</select>` +
+            `<input class="oa-param-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+                   `value="${initial !== undefined ? initial : ''}" placeholder="N" ` +
+                   `aria-label="Parameter ${esc(param.name)} value"${fromScript ? ' hidden' : ''}>` +
+            `<select class="oa-param-script sb-select" aria-label="Parameter ${esc(param.name)} size script"${fromScript ? '' : ' hidden'}>` +
+                   `${this.sizeScriptOptionsHtml(draft.scriptPath)}</select>` +
+            `<button type="button" class="oa-param-open sb-btn sb-btn-secondary"` +
+                   `${draft.scriptPath ? '' : ' disabled'} title="Open size script" aria-label="Open size script"${fromScript ? '' : ' hidden'}>Open</button>` +
+            `</div>`
+        );
+    }).join('');
+    return `<div id="oa-params" class="oa-params"><div class="oa-params-hdr">Parameters</div>${rows}</div>`;
+}
+
+/** Form draft for one parameter: explicit draft, else the edited instance's source, else manual. */
+private paramSourceDraft(name: string, source: TypeInstanceParamSource | undefined): PinParamSourceDraft {
+    const draft = this._pinParamSourceDrafts.get(name);
+    if (draft) { return draft; }
+    return source
+        ? { mode: 'script', scriptPath: source.scriptPath }
+        : { mode: 'manual', scriptPath: '' };
+}
+
+/** Scripts tagged `@script size` (filtered source picker). */
+private sizeScripts(): Array<{ path: string; label: string }> {
+    const seen = new Set<string>();
+    const options: Array<{ path: string; label: string }> = [];
+    for (const script of this._scripts) {
+        if (!script.roles.includes('size')) { continue; }
+        const path = script.relativePath || script.filePath;
+        if (!path || seen.has(path)) { continue; }
+        seen.add(path);
+        options.push({ path, label: path });
+    }
+    return options;
+}
+
+private sizeScriptOptionsHtml(selected: string): string {
+    const options = this.sizeScripts();
+    if (selected && !options.some(option => option.path === selected)) {
+        options.unshift({ path: selected, label: `${selected} (not found)` });
+    }
+    if (options.length === 0) {
+        return `<option value="">No @script size scripts</option>`;
+    }
+    return options.map(option =>
+        `<option value="${esc(option.path)}"${option.path === selected ? ' selected' : ''}>${esc(option.label)}</option>`,
+    ).join('');
+}
+
+/** Current source script selection for one parameter (DOM wins over the draft). */
+private selectedParamScript(name: string): string {
+    const fromDom = this._root?.querySelector<HTMLSelectElement>(
+        `.oa-param-row[data-param-name="${cssEscapeAttr(name)}"] .oa-param-script`,
+    )?.value ?? '';
+    return (fromDom || this._pinParamSourceDrafts.get(name)?.scriptPath || '').trim();
+}
+
+/** Read + validate the instance form's parameter values and sources. */
+private readInstanceParamConfig(def: TypeDef): {
+    values: Record<string, number>;
+    sources: Record<string, { scriptPath: string }>;
+    errors: string[];
+} {
+    const values: Record<string, number> = {};
+    const sources: Record<string, { scriptPath: string }> = {};
+    const errors: string[] = [];
+    for (const row of Array.from(this._root?.querySelectorAll<HTMLElement>('#oa-params .oa-param-row') ?? [])) {
+        const name = row.dataset.paramName ?? '';
+        const mode = row.querySelector<HTMLSelectElement>('.oa-param-source')?.value === 'script' ? 'script' : 'manual';
+        if (mode === 'script') {
+            const scriptPath = this.selectedParamScript(name);
+            if (!scriptPath) {
+                errors.push(`Parameter "${name}": select a size script.`);
+            } else {
+                sources[name] = { scriptPath };
+            }
+            continue;
+        }
+        const raw = row.querySelector<HTMLInputElement>('.oa-param-inp')?.value.trim() ?? '';
+        if (raw === '') { continue; }
+        const value = Number(raw);
+        if (!Number.isFinite(value) || !Number.isInteger(value)) {
+            errors.push(`Parameter "${name}" must be a positive integer.`);
+            continue;
+        }
+        values[name] = value;
+    }
+    return {
+        values,
+        sources,
+        errors: [...new Set([...errors, ...validateInstanceParamConfig(def, values, sources)])],
+    };
+}
+
+private showInstanceParamError(message: string | null): void {
+    const el = this._root?.querySelector<HTMLElement>('#oa-param-error');
+    if (!el) { return; }
+    el.textContent = message ?? '';
+    el.hidden = !message;
+}
+
+private showInstanceSourceError(message: string | null): void {
+    const el = this._root?.querySelector<HTMLElement>('#oa-source-error');
+    if (!el) { return; }
+    el.textContent = message ?? '';
+    el.hidden = !message;
+}
+
 private editingPinTypeId(): string | null {
     const pin = this._pins.find(p => p.id === this._editingPinId);
     return pin?.typeId ?? null;
@@ -1595,8 +2342,23 @@ private instancesBodyHtml(addFormHtml: string, instHtml: string): string {
         `<div class="oi-hdr-row">` +
         this.bitLayoutToggleHtml() +
         this.showHiddenToggleHtml() +
+        this.addressRefreshHtml() +
         `</div>` +
         `<div id="oi-list">${instHtml}</div>`
+    );
+}
+
+/** Panel-level action: re-run every script-sourced instance address. */
+private addressRefreshHtml(): string {
+    const enabled = this.hasDynamicInstances();
+    const title = enabled ? 'Resolve script instance addresses and sizes' : 'No script-sourced instances';
+    return (
+        `<div class="oi-toggle-group" title="${title}">` +
+        `<div class="compact-tabs">` +
+        `<button type="button" id="oi-refresh-addrs-btn" class="oi-refresh-addrs-btn" ` +
+               `title="${title}" aria-label="${title}"${enabled ? '' : ' disabled'}>Refresh addresses</button>` +
+        `</div>` +
+        `</div>`
     );
 }
 
@@ -1727,6 +2489,13 @@ private wireOverlayPanel(sec: HTMLElement): void {
     this.wireAddInstanceControls(sec);
     this.wireBitLayoutTabs(sec);
     this.wireShowHiddenToggle(sec);
+    this.wireAddressRefresh(sec);
+}
+
+private wireAddressRefresh(sec: HTMLElement): void {
+    sec.querySelector('#oi-refresh-addrs-btn')?.addEventListener('click', () => {
+        this.cb.onRefreshAddresses?.();
+    });
 }
 
     private wireTypesPanelControls(sec: HTMLElement): void {
@@ -1768,6 +2537,7 @@ private wireOverlayPanel(sec: HTMLElement): void {
                         fields: existing.fields.map(f => ({ ...f })),
                         bitFields: existing.bitFields?.map(c => ({ ...c })),
                         entries: existing.entries?.map(e => ({ ...e })),
+                        params: existing.params?.map(p => ({ ...p })),
                     },
                     existing,
                     fromManage: true,
@@ -1779,6 +2549,10 @@ private wireOverlayPanel(sec: HTMLElement): void {
                 const next = withoutTypeDefinition(this._types, this._pins, id);
                 this._types = next.types;
                 this._pins = next.pins;
+                for (const pinId of Array.from(this._addressResolutions.keys())) {
+                    if (!this._pins.some(pin => pin.id === pinId)) { this._addressResolutions.delete(pinId); }
+                }
+                this.pruneParamResolutions();
                 if (this._applyTypeId === id) { this._applyTypeId = null; }
                 this.cb.onStateChange?.(this._types, this._pins);
                 this.render();
@@ -1797,20 +2571,77 @@ private wireAddInstanceControls(sec: HTMLElement): void {
         this.render();
     });
     sec.querySelector('#oa-addr')?.addEventListener('input', () => {
-        const addrInp = sec.querySelector<HTMLInputElement>('#oa-addr');
-        const confirmBtn = sec.querySelector<HTMLButtonElement>('#oa-confirm');
-        if (!addrInp || !confirmBtn) { return; }
-        const hasAddr = addrInp.value.trim().length > 0;
-        confirmBtn.disabled = !this.selectedApplyTypeId() || !hasAddr;
+        this.refreshInstanceConfirmState();
     });
+    sec.querySelector('#oa-addr-source')?.addEventListener('change', e => {
+        // Attribute-only toggle: a full re-render would drop unsaved name/param input.
+        const mode = (e.target as HTMLSelectElement).value === 'script' ? 'script' : 'fixed';
+        this._pinSourceDraft.mode = mode;
+        const addrRow = sec.querySelector<HTMLElement>('.oa-addr-row');
+        const scriptRow = sec.querySelector<HTMLElement>('.oa-script-row');
+        if (addrRow) { addrRow.hidden = mode === 'script'; }
+        if (scriptRow) { scriptRow.hidden = mode !== 'script'; }
+        if (mode === 'script' && !this._pinSourceDraft.scriptPath) {
+            this._pinSourceDraft.scriptPath = sec.querySelector<HTMLSelectElement>('#oa-script-sel')?.value ?? '';
+        }
+        this.syncScriptOpenButton();
+        this.refreshInstanceConfirmState();
+    });
+    sec.querySelector('#oa-script-sel')?.addEventListener('change', e => {
+        this._pinSourceDraft.scriptPath = (e.target as HTMLSelectElement).value;
+        this.syncScriptOpenButton();
+        this.refreshInstanceConfirmState();
+    });
+    sec.querySelector('#oa-script-open')?.addEventListener('click', () => {
+        const scriptPath = this.selectedAddressScript();
+        if (scriptPath) { this.cb.onOpenScript?.(scriptPath); }
+    });
+    this.wireParamSourceControls(sec);
     sec.querySelector('#oa-confirm')?.addEventListener('click', () => {
         this.confirmInstance();
     });
     sec.querySelector('#oa-cancel')?.addEventListener('click', () => {
-        this._addingPin = false;
-        this._editingPinId = null;
-        this._editingPinDraftTypeId = null;
+        this.resetPinFormState();
         this.render();
+    });
+}
+
+private wireParamSourceControls(sec: HTMLElement): void {
+    sec.querySelectorAll<HTMLElement>('#oa-params .oa-param-row').forEach(row => {
+        const name = row.dataset.paramName ?? '';
+        row.querySelector<HTMLSelectElement>('.oa-param-source')?.addEventListener('change', e => {
+            // Attribute-only toggle: a full re-render would drop unsaved input.
+            const mode = (e.target as HTMLSelectElement).value === 'script' ? 'script' : 'manual';
+            const draft = this._pinParamSourceDrafts.get(name) ?? { mode: 'manual', scriptPath: '' };
+            draft.mode = mode;
+            const scriptSel = row.querySelector<HTMLSelectElement>('.oa-param-script');
+            if (mode === 'script' && !draft.scriptPath) {
+                draft.scriptPath = scriptSel?.value ?? '';
+            }
+            this._pinParamSourceDrafts.set(name, draft);
+            const valueInp = row.querySelector<HTMLInputElement>('.oa-param-inp');
+            const openBtn = row.querySelector<HTMLButtonElement>('.oa-param-open');
+            if (valueInp) { valueInp.hidden = mode === 'script'; }
+            if (scriptSel) { scriptSel.hidden = mode !== 'script'; }
+            if (openBtn) { openBtn.hidden = mode !== 'script'; }
+            this.syncParamOpenButtons();
+            this.refreshInstanceConfirmState();
+        });
+        row.querySelector<HTMLSelectElement>('.oa-param-script')?.addEventListener('change', e => {
+            const draft = this._pinParamSourceDrafts.get(name) ?? { mode: 'script', scriptPath: '' };
+            draft.mode = 'script';
+            draft.scriptPath = (e.target as HTMLSelectElement).value;
+            this._pinParamSourceDrafts.set(name, draft);
+            this.syncParamOpenButtons();
+            this.refreshInstanceConfirmState();
+        });
+        row.querySelector<HTMLInputElement>('.oa-param-inp')?.addEventListener('input', () => {
+            this.refreshInstanceConfirmState();
+        });
+        row.querySelector<HTMLButtonElement>('.oa-param-open')?.addEventListener('click', () => {
+            const scriptPath = this.selectedParamScript(name);
+            if (scriptPath) { this.cb.onOpenScript?.(scriptPath); }
+        });
     });
 }
 
@@ -1867,11 +2698,42 @@ private refreshInstances(): void {
 }
 
 private confirmInstance(): void {
-    const addr = this.applyAddress();
+    const source = this._pinSourceDraft.mode === 'script'
+        ? { scriptPath: this.selectedAddressScript() }
+        : null;
+    if (source && !source.scriptPath) {
+        this.showInstanceSourceError('Select an address script.');
+        return;
+    }
+    const editingPin = this.editingTypeInstance();
+    const sourceError = source ? addressSourceError({ addressSource: source, pointerSources: editingPin?.pointerSources }) : null;
+    if (sourceError) {
+        this.showInstanceSourceError(sourceError);
+        return;
+    }
+    this.showInstanceSourceError(null);
+    const addr = source ? this.fallbackAddress(editingPin) : this.applyAddress();
     if (addr === null) { return; }
-    if (this._editingPinId) { this.applyEditedPin(addr); }
-    else { this.applyNewPin(addr); }
+    const def = this.selectedApplyDef();
+    const params = def ? this.readInstanceParamConfig(def) : { values: {}, sources: {}, errors: [] };
+    if (params.errors.length > 0) {
+        this.showInstanceParamError(params.errors[0]);
+        return;
+    }
+    this.showInstanceParamError(null);
+    if (this._editingPinId) { this.applyEditedPin(addr, params.values, params.sources, source); }
+    else { this.applyNewPin(addr, params.values, params.sources, source); }
+    this.resetPinFormState();
     this.render();
+}
+
+/** Fallback `addr` while a script is the source: keep the input when valid, else the last authored value. */
+private fallbackAddress(pin: TypeInstance | null): number {
+    const addrInp = this.pendingAddrInput();
+    const parsed = addrInp ? parseInt(addrInp.value.replace(/^0x/i, ''), 16) : NaN;
+    if (!isNaN(parsed)) { return parsed; }
+    if (pin) { return pin.addr; }
+    return this._activeTypeAddr ?? 0;
 }
 
 private applyAddress(): number | null {
@@ -1881,17 +2743,42 @@ private applyAddress(): number | null {
     return this.parseApplyAddress(addrInp);
 }
 
-private applyEditedPin(addr: number): void {
+private applyEditedPin(
+    addr: number,
+    paramValues: Record<string, number>,
+    paramSources: Record<string, { scriptPath: string }>,
+    addressSource: TypeInstance['addressSource'] | null,
+): void {
     const idx = this._pins.findIndex(p => p.id === this._editingPinId);
     const pin = this._pins[idx];
     const name = this.editedPinName(pin);
     if (idx >= 0) {
-        this._pins = withEditedTypeInstance(this._pins, idx, { name, addr, typeId: this.selectedApplyTypeId()! });
+        this._pins = withEditedTypeInstance(this._pins, idx, {
+            name, addr, typeId: this.selectedApplyTypeId()!, paramValues, paramSources, addressSource,
+        });
         this._activeTypeAddr = addr;
+        this._addressResolutions.delete(this._pins[idx].id);
+        this.clearPinParamResolutions(this._pins[idx].id);
         this.cb.onPinsChange?.(this._pins);
     }
     this._editingPinId = null;
     this._editingPinDraftTypeId = null;
+}
+
+/** Drop every transient parameter resolution for one instance. */
+private clearPinParamResolutions(pinId: string): void {
+    for (const key of Array.from(this._paramResolutions.keys())) {
+        if (key.startsWith(`${pinId}\u0000`)) { this._paramResolutions.delete(key); }
+    }
+}
+
+/** Reset the transient instance-form state after save/cancel. */
+private resetPinFormState(): void {
+    this._addingPin = false;
+    this._editingPinId = null;
+    this._editingPinDraftTypeId = null;
+    this._pinSourceDraft = { mode: 'fixed', scriptPath: '' };
+    this._pinParamSourceDrafts.clear();
 }
 
 private editedPinName(pin: TypeInstance | undefined): string {
@@ -1904,9 +2791,17 @@ private rawPinName(): string {
     return this._root?.querySelector<HTMLInputElement>('#oa-name')?.value.trim() ?? '';
 }
 
-private applyNewPin(addr: number): void {
+private applyNewPin(
+    addr: number,
+    paramValues: Record<string, number>,
+    paramSources: Record<string, { scriptPath: string }>,
+    addressSource: TypeInstance['addressSource'] | null,
+): void {
     const name = this.applyName(this._root!.querySelector<HTMLInputElement>('#oa-name')!);
-    const pin = makeTypeInstance({ typeId: this.selectedApplyTypeId()!, addr, name }, this.makePinId);
+    const pin = makeTypeInstance({
+        typeId: this.selectedApplyTypeId()!, addr, name, paramValues, paramSources,
+        ...(addressSource ? { addressSource } : {}),
+    }, this.makePinId);
     this._pins = [...this._pins, pin];
     this._activeTypeAddr = addr;
     this._expanded.add(pin.id);
@@ -1961,21 +2856,28 @@ private pendingAddrInput(): HTMLInputElement | null {
 }
 
 private instanceTypePreviewHtml(def: TypeDef | undefined, pin: TypeInstance): string {
-    return def
-        ? `<div class="oi-type-preview"${this._previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
-                    `<pre class="oi-c-preview" data-preview-id="${esc(def.id)}"></pre>` +
-          `</div>`
-        : '';
+    if (!def) { return ''; }
+    const params = def.params && def.params.length > 0 ? this.pinLayoutParams(pin, def) : undefined;
+    const paramsAttr = params ? ` data-preview-params="${esc(JSON.stringify(params))}"` : '';
+    return `<div class="oi-type-preview"${this._previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
+                `<pre class="oi-c-preview" data-preview-id="${esc(def.id)}"${paramsAttr}></pre>` +
+          `</div>`;
 }
 
 private instanceBodyHtml(def: TypeDef | undefined, pin: TypeInstance, expanded: boolean): string {
-    return expanded && def ? this.renderTypeBody(def, pin) : '';
+    if (!expanded || !def || !this.instanceRenderable(pin)) { return ''; }
+    return this.renderTypeBody(def, pin, this.instanceAddress(pin) ?? undefined, this.pinLayoutParams(pin, def));
 }
 
 /** Always-visible card actions: Edit | View type | Delete. */
 private instanceActionsHtml(pin: TypeInstance, index: number): string {
     const previewActive = this._previewedPins.has(pin.id) ? ' active' : '';
+    const refresh = instanceUsesScriptResolution(pin)
+        ? `<button type="button" class="act-btn act-btn-addr-refresh" data-pin-id="${esc(pin.id)}" ` +
+          `title="Refresh script values" aria-label="Refresh script values">&#8635;</button>`
+        : '';
     return (
+        refresh +
         `<button type="button" class="act-btn act-btn-edit" data-pin-id="${esc(pin.id)}" title="Edit" aria-label="Edit">&#9998;</button>` +
         `<button type="button" class="act-btn act-btn-view-type${previewActive}" data-pin-id="${esc(pin.id)}" title="View type definition" aria-label="View type definition">{ }</button>` +
         `<button type="button" class="act-btn act-btn-del" data-idx="${index}" title="Delete" aria-label="Delete">&#128465;&#xFE0E;</button>`
@@ -1989,16 +2891,22 @@ private instanceHeaderHtml(
     totalBytes: number,
     addrHex: string,
     expanded: boolean,
+    resolution: AddressResolution | undefined,
+    renderable: boolean,
+    paramError?: string,
+    paramDetailHtml?: string,
 ): string {
     return (
         `<div class="sb-card-hdr">` +
-        `<button class="oi-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}">›</button>` +
+        `<button class="oi-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}"${renderable ? '' : ' disabled'}>›</button>` +
         `<div class="sb-card-info">` +
         `<span class="oi-cname">${esc(pin.name)}</span>` +
         `<div class="oi-cmeta-row">` +
         `<span class="oi-ctype">${esc(defName)}</span>` +
-        `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>` +
+        this.instanceAddressHtml(pin, resolution, addrHex, totalBytes) +
+        this.paramWarningHtml(paramError) +
         `</div>` +
+        (paramDetailHtml ?? '') +
         this.pointerSourceSubtitleHtml(pin) +
         `</div>` +
         `<div class="oi-card-actions">` +
@@ -2008,6 +2916,48 @@ private instanceHeaderHtml(
     );
 }
 
+/** Card address cell: fixed address, or the script-derived resolving/stale/error state. */
+private instanceAddressHtml(
+    pin: TypeInstance,
+    resolution: AddressResolution | undefined,
+    addrHex: string,
+    totalBytes: number,
+): string {
+    if (!instanceUsesScriptAddress(pin)) {
+        return `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>`;
+    }
+    const chip = this.scriptChipHtml(pin);
+    if (resolution?.status === 'resolved') {
+        return `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>${chip}`;
+    }
+    if (resolution?.status === 'stale') {
+        const lastAddr = resolution.addr !== undefined
+            ? `0x${resolution.addr.toString(16).toUpperCase().padStart(8, '0')}`
+            : '';
+        return `<span class="oi-caddr oi-addr-stale" title="Re-resolving after a document change">` +
+            `${lastAddr ? `${lastAddr}\u202f\u00b7\u202f` : ''}stale</span>${chip}`;
+    }
+    if (resolution?.status === 'error') {
+        const last = resolution.lastAddr !== undefined
+            ? `<span class="oi-caddr oi-addr-stale" title="Last successful address (not current)">` +
+              `0x${resolution.lastAddr.toString(16).toUpperCase().padStart(8, '0')}</span>`
+            : '';
+        return `<span class="oi-caddr oi-addr-error" title="${esc(resolution.message)}">${esc(resolution.message)}</span>${last}${chip}`;
+    }
+    return `<span class="oi-caddr oi-addr-resolving">resolving\u2026</span>${chip}`;
+}
+
+private scriptChipHtml(pin: TypeInstance): string {
+    const scriptPath = pin.addressSource?.scriptPath ?? '';
+    return `<span class="oi-script-chip" title="${esc(scriptPath)}">Script</span>`;
+}
+
+/** Instance-level parameter warning chip (surfaces a templated type with missing values). */
+private paramWarningHtml(paramError: string | undefined): string {
+    if (!paramError) { return ''; }
+    return `<span class="oi-cwarn" title="${esc(paramError)}">\u26a0 params</span>`;
+}
+
 private instanceContentHtml(pin: TypeInstance, typePreviewHtml: string, bodyHtml: string): string {
     return typePreviewHtml + bodyHtml;
 }
@@ -2015,19 +2965,70 @@ private instanceContentHtml(pin: TypeInstance, typePreviewHtml: string, bodyHtml
 private buildInstanceCard(pin: TypeInstance, i: number): string {
     const def        = allTypes(this._types).find(d => d.id === pin.typeId);
     const defName    = def ? def.name : '?';
-    const totalBytes = def ? typeByteSize(def, this._types) : 0;
-    const addrHex    = pin.addr.toString(16).toUpperCase().padStart(8, '0');
-    const expanded   = this._expanded.has(pin.id);
+    const layout     = def ? this.pinLayoutParams(pin, def) : undefined;
+    const totalBytes = def ? typeByteSize(def, this._types, layout ?? {}) : 0;
+    const resolution = this.instanceResolution(pin);
+    const renderable = this.instanceRenderable(pin);
+    const displayAddr = this.instanceAddress(pin) ?? pin.addr;
+    const addrHex    = displayAddr.toString(16).toUpperCase().padStart(8, '0');
+    const expanded   = renderable && this._expanded.has(pin.id);
+    const paramError = this.paramBlockReason(pin.id);
+    const paramDetail = def ? this.instanceParamsHtml(pin, def) : '';
 
     const bodyHtml = this.instanceBodyHtml(def, pin, expanded);
     const typePreviewHtml = this.instanceTypePreviewHtml(def, pin);
 
     return (
         `<div class="sb-card${expanded ? ' oi-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
-        this.instanceHeaderHtml(pin, i, defName, totalBytes, addrHex, expanded) +
+        this.instanceHeaderHtml(pin, i, defName, totalBytes, addrHex, expanded, resolution, renderable, paramError, paramDetail) +
         this.instanceContentHtml(pin, typePreviewHtml, bodyHtml) +
         `</div>`
     );
+}
+
+/** Compact per-parameter state row on a templated instance card. */
+private instanceParamsHtml(pin: TypeInstance, def: TypeDef): string {
+    const params = def.params ?? [];
+    if (params.length === 0) { return ''; }
+    const cells = params.map(param => this.instanceParamCellHtml(pin, param));
+    return `<div class="oi-cparams">${cells.join('')}</div>`;
+}
+
+private instanceParamCellHtml(pin: TypeInstance, param: TypeParam): string {
+    const manual = Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param.name)
+        ? pin.paramValues?.[param.name]
+        : undefined;
+    const source = pin.paramSources?.[param.name];
+    if (manual !== undefined) {
+        return `<span class="oi-cparam" data-param-name="${esc(param.name)}" title="Manual value">` +
+            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${manual}</span></span>`;
+    }
+    if (!source) {
+        const value = param.default !== undefined ? String(param.default) : '??';
+        const cls = param.default !== undefined ? '' : ' oi-cparam-error';
+        return `<span class="oi-cparam${cls}" data-param-name="${esc(param.name)}" title="Type default">` +
+            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${value}</span></span>`;
+    }
+    const resolution = this.paramResolution(pin.id, param.name);
+    const chip = `<span class="oi-script-chip" title="${esc(source.scriptPath)}">Script</span>`;
+    if (resolution?.status === 'resolved') {
+        return `<span class="oi-cparam" data-param-name="${esc(param.name)}">` +
+            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${resolution.value}</span>${chip}</span>`;
+    }
+    if (resolution?.status === 'stale') {
+        const value = resolution.value !== undefined ? String(resolution.value) : '…';
+        return `<span class="oi-cparam oi-cparam-stale" data-param-name="${esc(param.name)}" title="Re-resolving after a document change">` +
+            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${value}</span>${chip}</span>`;
+    }
+    if (resolution?.status === 'error') {
+        const last = resolution.lastValue !== undefined
+            ? `<span class="oi-cparam-val oi-cparam-stale">${resolution.lastValue}</span>`
+            : '';
+        return `<span class="oi-cparam oi-cparam-error" data-param-name="${esc(param.name)}" title="${esc(resolution.message)}">` +
+            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${esc(resolution.message)}</span>${last}${chip}</span>`;
+    }
+    return `<span class="oi-cparam oi-cparam-resolving" data-param-name="${esc(param.name)}">` +
+        `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">resolving…</span>${chip}</span>`;
 }
 
 private clearArrSep(): void {
@@ -2112,6 +3113,7 @@ private wireInstanceCards(sec: HTMLElement): void {
 
     sec.querySelectorAll<HTMLElement>('.oi-expand-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+            if ((btn as HTMLButtonElement).disabled) { return; }
             const id = btn.dataset.pinId!;
             if (this._expanded.has(id)) { this._expanded.delete(id); } else { this._expanded.add(id); }
             this.render();
@@ -2188,13 +3190,25 @@ private wireInstanceCards(sec: HTMLElement): void {
                 this._editingPinId = btn.dataset.pinId!;
                 const editedPin = this._pins.find(p => p.id === this._editingPinId);
                 this._editingPinDraftTypeId = editedPin?.typeId ?? null;
+                this._pinSourceDraft = editedPin?.addressSource
+                    ? { mode: 'script', scriptPath: editedPin.addressSource.scriptPath }
+                    : { mode: 'fixed', scriptPath: '' };
+                this._pinParamSourceDrafts.clear();
+                for (const [name, source] of Object.entries(editedPin?.paramSources ?? {})) {
+                    this._pinParamSourceDrafts.set(name, { mode: 'script', scriptPath: source.scriptPath });
+                }
                 this._expanded.delete(this._editingPinId);
+                this.cb.onRequestScripts?.();
                 this.render();
             },
             btn => {
                 const idx = parseInt(btn.dataset.idx!);
                 const pin = this._pins[idx];
-                if (pin) { this._expanded.delete(pin.id); }
+                if (pin) {
+                    this._expanded.delete(pin.id);
+                    this._addressResolutions.delete(pin.id);
+                    this.clearPinParamResolutions(pin.id);
+                }
                 this._pins = withoutTypeInstance(this._pins, idx);
                 this.cb.onPinsChange?.(this._pins);
                 this.render();
@@ -2204,6 +3218,12 @@ private wireInstanceCards(sec: HTMLElement): void {
             btn.addEventListener('click', e => {
                 e.stopPropagation();
                 this.toggleTypePreview(btn);
+            });
+        });
+        card.querySelectorAll<HTMLElement>('.act-btn-addr-refresh').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                this.cb.onRefreshAddresses?.(btn.dataset.pinId);
             });
         });
     });
@@ -2298,12 +3318,14 @@ private wireInstanceCards(sec: HTMLElement): void {
     this._selectedArrElemKey = null;
     const sel = this.cardSelection(hdr);
     if (!sel) { return; }
-    const size = typeByteSize(sel.def, this._types);
-    this._activeTypeAddr = sel.pin.addr;
+    const addr = this.instanceAddress(sel.pin);
+    if (addr === null) { return; }
+    const size = typeByteSize(sel.def, this._types, this.pinLayoutParams(sel.pin, sel.def) ?? {});
+    this._activeTypeAddr = addr;
     this._selectedPinId = sel.pin.id;
     sec.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('oi-card-selected'));
     sel.card.classList.add('oi-card-selected');
-    this.cb.onSelectRange?.(sel.pin.addr, size);
+    this.cb.onSelectRange?.(addr, size);
 }
 
 private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: TypeInstance; def: TypeDef } | null {
@@ -2411,8 +3433,10 @@ private instanceAtAddress(addr: number, pinIdx: number | undefined, allDefs: Typ
     return this._pins.find(pin => {
         const def = allDefs.find(candidate => candidate.id === pin.typeId);
         if (!def) { return false; }
-        const size = typeByteSize(def, this._types);
-        return addr >= pin.addr && addr < pin.addr + size;
+        const baseAddr = this.instanceAddress(pin);
+        if (baseAddr === null) { return false; }
+        const size = typeByteSize(def, this._types, this.pinLayoutParams(pin, def) ?? {});
+        return addr >= baseAddr && addr < baseAddr + size;
     });
 }
 
@@ -2420,9 +3444,10 @@ private instanceRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs:
     const pin = this.instanceAtAddress(addr, pinIdx, allDefs);
     if (!pin) { return []; }
     const def = allDefs.find(candidate => candidate.id === pin.typeId);
-    if (!def) { return []; }
-    const rows = decodeType(def, pin.addr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types);
-    return rows.filter(row => pin.addr + row.byteOffset === addr);
+    const baseAddr = pin ? this.instanceAddress(pin) : null;
+    if (!def || baseAddr === null) { return []; }
+    const rows = decodeType(def, baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types, this.pinLayoutParams(pin, def) ?? {});
+    return rows.filter(row => baseAddr + row.byteOffset === addr);
 }
 
 private sourceRowsAtAddress(
@@ -3164,8 +4189,10 @@ private findCopySourcePin(bs: number, pinIdx: number | undefined, defs: TypeDef[
     return this._pins.find(p => {
         const def = defs.find(d => d.id === p.typeId);
         if (!def) { return false; }
-        const size = typeByteSize(def, this._types);
-        return bs >= p.addr && bs < p.addr + size;
+        const baseAddr = this.instanceAddress(p);
+        if (baseAddr === null) { return false; }
+        const size = typeByteSize(def, this._types, this.pinLayoutParams(p, def) ?? {});
+        return bs >= baseAddr && bs < baseAddr + size;
     });
 }
 
@@ -3176,12 +4203,13 @@ private findCopySourceRows(bs: number, pinIdx: number | undefined, opts: FieldVa
     const pin = this.findCopySourcePin(bs, pinIdx, all);
     if (!pin) { return undefined; }
     const def = all.find(d => d.id === pin.typeId);
-    if (!def) { return undefined; }
+    const baseAddr = this.instanceAddress(pin);
+    if (!def || baseAddr === null) { return undefined; }
     return {
         pin,
-        rows: decodeType(def, pin.addr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types),
+        rows: decodeType(def, baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types, this.pinLayoutParams(pin, def) ?? {}),
         typeId: def.id,
-        baseAddr: pin.addr,
+        baseAddr,
     };
 }
 
@@ -3191,9 +4219,10 @@ private findExplicitCopySourceRows(pinIdx: number | undefined, opts: FieldValMen
     const pin = this.copySourcePinFromIndex(pinIdx);
     const def = this.typeDefById(context.typeId);
     if (!pin || !def) { return undefined; }
+    const params = pin.typeId === def.id ? (this.pinLayoutParams(pin, def) ?? {}) : undefined;
     return {
         pin,
-        rows: decodeType(def, context.baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types),
+        rows: decodeType(def, context.baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types, params),
         typeId: def.id,
         baseAddr: context.baseAddr,
     };
@@ -3372,7 +4401,10 @@ private clearSelectionState(): void {
 
     // Editor fields (editorFields.ts)
     private fieldRowHtml(f: TypeField, i: number, isOnly: boolean, total: number, draftId: string): string {
-        return fieldRowHtml(f, i, isOnly, total, draftId, this._types, this.editorInheritedEndian(), this.editorInheritedAlloc());
+        return fieldRowHtml(
+            f, i, isOnly, total, draftId, this._types, this.editorInheritedEndian(),
+            this.editorInheritedAlloc(), this._editingType?.draft.params ?? [],
+        );
     }
     private childFieldRowHtml(child: BitFieldChild, ci: number, total: number): string { return childFieldRowHtml(child, ci, total, this._types); }
     private overrideSelectHtml(value: 'le' | 'be' | 'lsb' | 'msb' | undefined, kind: 'endian' | 'allocation', cls: string, id?: string, inherited?: string): string { return overrideSelectHtml(value, kind, cls, id, inherited); }
@@ -3386,15 +4418,28 @@ private clearSelectionState(): void {
     private implicitDisplayType(field: DecodedField | null | undefined, forceBinary = false): ColType { return implicitDisplayType(this.renderCtx(), field, forceBinary); }
 
     // Row renderer (rowRenderer.ts)
-    private renderTypeBody(def: TypeDef, pin: TypeInstance): string { return renderTypeBody(this.renderCtx(), def, pin); }
+    private renderTypeBody(def: TypeDef, pin: TypeInstance, addr?: number, params?: Readonly<Record<string, number>>): string { return renderTypeBody(this.renderCtx(), def, pin, addr, params); }
     private buildBitUnitAggregateRow(rows: DecodedField[]): DecodedField | null { return buildBitUnitAggregateRow(this.renderCtx(), rows); }
     private syncCompositeHeaderOffset(hdr: HTMLElement, isOpen: boolean): void { syncCompositeHeaderOffset(hdr, isOpen); }
     private pointerTargetTypeDef(row: DecodedField): TypeDef | undefined { return pointerTargetTypeDef(this.renderCtx(), row); }
 }
 
+/** Whether a transient parameter-resolution key still has a live authored source. */
+function pinParamSourceExists(pin: TypeInstance, key: string): boolean {
+    const sep = key.indexOf('\u0000');
+    if (sep < 0 || key.slice(0, sep) !== pin.id) { return false; }
+    const param = key.slice(sep + 1);
+    if (!pin.paramSources?.[param]?.scriptPath?.trim()) { return false; }
+    return !Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param);
+}
+
+/** Escape a parameter name for use inside a quoted attribute selector. */
+function cssEscapeAttr(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 /** Pointer dataset flag a type change implies, or undefined to leave the row's flag untouched. */
-function fieldRowPtrFlag(value: string, isBitFieldRef: boolean): string | undefined {
-    if (isBitFieldRef || value.startsWith('enum:')) { return ''; }
+function fieldRowPtrFlag(value: string, isBitFieldRef: boolean): string | undefined {    if (isBitFieldRef || value.startsWith('enum:')) { return ''; }
     return value === 'void' ? '1' : undefined;
 }
 

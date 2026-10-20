@@ -24,7 +24,13 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'profilesState',
     'scriptInfo',
     'scriptResult',
+    'integrityScriptResult',
+    'instanceParamsResolved',
+    'instanceAddressesResolved',
     'scriptOutput',
+    'scriptPermissionRequest',
+    'scriptPermissions',
+    'scriptWritesCommit',
     'activateScriptsTab',
     'activateProfilePicker',
 ];

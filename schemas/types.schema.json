@@ -86,6 +86,12 @@
             "$ref": "#/definitions/enumEntry"
           }
         },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/typeParam"
+          }
+        },
         "packed": {
           "type": "boolean"
         },
@@ -132,6 +138,9 @@
         },
         "count": {
           "type": "number"
+        },
+        "countParam": {
+          "type": "string"
         },
         "bitFieldsCollapsed": {
           "type": "boolean"
@@ -187,6 +196,27 @@
           "type": "string"
         },
         "value": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "typeParam": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "size"
+          ]
+        },
+        "default": {
           "type": "number"
         }
       },

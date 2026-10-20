@@ -23,14 +23,42 @@ export function integrityByteOrder(algorithm: IntegrityAlgorithm, endian: Integr
 
 const INTEGRITY_PROFILE_SCHEMA_VERSION = 1 as const;
 
-export interface IntegrityCheckConfig {
-    algorithm: IntegrityAlgorithm;
+export type IntegrityCheckKind = 'builtin' | 'script';
+
+/** Fields shared by every check kind. Addresses are unsigned 32-bit and inclusive. */
+export interface IntegrityCheckBase {
     startAddress: number;
     endAddress: number;
     storedAddress?: number;
     autoFixStoredValue: boolean;
-    /** Optional custom name; empty/missing falls back to the algorithm label. */
+    /** Optional custom name; empty/missing falls back to the algorithm/script label. */
     name?: string;
+}
+
+export interface IntegrityBuiltinCheckConfig extends IntegrityCheckBase {
+    kind: 'builtin';
+    algorithm: IntegrityAlgorithm;
+}
+
+/** `scriptPath` is stored relative to the workspace root. */
+export interface IntegrityScriptCheckConfig extends IntegrityCheckBase {
+    kind: 'script';
+    scriptPath: string;
+}
+
+/**
+ * Discriminated check config. On disk `kind` is additive: a missing `kind`
+ * normalizes to `script` only when a non-empty `scriptPath` exists, otherwise
+ * `builtin` (see `normalizeIntegrityCheck`). Writers always emit `kind`.
+ */
+export type IntegrityCheckConfig = IntegrityBuiltinCheckConfig | IntegrityScriptCheckConfig;
+
+export function isScriptCheck(config: IntegrityCheckConfig): config is IntegrityScriptCheckConfig {
+    return config.kind === 'script';
+}
+
+export function isBuiltinCheck(config: IntegrityCheckConfig): config is IntegrityBuiltinCheckConfig {
+    return config.kind === 'builtin';
 }
 
 export interface IntegrityProfile {
@@ -58,11 +86,23 @@ export interface IntegrityRequest {
     endAddress: number;
 }
 
-export interface IntegrityResult {
+export interface IntegrityBuiltinResult {
+    kind: 'builtin';
     algorithm: IntegrityAlgorithm;
     value: string;
     byteCount: number;
 }
+
+/** Script check result: `valid` is authoritative, `valueBytes` feeds the stored comparison/fix. */
+export interface IntegrityScriptResult {
+    kind: 'script';
+    valid?: boolean;
+    valueBytes?: Uint8Array;
+    byteCount: number;
+    scriptName: string;
+}
+
+export type IntegrityResult = IntegrityBuiltinResult | IntegrityScriptResult;
 
 export interface IntegrityStoredField {
     startAddress: number;
@@ -165,19 +205,64 @@ function normalizeIntegrityChecks(value: unknown): IntegrityCheckConfig[] | null
     return checks;
 }
 
+/** Raw on-disk candidate; `kind` may be absent on older profiles. */
+interface IntegrityCheckCandidate {
+    kind?: unknown;
+    algorithm?: unknown;
+    scriptPath?: unknown;
+    startAddress?: unknown;
+    endAddress?: unknown;
+    storedAddress?: unknown;
+    autoFixStoredValue?: unknown;
+    name?: unknown;
+}
+
 function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
     const raw = integrityCheckCandidate(value);
     if (!raw) { return null; }
-    if (!isIntegrityCheckCore(raw)) { return null; }
-    const verification = normalizeVerificationSettings(raw);
-    if (!verification.ok) { return null; }
+    if (!hasValidCheckCore(raw)) { return null; }
+    const kind = resolveCheckKind(raw);
+    if (!kind) { return null; }
+    return kind === 'script' ? normalizeScriptCheck(raw) : normalizeBuiltinCheck(raw);
+}
+
+function normalizeBuiltinCheck(raw: IntegrityCheckCandidate): IntegrityCheckConfig | null {
+    // A built-in must not carry a script path; reject rather than silently pick one.
+    if (hasScriptPath(raw.scriptPath) || !isIntegrityAlgorithm(raw.algorithm)) { return null; }
     return {
+        kind: 'builtin',
         algorithm: raw.algorithm,
         startAddress: raw.startAddress as number,
         endAddress: raw.endAddress as number,
         ...checkNameField(normalizeCheckName(raw.name)),
-        ...verification.value,
+        ...verificationFields(raw),
     };
+}
+
+function normalizeScriptCheck(raw: IntegrityCheckCandidate): IntegrityCheckConfig | null {
+    // A script check must not carry an algorithm; reject rather than silently pick one.
+    if (raw.algorithm !== undefined || !hasScriptPath(raw.scriptPath)) { return null; }
+    const scriptPath = (raw.scriptPath as string).trim();
+    return {
+        kind: 'script',
+        scriptPath,
+        startAddress: raw.startAddress as number,
+        endAddress: raw.endAddress as number,
+        ...checkNameField(normalizeCheckName(raw.name)),
+        ...verificationFields(raw),
+    };
+}
+
+/** Missing `kind` infers script only when a non-empty scriptPath exists, else builtin. */
+function resolveCheckKind(raw: IntegrityCheckCandidate): IntegrityCheckKind | null {
+    if (raw.kind === undefined) { return hasScriptPath(raw.scriptPath) ? 'script' : 'builtin'; }
+    if (raw.kind === 'builtin' || raw.kind === 'script') { return raw.kind; }
+    console.warn(`Integrity check has an unknown kind (${String(raw.kind)}); dropping it.`);
+    return null;
+}
+
+function hasScriptPath(value: unknown): boolean {
+    return typeof value === 'string' && value.trim() !== '';
 }
 
 /** Name field for the config; empty/oversized names are omitted. */
@@ -192,13 +277,10 @@ function normalizeCheckName(value: unknown): string {
     return name.length <= 40 ? name : '';
 }
 
-function normalizeVerificationSettings(raw: IntegrityCheckConfig):
-    | { ok: true; value: Pick<IntegrityCheckConfig, 'autoFixStoredValue' | 'storedAddress'> }
-    | { ok: false } {
-    if (!isStoredAddressValid(raw.storedAddress)) { return { ok: false }; }
+function verificationFields(raw: IntegrityCheckCandidate): Pick<IntegrityCheckConfig, 'autoFixStoredValue' | 'storedAddress'> {
     return {
-        ok: true,
-        value: { autoFixStoredValue: raw.autoFixStoredValue, ...normalizedStoredAddress(raw.storedAddress) },
+        autoFixStoredValue: raw.autoFixStoredValue as boolean,
+        ...normalizedStoredAddress(raw.storedAddress as number | undefined),
     };
 }
 
@@ -206,14 +288,14 @@ function normalizedStoredAddress(value: number | undefined): { storedAddress?: n
     return value === undefined ? {} : { storedAddress: value };
 }
 
-function integrityCheckCandidate(value: unknown): Partial<IntegrityCheckConfig> | null {
+function integrityCheckCandidate(value: unknown): IntegrityCheckCandidate | null {
     if (value === null) { return null; }
-    return typeof value === 'object' ? value as Partial<IntegrityCheckConfig> : null;
+    return typeof value === 'object' ? value as IntegrityCheckCandidate : null;
 }
 
-function isIntegrityCheckCore(raw: Partial<IntegrityCheckConfig>): raw is IntegrityCheckConfig {
-    if (!isIntegrityAlgorithm(raw.algorithm)) { return false; }
+function hasValidCheckCore(raw: IntegrityCheckCandidate): boolean {
     if (typeof raw.autoFixStoredValue !== 'boolean') { return false; }
+    if (!isStoredAddressValid(raw.storedAddress)) { return false; }
     return isIntegrityRange(raw.startAddress, raw.endAddress);
 }
 
@@ -242,11 +324,10 @@ export function parseIntegrityAddress(raw: string, label: string): IntegrityVali
     return { ok: true, value };
 }
 
-export function validateIntegrityRange(
+export function validateIntegrityAddressRange(
     startRaw: string,
     endRaw: string,
-    algorithm: IntegrityAlgorithm,
-): IntegrityValidation<IntegrityRequest> {
+): IntegrityValidation<{ startAddress: number; endAddress: number }> {
     const start = parseIntegrityAddress(startRaw, 'Start');
     if (!start.ok) { return start; }
     const end = parseIntegrityAddress(endRaw, 'End');
@@ -254,7 +335,17 @@ export function validateIntegrityRange(
     if (end.value < start.value) {
         return { ok: false, error: 'End address must be greater than or equal to start address.' };
     }
-    return { ok: true, value: { algorithm, startAddress: start.value, endAddress: end.value } };
+    return { ok: true, value: { startAddress: start.value, endAddress: end.value } };
+}
+
+export function validateIntegrityRange(
+    startRaw: string,
+    endRaw: string,
+    algorithm: IntegrityAlgorithm,
+): IntegrityValidation<IntegrityRequest> {
+    const range = validateIntegrityAddressRange(startRaw, endRaw);
+    if (!range.ok) { return range; }
+    return { ok: true, value: { algorithm, ...range.value } };
 }
 
 export function collectIntegrityBytes(
@@ -383,9 +474,29 @@ export async function calculateIntegrity(
     algorithm: IntegrityAlgorithm,
     bytes: Uint8Array,
     options: WorkBudgetOptions = {},
-): Promise<IntegrityResult> {
+): Promise<IntegrityBuiltinResult> {
     const value = await INTEGRITY_CALCULATORS[algorithm](bytes, options);
-    return { algorithm, value: value.toUpperCase(), byteCount: bytes.length };
+    return { kind: 'builtin', algorithm, value: value.toUpperCase(), byteCount: bytes.length };
+}
+
+/**
+ * Authoritative script status: `valid` wins when present; otherwise compare the
+ * script's value bytes with the stored field; `undefined` = unverified.
+ */
+export function scriptCheckPassed(
+    result: IntegrityResult | null,
+    storedBytes?: Uint8Array | null,
+): boolean | undefined {
+    if (!result || result.kind !== 'script') { return undefined; }
+    if (result.valid !== undefined) { return result.valid; }
+    if (!result.valueBytes || !storedBytes) { return undefined; }
+    return integrityBytesEqual(result.valueBytes, storedBytes);
+}
+
+/** Base name of a script path (both separators accepted; UI label/tooltip split). */
+export function integrityScriptName(scriptPath: string): string {
+    const parts = scriptPath.split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] ?? scriptPath;
 }
 
 type IntegrityCalculator = (bytes: Uint8Array, options: WorkBudgetOptions) => string | Promise<string>;

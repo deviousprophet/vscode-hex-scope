@@ -9,7 +9,7 @@ const SC_KW   = /\b(typedef|struct|enum)\b/g;
 
 const SC_ATTR = /__attribute__\(\(packed\)\)/g;
 
-function buildTypeCPreviewNodes(def: TypeDef, types: readonly TypeDef[]): DocumentFragment {
+function buildTypeCPreviewNodes(def: TypeDef, types: readonly TypeDef[], params?: Readonly<Record<string, number>>): DocumentFragment {
     const out = document.createDocumentFragment();
     const nameEscRe = (def.name || 'MyType').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const nestedTypeNames = def.fields
@@ -48,7 +48,7 @@ function buildTypeCPreviewNodes(def: TypeDef, types: readonly TypeDef[]): Docume
         if (lastIdx < code.length) { appendText(parent, code.slice(lastIdx)); }
     };
 
-    const lines = typeDefToC(def, types).split('\n');
+    const lines = typeDefToC(def, types, params).split('\n');
     lines.forEach((line, i) => {
         appendTypePreviewLine(out, line, i, lines.length, appendTokenizedCode);
     });
@@ -113,8 +113,13 @@ function typeCodeTokenClass(tok: string): string {
     return SC_KEYWORD_TOKENS.has(tok) ? 'sc-kw' : 'sc-type';
 }
 
-export function renderTypeCPreview(pre: HTMLElement, def: TypeDef, types: readonly TypeDef[]): void {
-    pre.replaceChildren(buildTypeCPreviewNodes(def, types));
+export function renderTypeCPreview(
+    pre: HTMLElement,
+    def: TypeDef,
+    types: readonly TypeDef[],
+    params?: Readonly<Record<string, number>>,
+): void {
+    pre.replaceChildren(buildTypeCPreviewNodes(def, types, params));
 }
 
 export function hydrateTypePreviews(root: HTMLElement, types: readonly TypeDef[], editingDraft: TypeDef | null): void {
@@ -129,7 +134,26 @@ function hydrateTypePreview(pre: HTMLElement, types: readonly TypeDef[], editing
         pre.textContent = '';
         return;
     }
-    renderTypeCPreview(pre, def, types);
+    renderTypeCPreview(pre, def, types, previewParams(pre));
+}
+
+/** Per-instance resolved parameters carried by the card's preview element. */
+function previewParams(pre: HTMLElement): Readonly<Record<string, number>> | undefined {
+    const raw = pre.dataset.previewParams;
+    if (!raw) { return undefined; }
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { return undefined; }
+        const values: Record<string, number> = {};
+        for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 1) {
+                values[name] = value;
+            }
+        }
+        return Object.keys(values).length > 0 ? values : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** Resolve the def a preview id points at, preferring the in-flight editor draft. */

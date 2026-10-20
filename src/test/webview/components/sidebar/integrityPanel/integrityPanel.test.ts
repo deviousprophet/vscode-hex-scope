@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import '../../../cssImportHook';
 
-import { IntegrityPanel, type IntegrityHighlight } from '../../../../../webview/components/sidebar/integrityPanel/integrityPanel';
+import { IntegrityPanel, type IntegrityHighlight, type IntegrityScriptRunRequest } from '../../../../../webview/components/sidebar/integrityPanel/integrityPanel';
 import { getByte } from '../../../../../webview/memory/memoryData';
 import { setBytesInSegment } from '../../../overlayStateHelpers';
 import { S } from '../../../../../webview/state';
@@ -22,6 +22,8 @@ type Cb = {
     copies: Array<{ text: string; label: string }>;
     persisted: unknown[];
     staged: Array<Array<[number, number]>>;
+    scriptRequests: IntegrityScriptRunRequest[];
+    openedScripts: string[];
 };
 
 type Harness = {
@@ -46,7 +48,7 @@ function installDom(): Harness {
     (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame =
         () => 0;
 
-    const cb: Cb = { highlights: [], copies: [], persisted: [], staged: [] };
+    const cb: Cb = { highlights: [], copies: [], persisted: [], staged: [], scriptRequests: [], openedScripts: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const endian: { value: 'le' | 'be' } = { value: 'le' };
     const panel = new IntegrityPanel({
@@ -60,6 +62,10 @@ function installDom(): Harness {
         onHighlightChange: highlight => cb.highlights.push(highlight),
         onCopyText: (text, label) => cb.copies.push({ text, label }),
         onPersistChecks: state => cb.persisted.push(state),
+        onScriptCheckRequest: request => cb.scriptRequests.push(request),
+        onOpenScript: scriptPath => cb.openedScripts.push(scriptPath),
+        getPendingEdits: () => Array.from(S.edits.entries()),
+        getGeneration: () => 1,
     });
     panel.setTabActive(true);
     panel.mount(document.getElementById('host')!);
@@ -180,7 +186,7 @@ suite('IntegrityPanel checks', () => {
         assert.strictEqual(cb.persisted.length, 1);
         assert.deepStrictEqual(cb.persisted[0], {
             schemaVersion: 1,
-            checks: [{ algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
+            checks: [{ kind: 'builtin', algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1002, autoFixStoredValue: false }],
         });
     });
 
@@ -587,5 +593,303 @@ suite('IntegrityPanel highlight + activation', () => {
         panel2.setTabActive(true);
         assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
         assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '…', 'activation kicks off calculation');
+    });
+});
+
+suite('IntegrityPanel script checks', () => {
+    let harness: Harness;
+    let dom: JSDOM;
+    let panel: IntegrityPanel;
+    let cb: Cb;
+
+    setup(() => {
+        harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        S.edits.clear();
+    });
+
+    teardown(cleanupDom);
+
+    function loadScriptCheck(overrides: Record<string, unknown> = {}): IntegrityScriptRunRequest {
+        panel.setChecks({
+            schemaVersion: 1,
+            checks: [{
+                kind: 'script',
+                scriptPath: '.hexscope/scripts/verify.js',
+                startAddress: 0x1000,
+                endAddress: 0x1001,
+                storedAddress: 0x1002,
+                autoFixStoredValue: false,
+                ...overrides,
+            }],
+        });
+        panel.notifyDocumentOpened();
+        return cb.scriptRequests.at(-1)!;
+    }
+
+    function settle(
+        request: IntegrityScriptRunRequest,
+        result?: { valid?: boolean; valueBytes?: number[]; byteCount: number; scriptName: string; warnings?: string[] },
+        error?: string,
+    ): void {
+        panel.acceptScriptResult({
+            requestId: request.requestId,
+            checkId: request.checkId,
+            generation: 1,
+            result,
+            error,
+        });
+    }
+
+    test('value-only script compares stored bytes and auto-fixes verbatim', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        assert.deepStrictEqual(
+            {
+                scriptPath: request.scriptPath,
+                startAddress: request.startAddress,
+                endAddress: request.endAddress,
+                storedAddress: request.storedAddress,
+                edits: request.edits,
+                generation: request.generation,
+            },
+            {
+                scriptPath: '.hexscope/scripts/verify.js',
+                startAddress: 0x1000,
+                endAddress: 0x1001,
+                storedAddress: 0x1002,
+                edits: [],
+                generation: 1,
+            },
+        );
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '…');
+
+        settle(request, { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Mismatch');
+        assert.strictEqual(
+            integrityCard().querySelector('.integrity-value-pane.stored .integrity-value-hdr span')!.textContent,
+            'Stored',
+            'script stored pane has no endian tag',
+        );
+        assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, '0xAABB');
+        assert.strictEqual(integrityCard().querySelector('.integrity-value-hdr span')!.textContent, 'Value');
+
+        const autoFix = integrityCard().querySelector<HTMLInputElement>('[data-auto-fix]')!;
+        autoFix.checked = true;
+        autoFix.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.deepStrictEqual(cb.staged.at(-1), [[0x1002, 0xAA], [0x1003, 0xBB]]);
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Match');
+    });
+
+    test('script range + stored highlight uses the value length', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        settle(request, { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        click(dom, integrityCard().querySelector('[data-check-toggle]'));
+        assert.deepStrictEqual(cb.highlights.at(-1), {
+            rangeStart: 0x1000,
+            rangeEnd: 0x1001,
+            status: 'mismatch',
+            storedStart: 0x1002,
+            storedLength: 2,
+        });
+    });
+
+    test('verify-only script reports pass/fail with no auto-fix', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck({ storedAddress: undefined });
+        settle(request, { valid: true, byteCount: 2, scriptName: 'verify.js' });
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Verified');
+        assert.strictEqual(integrityCard().querySelector('[data-auto-fix]'), null, 'verify-only offers no auto fix');
+        assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, 'PASS');
+
+        click(dom, integrityCard().querySelector('[data-script-refresh]'));
+        const refreshed = cb.scriptRequests.at(-1)!;
+        assert.notStrictEqual(refreshed.requestId, request.requestId, 'refresh starts a new run');
+        settle(refreshed, { valid: false, byteCount: 2, scriptName: 'verify.js' });
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Failed');
+        assert.strictEqual(integrityCard().querySelector('.integrity-value-pane.calculated code')!.textContent, 'FAIL');
+    });
+
+    test('both exports: verify decides the status and value bytes drive Fix all', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        settle(request, { valid: false, valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Failed');
+        assert.ok(!(document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled);
+        click(dom, document.getElementById('integrity-fix-all'));
+        assert.deepStrictEqual(cb.staged.at(-1), [[0x1002, 0xAA], [0x1003, 0xBB]]);
+
+        click(dom, integrityCard().querySelector('[data-script-refresh]'));
+        const refreshed = cb.scriptRequests.at(-1)!;
+        settle(refreshed, { valid: true, valueBytes: [0xCC, 0xDD], byteCount: 2, scriptName: 'verify.js' });
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Verified');
+        assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled, 'a verified check contributes no fix');
+    });
+
+    test('byte change marks a settled script result stale; refresh re-runs it', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        settle(request, { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        panel.notifyBytesChanged();
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Stale');
+        assert.match(integrityCard().querySelector('.integrity-stale-note')!.textContent!, /Stale — refresh/);
+        assert.ok((document.getElementById('integrity-fix-all') as HTMLButtonElement).disabled, 'stale results never fix');
+        click(dom, integrityCard().querySelector('[data-script-refresh]'));
+        assert.strictEqual(cb.scriptRequests.length, 2);
+        assert.ok(!integrityCard().querySelector('.integrity-stale-note'), 'refresh clears the stale marker');
+    });
+
+    test('a stale generation response is discarded and re-requested', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        panel.acceptScriptResult({
+            requestId: request.requestId,
+            checkId: request.checkId,
+            generation: 99,
+            result: { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' },
+        });
+        assert.strictEqual(cb.scriptRequests.length, 2, 'mismatched generation re-runs the check');
+        assert.notStrictEqual(cb.scriptRequests[1].requestId, request.requestId);
+    });
+
+    test('unknown request ids are ignored', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        loadScriptCheck();
+        panel.acceptScriptResult({
+            requestId: 999,
+            checkId: 1,
+            generation: 1,
+            result: { valid: true, byteCount: 2, scriptName: 'verify.js' },
+        });
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.textContent, '…');
+    });
+
+    test('a script failure shows a row-level error and keeps the check configured', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        settle(request, undefined, 'Script not found: .hexscope/scripts/verify.js');
+        assert.strictEqual(integrityCard().querySelector('[data-check-status]')!.getAttribute('aria-label'), 'Error');
+        assert.match(integrityCard().textContent!, /Script not found/);
+        assert.strictEqual(document.querySelectorAll('.integrity-card').length, 1);
+    });
+
+    test('open-script action reports the configured script path', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        loadScriptCheck();
+        click(dom, integrityCard().querySelector('[data-script-open]'));
+        assert.deepStrictEqual(cb.openedScripts, ['.hexscope/scripts/verify.js']);
+    });
+
+    test('script request carries pending edits', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        S.edits.set(0x1000, 0xFF);
+        const request = loadScriptCheck();
+        assert.deepStrictEqual(request.edits, [[0x1000, 0xFF]]);
+    });
+
+    test('stored length from a previous value result feeds the next request context', () => {
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0]);
+        const request = loadScriptCheck();
+        settle(request, { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        click(dom, integrityCard().querySelector('[data-script-refresh]'));
+        assert.strictEqual(cb.scriptRequests.at(-1)!.storedLength, 2);
+    });
+
+    test('add form switches to the script picker and persists the relative path', () => {
+        panel.setAvailableScripts([
+            { name: 'verify.js', relativePath: '.hexscope/scripts/verify.js', roles: ['integrity'] },
+            { name: 'other.js', relativePath: '.hexscope/scripts/other.js', roles: ['address'] },
+        ], true);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        const scriptField = form.querySelector<HTMLElement>('[data-script-field]')!;
+        assert.ok(scriptField.hidden, 'script field starts hidden');
+        setAlgorithm(dom, form, 'script');
+        assert.ok(!scriptField.hidden, 'script kind reveals the picker');
+        const picker = form.querySelector<HTMLSelectElement>('[data-draft-control="script-pick"]')!;
+        assert.deepStrictEqual(
+            [...picker.options].map(option => option.value),
+            ['', '.hexscope/scripts/verify.js'],
+            'only scripts tagged @script integrity are listed',
+        );
+        picker.value = '.hexscope/scripts/verify.js';
+        picker.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1001');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        assert.deepStrictEqual((cb.persisted.at(-1) as { checks: unknown[] }).checks[0], {
+            kind: 'script',
+            scriptPath: '.hexscope/scripts/verify.js',
+            startAddress: 0x1000,
+            endAddress: 0x1001,
+            autoFixStoredValue: false,
+        });
+    });
+
+    test('script kind without a path shows an inline error and does not persist', () => {
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'script');
+        setDraftValue(form, 'start', '1000');
+        setDraftValue(form, 'end', '1001');
+        click(dom, form.querySelector('[data-form-action="save"]'));
+        assert.match(form.querySelector('[data-form-error]')!.textContent!, /Script path is required/);
+        assert.strictEqual(cb.persisted.length, 0);
+    });
+
+    test('Fix all merges a script fix with a built-in fix', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0, 0, 0]);
+        panel.setChecks({
+            schemaVersion: 1,
+            checks: [
+                {
+                    kind: 'builtin', algorithm: 'crc16-ccitt-false',
+                    startAddress: 0x1000, endAddress: 0x1001, storedAddress: 0x1002, autoFixStoredValue: false,
+                },
+                {
+                    kind: 'script', scriptPath: '.hexscope/scripts/verify.js',
+                    startAddress: 0x1000, endAddress: 0x1001, storedAddress: 0x1004, autoFixStoredValue: false,
+                },
+            ],
+        });
+        panel.notifyDocumentOpened();
+        const request = cb.scriptRequests.at(-1)!;
+        settle(request, { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        await waitForCalculation();
+        click(dom, document.getElementById('integrity-fix-all'));
+        const staged = cb.staged.at(-1)!;
+        assert.deepStrictEqual(staged.filter(([address]) => address < 0x1004).length, 2, 'built-in fix bytes staged');
+        assert.deepStrictEqual(staged.filter(([address]) => address >= 0x1004), [[0x1004, 0xAA], [0x1005, 0xBB]]);
+    });
+
+    test('Fix all refuses conflicting script and built-in values atomically', async function () {
+        this.timeout(5_000);
+        setBytesInSegment(0x1000, [1, 2, 3, 4, 0, 0, 0, 0]);
+        panel.setChecks({
+            schemaVersion: 1,
+            checks: [
+                {
+                    kind: 'builtin', algorithm: 'crc16-ccitt-false',
+                    startAddress: 0x1000, endAddress: 0x1001, storedAddress: 0x1002, autoFixStoredValue: false,
+                },
+                {
+                    kind: 'script', scriptPath: '.hexscope/scripts/verify.js',
+                    startAddress: 0x1000, endAddress: 0x1001, storedAddress: 0x1002, autoFixStoredValue: false,
+                },
+            ],
+        });
+        panel.notifyDocumentOpened();
+        const request = cb.scriptRequests.at(-1)!;
+        settle(request, { valueBytes: [0xAA, 0xBB], byteCount: 2, scriptName: 'verify.js' });
+        await waitForCalculation();
+        const stagedBefore = cb.staged.length;
+        click(dom, document.getElementById('integrity-fix-all'));
+        assert.strictEqual(cb.staged.length, stagedBefore, 'a conflict applies no edits');
+        assert.match(document.getElementById('integrity-action-error')!.textContent!, /Fix all conflict at 0x00001002/);
     });
 });

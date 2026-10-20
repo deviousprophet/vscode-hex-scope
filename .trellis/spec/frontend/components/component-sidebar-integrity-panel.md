@@ -29,22 +29,31 @@ interface IntegrityCallbacks {
     readByte: (addr: number) => number | undefined;            // required — host memory adapter
     onStoredValueEdits?: (edits: Array<[number, number]>) => void;  // auto-fix → host stages edit transaction
     getSelection?: () => { start: number; end: number } | null;    // add-form defaults (was S.selStart/S.selEnd)
-    getDataRange?: () => { start: number; end: number } | null;    // full-file mapped range (min seg start → max seg end) — add-form fallback when no selection
+    getDataRange?: () => { start: number; end: number } | null;    // full-file mapped range (min seg start → max seg end)
     getEndian?: () => 'le' | 'be';                            // shared byte-order source (was S.endian)
     onCopyText?: (text: string, label: string) => void;       // copy chip → host posts copyText
     onPersistChecks?: (state: IntegrityCheckSet) => void;     // checks persistence → host posts saveIntegrityChecks
-    onHighlightChange?: (highlight: IntegrityHighlight | null) => void; // range/stored highlight → host sets S.integrityHighlight + rerender.memory()
+    onHighlightChange?: (highlight: IntegrityHighlight | null) => void;
+    onScriptCheckRequest?: (request: IntegrityScriptRunRequest) => void; // host posts runIntegrityScript
+    onOpenScript?: (scriptPath: string) => void;              // host posts openScript
+    onRequestScriptList?: () => void;                         // picker discovery → host posts requestScriptList
+    getPendingEdits?: () => Array<[number, number]>;          // script run input (S.edits)
+    getGeneration?: () => number;                             // stale-response guard (S.documentGeneration)
 }
 
 class IntegrityPanel {
     constructor(cb: IntegrityCallbacks);
-    mount(root: HTMLElement): void;                            // creates #s-integrity container; idempotent
-    render(): void;                                            // was renderIntegrity; re-renders shell
-    setChecks(value: unknown): void;                           // was setIntegrityChecks (init + perFileDataChange slices)
-    notifyBytesChanged(): void;                                // was notifyIntegrityBytesChanged
-    notifyEditsDiscarded(): void;                              // was notifyIntegrityEditsDiscarded
-    notifyEndianChanged(): void;                               // was notifyIntegrityEndianChanged
-    setTabActive(active: boolean): void;                       // host pushes sidebarTab==='integrity' (lazy-init gate was activateIntegrity)
+    mount(root: HTMLElement): void;
+    render(): void;
+    setChecks(value: unknown): void;
+    setAvailableScripts(scripts, trusted): void;
+    acceptScriptResult(msg: IntegrityScriptResultMessage): void;
+    notifyBytesChanged(): void;
+    notifyEditsDiscarded(): void;
+    notifyEndianChanged(): void;
+    notifyDocumentOpened(): void;   // re-run checks against the new document
+    notifyDocumentSaved(): void;    // re-run script checks after a save
+    setTabActive(active: boolean): void;
 }
 ```
 
@@ -60,7 +69,10 @@ class IntegrityPanel {
 ## Behaviour
 
 - Default: empty check list renders "No integrity checks configured.".
-- Add form opens with selection defaults from `getSelection()`; no selection → full-file range from `getDataRange()` (host derives min segment start → max segment end from `S.parseResult.segments`); neither → blank. Optional "Check name" input (`data-draft-control="name"`, maxlength 40, trimmed, duplicates allowed); empty name persists as no field. Card title = `check.name || algorithmLabel(check.algorithm)`. `IntegrityCheckConfig.name?` carried by `normalizeIntegrityCheck` (trim, >40 dropped) so names survive reload; `schemaVersion` unchanged.
+- Kinds: the kind control (algorithm select) gains a `Script` option. Selecting it reveals `[data-script-field]` with a picker of `@script integrity` scripts (relative paths) plus a free-text path input; a selected check persists `kind:'script'` and a workspace-relative `scriptPath`.
+- Script cards: `Script · <name>` chip (full path in the tooltip), status-line states `Verified`/`Failed` (verify), `Match`/`Mismatch` (value), `Stale`, refresh (`data-script-refresh`) and open-script (`data-script-open`) actions. The calculated pane header is `Value` (byte result) or `Verify` (PASS/FAIL); the stored pane is `Stored` with no endian tag.
+- Script scheduling: run on tab activation / document open / save / refresh (`startScriptRun` → `onScriptCheckRequest`, per-check request id + generation). A byte change bumps the token and marks the settled result stale; auto-fix suppression is reused unchanged. Stale or calculating script checks never contribute to Fix all, and a `valid === true` script result contributes no fix.
+- Add form opens with selection defaults from `getSelection()`; no selection → full-file range from `getDataRange()` (host derives min segment start → max segment end from `S.parseResult.segments`); neither → blank. Optional "Check name" input (`data-draft-control="name"`, maxlength 40, trimmed, duplicates allowed); empty name persists as no field. Card title = `check.name || algorithmLabel(check.algorithm)` (script: `name || script base name`). `IntegrityCheckConfig.name?` carried by `normalizeIntegrityCheck` (trim, >40 dropped) so names survive reload; `schemaVersion` unchanged.
 - Live refill (label-form parity): `notifySelectionChanged()` on hex-view selection change (host calls it from `onHexViewSelectionChange` next to `syncLabelForm`) refills the open add/edit form — end-focused → end only, else start+end; null selection leaves values as-is; never on keystrokes. `formLastFocused` reset on open/save/cancel.
 - Header row = Fix all / ＋ Add (right, same line, no `Profile` label — profile selection lives in the toolbar **Select Profile** dropdown, not the panel).
 - Every algorithm exposes the stored-value field; validation errors inline; save → `onPersistChecks` + debounced calculation (250 ms).
@@ -84,7 +96,7 @@ class IntegrityPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init. Existing `integrityCheckModel.test.ts` (import re-point) + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate).
+`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init, script card statuses, stale/refresh, script picker + path validation, script auto-fix/Fix all, stale generation re-request. Existing `integrityCheckModel.test.ts` + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate, writer expectations carry `kind:'builtin'`).
 
 ## Anti-patterns
 
@@ -92,4 +104,6 @@ class IntegrityPanel {
 - Component setting `S.integrityHighlight` / calling `rerender.memory()` directly (must use `onHighlightChange`).
 - Component calling `getByte` directly (must use injected `readByte`).
 - Host calling stale `renderIntegrity`/`activateIntegrity`/`setIntegrity*`/`notifyIntegrity*` module functions.
+- Component executing a script (script text/worker never crosses into the webview; it posts `runIntegrityScript` and consumes `integrityScriptResult`).
+- Script pane applying endian conversion or showing an endian tag on a script stored field.
 - Weakening `webview.test.ts` integrity assertions during the extraction (parity gate).

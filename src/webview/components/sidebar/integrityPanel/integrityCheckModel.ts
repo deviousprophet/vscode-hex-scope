@@ -1,16 +1,21 @@
 import {
     formatIntegrityAddress,
     parseIntegrityAddress,
-    validateIntegrityRange,
+    validateIntegrityAddressRange,
     type IntegrityAlgorithm,
     type IntegrityCheckConfig,
+    type IntegrityCheckKind,
     type IntegrityCheckSet,
     type IntegrityResult,
 } from '../../../../core/integrity';
 
 export interface IntegrityCheckState {
     id: number;
+    kind: IntegrityCheckKind;
+    /** Built-in algorithm selection; keeps its default when the check is a script. */
     algorithm: IntegrityAlgorithm;
+    /** Script path relative to the workspace root (empty for built-in checks). */
+    scriptPath: string;
     name: string;
     startRaw: string;
     endRaw: string;
@@ -22,6 +27,10 @@ export interface IntegrityCheckState {
     error: string;
     meta: string;
     calculating: boolean;
+    /** Script result invalidated by a byte change; refresh re-runs it. */
+    stale: boolean;
+    /** Token + request id pair discards stale async script responses. */
+    requestId: number;
     suppressAutoFixOnNextResult: boolean;
     suppressedAutoFixMismatch: string;
     timer: number | null;
@@ -29,7 +38,9 @@ export interface IntegrityCheckState {
 }
 
 export interface IntegrityDraft {
+    kind: IntegrityCheckKind;
     algorithm: IntegrityAlgorithm;
+    scriptPath: string;
     name: string;
     startRaw: string;
     endRaw: string;
@@ -43,6 +54,8 @@ type IntegrityConfigValidation = { ok: true; value: IntegrityCheckConfig } | { o
 type IntegrityConfigListValidation = { ok: true; value: IntegrityCheckConfig[] } | { ok: false; error: string };
 type IntegrityCheckSetValidation = { ok: true; value: IntegrityCheckSet } | { ok: false; error: string };
 
+const DEFAULT_ALGORITHM: IntegrityAlgorithm = 'crc32-iso-hdlc';
+
 export function makeIntegrityCheck(id: number, config?: IntegrityCheckConfig): IntegrityCheckState {
     const draft = config ? draftFromIntegrityConfig(config) : blankIntegrityDraft();
     return {
@@ -55,6 +68,8 @@ export function makeIntegrityCheck(id: number, config?: IntegrityCheckConfig): I
         error: '',
         meta: '',
         calculating: false,
+        stale: false,
+        requestId: 0,
         suppressAutoFixOnNextResult: false,
         suppressedAutoFixMismatch: '',
         timer: null,
@@ -63,12 +78,22 @@ export function makeIntegrityCheck(id: number, config?: IntegrityCheckConfig): I
 }
 
 export function blankIntegrityDraft(): IntegrityDraft {
-    return { algorithm: 'crc32-iso-hdlc', name: '', startRaw: '', endRaw: '', storedRaw: '' };
+    return {
+        kind: 'builtin',
+        algorithm: DEFAULT_ALGORITHM,
+        scriptPath: '',
+        name: '',
+        startRaw: '',
+        endRaw: '',
+        storedRaw: '',
+    };
 }
 
 export function draftFromIntegrityConfig(config: IntegrityCheckConfig): IntegrityDraft {
     return {
-        algorithm: config.algorithm,
+        kind: config.kind,
+        algorithm: config.kind === 'builtin' ? config.algorithm : DEFAULT_ALGORITHM,
+        scriptPath: config.kind === 'script' ? config.scriptPath : '',
         name: config.name ?? '',
         startRaw: formatIntegrityAddress(config.startAddress),
         endRaw: formatIntegrityAddress(config.endAddress),
@@ -77,7 +102,9 @@ export function draftFromIntegrityConfig(config: IntegrityCheckConfig): Integrit
 }
 
 export function applyIntegrityDraft(check: IntegrityCheckState, draft: IntegrityDraft): void {
+    check.kind = draft.kind;
     check.algorithm = draft.algorithm;
+    check.scriptPath = draft.kind === 'script' ? draft.scriptPath.trim() : '';
     check.name = draft.name;
     check.startRaw = draft.startRaw;
     check.endRaw = draft.endRaw;
@@ -94,6 +121,8 @@ export function clearIntegrityCheckResult(check: IntegrityCheckState): void {
     check.error = '';
     check.meta = '';
     check.calculating = false;
+    check.stale = false;
+    check.requestId = 0;
 }
 
 export function clearIntegrityAutoFixSuppression(check: IntegrityCheckState): void {
@@ -102,13 +131,19 @@ export function clearIntegrityAutoFixSuppression(check: IntegrityCheckState): vo
 }
 
 export function integrityCheckConfigFromState(check: IntegrityCheckState): IntegrityConfigValidation {
-    const range = validateIntegrityRange(check.startRaw, check.endRaw, check.algorithm);
+    const range = validateIntegrityAddressRange(check.startRaw, check.endRaw);
     if (!range.ok) { return range; }
     const nameCfg = checkNameConfig(check.name);
     if (!nameCfg.ok) { return nameCfg; }
     const storedCfg = storedValueConfig(check);
     if (!storedCfg.ok) { return storedCfg; }
-    return { ok: true, value: { ...range.value, ...nameCfg.value, ...storedCfg.value } };
+    const base = { ...range.value, ...nameCfg.value, ...storedCfg.value };
+    if (check.kind === 'script') {
+        const scriptPath = check.scriptPath.trim();
+        if (!scriptPath) { return { ok: false, error: 'Script path is required.' }; }
+        return { ok: true, value: { kind: 'script', scriptPath, ...base } };
+    }
+    return { ok: true, value: { kind: 'builtin', algorithm: check.algorithm, ...base } };
 }
 
 function checkNameConfig(name: string): { ok: true; value: { name?: string } } | { ok: false; error: string } {

@@ -5,6 +5,21 @@
 
 /* Refresh — rides .sb-btn-secondary + .sb-section-action (compact contract); no local sizing. */
 
+/* Empty state — the shared .sb-empty text plus the catalog install action. */
+.script-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.script-add-examples.sb-btn {
+    font-style: normal;
+    font-size: 11px;
+    padding: 2px 8px;
+    line-height: 1.5;
+}
+
 /* Script card — border/radius/overflow/margin-bottom come from .sb-card; keep bg */
 .script-card {
     background: rgba(255,255,255,.04);
@@ -30,6 +45,18 @@
     font-size: 10px; color: var(--addr-fg); font-family: var(--font-ui);
     background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px;
     text-transform: uppercase; letter-spacing: .03em;
+}
+/* Declared role badge (integrity/address/size) */
+.script-role {
+    font-size: 9px; color: var(--info-fg, #4fc3f7); font-family: var(--font-ui);
+    background: rgba(79,195,247,.12); padding: 1px 5px; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
+}
+/* Capability badge — declared with @requires; approval is asked per command. */
+.script-cap {
+    font-size: 9px; color: #e6a23c; font-family: var(--font-ui);
+    background: rgba(230,162,60,.12); padding: 1px 5px; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
 }
 
 /* Icon button — rides .sb-btn/.sb-btn-primary (D4: solid primary look);
@@ -82,20 +109,53 @@
 }
 .script-clear:hover { color: var(--fg); }
 
-/* Run-time capability confirmation gate (inline panel above results) */
-.script-caps-confirm {
-    border-top: 1px solid var(--border); padding: 8px 10px; font-size: 11px;
-    background: rgba(255,255,255,.03);
+/* Workspace permissions section — persisted grants, revocable per entry.
+   Rendered above the script list and re-rendered in place (result areas
+   never rebuild). */
+.script-perms-section {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 8px; font-size: 11px;
+    background: rgba(255,255,255,.02);
 }
-.script-caps-confirm-title { font-weight: 600; color: var(--fg); margin-bottom: 2px; }
-.script-caps-confirm-caps { color: var(--addr-fg); margin-bottom: 6px; }
-.script-caps-confirm-actions { display: flex; gap: 6px; }
+.script-perms-title {
+    font-size: 10px; font-weight: 600; color: var(--addr-fg);
+    text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+}
+.script-perm-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.script-perm-name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-editor); font-size: 11px;
+}
+.script-perm-ability { font-size: 10px; color: #e6a23c; text-transform: uppercase; }
+.script-perm-revoke.sb-btn { padding: 1px 8px; line-height: 1.4; }
+
+/* Inline per-command approval prompt — inside the script card, above results. */
+.script-perm {
+    border-top: 1px solid var(--border); padding: 8px 10px; font-size: 11px;
+    background: rgba(230,162,60,.06);
+}
+.script-perm-title { font-weight: 600; color: var(--fg); margin-bottom: 2px; }
+.script-perm-detail {
+    font-family: var(--font-editor); color: var(--addr-fg);
+    margin-bottom: 4px; word-break: break-all;
+}
+.script-perm-note { color: var(--addr-fg); opacity: .8; margin-bottom: 6px; }
+.script-perm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.script-perm-menu { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.script-perm-menu[hidden] { display: none; }
+.script-perm-option {
+    text-align: left; background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    color: var(--fg); font-size: 11px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
+}
+.script-perm-option:hover { background: rgba(255,255,255,.08); }
+.script-perm-option:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
 
 /* Error type header variants */
 .script-output-hdr-err { color: var(--err); background: rgba(241,76,76,.08); }
 .script-output-hdr-err-compile { color: #cca700; background: rgba(204,167,0,.1); }
 .script-output-hdr-err-timeout { color: #e67e22; background: rgba(230,126,34,.1); }
 .script-output-hdr-err-cancel { color: var(--addr-fg); background: rgba(255,255,255,.03); opacity: .6; }
+.script-output-hdr-err-contract { color: #cca700; background: rgba(204,167,0,.1); }
 
 .script-output-body-wrap { padding: 4px 8px; }
 .script-output-error {
@@ -109,8 +169,7 @@
 .script-result-label { font-weight: 700; color: var(--addr-fg); white-space: nowrap; min-width: 90px; }
 .script-result-value { color: var(--fg); font-family: var(--font-editor); word-break: break-all; }
 .script-output-writes { font-size: 10px; color: var(--info-fg, #4fc3f7); padding: 3px 8px; margin-bottom: 4px; }
-.script-writes-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
-.script-writes-actions .sb-btn { padding: 1px 8px; line-height: 1.4; }
+.script-output-writes-discarded { color: var(--err); }
 .script-output-log { font-size: 11px; color: var(--addr-fg); line-height: 1.5; }
 .script-output-log div { padding: 1px 6px; white-space: pre-wrap; word-break: break-all; }
 .script-output-log div:nth-child(odd) { background: rgba(255,255,255,.01); }

@@ -78,7 +78,13 @@ const MODEL_APPLIERS: ModelAppliers = {
     repairComplete: applyRepairCompleteMessage,
     scriptInfo: applyPassiveMessage,
     scriptResult: applyPassiveMessage,
+    integrityScriptResult: applyPassiveMessage,
+    instanceAddressesResolved: applyPassiveMessage,
+    instanceParamsResolved: applyPassiveMessage,
     scriptOutput: applyPassiveMessage,
+    scriptPermissionRequest: applyPassiveMessage,
+    scriptPermissions: applyPassiveMessage,
+    scriptWritesCommit: applyPassiveMessage,
     activateScriptsTab: applyPassiveMessage,
     activateProfilePicker: applyPassiveMessage,
 };

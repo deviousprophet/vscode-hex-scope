@@ -6,6 +6,20 @@ export interface WriteEdit {
     value: number;
 }
 
+/** Approved bytes to commit after a run, plus the counts the result card shows. */
+export interface ScriptWritePlan {
+    commit: Array<[number, number]>;
+    pendingWriteCount: number;
+    discardedWriteCount: number;
+}
+
+/** Only a clean run commits its approved writes; error/timeout/cancel discards them. */
+export function scriptWritePlan(error: string | undefined, pendingWrites: WriteEdit[]): ScriptWritePlan {
+    const writes = pendingWrites.map(w => [w.address, w.value] as [number, number]);
+    if (error) { return { commit: [], pendingWriteCount: 0, discardedWriteCount: writes.length }; }
+    return { commit: writes, pendingWriteCount: writes.length, discardedWriteCount: 0 };
+}
+
 interface SegmentLookup {
     startAddress: number;
     endAddress: number;
@@ -33,6 +47,7 @@ function findSegment(lookup: SegmentLookup[], addr: number): SegmentLookup | und
 export class VSCodeScriptHost implements IScriptHost {
     private readonly edits = new Map<number, number>();
     public readonly pendingWrites: WriteEdit[] = [];
+    workspaceRoot?: string;
     private readonly lookup: SegmentLookup[];
     private readonly resultsAcc: Array<{ label: string; value: string }> = [];
     private readonly logAcc: string[] = [];
@@ -48,6 +63,10 @@ export class VSCodeScriptHost implements IScriptHost {
             setResult?: (label: string, value: string) => void;
             confirm?: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
             selectionRange?: { start: number; end: number };
+            /** Pending webview edits overlaid on the parsed bytes (read-only; not queued as writes). */
+            edits?: ReadonlyArray<readonly [number, number]>;
+            /** Pinned cwd for `exec`; falls back to process.cwd(). */
+            workspaceRoot?: string;
         },
     ) {
         this.lookup = buildLookup(segments);
@@ -55,6 +74,8 @@ export class VSCodeScriptHost implements IScriptHost {
         this._resultHook = options.setResult ?? (() => {});
         this._confirm = options.confirm ?? (async () => false);
         this.selectionRange = options.selectionRange;
+        this.workspaceRoot = options.workspaceRoot;
+        for (const [address, value] of options.edits ?? []) { this.edits.set(address, value); }
     }
 
     get totalSize(): number {

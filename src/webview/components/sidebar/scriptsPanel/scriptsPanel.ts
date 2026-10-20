@@ -1,21 +1,27 @@
 /** Scripts Panel — self-contained sidebar panel for the script runner.
 Owns the full `#s-scripts` shell: framework section header (title/count/refresh
-action), script cards (name/ext/status dot/run-cancel state machine, run-time
-capability confirm), embedded result areas (output streaming with batching, collapse/expand,
-error-type headers, writes-pending notice), and all UI state (`currentScripts`,
-`trusted`, `scriptStatus`, `runningPath`, `pendingTimer`, output batching state).
-Data is pushed via setters; actions report via callbacks. This module never
-imports the S global, never posts provider messages, and never touches the render
-registry. */
+action), script cards (name/ext/capability badges/status dot/run-cancel state
+machine), the inline per-command permission prompt, the revocable workspace
+permission list, and embedded result areas (output streaming with batching,
+collapse/expand, error-type headers, writes notice). Data is pushed via setters;
+actions report via callbacks. This module never imports the S global, never posts
+provider messages, and never touches the render registry. */
 
 import { esc } from '../../../utils';
+import type {
+    ScriptCapabilityGrant,
+    ScriptPermissionScope,
+    ScriptWorkspaceGrant,
+} from '../../../../webviewProtocol';
 import { SidebarSections } from '../sidebar';
+import { PermissionPrompt, type ScriptPermissionRequest } from './permissionPrompt';
 import './scriptsPanel.css';
 
 export interface ScriptInfo {
     name: string;
     filePath: string;
     capabilities: string[];
+    roles?: string[];
     fingerprint: string;
 }
 
@@ -26,10 +32,17 @@ export interface ScriptsCallbacks {
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;
     /** Cancel: host posts cancelScript. */
     onCancelScript?: (scriptPath: string) => void;
-    /** Apply script-written bytes as staged edits + save (per-run control). */
-    onApplyScriptWrites?: (scriptPath: string, writes: Array<[number, number]>) => void;
-    /** Discard the current run's script writes (never staged). */
-    onDiscardScriptWrites?: (scriptPath: string) => void;
+    /** Inline permission decision: host posts scriptPermissionResponse. */
+    onScriptPermissionDecision?: (
+        requestId: number,
+        decision: 'allow' | 'deny',
+        scope: ScriptPermissionScope,
+        capability: ScriptCapabilityGrant,
+    ) => void;
+    /** Revoke one persisted workspace grant: host posts revokeScriptPermission. */
+    onRevokeScriptPermission?: (scriptPath: string, capability: ScriptCapabilityGrant) => void;
+    /** Copy the bundled example catalog: host posts addExampleScripts (or runs the command). */
+    onAddExampleScripts?: () => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -37,7 +50,7 @@ export interface ScriptsCallbacks {
 }
 
 type ScriptStatus = 'success' | 'error' | null;
-type ErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | undefined;
+type ErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract' | undefined;
 type ScriptResultValue = { label: string; value: string };
 /** One completed run of a script, kept collapsed in the result area (run history). */
 type RunRecord = { num: number; at: string; ok: boolean; errCls: string; bodyHtml: string };
@@ -51,6 +64,7 @@ const ERROR_HEADERS: Record<string, { icon: string; label: string; cssClass: str
     runtime: { icon: '&#128308;', label: 'Script Error', cssClass: ' script-output-hdr-err' },
     timeout: { icon: '&#9201;', label: 'Timeout', cssClass: ' script-output-hdr-err-timeout' },
     cancel: { icon: '&#9632;', label: 'Cancelled', cssClass: ' script-output-hdr-err-cancel' },
+    contract: { icon: '&#9888;', label: 'Contract Error', cssClass: ' script-output-hdr-err-contract' },
 };
 
 export class ScriptsPanel {
@@ -71,16 +85,17 @@ export class ScriptsPanel {
     private readonly runHistory = new Map<string, RunRecord[]>();
     /** Per-script completed-run counter for stable "run #n" labels. */
     private readonly runCounter = new Map<string, number>();
-    /** Paths whose capabilities were accepted at the run-time gate (session state; resets on remount). */
-    private readonly confirmedCaps = new Set<string>();
-    /** Per-path pending script writes (address/value) awaiting Apply/Discard. */
-    private readonly storedWrites = new Map<string, Array<[number, number]>>();
-    /** Per-path script file fingerprints; a changed fingerprint resets the
-        capability approval (the script was modified → re-confirm next run). */
-    private readonly fingerprints = new Map<string, string>();
+    /** Persisted workspace grants shown in the Permissions section (host-owned). */
+    private permissionGrants: ScriptWorkspaceGrant[] = [];
+    /** Inline per-command approval surface (one prompt at a time). */
+    private readonly prompt: PermissionPrompt;
 
     constructor(cb: ScriptsCallbacks = {}) {
         this.cb = cb;
+        this.prompt = new PermissionPrompt({
+            onDecision: (requestId, decision, scope, capability) =>
+                this.cb.onScriptPermissionDecision?.(requestId, decision, scope, capability),
+        });
     }
 
     /** Renders the panel into the given root (creates the #s-scripts container). Idempotent. */
@@ -100,6 +115,7 @@ export class ScriptsPanel {
     dispose(): void {
         if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null; }
         if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
+        this.prompt.dispose();
     }
 
     private ensureScriptsRoot(root: HTMLElement): HTMLElement {
@@ -118,18 +134,28 @@ export class ScriptsPanel {
         body.innerHTML = `<div class="script-list">${this.scriptListHtml()}</div>`;
         const list = body.querySelector<HTMLElement>('.script-list');
         if (list) { this.wireScriptList(list); }
+        this.renderPermissions();
     }
 
-    /** Framework header action: refresh rescan (compact control, mounted once). */
+    /** Framework header actions: add the bundled examples, then rescan (compact controls, mounted once). */
     private mountToolbarActions(root: HTMLElement): void {
-        const refresh = document.createElement('button');
-        refresh.id = 'scripts-refresh';
-        refresh.className = 'sb-btn sb-btn-secondary sb-section-action';
-        refresh.title = 'Refresh script list';
-        refresh.setAttribute('aria-label', 'Refresh script list');
-        refresh.textContent = '\u21BB';
-        refresh.addEventListener('click', () => this.cb.onRequestList?.());
-        root.appendChild(refresh);
+        root.appendChild(this.toolbarButton(
+            'scripts-add-examples', 'Add example scripts', '+', () => this.cb.onAddExampleScripts?.(),
+        ));
+        root.appendChild(this.toolbarButton(
+            'scripts-refresh', 'Refresh script list', '\u21BB', () => this.cb.onRequestList?.(),
+        ));
+    }
+
+    private toolbarButton(id: string, label: string, glyph: string, onClick: () => void): HTMLButtonElement {
+        const btn = document.createElement('button');
+        btn.id = id;
+        btn.className = 'sb-btn sb-btn-secondary sb-section-action';
+        btn.title = label;
+        btn.setAttribute('aria-label', label);
+        btn.textContent = glyph;
+        btn.addEventListener('click', onClick);
+        return btn;
     }
 
     /** Push script list + trust flag (was updateScriptList). */
@@ -137,20 +163,18 @@ export class ScriptsPanel {
         this.currentScripts = scripts;
         this.trusted = trusted;
         this.rememberScriptPaths(scripts);
-        this.revokeApprovalsForModifiedScripts(scripts);
         this.rebuildScriptList();
     }
 
-    /** If a script file's fingerprint changed since the last push, its capability
-        approval is reset (modified script → re-confirm on the next run). */
-    private revokeApprovalsForModifiedScripts(scripts: ScriptInfo[]): void {
-        for (const s of scripts) {
-            const prev = this.fingerprints.get(s.filePath);
-            if (prev !== undefined && prev !== s.fingerprint) {
-                this.confirmedCaps.delete(s.filePath);
-            }
-            this.fingerprints.set(s.filePath, s.fingerprint);
-        }
+    /** Inline per-command approval request from the host (one prompt at a time). */
+    showPermissionRequest(request: ScriptPermissionRequest): void {
+        this.prompt.show(request);
+    }
+
+    /** Persisted workspace grants for the revocable Permissions section. */
+    setPermissionGrants(grants: ScriptWorkspaceGrant[]): void {
+        this.permissionGrants = Array.isArray(grants) ? grants : [];
+        this.renderPermissions();
     }
 
     private rememberScriptPaths(scripts: ScriptInfo[]): void {
@@ -171,6 +195,7 @@ export class ScriptsPanel {
         }
         list.innerHTML = this.scriptListHtml();
         this.wireScriptList(list);
+        this.renderPermissions();
         this.renderRunStates();
     }
 
@@ -178,24 +203,25 @@ export class ScriptsPanel {
     showResult(
         scriptPath: string, results: ScriptResultValue[] | null | undefined, log: string[] | null | undefined,
         error: string, errorType: string | undefined, pendingWriteCount: number,
-        writes?: Array<[number, number]>,
+        discardedWriteCount = 0,
     ): void {
+        if (this.prompt.isOpenFor(scriptPath)) { this.prompt.close(); }
         this.clearRunning();
         this.outputCount = 0;
         this.flushPendingOutput();
         this.setScriptStatus(scriptPath, this.statusForError(error));
         this.updateStatusDot(scriptPath);
-        if (writes !== undefined) { this.storedWrites.set(scriptPath, writes); }
 
         const area = this.resultAreaFor(scriptPath);
         if (!area) { return; }
         this.storeRunRecord(area);
-        area.innerHTML = this.scriptResultHtml(scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount, writes) + this.historyRowsHtml(scriptPath);
+        area.innerHTML = this.scriptResultHtml(
+            scriptPath, results, log, error, errorType as ErrorType, pendingWriteCount, discardedWriteCount,
+        ) + this.historyRowsHtml(scriptPath);
         const block = area.querySelector('.script-output-block');
         if (block) { block.classList.remove('collapsed'); }
         this.wireCollapse(area);
         this.wireClear(area, scriptPath);
-        this.wireWritesActions(area, scriptPath, writes);
     }
 
     private statusForError(error: string): 'error' | 'success' {
@@ -257,7 +283,6 @@ export class ScriptsPanel {
     private runScript(filePath: string): void {
         if (this.runningPath) { return; }
         this.resetOutputState();
-        this.storedWrites.delete(filePath);
         // New run auto-presses the prior result block into a one-line collapsed history row
         // before streaming starts, so streamed lines never pollute the stored run.
         const area = this.resultAreaFor(filePath);
@@ -279,6 +304,7 @@ export class ScriptsPanel {
     }
 
     private cancelScript(filePath: string): void {
+        if (this.prompt.isOpenFor(filePath)) { this.prompt.close(); }
         this.runningPath = null;
         if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null; }
         this.renderRunStates();
@@ -287,7 +313,11 @@ export class ScriptsPanel {
 
     private scriptListHtml(): string {
         if (this.currentScripts.length === 0) {
-            return '<div class="sb-empty">No scripts found in .hexscope/scripts/</div>';
+            return `<div class="sb-empty script-empty">
+        <div>No scripts found in .hexscope/scripts/</div>
+        <button type="button" class="sb-btn sb-btn-secondary script-add-examples" data-add-examples
+            title="Copy the bundled example scripts into .hexscope/scripts/">Add example scripts</button>
+    </div>`;
         }
         return this.currentScripts.map(s => this.scriptCardHtml(s)).join('');
     }
@@ -298,11 +328,19 @@ export class ScriptsPanel {
         const extTs = ext === 'ts' && !noTrust;
         const attrs = scriptBtnAttrs(s.filePath, noTrust, extTs, this.runningPath);
         const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
+        const roleBadges = (s.roles ?? []).map(role =>
+            `<span class="script-role" title="Declared role: ${esc(role)}">${esc(role)}</span>`
+        ).join('');
+        const capBadges = s.capabilities.map(cap =>
+            `<span class="script-cap" title="Requires approval: ${esc(cap)}">${esc(cap)}</span>`
+        ).join('');
         return `
         <div class="script-card sb-card" data-path="${esc(s.filePath)}">
             <div class="script-card-info">
                 ${this.statusDot(s.filePath)}
                 <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
+                ${roleBadges}
+                ${capBadges}
                 ${extBadge}
                 <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnDisabled}${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
@@ -328,6 +366,9 @@ export class ScriptsPanel {
     }
 
     private wireScriptList(container: HTMLElement): void {
+        container.querySelectorAll<HTMLButtonElement>('[data-add-examples]').forEach(btn => {
+            btn.addEventListener('click', () => this.cb.onAddExampleScripts?.());
+        });
         container.querySelectorAll<HTMLButtonElement>('.script-run-btn:not(.disabled-ts):not(.disabled-trust)').forEach(btn => {
             btn.addEventListener('click', () => this.onRunBtnClick(btn));
         });
@@ -336,16 +377,7 @@ export class ScriptsPanel {
     private onRunBtnClick(btn: HTMLButtonElement): void {
         const path = btn.dataset.path;
         if (path === undefined) { return; }
-        const script = this.currentScripts.find(s => s.filePath === path);
-        if (script && this.unconfirmedCaps(path, script)) {
-            this.showCapsConfirm(script);
-            return;
-        }
         this.toggleScript(path);
-    }
-
-    private unconfirmedCaps(path: string, script: ScriptInfo): boolean {
-        return script.capabilities.length > 0 && !this.confirmedCaps.has(path);
     }
 
     private toggleScript(path: string): void {
@@ -498,32 +530,13 @@ export class ScriptsPanel {
 
     private scriptResultHtml(
         scriptPath: string, results: ScriptResultValue[] | null | undefined, log: string[] | null | undefined,
-        err: string, errType: ErrorType, pendingWriteCount: number,
-        writes?: Array<[number, number]>,
+        err: string, errType: ErrorType, pendingWriteCount: number, discardedWriteCount: number,
     ): string {
         const h = this.headerFor(err, errType);
         const logHtml = log ? log.map(l => `<div>${esc(l)}</div>`).join('') : '';
         return `<div class="script-output-block collapsed" data-path="${esc(scriptPath)}">
         <div class="script-output-hdr${h.cssClass}" data-collapse>${h.icon} ${h.label}<button class="script-clear" data-clear title="Clear results" aria-label="Clear results">&#10005;</button></div>
-        <div class="script-output-body-wrap">${this.errorBlockHtml(err)}${this.resultsBlockHtml(results)}${writesBlockHtml(writes, pendingWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
-    }
-
-    private wireWritesActions(area: HTMLElement, scriptPath: string, writes: Array<[number, number]> | undefined): void {
-        if (!writes || writes.length === 0) { return; }
-        const writesRow = area.querySelector<HTMLElement>('.script-output-block:not(.script-run-row) .script-output-writes');
-        if (!writesRow) { return; }
-        const applyBtn = writesRow.querySelector('[data-writes-apply]');
-        const discardBtn = writesRow.querySelector('[data-writes-discard]');
-        applyBtn?.addEventListener('click', ev => {
-            ev.stopPropagation();
-            this.cb.onApplyScriptWrites?.(scriptPath, this.storedWrites.get(scriptPath) ?? writes);
-        });
-        discardBtn?.addEventListener('click', ev => {
-            ev.stopPropagation();
-            this.storedWrites.delete(scriptPath);
-            writesRow.remove();
-            this.cb.onDiscardScriptWrites?.(scriptPath);
-        });
+        <div class="script-output-body-wrap">${this.errorBlockHtml(err)}${this.resultsBlockHtml(results)}${writesBlockHtml(pendingWriteCount, discardedWriteCount)}<div class="script-output-log">${logHtml}</div></div></div>`;
     }
 
     private wireCollapse(area: HTMLElement): void {
@@ -634,42 +647,47 @@ export class ScriptsPanel {
 
     private clearResults(path: string): void {
         this.runHistory.delete(path);
-        this.storedWrites.delete(path);
         const area = this.resultAreaFor(path);
         if (area) { area.innerHTML = ''; }
         this.scriptStatus.set(path, null);
         this.updateStatusDot(path);
     }
 
-    // ── Run-time capability gate ────────────────────────────────────
+    // ── Workspace permission list (revocable) ───────────────────────
 
-    /** Inline confirm before the first run of a capability-bearing script. */
-    private showCapsConfirm(script: ScriptInfo): void {
-        this.removeCapsConfirm();
-        const card = document.querySelector<HTMLElement>(`.script-card[data-path="${cssEscape(script.filePath)}"]`);
-        const area = card?.querySelector<HTMLElement>('.script-result-area');
-        if (!card || !area) { return; }
-        const panel = document.createElement('div');
-        panel.className = 'script-caps-confirm';
-        const capsHtml = script.capabilities.map(c => esc(c)).join(', ');
-        panel.innerHTML = `
-            <div class="script-caps-confirm-title">Run ${esc(script.name)}?</div>
-            <div class="script-caps-confirm-caps">Requires: ${capsHtml}</div>
-            <div class="script-caps-confirm-actions">
-                <button class="sb-btn sb-btn-primary" data-caps-run>Run</button>
-                <button class="sb-btn" data-caps-cancel>Cancel</button>
-            </div>`;
-        card.insertBefore(panel, area);
-        panel.querySelector('[data-caps-run]')!.addEventListener('click', () => {
-            this.confirmedCaps.add(script.filePath);
-            this.removeCapsConfirm();
-            this.toggleScript(script.filePath);
-        });
-        panel.querySelector('[data-caps-cancel]')!.addEventListener('click', () => this.removeCapsConfirm());
+    private permissionsHtml(): string {
+        if (this.permissionGrants.length === 0) { return ''; }
+        const rows = this.permissionGrants.map(grant => `
+            <div class="script-perm-row" data-path="${esc(grant.scriptPath)}" data-cap="${esc(grant.capability)}">
+                <span class="script-perm-name" title="${esc(grant.scriptPath)}">${esc(basename(grant.scriptPath))}</span>
+                <span class="script-perm-ability">${esc(grantLabel(grant.capability))}</span>
+                <button type="button" class="sb-btn sb-btn-secondary script-perm-revoke" data-revoke
+                    title="Revoke this permission" aria-label="Revoke ${esc(grantLabel(grant.capability))} for ${esc(basename(grant.scriptPath))}">Revoke</button>
+            </div>`).join('');
+        return `<div class="script-perms-section">
+            <div class="script-perms-title">Permissions</div>${rows}
+        </div>`;
     }
 
-    private removeCapsConfirm(): void {
-        document.querySelectorAll('.script-caps-confirm').forEach(el => el.remove());
+    /** Re-render the Permissions section in place (never touches result areas). */
+    private renderPermissions(): void {
+        const body = this.sections?.body('main');
+        if (!body) { return; }
+        body.querySelector('.script-perms-section')?.remove();
+        const sectionHtml = this.permissionsHtml();
+        if (!sectionHtml) { return; }
+        const list = body.querySelector('.script-list');
+        if (!list) { return; }
+        list.insertAdjacentHTML('beforebegin', sectionHtml);
+        body.querySelectorAll<HTMLElement>('.script-perm-row [data-revoke]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const row = btn.closest<HTMLElement>('.script-perm-row');
+                const path = row?.dataset.path;
+                const capability = row?.dataset.cap as ScriptCapabilityGrant | undefined;
+                if (!path || !capability) { return; }
+                this.cb.onRevokeScriptPermission?.(path, capability);
+            });
+        });
     }
 }
 
@@ -683,6 +701,17 @@ function cssEscape(path: string): string {
 function extLabel(name: string): string {
     const idx = name.lastIndexOf('.');
     return idx > 0 ? name.slice(idx + 1) : '';
+}
+
+/** Last path segment for a script path (handles Windows and POSIX separators). */
+function basename(scriptPath: string): string {
+    const parts = scriptPath.split(/[\\/]/);
+    return parts[parts.length - 1] || scriptPath;
+}
+
+/** Permission label for the workspace grant list. */
+function grantLabel(capability: ScriptCapabilityGrant): string {
+    return capability === '*' ? 'all non-exec' : capability;
 }
 
 function btnTitle(noTrust: boolean, extTs: boolean): string {
@@ -709,15 +738,13 @@ function scriptBtnAttrs(path: string, noTrust: boolean, extTs: boolean, runningP
     };
 }
 
-function writesBlockHtml(writes: Array<[number, number]> | undefined, count: number): string {
-    if (writes === undefined) {
-        // Legacy/unknown provider payload: count-only notice (no action row).
-        return count > 0 ? `<div class="script-output-writes">&#128190; ${count} byte(s) written (not yet saved)</div>` : '';
+/** Informational writes notice. Approved writes auto-save on success, so there
+    is no action control; a failed run reports that nothing was kept. */
+function writesBlockHtml(pendingWriteCount: number, discardedWriteCount: number): string {
+    if (discardedWriteCount > 0) {
+        return `<div class="script-output-writes script-output-writes-discarded">&#128190; ${discardedWriteCount} byte(s) written, discarded &mdash; nothing was saved</div>`;
     }
-    if (writes.length === 0) { return ''; }
-    return `<div class="script-output-writes">&#128190; ${writes.length} byte(s) written
-        <span class="script-writes-actions">
-            <button class="sb-btn sb-btn-primary" data-writes-apply title="Apply these bytes as edits and save" aria-label="Apply and save script writes">Apply &amp; Save</button>
-            <button class="sb-btn sb-btn-secondary" data-writes-discard title="Discard these writes" aria-label="Discard script writes">Discard</button>
-        </span></div>`;
+    return pendingWriteCount > 0
+        ? `<div class="script-output-writes">&#128190; ${pendingWriteCount} byte(s) written and saved</div>`
+        : '';
 }

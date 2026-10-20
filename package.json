@@ -157,6 +157,11 @@
         "category": "HexScope"
       },
       {
+        "command": "hexScope.addExampleScripts",
+        "title": "Add Example Scripts",
+        "category": "HexScope"
+      },
+      {
         "command": "hexScope.selectProfile",
         "title": "Select Profile",
         "category": "HexScope"
@@ -263,8 +268,9 @@
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "npm run compile-tests && npm run compile && npm run check-examples && npm run lint",
     "check-types": "tsc --noEmit",
+    "check-examples": "tsc -p examples/tsconfig.json --noEmit",
     "lint": "node eslint-rules/require-escaped-html.test.mjs && eslint src",
     "test": "vscode-test",
     "benchmark": "node src/test/benchmarks/runBenchmark.ts"

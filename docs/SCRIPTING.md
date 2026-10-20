@@ -1,6 +1,6 @@
 # Scripting Guide
 
-Write TypeScript or JavaScript scripts to automate custom HEX file operations inside Hex Scope. Scripts can read and modify hex data, compute checksums and hashes, call external tools, and fetch web services — all with explicit user confirmation for dangerous operations.
+Write TypeScript or JavaScript scripts to automate custom HEX file operations inside Hex Scope. Scripts can read and modify hex data, compute checksums and hashes, call external tools, and fetch web services — all with an inline per-command approval for dangerous operations. Approved writes are saved when the script finishes successfully.
 
 ## Directory structure
 
@@ -10,17 +10,19 @@ your-workspace/
 ├── firmware.srec
 └── .hexscope/
     └── scripts/
+        ├── types/
+        │   └── hexscope.d.ts
         ├── verify-crc.ts
         ├── verify-signature.ts
         ├── pattern-scan.js
         └── update-checksums.ts
 ```
 
-All scripts live under `.hexscope/scripts/` relative to the workspace root. Both `.ts` and `.js` files are supported. Scripts in subdirectories are not scanned.
+All scripts live under `.hexscope/scripts/` relative to the workspace root. Both `.ts` and `.js` files are supported. Scripts in subdirectories are not scanned, and `.d.ts` files are never treated as runnable — `types/hexscope.d.ts` holds shared declarations.
 
 ## Getting started
 
-1. Create `.hexscope/scripts/` in your workspace root
+1. Create `.hexscope/scripts/` in your workspace root, or run **HexScope: Add Example Scripts** to copy the bundled catalog (see [Start from an example](#start-from-an-example))
 2. Add a `.ts` or `.js` file that exports a `run` function
 3. Open a HEX file in Hex Scope (the editor must have an active document)
 4. Click the **Scripts** tab in the sidebar, or press `Ctrl+Shift+P` and run the `HexScope: Run Script` command
@@ -28,6 +30,33 @@ All scripts live under `.hexscope/scripts/` relative to the workspace root. Both
 6. Click **Run** — output and results appear below the script list
 
 The script list refreshes when you switch to the Scripts tab. If no scripts appear, verify the `.hexscope/scripts/` path is correct and your workspace root is set in VS Code.
+
+## Start from an example
+
+**HexScope: Add Example Scripts** copies a working catalog into `.hexscope/scripts/`
+(also reachable from the Scripts panel: the **+** header action and the empty-state
+**Add example scripts** button). The command:
+
+- refuses to run in an untrusted workspace,
+- creates `.hexscope/scripts/` and `.hexscope/scripts/types/` as needed,
+- never overwrites or deletes — existing files are reported as skipped,
+- reports `Added N example files, skipped M existing files.` with **Open scripts folder**
+  and **Open scripting guide** actions.
+
+Running it twice installs nothing and changes nothing. Removing an installed example
+leaves the bundled catalog untouched.
+
+| File | Role / capability | Demonstrates | Adapt |
+|------|-------------------|--------------|-------|
+| `verify-crc.ts` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
+| `write-pattern.js` | `run`, `@requires write` | One inline approval, staged writes, auto-save, undo | `START`, `PATTERN` |
+| `follow-pointer.ts` | `@script address` → `getAddress` | Reading a little-endian pointer as an instance address | `POINTER_AT` |
+| `array-size-from-header.ts` | `@script size` → `getSize` | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
+| `verify-integrity.ts` | `@script integrity` → `verifyIntegrity`, `getIntegrityValue` | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
+
+Every typed example starts with `/// <reference path="./types/hexscope.d.ts" />`, so
+editor IntelliSense works in the repository and in an installed workspace. The catalog
+is type-checked in CI (`npm run check-examples`), so it cannot drift from the API.
 
 ## Script structure
 
@@ -41,28 +70,190 @@ export function run(api: HexScopeAPI) {
 }
 ```
 
-Every script must export a `run` function. It receives a single `api` argument — the `HexScopeAPI` object. The function can be synchronous or asynchronous (return a `Promise`).
+Every script exports a `run` function. It receives a single `api` argument — the `HexScopeAPI` object. The function can be synchronous or asynchronous (return a `Promise`).
 
-### Getting type definitions
+`.ts` scripts are compiled to CommonJS before they run, so `export function run(...)` works.
+`.js` scripts run as CommonJS in the sandbox and must export explicitly:
 
-For editor IntelliSense, create a `.d.ts` file or use JSDoc:
+```javascript
+// .hexscope/scripts/pattern-scan.js
+async function run(api) {
+    api.setResult('Size', `${api.hex.size} bytes`);
+}
+
+module.exports = { run };
+```
+
+### Named entries and roles
+
+A script may also act as a typed value source for the editor. Declare the role in the header
+and export the matching function instead of, or in addition to, `run`:
 
 ```typescript
-/**
- * @param {import('hexscope').HexScopeAPI} api
- */
-export function run(api) {
-    api.hex.read(0, 16);  // full IntelliSense
+/** @script integrity */
+
+export function verifyIntegrity(api: HexScopeAPI): boolean {
+    return api.hex.read(0, 4).every((b, i) => b === [0xDE, 0xAD, 0xBE, 0xEF][i]);
+}
+
+export function getIntegrityValue(api: HexScopeAPI): Uint8Array {
+    return new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
 }
 ```
 
-If using TypeScript, install the types from the extension's source or copy the `HexScopeAPI` interface from the extension's source code.
+| Role tag | Exports | Return |
+|----------|---------|--------|
+| `@script integrity` | `verifyIntegrity` and/or `getIntegrityValue` | `boolean` / `Uint8Array` or `number[]` |
+| `@script address` | `getAddress` | unsigned 32-bit integer |
+| `@script size` | `getSize` | positive integer |
+
+- Role tags are parsed from the first 2 KB and shown as badges in the Scripts panel. They are
+  discovery metadata; the exported function name is the call contract.
+- A missing or mistyped export is reported as a **Contract Error**, separate from compile,
+  runtime, timeout, and cancel errors.
+- `run` is optional for a role-only script. A script may declare more than one role and export
+  several entries.
+- Role entries receive the same `api` plus `api.context` describing the request (instance,
+  parameter, resolved sibling values, document size, selection, and stored range where
+  relevant). `run` scripts see an empty context.
+- `.d.ts` files and files in subdirectories are not scanned; use
+  `.hexscope/scripts/types/hexscope.d.ts` for shared types.
+
+### Script integrity checks
+
+The Integrity panel can use a `@script integrity` script as a check. Configure the range, an
+optional stored-value address, and the script path (relative to the workspace root). A check
+may omit the stored address and be display-only.
+
+| Exports | Behavior |
+|---------|----------|
+| `verifyIntegrity` only | Pass/fail from the boolean. No auto-fix. |
+| `getIntegrityValue` only | The returned bytes are compared with the stored field; a mismatch offers Auto fix / Fix all. |
+| Both | `verifyIntegrity` decides pass/fail; `getIntegrityValue` supplies the fix bytes when the check fails. A verified check never contributes a fix. |
+
+- The two entries run as two sequenced script runs (value first, then verify), so a failing
+  entry does not erase a valid result from the other.
+- Returned bytes are written **verbatim**: no endian conversion is applied. The stored pane
+  shows `Stored` without an endian tag.
+- The script reads the current document bytes, including pending webview edits. It receives
+  the check range and stored range in `api.context` (`selection`, `storedStart`, `storedEnd`).
+  Script checks see the **full document**, so a script whose range overlaps its stored field
+  must exclude those bytes itself (built-in checks exclude the stored field automatically).
+- Script checks are read-only: `hex.write` is denied without a prompt. `exec` / `fetch` still
+  require the normal approvals, and editing the script revokes them until re-approved.
+- Results refresh when the Integrity tab first opens, on document open, after a save, and via
+  the card's refresh action. Editing a byte marks a script result **Stale — refresh** instead
+  of silently recalculating.
+- A missing, untrusted, or contract-violating script shows a row-level error; other checks and
+  Fix all keep working. Fix all stays atomic and refuses conflicting writes.
+
+### Script-resolved instance addresses
+
+A Type Overlay instance can take its base address from a `@script address` script instead of
+a fixed number. This keeps one type + instance configuration usable across files whose
+pointers move.
+
+```typescript
+/** @script address */
+
+export function getAddress(api: HexScopeAPI): number {
+    // Follow a pointer stored at the start of the document.
+    const stored = api.hex.read(0x08000000, 4);
+    const target = stored[0] | (stored[1] << 8) | (stored[2] << 16) | (stored[3] << 24);
+    return target >>> 0;
+}
+```
+
+- The export must return an unsigned 32-bit integer (or a Promise resolving to one).
+  Fractional, negative, `NaN`, and out-of-range values are contract errors.
+- `api.context` carries the instance identity and request data:
+
+  | Field | Meaning |
+  |-------|---------|
+  | `instance` | `{ id, name, typeId, typeName }` of the instance being resolved |
+  | `paramValues` | Resolved size-parameter values for the instance's type |
+  | `documentSize` | Total mapped bytes in the document |
+  | `selection` | Current hex selection (`{ start, end }`) when one exists |
+
+- The script reads the current document bytes, including pending webview edits. Address
+  scripts are read-only: `hex.write` is denied without a prompt; `exec` / `fetch` still
+  require the normal approvals.
+- Resolution runs on document open, profile switch, manual refresh (the Instances header
+  **Refresh addresses** action or a card's ↻), after a save, and 400 ms after the document
+  changes. It never runs on every keystroke.
+- The resolved address is **transient**: it is never written into the profile. `addr` stays
+  the authored fixed address used by older builds and as the numeric fallback.
+- A failing script affects only its own instance. The card shows `resolving…`, the resolved
+  address, `stale`, or the row-level error. On error (or while stale) no decoded rows are
+  shown and the authored `addr` is never presented as current.
+- Editing the script revokes its approvals and requires re-approval for the next
+  `exec`/`fetch`. A missing or untrusted script shows `Script not found` / `Workspace not
+  trusted` on the card.
+- Address sources cannot be combined with pointer-created instance metadata; the editor
+  keeps those instances on a fixed address.
+
+### Script-resolved array sizes
+
+A templated Type Overlay field can take its array count from a `@script size` script. The
+script is attached per instance parameter, so one type follows the count stored in each file.
+
+```typescript
+/** @script size */
+
+export function getSize(api: HexScopeAPI): number {
+    const ctx = api.context;
+    if (ctx.param !== 'ITEM_COUNT') { return 1; }
+    // Read the count stored in the current document (pending edits included).
+    return api.hex.read(0x08000010, 2)[0] | (api.hex.read(0x08000010, 2)[1] << 8);
+}
+```
+
+The context is:
+
+| Field | Meaning |
+|-------|---------|
+| `instance` | `{ id, name, typeId, typeName }` of the instance |
+| `param` | The parameter this run resolves |
+| `paramValues` | Already-resolved sibling values + authored values + type defaults (read-only) |
+| `documentSize` | Total mapped bytes in the current document |
+| `selection` | Current hex selection (`{ start, end }`) when one exists |
+
+- Each parameter can be **Manual** (an entered value) or **From script**. A manual value
+  wins; the card labels it Manual. A parameter with neither a value, a source, nor a
+  default blocks decode.
+- The returned value must be a positive safe integer. A script-produced count above
+  1,000,000 is rejected (`Size is too large`); manual counts keep the editor's no-cap rule.
+- Parameter scripts run before address scripts, so an address script's `paramValues`
+  already contains the resolved counts.
+- Resolution runs on the same schedule as address resolution (open, profile switch,
+  refresh, save, and 400 ms after a document change). A stale, missing, or failing
+  parameter blocks **only that instance's** decode and shows its error on the card.
+- Resolved values are **transient**: only `paramSources` is saved in the profile; the
+  values themselves are never written.
+- Parameter scripts are read-only for `hex.write`; `exec` / `fetch` still ask through the
+  normal inline approvals, and editing the script revokes its approvals.
+
+### Getting type definitions
+
+The bundled declaration file ships with the examples. **HexScope: Add Example Scripts**
+installs it at `.hexscope/scripts/types/hexscope.d.ts`; copy it manually from the
+extension's `examples/scripts/types/` folder if you prefer. A typed script references it
+with:
+
+```typescript
+/// <reference path="./types/hexscope.d.ts" />
+```
+
+The declaration is ambient (no imports/exports), so `HexScopeAPI`, `ScriptContext`,
+`FetchOptions`, `ExecResult`, and `FetchResult` are available after the reference.
 
 ### Execution model
 
 | Aspect | Behavior |
 |--------|----------|
-| Entry point | `run(api)` must be exported |
+| Entry point | `run(api)` for side-effecting scripts; role exports for value sources |
+| Role discovery | `@script integrity\|address\|size` header tag |
+| Contract errors | Wrong or missing role exports report `Contract Error` |
 | Sync vs async | Both work. Return a `Promise` for async operations |
 | Timeout | 30 seconds by default. Configurable |
 | Error handling | Uncaught exceptions are caught and displayed in the output panel |
@@ -83,7 +274,7 @@ api.hex.size: number
 |--------|-------------|
 | `read(address, length)` | Returns bytes from the currently open document at the given firmware address. Stops reading at the first unmapped byte |
 | `readSelected()` | Returns the bytes in the current editor selection. Captured at script-run time. Returns 1 byte when cursor sits on a single byte; empty `Uint8Array` when no selection |
-| `write(address, data)` | Writes bytes. **Shows a confirmation dialog.** Returns `true` if the user accepted |
+| `write(address, data)` | Writes bytes. **Asks for approval inline in the Scripts panel.** Returns `true` if the call was approved; approved bytes are saved when the script finishes |
 | `size` | Total number of mapped bytes in the document (sum of all segment lengths) |
 
 Addresses are absolute firmware addresses from the parsed segments. If the address falls in a gap (unmapped region), `read` stops early and returns a shorter array.
@@ -118,12 +309,40 @@ export async function run(api) {
 }
 ```
 
+The first dangerous call in a run opens one inline prompt inside the script's card. Approved
+bytes are staged during the run and saved once, as a single undoable transaction, when the
+script finishes without error. See [Permissions](#permissions--approving-dangerous-calls).
+
 **Example — total size:**
 
 ```typescript
 api.setResult('Total size', `${api.hex.size} bytes`);
 const data = api.hex.read(0, api.hex.size);  // read everything
 api.output(`Read ${data.length} bytes`);
+```
+
+### `api.context` — role-run context
+
+```typescript
+api.context: {
+    instance?: { id: string; name: string; typeId: string; typeName: string };
+    param?: string;
+    paramValues?: Record<string, number>;
+    documentSize?: number;
+    selection?: { start: number; end: number };
+    storedStart?: number;
+    storedEnd?: number;
+}
+```
+
+Populated only for role entries invoked by the overlay or integrity panel. `run` scripts get
+an empty object. Use it to identify which instance or parameter the call is for:
+
+```typescript
+export function getSize(api: HexScopeAPI): number {
+    if (api.context.param !== 'itemCount') { return 1; }
+    return api.hex.read(0x08000010, 4)[0] ?? 1;
+}
 ```
 
 ### `api.crc` — CRC algorithms
@@ -170,7 +389,10 @@ export async function run(api) {
 api.exec(command: string, args?: string[]): Promise<ExecResult | null>
 ```
 
-**Shows a confirmation dialog** with the full command string. Returns `null` if the user denies.
+`api.exec(command, args?)` returns `Promise<ExecResult | null>`.
+
+The first call in a run asks for approval inline in the Scripts panel (see
+[Permissions](#permissions--approving-dangerous-calls)). Returns `null` if the call is denied.
 
 ```typescript
 interface ExecResult {
@@ -194,8 +416,8 @@ export async function run(api) {
 **Security notes:**
 - Uses `execFile` — no shell expansion (safer than `exec`)
 - 30-second inner timeout for the process itself
-- Full command string visible in the confirmation dialog
-- VS Code shows the dialog modally — the script pauses until the user responds
+- The full command string is shown in the inline approval prompt
+- `exec` approvals are never persisted to the workspace: "workspace" scope is not offered
 
 ### `api.fetch` — HTTP/HTTPS requests
 
@@ -203,7 +425,10 @@ export async function run(api) {
 api.fetch(url: string, options?: RequestInit): Promise<FetchResult | null>
 ```
 
-**Shows a confirmation dialog** with the URL. Returns `null` if the user denies.
+`api.fetch(url, options?)` returns `Promise<FetchResult | null>`.
+
+The first call in a run asks for approval inline in the Scripts panel, naming the host. Returns
+`null` if the call is denied.
 
 ```typescript
 interface FetchResult {
@@ -265,6 +490,46 @@ api.setResult(label: string, value: string): void
 
 Use `output` for progress messages and diagnostic logging. Use `setResult` for the final computed values you want the user to see prominently.
 
+## Permissions — approving dangerous calls
+
+`write`, `exec`, and `fetch` are dangerous: the first call in a run opens **one inline prompt**
+inside that script's card. Nothing is asked before the run starts, and the prompt names the
+script, the capability, and the concrete target (address + byte count, command, or host).
+
+| Choice | Effect |
+|--------|--------|
+| **Allow once** | Approves this call only. The next dangerous call asks again |
+| **Allow `<capability>` in this script** | Any later call of that capability in the same unchanged file, for this extension-host session |
+| **Allow all capabilities in this script** | Same, for every dangerous capability of that file |
+| **Allow `<capability>` this session** | Every script may use that capability until VS Code restarts |
+| **Allow all capabilities this session** | Same, for every dangerous capability |
+| **Always allow `<capability>` in this workspace** | Persisted in workspace state; survives restarts; listed in the panel's **Permissions** section |
+| **Always allow all non-exec capabilities in this workspace** | Same, for `write` and `fetch` only |
+| **Deny** (or <kbd>Esc</kbd>) | The call returns `false` / `null` and performs no write |
+
+Rules:
+
+- The prompt is keyboard accessible: focus starts on **Allow once**, **More options** lists the
+  broader scopes, Escape denies, and focus returns to the card's Run button.
+- There is no pre-run capability gate; dangerous calls are approved where they happen.
+- Script- and workspace-scoped approvals are tied to the script file's fingerprint (mtime).
+  Editing the script revokes them; the next run prompts again. Session-scoped approvals are
+  intentionally broader and last until VS Code restarts.
+- `exec` is never persisted to the workspace — the workspace options are not offered for it.
+- Unanswered prompts deny after 120 seconds, as do prompts whose panel is closed.
+- Workspace grants are revocable per script/capability in the panel's **Permissions** section.
+
+### Saving approved writes
+
+- Approved `write` bytes are staged during the run and committed **once** when the script
+  finishes without error: the viewer stages one edit transaction and saves immediately.
+- A run that errors, times out, or is cancelled discards its staged writes and reports
+  "nothing was saved".
+- <kbd>Ctrl</kbd>+<kbd>Z</kbd> after a script run restores the pre-run bytes (dirty), and
+  <kbd>Ctrl</kbd>+<kbd>S</kbd> saves them again.
+- The result card shows an informational byte count ("written and saved" or "discarded").
+  There is no Apply/Discard control.
+
 ## Examples
 
 ### CRC verification over a range
@@ -309,7 +574,7 @@ export function run(api) {
 }
 ```
 
-### Byte patching with confirmation
+### Byte patching with approval
 
 ```typescript
 export async function run(api) {
@@ -317,7 +582,7 @@ export async function run(api) {
     const before = api.hex.read(addr, 1);
     api.output(`Current byte at 0x${addr.toString(16).toUpperCase()}: 0x${before[0].toString(16).toUpperCase()}`);
 
-    // write() shows a confirmation dialog
+    // write() asks for approval once, then the approved byte is saved on success
     const ok = await api.hex.write(addr, new Uint8Array([0xFF]));
     api.setResult('Write accepted', ok ? 'Yes' : 'No');
 }
@@ -375,8 +640,10 @@ For the VS Code extension installed from the marketplace, esbuild may not be bun
 |-----------|-----------------|
 | `vm` sandbox without `require`/`process`/`fs` | Script cannot access the file system or extension host internals |
 | API-only bridge | The only way to interact with the host is through the `api` object |
-| Confirmation dialogs for `write`, `exec`, `fetch` | No silent data corruption, hidden shell commands, or data exfiltration |
+| Inline approval for `write`, `exec`, `fetch` | No silent data corruption, hidden shell commands, or data exfiltration |
+| Fingerprint-scoped grants | An approval cannot be reused after the script changes |
+| `exec` never persisted | Shell access is never a standing workspace permission |
 | 30-second timeout | Prevents runaway CPU from infinite loops |
 | Try-catch wrapper | Errors are caught and displayed, the extension host stays alive |
 
-For future CLI usage, the same scripts run unmodified — only the host adapter changes (stdin confirmation prompts instead of VS Code dialogs, stdout output instead of sidebar panels).
+For future CLI usage, the same scripts run unmodified — only the host adapter changes (stdin approval prompts instead of the inline panel, stdout output instead of the sidebar). The `ScriptHost.confirm(type, detail)` contract is unchanged, so a CLI host can keep whatever approval UI it prefers.

@@ -35,11 +35,33 @@ export interface FetchOptions extends RequestInit {
     allowLoopback?: boolean;
 }
 
-export type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel';
+export type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract';
+
+/** Declared script purpose, parsed from a `@script <role>` header tag. */
+export type ScriptRole = 'integrity' | 'address' | 'size';
+
+/** Entry points the runner can invoke. `run` is the legacy script entry. */
+export type ScriptEntry = 'run' | 'verifyIntegrity' | 'getIntegrityValue' | 'getAddress' | 'getSize';
+
+/** Structured-clone-safe value returned by a contract entry. */
+export type ScriptValue = number | boolean | number[];
+
+/** Context supplied to contract entries; empty for a legacy `run` script. */
+export interface ScriptContext {
+    instance?: { id: string; name: string; typeId: string; typeName: string };
+    param?: string;
+    paramValues?: Record<string, number>;
+    documentSize?: number;
+    selection?: { start: number; end: number };
+    storedStart?: number;
+    storedEnd?: number;
+}
 
 export interface ScriptOutput {
     results: Array<{ label: string; value: string }>;
     log: string[];
+    /** Return value of a contract entry; absent for `run` and on failure. */
+    value?: ScriptValue;
     error?: string;
     errorType?: ScriptErrorType;
 }
@@ -66,4 +88,6 @@ export interface HexScopeAPI {
     output(text: string): void;
     setResult(label: string, value: string): void;
     assert(condition: boolean, label: string): void;
+    /** Role-run context; an empty object for legacy `run` scripts. */
+    context: ScriptContext;
 }
