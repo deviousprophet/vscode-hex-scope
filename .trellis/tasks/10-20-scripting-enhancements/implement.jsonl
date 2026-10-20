@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/frontend/scripting.md", "reason": "Script runner, ScriptHost, worker sandbox, API surface, and current confirmation behavior."}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Protocol flow, state owners, persistence scope, and invalidation rules for cross-layer additions."}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Discriminated unions, boundary normalization, address and numeric validation."}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates, test placement, and complexity expectations."}
