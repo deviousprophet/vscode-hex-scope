@@ -4,8 +4,8 @@
  *
  * @requires write
  *
- * `.js` scripts run as CommonJS in the sandbox, so the entry point is exported
- * with `module.exports` (a `.ts` script can use `export function run`).
+ * `.js` scripts run as CommonJS in the sandbox; use `module.exports` to expose
+ * the entry point.
  *
  * Adapt START and PATTERN to the bytes you want to patch. The script does not
  * ask for confirmation itself: the first `api.hex.write()` opens one inline
@@ -17,9 +17,13 @@
  * writes nothing. Ctrl+Z after a successful run restores the previous bytes.
  */
 
+// @ts-check
+/// <reference path="./types/hexscope.d.ts" />
+
 const START = 0x08000000;
 const PATTERN = [0xde, 0xad, 0xbe, 0xef];
 
+/** @param {HexScopeAPI} api */
 async function run(api) {
     const hexStart = `0x${START.toString(16).toUpperCase()}`;
     const before = api.hex.read(START, PATTERN.length);
@@ -37,6 +41,10 @@ async function run(api) {
     api.output('Bytes are saved when this run finishes; Ctrl+Z restores the old value.');
 }
 
+/**
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
 function toHex(bytes) {
     return bytes.length === 0
         ? '(unmapped)'

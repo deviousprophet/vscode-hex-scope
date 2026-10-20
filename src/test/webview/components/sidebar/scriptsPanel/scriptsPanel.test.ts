@@ -756,7 +756,7 @@ suite('ScriptsPanel showResult', () => {
         panel.showResult(A, [], [], '', undefined, 3);
         const row = cardFor(A).querySelector('.script-output-writes') as HTMLElement | null;
         assert.ok(row);
-        assert.match(row!.textContent!, /3 byte\(s\) written and saved/);
+        assert.match(row!.textContent!, /3 byte\(s\) written — saving/);
         assert.strictEqual(row!.querySelector('button'), null, 'no Apply & Save / Discard controls remain');
         assert.strictEqual(document.querySelector('[data-writes-apply]'), null);
         assert.strictEqual(document.querySelector('[data-writes-discard]'), null);

@@ -8,6 +8,7 @@ actions report via callbacks. This module never imports the S global, never post
 provider messages, and never touches the render registry. */
 
 import { esc } from '../../../utils';
+import { fileName } from '../../../../core/pathName';
 import type {
     ScriptCapabilityGrant,
     ScriptPermissionScope,
@@ -659,10 +660,10 @@ export class ScriptsPanel {
         if (this.permissionGrants.length === 0) { return ''; }
         const rows = this.permissionGrants.map(grant => `
             <div class="script-perm-row" data-path="${esc(grant.scriptPath)}" data-cap="${esc(grant.capability)}">
-                <span class="script-perm-name" title="${esc(grant.scriptPath)}">${esc(basename(grant.scriptPath))}</span>
+                <span class="script-perm-name" title="${esc(grant.scriptPath)}">${esc(fileName({ fsPath: grant.scriptPath }))}</span>
                 <span class="script-perm-ability">${esc(grantLabel(grant.capability))}</span>
                 <button type="button" class="sb-btn sb-btn-secondary script-perm-revoke" data-revoke
-                    title="Revoke this permission" aria-label="Revoke ${esc(grantLabel(grant.capability))} for ${esc(basename(grant.scriptPath))}">Revoke</button>
+                    title="Revoke this permission" aria-label="Revoke ${esc(grantLabel(grant.capability))} for ${esc(fileName({ fsPath: grant.scriptPath }))}">Revoke</button>
             </div>`).join('');
         return `<div class="script-perms-section">
             <div class="script-perms-title">Permissions</div>${rows}
@@ -703,12 +704,6 @@ function extLabel(name: string): string {
     return idx > 0 ? name.slice(idx + 1) : '';
 }
 
-/** Last path segment for a script path (handles Windows and POSIX separators). */
-function basename(scriptPath: string): string {
-    const parts = scriptPath.split(/[\\/]/);
-    return parts[parts.length - 1] || scriptPath;
-}
-
 /** Permission label for the workspace grant list. */
 function grantLabel(capability: ScriptCapabilityGrant): string {
     return capability === '*' ? 'all non-exec' : capability;
@@ -745,6 +740,6 @@ function writesBlockHtml(pendingWriteCount: number, discardedWriteCount: number)
         return `<div class="script-output-writes script-output-writes-discarded">&#128190; ${discardedWriteCount} byte(s) written, discarded &mdash; nothing was saved</div>`;
     }
     return pendingWriteCount > 0
-        ? `<div class="script-output-writes">&#128190; ${pendingWriteCount} byte(s) written and saved</div>`
+        ? `<div class="script-output-writes">&#128190; ${pendingWriteCount} byte(s) written &mdash; saving</div>`
         : '';
 }

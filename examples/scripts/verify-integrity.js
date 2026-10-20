@@ -1,3 +1,4 @@
+// @ts-check
 /// <reference path="./types/hexscope.d.ts" />
 
 /**
@@ -15,24 +16,39 @@
  * stored field in `api.context.storedStart` / `storedEnd` when it has one.
  *
  * Integrity scripts are read-only: `hex.write` is denied without a prompt.
- * Keep the adapted range small — the example reads it byte by byte.
+ * Keep the adapted range small - the example reads it byte by byte.
  */
 
 const DEFAULT_START = 0x08000000;
 const DEFAULT_END = 0x080000ff;
 
-function checkRange(api: HexScopeAPI): { start: number; end: number } {
+/**
+ * @param {HexScopeAPI} api
+ * @returns {{ start: number; end: number }}
+ */
+function checkRange(api) {
     return api.context.selection ?? { start: DEFAULT_START, end: DEFAULT_END };
 }
 
-/** `storedEnd` is only known once the stored-field length is; without it nothing is excluded. */
-function inStoredField(api: HexScopeAPI, address: number): boolean {
+/**
+ * `storedEnd` is only known once the stored-field length is; without it nothing
+ * is excluded.
+ *
+ * @param {HexScopeAPI} api
+ * @param {number} address
+ * @returns {boolean}
+ */
+function inStoredField(api, address) {
     const { storedStart, storedEnd } = api.context;
     return storedStart !== undefined && storedEnd !== undefined
         && address >= storedStart && address <= storedEnd;
 }
 
-function checksumByte(api: HexScopeAPI): number {
+/**
+ * @param {HexScopeAPI} api
+ * @returns {number}
+ */
+function checksumByte(api) {
     const { start, end } = checkRange(api);
     let sum = 0;
     for (let address = start; address <= end; address++) {
@@ -44,11 +60,19 @@ function checksumByte(api: HexScopeAPI): number {
     return sum;
 }
 
-export function getIntegrityValue(api: HexScopeAPI): Uint8Array {
+/**
+ * @param {HexScopeAPI} api
+ * @returns {Uint8Array}
+ */
+function getIntegrityValue(api) {
     return new Uint8Array([checksumByte(api)]);
 }
 
-export function verifyIntegrity(api: HexScopeAPI): boolean {
+/**
+ * @param {HexScopeAPI} api
+ * @returns {boolean}
+ */
+function verifyIntegrity(api) {
     const sum = checksumByte(api);
     const storedAddress = api.context.storedStart;
     if (storedAddress === undefined) {
@@ -64,3 +88,5 @@ export function verifyIntegrity(api: HexScopeAPI): boolean {
     api.setResult('Computed', `0x${sum.toString(16).toUpperCase().padStart(2, '0')}`);
     return ok;
 }
+
+module.exports = { getIntegrityValue, verifyIntegrity };

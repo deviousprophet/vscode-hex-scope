@@ -16,11 +16,11 @@ const CATALOG_FILES = [
     'README.md',
     'tsconfig.json',
     'scripts/types/hexscope.d.ts',
-    'scripts/verify-crc.ts',
+    'scripts/verify-crc.js',
     'scripts/write-pattern.js',
-    'scripts/follow-pointer.ts',
-    'scripts/array-size-from-header.ts',
-    'scripts/verify-integrity.ts',
+    'scripts/follow-pointer.js',
+    'scripts/array-size-from-header.js',
+    'scripts/verify-integrity.js',
 ];
 
 const CRC_START = 0x08000000;
@@ -126,11 +126,11 @@ test('every catalog file is a non-empty script/document of the expected extensio
 test('the install manifest copies the five examples plus the type definition', () => {
     const targets = EXAMPLE_INSTALL_FILES.map(file => file.target);
     assert.deepStrictEqual(targets, [
-        '.hexscope/scripts/verify-crc.ts',
+        '.hexscope/scripts/verify-crc.js',
         '.hexscope/scripts/write-pattern.js',
-        '.hexscope/scripts/follow-pointer.ts',
-        '.hexscope/scripts/array-size-from-header.ts',
-        '.hexscope/scripts/verify-integrity.ts',
+        '.hexscope/scripts/follow-pointer.js',
+        '.hexscope/scripts/array-size-from-header.js',
+        '.hexscope/scripts/verify-integrity.js',
         '.hexscope/scripts/types/hexscope.d.ts',
     ]);
     for (const file of EXAMPLE_INSTALL_FILES) {
@@ -148,16 +148,16 @@ test('scanning an installed workspace lists the five scripts and skips the .d.ts
         installExampleScripts(EXAMPLES_ROOT, root);
         const scripts = scanScripts(root);
         assert.deepStrictEqual(scripts.map(script => script.name), [
-            'array-size-from-header.ts',
-            'follow-pointer.ts',
-            'verify-crc.ts',
-            'verify-integrity.ts',
+            'array-size-from-header.js',
+            'follow-pointer.js',
+            'verify-crc.js',
+            'verify-integrity.js',
             'write-pattern.js',
         ]);
-        assert.deepStrictEqual(rolesOf(scripts, 'follow-pointer.ts'), ['address']);
-        assert.deepStrictEqual(rolesOf(scripts, 'array-size-from-header.ts'), ['size']);
-        assert.deepStrictEqual(rolesOf(scripts, 'verify-integrity.ts'), ['integrity']);
-        assert.deepStrictEqual(rolesOf(scripts, 'verify-crc.ts'), []);
+        assert.deepStrictEqual(rolesOf(scripts, 'follow-pointer.js'), ['address']);
+        assert.deepStrictEqual(rolesOf(scripts, 'array-size-from-header.js'), ['size']);
+        assert.deepStrictEqual(rolesOf(scripts, 'verify-integrity.js'), ['integrity']);
+        assert.deepStrictEqual(rolesOf(scripts, 'verify-crc.js'), []);
         assert.deepStrictEqual(capabilitiesOf(scripts, 'write-pattern.js'), ['write']);
         assert.ok(!hasDeclarationFile(scripts), 'the type definition is not runnable');
     } finally {
@@ -169,10 +169,10 @@ test('scanning an installed workspace lists the five scripts and skips the .d.ts
 
 suite('scripting examples run against a mock host', () => {
 
-test('verify-crc.ts reads its range, CRCs it, and asks for no approval', async () => {
+test('verify-crc.js reads its range, CRCs it, and asks for no approval', async () => {
     const bytes = Array.from({ length: 256 }, (_, index) => index & 0xFF);
     const mock = makeHost(memory(CRC_START, bytes));
-    const out = await execute(catalogPath('verify-crc.ts'), mock.host);
+    const out = await execute(catalogPath('verify-crc.js'), mock.host);
     assert.strictEqual(out.error, undefined);
     assert.strictEqual(
         resultValue(mock.results, 'CRC32'),
@@ -183,9 +183,9 @@ test('verify-crc.ts reads its range, CRCs it, and asks for no approval', async (
     assert.deepStrictEqual(mock.confirms, [], 'read-only examples never prompt');
 });
 
-test('verify-crc.ts reports an unmapped range instead of a bogus checksum', async () => {
+test('verify-crc.js reports an unmapped range instead of a bogus checksum', async () => {
     const mock = makeHost(new Map());
-    const out = await execute(catalogPath('verify-crc.ts'), mock.host);
+    const out = await execute(catalogPath('verify-crc.js'), mock.host);
     assert.strictEqual(out.error, undefined);
     assert.strictEqual(resultValue(mock.results, 'CRC32'), undefined);
     assert.match(mock.log.join('\n'), /No mapped bytes/);
@@ -210,76 +210,76 @@ test('write-pattern.js writes nothing when the approval is denied', async () => 
     assert.match(mock.log.join('\n'), /Write denied/);
 });
 
-test('follow-pointer.ts returns the little-endian pointer as an address', async () => {
+test('follow-pointer.js returns the little-endian pointer as an address', async () => {
     const mock = makeHost(memory(CRC_START, [0x00, 0x01, 0x00, 0x08]));
-    const out = await executeEntry(catalogPath('follow-pointer.ts'), 'getAddress', mock.host);
+    const out = await executeEntry(catalogPath('follow-pointer.js'), 'getAddress', mock.host);
     assert.strictEqual(out.error, undefined);
     assert.strictEqual(out.value, 0x08000100);
 });
 
-test('follow-pointer.ts fails loudly when its pointer is unmapped', async () => {
-    const out = await executeEntry(catalogPath('follow-pointer.ts'), 'getAddress', makeHost(new Map()).host);
+test('follow-pointer.js fails loudly when its pointer is unmapped', async () => {
+    const out = await executeEntry(catalogPath('follow-pointer.js'), 'getAddress', makeHost(new Map()).host);
     assert.strictEqual(out.errorType, 'runtime');
     assert.match(out.error ?? '', /pointer mapped at 0x8000000/);
     assert.strictEqual(out.value, undefined);
 });
 
-test('array-size-from-header.ts resolves its own parameter and falls back elsewhere', async () => {
+test('array-size-from-header.js resolves its own parameter and falls back elsewhere', async () => {
     const mock = makeHost(memory(0x08000010, [0x05, 0x00]));
-    const own = await executeEntry(catalogPath('array-size-from-header.ts'), 'getSize', mock.host, {
+    const own = await executeEntry(catalogPath('array-size-from-header.js'), 'getSize', mock.host, {
         context: { param: 'ITEM_COUNT' },
     });
     assert.strictEqual(own.error, undefined);
     assert.strictEqual(own.value, 5);
 
-    const other = await executeEntry(catalogPath('array-size-from-header.ts'), 'getSize', mock.host, {
+    const other = await executeEntry(catalogPath('array-size-from-header.js'), 'getSize', mock.host, {
         context: { param: 'OTHER_PARAM' },
     });
     assert.strictEqual(other.value, 1, 'a different parameter still gets a positive size');
 });
 
-test('array-size-from-header.ts returns a positive size when the count is unmapped or zero', async () => {
-    const unmapped = await executeEntry(catalogPath('array-size-from-header.ts'), 'getSize', makeHost(new Map()).host, {
+test('array-size-from-header.js returns a positive size when the count is unmapped or zero', async () => {
+    const unmapped = await executeEntry(catalogPath('array-size-from-header.js'), 'getSize', makeHost(new Map()).host, {
         context: { param: 'ITEM_COUNT' },
     });
     assert.strictEqual(unmapped.value, 1);
 
-    const zero = await executeEntry(catalogPath('array-size-from-header.ts'), 'getSize', makeHost(memory(0x08000010, [0, 0])).host, {
+    const zero = await executeEntry(catalogPath('array-size-from-header.js'), 'getSize', makeHost(memory(0x08000010, [0, 0])).host, {
         context: { param: 'ITEM_COUNT' },
     });
     assert.strictEqual(zero.value, 1);
 });
 
-test('verify-integrity.ts sums the check range, excluding the stored field', async () => {
+test('verify-integrity.js sums the check range, excluding the stored field', async () => {
     const mock = makeHost(memory(CRC_START, [0xFF, 0x02]));
     const context = { selection: { start: CRC_START, end: CRC_START + 1 }, storedStart: CRC_START, storedEnd: CRC_START };
-    const value = await executeEntry(catalogPath('verify-integrity.ts'), 'getIntegrityValue', mock.host, { context });
+    const value = await executeEntry(catalogPath('verify-integrity.js'), 'getIntegrityValue', mock.host, { context });
     assert.strictEqual(value.error, undefined);
     assert.deepStrictEqual(value.value, [2], 'stored byte 0xFF is skipped');
 
-    const verify = await executeEntry(catalogPath('verify-integrity.ts'), 'verifyIntegrity', mock.host, { context });
+    const verify = await executeEntry(catalogPath('verify-integrity.js'), 'verifyIntegrity', mock.host, { context });
     assert.strictEqual(verify.value, false, 'stored 0xFF does not match the computed 0x02');
 });
 
-test('verify-integrity.ts passes when the stored byte matches the computed checksum', async () => {
+test('verify-integrity.js passes when the stored byte matches the computed checksum', async () => {
     const mock = makeHost(memory(CRC_START, [1, 2, 3, 4, 10]));
     const context = {
         selection: { start: CRC_START, end: CRC_START + 3 },
         storedStart: CRC_START + 4,
         storedEnd: CRC_START + 4,
     };
-    const value = await executeEntry(catalogPath('verify-integrity.ts'), 'getIntegrityValue', mock.host, { context });
+    const value = await executeEntry(catalogPath('verify-integrity.js'), 'getIntegrityValue', mock.host, { context });
     assert.deepStrictEqual(value.value, [10]);
-    const verify = await executeEntry(catalogPath('verify-integrity.ts'), 'verifyIntegrity', mock.host, { context });
+    const verify = await executeEntry(catalogPath('verify-integrity.js'), 'verifyIntegrity', mock.host, { context });
     assert.strictEqual(verify.value, true);
     assert.strictEqual(resultValue(mock.results, 'Computed'), '0x0A');
     assert.strictEqual(resultValue(mock.results, 'Stored'), '0x0A');
 });
 
-test('verify-integrity.ts is display-only without a stored field', async () => {
+test('verify-integrity.js is display-only without a stored field', async () => {
     const mock = makeHost(memory(CRC_START, [1, 2]));
     const context = { selection: { start: CRC_START, end: CRC_START + 1 } };
-    const verify = await executeEntry(catalogPath('verify-integrity.ts'), 'verifyIntegrity', mock.host, { context });
+    const verify = await executeEntry(catalogPath('verify-integrity.js'), 'verifyIntegrity', mock.host, { context });
     assert.strictEqual(verify.value, true);
     assert.strictEqual(resultValue(mock.results, 'Checksum'), '0x03');
 });
@@ -321,13 +321,14 @@ test('hexscope.d.ts declares the public API surface referenced by the examples',
     assert.ok(!/^\s*(import|export)\s/m.test(dts), 'the declaration file stays ambient (no top-level import/export)');
 });
 
-test('every typed example references the shipped declaration file', () => {
-    const typed = CATALOG_FILES.filter(file => file.startsWith('scripts/') && file.endsWith('.ts') && !file.endsWith('.d.ts'));
+test('every example references the shipped declaration file', () => {
+    const typed = CATALOG_FILES.filter(file => file.startsWith('scripts/') && file.endsWith('.js'));
     assert.deepStrictEqual(typed.sort(), [
-        'scripts/array-size-from-header.ts',
-        'scripts/follow-pointer.ts',
-        'scripts/verify-crc.ts',
-        'scripts/verify-integrity.ts',
+        'scripts/array-size-from-header.js',
+        'scripts/follow-pointer.js',
+        'scripts/verify-crc.js',
+        'scripts/verify-integrity.js',
+        'scripts/write-pattern.js',
     ]);
     for (const file of typed) {
         const source = fs.readFileSync(path.join(EXAMPLES_ROOT, ...file.split('/')), 'utf-8');

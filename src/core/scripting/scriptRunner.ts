@@ -190,7 +190,7 @@ async function runInWorker(
             if (err) { finish({ ...h, error: err, errorType: errType }); return; }
             if (entry === 'run') { finish(h); return; }
 
-            const normalized = normalizeContractValue(entry, rawValue);
+            const normalized = normalizeScriptValue(entry, rawValue);
             if (!normalized.ok) { finish({ ...h, error: normalized.error, errorType: 'contract' }); return; }
             finish({ ...h, value: normalized.value });
         }
@@ -226,13 +226,6 @@ async function runInWorker(
             abortCleanup = () => signal.removeEventListener('abort', onAbort);
         }
     });
-}
-
-function normalizeContractValue(
-    entry: ScriptEntry,
-    value: unknown,
-): { ok: true; value: ScriptValue } | { ok: false; error: string } {
-    return normalizeScriptValue(entry, value);
 }
 
 function earlyExit(signal: AbortSignal | undefined, trusted: boolean): ScriptOutput | null {

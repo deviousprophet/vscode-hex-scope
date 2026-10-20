@@ -116,12 +116,12 @@ test('a second install skips every file and changes nothing', async () => {
 test('existing files are preserved while the missing ones are added', async () => {
     const root = tempRoot();
     try {
-        const existing = installedFile(root, '.hexscope/scripts/verify-crc.ts');
+        const existing = installedFile(root, '.hexscope/scripts/verify-crc.js');
         fs.mkdirSync(path.dirname(existing), { recursive: true });
         fs.writeFileSync(existing, '// my own script\n', 'utf-8');
 
         const result = await runAddExampleScripts(makeDeps(root).deps);
-        assert.deepStrictEqual(result?.skipped, ['.hexscope/scripts/verify-crc.ts']);
+        assert.deepStrictEqual(result?.skipped, ['.hexscope/scripts/verify-crc.js']);
         assert.strictEqual(result?.added.length, 5);
         assert.strictEqual(fs.readFileSync(existing, 'utf-8'), '// my own script\n', 'never overwrites');
     } finally {
@@ -133,9 +133,9 @@ test('removing an installed example leaves the catalog and the other files intac
     const root = tempRoot();
     try {
         await runAddExampleScripts(makeDeps(root).deps);
-        const removed = '.hexscope/scripts/verify-crc.ts';
+        const removed = '.hexscope/scripts/verify-crc.js';
         fs.rmSync(installedFile(root, removed));
-        assert.ok(fs.existsSync(catalogFile('scripts/verify-crc.ts')), 'the bundled catalog is untouched');
+        assert.ok(fs.existsSync(catalogFile('scripts/verify-crc.js')), 'the bundled catalog is untouched');
         for (const target of INSTALLED_TARGETS.filter(entry => entry !== removed)) {
             assert.ok(fs.existsSync(installedFile(root, target)), `${target} is unaffected`);
         }

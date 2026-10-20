@@ -4,24 +4,6 @@ export type ScriptValidation<T> = { ok: true; value: T } | { ok: false; error: s
 
 const MAX_ADDRESS = 0xFFFF_FFFF;
 
-const CONTRACT_ENTRIES: ReadonlySet<ScriptEntry> = new Set([
-    'verifyIntegrity',
-    'getIntegrityValue',
-    'getAddress',
-    'getSize',
-]);
-
-const ENTRY_LABELS: Record<Exclude<ScriptEntry, 'run'>, string> = {
-    verifyIntegrity: 'verifyIntegrity',
-    getIntegrityValue: 'getIntegrityValue',
-    getAddress: 'getAddress',
-    getSize: 'getSize',
-};
-
-export function isContractEntry(entry: ScriptEntry): boolean {
-    return CONTRACT_ENTRIES.has(entry);
-}
-
 /**
  * Normalize a contract entry's return value at the worker boundary.
  * `run` has no value contract; callers must not pass it here.
@@ -46,8 +28,7 @@ export function normalizeScriptValue(entry: ScriptEntry, value: unknown): Script
 }
 
 export function contractError(entry: ScriptEntry, reason: string): ScriptValidation<never> {
-    const label = entry === 'run' ? 'run' : ENTRY_LABELS[entry];
-    return { ok: false, error: `Script entry '${label}' ${reason}.` };
+    return { ok: false, error: `Script entry '${entry}' ${reason}.` };
 }
 
 function normalizeAddress(value: unknown): ScriptValidation<number> {

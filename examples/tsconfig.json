@@ -7,10 +7,10 @@
         "strict": true,
         "noEmit": true,
         "allowJs": true,
-        "checkJs": false,
+        "checkJs": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "types": []
     },
-    "include": ["scripts/**/*.ts"]
+    "include": ["scripts/**/*.js"]
 }

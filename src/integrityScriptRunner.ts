@@ -72,7 +72,7 @@ export function withRelativeScriptPaths(root: string, set: IntegrityCheckSet): I
     };
 }
 
-function missingExport(output: ScriptOutput, entry: ScriptEntry): boolean {
+function missingExport(output: ScriptOutput): boolean {
     return output.errorType === 'contract' && !!output.error && output.error.startsWith('Script must export');
 }
 
@@ -143,7 +143,7 @@ export async function runIntegrityScript(input: IntegrityScriptRunInput): Promis
         trusted: input.trusted,
         context: baseContext(input, host),
     });
-    const valueMissing = missingExport(valueOutput, 'getIntegrityValue');
+    const valueMissing = missingExport(valueOutput);
     const valueError = !valueMissing ? valueOutput.error : undefined;
     const valueBytes = !valueError && Array.isArray(valueOutput.value) ? valueOutput.value : undefined;
 
@@ -151,7 +151,7 @@ export async function runIntegrityScript(input: IntegrityScriptRunInput): Promis
         trusted: input.trusted,
         context: verifyContext(input, host, valueBytes),
     });
-    const verifyMissing = missingExport(verifyOutput, 'verifyIntegrity');
+    const verifyMissing = missingExport(verifyOutput);
 
     if (valueMissing && verifyMissing) {
         return failure("Script must export 'verifyIntegrity' or 'getIntegrityValue'.", 'contract');

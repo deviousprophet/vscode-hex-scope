@@ -1,6 +1,6 @@
 // ── Script permission grants ──────────────────────────────────────
 // Host-owned approval store behind the inline Scripts-panel prompt
-// (`.trellis/tasks/10-20-script-write-confirmation`).
+// (`.trellis/tasks/archive/2026-10/10-20-script-write-confirmation`).
 //
 // A grant is keyed by absolute script path + the script file's fingerprint
 // (mtime, the same value `scanScripts` exposes) + the capability. Editing the
@@ -141,6 +141,23 @@ export class ScriptGrantStore {
         this.sessionEntries = this.sessionEntries.filter(e => e.scriptPath === ANY_SCRIPT || scriptKey(e.scriptPath) !== key);
         this.workspaceEntries = this.workspaceEntries.filter(e => scriptKey(e.scriptPath) !== key);
         if (this.workspaceEntries.length !== before) { this.persist(); }
+    }
+
+    /**
+     * Drop grants for scripts that no longer exist in the scanned folder.
+     * Session-wide (`*`) entries are intentionally kept until the host exits.
+     * Returns true when anything was removed.
+     */
+    revokeMissing(activePaths: readonly string[]): boolean {
+        const active = new Set(activePaths.map(scriptKey));
+        const missing = new Set<string>();
+        for (const entry of [...this.sessionEntries, ...this.workspaceEntries]) {
+            if (entry.scriptPath !== ANY_SCRIPT && !active.has(scriptKey(entry.scriptPath))) {
+                missing.add(entry.scriptPath);
+            }
+        }
+        for (const scriptPath of missing) { this.revokeScript(scriptPath); }
+        return missing.size > 0;
     }
 
     /**

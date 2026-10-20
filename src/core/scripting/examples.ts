@@ -20,11 +20,11 @@ export interface ExampleInstallFile {
  * The order is the catalog order shown in the docs; installation is copy-only.
  */
 export const EXAMPLE_INSTALL_FILES: readonly ExampleInstallFile[] = [
-    { source: 'scripts/verify-crc.ts', target: `${EXAMPLE_SCRIPTS_DIR}/verify-crc.ts` },
+    { source: 'scripts/verify-crc.js', target: `${EXAMPLE_SCRIPTS_DIR}/verify-crc.js` },
     { source: 'scripts/write-pattern.js', target: `${EXAMPLE_SCRIPTS_DIR}/write-pattern.js` },
-    { source: 'scripts/follow-pointer.ts', target: `${EXAMPLE_SCRIPTS_DIR}/follow-pointer.ts` },
-    { source: 'scripts/array-size-from-header.ts', target: `${EXAMPLE_SCRIPTS_DIR}/array-size-from-header.ts` },
-    { source: 'scripts/verify-integrity.ts', target: `${EXAMPLE_SCRIPTS_DIR}/verify-integrity.ts` },
+    { source: 'scripts/follow-pointer.js', target: `${EXAMPLE_SCRIPTS_DIR}/follow-pointer.js` },
+    { source: 'scripts/array-size-from-header.js', target: `${EXAMPLE_SCRIPTS_DIR}/array-size-from-header.js` },
+    { source: 'scripts/verify-integrity.js', target: `${EXAMPLE_SCRIPTS_DIR}/verify-integrity.js` },
     { source: 'scripts/types/hexscope.d.ts', target: `${EXAMPLE_SCRIPTS_DIR}/types/hexscope.d.ts` },
 ];
 

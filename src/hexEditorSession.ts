@@ -1233,6 +1233,7 @@ export class HexEditorSession {
                     relativePath: path.relative(root, script.filePath).split(path.sep).join('/'),
                 }));
                 const grants = this.scriptGrants();
+                if (grants.revokeMissing(scripts.map(script => script.filePath))) { postPermissions(); }
                 // Edited scripts lose their approvals; the list refreshes with them.
                 for (const script of scripts) {
                     grants.revokeStaleFingerprint(script.filePath, script.fingerprint);
@@ -1311,10 +1312,23 @@ export class HexEditorSession {
                     });
                     return;
                 }
-                // Fire-and-forget: a slow check must not block other webview messages
-                // (edits/saves keep flowing; the panel discards stale generations).
-                const segments = parseResult.segments;
-                void (async () => {
+                // Queue behind any user run so worker use stays serialized. A slow
+                // check must not block webview messages; the panel discards stale
+                // generations.
+                void enqueueScript(async () => {
+                    if (!parseResult || disposed) { return; }
+                    if (msg.generation !== currentGeneration) {
+                        void postToWebview(webviewPanel.webview, {
+                            type: 'integrityScriptResult',
+                            requestId: msg.requestId,
+                            checkId: msg.checkId,
+                            generation: msg.generation,
+                            error: 'Stale request: the document changed.',
+                            errorType: 'cancel',
+                        });
+                        return;
+                    }
+                    const segments = parseResult.segments;
                     const outcome = await runIntegrityScript({
                         root,
                         scriptPath: msg.scriptPath,
@@ -1360,7 +1374,7 @@ export class HexEditorSession {
                             error: outcome.error,
                             errorType: outcome.errorType,
                         });
-                })();
+                });
             },
             resolveInstanceAddresses: msg => {
                 // A newer batch supersedes the in-flight one immediately.

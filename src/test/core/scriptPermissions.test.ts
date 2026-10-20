@@ -146,6 +146,20 @@ suite('ScriptGrantStore workspace persistence', () => {
         assert.strictEqual(store.check(SCRIPT, 'new', 'write'), true);
     });
 
+    test('revokeMissing drops grants for deleted scripts but keeps active and session-wide grants', () => {
+        const store = newStore();
+        store.grant('script', SCRIPT, 'fp1', 'write');
+        store.grant('workspace', SCRIPT, 'fp1', 'fetch');
+        store.grant('script', OTHER, 'fp2', 'write');
+        store.grant('session', OTHER, 'fp2', 'exec');
+        assert.strictEqual(store.revokeMissing([OTHER]), true, 'SCRIPT disappeared');
+        assert.strictEqual(store.check(SCRIPT, 'fp1', 'write'), false);
+        assert.strictEqual(store.check(SCRIPT, 'fp1', 'fetch'), false);
+        assert.strictEqual(store.check(OTHER, 'fp2', 'write'), true, 'active script keeps its grant');
+        assert.strictEqual(store.check(OTHER, 'fp2', 'exec'), true, 'session-wide grant survives');
+        assert.strictEqual(store.revokeMissing([OTHER]), false, 'idempotent');
+    });
+
     test('corrupt stored payloads are ignored', () => {
         const memento = new FakeMemento(new Map([[SCRIPT_GRANTS_KEY, { version: 1, grants: [{ nope: true }] }]]));
         assert.deepStrictEqual(newStore(memento).listWorkspaceGrants(), []);

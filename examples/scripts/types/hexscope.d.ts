@@ -13,6 +13,9 @@
  * sync when the script API changes.
  */
 
+/** CommonJS shim available to `.js` scripts in the sandbox. */
+declare const module: { exports: Record<string, unknown> };
+
 /** Result of `api.exec()`. */
 interface ExecResult {
     /** Standard output captured from the process. */

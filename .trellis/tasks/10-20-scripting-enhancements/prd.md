@@ -38,8 +38,9 @@ Ordering is written here and repeated in each child `prd.md`; the tree itself ca
       block the rest of the panel; the affected instance or check reports a visible error and
       the remaining UI stays usable.
 - [ ] Role scripts respect workspace trust and show their required capabilities before running.
-- [ ] Permissions are host-owned, keyed by script fingerprint, revocable, and never persisted
-      outside the workspace's own storage scope.
+- [ ] Permissions are host-owned, fingerprint-bound for script and workspace grants,
+      revocable, and never persisted outside the workspace's own storage scope. Session
+      grants are an explicit cross-script exception and end when the host exits.
 - [ ] Existing `run(api)` scripts keep working unchanged.
 - [ ] Every shipped example compiles against the current API and is exercised by a test, so
       examples cannot silently rot.

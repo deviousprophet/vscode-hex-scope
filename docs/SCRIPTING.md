@@ -12,7 +12,7 @@ your-workspace/
     └── scripts/
         ├── types/
         │   └── hexscope.d.ts
-        ├── verify-crc.ts
+        ├── verify-crc.js
         ├── verify-signature.ts
         ├── pattern-scan.js
         └── update-checksums.ts
@@ -48,26 +48,28 @@ leaves the bundled catalog untouched.
 
 | File | Role / capability | Demonstrates | Adapt |
 |------|-------------------|--------------|-------|
-| `verify-crc.ts` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
+| `verify-crc.js` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
 | `write-pattern.js` | `run`, `@requires write` | One inline approval, staged writes, auto-save, undo | `START`, `PATTERN` |
-| `follow-pointer.ts` | `@script address` → `getAddress` | Reading a little-endian pointer as an instance address | `POINTER_AT` |
-| `array-size-from-header.ts` | `@script size` → `getSize` | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
-| `verify-integrity.ts` | `@script integrity` → `verifyIntegrity`, `getIntegrityValue` | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
+| `follow-pointer.js` | `@script address` → `getAddress` | Reading a little-endian pointer as an instance address | `POINTER_AT` |
+| `array-size-from-header.js` | `@script size` → `getSize` | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
+| `verify-integrity.js` | `@script integrity` → `verifyIntegrity`, `getIntegrityValue` | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
 
-Every typed example starts with `/// <reference path="./types/hexscope.d.ts" />`, so
+Every example starts with `/// <reference path="./types/hexscope.d.ts" />`, so
 editor IntelliSense works in the repository and in an installed workspace. The catalog
 is type-checked in CI (`npm run check-examples`), so it cannot drift from the API.
 
 ## Script structure
 
-```typescript
-// .hexscope/scripts/verify-crc.ts
-export function run(api: HexScopeAPI) {
+```javascript
+// .hexscope/scripts/verify-crc.js
+function run(api) {
     const data = api.hex.read(0, 256);
     const hash = api.crc.crc32([...data]);
     api.setResult('CRC32', `0x${hash.toString(16).toUpperCase()}`);
     api.output('Done');
 }
+
+module.exports = { run };
 ```
 
 Every script exports a `run` function. It receives a single `api` argument — the `HexScopeAPI` object. The function can be synchronous or asynchronous (return a `Promise`).

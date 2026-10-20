@@ -14,11 +14,11 @@ button). The command copies these files into your workspace:
 .hexscope/
 └── scripts/
     ├── types/hexscope.d.ts
-    ├── verify-crc.ts
+    ├── verify-crc.js
     ├── write-pattern.js
-    ├── follow-pointer.ts
-    ├── array-size-from-header.ts
-    └── verify-integrity.ts
+    ├── follow-pointer.js
+    ├── array-size-from-header.js
+    └── verify-integrity.js
 ```
 
 It never overwrites or deletes: files that already exist are reported as
@@ -32,11 +32,11 @@ panel. There is no pre-run gate.
 
 | File | Role / capability | Demonstrates | Adapt |
 |------|-------------------|--------------|-------|
-| `verify-crc.ts` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
+| `verify-crc.js` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
 | `write-pattern.js` | `run`, `@requires write` | One inline approval, staged writes, auto-save and undo | `START`, `PATTERN` |
-| `follow-pointer.ts` | `@script address` → `getAddress` | Reading a pointer and returning it as an instance address | `POINTER_AT` |
-| `array-size-from-header.ts` | `@script size` → `getSize` | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
-| `verify-integrity.ts` | `@script integrity` → `verifyIntegrity`, `getIntegrityValue` | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
+| `follow-pointer.js` | `@script address` → `getAddress` | Reading a pointer and returning it as an instance address | `POINTER_AT` |
+| `array-size-from-header.js` | `@script size` → `getSize` | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
+| `verify-integrity.js` | `@script integrity` → `verifyIntegrity`, `getIntegrityValue` | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
 
 ## Type checking
 
@@ -46,16 +46,17 @@ panel. There is no pre-run gate.
 /// <reference path="./types/hexscope.d.ts" />
 ```
 
-`tsconfig.json` in this directory type-checks every typed example against the
-shipped declaration (`npm run check-examples` in the extension repository), so
-the catalog cannot drift from the API.
+`tsconfig.json` in this directory type-checks every example against the shipped
+declaration (`npm run check-examples` in the extension repository), so the
+catalog cannot drift from the API.
 
-Every typed example declares its role with a `@script <role>` header tag and its
+Every example declares its role with a `@script <role>` header tag and its
 required capabilities with `@requires <capability>`; the tags are discovery
 metadata for the Scripts panel, while the exported function name is the call
-contract. `.ts` examples export with `export function ...`; `.js` examples run
-as CommonJS in the sandbox and export with `module.exports`. The `.d.ts` file is never listed as a runnable script (the scanner
-skips `.d.ts` files and never descends into subdirectories).
+contract. Examples are plain `.js` so they run without the optional TypeScript
+compiler; they use the sandbox's CommonJS shim (`module.exports`) and JSDoc
+types for editor IntelliSense. The `.d.ts` file is never listed as a runnable
+script (the scanner skips `.d.ts` files and never descends into subdirectories).
 
 See `docs/SCRIPTING.md` in the extension repository for the full API reference,
 the approval model, and the role contracts.
