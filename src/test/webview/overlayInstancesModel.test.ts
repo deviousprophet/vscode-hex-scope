@@ -21,7 +21,7 @@ import {
     withoutTypeDefinition,
     withoutTypeInstance,
 } from '../../webview/components/sidebar/overlayPanel/overlayInstancesModel';
-import type { AddressResolution, ParamResolution } from '../../webview/components/sidebar/overlayPanel/overlayInstancesModel';
+import type { AddressResolution, ParamResolution, ParamResolutionKey } from '../../webview/components/sidebar/overlayPanel/overlayInstancesModel';
 
 suite('instance model', () => {
     test('parses full hex address input only', () => {
@@ -338,7 +338,7 @@ suite('instance parameter sources', () => {
     });
 
     test('resolved values are read per instance and only when resolved', () => {
-        const resolutions = new Map<string, ParamResolution>([
+        const resolutions = new Map<ParamResolutionKey, ParamResolution>([
             [paramResolutionKey('a', 'N'), { status: 'resolved', value: 4, generation: 1 }],
             [paramResolutionKey('a', 'M'), { status: 'stale', value: 9, generation: 1 }],
             [paramResolutionKey('b', 'N'), { status: 'resolved', value: 6, generation: 1 }],
@@ -363,16 +363,16 @@ suite('instance parameter sources', () => {
         const pin: TypeInstance = {
             id: 'p', typeId: 't', addr: 0, name: 'a', paramSources: { N: { scriptPath: 'size.js' } },
         };
-        const resolved = new Map<string, ParamResolution>([
+        const resolved = new Map<ParamResolutionKey, ParamResolution>([
             [paramResolutionKey('p', 'N'), { status: 'resolved', value: 4, generation: 1 }],
         ]);
         assert.strictEqual(instanceParamResolutionError(def, pin, resolved), undefined);
         assert.match(instanceParamResolutionError(def, pin, new Map()) ?? '', /Resolving/);
-        const stale = new Map<string, ParamResolution>([
+        const stale = new Map<ParamResolutionKey, ParamResolution>([
             [paramResolutionKey('p', 'N'), { status: 'stale', value: 4, generation: 2 }],
         ]);
         assert.match(instanceParamResolutionError(def, pin, stale) ?? '', /stale/);
-        const failed = new Map<string, ParamResolution>([
+        const failed = new Map<ParamResolutionKey, ParamResolution>([
             [paramResolutionKey('p', 'N'), { status: 'error', message: 'Invalid size from script', generation: 2 }],
         ]);
         assert.strictEqual(instanceParamResolutionError(def, pin, failed), 'Invalid size from script');

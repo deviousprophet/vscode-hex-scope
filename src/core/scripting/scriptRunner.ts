@@ -2,11 +2,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type {
-    ScriptHost, HexScopeAPI, ScriptOutput, ScriptErrorType, ScriptEntry, ScriptRole, ScriptContext, ScriptValue,
+    ScriptHost, HexScopeAPI, ScriptOutput, ScriptErrorType, ScriptEntry, ScriptRole, ScriptContext, ScriptInfo,
 } from './types';
 import { buildAPI } from './apiFactory';
 import { normalizeScriptValue } from './contracts';
 import { isScriptFile, readScript, compileScript } from './scriptCompiler';
+
+export type { ScriptInfo } from './types';
 
 const SCRIPTS_DIR = '.hexscope/scripts';
 const SCRIPT_TIMEOUT_MS = 30_000;
@@ -20,17 +22,6 @@ export function scriptFingerprint(filePath: string): string {
     } catch {
         return '';
     }
-}
-
-export interface ScriptInfo {
-    name: string;
-    filePath: string;
-    capabilities: string[];
-    /** Roles declared with `@script <role>`; empty for a plain run-only script. */
-    roles: ScriptRole[];
-    /** Content-change fingerprint (stat mtime, ms) - the webview uses it to
-        reset capability approvals when a script file is modified. */
-    fingerprint: string;
 }
 
 export interface ScriptRunOptions {

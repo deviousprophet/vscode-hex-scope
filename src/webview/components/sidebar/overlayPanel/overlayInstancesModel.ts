@@ -48,8 +48,19 @@ export type ParamResolution =
     | { status: 'error'; message: string; generation: number; errorType?: string; lastValue?: number };
 
 /** Stable transient-map key for one instance parameter. */
-export function paramResolutionKey(pinId: string, param: string): string {
+export type ParamResolutionKey = `${string}\u0000${string}`;
+
+export function paramResolutionKey(pinId: string, param: string): ParamResolutionKey {
     return `${pinId}\u0000${param}`;
+}
+
+/** Split a resolution key back into its instance and parameter halves. */
+export function parseParamResolutionKey(key: string): { pinId: string; param: string } | null {
+    const separator = key.indexOf('\u0000');
+    if (separator < 0) { return null; }
+    const pinId = key.slice(0, separator);
+    const param = key.slice(separator + 1);
+    return pinId && param ? { pinId, param } : null;
 }
 
 /** True when at least one declared parameter takes its value from a script. */
@@ -83,13 +94,14 @@ export function effectiveInstanceParams(
 /** Resolved (successful) transient values for one instance, keyed by parameter name. */
 export function resolvedInstanceParams(
     pinId: string,
-    resolutions: ReadonlyMap<string, ParamResolution>,
+    resolutions: ReadonlyMap<ParamResolutionKey, ParamResolution>,
 ): Map<string, number> {
     const values = new Map<string, number>();
     for (const [key, resolution] of resolutions) {
-        if (!key.startsWith(`${pinId}\u0000`)) { continue; }
+        const parsed = parseParamResolutionKey(key);
+        if (!parsed || parsed.pinId !== pinId) { continue; }
         if (resolution.status !== 'resolved') { continue; }
-        values.set(key.slice(pinId.length + 1), resolution.value);
+        values.set(parsed.param, resolution.value);
     }
     return values;
 }
@@ -148,7 +160,7 @@ export function validateInstanceParamConfig(
 export function instanceParamResolutionError(
     def: TypeDef,
     pin: Pick<TypeInstance, 'id' | 'paramValues' | 'paramSources'>,
-    resolutions: ReadonlyMap<string, ParamResolution>,
+    resolutions: ReadonlyMap<ParamResolutionKey, ParamResolution>,
 ): string | undefined {
     for (const param of def.params ?? []) {
         if (hasParam(pin.paramValues, param.name)) { continue; }

@@ -46,6 +46,19 @@ export type ScriptEntry = 'run' | 'verifyIntegrity' | 'getIntegrityValue' | 'get
 /** Structured-clone-safe value returned by a contract entry. */
 export type ScriptValue = number | boolean | number[];
 
+/** One discovered workspace script, shared by host and webview payloads. */
+export interface ScriptInfo {
+    name: string;
+    filePath: string;
+    capabilities: string[];
+    /** Roles declared with `@script <role>`; empty for a plain run-only script. */
+    roles: ScriptRole[];
+    /** Content-change fingerprint (stat mtime, ms), used to revoke approvals. */
+    fingerprint: string;
+    /** Workspace-relative path, supplied by the host when the script was scanned in a workspace. */
+    relativePath?: string;
+}
+
 /** Context supplied to contract entries; empty for a legacy `run` script. */
 export interface ScriptContext {
     instance?: { id: string; name: string; typeId: string; typeName: string };

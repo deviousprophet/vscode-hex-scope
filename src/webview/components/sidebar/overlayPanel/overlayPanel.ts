@@ -8,6 +8,7 @@ never imports the `S` global, never posts provider messages, and never
 touches the render registry. Pure codec logic lives in overlayCodec.ts. */
 
 import { esc, actionBtnsHtml, wireActionBtns, formatHex } from '../../../utils';
+import type { ScriptInfo } from '../../../../core/scripting/types';
 import {
     addressSourceError,
     effectiveInstanceAddress,
@@ -18,6 +19,7 @@ import {
     instanceUsesScriptResolution,
     makeTypeInstance,
     paramResolutionKey,
+    parseParamResolutionKey,
     resolvedInstanceParams,
     uniqueTypeInstanceName as uniquePinName,
     upsertPointerTypeInstance,
@@ -26,7 +28,7 @@ import {
     withoutTypeDefinition,
     withoutTypeInstance,
 } from './overlayInstancesModel';
-import type { AddressResolution, ParamResolution } from './overlayInstancesModel';
+import type { AddressResolution, ParamResolution, ParamResolutionKey } from './overlayInstancesModel';
 import type { InstanceAddressResult, InstanceParamResult } from '../../../../webviewProtocol';
 import {
     fieldByteSize, typeByteSize, decodeType, allTypes, validateTypes, MAX_NESTED_DEPTH,
@@ -53,14 +55,7 @@ import { buildBitUnitAggregateRow, pointerTargetTypeDef, renderTypeBody, syncCom
 
 
 /** One discovered script as pushed by the host (roles drive the address picker). */
-export interface OverlayScriptInfo {
-    name: string;
-    filePath: string;
-    relativePath?: string;
-    capabilities: string[];
-    roles: string[];
-    fingerprint: string;
-}
+export type OverlayScriptInfo = ScriptInfo;
 
 /** Instance-form address-source draft (fixed address or a `@script address` script). */
 interface PinSourceDraft {
@@ -239,7 +234,7 @@ private _typeKindFilter: TypeDefKind | 'all' = 'all';
 /** Transient script-address resolutions, keyed by instance id. Never persisted. */
 private _addressResolutions = new Map<string, AddressResolution>();
 /** Transient script-size resolutions, keyed by `paramResolutionKey(pinId, param)`. Never persisted. */
-private _paramResolutions = new Map<string, ParamResolution>();
+private _paramResolutions = new Map<ParamResolutionKey, ParamResolution>();
 /** Role-tagged scripts pushed by the host (source picker + card tooltips). */
 private _scripts: OverlayScriptInfo[] = [];
 private _scriptsTrusted = true;
@@ -602,11 +597,8 @@ private effectiveParamsError(pin: TypeInstance, def: TypeDef): string | undefine
 
 private resolvedParamValuesFor(pin: TypeInstance): ReadonlyMap<string, number> {
     const values = new Map<string, number>();
-    for (const [key, resolution] of this._paramResolutions) {
-        if (!key.startsWith(`${pin.id}\u0000`) || resolution.status !== 'resolved') { continue; }
-        const name = key.slice(pin.id.length + 1);
-        if (!this.paramSourceStillActive(pin, name)) { continue; }
-        values.set(name, resolution.value);
+    for (const [name, value] of resolvedInstanceParams(pin.id, this._paramResolutions)) {
+        if (this.paramSourceStillActive(pin, name)) { values.set(name, value); }
     }
     return values;
 }
@@ -2768,7 +2760,7 @@ private applyEditedPin(
 /** Drop every transient parameter resolution for one instance. */
 private clearPinParamResolutions(pinId: string): void {
     for (const key of Array.from(this._paramResolutions.keys())) {
-        if (key.startsWith(`${pinId}\u0000`)) { this._paramResolutions.delete(key); }
+        if (parseParamResolutionKey(key)?.pinId === pinId) { this._paramResolutions.delete(key); }
     }
 }
 

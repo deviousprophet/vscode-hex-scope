@@ -1,6 +1,7 @@
 import type { CopyCommand } from './core/byteTools/copyCommand';
 import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet } from './core/integrity';
+import type { ScriptInfo } from './core/scripting/types';
 import type { ScriptContext, ScriptErrorType } from './core/scripting/types';
 import type { BitFieldAllocation, SegmentLabel, SerializedRecord, TypeDef, TypeInstance, WireParseResult } from './core/types';
 
@@ -113,7 +114,7 @@ export type ProviderToWebviewMessage =
         canQuickRepair: boolean;
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
-    | { type: 'scriptInfo'; trusted: boolean; scripts: Array<{ name: string; filePath: string; relativePath?: string; capabilities: string[]; roles: string[]; fingerprint: string }> }
+    | { type: 'scriptInfo'; trusted: boolean; scripts: ScriptInfo[] }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract'; pendingWriteCount: number; discardedWriteCount?: number }
     | {
         type: 'integrityScriptResult';

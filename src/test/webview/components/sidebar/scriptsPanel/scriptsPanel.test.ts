@@ -41,9 +41,9 @@ const A = 'D:\\sample\\crc-check.js';
 const B = 'D:\\sample\\hello.js';
 
 const SCRIPTS: ScriptInfo[] = [
-    { name: 'crc-check.js', filePath: A, capabilities: ['exec'], fingerprint: 'fp-1' },
-    { name: 'crc-check.ts', filePath: 'D:\\sample\\crc-check.ts', capabilities: ['exec', 'network'], fingerprint: 'fp-2' },
-    { name: 'hello.js', filePath: B, capabilities: [], fingerprint: 'fp-3' },
+    { name: 'crc-check.js', filePath: A, capabilities: ['exec'], roles: [], fingerprint: 'fp-1' },
+    { name: 'crc-check.ts', filePath: 'D:\\sample\\crc-check.ts', capabilities: ['exec', 'network'], roles: [], fingerprint: 'fp-2' },
+    { name: 'hello.js', filePath: B, capabilities: [], roles: [], fingerprint: 'fp-3' },
 ];
 
 const PERMISSION_REQUEST: ScriptPermissionRequest = {

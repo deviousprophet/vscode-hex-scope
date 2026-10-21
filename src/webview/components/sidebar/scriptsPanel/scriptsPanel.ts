@@ -9,6 +9,7 @@ provider messages, and never touches the render registry. */
 
 import { esc } from '../../../utils';
 import { fileName } from '../../../../core/pathName';
+import type { ScriptInfo } from '../../../../core/scripting/types';
 import type {
     ScriptCapabilityGrant,
     ScriptPermissionScope,
@@ -18,13 +19,7 @@ import { SidebarSections } from '../sidebar';
 import { PermissionPrompt, type ScriptPermissionRequest } from './permissionPrompt';
 import './scriptsPanel.css';
 
-export interface ScriptInfo {
-    name: string;
-    filePath: string;
-    capabilities: string[];
-    roles?: string[];
-    fingerprint: string;
-}
+export type { ScriptInfo } from '../../../../core/scripting/types';
 
 export interface ScriptsCallbacks {
     /** Host posts requestScriptList (first activation + refresh rescan). */

@@ -22,6 +22,7 @@ import {
     type IntegrityCheckKind,
     type IntegrityCheckSet,
 } from '../../../../core/integrity';
+import type { ScriptInfo } from '../../../../core/scripting/types';
 import { esc, flashCopied } from '../../../utils';
 import { showToast } from '../../toast';
 import {
@@ -83,11 +84,7 @@ export interface IntegrityHighlight {
 }
 
 /** One discovered script offered by the add/edit form's script picker. */
-interface IntegrityScriptOption {
-    name: string;
-    relativePath: string;
-    roles?: string[];
-}
+type IntegrityScriptOption = Pick<ScriptInfo, 'name' | 'roles'> & { relativePath: string };
 
 /** Host request for one script check run (the panel owns the ids). */
 export interface IntegrityScriptRunRequest extends IntegrityScriptRunPayload {
@@ -252,12 +249,12 @@ export class IntegrityPanel {
 
     /** Host pushes the discovered script list (from the shared requestScriptList scan). */
     setAvailableScripts(
-        scripts: ReadonlyArray<{ name: string; relativePath?: string; roles?: string[] }>,
+        scripts: ReadonlyArray<Pick<ScriptInfo, 'name' | 'roles'> & { relativePath?: string }>,
         trusted: boolean,
     ): void {
         this.scriptsTrusted = trusted;
         this.availableScripts = scripts
-            .filter(script => (script.roles ?? []).includes('integrity'))
+            .filter(script => script.roles.includes('integrity'))
             .map(script => ({
                 name: script.name,
                 relativePath: script.relativePath ?? script.name,

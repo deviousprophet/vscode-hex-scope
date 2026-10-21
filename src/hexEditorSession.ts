@@ -508,6 +508,32 @@ export class HexEditorSession {
             return permissionBroker;
         };
 
+        /**
+         * Shared approval path for every script host. `readOnly` blocks writes
+         * for role scripts; `signal` aborts a pending prompt when the run/batch
+         * is cancelled.
+         */
+        const confirmScript = async (
+            scriptPath: string,
+            type: 'write' | 'exec' | 'fetch',
+            detail: string,
+            options: { readOnly?: boolean; signal?: AbortSignal } = {},
+        ): Promise<boolean> => {
+            if (disposed || options.signal?.aborted) { return false; }
+            if (options.readOnly && type === 'write') { return false; }
+            const fingerprint = scriptFingerprint(scriptPath);
+            const grants = this.scriptGrants();
+            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
+            const allow = await permissionBrokerFor().confirm({
+                capability: type,
+                detail,
+                scriptPath,
+                scriptName: path.basename(scriptPath),
+                fingerprint,
+            });
+            return allow && !disposed && !options.signal?.aborted;
+        };
+
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
         this._panels.add(webviewPanel);
@@ -1251,19 +1277,10 @@ export class HexEditorSession {
                     currentAbort = new AbortController();
                     const scriptPath = msg.scriptPath;
                     const signal = currentAbort.signal;
-                    const grants = this.scriptGrants();
-                    const fingerprint = scriptFingerprint(scriptPath);
-                    if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
-                    const scriptName = path.basename(scriptPath);
-                    const broker = permissionBrokerFor();
                     const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
                     const host = new VSCodeScriptHost(parseResult.segments, {
                         output: post,
-                        confirm: async (type, detail) => {
-                            if (disposed || signal.aborted) { return false; }
-                            const allow = await broker.confirm({ capability: type, detail, scriptPath, scriptName, fingerprint });
-                            return allow && !disposed && !signal.aborted;
-                        },
+                        confirm: (type, detail) => confirmScript(scriptPath, type, detail, { signal }),
                         selectionRange: msg.selectionRange,
                         workspaceRoot: root,
                     });
@@ -1340,21 +1357,8 @@ export class HexEditorSession {
                         storedAddress: msg.storedAddress,
                         storedLength: msg.storedLength,
                         confirm: async (type, detail) => {
-                            if (disposed) { return false; }
-                            // Script checks are read-only: never prompt for (or allow) writes.
-                            if (type === 'write') { return false; }
                             const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
-                            if (!scriptPath) { return false; }
-                            const fingerprint = scriptFingerprint(scriptPath);
-                            const grants = this.scriptGrants();
-                            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
-                            return permissionBrokerFor().confirm({
-                                capability: type,
-                                detail,
-                                scriptPath,
-                                scriptName: path.basename(scriptPath),
-                                fingerprint,
-                            });
+                            return scriptPath ? confirmScript(scriptPath, type, detail, { readOnly: true }) : false;
                         },
                     });
                     if (disposed) { return; }
@@ -1401,21 +1405,8 @@ export class HexEditorSession {
                         edits: msg.edits,
                         trusted: vscode.workspace.isTrusted,
                         signal: batchAbort.signal,
-                        confirm: async (scriptPath, type, detail) => {
-                            if (disposed || batchAbort.signal.aborted) { return false; }
-                            // Address scripts are read-only: writes are never prompted for or allowed.
-                            if (type === 'write') { return false; }
-                            const fingerprint = scriptFingerprint(scriptPath);
-                            const grants = this.scriptGrants();
-                            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
-                            return permissionBrokerFor().confirm({
-                                capability: type,
-                                detail,
-                                scriptPath,
-                                scriptName: path.basename(scriptPath),
-                                fingerprint,
-                            });
-                        },
+                        confirm: (scriptPath, type, detail) =>
+                            confirmScript(scriptPath, type, detail, { readOnly: true, signal: batchAbort.signal }),
                     });
                     if (addressAbort === batchAbort) { addressAbort = null; }
                     if (disposed) { return; }
@@ -1453,21 +1444,8 @@ export class HexEditorSession {
                         edits: msg.edits,
                         trusted: vscode.workspace.isTrusted,
                         signal: batchAbort.signal,
-                        confirm: async (scriptPath, type, detail) => {
-                            if (disposed || batchAbort.signal.aborted) { return false; }
-                            // Size scripts are read-only: writes are never prompted for or allowed.
-                            if (type === 'write') { return false; }
-                            const fingerprint = scriptFingerprint(scriptPath);
-                            const grants = this.scriptGrants();
-                            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
-                            return permissionBrokerFor().confirm({
-                                capability: type,
-                                detail,
-                                scriptPath,
-                                scriptName: path.basename(scriptPath),
-                                fingerprint,
-                            });
-                        },
+                        confirm: (scriptPath, type, detail) =>
+                            confirmScript(scriptPath, type, detail, { readOnly: true, signal: batchAbort.signal }),
                     });
                     if (addressAbort === batchAbort) { addressAbort = null; }
                     if (disposed) { return; }
