@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Role scripts: declare `@script integrity`, `@script address`, or `@script size` and export typed entries (`verifyIntegrity`, `getIntegrityValue`, `getAddress`, `getSize`) that receive `api.context`
+- Script-backed integrity checks that can verify a range, provide replacement bytes, or both, with optional auto-fix and row-level errors
+- Script-resolved struct instance addresses with explicit refresh plus resolving, stale, and error states
+- Struct size parameters and per-instance values, including script-supplied array sizes, with editor controls and C preview macros
+- Bundled example scripts, `hexscope.d.ts` IntelliSense types, and a `HexScope: Add Example Scripts` command that copies without overwriting
+
+### Changed
+- Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save
+- Script cards show capability and role badges, workspace permissions are revocable in the panel, and scripts in subdirectories or `.d.ts` files are ignored
+- Struct instance cards show script-resolved address and size state; resolved values stay transient and are never persisted
+
+### Fixed
+- Editing or deleting a script revokes its stored approvals
+- Script-written bytes no longer report as saved before the save completes
+
 ## [3.0.0] - 2026-10-19
 
 ### Added
