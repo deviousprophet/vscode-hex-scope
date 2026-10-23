@@ -3,11 +3,11 @@ Owns the full `#s-scripts` shell: framework section header (title/count/refresh
 action), the New split button, the filter bar (search + kind chips), script cards
 (name button/ext/role chips/capability badges/used-by chip/status dot/run-cancel
 state machine, the expandable details row with used-by links, the TypeScript
-action row), the card context menu (Open/Copy path/Reveal/Details/Permissions),
-the inline per-command permission prompt, the revocable permission list
-(script + session + workspace grants), and embedded result areas (output
-streaming with batching, collapse/expand, error-type headers, writes notice,
-and the write summary line).
+action row), the card context menu (Open/Copy path/Reveal/Delete/Details/
+Permissions), the inline per-command permission prompt, the revocable
+permission list (script + session + workspace grants), and embedded result
+areas (output streaming with batching, collapse/expand, error-type headers,
+writes notice, and the write summary line).
 Data is pushed via setters; actions report via callbacks. This module never
 imports the S global, never posts provider messages, and never touches the
 render registry. */
@@ -59,6 +59,8 @@ export interface ScriptsCallbacks {
     onCopyPath?: (scriptPath: string) => void;
     /** Reveal a script in the Explorer (host posts revealScript). */
     onRevealScript?: (scriptPath: string) => void;
+    /** Delete a script (host confirms + unlinks + revokes grants + rescans). */
+    onDeleteScript?: (scriptPath: string) => void;
     /** Create a runnable `.js` copy of a TypeScript script (host posts convertScriptToJs). */
     onCreateJsVersion?: (scriptPath: string) => void;
     /** Open the bundled scripting guide (host posts openScriptingGuide). */
@@ -938,7 +940,7 @@ export class ScriptsPanel {
         this.openCardMenu(card, x, y);
     }
 
-    /** Card context menu: Open, Copy path, Reveal in Explorer, Show details, Manage permissions. */
+    /** Card context menu: Open, Copy path, Reveal in Explorer, Show details, Manage permissions, Delete. */
     private openCardMenu(card: HTMLElement, x: number, y: number): void {
         const path = card.dataset.path;
         if (!path) { return; }
@@ -958,6 +960,8 @@ export class ScriptsPanel {
             menuRowHtml('script-details', 'Show details'),
             menuSeparatorHtml(),
             manage,
+            menuSeparatorHtml(),
+            menuRowHtml('script-delete', 'Delete'),
         ].join('');
     }
 
@@ -1564,6 +1568,7 @@ const CARD_MENU_REPORTS = new Map<string, (cb: ScriptsCallbacks, path: string) =
     ['script-open', (cb, path) => cb.onOpenScript?.(path)],
     ['script-copy', (cb, path) => cb.onCopyPath?.(path)],
     ['script-reveal', (cb, path) => cb.onRevealScript?.(path)],
+    ['script-delete', (cb, path) => cb.onDeleteScript?.(path)],
 ]);
 
 /** Shift+F10 / ContextMenu opens a card menu (matches the hex grid convention). */

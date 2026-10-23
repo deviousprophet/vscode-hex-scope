@@ -30,16 +30,16 @@ Dependencies are written here and in each child `prd.md`; the tree carries no or
 
 ## Cross-child acceptance criteria
 
-- [ ] A new user can tell an action script from a provider script without reading the docs.
-- [ ] Clicking any primary card action is meaningful for that script kind; no primary action
+- [x] A new user can tell an action script from a provider script without reading the docs.
+- [x] Clicking any primary card action is meaningful for that script kind; no primary action
       produces “must export run” for a provider.
-- [ ] A permission label always matches its actual lifetime and revoke path.
-- [ ] A user can create, open, test, and delete a script from the scripting UI without knowing
+- [x] A permission label always matches its actual lifetime and revoke path.
+- [x] A user can create, open, test, and delete a script from the scripting UI without knowing
       the `.hexscope/scripts` path.
-- [ ] Approved writes report what changed and how to undo it.
-- [ ] The panel remains usable with 20+ scripts.
-- [ ] Existing profiles, role exports, and `run` scripts remain compatible.
-- [ ] `check-types`, `check-examples`, `lint`, and the full test suite pass.
+- [x] Approved writes report what changed and how to undo it.
+- [x] The panel remains usable with 20+ scripts.
+- [x] Existing profiles, role exports, and `run` scripts remain compatible.
+- [x] `check-types`, `check-examples`, `lint`, and the full test suite pass.
 
 ## Non-goals
 

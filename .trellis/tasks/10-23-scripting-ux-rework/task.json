@@ -3,7 +3,7 @@
   "name": "scripting-ux-rework",
   "title": "Rework scripting UX",
   "description": "Rework the scripting feature around user jobs: separate runnable actions from role providers, fix permission lifetime and visibility, add creation and workspace management, and improve feedback and integration.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "frontend",
   "package": null,

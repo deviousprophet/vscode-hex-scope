@@ -136,6 +136,10 @@ function buildManagerItems(scripts: readonly ScriptInfo[]): ManagerItem[];
 function runManageScripts(deps: ManageScriptsDeps): Promise<void>;
 function runManagePermissions(deps: ManagePermissionsDeps): Promise<void>;
 function openScriptsFolder(deps: ScriptsFolderDeps): Promise<void>;
+function deleteOneScript(scriptPath: string, deps: ScriptDeleteDeps): Promise<boolean>;  // internal: shared by both delete surfaces
+function runDeleteScript(deps: DeleteScriptDeps): Promise<void>;
+function runPanelDeleteScript(scriptPath: string, deps: PanelDeleteDeps): Promise<boolean>;
+function deleteScriptFile(filePath: string): 'deleted' | 'missing' | string;
 ```
 
 ### 2b. Script-resolved instance addresses and parameter sizes
@@ -213,10 +217,10 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - **Auto-save**: the webview stages the commit through `stageIntegrityEditTransaction()` (one undoable transaction), captures the before bytes from the reader, records a `saving` write summary, and calls `saveEdits(scriptPath)`. `savedEdits` flips the summary to `saved`; a save failure posts `scriptSaveFailed { scriptPath, message }` and the summary flips to `failed` (never a silent "saving"). A failed save keeps the staged edits so a retry save still works
 - **Live discovery**: the session watches `.hexscope/scripts/*.{js,ts}` (non-recursive `createFileSystemWatcher`, `ScriptRescanDebounce` 250 ms trailing) and re-runs the same rescan + `scriptInfo` post as `requestScriptList`; non-script and `.d.ts` events are ignored, the watcher is added to the session's disposables, and manual Refresh stays
 - **Write summary**: the webview owns `ScriptWriteSummary { scriptPath, writes, before, status, error? }`. `showResult` renders the summary line when a summary matches the path (replacing the plain writes notice); `markWritesSaved`/`markWritesFailed` flip it in place, and a new run consumes the summary (the run-history snapshot keeps the old line)
-- **Panel actions**: details **Copy path** posts `copyText`; **Reveal** posts `revealScript` (host resolves the path to the root and runs `revealInExplorer`); **Manage permissions** is panel-local (expands the Permissions section) and only renders for a card with an active grant
+- **Panel actions**: details **Copy path** posts `copyText`; **Reveal** posts `revealScript` (host resolves the path to the root and runs `revealInExplorer`); **Delete** (card menu) posts `deleteScript` (host resolves + guards the path, modal-confirms, unlinks with ENOENT tolerated, revokes the script's grants, then rescans); **Manage permissions** is panel-local (expands the Permissions section) and only renders for a card with an active grant
 - **Revocable permission list**: `scriptPermissions` carries every stored grant `{ scriptPath, capability, scope }` (workspace → session → script, then path; `*` = session-wide) to the Scripts panel; `revokeScriptPermission` removes one entry by scope; `revokeAllScriptPermissions` bulk-revokes one scope class, or, with `scriptPath`, every revocable grant of that script. The panel's expanded **Manage** footer and per-row bulk actions both require a second confirming click
 - Script results collected by the Worker and sent back in the `result` message. The main thread replays results through `host.setResult()` and `host.output()` to maintain compatibility with existing consumers
-- **Creation + manager**: `core/scripting/templates.ts` owns the four creation templates (action / integrity / address / size) as pure strings; each body carries `// @ts-check`, the shipped type reference, the role/`@requires` header, and a working minimal implementation, and is verified against the `examples/tsconfig.json` compiler options and run against a mock host by `scriptingTemplates.test.ts`. `src/manageScripts.ts` owns the host flows: `HexScope: Manage Scripts` (QuickPick over `scanScripts`, Actions first then Providers, then New ×4 / Browse examples… / Add all examples / Manage permissions… / Open scripts folder / Reveal a script in Explorer…; works with no open document and only warns when no root exists), the create flow (`validateScriptFileName` + `promptName` + exclusive `wx` write + open + rescan; trust-gated; never overwrites), the host-side permission center (`listGrants()` → pick → `revokeGrant`), the folder reveal, and the per-script Explorer reveal (second pick over the script rows → `revealInExplorer`). Script rows open the file — the manager never runs scripts (running needs a parsed document).
+- **Creation + manager**: `core/scripting/templates.ts` owns the four creation templates (action / integrity / address / size) as pure strings; each body carries `// @ts-check`, the shipped type reference, the role/`@requires` header, and a working minimal implementation, and is verified against the `examples/tsconfig.json` compiler options and run against a mock host by `scriptingTemplates.test.ts`. `src/manageScripts.ts` owns the host flows: `HexScope: Manage Scripts` (QuickPick over `scanScripts`, Actions first then Providers, then New ×4 / Browse examples… / Add all examples / Manage permissions… / Open scripts folder / Reveal a script in Explorer… / Delete a script… — the last two only when scripts exist; works with no open document and only warns when no root exists), the create flow (`validateScriptFileName` + `promptName` + exclusive `wx` write + open + rescan; trust-gated; never overwrites), the host-side permission center (`listGrants()` → pick → `revokeGrant`), the folder reveal, the per-script Explorer reveal (second pick over the script rows → `revealInExplorer`), and the per-script delete (second pick → modal confirm → ENOENT-tolerant `deleteScriptFile` → `revokeAllForScript` → info; the panel's `deleteScript` command reuses `deleteOneScript`/`runPanelDeleteScript` with an explicit rescan). Script rows open the file — the manager never runs scripts (running needs a parsed document).
 - **Selective examples**: `installExampleScripts(catalogRoot, targetRoot, selectedSources?)` filters the manifest by source path (omitted = the bulk catalog); `examplePickerItems(targetRoot)` supplies picker rows with installed state, and the `Browse examples…` QuickPick copies only the checked rows while still skipping existing targets. `runBrowseExampleScripts` refuses untrusted workspaces before opening the picker.
 - **Picker empty states**: the Integrity script picker and the Overlay address/size pickers render **Create … script** and **Open scripts folder** (disabled placeholder when empty) and report `onCreateScript` / `onOpenScriptsFolder`; `hexViewer` posts `createScript` / `openScriptsFolder` and the session routes `createScript` through `requestCreateScript` (session root), then rescans.
 - **Integrity checks**: `src/integrityScriptRunner.ts` runs `getIntegrityValue` then `verifyIntegrity` (two sequenced `executeEntry` calls) over a `VSCodeScriptHost` seeded with the webview's pending edits. A missing export is treated as absent, not an error; `verifyIntegrity` is authoritative, `getIntegrityValue` supplies verbatim fix bytes. The run is read-only (`write` is denied without a prompt), refuses >`MAX_INTEGRITY_EDIT_ENTRIES` pending edits, resolves workspace-relative paths ("Script not found" otherwise), and returns a structured outcome consumed by the webview Integrity panel (`integrityScriptResult`)
@@ -262,6 +266,9 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | Script save fails | `scriptSaveFailed { scriptPath, message }` posted; the summary flips to `failed`; staged edits stay so a retry save works |
 | Save success for a non-script save | `savedEdits` with no pending script summary is a no-op (no write-failure message without `scriptPath`) |
 | Script added/edited/deleted in `.hexscope/scripts/` | Watcher event (js/ts only) → 250 ms debounce → rescan + `scriptInfo` post; result areas move by path |
+| Delete a script… (manager row) | Second pick over the script rows → modal confirm → trust-gated unlink (ENOENT = already gone, still revokes) → `revokeAllForScript` → info; only offered when scripts exist |
+| `deleteScript` (card menu) | Session resolves + guards the path (`resolveIntegrityScriptPath`), reuses the same confirm/unlink/revoke flow, then rescans so the card disappears without waiting for the watcher; an untrusted workspace refuses |
+| Unlink failure (non-ENOENT) | Warns with the raw error and keeps the script's grants (the file still exists) |
 | `.d.ts` / non-script file event | Ignored (no rescan) |
 | Session disposed | Watcher + debounce timer disposed with the session |
 | Address out of range | `readBytes` returns empty `Uint8Array` |
@@ -298,6 +305,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'createScript'; template?: ScriptTemplateId }
 | { type: 'openScriptsFolder' }
 | { type: 'revealScript'; scriptPath: string }
+| { type: 'deleteScript'; scriptPath: string }
 | { type: 'convertScriptToJs'; scriptPath: string }
 | { type: 'openScriptingGuide' }
 | { type: 'saveEdits'; edits: Array<[number, number]>; scriptPath?: string }  // scriptPath marks a script-owned save for failure correlation
@@ -479,7 +487,7 @@ staged writes. Informational only — there is no Apply & Save / Discard control
 | D38 | `@entry run` | Explicit override for run entries the source scan cannot recognise |
 | D39 | Permission center | Lists every stored grant with scope chip (`This script`/`This session`/`Workspace`), per-row Revoke, and bulk revoke (per script, per scope) behind Manage with two-step confirm |
 | D40 | Script creation | Pure templates in `core/scripting/templates.ts`; host-side `manageScripts.ts` prompts for a name, writes with `wx` (never overwrites), opens, and rescans. Panel/picker actions report `createScript` over the protocol |
-| D41 | Manager surface | One QuickPick (no second webview): script rows open files; creation, selective/bulk examples, host-side permission revoke, folder reveal, and per-script Explorer reveal sit below. Runs and Show usage stay out (running needs a parsed document; usage metadata is a later task) |
+| D41 | Manager surface | One QuickPick (no second webview): script rows open files; creation, selective/bulk examples, host-side permission revoke, folder reveal, per-script Explorer reveal, and per-script delete sit below (the last two only when scripts exist). Runs and Show usage stay out (running needs a parsed document; usage metadata is a later task) |
 | D42 | Write outcome | Webview-owned `ScriptWriteSummary` (range, bytes, before/after, status); `savedEdits`/`scriptSaveFailed` flip it; failed save keeps the staged edits |
 | D43 | Large write ranges | Full before/after up to 8 bytes, then first/last byte only (`WRITE_PREVIEW_MAX`) |
 | D44 | List filtering | Hide/show only (cards + empty groups + a no-match line), never re-renders, so results/history/permissions survive; state is session-local |
@@ -488,7 +496,8 @@ staged writes. Informational only — there is no Apply & Save / Discard control
 | D47 | Live discovery | `createFileSystemWatcher` on `.hexscope/scripts/*.{js,ts}` (non-recursive), 250 ms trailing debounce (`ScriptRescanDebounce`), disposed with the session |
 | D48 | JS version | Copy to the `.js` sibling with a conversion header, exclusive `wx` write, never rewrites the source, trust-gated, then rescan |
 | D49 | Used-by links | Host-derived from the bound profile (script checks + instance/param sources); pushed via `setUsages`, refreshed in place; a click reveals the destination panel. Configured-but-unscanned paths keep their authored form (no card) |
-| D50 | Card integration | The filename is a `<button>` that opens the script (pencil stays); a card context menu on the shared MenuController carries Open / Copy path / Reveal in Explorer / Show details / Manage permissions (right-click or Shift+F10 / ContextMenu) |
+| D50 | Card integration | The filename is a `<button>` that opens the script (pencil stays); a card context menu on the shared MenuController carries Open / Copy path / Reveal in Explorer / Show details / Manage permissions / Delete (right-click or Shift+F10 / ContextMenu) |
+| D51 | Script deletion | One host flow for both surfaces (`deleteOneScript`): trust gate → modal confirm → ENOENT-tolerant unlink → `revokeAllForScript` → report; the panel flow (`runPanelDeleteScript`) adds an immediate rescan, the manager row adds a second pick and is hidden with no scripts. An already-gone file still revokes its grants; a failed unlink keeps them |
 
 ### 9. Gotchas
 
@@ -619,7 +628,7 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
   details row (toggle + rescan persistence, roles/caps/used-by/entries/fingerprint/last run/grants,
   escaping, actions, manage visibility), used-by links (chip + details links, `onSelectUsage` payload,
   in-place refresh preserving results, unmatched paths), card context menu (right-click + Shift+F10,
-  Open/Copy/Reveal commands, disabled Manage, details/permissions local actions), filename-click open,
+  Open/Copy/Reveal/Delete payloads, disabled Manage, details/permissions local actions), filename-click open,
   filter bar (hide/show preservation, group hiding,
   no-match, chips, rescan survival), TypeScript row (disabled vs compiler-available vs untrusted),
   last-run tooltip + details, writes notice, action/provider/both/unknown cards, no
@@ -645,8 +654,12 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
   JS-version flow (`createJsVersion` sibling + header, `jsVersionPath`/`jsVersionBody`, never
   overwrites, untrusted/missing-source refusals, source untouched),
   all-four-templates scan, folder reveal (trusted creates, untrusted does not), manager items
-  (ordering/classification/dispatch ids), dispatch (template/script/workspace rows, dismissal),
-  permission flow (empty hint, labels, revoke, dismissal), and command contribution + registration
+  (ordering/classification/dispatch ids, delete row only when scripts exist), dispatch
+  (template/script/workspace rows incl. `delete-script`, dismissal),
+  delete flow (`deleteScriptFile` unlink/missing/error, confirm accepted/cancelled,
+  untrusted refusal before pick, already-gone tolerance + revoke, failed unlink keeps grants,
+  panel rescan only after deletion, manager second pick), permission flow (empty hint, labels,
+  revoke, dismissal), and command contribution + registration
 - `src/test/extension/scriptWatcher.test.ts` - debounce coalescing + dispose cancel,
   js/ts-only filtering (`.d.ts`/non-scripts ignored), create/change/delete coalescing, dispose
   unsubscribes listeners and disposes the underlying watcher

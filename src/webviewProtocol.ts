@@ -209,6 +209,7 @@ export type WebviewToProviderMessage =
     }
     | { type: 'openScript'; scriptPath: string }
     | { type: 'revealScript'; scriptPath: string }
+    | { type: 'deleteScript'; scriptPath: string }
     | { type: 'convertScriptToJs'; scriptPath: string }
     | { type: 'openScriptingGuide' }
     | {

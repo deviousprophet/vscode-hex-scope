@@ -45,7 +45,8 @@ and Providers (picking one opens the file) and offers:
 - **Add all examples** — the bulk copy (see [Start from an example](#start-from-an-example)),
 - **Manage permissions…** — lists the stored script grants and revokes the one you pick,
 - **Open scripts folder**,
-- **Reveal a script in Explorer…** — shows a script picker and reveals the chosen file in the Explorer view (only offered when scripts exist).
+- **Reveal a script in Explorer…** — shows a script picker and reveals the chosen file in the Explorer view (only offered when scripts exist),
+- **Delete a script…** — shows a script picker, asks for a modal confirmation, then permanently removes the file and revokes that script's stored permissions (only offered when scripts exist).
 
 The Scripts panel has the same creation path: the **＋ New** split button opens the template
 picker, its caret lists the four templates directly, and the empty state has a **Create
@@ -108,8 +109,11 @@ is type-checked in CI (`npm run check-examples`), so it cannot drift from the AP
 - The script name is the primary open affordance: click the filename (or the pencil) to
   open the file.
 - Right-click a card (or press Shift+F10 / ContextMenu with card focus) for its context
-  menu: **Open**, **Copy path**, **Reveal in Explorer**, **Show details**, and
-  **Manage permissions**.
+  menu: **Open**, **Copy path**, **Reveal in Explorer**, **Show details**,
+  **Manage permissions**, and **Delete**. Deleting always asks for a modal confirmation
+  first, then removes the file and revokes that script's stored permissions; the card
+  disappears without waiting for the folder watcher. An already-missing file is tolerated
+  (its stale permissions are still revoked).
 - The status dot stays the glance signal: green after a successful run, red after an
   error, with the last-run time in its tooltip.
 

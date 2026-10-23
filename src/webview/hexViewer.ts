@@ -502,6 +502,7 @@ const scriptsPanel = new ScriptsPanel({
     onCreateScript: template => postProviderMessage({ type: 'createScript', template }),
     onCopyPath: scriptPath => postProviderMessage({ type: 'copyText', text: scriptPath, label: 'Script path' }),
     onRevealScript: scriptPath => postProviderMessage({ type: 'revealScript', scriptPath }),
+    onDeleteScript: scriptPath => postProviderMessage({ type: 'deleteScript', scriptPath }),
     onCreateJsVersion: scriptPath => postProviderMessage({ type: 'convertScriptToJs', scriptPath }),
     onOpenScriptingGuide: () => postProviderMessage({ type: 'openScriptingGuide' }),
     onSelectUsage: usage => handleScriptUsageSelect(usage),

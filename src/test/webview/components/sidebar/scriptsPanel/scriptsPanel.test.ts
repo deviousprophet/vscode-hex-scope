@@ -40,6 +40,7 @@ type Cb = {
     revokeAlls: RevokeAll[];
     copies: string[];
     reveals: string[];
+    deletes: string[];
     jsVersions: string[];
     guides: number;
     selectedUsages: ScriptUsageRef[];
@@ -153,7 +154,7 @@ function installDom(): Harness {
 
     const cb: Cb = {
         requested: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [],
-        copies: [], reveals: [], jsVersions: [], guides: 0, selectedUsages: [],
+        copies: [], reveals: [], deletes: [], jsVersions: [], guides: 0, selectedUsages: [],
     };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
@@ -173,6 +174,7 @@ function installDom(): Harness {
         onRevokeAllScriptPermissions: (scope, scriptPath) => { cb.revokeAlls.push({ scope, scriptPath }); },
         onCopyPath: path => { cb.copies.push(path); },
         onRevealScript: path => { cb.reveals.push(path); },
+        onDeleteScript: path => { cb.deletes.push(path); },
         onCreateJsVersion: path => { cb.jsVersions.push(path); },
         onOpenScriptingGuide: () => { cb.guides++; },
         onSelectUsage: usage => { cb.selectedUsages.push(usage); },
@@ -1551,13 +1553,14 @@ suite('ScriptsPanel card context menu', () => {
         return document.querySelector<HTMLElement>(`#menu .menu-item[data-cmd="${cmd}"]`);
     }
 
-    test('right-click opens the card menu; Open/Copy/Reveal report the card path', () => {
+    test('right-click opens the card menu; Open/Copy/Reveal/Delete report the card path', () => {
         openCardMenu(A);
         assert.ok(document.getElementById('menu'), 'shared menu container opens');
         assert.ok(menuRow('script-open'));
         assert.ok(menuRow('script-copy'));
         assert.ok(menuRow('script-reveal'));
         assert.ok(menuRow('script-details'));
+        assert.ok(menuRow('script-delete'));
         const disabledManage = document.querySelector<HTMLElement>('#menu .menu-item.menu-disabled');
         assert.strictEqual(disabledManage?.querySelector('.menu-label')?.textContent, 'Manage permissions');
         assert.strictEqual(disabledManage?.querySelector('.menu-hint')?.textContent, 'No active grants');
@@ -1570,8 +1573,11 @@ suite('ScriptsPanel card context menu', () => {
         click(dom, menuRow('script-copy'));
         openCardMenu(A);
         click(dom, menuRow('script-reveal'));
+        openCardMenu(A);
+        click(dom, menuRow('script-delete'));
         assert.deepStrictEqual(cb.copies, [A]);
         assert.deepStrictEqual(cb.reveals, [A]);
+        assert.deepStrictEqual(cb.deletes, [A]);
         assert.deepStrictEqual(cb.runs, [], 'the card menu never runs the script');
     });
 
@@ -1581,6 +1587,10 @@ suite('ScriptsPanel card context menu', () => {
 
         document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         assert.strictEqual(menuController.openMenu(), null, 'Escape closes the menu');
+
+        cardFor(A).dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }));
+        click(dom, menuRow('script-delete'));
+        assert.deepStrictEqual(cb.deletes, [A], 'the keyboard-opened menu reaches the same Delete command');
     });
 
     test('Show details expands the card row; Manage permissions expands the section', () => {

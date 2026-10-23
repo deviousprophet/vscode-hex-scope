@@ -10,21 +10,28 @@ import {
     MANAGE_SCRIPTS_COMMAND,
     SCRIPTS_DIR_DISPLAY,
     UNTRUSTED_CREATE_MESSAGE,
+    UNTRUSTED_DELETE_MESSAGE,
     buildManagerItems,
     createJsVersion,
     createScriptFromTemplate,
+    deleteConfirmMessage,
+    deleteScriptFile,
     duplicateMessage,
     jsVersionBody,
     jsVersionPath,
     openScriptsFolder,
     requestCreateScript,
+    runDeleteScript,
     runManagePermissions,
     runManageScripts,
+    runPanelDeleteScript,
     validateScriptFileName,
+    type DeleteScriptDeps,
     type JsVersionDeps,
     type ManagePermissionsDeps,
     type ManageScriptsDeps,
     type ManagerItem,
+    type PanelDeleteDeps,
     type PermissionItem,
     type ScriptCreateDeps,
     type ScriptsFolderDeps,
@@ -310,6 +317,7 @@ suite('manage scripts QuickPick items', () => {
         assert.deepStrictEqual(items.map(item => item.id), FIXED_ITEM_IDS);
         assert.ok(!items.some(item => item.separator), 'no empty group headers');
         assert.ok(!items.some(item => item.id === 'reveal-script'), 'no reveal row without scripts to reveal');
+        assert.ok(!items.some(item => item.id === 'delete-script'), 'no delete row without scripts to delete');
         assert.deepStrictEqual(
             items.filter(item => item.template).map(item => item.template),
             ['action', 'integrity', 'address', 'size'],
@@ -328,7 +336,7 @@ suite('manage scripts QuickPick items', () => {
             '',
             'New action script', 'New integrity check', 'New instance address script', 'New array size script',
             'Browse examples\u2026', 'Add all examples', 'Manage permissions\u2026', 'Open scripts folder',
-            'Reveal a script in Explorer\u2026',
+            'Reveal a script in Explorer\u2026', 'Delete a script\u2026',
         ]);
         const actions = items.filter(item => item.scriptPath).slice(0, 3);
         assert.deepStrictEqual(actions.map(item => item.description), ['Open', 'Open', 'Open']);
@@ -354,11 +362,12 @@ suite('manage scripts dispatch', () => {
         addAll: number;
         browse: number;
         permissions: number;
+        deletes: number;
         scanned: number;
     };
 
     function makeManagerDeps(item: ManagerItem | undefined): { deps: ManageScriptsDeps; captured: DispatchCapture } {
-        const captured: DispatchCapture = { created: [], opened: [], folder: [], revealed: [], addAll: 0, browse: 0, permissions: 0, scanned: 0 };
+        const captured: DispatchCapture = { created: [], opened: [], folder: [], revealed: [], addAll: 0, browse: 0, permissions: 0, deletes: 0, scanned: 0 };
         const deps: ManageScriptsDeps = {
             scanScripts: () => { captured.scanned++; return [ACTION]; },
             pick: async () => item,
@@ -366,6 +375,7 @@ suite('manage scripts dispatch', () => {
             addAllExamples: async () => { captured.addAll++; },
             browseExamples: async () => { captured.browse++; },
             managePermissions: async () => { captured.permissions++; },
+            deleteScript: async () => { captured.deletes++; },
             openFolder: async dir => { captured.folder.push(dir); },
             openFile: async filePath => { captured.opened.push(filePath); },
             revealScript: async filePath => { captured.revealed.push(filePath); },
@@ -395,6 +405,7 @@ suite('manage scripts dispatch', () => {
             [{ id: 'add-all-examples', label: 'Add all examples' }, 'addAll'],
             [{ id: 'browse-examples', label: 'Browse examples' }, 'browse'],
             [{ id: 'manage-permissions', label: 'Manage permissions' }, 'permissions'],
+            [{ id: 'delete-script', label: 'Delete a script\u2026' }, 'deletes'],
         ];
         for (const [item, key] of cases) {
             const { deps, captured } = makeManagerDeps(item);
@@ -410,7 +421,7 @@ suite('manage scripts dispatch', () => {
         const { deps, captured } = makeManagerDeps(undefined);
         await runManageScripts(deps);
         assert.deepStrictEqual(captured, {
-            created: [], opened: [], folder: [], revealed: [], addAll: 0, browse: 0, permissions: 0, scanned: 1,
+            created: [], opened: [], folder: [], revealed: [], addAll: 0, browse: 0, permissions: 0, deletes: 0, scanned: 1,
         });
     });
 
@@ -434,6 +445,188 @@ suite('manage scripts dispatch', () => {
         dismissed.deps.pick = async () => (calls++ === 0 ? { id: 'reveal-script', label: 'Reveal' } : undefined);
         await runManageScripts(dismissed.deps);
         assert.deepStrictEqual(dismissed.captured.revealed, [], 'dismissing the script pick reveals nothing');
+    });
+});
+
+suite('manage scripts delete flow', () => {
+
+    type DeleteCapture = {
+        warnings: string[];
+        infos: string[];
+        confirmed: string[];
+        unlinked: string[];
+        revoked: string[];
+        rescans: number;
+        picks: ManagerItem[][];
+    };
+
+    function makePanelDeleteDeps(options: {
+        trusted?: boolean;
+        confirm?: boolean;
+        unlink?: (filePath: string) => 'deleted' | 'missing' | string;
+    } = {}): { deps: PanelDeleteDeps; captured: DeleteCapture } {
+        const captured: DeleteCapture = { warnings: [], infos: [], confirmed: [], unlinked: [], revoked: [], rescans: 0, picks: [] };
+        const deps: PanelDeleteDeps = {
+            trusted: options.trusted ?? true,
+            confirm: async name => { captured.confirmed.push(name); return options.confirm ?? true; },
+            deleteFile: filePath => {
+                captured.unlinked.push(filePath);
+                return options.unlink ? options.unlink(filePath) : deleteScriptFile(filePath);
+            },
+            revokeGrants: filePath => { captured.revoked.push(filePath); },
+            warn: message => { captured.warnings.push(message); },
+            info: message => { captured.infos.push(message); },
+            rescan: async () => { captured.rescans++; },
+        };
+        return { deps, captured };
+    }
+
+    function makeManagerDeleteDeps(
+        scripts: ScriptInfo[],
+        picks: Array<ManagerItem | undefined>,
+        options: { trusted?: boolean; confirm?: boolean } = {},
+    ): { deps: DeleteScriptDeps; captured: DeleteCapture } {
+        const { deps, captured } = makePanelDeleteDeps(options);
+        let call = 0;
+        return {
+            deps: {
+                ...deps,
+                scanScripts: () => [...scripts],
+                pick: async items => { captured.picks.push([...items]); return picks[call++]; },
+            },
+            captured,
+        };
+    }
+
+    function writeScript(root: string, name: string, body = '// hi\n'): string {
+        const filePath = scriptPath(root, name);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, body, 'utf-8');
+        return filePath;
+    }
+
+    test('deleteScriptFile unlinks a file; an already-gone path is the missing outcome', () => {
+        const root = tempRoot();
+        try {
+            const target = writeScript(root, 'hello.js');
+            assert.strictEqual(deleteScriptFile(target), 'deleted');
+            assert.ok(!fs.existsSync(target), 'the file is gone');
+            assert.strictEqual(deleteScriptFile(target), 'missing', 'ENOENT is reported as already gone');
+
+            const dir = path.join(root, 'not-a-file');
+            fs.mkdirSync(dir);
+            const failure = deleteScriptFile(dir);
+            assert.ok(failure !== 'deleted' && failure !== 'missing', 'other errors surface the raw message');
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('an accepted confirm deletes the file, revokes its grants, and reports it', async () => {
+        const root = tempRoot();
+        try {
+            const target = writeScript(root, 'hello.js');
+            const { deps, captured } = makePanelDeleteDeps();
+            assert.strictEqual(await runPanelDeleteScript(target, deps), true);
+            assert.ok(!fs.existsSync(target), 'the file is gone');
+            assert.strictEqual(captured.rescans, 1, 'the panel rescans after a deletion');
+            assert.deepStrictEqual(captured.confirmed, ['hello.js']);
+            assert.deepStrictEqual(captured.revoked, [target]);
+            assert.deepStrictEqual(captured.warnings, []);
+            assert.deepStrictEqual(captured.infos, [`HexScope: deleted hello.js from ${SCRIPTS_DIR_DISPLAY}.`]);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('cancelling the confirm leaves the file, its grants, and the list untouched', async () => {
+        const root = tempRoot();
+        try {
+            const target = writeScript(root, 'hello.js');
+            const { deps, captured } = makePanelDeleteDeps({ confirm: false });
+            assert.strictEqual(await runPanelDeleteScript(target, deps), false);
+            assert.ok(fs.existsSync(target), 'the file stays');
+            assert.strictEqual(captured.rescans, 0, 'a dismissed confirm rescans nothing');
+            assert.deepStrictEqual(captured.unlinked, []);
+            assert.deepStrictEqual(captured.revoked, []);
+            assert.deepStrictEqual(captured.warnings, []);
+            assert.deepStrictEqual(captured.infos, []);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('an untrusted workspace refuses before the confirm and the unlink', async () => {
+        const { deps, captured } = makePanelDeleteDeps({ trusted: false });
+        assert.strictEqual(await runPanelDeleteScript('D:\\ws\\hello.js', deps), false);
+        assert.deepStrictEqual(captured.warnings, [UNTRUSTED_DELETE_MESSAGE]);
+        assert.deepStrictEqual(captured.confirmed, []);
+        assert.deepStrictEqual(captured.unlinked, []);
+        assert.deepStrictEqual(captured.revoked, []);
+        assert.strictEqual(captured.rescans, 0);
+    });
+
+    test('an already-gone file is tolerated and still gets its grants revoked', async () => {
+        const root = tempRoot();
+        try {
+            const target = scriptPath(root, 'gone.js');
+            const { deps, captured } = makePanelDeleteDeps();
+            assert.strictEqual(await runPanelDeleteScript(target, deps), true);
+            assert.deepStrictEqual(captured.revoked, [target]);
+            assert.deepStrictEqual(captured.infos, [`HexScope: gone.js was already gone; any stored permissions were revoked.`]);
+            assert.deepStrictEqual(captured.warnings, []);
+            assert.strictEqual(captured.rescans, 1);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('another unlink failure warns and keeps the grants', async () => {
+        const { deps, captured } = makePanelDeleteDeps({ unlink: () => 'EPERM: operation not permitted' });
+        assert.strictEqual(await runPanelDeleteScript('D:\\ws\\hello.js', deps), false);
+        assert.deepStrictEqual(captured.warnings, ['HexScope: could not delete hello.js: EPERM: operation not permitted']);
+        assert.deepStrictEqual(captured.revoked, []);
+        assert.deepStrictEqual(captured.infos, []);
+        assert.strictEqual(captured.rescans, 0);
+    });
+
+    test('the manager row picks a script from the same list and deletes it after the confirm', async () => {
+        const root = tempRoot();
+        try {
+            const target = writeScript(root, 'hello.js');
+            const script: ScriptInfo = { ...ACTION, name: 'hello.js', filePath: target };
+            const { deps, captured } = makeManagerDeleteDeps([script], [{
+                id: `script:${target}`, label: 'hello.js', description: 'Open', scriptPath: target,
+            }]);
+            await runDeleteScript(deps);
+            assert.ok(!fs.existsSync(target), 'the picked file is gone');
+            assert.ok(captured.picks[0].length > 0 && captured.picks[0].every(item => item.scriptPath), 'the row pick lists only script rows');
+            assert.deepStrictEqual(captured.confirmed, ['hello.js']);
+            assert.deepStrictEqual(captured.revoked, [target]);
+            assert.deepStrictEqual(captured.infos, [`HexScope: deleted hello.js from ${SCRIPTS_DIR_DISPLAY}.`]);
+
+            const dismissed = makeManagerDeleteDeps([script], [undefined]);
+            await runDeleteScript(dismissed.deps);
+            assert.deepStrictEqual(dismissed.captured.unlinked, [], 'dismissing the script pick deletes nothing');
+            assert.deepStrictEqual(dismissed.captured.confirmed, []);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('the manager row refuses an untrusted workspace before the picker', async () => {
+        const { deps, captured } = makeManagerDeleteDeps([ACTION], [undefined], { trusted: false });
+        await runDeleteScript(deps);
+        assert.deepStrictEqual(captured.warnings, [UNTRUSTED_DELETE_MESSAGE]);
+        assert.deepStrictEqual(captured.picks, [], 'no script picker in an untrusted workspace');
+        assert.deepStrictEqual(captured.confirmed, []);
+    });
+
+    test('the confirm copy names the file and the undo limit', () => {
+        assert.strictEqual(
+            deleteConfirmMessage('hello.js'),
+            `hello.js will be deleted from ${SCRIPTS_DIR_DISPLAY}. This cannot be undone.`,
+        );
     });
 });
 

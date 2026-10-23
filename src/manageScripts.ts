@@ -3,7 +3,9 @@
 // New split button, and the empty provider pickers (Overlay / Integrity).
 //
 // File writes are trust-gated and exclusive: a new script is written with
-// `wx`, so an existing file is reported and never overwritten. The manager
+// `wx`, so an existing file is reported and never overwritten. Deletion is
+// trust-gated too and always confirms first; an already-gone file is
+// tolerated (ENOENT) so stale grants still get revoked. The manager
 // scans the same root `requestScriptList` scans (workspace folder, else the
 // open document's directory) and opens scripts instead of running them —
 // running needs a parsed document, which the manager deliberately does not.
@@ -31,6 +33,8 @@ export const CREATE_SCRIPT_COMMAND = 'hexScope.createScript';
 export const SCRIPTS_DIR_DISPLAY = EXAMPLE_SCRIPTS_DIR;
 export const UNTRUSTED_CREATE_MESSAGE =
     'HexScope: creating scripts is unavailable in an untrusted workspace. Trust the folder and try again.';
+export const UNTRUSTED_DELETE_MESSAGE =
+    'HexScope: deleting scripts is unavailable in an untrusted workspace. Trust the folder and try again.';
 export const DUPLICATE_NAME_HINT = 'Choose a different name.';
 export const JS_VERSION_MISSING_TARGET = 'HexScope: the TypeScript script no longer exists; the JavaScript version was not created.';
 
@@ -253,7 +257,7 @@ export function buildManagerItems(scripts: readonly ScriptInfo[]): ManagerItem[]
     appendScriptGroup(items, 'Providers', providers);
     appendGroupSeparator(items);
     items.push(...templateItems(), ...workspaceActionItems());
-    appendRevealItem(items, scripts.length);
+    appendScriptActionItems(items, scripts.length);
     return items;
 }
 
@@ -288,10 +292,11 @@ function workspaceActionItems(): ManagerItem[] {
     ];
 }
 
-/** Reveal row only exists when there is a script to reveal (never a dead end). */
-function appendRevealItem(items: ManagerItem[], scriptCount: number): void {
+/** Reveal + delete rows only exist when there is a script to act on (never a dead end). */
+function appendScriptActionItems(items: ManagerItem[], scriptCount: number): void {
     if (scriptCount === 0) { return; }
     items.push({ id: 'reveal-script', label: 'Reveal a script in Explorer\u2026', description: 'Show a script file in the Explorer view' });
+    items.push({ id: 'delete-script', label: 'Delete a script\u2026', description: 'Permanently remove a script file' });
 }
 
 function appendScriptGroup(items: ManagerItem[], label: string, scripts: readonly ScriptInfo[]): void {
@@ -322,6 +327,8 @@ export interface ManageScriptsDeps {
     addAllExamples: () => Promise<unknown>;
     browseExamples: () => Promise<unknown>;
     managePermissions: () => Promise<void>;
+    /** Delete a script's file after a confirm (second pick over the script rows). */
+    deleteScript: () => Promise<void>;
     openFolder: (dir: string) => Promise<void>;
     openFile: (filePath: string) => Promise<void>;
     /** Reveal one script file in the Explorer view. */
@@ -352,6 +359,7 @@ async function dispatchManagerCommand(id: string, deps: ManageScriptsDeps): Prom
         'add-all-examples': () => deps.addAllExamples(),
         'browse-examples': () => deps.browseExamples(),
         'manage-permissions': () => deps.managePermissions(),
+        'delete-script': () => deps.deleteScript(),
         'open-scripts-folder': () => deps.openFolder(deps.scriptsDir),
         'reveal-script': () => runRevealScript(deps),
     };
@@ -363,6 +371,112 @@ async function runRevealScript(deps: ManageScriptsDeps): Promise<void> {
     const scriptItems = buildManagerItems(deps.scanScripts()).filter(item => item.scriptPath);
     const picked = await deps.pick(scriptItems);
     if (picked?.scriptPath) { await deps.revealScript(picked.scriptPath); }
+}
+
+// ── Delete a script (manager row + panel Delete command) ──────────
+// Both surfaces share the trust gate, the modal confirm, the
+// ENOENT-tolerant unlink, the grant revoke, and the report copy. Only the
+// entry differs: a second pick in the manager, the clicked card in the
+// panel (the session resolves the reported path first).
+
+/** Modal confirm copy for deleting one script (manager row + panel command). */
+export function deleteConfirmMessage(name: string): string {
+    return `${name} will be deleted from ${SCRIPTS_DIR_DISPLAY}. This cannot be undone.`;
+}
+
+/** Window-backed modal confirm; only the explicit `Delete` button confirms. */
+export async function confirmDeleteScript(name: string): Promise<boolean> {
+    const choice = await vscode.window.showWarningMessage(deleteConfirmMessage(name), { modal: true }, 'Delete');
+    return choice === 'Delete';
+}
+
+/** True when the unlink failed because the file is already gone. */
+function isEnoent(err: unknown): boolean {
+    return (err as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+}
+
+/** Message for an unknown thrown value. */
+function errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
+/** ENOENT-tolerant unlink; `missing` when the file is already gone, else the raw OS error. */
+export function deleteScriptFile(filePath: string): 'deleted' | 'missing' | string {
+    try {
+        fs.unlinkSync(filePath);
+        return 'deleted';
+    } catch (err: unknown) {
+        return isEnoent(err) ? 'missing' : errorMessage(err);
+    }
+}
+
+/** Shared host-side dependencies of deleting one known script path. */
+export interface ScriptDeleteDeps {
+    /** `vscode.workspace.isTrusted`; deletion refuses an untrusted workspace. */
+    trusted: boolean;
+    /** Modal confirm naming the file; only true proceeds. */
+    confirm: (scriptName: string) => Promise<boolean>;
+    /** Delete one script file; `missing` = already gone (ENOENT). */
+    deleteFile: (scriptPath: string) => 'deleted' | 'missing' | string;
+    /** Drop the script's stored grants (path-scoped; session-wide grants are kept). */
+    revokeGrants: (scriptPath: string) => void;
+    warn: (message: string) => void;
+    info: (message: string) => void;
+}
+
+/** The panel's Delete command adds an explicit rescan to the one-script flow. */
+export interface PanelDeleteDeps extends ScriptDeleteDeps {
+    /** The same rescan `requestScriptList` performs, so the card disappears immediately. */
+    rescan: () => Promise<void>;
+}
+
+/** Manager row dependencies: the same second pick over script rows the reveal row uses. */
+export interface DeleteScriptDeps extends ScriptDeleteDeps {
+    scanScripts: () => ScriptInfo[];
+    pick: (items: readonly ManagerItem[]) => Promise<ManagerItem | undefined>;
+}
+
+/** True when a delete outcome is a real failure (not `deleted`/`missing`). */
+function deleteFailed(outcome: string): boolean {
+    return outcome !== 'deleted' && outcome !== 'missing';
+}
+
+/** Success report for one delete outcome (`deleted` vs already gone). */
+function deleteReport(name: string, outcome: string): string {
+    return outcome === 'deleted'
+        ? `HexScope: deleted ${name} from ${SCRIPTS_DIR_DISPLAY}.`
+        : `HexScope: ${name} was already gone; any stored permissions were revoked.`;
+}
+
+/**
+ * Trust gate, confirm, unlink (ENOENT = already gone), grant revoke, and a
+ * report for one known script path. Returns true when the file was deleted
+ * or was already gone. Shared by the manager row and the panel command.
+ */
+async function deleteOneScript(scriptPath: string, deps: ScriptDeleteDeps): Promise<boolean> {
+    if (!deps.trusted) { deps.warn(UNTRUSTED_DELETE_MESSAGE); return false; }
+    const name = path.basename(scriptPath);
+    if (!(await deps.confirm(name))) { return false; }
+    const outcome = deps.deleteFile(scriptPath);
+    if (deleteFailed(outcome)) { deps.warn(`HexScope: could not delete ${name}: ${outcome}`); return false; }
+    deps.revokeGrants(scriptPath);
+    deps.info(deleteReport(name, outcome));
+    return true;
+}
+
+/** Panel Delete command: one-script flow, then a rescan when the file is gone. */
+export async function runPanelDeleteScript(scriptPath: string, deps: PanelDeleteDeps): Promise<boolean> {
+    const deleted = await deleteOneScript(scriptPath, deps);
+    if (deleted) { await deps.rescan(); }
+    return deleted;
+}
+
+/** Delete a script… row: second pick over the script rows, then `deleteOneScript`. */
+export async function runDeleteScript(deps: DeleteScriptDeps): Promise<void> {
+    if (!deps.trusted) { deps.warn(UNTRUSTED_DELETE_MESSAGE); return; }
+    const scriptItems = buildManagerItems(deps.scanScripts()).filter(item => item.scriptPath);
+    const picked = await deps.pick(scriptItems);
+    if (picked?.scriptPath) { await deleteOneScript(picked.scriptPath, deps); }
 }
 
 // ── Permission center (host-side, no open document required) ──────
@@ -515,6 +629,7 @@ function extensionManagerDeps(context: vscode.ExtensionContext, root: string): M
         addAllExamples: () => runAddExampleScripts(extensionExampleDeps(context, root)),
         browseExamples: () => runBrowseExampleScripts(extensionBrowseDeps(context, root)),
         managePermissions: () => runManagePermissions(extensionPermissionDeps(context, root)),
+        deleteScript: () => runDeleteScript(extensionDeleteDeps(context, root)),
         openFolder: revealFolder,
         openFile: openScriptFile,
         revealScript: async filePath => { await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(filePath)); },
@@ -529,6 +644,22 @@ function extensionPermissionDeps(context: vscode.ExtensionContext, root: string)
         listGrants: () => store().listGrants(),
         pick: pickPermissionItem,
         revoke: grant => { store().revokeGrant(grant.scope, grant.scriptPath, grant.capability); },
+        info: message => { void vscode.window.showInformationMessage(message); },
+    };
+}
+
+/** Window-backed delete flow over the same scan the manager shows. */
+function extensionDeleteDeps(context: vscode.ExtensionContext, root: string): DeleteScriptDeps {
+    return {
+        trusted: vscode.workspace.isTrusted,
+        scanScripts: () => scanScripts(root, vscode.workspace.isTrusted),
+        pick: pickManagerItem,
+        confirm: confirmDeleteScript,
+        deleteFile: deleteScriptFile,
+        revokeGrants: scriptPath => {
+            scriptGrantStoreFor(root, context.workspaceState).revokeAllForScript(scriptPath);
+        },
+        warn: message => { void vscode.window.showWarningMessage(message); },
         info: message => { void vscode.window.showInformationMessage(message); },
     };
 }

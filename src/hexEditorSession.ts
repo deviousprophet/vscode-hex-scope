@@ -65,7 +65,7 @@ import { scriptGrantStoreFor, ScriptPermissionBroker, type ScriptGrantStore } fr
 import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths } from './integrityScriptRunner';
 import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
 import { addExampleScriptsAt, openScriptingGuide } from './addExampleScripts';
-import { createJsVersion, hostCreateDeps, hostJsVersionDeps, openScriptsFolder, requestCreateScript } from './manageScripts';
+import { confirmDeleteScript, createJsVersion, deleteScriptFile, hostCreateDeps, hostJsVersionDeps, openScriptsFolder, requestCreateScript, runPanelDeleteScript } from './manageScripts';
 import { createScriptsWatcher } from './scriptWatcher';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
@@ -1517,6 +1517,22 @@ export class HexEditorSession {
                 const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
                 if (!scriptPath) { return; }
                 await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(scriptPath));
+            },
+            deleteScript: async msg => {
+                // Card-menu delete: modal confirm, trust-gated unlink (ENOENT =
+                // already gone), grants revoked, then the same rescan the watcher
+                // runs so the card disappears without waiting for it.
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                await runPanelDeleteScript(scriptPath, {
+                    trusted: vscode.workspace.isTrusted,
+                    confirm: confirmDeleteScript,
+                    deleteFile: deleteScriptFile,
+                    revokeGrants: target => { grantStore().revokeAllForScript(target); },
+                    warn: message => { void vscode.window.showWarningMessage(message); },
+                    info: message => { void vscode.window.showInformationMessage(message); },
+                    rescan: async () => { await messageHandlers.requestScriptList?.({ type: 'requestScriptList' }); },
+                });
             },
             convertScriptToJs: async msg => {
                 // JS-first TypeScript path: copy to the `.js` sibling, then rescan so

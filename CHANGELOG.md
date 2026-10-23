@@ -18,6 +18,7 @@
 - Live discovery: adding, editing, or deleting a script under `.hexscope/scripts/` refreshes the list automatically (250 ms debounce) while manual Refresh stays
 - JavaScript-first TypeScript path: `.ts` cards add **Open setup guide** and **Create JavaScript version** (writes a `.js` sibling with a conversion header, never overwriting) when the optional esbuild compiler is unavailable
 - Provider cards and details show **Used by** links for the integrity checks, instances, and array sizes that use them, jumping to the destination; the script name opens the file, and a card context menu adds Open / Copy path / Reveal in Explorer / Show details / Manage permissions
+- Scripts can be deleted from **HexScope: Manage Scripts** (`Delete a script…`) or the card context menu (`Delete`): a modal confirm, the script's stored grants are revoked, and the list updates immediately
 
 ### Changed
 - Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save
