@@ -105,6 +105,10 @@ function capabilitiesOf(scripts: ScriptInfo[], name: string): string[] | undefin
     return scripts.find(script => script.name === name)?.capabilities;
 }
 
+function hasRunOf(scripts: ScriptInfo[], name: string): boolean | undefined {
+    return scripts.find(script => script.name === name)?.hasRun;
+}
+
 function hasDeclarationFile(scripts: ScriptInfo[]): boolean {
     return scripts.some(script => script.name.endsWith('.d.ts'));
 }
@@ -163,6 +167,12 @@ test('scanning an installed workspace lists the six scripts and skips the .d.ts'
         assert.deepStrictEqual(rolesOf(scripts, 'verify-crc.js'), []);
         assert.deepStrictEqual(capabilitiesOf(scripts, 'write-pattern.js'), ['write']);
         assert.ok(!hasDeclarationFile(scripts), 'the type definition is not runnable');
+        for (const name of ['hello.js', 'verify-crc.js', 'write-pattern.js']) {
+            assert.strictEqual(hasRunOf(scripts, name), true, `${name} exports run`);
+        }
+        for (const name of ['follow-pointer.js', 'array-size-from-header.js', 'verify-integrity.js']) {
+            assert.strictEqual(hasRunOf(scripts, name), false, `${name} is provider-only`);
+        }
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

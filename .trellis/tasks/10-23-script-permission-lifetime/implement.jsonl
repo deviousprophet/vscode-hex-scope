@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "Permission list markup and panel tests."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Host/webview permission protocol and state ownership."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Scope and capability unions at the boundary."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates and coverage."}

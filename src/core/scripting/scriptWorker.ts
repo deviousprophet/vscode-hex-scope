@@ -109,9 +109,11 @@ async function runEntry(
     };
     const api = buildAPI(collected, rpcOut, context);
 
+    const moduleObj: { exports: Record<string, unknown> } = { exports: {} };
     const sandbox = vm.createContext({
-        module: { exports: {} },
-        exports: {},
+        module: moduleObj,
+        // CommonJS alias: `exports.run = fn` must reach `module.exports`.
+        exports: moduleObj.exports,
         console: {
             log: (...args: unknown[]) => rpcOut(args.map(String).join(' ')),
             warn: (...args: unknown[]) => rpcOut(`WARN: ${args.map(String).join(' ')}`),
@@ -124,7 +126,7 @@ async function runEntry(
 
     new vm.Script(code).runInNewContext(sandbox, { timeout: timeoutMs, breakOnSigint: true });
 
-    const exports = (sandbox.module as { exports: Record<string, unknown> }).exports ?? {};
+    const exports = (moduleObj.exports ?? {}) as Record<string, unknown>;
     const fn = exports[entry] as ((a: unknown) => unknown) | undefined;
     if (typeof fn !== 'function') {
         const message = entry === 'run'

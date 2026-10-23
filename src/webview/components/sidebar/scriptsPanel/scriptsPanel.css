@@ -20,6 +20,40 @@
     line-height: 1.5;
 }
 
+/* Group headers — Actions first, then Providers. Collapse is presentation-only:
+   the body stays in the DOM, so result areas and run history survive. */
+.script-group + .script-group { border-top: 1px solid var(--border); }
+.script-group-hdr {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    background: none; border: none; cursor: pointer; text-align: left;
+    font-family: var(--font-ui); font-size: 10px; font-weight: 600;
+    color: var(--addr-fg); text-transform: uppercase; letter-spacing: .04em;
+    padding: 6px 8px 4px;
+}
+.script-group-hdr:hover { background: rgba(255,255,255,.03); }
+.script-group-hdr:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: -1px; }
+.script-group-hdr::before {
+    content: '›'; display: inline-block; width: 14px; height: 14px;
+    font-size: 14px; line-height: 14px; text-align: center;
+    transition: transform .12s ease;
+}
+.script-group:not(.collapsed) > .script-group-hdr::before { transform: rotate(90deg); }
+.script-group-count {
+    font-size: 9px; font-weight: 600; color: var(--addr-fg);
+    background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px;
+    letter-spacing: 0;
+}
+.script-group.collapsed > .script-group-body { display: none; }
+.script-group-body { padding-top: 2px; }
+
+/* Unknown export scan: warn + an informational inspect hint, never a Run control. */
+.script-warn { color: #cca700; font-size: 11px; line-height: 1; }
+.script-inspect-hint {
+    font-size: 9px; color: var(--addr-fg); font-family: var(--font-ui);
+    border: 1px dashed var(--border); padding: 1px 5px; border-radius: 3px;
+    white-space: nowrap; opacity: .85;
+}
+
 /* Script card — border/radius/overflow/margin-bottom come from .sb-card; keep bg */
 .script-card {
     background: rgba(255,255,255,.04);
@@ -46,7 +80,7 @@
     background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px;
     text-transform: uppercase; letter-spacing: .03em;
 }
-/* Declared role badge (integrity/address/size) */
+/* Provider role chip — job language (Instance address / Array size / Integrity check) */
 .script-role {
     font-size: 9px; color: var(--info-fg, #4fc3f7); font-family: var(--font-ui);
     background: rgba(79,195,247,.12); padding: 1px 5px; border-radius: 3px;

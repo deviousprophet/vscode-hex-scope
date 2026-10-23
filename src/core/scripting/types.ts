@@ -55,6 +55,11 @@ export interface ScriptInfo {
     roles: ScriptRole[];
     /** Content-change fingerprint (stat mtime, ms), used to revoke approvals. */
     fingerprint: string;
+    /** A `run` entry is exported, detected from source without executing the script.
+        Older payloads omit the field: a role-less script is treated as runnable. */
+    hasRun?: boolean;
+    /** `@entry run` was declared explicitly (escape hatch for unusual export syntax). */
+    runExplicit?: boolean;
     /** Workspace-relative path, supplied by the host when the script was scanned in a workspace. */
     relativePath?: string;
 }

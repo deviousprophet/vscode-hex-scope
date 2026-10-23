@@ -59,6 +59,17 @@ test('executes a script with a run function', async () => {
     } finally { rmDir(dir); }
 });
 
+test('executes a script that assigns exports.run (CommonJS alias)', async () => {
+    const dir = tmpDir();
+    try {
+        const fp = writeScript(dir, 'exports-alias.js', `exports.run = (api) => { api.output('exports works'); };`);
+        const host = makeHost();
+        const out = await execute(fp, host);
+        assert.equal(out.error, undefined);
+        assert.ok((host as any)._log.includes('exports works'));
+    } finally { rmDir(dir); }
+});
+
 test('returns error when script has no run export', async () => {
     const dir = tmpDir();
     try {
@@ -591,6 +602,82 @@ test('scanScripts parses roles and ignores .d.ts and subdirectories', () => {
         assert.deepEqual(scripts.map(s => s.name), ['roles.js']);
         assert.deepEqual(scripts[0].roles, ['integrity', 'address']);
         assert.equal(isScriptFile('hexscope.d.ts'), false);
+    } finally { rmDir(dir); }
+});
+
+test('scanScripts detects every accepted run export form', () => {
+    const dir = tmpDir();
+    try {
+        const scriptsDir = path.join(dir, '.hexscope', 'scripts');
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        const forms: Array<[string, string]> = [
+            ['export-function.js', 'export function run(api) {}'],
+            ['export-async.js', 'export async function run(api) {}'],
+            ['export-const.js', 'export const run = (api) => {};'],
+            ['export-let.js', 'export let run = (api) => {};'],
+            ['cjs-shorthand.js', 'const run = (api) => {};\nmodule.exports = { run };'],
+            ['cjs-method.js', 'module.exports = { run(api) {} };'],
+            ['exports-assign.js', 'exports.run = (api) => {};'],
+        ];
+        for (const [name, code] of forms) { fs.writeFileSync(path.join(scriptsDir, name), code, 'utf-8'); }
+        const scripts = scanScripts(dir);
+        assert.deepEqual(
+            scripts.filter(s => s.hasRun === true).map(s => s.name),
+            forms.map(([name]) => name).sort(),
+        );
+        assert.ok(scripts.every(s => s.runExplicit === undefined), 'no override tag in these sources');
+    } finally { rmDir(dir); }
+});
+
+test('scanScripts does not treat commented-out run exports as runnable', () => {
+    const dir = tmpDir();
+    try {
+        const scriptsDir = path.join(dir, '.hexscope', 'scripts');
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.writeFileSync(path.join(scriptsDir, 'line-comment.js'), '// export function run(api) {}\nmodule.exports = {};', 'utf-8');
+        fs.writeFileSync(path.join(scriptsDir, 'block-comment.js'), '/* module.exports = { run } */\nmodule.exports = {};', 'utf-8');
+        fs.writeFileSync(path.join(scriptsDir, 'jsdoc-example.js'), '/**\n * export const run = () => {};\n */\nmodule.exports = {};', 'utf-8');
+        fs.writeFileSync(path.join(scriptsDir, 'provider.js'), '/** @script address */\nfunction getAddress(api) { return 0; }\nmodule.exports = { getAddress };', 'utf-8');
+        const scripts = scanScripts(dir);
+        for (const script of scripts) {
+            assert.strictEqual(script.hasRun, false, `${script.name} must not report a run export`);
+        }
+        assert.deepEqual(scripts.find(s => s.name === 'provider.js')?.roles, ['address']);
+    } finally { rmDir(dir); }
+});
+
+test('@entry run overrides the export scan and is reported explicitly', () => {
+    const dir = tmpDir();
+    try {
+        const scriptsDir = path.join(dir, '.hexscope', 'scripts');
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(scriptsDir, 'dynamic.js'),
+            '/** @entry run */\nconst entries = buildEntries();\nmodule.exports = entries;',
+            'utf-8',
+        );
+        const scripts = scanScripts(dir);
+        assert.strictEqual(scripts[0].hasRun, true);
+        assert.strictEqual(scripts[0].runExplicit, true);
+    } finally { rmDir(dir); }
+});
+
+test('scanScripts classifies role + run scripts as runnable providers', () => {
+    const dir = tmpDir();
+    try {
+        const scriptsDir = path.join(dir, '.hexscope', 'scripts');
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(scriptsDir, 'both.js'),
+            '/** @script integrity */\nexport function run(api) {}\nexport function verifyIntegrity(api) { return true; }',
+            'utf-8',
+        );
+        fs.writeFileSync(path.join(scriptsDir, 'unknown.js'), 'module.exports = { helper() {} };', 'utf-8');
+        const scripts = scanScripts(dir);
+        const both = scripts.find(s => s.name === 'both.js')!;
+        assert.strictEqual(both.hasRun, true);
+        assert.deepEqual(both.roles, ['integrity']);
+        assert.strictEqual(scripts.find(s => s.name === 'unknown.js')?.hasRun, false);
     } finally { rmDir(dir); }
 });
 

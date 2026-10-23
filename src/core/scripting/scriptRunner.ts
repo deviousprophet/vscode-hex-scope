@@ -52,6 +52,31 @@ function parseRoles(source: string): ScriptRole[] {
     return [...roles];
 }
 
+/** `@entry run` header override: declare a run entry the source scan cannot see. */
+function hasEntryOverride(source: string): boolean {
+    return /@entry\s+run\b/i.test(source);
+}
+
+/** Remove line and block comments so commented-out exports never classify a script. */
+function stripComments(source: string): string {
+    return source
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\r\n]*/g, ' ');
+}
+
+/** Export forms the source scan treats as a runnable `run` entry. */
+const RUN_EXPORT_PATTERNS: readonly RegExp[] = [
+    /\bexport\s+(?:async\s+)?function\s+run\b/,
+    /\bexport\s+(?:const|let|var)\s+run\b/,
+    /\bmodule\.exports\s*=\s*\{[^}]*\brun\b[^}]*\}/,
+    /\bexports\.run\s*=/,
+];
+
+function detectsRunExport(source: string): boolean {
+    const code = stripComments(source);
+    return RUN_EXPORT_PATTERNS.some(re => re.test(code));
+}
+
 function errorMessage(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
 }
@@ -100,13 +125,19 @@ export function scanScripts(workspaceRoot: string, trusted: boolean = true): Scr
                 const filePath = path.join(dir, e.name);
                 let capabilities: string[] = [];
                 let roles: ScriptRole[] = [];
+                let hasRun = false;
+                let runExplicit = false;
                 const fingerprint = scriptFingerprint(filePath);
                 try {
                     const header = fs.readFileSync(filePath, 'utf-8').slice(0, HEADER_BYTES);
                     capabilities = parseManifest(header);
                     roles = parseRoles(header);
+                    runExplicit = hasEntryOverride(header);
+                    hasRun = runExplicit || detectsRunExport(header);
                 } catch { /* if file can't be read, no capabilities */ }
-                return { name: e.name, filePath, capabilities, roles, fingerprint };
+                const info: ScriptInfo = { name: e.name, filePath, capabilities, roles, fingerprint, hasRun };
+                if (runExplicit) { info.runExplicit = true; }
+                return info;
             })
             .sort((a, b) => a.name.localeCompare(b.name));
     } catch {

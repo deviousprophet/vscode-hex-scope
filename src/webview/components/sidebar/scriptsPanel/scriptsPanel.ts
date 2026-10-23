@@ -50,6 +50,10 @@ export interface ScriptsCallbacks {
 type ScriptStatus = 'success' | 'error' | null;
 type ErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract' | undefined;
 type ScriptResultValue = { label: string; value: string };
+/** What a script can do: run (`action`), feed a destination (`provider`), both, or neither. */
+type ScriptKind = 'action' | 'provider' | 'both' | 'unknown';
+/** List grouping: runnable scripts first, role providers second. */
+type ScriptGroupKey = 'actions' | 'providers';
 /** One completed run of a script, kept collapsed in the result area (run history). */
 type RunRecord = { num: number; at: string; ok: boolean; errCls: string; bodyHtml: string };
 
@@ -85,6 +89,8 @@ export class ScriptsPanel {
     private readonly runCounter = new Map<string, number>();
     /** Persisted workspace grants shown in the Permissions section (host-owned). */
     private permissionGrants: ScriptWorkspaceGrant[] = [];
+    /** Session-local group collapse state (Actions / Providers); presentation only. */
+    private readonly collapsedGroups = new Set<ScriptGroupKey>();
     /** Inline per-command approval surface (one prompt at a time). */
     private readonly prompt: PermissionPrompt;
 
@@ -191,10 +197,31 @@ export class ScriptsPanel {
             body.innerHTML = '';
             body.appendChild(list);
         }
+        // Grouping/sorting is presentation-only: keep each card's result block
+        // (and its run history/event wiring) attached by path across the rebuild.
+        const preservedAreas = this.captureResultAreas(list);
         list.innerHTML = this.scriptListHtml();
+        this.restoreResultAreas(list, preservedAreas);
         this.wireScriptList(list);
         this.renderPermissions();
         this.renderRunStates();
+    }
+
+    /** Collect non-empty result areas so a re-render can move them to the new card. */
+    private captureResultAreas(list: HTMLElement): Map<string, HTMLElement> {
+        const areas = new Map<string, HTMLElement>();
+        list.querySelectorAll<HTMLElement>('.script-result-area').forEach(area => {
+            const path = area.dataset.path;
+            if (path && area.childElementCount > 0) { areas.set(path, area); }
+        });
+        return areas;
+    }
+
+    private restoreResultAreas(list: HTMLElement, areas: Map<string, HTMLElement>): void {
+        areas.forEach((oldArea, path) => {
+            const fresh = list.querySelector<HTMLElement>(`.script-result-area[data-path="${cssEscape(path)}"]`);
+            fresh?.replaceWith(oldArea);
+        });
     }
 
     /** Terminal result for a script (was updateScriptResult → showResult). */
@@ -317,44 +344,68 @@ export class ScriptsPanel {
             title="Copy the bundled example scripts into .hexscope/scripts/">Add example scripts</button>
     </div>`;
         }
-        return this.currentScripts.map(s => this.scriptCardHtml(s)).join('');
+        const { actions, providers } = this.groupedScripts();
+        const groups: string[] = [];
+        if (actions.length > 0) { groups.push(this.scriptGroupHtml('actions', 'Actions', actions)); }
+        if (providers.length > 0) { groups.push(this.scriptGroupHtml('providers', 'Providers', providers)); }
+        return groups.join('');
     }
 
-    private scriptCardHtml(s: ScriptInfo): string {
-        const ext = extLabel(s.name);
-        const noTrust = !this.trusted;
-        const extTs = ext === 'ts' && !noTrust;
-        const attrs = scriptBtnAttrs(s.filePath, noTrust, extTs, this.runningPath);
-        const extBadge = ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
-        const roleBadges = (s.roles ?? []).map(role =>
-            `<span class="script-role" title="Declared role: ${esc(role)}">${esc(role)}</span>`
-        ).join('');
-        const capBadges = s.capabilities.map(cap =>
-            `<span class="script-cap" title="Requires approval: ${esc(cap)}">${esc(cap)}</span>`
-        ).join('');
+    /** Actions first; role-only providers second; alphabetical inside each group. */
+    private groupedScripts(): { actions: ScriptInfo[]; providers: ScriptInfo[] } {
+        const actions: ScriptInfo[] = [];
+        const providers: ScriptInfo[] = [];
+        for (const script of this.currentScripts) {
+            if (scriptKind(script) === 'provider') { providers.push(script); }
+            else { actions.push(script); }
+        }
+        actions.sort(byName);
+        providers.sort(byName);
+        return { actions, providers };
+    }
+
+    private scriptGroupHtml(key: ScriptGroupKey, label: string, scripts: ScriptInfo[]): string {
+        const collapsed = this.collapsedGroups.has(key);
+        const bodyId = `script-group-${key}`;
         return `
-        <div class="script-card sb-card" data-path="${esc(s.filePath)}">
-            <div class="script-card-info">
-                ${this.statusDot(s.filePath)}
-                <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
-                ${roleBadges}
-                ${capBadges}
-                ${extBadge}
-                <button class="script-open-btn sb-btn sb-btn-secondary" data-path="${esc(s.filePath)}"
-                    title="Open ${esc(s.name)}" aria-label="Open ${esc(s.name)}">&#9998;</button>
-                <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnDisabled}${attrs.btnTitle}>
-                    ${this.runIconHtml(s.filePath)}
-                </button>
+        <div class="script-group${collapsed ? ' collapsed' : ''}" data-group="${key}">
+            <button type="button" class="script-group-hdr" data-group-toggle="${key}"
+                aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${bodyId}">
+                <span class="script-group-label">${label}</span>
+                <span class="script-group-count">${scripts.length}</span>
+            </button>
+            <div class="script-group-body" id="${bodyId}">
+                ${scripts.map(s => this.scriptCardHtml(s)).join('')}
             </div>
-            <div class="script-result-area" data-path="${esc(s.filePath)}"></div>
         </div>`;
     }
 
-    private statusDot(path: string): string {
-        const st = this.scriptStatus.get(path);
-        if (st === 'success') { return '<span class="sb-status-dot ok" title="Last run succeeded"></span>'; }
-        if (st === 'error') { return '<span class="sb-status-dot err" title="Last run errored"></span>'; }
-        return '<span class="sb-status-dot idle" title="Not yet run"></span>';
+    private scriptCardHtml(s: ScriptInfo): string {
+        const kind = scriptKind(s);
+        const runnable = isRunnableKind(kind);
+        return `
+        <div class="script-card sb-card" data-path="${esc(s.filePath)}" data-kind="${kind}">
+            <div class="script-card-info">
+                ${cardLeadHtml(kind, s.filePath, this.scriptStatus)}
+                <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
+                ${roleBadgesHtml(s.roles)}
+                ${capBadgesHtml(s.capabilities)}
+                ${unknownHintHtml(kind)}
+                ${extBadgeHtml(s.name)}
+                ${openButtonHtml(s)}
+                ${runnable ? this.runButtonHtml(s) : ''}
+            </div>
+            ${runnable ? `<div class="script-result-area" data-path="${esc(s.filePath)}"></div>` : ''}
+        </div>`;
+    }
+
+    private runButtonHtml(s: ScriptInfo): string {
+        const noTrust = !this.trusted;
+        const extTs = extLabel(s.name) === 'ts' && !noTrust;
+        const attrs = scriptBtnAttrs(s.filePath, noTrust, extTs, this.runningPath);
+        return `<button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnDisabled}${attrs.btnTitle}>
+                    ${this.runIconHtml(s.filePath)}
+                </button>`;
     }
 
     private runIconHtml(path: string): string {
@@ -369,6 +420,9 @@ export class ScriptsPanel {
         container.querySelectorAll<HTMLButtonElement>('[data-add-examples]').forEach(btn => {
             btn.addEventListener('click', () => this.cb.onAddExampleScripts?.());
         });
+        container.querySelectorAll<HTMLButtonElement>('[data-group-toggle]').forEach(btn => {
+            btn.addEventListener('click', () => this.toggleGroup(btn));
+        });
         container.querySelectorAll<HTMLButtonElement>('.script-open-btn').forEach(btn => {
             btn.addEventListener('click', ev => {
                 ev.stopPropagation();
@@ -379,6 +433,22 @@ export class ScriptsPanel {
         container.querySelectorAll<HTMLButtonElement>('.script-run-btn:not(.disabled-ts):not(.disabled-trust)').forEach(btn => {
             btn.addEventListener('click', () => this.onRunBtnClick(btn));
         });
+    }
+
+    /** Toggle a group in place: CSS hides the body, so result areas and wiring survive. */
+    private toggleGroup(btn: HTMLButtonElement): void {
+        const key = btn.dataset.groupToggle as ScriptGroupKey | undefined;
+        const group = btn.closest<HTMLElement>('.script-group');
+        if (!key || !group) { return; }
+        const collapsed = !group.classList.contains('collapsed');
+        group.classList.toggle('collapsed', collapsed);
+        this.rememberGroupCollapsed(key, collapsed);
+        btn.setAttribute('aria-expanded', String(!collapsed));
+    }
+
+    private rememberGroupCollapsed(key: ScriptGroupKey, collapsed: boolean): void {
+        if (collapsed) { this.collapsedGroups.add(key); return; }
+        this.collapsedGroups.delete(key);
     }
 
     private onRunBtnClick(btn: HTMLButtonElement): void {
@@ -699,6 +769,82 @@ export class ScriptsPanel {
 }
 
 // ── Pure helpers (module-level; no instance state) ───────────────
+
+/** Job-language label for a `@script` role chip (raw role stays in `data-role`). */
+function roleLabel(role: string): string {
+    if (role === 'address') { return 'Instance address'; }
+    if (role === 'size') { return 'Array size'; }
+    if (role === 'integrity') { return 'Integrity check'; }
+    return role;
+}
+
+/** Role count that tolerates legacy payloads omitting `roles`. */
+function roleCount(s: ScriptInfo): number {
+    return s.roles?.length ?? 0;
+}
+
+/** A run entry is exported; absent metadata keeps role-less scripts runnable (old payloads). */
+function hasRunEntry(s: ScriptInfo): boolean {
+    if (s.hasRun !== undefined) { return s.hasRun; }
+    return roleCount(s) === 0;
+}
+
+/** What the card can do; unknown = neither a `run` export nor a role was detected. */
+function scriptKind(s: ScriptInfo): ScriptKind {
+    const hasRoles = roleCount(s) > 0;
+    if (hasRunEntry(s)) { return hasRoles ? 'both' : 'action'; }
+    return hasRoles ? 'provider' : 'unknown';
+}
+
+function isRunnableKind(kind: ScriptKind): boolean {
+    return kind === 'action' || kind === 'both';
+}
+
+function byName(a: ScriptInfo, b: ScriptInfo): number {
+    return a.name.localeCompare(b.name);
+}
+
+function roleBadgesHtml(roles: ScriptInfo['roles'] | undefined): string {
+    return (roles ?? []).map(role =>
+        `<span class="script-role" data-role="${esc(role)}" title="Used as: ${esc(roleLabel(role))}">${esc(roleLabel(role))}</span>`
+    ).join('');
+}
+
+function capBadgesHtml(capabilities: string[]): string {
+    return capabilities.map(cap =>
+        `<span class="script-cap" title="Requires approval: ${esc(cap)}">${esc(cap)}</span>`
+    ).join('');
+}
+
+function extBadgeHtml(name: string): string {
+    const ext = extLabel(name);
+    return ext ? `<span class="script-ext">${esc(ext)}</span>` : '';
+}
+
+function unknownHintHtml(kind: ScriptKind): string {
+    if (kind !== 'unknown') { return ''; }
+    return `<span class="script-inspect-hint" title="No 'run' export detected. Open the file to inspect its exports, or add an explicit '@entry run' header.">Inspect exports</span>`;
+}
+
+/** Status dot for a runnable card (provider/unknown cards show no run status). */
+function statusDotHtml(status: ScriptStatus): string {
+    if (status === 'success') { return '<span class="sb-status-dot ok" title="Last run succeeded"></span>'; }
+    if (status === 'error') { return '<span class="sb-status-dot err" title="Last run errored"></span>'; }
+    return '<span class="sb-status-dot idle" title="Not yet run"></span>';
+}
+
+/** Leading card marker: run status for runnable cards, a warning for unknown exports. */
+function cardLeadHtml(kind: ScriptKind, path: string, statuses: ReadonlyMap<string, ScriptStatus>): string {
+    if (kind === 'unknown') {
+        return '<span class="script-warn" title="No run export detected" aria-hidden="true">&#9888;</span>';
+    }
+    return isRunnableKind(kind) ? statusDotHtml(statuses.get(path) ?? null) : '';
+}
+
+function openButtonHtml(s: ScriptInfo): string {
+    return `<button class="script-open-btn sb-btn sb-btn-secondary" data-path="${esc(s.filePath)}"
+                    title="Open ${esc(s.name)}" aria-label="Open ${esc(s.name)}">&#9998;</button>`;
+}
 
 /** Escape backslashes for CSS attribute selectors (Windows paths, scripting.md §9.1). */
 function cssEscape(path: string): string {

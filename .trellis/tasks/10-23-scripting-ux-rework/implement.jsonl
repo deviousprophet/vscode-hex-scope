@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "Current panel contract, card states, and tests."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Keyboard, focus, and DOM interaction rules."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Protocol and transient-state ownership for the rework."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Discriminated kinds and boundary normalization."}

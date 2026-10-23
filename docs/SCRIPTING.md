@@ -24,10 +24,10 @@ All scripts live under `.hexscope/scripts/` relative to the workspace root. Both
 ## Getting started
 
 1. Create `.hexscope/scripts/` in your workspace root, or run **HexScope: Add Example Scripts** to copy the bundled catalog (see [Start from an example](#start-from-an-example))
-2. Add a `.ts` or `.js` file that exports a `run` function
+2. Add a `.ts` or `.js` file with a `run` function (an action) or a `@script` role export (a provider)
 3. Open a HEX file in Hex Scope (the editor must have an active document)
 4. Click the **Scripts** tab in the sidebar, or press `Ctrl+Shift+P` and run the `HexScope: Run Script` command
-5. The sidebar shows all discovered scripts with a **Run** button next to each; use the pencil button to open a script for editing
+5. The sidebar groups scripts into **Actions** and **Providers**. Action cards have **Run**; provider cards have **Open** and a job chip (`Instance address`, `Array size`, `Integrity check`)
 6. Click **Run** — output and results appear below the script list
 
 The script list refreshes when you switch to the Scripts tab. If no scripts appear, verify the `.hexscope/scripts/` path is correct and your workspace root is set in VS Code.
@@ -47,14 +47,14 @@ The script list refreshes when you switch to the Scripts tab. If no scripts appe
 Running it twice installs nothing and changes nothing. Removing an installed example
 leaves the bundled catalog untouched.
 
-| File | Role / capability | Demonstrates | Adapt |
-|------|-------------------|--------------|-------|
-| `hello.js` | `run` | The minimal manual script: `run(api)`, `setResult`, `output` | none |
-| `verify-crc.js` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
-| `write-pattern.js` | `run`, `@requires write` | One inline approval, staged writes, auto-save, undo | `START`, `PATTERN` |
-| `follow-pointer.js` | `@script address` → `getAddress` | Reading a little-endian pointer as an instance address | `POINTER_AT` |
-| `array-size-from-header.js` | `@script size` → `getSize` | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
-| `verify-integrity.js` | `@script integrity` → `verifyIntegrity`, `getIntegrityValue` | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
+| File | Kind | Demonstrates | Adapt |
+|------|------|--------------|-------|
+| `hello.js` | Action (`run`) | The minimal manual script: `run(api)`, `setResult`, `output` | none |
+| `verify-crc.js` | Action (`run`) | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
+| `write-pattern.js` | Action (`run`, `@requires write`) | One inline approval, staged writes, auto-save, undo | `START`, `PATTERN` |
+| `follow-pointer.js` | Provider (`@script address` → `getAddress`) | Reading a little-endian pointer as an instance address | `POINTER_AT` |
+| `array-size-from-header.js` | Provider (`@script size` → `getSize`) | Reading a count for one templated parameter | `PARAM_NAME`, `COUNT_AT` |
+| `verify-integrity.js` | Provider (`@script integrity` → `verifyIntegrity`, `getIntegrityValue`) | Checksum over the check range, excluding the stored field | `DEFAULT_START`, `DEFAULT_END` |
 
 Every example starts with `/// <reference path="./types/hexscope.d.ts" />`, so
 editor IntelliSense works in the repository and in an installed workspace. The catalog
@@ -74,7 +74,23 @@ function run(api) {
 module.exports = { run };
 ```
 
-A script you run manually exports a `run` function. It receives a single `api` argument - the `HexScopeAPI` object. The function can be synchronous or asynchronous (return a `Promise`). A role script (`@script address`, `@script size`, or `@script integrity`) exports its role entry instead and may omit `run`.
+A script you run manually exports a `run` function and is shown as an **Action** in the
+Scripts panel. It receives a single `api` argument - the `HexScopeAPI` object. The function
+can be synchronous or asynchronous (return a `Promise`). A role script (`@script address`,
+`@script size`, or `@script integrity`) exports its role entry instead and may omit `run`;
+it is shown as a **Provider** with no Run button.
+
+The panel classifies every scanned script without executing it:
+
+| Kind | Detected by | Card actions |
+|------|-------------|--------------|
+| **Action** | a `run` export | Run / Open |
+| **Provider** | one or more `@script` roles, no `run` export | Open + job chip |
+| **Both** | a `run` export and at least one role | Run / Open + job chip |
+| **Unknown** | neither a recognised `run` export nor a role | Open + **Inspect exports** hint |
+
+Actions are listed first, then Providers; each group is alphabetical and collapsible. A known
+provider never shows a Run button, so it cannot fail with "Script must export a 'run' function".
 
 `.ts` scripts are compiled to CommonJS before they run, so `export function run(...)` works.
 `.js` scripts run as CommonJS in the sandbox and must export explicitly:
@@ -105,18 +121,19 @@ export function getIntegrityValue(api: HexScopeAPI): Uint8Array {
 }
 ```
 
-| Role tag | Exports | Return |
-|----------|---------|--------|
-| `@script integrity` | `verifyIntegrity` and/or `getIntegrityValue` | `boolean` / `Uint8Array` or `number[]` |
-| `@script address` | `getAddress` | unsigned 32-bit integer |
-| `@script size` | `getSize` | positive integer |
+| Role tag | Panel chip | Exports | Return |
+|----------|------------|---------|--------|
+| `@script integrity` | `Integrity check` | `verifyIntegrity` and/or `getIntegrityValue` | `boolean` / `Uint8Array` or `number[]` |
+| `@script address` | `Instance address` | `getAddress` | unsigned 32-bit integer |
+| `@script size` | `Array size` | `getSize` | positive integer |
 
-- Role tags are parsed from the first 2 KB and shown as badges in the Scripts panel. They are
+- Role tags are parsed from the first 2 KB and shown as job chips in the Scripts panel. They are
   discovery metadata; the exported function name is the call contract.
 - A missing or mistyped export is reported as a **Contract Error**, separate from compile,
   runtime, timeout, and cancel errors.
 - `run` is optional for a role-only script. A script may declare more than one role and export
-  several entries.
+  several entries. Declaring a role and `run` makes the card a **Both** script: it stays
+  runnable and still shows its provider chips.
 - Role entries receive the same `api` plus `api.context` describing the request (instance,
   parameter, resolved sibling values, document size, selection, and stored range where
   relevant). `run` scripts see an empty context.
@@ -124,6 +141,24 @@ export function getIntegrityValue(api: HexScopeAPI): Uint8Array {
   script when a write is intentional.
 - `.d.ts` files and files in subdirectories are not scanned; use
   `.hexscope/scripts/types/hexscope.d.ts` for shared types.
+
+#### `run` detection and `@entry run`
+
+The scan looks for the common export forms without executing the script: `export function run`,
+`export async function run`, `export const|let|var run =`, `module.exports = { ... run ... }`,
+and `exports.run =`. Comments are stripped first, so a commented-out example never makes a
+script look runnable.
+
+If your script exposes `run` through unusual syntax (for example a factory), add an explicit
+header override so the card gets a Run button:
+
+```javascript
+/** @entry run */
+module.exports = buildEntries();
+```
+
+Without a detected `run` export and without a role, the card is **Unknown**: it offers Open and
+an **Inspect exports** hint instead of a Run button that would fail.
 
 ### Script integrity checks
 
@@ -258,7 +293,9 @@ The declaration is ambient (no imports/exports), so `HexScopeAPI`, `ScriptContex
 | Aspect | Behavior |
 |--------|----------|
 | Entry point | `run(api)` for side-effecting scripts; role exports for value sources |
-| Role discovery | `@script integrity\|address\|size` header tag |
+| Classification | Action (`run`), Provider (`@script` role), Both, or Unknown; scanned without executing |
+| Panel grouping | Actions first, then Providers; alphabetical, collapsible, counts per group |
+| Role discovery | `@script integrity\|address\|size` header tag; `@entry run` overrides the run scan |
 | Contract errors | Wrong or missing role exports report `Contract Error` |
 | Sync vs async | Both work. Return a `Promise` for async operations |
 | Timeout | 30 seconds by default. Configurable |

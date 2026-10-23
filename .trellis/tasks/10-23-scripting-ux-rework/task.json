@@ -1,0 +1,32 @@
+{
+  "id": "scripting-ux-rework",
+  "name": "scripting-ux-rework",
+  "title": "Rework scripting UX",
+  "description": "Rework the scripting feature around user jobs: separate runnable actions from role providers, fix permission lifetime and visibility, add creation and workspace management, and improve feedback and integration.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "frontend",
+  "package": null,
+  "priority": "P2",
+  "creator": "deviousprophet",
+  "assignee": "deviousprophet",
+  "createdAt": "2026-10-23",
+  "completedAt": null,
+  "branch": "feat/scripting-enhancements",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-23-script-role-actions",
+    "10-23-script-permission-lifetime",
+    "10-23-script-workspace-management",
+    "10-23-script-feedback-scale",
+    "10-23-script-integration-polish"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

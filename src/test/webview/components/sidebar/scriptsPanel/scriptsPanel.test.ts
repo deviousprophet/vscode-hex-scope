@@ -42,9 +42,46 @@ const A = 'D:\\sample\\crc-check.js';
 const B = 'D:\\sample\\hello.js';
 
 const SCRIPTS: ScriptInfo[] = [
-    { name: 'crc-check.js', filePath: A, capabilities: ['exec'], roles: [], fingerprint: 'fp-1' },
-    { name: 'crc-check.ts', filePath: 'D:\\sample\\crc-check.ts', capabilities: ['exec', 'network'], roles: [], fingerprint: 'fp-2' },
-    { name: 'hello.js', filePath: B, capabilities: [], roles: [], fingerprint: 'fp-3' },
+    { name: 'crc-check.js', filePath: A, capabilities: ['exec'], roles: [], fingerprint: 'fp-1', hasRun: true },
+    { name: 'crc-check.ts', filePath: 'D:\\sample\\crc-check.ts', capabilities: ['exec', 'network'], roles: [], fingerprint: 'fp-2', hasRun: true },
+    { name: 'hello.js', filePath: B, capabilities: [], roles: [], fingerprint: 'fp-3', hasRun: true },
+];
+
+const PROVIDER: ScriptInfo = {
+    name: 'follow-pointer.js',
+    filePath: 'D:\\sample\\follow-pointer.js',
+    capabilities: [],
+    roles: ['address'],
+    fingerprint: 'fp-provider',
+    hasRun: false,
+};
+
+const BOTH: ScriptInfo = {
+    name: 'checksum-both.js',
+    filePath: 'D:\\sample\\checksum-both.js',
+    capabilities: [],
+    roles: ['integrity'],
+    fingerprint: 'fp-both',
+    hasRun: true,
+};
+
+const UNKNOWN: ScriptInfo = {
+    name: 'mystery.js',
+    filePath: 'D:\\sample\\mystery.js',
+    capabilities: [],
+    roles: [],
+    fingerprint: 'fp-unknown',
+    hasRun: false,
+};
+
+/** The six shipped examples, out of catalog order. */
+const EXAMPLES: ScriptInfo[] = [
+    { name: 'write-pattern.js', filePath: 'D:\\sample\\write-pattern.js', capabilities: ['write'], roles: [], fingerprint: 'e1', hasRun: true },
+    { name: 'verify-integrity.js', filePath: 'D:\\sample\\verify-integrity.js', capabilities: [], roles: ['integrity'], fingerprint: 'e2', hasRun: false },
+    { name: 'follow-pointer.js', filePath: 'D:\\sample\\follow-pointer.js', capabilities: [], roles: ['address'], fingerprint: 'e3', hasRun: false },
+    { name: 'hello.js', filePath: 'D:\\sample\\hello.js', capabilities: [], roles: [], fingerprint: 'e4', hasRun: true },
+    { name: 'array-size-from-header.js', filePath: 'D:\\sample\\array-size-from-header.js', capabilities: [], roles: ['size'], fingerprint: 'e5', hasRun: false },
+    { name: 'verify-crc.js', filePath: 'D:\\sample\\verify-crc.js', capabilities: [], roles: [], fingerprint: 'e6', hasRun: true },
 ];
 
 const PERMISSION_REQUEST: ScriptPermissionRequest = {
@@ -138,6 +175,10 @@ function startRun(dom: JSDOM, path: string): void {
 function keydown(dom: JSDOM, el: Element | null, key: string): void {
     assert.ok(el, 'target element should exist');
     el!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true }));
+}
+
+function groupText(group: string, selector: string): string | null | undefined {
+    return document.querySelector(`.script-group[data-group="${group}"] ${selector}`)?.textContent;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -287,12 +328,15 @@ suite('ScriptsPanel setScripts', () => {
         assert.ok(!runBtn(A).disabled, 'js scripts stay enabled');
     });
 
-    test('renders declared role badges', () => {
+    test('renders declared role chips with job language and the raw role on data-role', () => {
         panel.setScripts([{ ...SCRIPTS[0], roles: ['address', 'size'] }, ...SCRIPTS.slice(1)], true);
         const badges = cardFor(A).querySelectorAll('.script-role');
         assert.strictEqual(badges.length, 2);
-        assert.strictEqual(badges[0].textContent, 'address');
-        assert.strictEqual(badges[1].textContent, 'size');
+        assert.strictEqual(badges[0].textContent, 'Instance address');
+        assert.strictEqual(badges[0].getAttribute('data-role'), 'address');
+        assert.strictEqual(badges[0].getAttribute('title'), 'Used as: Instance address');
+        assert.strictEqual(badges[1].textContent, 'Array size');
+        assert.strictEqual(badges[1].getAttribute('data-role'), 'size');
     });
 
     test('renders a contract error header', () => {
@@ -332,6 +376,127 @@ suite('ScriptsPanel setScripts', () => {
         assert.ok(cardFor(A).querySelector('.sb-status-dot.ok'));
         panel.showResult(A, [], [], 'boom', 'runtime', 0);
         assert.ok(cardFor(A).querySelector('.sb-status-dot.err'));
+    });
+});
+
+suite('ScriptsPanel script kinds and grouping', () => {
+    let harness: Harness;
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    test('groups Actions before Providers with counts and expanded disclosure buttons', () => {
+        panel.setScripts([...EXAMPLES], true);
+        const groups = [...document.querySelectorAll<HTMLElement>('.script-group')];
+        assert.deepStrictEqual(groups.map(g => g.dataset.group), ['actions', 'providers']);
+        assert.strictEqual(groupText('actions', '.script-group-label'), 'Actions');
+        assert.strictEqual(groupText('actions', '.script-group-count'), '3');
+        assert.strictEqual(groupText('providers', '.script-group-label'), 'Providers');
+        assert.strictEqual(groupText('providers', '.script-group-count'), '3');
+        const hdrs = [...document.querySelectorAll<HTMLButtonElement>('.script-group-hdr')];
+        assert.deepStrictEqual(hdrs.map(h => h.getAttribute('aria-expanded')), ['true', 'true']);
+        assert.strictEqual(hdrs[0].tagName, 'BUTTON', 'group headers are native keyboard-toggleable buttons');
+    });
+
+    test('hello.js is the first action card and each group is alphabetical', () => {
+        panel.setScripts(EXAMPLES, true);
+        const actionNames = [...document.querySelectorAll('.script-group[data-group="actions"] .script-name')]
+            .map(el => el.textContent);
+        assert.deepStrictEqual(actionNames, ['hello.js', 'verify-crc.js', 'write-pattern.js']);
+        const providerNames = [...document.querySelectorAll('.script-group[data-group="providers"] .script-name')]
+            .map(el => el.textContent);
+        assert.deepStrictEqual(providerNames, ['array-size-from-header.js', 'follow-pointer.js', 'verify-integrity.js']);
+    });
+
+    test('provider-only cards render Open and job-language chips, never a Run control', () => {
+        panel.setScripts([PROVIDER], true);
+        const card = cardFor(PROVIDER.filePath);
+        assert.strictEqual(card.dataset.kind, 'provider');
+        assert.strictEqual(card.querySelector('.script-run-btn'), null, 'no run button at all (not disabled, not hidden)');
+        assert.strictEqual(card.querySelector('.script-result-area'), null, 'providers own no run result area');
+        assert.strictEqual(card.querySelector('.sb-status-dot'), null, 'no run status on provider cards');
+        const chip = card.querySelector('.script-role')!;
+        assert.strictEqual(chip.textContent, 'Instance address');
+        assert.strictEqual(chip.getAttribute('data-role'), 'address');
+        click(dom, openBtn(PROVIDER.filePath));
+        assert.deepStrictEqual(cb.opens, [PROVIDER.filePath]);
+        assert.deepStrictEqual(cb.runs, []);
+    });
+
+    test('action cards keep Run/Cancel; both-kind cards keep Run plus provider chips', () => {
+        panel.setScripts([BOTH, SCRIPTS[0]], true);
+        const both = cardFor(BOTH.filePath);
+        assert.strictEqual(both.dataset.kind, 'both');
+        assert.ok(runBtn(BOTH.filePath), 'both-kind cards stay runnable');
+        assert.strictEqual(both.querySelector('.script-role')?.textContent, 'Integrity check');
+        startRun(dom, BOTH.filePath);
+        assert.deepStrictEqual(cb.runs, [{ path: BOTH.filePath, generation: 0, selection: undefined }]);
+        assert.strictEqual(cardFor(A).dataset.kind, 'action');
+        assert.ok(runBtn(A));
+    });
+
+    test('unknown-export cards get Open and an inspect hint, never a silent failing Run', () => {
+        panel.setScripts([UNKNOWN], true);
+        const card = cardFor(UNKNOWN.filePath);
+        assert.strictEqual(card.dataset.kind, 'unknown');
+        assert.strictEqual(card.querySelector('.script-run-btn'), null);
+        assert.ok(card.querySelector('.script-warn'), 'warning marker');
+        assert.strictEqual(card.querySelector('.script-inspect-hint')?.textContent, 'Inspect exports');
+        assert.match(card.querySelector('.script-inspect-hint')!.getAttribute('title')!, /@entry run/);
+        click(dom, openBtn(UNKNOWN.filePath));
+        assert.deepStrictEqual(cb.opens, [UNKNOWN.filePath]);
+        assert.deepStrictEqual(cb.runs, []);
+    });
+
+    test('an empty group renders nothing; group headers never start a run', () => {
+        panel.setScripts([PROVIDER], true);
+        assert.strictEqual(document.querySelector('.script-group[data-group="actions"]'), null);
+        assert.ok(document.querySelector('.script-group[data-group="providers"]'));
+        click(dom, document.querySelector('.script-group-hdr'));
+        assert.deepStrictEqual(cb.runs, []);
+        assert.deepStrictEqual(cb.cancels, []);
+    });
+
+    test('collapsing a group toggles aria-expanded and preserves its result areas', () => {
+        panel.setScripts(SCRIPTS, true);
+        panel.showResult(A, [{ label: 'CRC32', value: '0x1' }], [], '', undefined, 0);
+        const group = document.querySelector<HTMLElement>('.script-group[data-group="actions"]')!;
+        const hdr = group.querySelector<HTMLButtonElement>('.script-group-hdr')!;
+        click(dom, hdr);
+        assert.ok(group.classList.contains('collapsed'));
+        assert.strictEqual(hdr.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(cardFor(A).querySelector('.script-result-label')?.textContent, 'CRC32', 'result area survives collapse');
+        click(dom, hdr);
+        assert.ok(!group.classList.contains('collapsed'));
+        assert.strictEqual(hdr.getAttribute('aria-expanded'), 'true');
+    });
+
+    test('regrouping on a rescan moves result areas with their script', () => {
+        panel.setScripts(SCRIPTS, true);
+        panel.showResult(B, [{ label: 'Hello', value: 'Hex Scope' }], ['logged'], '', undefined, 0);
+        panel.setScripts([{ ...SCRIPTS[2], roles: ['integrity'] }, ...SCRIPTS.slice(0, 2)], true);
+        const card = cardFor(B);
+        assert.strictEqual(card.closest('.script-group')?.getAttribute('data-group'), 'actions');
+        assert.strictEqual(card.querySelector('.script-result-label')?.textContent, 'Hello', 'result kept across the rebuild');
+        assert.strictEqual(card.querySelector('.script-output-log')?.textContent, 'logged');
+    });
+
+    test('legacy payloads without hasRun stay runnable unless they declare a role', () => {
+        const legacyAction: ScriptInfo = { ...SCRIPTS[0], hasRun: undefined };
+        const legacyProvider: ScriptInfo = { name: 'legacy-provider.js', filePath: 'D:\\sample\\legacy-provider.js', capabilities: [], roles: ['size'], fingerprint: 'legacy' };
+        panel.setScripts([legacyAction, legacyProvider], true);
+        assert.ok(runBtn(A), 'role-less legacy scripts keep a Run button');
+        assert.strictEqual(cardFor(legacyProvider.filePath).querySelector('.script-run-btn'), null, 'role-bearing legacy scripts are providers');
     });
 });
 

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "Write summary, details, filtering, and last-run rendering."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Saved-edits correlation and panel-local state."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates and coverage."}

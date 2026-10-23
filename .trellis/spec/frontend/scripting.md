@@ -30,6 +30,9 @@ interface ScriptInfo {
     capabilities: string[];
     roles: ScriptRole[];
     fingerprint: string;
+    hasRun?: boolean;       // scan-time `run` export detection; absent = legacy payload
+    runExplicit?: boolean;  // explicit `@entry run` header override
+    relativePath?: string;
 }
 
 type ScriptRole = 'integrity' | 'address' | 'size';
@@ -141,6 +144,21 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - Role discovery uses `@script integrity|address|size` header tags parsed from the first
   2048 bytes. Discovery never compiles or executes user code; the exported function name is
   the call contract
+- **Run discovery** uses the same 2 KB header with comments stripped first:
+  `export function run`, `export async function run`, `export const|let|var run =`,
+  `module.exports = { … run … }`, `exports.run =`. `@entry run` is an explicit override for
+  unusual export syntax. `ScriptInfo.hasRun` carries the result; `runExplicit` marks the
+  override. A commented-out export must never classify a script as runnable
+- **Kinds** (webview): `action` = `hasRun` only, `provider` = roles without `hasRun`, `both` =
+  both, `unknown` = neither. Legacy payloads without `hasRun` fall back to
+  `roles.length === 0` (role-less scripts stay runnable)
+- **Panel layout**: `Actions` group first, then `Providers`; alphabetical inside each group,
+  collapsible buttons with counts and `aria-expanded`, session-local collapse state. Grouping
+  and sorting are presentation-only and never duplicate a card (`both` stays in Actions)
+- Provider-only and unknown cards render no `.script-run-btn` at all (not disabled, not
+  hidden), so no code path can trigger the "must export run" error. Providers offer Open +
+  job-language role chips (`Instance address`, `Array size`, `Integrity check`; raw role stays
+  in `data-role`). Unknown cards offer Open + an `Inspect exports` hint
 - `executeEntry()` shares compile, Worker, timeout, cancellation, output, and trust with
   `execute()`; there is no second runner. `run` has no value contract; role entries return a
   structured-clone-safe value normalized by `normalizeScriptValue`
@@ -183,7 +201,12 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 |---|---|
 | Script file not found | `ScriptOutput.error` set, logs the error |
 | .ts but esbuild unavailable | Error: "Use .js or install esbuild" |
-| Script exports no `run` function | Error: "Script must export a 'run' function" |
+| Script exports no `run` function | Error: "Script must export a 'run' function" (host/command path only; the panel never offers Run for a known provider) |
+| Role-only script in the panel | Provider card: Open + job chip, no Run control |
+| Script with role + `run` | Both card: Run/Cancel + job chip, listed under Actions |
+| Script with neither role nor detected `run` | Unknown card: Open + `Inspect exports`, no Run |
+| `@entry run` header present | Treated as runnable even when the export scan cannot see the entry |
+| `run` export appears only in comments | Not runnable (comment-stripped scan) |
 | Script times out | Error with timeout message, `errorType: 'timeout'` |
 | Script throws | Error caught, message in `ScriptOutput.error`, `errorType: 'runtime'` |
 | Role export missing or not a function | `errorType: 'contract'`, message names the entry |
@@ -231,7 +254,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'addExampleScripts' }
 
 // Provider → Webview
-| { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[]; roles: string[]; fingerprint: string }>; trusted: boolean }
+| { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[]; roles: string[]; fingerprint: string; hasRun?: boolean; runExplicit?: boolean; relativePath?: string }>; trusted: boolean }
 | { type: 'scriptResult'; scriptPath: string; result: ScriptOutput | null; error: string; errorType?: ScriptErrorType; pendingWriteCount: number; discardedWriteCount?: number }
 | { type: 'instanceParamsResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceParamResult[] }
 | { type: 'instanceAddressesResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceAddressResult[] }
@@ -248,7 +271,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 
 ```
 ┌──────────────────────────────────────┐
-│ filename.ts        .ts   ●  [▶]     │  ← card-info row
+│ filename.ts        .ts   ●  [▶]     │  ← action card-info row
 │──────────────────────────────────────│
 │  ▶ Result — filename.ts              │  ← result header (collapsible)
 │  ┌──────────────────────────────────┐│
@@ -256,15 +279,23 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 │  │ Done                            ││  ← output log
 │  └──────────────────────────────────┘│
 └──────────────────────────────────────┘
+
+ACTIONS (3)                         ← group button, count, aria-expanded
+  hello.js                .js  [▶] [✎]
+PROVIDERS (3)                       ← group button, count, aria-expanded
+  follow-pointer.js  Instance address  .js  [✎]
 ```
 
 | Element | Details |
 |---------|---------|
+| Group header | Native button, label + count, caret rotates when open, `aria-expanded`; collapse is CSS-only so result areas survive |
 | Filename | Left-aligned, truncated with ellipsis, file path in tooltip |
 | Extension badge | `.js` or `.ts`, small pill, uppercase |
-| Status dot | ● green (last run succeeded), ● red (last run errored), ● gray (never run) |
-| Run/Cancel button | Right-aligned, fixed-width slot (no layout shift) |
-| Result area | Embedded below card-info, separated by a border line |
+| Status dot | Actions/both only: ● green (last run succeeded), ● red (last run errored), ● gray (never run). Providers/unknown have no run status |
+| Role chip | Job language (`Instance address`, `Array size`, `Integrity check`), raw role in `data-role`; also shown on a both-kind card |
+| Unknown marker | Warning glyph + `Inspect exports` hint; Open is the only action |
+| Run/Cancel button | `.script-run-btn` exists only on action/both cards, right-aligned, fixed-width slot |
+| Result area | Embedded below card-info on runnable cards only |
 
 #### Button state machine
 
@@ -279,6 +310,15 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - After 200ms, Stop icon appears — user can cancel
 - On completion/error/timeout/cancel, reverts to Play
 - No text labels — icons only, fixed min-width button
+
+#### Card actions by kind
+
+| Kind | Primary | Secondary | Forbidden |
+|------|---------|-----------|-----------|
+| Action | Run / Cancel | Open, result collapse | — |
+| Provider | Open | Role chip (job language) | Run |
+| Both | Run / Cancel | Open, role chips | — |
+| Unknown | Open | `Inspect exports` hint | Run |
 
 #### Result block behavior
 
@@ -341,7 +381,7 @@ Apply & Save / Discard control.
 | D6 | TS file when esbuild missing | Show with disabled Run button + tooltip |
 | D7 | Cancellation mechanism | `worker.terminate()` via `AbortController` |
 | D8 | Cancel result behavior | Keep previous results; partial + banner if no prior run |
-| D9 | Script ordering | Alphabetical by filename |
+| D9 | Script ordering | Actions group first (alphabetical), then Providers (alphabetical); collapsible groups |
 | D10 | List refresh | On tab activation + manual Refresh button |
 | D11 | Result persistence | In-memory (DOM), survives tab switches, not page reload |
 | D12 | Run history | One result per card, replaced on re-run |
@@ -368,6 +408,9 @@ Apply & Save / Discard control.
 | D33 | Write commit | Staged during the run, committed on clean completion via `scriptWritesCommit` |
 | D34 | Write undo | Commit is one `stageIntegrityEditTransaction`; Ctrl+Z restores pre-run bytes |
 | D35 | Pre-run gate | Removed — capabilities stay as card badges; per-command prompt is the only ask |
+| D36 | Script classification | Scan-time `hasRun` + roles → action/provider/both/unknown; no execution during scan |
+| D37 | Provider Run control | Structurally absent from provider/unknown cards — never disabled or hidden |
+| D38 | `@entry run` | Explicit override for run entries the source scan cannot recognise |
 
 ### 9. Gotchas
 
@@ -485,12 +528,15 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
 
 - `src/test/core/scriptingRunner.test.ts` - core runner with mock ScriptHost, compile + execute round-trip
 - Named entries: sync/async contract exports, missing export, invalid value, byte transport, context
-- Scanning: role tags, `.d.ts` exclusion, non-recursive subdirectory handling
+- Scanning: role tags, `.d.ts` exclusion, non-recursive subdirectory handling, `hasRun`
+  detection for every accepted export form, comment-stripped false positives, `@entry run`
 - `src/test/extension/instanceAddressRunner.test.ts`: batched `getAddress` / `getSize` context/document size, edits overlay, invalid/oversized values, partial failure isolation, missing script/export, untrusted block, batch bound, workspace-relative address and parameter sources
 - `src/test/core/scriptPermissions.test.ts` - scope matrix, `*` breadth, fingerprint invalidation,
   workspace persistence + revocation, `exec` workspace downgrade, response validation
 - `src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts` - prompt DOM (scope
-  options, Escape, focus return, one-at-a-time, result/cancel close), Permissions list, writes notice
+  options, Escape, focus return, one-at-a-time, result/cancel close), Permissions list, writes
+  notice, action/provider/both/unknown cards, no `.script-run-btn` on providers/unknown,
+  group order/counts/collapse, result-area preservation across regrouping
 - Protocol tests: new message types tested in `webviewMessageModel.test.ts`
 - Integration: manual test with sample .js/.ts scripts run from sidebar
 - `src/test/core/scriptingExamples.test.ts` - catalog shape, install manifest ↔ catalog parity,
