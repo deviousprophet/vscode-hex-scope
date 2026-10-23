@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "New/empty-state actions and panel tests."}
-{"file": ".trellis/spec/frontend/editor-lifecycle.md", "reason": "Command registration and workspace activation without an editor."}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates and coverage."}
