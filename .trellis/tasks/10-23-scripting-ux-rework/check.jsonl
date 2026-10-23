@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Cross-child gates and test coverage."}
-{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "Panel contract after the rework."}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Protocol additions and state ownership."}
