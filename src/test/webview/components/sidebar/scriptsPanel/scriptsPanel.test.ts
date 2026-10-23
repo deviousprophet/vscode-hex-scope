@@ -30,6 +30,7 @@ type RevokeAll = { scope?: string; scriptPath?: string };
 
 type Cb = {
     requested: number;
+    browsed: number;
     added: number;
     created: Array<ScriptTemplateId | undefined>;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
@@ -153,13 +154,14 @@ function installDom(): Harness {
     });
 
     const cb: Cb = {
-        requested: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [],
+        requested: 0, browsed: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [],
         copies: [], reveals: [], deletes: [], jsVersions: [], guides: 0, selectedUsages: [],
     };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
         onRequestList: () => { cb.requested++; },
+        onBrowseExampleScripts: () => { cb.browsed++; },
         onAddExampleScripts: () => { cb.added++; },
         onCreateScript: template => { cb.created.push(template); },
         onRunScript: (scriptPath, gen, selectionRange) => {
@@ -263,31 +265,27 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(document.getElementById('scripts-refresh'));
         assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-btn-secondary'), 'refresh rides sb-btn-secondary');
         assert.ok(document.getElementById('scripts-refresh')!.classList.contains('sb-section-action'), 'refresh is a compact header action');
-        assert.ok(document.getElementById('scripts-add-examples'), 'header exposes the catalog install action');
+        assert.strictEqual(document.getElementById('scripts-add-examples'), null, 'no separate header install action');
         const badge = document.querySelector<HTMLElement>('#s-scripts .sb-badge')!;
         assert.ok(badge, 'framework badge span exists');
         assert.ok(badge.hidden, 'count badge hidden when no scripts');
     });
 
-    test('empty state offers the "Add example scripts" action', () => {
-        const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-add-examples]');
-        assert.ok(btn, 'empty-state install button exists');
-        assert.strictEqual(btn!.textContent?.trim(), 'Add example scripts');
+    test('empty state offers the "Browse examples\u2026" action', () => {
+        const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-browse-examples]');
+        assert.ok(btn, 'empty-state browse button exists');
+        assert.strictEqual(btn!.textContent?.trim(), 'Browse examples\u2026');
         assert.strictEqual(btn!.tagName, 'BUTTON', 'a native button is the keyboard entry point');
-        cb.added = 0;
+        assert.strictEqual(document.querySelector('.script-empty [data-add-examples]'), null, 'no bulk install button in the empty state');
+        cb.browsed = 0;
         click(dom, btn);
-        assert.strictEqual(cb.added, 1, 'empty-state action reports onAddExampleScripts');
-        assert.strictEqual(cb.requested, 0, 'installing is not a list refresh');
+        assert.strictEqual(cb.browsed, 1, 'empty-state action reports onBrowseExampleScripts');
+        assert.strictEqual(cb.requested, 0, 'browsing is not a list refresh');
     });
 
-    test('header add action reports onAddExampleScripts', () => {
-        const btn = document.getElementById('scripts-add-examples')!;
-        assert.ok(btn.classList.contains('sb-btn-secondary'), 'install rides sb-btn-secondary');
-        assert.ok(btn.classList.contains('sb-section-action'), 'install is a compact header action');
-        assert.strictEqual(btn.getAttribute('aria-label'), 'Add example scripts');
-        cb.added = 0;
-        click(dom, btn);
-        assert.strictEqual(cb.added, 1);
+    test('header has no separate install action', () => {
+        assert.strictEqual(document.getElementById('scripts-add-examples'), null);
+        assert.ok(document.getElementById('scripts-refresh'), 'Refresh remains the header action');
     });
 
     test('refresh button reports onRequestList', () => {
@@ -313,7 +311,7 @@ suite('ScriptsPanel mount + render', () => {
         click(dom, caret);
         assert.strictEqual(popup.hidden, false, 'caret opens the chooser');
         assert.strictEqual(caret.getAttribute('aria-expanded'), 'true');
-        const options = Array.from(popup.querySelectorAll<HTMLElement>('.script-new-option'));
+        const options = Array.from(popup.querySelectorAll<HTMLElement>('.script-new-option[data-template]'));
         assert.deepStrictEqual(options.map(option => option.dataset.template), ['action', 'integrity', 'address', 'size']);
         assert.deepStrictEqual(options.map(option => option.textContent?.trim()), [
             'New action script', 'New integrity check', 'New instance address script', 'New array size script',
@@ -328,7 +326,56 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(popup.hidden, 'choosing closes the chooser');
     });
 
-    test('empty state offers Create script next to Add example scripts', () => {
+    test('New caret menu lists the catalog actions under a separator', () => {
+        const caret = document.getElementById('scripts-new-menu')!;
+        const popup = document.querySelector<HTMLElement>('.script-new-popup')!;
+        click(dom, caret);
+        const rows = Array.from(popup.querySelectorAll<HTMLElement>('[data-example-action]'));
+        assert.deepStrictEqual(rows.map(row => row.dataset.exampleAction), ['browse', 'all']);
+        assert.deepStrictEqual(rows.map(row => row.textContent?.trim()), ['Browse examples\u2026', 'Add all examples']);
+        const children = Array.from(popup.children);
+        const sepIdx = children.findIndex(child => child.classList.contains('script-new-sep'));
+        assert.ok(sepIdx >= 0, 'a separator row exists');
+        assert.strictEqual(children[sepIdx].getAttribute('role'), 'separator');
+        assert.strictEqual(sepIdx, 4, 'the catalog rows follow the four templates');
+        assert.strictEqual(children.length, 7, 'four templates + separator + two catalog rows');
+
+        cb.browsed = 0;
+        click(dom, rows[0]);
+        assert.strictEqual(cb.browsed, 1, 'Browse examples reports onBrowseExampleScripts');
+        assert.deepStrictEqual(cb.created, [], 'catalog rows never create from a template');
+        assert.ok(popup.hidden, 'choosing a catalog row closes the chooser');
+
+        cb.added = 0;
+        click(dom, caret);
+        click(dom, rows[1]);
+        assert.strictEqual(cb.added, 1, 'Add all examples reports onAddExampleScripts');
+        assert.deepStrictEqual(cb.created, [], 'the bulk row never creates from a template');
+        assert.ok(popup.hidden, 'choosing closes the chooser');
+    });
+
+    test('New caret menu closes on an outside click and toggles from the caret alone', () => {
+        const caret = document.getElementById('scripts-new-menu')!;
+        const popup = document.querySelector<HTMLElement>('.script-new-popup')!;
+        click(dom, caret);
+        assert.strictEqual(popup.hidden, false, 'caret opens the chooser');
+        assert.deepStrictEqual(cb.created, [], 'opening the caret creates nothing');
+        assert.strictEqual(cb.browsed, 0, 'opening the caret browses nothing');
+        assert.strictEqual(cb.added, 0, 'opening the caret installs nothing');
+
+        // The shared section header stops clicks on its actions, so the outside
+        // click must land on the panel body (a real user click away from the menu).
+        click(dom, document.body);
+        assert.ok(popup.hidden, 'a click outside the chooser closes it');
+        assert.strictEqual(caret.getAttribute('aria-expanded'), 'false', 'aria-expanded follows the outside close');
+
+        click(dom, caret);
+        assert.strictEqual(popup.hidden, false, 'the caret reopens after an outside close');
+        click(dom, caret);
+        assert.ok(popup.hidden, 'the caret alone toggles the chooser shut');
+    });
+
+    test('empty state offers Create script next to Browse examples', () => {
         const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-create-script]')!;
         assert.ok(btn, 'empty-state create button exists');
         assert.strictEqual(btn.textContent?.trim(), 'Create script');
@@ -337,7 +384,7 @@ suite('ScriptsPanel mount + render', () => {
         click(dom, btn);
         assert.deepStrictEqual(cb.created, [undefined], 'the host asks which template to use');
         assert.strictEqual(cb.requested, 0, 'creating is not a list refresh');
-        assert.strictEqual(cb.added, 0, 'creating never installs examples');
+        assert.strictEqual(cb.browsed, 0, 'creating never opens the example picker');
     });
 
     test('render is idempotent: re-render keeps a single shell', () => {
@@ -345,10 +392,11 @@ suite('ScriptsPanel mount + render', () => {
         assert.strictEqual(document.querySelectorAll('#s-scripts').length, 1);
         assert.strictEqual(document.querySelectorAll('#s-scripts .sb-section').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-refresh').length, 1);
-        assert.strictEqual(document.querySelectorAll('#scripts-add-examples').length, 1);
+        assert.strictEqual(document.querySelectorAll('#scripts-add-examples').length, 0, 'no separate header install action');
         assert.strictEqual(document.querySelectorAll('#scripts-new').length, 1);
         assert.strictEqual(document.querySelectorAll('.script-new-popup').length, 1);
-        assert.strictEqual(document.querySelectorAll('[data-add-examples]').length, 1, 'one empty-state install action');
+        assert.strictEqual(document.querySelectorAll('[data-example-action]').length, 2, 'one browse + one bulk row in the New menu');
+        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 1, 'one empty-state browse action');
     });
 });
 
@@ -393,15 +441,15 @@ suite('ScriptsPanel setScripts', () => {
         assert.ok(badge().hidden);
     });
 
-    test('empty-state install action follows the script list', () => {
+    test('empty-state browse action follows the script list', () => {
         panel.setScripts(SCRIPTS, true);
-        assert.strictEqual(document.querySelectorAll('[data-add-examples]').length, 0, 'no install action while scripts exist');
+        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'no browse action while scripts exist');
         panel.setScripts([], true);
-        const btn = document.querySelector<HTMLButtonElement>('[data-add-examples]')!;
-        assert.ok(btn, 'install action returns with the empty state');
-        cb.added = 0;
+        const btn = document.querySelector<HTMLButtonElement>('[data-browse-examples]')!;
+        assert.ok(btn, 'browse action returns with the empty state');
+        cb.browsed = 0;
         click(dom, btn);
-        assert.strictEqual(cb.added, 1, 're-rendered empty state stays wired');
+        assert.strictEqual(cb.browsed, 1, 're-rendered empty state stays wired');
     });
 
     test('untrusted workspace disables run buttons with tooltip', () => {

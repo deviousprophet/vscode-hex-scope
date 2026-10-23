@@ -51,7 +51,9 @@ export interface ScriptsCallbacks {
     onRevokeScriptPermission?: (scope: ScriptGrantScope, scriptPath: string, capability: ScriptCapabilityGrant) => void;
     /** Bulk revoke: one script (scriptPath) or one scope class (workspace/session); host posts revokeAllScriptPermissions. */
     onRevokeAllScriptPermissions?: (scope?: ScriptGrantScope, scriptPath?: string) => void;
-    /** Copy the bundled example catalog: host posts addExampleScripts (or runs the command). */
+    /** Selective example install: host posts browseExampleScripts (checked catalog rows only). */
+    onBrowseExampleScripts?: () => void;
+    /** Bulk example install (New menu's "Add all examples"): host posts addExampleScripts. */
     onAddExampleScripts?: () => void;
     /** Create a script from a template; without a template the host asks which one. */
     onCreateScript?: (template?: ScriptTemplateId) => void;
@@ -317,19 +319,37 @@ export class ScriptsPanel {
                 <button type="button" id="scripts-new" class="sb-btn sb-btn-secondary script-new-btn"
                     title="Create a script from a template">\uFF0B New</button>
                 <button type="button" id="scripts-new-menu" class="sb-btn sb-btn-secondary script-new-caret"
-                    aria-haspopup="true" aria-expanded="false" title="Choose a template" aria-label="Choose a template">\u25BE</button>
+                    aria-haspopup="true" aria-expanded="false" title="New script or example" aria-label="New script or example">\u25BE</button>
             </span>
-            <div class="script-new-popup" role="menu" hidden>${options}</div>
+            <div class="script-new-popup" role="menu" hidden>${options}
+                <div class="script-new-sep" role="separator"></div>
+                <button type="button" class="script-new-option" role="menuitem" data-example-action="browse"
+                    title="Copy selected bundled examples">Browse examples\u2026</button>
+                <button type="button" class="script-new-option" role="menuitem" data-example-action="all"
+                    title="Copy the whole bundled catalog">Add all examples</button>
+            </div>
         </div>`;
     }
 
     private wireNewBar(body: HTMLElement): void {
         body.querySelector('#scripts-new')?.addEventListener('click', () => this.cb.onCreateScript?.());
         body.querySelector('#scripts-new-menu')?.addEventListener('click', () => this.toggleNewMenu());
-        body.querySelectorAll<HTMLElement>('.script-new-option').forEach(option => {
+        body.querySelectorAll<HTMLElement>('.script-new-option[data-template]').forEach(option => {
             option.addEventListener('click', () => {
                 this.setNewMenu(false);
                 this.cb.onCreateScript?.(option.dataset.template as ScriptTemplateId | undefined);
+            });
+        });
+        const exampleActions: Record<string, () => void> = {
+            browse: () => this.cb.onBrowseExampleScripts?.(),
+            all: () => this.cb.onAddExampleScripts?.(),
+        };
+        body.querySelectorAll<HTMLElement>('[data-example-action]').forEach(row => {
+            const action = exampleActions[row.dataset.exampleAction ?? ''];
+            if (!action) { return; }
+            row.addEventListener('click', () => {
+                this.setNewMenu(false);
+                action();
             });
         });
     }
@@ -385,11 +405,8 @@ export class ScriptsPanel {
         return popup.contains(node) || Boolean(caret?.contains(node));
     }
 
-    /** Framework header actions: add the bundled examples, then rescan (compact controls, mounted once). */
+    /** Framework header actions: the list refresh (compact controls, mounted once). */
     private mountToolbarActions(root: HTMLElement): void {
-        root.appendChild(this.toolbarButton(
-            'scripts-add-examples', 'Add example scripts', '+', () => this.cb.onAddExampleScripts?.(),
-        ));
         root.appendChild(this.toolbarButton(
             'scripts-refresh', 'Refresh script list', '\u21BB', () => this.cb.onRequestList?.(),
         ));
@@ -701,8 +718,8 @@ export class ScriptsPanel {
         <div>No scripts found in .hexscope/scripts/</div>
         <button type="button" class="sb-btn sb-btn-secondary script-create" data-create-script
             title="Create a script from a template">Create script</button>
-        <button type="button" class="sb-btn sb-btn-secondary script-add-examples" data-add-examples
-            title="Copy the bundled example scripts into .hexscope/scripts/">Add example scripts</button>
+        <button type="button" class="sb-btn sb-btn-secondary script-browse-examples" data-browse-examples
+            title="Copy selected bundled examples">Browse examples\u2026</button>
     </div>`;
         }
         const { actions, providers } = this.groupedScripts();
@@ -836,8 +853,8 @@ export class ScriptsPanel {
     }
 
     private wireScriptList(container: HTMLElement): void {
-        container.querySelectorAll<HTMLButtonElement>('[data-add-examples]').forEach(btn => {
-            btn.addEventListener('click', () => this.cb.onAddExampleScripts?.());
+        container.querySelectorAll<HTMLButtonElement>('[data-browse-examples]').forEach(btn => {
+            btn.addEventListener('click', () => this.cb.onBrowseExampleScripts?.());
         });
         container.querySelectorAll<HTMLButtonElement>('[data-create-script]').forEach(btn => {
             btn.addEventListener('click', () => this.cb.onCreateScript?.());

@@ -5,8 +5,8 @@
 ### Added
 - `HexScope: Manage Scripts` opens without a hex document and lists Actions and Providers (picking one opens the file) alongside New action / integrity / address / size templates, **Browse examples…** (multi-select), **Add all examples**, a host-side **Manage permissions…** revoke picker, **Open scripts folder**, and **Reveal a script in Explorer…**
 - Script creation from templates: a file name is suggested, duplicates are refused with a clear message (never overwritten), writes require a trusted workspace, the new script opens immediately, and it appears in the matching group without a manual refresh
-- The Scripts panel gains a **＋ New** split button (template picker) and an empty-state **Create script** action; empty Overlay/Integrity provider pickers now offer **Create … script** and **Open scripts folder** instead of a dead option
-- Example installation can be selective: **Browse examples…** copies only the checked catalog rows and still skips existing files
+- The Scripts panel gains a **＋ New** split button whose caret menu lists the four templates plus **Browse examples…** (selective) and **Add all examples**, and an empty state with **Create script** + **Browse examples…**; empty Overlay/Integrity provider pickers now offer **Create … script** and **Open scripts folder** instead of a dead option
+- Example installation can be selective: **Browse examples…** (New menu, empty state, and the manager) copies only the checked catalog rows and still skips existing files
 - Role scripts: declare `@script integrity`, `@script address`, or `@script size` and export typed entries (`verifyIntegrity`, `getIntegrityValue`, `getAddress`, `getSize`) that receive `api.context`
 - Script-backed integrity checks that can verify a range, provide replacement bytes, or both, with optional auto-fix and row-level errors
 - Script-resolved struct instance addresses with explicit refresh plus resolving, stale, and error states

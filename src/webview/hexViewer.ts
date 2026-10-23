@@ -499,6 +499,7 @@ const scriptsPanel = new ScriptsPanel({
     onRevokeAllScriptPermissions: (scope, scriptPath) =>
         postProviderMessage({ type: 'revokeAllScriptPermissions', scope, scriptPath }),
     onAddExampleScripts: () => postProviderMessage({ type: 'addExampleScripts' }),
+    onBrowseExampleScripts: () => postProviderMessage({ type: 'browseExampleScripts' }),
     onCreateScript: template => postProviderMessage({ type: 'createScript', template }),
     onCopyPath: scriptPath => postProviderMessage({ type: 'copyText', text: scriptPath, label: 'Script path' }),
     onRevealScript: scriptPath => postProviderMessage({ type: 'revealScript', scriptPath }),

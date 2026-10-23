@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/components/component-sidebar-scripts-panel.md", "reason": "Verify the consolidated entry points, callbacks, and tests."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify gates and coverage."}

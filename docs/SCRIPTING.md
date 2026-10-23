@@ -49,9 +49,11 @@ and Providers (picking one opens the file) and offers:
 - **Delete a script…** — shows a script picker, asks for a modal confirmation, then permanently removes the file and revokes that script's stored permissions (only offered when scripts exist).
 
 The Scripts panel has the same creation path: the **＋ New** split button opens the template
-picker, its caret lists the four templates directly, and the empty state has a **Create
-script** button. Empty provider pickers in the Overlay and Integrity panels offer **Create …
-script** and **Open scripts folder** next to their disabled placeholder.
+picker, and its caret menu lists the four templates plus **Browse examples…** and **Add all
+examples** (see [Start from an example](#start-from-an-example)). The empty state has a
+**Create script** button and a **Browse examples…** button. Empty provider pickers in the
+Overlay and Integrity panels offer **Create … script** and **Open scripts folder** next to
+their disabled placeholder.
 
 Creation asks for a file name (prefilled by the template), refuses names that are not a
 plain `.js`/`.ts` file, never overwrites an existing file (a clear message names the
@@ -62,9 +64,9 @@ matching group without a manual refresh.
 ## Start from an example
 
 **HexScope: Add Example Scripts** copies a working catalog into `.hexscope/scripts/`
-(also reachable from the Scripts panel: the **+** header action and the empty-state
-**Add example scripts** button, and from **HexScope: Manage Scripts** as **Add all
-examples**). The command:
+(also reachable from the Scripts panel's **＋ New** caret menu as **Add all examples**, and
+from **HexScope: Manage Scripts** as **Add all examples**). The panel's empty state and New
+menu also offer **Browse examples…** for a selective copy — see below. The command:
 
 - refuses to run in an untrusted workspace,
 - creates `.hexscope/scripts/` and `.hexscope/scripts/types/` as needed,

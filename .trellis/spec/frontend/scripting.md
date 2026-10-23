@@ -302,6 +302,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'revokeScriptPermission'; scope: ScriptGrantScope; scriptPath: string; capability: ScriptCapabilityGrant }
 | { type: 'revokeAllScriptPermissions'; scope?: ScriptGrantScope; scriptPath?: string }
 | { type: 'addExampleScripts' }
+| { type: 'browseExampleScripts' }
 | { type: 'createScript'; template?: ScriptTemplateId }
 | { type: 'openScriptsFolder' }
 | { type: 'revealScript'; scriptPath: string }
@@ -402,17 +403,20 @@ Scripts (3)  [↻]
 - Replaces the `sb-section` collapsible pattern inherited from Inspector
 - Shows script count badge
 - Refresh ↻ button re-scans `.hexscope/scripts/` directory
+- A `.script-new-bar` above the list holds the **＋ New** split button: the primary reports `onCreateScript()` (host template picker), the caret toggles `.script-new-popup` with the four templates, a separator, then **Browse examples…** (`onBrowseExampleScripts`) and **Add all examples** (`onAddExampleScripts`)
 - Single section pane (fills the panel, no sash) — the section header toggles the whole pane like every other sidebar section
 
 #### Empty state
 
 ```
 No scripts found in .hexscope/scripts/
-[Create script]  [Add example scripts]
+[Create script]  [Browse examples…]
 ```
 
 The path tells the user where to create files; **Create script** reports `onCreateScript()`
-(the host asks which template) and **Add example scripts** reports `onAddExampleScripts`.
+(the host asks which template) and **Browse examples…** reports `onBrowseExampleScripts`
+(selective catalog picker). Both report via callbacks — the component never runs the copy
+or builds template bodies.
 
 #### Output streaming
 

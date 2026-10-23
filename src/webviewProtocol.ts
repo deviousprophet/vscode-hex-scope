@@ -238,6 +238,8 @@ export type WebviewToProviderMessage =
     | { type: 'revokeScriptPermission'; scope: ScriptGrantScope; scriptPath: string; capability: ScriptCapabilityGrant }
     | { type: 'revokeAllScriptPermissions'; scope?: ScriptGrantScope; scriptPath?: string }
     | { type: 'addExampleScripts' }
+    /** Selective example install (Scripts panel New menu): copy only the catalog rows the user checks. */
+    | { type: 'browseExampleScripts' }
     /** Create a script from a template; without `template` the host asks which one. */
     | { type: 'createScript'; template?: ScriptTemplateId }
     /** Reveal `.hexscope/scripts` (empty provider pickers). */

@@ -64,7 +64,7 @@ import { VSCodeScriptHost, scriptWritePlan } from './scriptHost';
 import { scriptGrantStoreFor, ScriptPermissionBroker, type ScriptGrantStore } from './scriptPermissions';
 import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths } from './integrityScriptRunner';
 import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
-import { addExampleScriptsAt, openScriptingGuide } from './addExampleScripts';
+import { addExampleScriptsAt, extensionBrowseDeps, openScriptingGuide, runBrowseExampleScripts } from './addExampleScripts';
 import { confirmDeleteScript, createJsVersion, deleteScriptFile, hostCreateDeps, hostJsVersionDeps, openScriptsFolder, requestCreateScript, runPanelDeleteScript } from './manageScripts';
 import { createScriptsWatcher } from './scriptWatcher';
 
@@ -1346,6 +1346,14 @@ export class HexEditorSession {
                 // The panel's root is the same one requestScriptList scans; install there,
                 // then rescan so the new cards appear without a manual refresh.
                 const installed = await addExampleScriptsAt(root, this._context);
+                if (installed && installed.added.length > 0) {
+                    await messageHandlers.requestScriptList?.({ type: 'requestScriptList' });
+                }
+            },
+            browseExampleScripts: async () => {
+                // Selective install (panel New menu): the picker copies only the checked
+                // catalog rows, then the same rescan makes the new cards appear.
+                const installed = await runBrowseExampleScripts(extensionBrowseDeps(this._context, root));
                 if (installed && installed.added.length > 0) {
                     await messageHandlers.requestScriptList?.({ type: 'requestScriptList' });
                 }
