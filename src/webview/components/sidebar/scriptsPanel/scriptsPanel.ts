@@ -28,6 +28,8 @@ export interface ScriptsCallbacks {
     onRunScript?: (scriptPath: string, generation: number, selectionRange?: { start: number; end: number }) => void;
     /** Cancel: host posts cancelScript. */
     onCancelScript?: (scriptPath: string) => void;
+    /** Open the script file in the editor; independent of run state. */
+    onOpenScript?: (scriptPath: string) => void;
     /** Inline permission decision: host posts scriptPermissionResponse. */
     onScriptPermissionDecision?: (
         requestId: number,
@@ -338,6 +340,8 @@ export class ScriptsPanel {
                 ${roleBadges}
                 ${capBadges}
                 ${extBadge}
+                <button class="script-open-btn sb-btn sb-btn-secondary" data-path="${esc(s.filePath)}"
+                    title="Open ${esc(s.name)}" aria-label="Open ${esc(s.name)}">&#9998;</button>
                 <button class="script-run-btn sb-btn sb-btn-primary${attrs.btnClass}" data-path="${esc(s.filePath)}" aria-label="Run script"${attrs.btnDisabled}${attrs.btnTitle}>
                     ${this.runIconHtml(s.filePath)}
                 </button>
@@ -364,6 +368,13 @@ export class ScriptsPanel {
     private wireScriptList(container: HTMLElement): void {
         container.querySelectorAll<HTMLButtonElement>('[data-add-examples]').forEach(btn => {
             btn.addEventListener('click', () => this.cb.onAddExampleScripts?.());
+        });
+        container.querySelectorAll<HTMLButtonElement>('.script-open-btn').forEach(btn => {
+            btn.addEventListener('click', ev => {
+                ev.stopPropagation();
+                const path = btn.dataset.path;
+                if (path !== undefined) { this.cb.onOpenScript?.(path); }
+            });
         });
         container.querySelectorAll<HTMLButtonElement>('.script-run-btn:not(.disabled-ts):not(.disabled-trust)').forEach(btn => {
             btn.addEventListener('click', () => this.onRunBtnClick(btn));

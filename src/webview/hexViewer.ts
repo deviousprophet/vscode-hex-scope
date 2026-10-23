@@ -479,6 +479,7 @@ const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
     onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
+    onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onScriptPermissionDecision: (requestId, decision, scope, capability) =>
         postProviderMessage({ type: 'scriptPermissionResponse', requestId, decision, scope, capability }),
     onRevokeScriptPermission: (scriptPath, capability) =>

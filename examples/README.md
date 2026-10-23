@@ -2,7 +2,8 @@
 
 Working starting points for every supported scripting surface. All examples use
 only the public `HexScopeAPI`; adapt the placeholder addresses and constants at
-the top of each file to your firmware.
+the top of each file to your firmware. `hello.js` is the minimal manual script;
+the role examples show the optional `address`, `size`, and `integrity` entries.
 
 ## Install
 
@@ -14,6 +15,7 @@ button). The command copies these files into your workspace:
 .hexscope/
 └── scripts/
     ├── types/hexscope.d.ts
+    ├── hello.js
     ├── verify-crc.js
     ├── write-pattern.js
     ├── follow-pointer.js
@@ -32,6 +34,7 @@ panel. There is no pre-run gate.
 
 | File | Role / capability | Demonstrates | Adapt |
 |------|-------------------|--------------|-------|
+| `hello.js` | `run` | The minimal manual script: `run(api)`, `setResult`, `output` | none |
 | `verify-crc.js` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
 | `write-pattern.js` | `run`, `@requires write` | One inline approval, staged writes, auto-save and undo | `START`, `PATTERN` |
 | `follow-pointer.js` | `@script address` → `getAddress` | Reading a pointer and returning it as an instance address | `POINTER_AT` |

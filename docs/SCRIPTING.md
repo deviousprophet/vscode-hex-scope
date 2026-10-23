@@ -12,6 +12,7 @@ your-workspace/
     └── scripts/
         ├── types/
         │   └── hexscope.d.ts
+        ├── hello.js
         ├── verify-crc.js
         ├── verify-signature.ts
         ├── pattern-scan.js
@@ -26,7 +27,7 @@ All scripts live under `.hexscope/scripts/` relative to the workspace root. Both
 2. Add a `.ts` or `.js` file that exports a `run` function
 3. Open a HEX file in Hex Scope (the editor must have an active document)
 4. Click the **Scripts** tab in the sidebar, or press `Ctrl+Shift+P` and run the `HexScope: Run Script` command
-5. The sidebar shows all discovered scripts with a **Run** button next to each
+5. The sidebar shows all discovered scripts with a **Run** button next to each; use the pencil button to open a script for editing
 6. Click **Run** — output and results appear below the script list
 
 The script list refreshes when you switch to the Scripts tab. If no scripts appear, verify the `.hexscope/scripts/` path is correct and your workspace root is set in VS Code.
@@ -48,6 +49,7 @@ leaves the bundled catalog untouched.
 
 | File | Role / capability | Demonstrates | Adapt |
 |------|-------------------|--------------|-------|
+| `hello.js` | `run` | The minimal manual script: `run(api)`, `setResult`, `output` | none |
 | `verify-crc.js` | `run` | Reading a range, `crc32`, `setResult`, `output` | `START`, `LENGTH` |
 | `write-pattern.js` | `run`, `@requires write` | One inline approval, staged writes, auto-save, undo | `START`, `PATTERN` |
 | `follow-pointer.js` | `@script address` → `getAddress` | Reading a little-endian pointer as an instance address | `POINTER_AT` |
@@ -72,7 +74,7 @@ function run(api) {
 module.exports = { run };
 ```
 
-Every script exports a `run` function. It receives a single `api` argument — the `HexScopeAPI` object. The function can be synchronous or asynchronous (return a `Promise`).
+A script you run manually exports a `run` function. It receives a single `api` argument - the `HexScopeAPI` object. The function can be synchronous or asynchronous (return a `Promise`). A role script (`@script address`, `@script size`, or `@script integrity`) exports its role entry instead and may omit `run`.
 
 `.ts` scripts are compiled to CommonJS before they run, so `export function run(...)` works.
 `.js` scripts run as CommonJS in the sandbox and must export explicitly:

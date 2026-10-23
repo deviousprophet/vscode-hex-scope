@@ -25,6 +25,7 @@ type Cb = {
     added: number;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
     cancels: string[];
+    opens: string[];
     decisions: Decision[];
     revokes: Array<[string, string]>;
 };
@@ -73,7 +74,7 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, added: 0, runs: [], cancels: [], decisions: [], revokes: [] };
+    const cb: Cb = { requested: 0, added: 0, runs: [], cancels: [], opens: [], decisions: [], revokes: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
@@ -83,6 +84,7 @@ function installDom(): Harness {
             cb.runs.push({ path: scriptPath, generation: gen, selection: selectionRange });
         },
         onCancelScript: path => { cb.cancels.push(path); },
+        onOpenScript: path => { cb.opens.push(path); },
         onScriptPermissionDecision: (requestId, decision, scope, capability) => {
             cb.decisions.push({ requestId, decision, scope, capability });
         },
@@ -122,6 +124,10 @@ function cardFor(path: string): HTMLElement {
 
 function runBtn(path: string): HTMLButtonElement {
     return cardFor(path).querySelector<HTMLButtonElement>('.script-run-btn')!;
+}
+
+function openBtn(path: string): HTMLButtonElement {
+    return cardFor(path).querySelector<HTMLButtonElement>('.script-open-btn')!;
 }
 
 /** Clicks a run button; the per-command prompt only appears when the host asks. */
@@ -293,6 +299,31 @@ suite('ScriptsPanel setScripts', () => {
         panel.setScripts(SCRIPTS, true);
         panel.showResult(A, [], [], 'Script entry getAddress failed.', 'contract', 0);
         assert.match(document.querySelector('.script-output-hdr')?.textContent ?? '', /Contract Error/);
+    });
+
+    test('open action reports the script path without starting a run', () => {
+        panel.setScripts(SCRIPTS, true);
+        const btn = openBtn(A);
+        assert.strictEqual(btn.title, 'Open crc-check.js');
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Open crc-check.js');
+        click(dom, btn);
+        assert.deepStrictEqual(cb.opens, [A]);
+        assert.deepStrictEqual(cb.runs, [], 'opening never runs the script');
+    });
+
+    test('open action stays available when run buttons are blocked', () => {
+        panel.setScripts(SCRIPTS, false);
+        const jsBtn = openBtn(A);
+        assert.strictEqual(jsBtn.disabled, false, 'untrusted workspace still allows opening');
+        click(dom, jsBtn);
+        assert.deepStrictEqual(cb.opens, [A]);
+
+        panel.setScripts(SCRIPTS, true);
+        const tsBtn = openBtn('D:\\sample\\crc-check.ts');
+        assert.strictEqual(tsBtn.disabled, false, 'missing TS compiler still allows opening');
+        click(dom, tsBtn);
+        assert.deepStrictEqual(cb.opens, [A, 'D:\\sample\\crc-check.ts']);
+        assert.deepStrictEqual(cb.runs, []);
     });
 
     test('status dot flips to ok/err after showResult', () => {

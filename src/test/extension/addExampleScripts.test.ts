@@ -66,7 +66,7 @@ function relativeCatalogFiles(): string[] {
 
 suite('add example scripts', () => {
 
-test('a fresh install writes the five scripts plus the type definition', async () => {
+test('a fresh install writes the six scripts plus the type definition', async () => {
     const root = tempRoot();
     try {
         const { deps, captured } = makeDeps(root);
@@ -81,7 +81,7 @@ test('a fresh install writes the five scripts plus the type definition', async (
         assert.ok(fs.existsSync(path.join(root, '.hexscope', 'scripts', 'types', 'hexscope.d.ts')));
         assert.deepStrictEqual(captured.warnings, []);
         assert.deepStrictEqual(captured.infos, [{
-            message: 'Added 6 example files, skipped 0 existing files.',
+            message: 'Added 7 example files, skipped 0 existing files.',
             actions: [OPEN_SCRIPTS_FOLDER, OPEN_SCRIPTING_GUIDE],
         }]);
     } finally {
@@ -102,7 +102,7 @@ test('a second install skips every file and changes nothing', async () => {
         const { deps, captured } = makeDeps(root);
         const result = await runAddExampleScripts(deps);
         assert.deepStrictEqual(result, { added: [], skipped: INSTALLED_TARGETS });
-        assert.strictEqual(captured.infos[0].message, 'Added 0 example files, skipped 6 existing files.');
+        assert.strictEqual(captured.infos[0].message, 'Added 0 example files, skipped 7 existing files.');
         for (const snapshot of before) {
             const target = installedFile(root, snapshot.target);
             assert.strictEqual(fs.readFileSync(target, 'utf-8'), snapshot.content);
@@ -122,7 +122,7 @@ test('existing files are preserved while the missing ones are added', async () =
 
         const result = await runAddExampleScripts(makeDeps(root).deps);
         assert.deepStrictEqual(result?.skipped, ['.hexscope/scripts/verify-crc.js']);
-        assert.strictEqual(result?.added.length, 5);
+        assert.strictEqual(result?.added.length, 6);
         assert.strictEqual(fs.readFileSync(existing, 'utf-8'), '// my own script\n', 'never overwrites');
     } finally {
         fs.rmSync(root, { recursive: true, force: true });

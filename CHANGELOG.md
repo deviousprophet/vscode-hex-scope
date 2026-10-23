@@ -8,10 +8,12 @@
 - Script-resolved struct instance addresses with explicit refresh plus resolving, stale, and error states
 - Struct size parameters and per-instance values, including script-supplied array sizes, with editor controls and C preview macros
 - Bundled example scripts, `hexscope.d.ts` IntelliSense types, and a `HexScope: Add Example Scripts` command that copies without overwriting
+- A minimal `hello.js` starter example that shows the required `run(api)` export
 
 ### Changed
 - Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save
 - Script cards show capability and role badges, workspace permissions are revocable in the panel, and scripts in subdirectories or `.d.ts` files are ignored
+- Every Scripts card has an open/edit action so the script file can be opened directly from the sidebar
 - Struct instance cards show script-resolved address and size state; resolved values stay transient and are never persisted
 
 ### Fixed

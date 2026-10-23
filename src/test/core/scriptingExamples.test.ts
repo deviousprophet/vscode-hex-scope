@@ -16,6 +16,7 @@ const CATALOG_FILES = [
     'README.md',
     'tsconfig.json',
     'scripts/types/hexscope.d.ts',
+    'scripts/hello.js',
     'scripts/verify-crc.js',
     'scripts/write-pattern.js',
     'scripts/follow-pointer.js',
@@ -123,9 +124,10 @@ test('every catalog file is a non-empty script/document of the expected extensio
     }
 });
 
-test('the install manifest copies the five examples plus the type definition', () => {
+test('the install manifest copies the six examples plus the type definition', () => {
     const targets = EXAMPLE_INSTALL_FILES.map(file => file.target);
     assert.deepStrictEqual(targets, [
+        '.hexscope/scripts/hello.js',
         '.hexscope/scripts/verify-crc.js',
         '.hexscope/scripts/write-pattern.js',
         '.hexscope/scripts/follow-pointer.js',
@@ -139,10 +141,10 @@ test('the install manifest copies the five examples plus the type definition', (
     const sources = EXAMPLE_INSTALL_FILES.map(file => file.source).sort();
     const catalogScripts = CATALOG_FILES.filter(file => file.startsWith('scripts/')).sort();
     assert.deepStrictEqual(sources, catalogScripts, 'every catalog script and the type definition are installable');
-    assert.strictEqual(catalogScripts.filter(file => !file.endsWith('.d.ts')).length, 5, 'five runnable examples');
+    assert.strictEqual(catalogScripts.filter(file => !file.endsWith('.d.ts')).length, 6, 'six runnable examples');
 });
 
-test('scanning an installed workspace lists the five scripts and skips the .d.ts', () => {
+test('scanning an installed workspace lists the six scripts and skips the .d.ts', () => {
     const root = tempRoot();
     try {
         installExampleScripts(EXAMPLES_ROOT, root);
@@ -150,6 +152,7 @@ test('scanning an installed workspace lists the five scripts and skips the .d.ts
         assert.deepStrictEqual(scripts.map(script => script.name), [
             'array-size-from-header.js',
             'follow-pointer.js',
+            'hello.js',
             'verify-crc.js',
             'verify-integrity.js',
             'write-pattern.js',
@@ -168,6 +171,15 @@ test('scanning an installed workspace lists the five scripts and skips the .d.ts
 });
 
 suite('scripting examples run against a mock host', () => {
+
+test('hello.js runs with no approval and reports the document size', async () => {
+    const mock = makeHost(memory(0, [1, 2, 3]));
+    const out = await execute(catalogPath('hello.js'), mock.host);
+    assert.strictEqual(out.error, undefined);
+    assert.strictEqual(resultValue(mock.results, 'Hello'), 'Hex Scope');
+    assert.strictEqual(resultValue(mock.results, 'Document size'), '3 byte(s)');
+    assert.deepStrictEqual(mock.confirms, [], 'the minimal example never prompts');
+});
 
 test('verify-crc.js reads its range, CRCs it, and asks for no approval', async () => {
     const bytes = Array.from({ length: 256 }, (_, index) => index & 0xFF);
@@ -326,6 +338,7 @@ test('every example references the shipped declaration file', () => {
     assert.deepStrictEqual(typed.sort(), [
         'scripts/array-size-from-header.js',
         'scripts/follow-pointer.js',
+        'scripts/hello.js',
         'scripts/verify-crc.js',
         'scripts/verify-integrity.js',
         'scripts/write-pattern.js',

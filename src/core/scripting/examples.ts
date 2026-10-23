@@ -20,6 +20,7 @@ export interface ExampleInstallFile {
  * The order is the catalog order shown in the docs; installation is copy-only.
  */
 export const EXAMPLE_INSTALL_FILES: readonly ExampleInstallFile[] = [
+    { source: 'scripts/hello.js', target: `${EXAMPLE_SCRIPTS_DIR}/hello.js` },
     { source: 'scripts/verify-crc.js', target: `${EXAMPLE_SCRIPTS_DIR}/verify-crc.js` },
     { source: 'scripts/write-pattern.js', target: `${EXAMPLE_SCRIPTS_DIR}/write-pattern.js` },
     { source: 'scripts/follow-pointer.js', target: `${EXAMPLE_SCRIPTS_DIR}/follow-pointer.js` },

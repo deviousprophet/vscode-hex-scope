@@ -494,10 +494,10 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
 - Protocol tests: new message types tested in `webviewMessageModel.test.ts`
 - Integration: manual test with sample .js/.ts scripts run from sidebar
 - `src/test/core/scriptingExamples.test.ts` - catalog shape, install manifest ↔ catalog parity,
-  role tags/capabilities via `scanScripts`, mock-host runs for every example (approval, denial,
-  unmapped ranges, boundary-valid role values), and `hexscope.d.ts` coverage. `npm run
-  check-examples` (`tsc -p examples/tsconfig.json`) type-checks the typed samples against the
-  shipped declaration.
+  role tags/capabilities via `scanScripts`, mock-host runs for every example (including the
+  minimal `hello.js`, approval, denial, unmapped ranges, boundary-valid role values), and
+  `hexscope.d.ts` coverage. `npm run check-examples` (`tsc -p examples/tsconfig.json`)
+  type-checks the JavaScript examples against the shipped declaration.
 - `src/test/extension/addExampleScripts.test.ts` - fresh install, second-run skip, partial
   install, untrusted/no-workspace refusal, result-message actions, missing catalog file, VSIX
   packaging rules, command contribution + registration

@@ -59,6 +59,14 @@
     text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
 }
 
+/* Open-script action: independent of Run state (untrusted / TS compiler / other run). */
+.script-open-btn.sb-btn {
+    width: 24px; height: 22px; padding: 0; flex-shrink: 0;
+    font-size: 11px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+}
+.script-open-btn:active { opacity: .7; }
+
 /* Icon button — rides .sb-btn/.sb-btn-primary (D4: solid primary look);
    keep the fixed square geometry + state modifiers local (.sb-btn carries no padding). */
 .script-run-btn.sb-btn {
